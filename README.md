@@ -50,3 +50,9 @@ feat/#1-loginUI
 - 개인 브랜치에서 작업을 마치면, 개인 브랜치에서 develop 브랜치를 머지한 후에 develop에 pull request를 요청합니다.
 
 `feature` : 태그를 붙이는 모든 브랜치들을 말합니다. 기능 개발, 버그 수정 등을 반드시 이 브랜치에서 진행해주세요.
+
+## 웹 개발
+
+서비스 소개와 이름·휴대폰 번호를 직접 저장하는 테스트용 사전신청 웹은 `apps/web`에 있습니다. Next.js·TypeScript·PostgreSQL을 사용합니다.
+
+실행, 검증, Railway 배포 준비, 신청 항목 확장은 [웹 개발 안내](docs/WEB.md)를 참고하세요.
