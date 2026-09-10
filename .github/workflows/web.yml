@@ -1,0 +1,55 @@
+name: Web
+on:
+  pull_request:
+    paths: ['apps/web/**', 'database/**', 'package*.json', 'Dockerfile', '.github/workflows/web.yml']
+  push:
+    branches: [develop]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: benchmark_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/benchmark_test
+      APP_ORIGIN: http://127.0.0.1:3100
+      REGISTRATION_MODE: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint && npm run typecheck && npm test
+      - run: npm run db:migrate
+      - run: npm run test:integration -w apps/web
+        env:
+          ALLOW_TEST_DATABASE_RESET: 'yes'
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+      - name: Browser verification
+        run: |
+          npm start -- --port 3100 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            curl --fail --silent http://127.0.0.1:3100/api/health && break
+            sleep 1
+          done
+          npx playwright test
+        working-directory: apps/web
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-screenshots
+          path: apps/web/test-results
