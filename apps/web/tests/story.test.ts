@@ -29,9 +29,19 @@ test("session expiry, tamper rejection and password rotation", () => {
   process.env.ADMIN_PASSWORD = "test-only-password-not-for-production";
 });
 test("cross-origin and missing-origin mutations are rejected", () => {
-  assert.throws(() => checkOrigin(new Request("http://localhost:3000/api", { headers: { origin: "https://evil.invalid" } })), HttpError);
-  assert.throws(() => checkOrigin(new Request("http://localhost:3000/api")), HttpError);
-  checkOrigin(new Request("http://localhost:3000/api", { headers: { origin: "http://localhost:3000" } }));
+  const previous = process.env.APP_ORIGIN;
+  try {
+    process.env.APP_ORIGIN = "http://localhost:3000";
+    assert.throws(() => checkOrigin(new Request("http://localhost:3000/api", { headers: { origin: "https://evil.invalid" } })), HttpError);
+    assert.throws(() => checkOrigin(new Request("http://localhost:3000/api")), HttpError);
+    checkOrigin(new Request("http://localhost:3000/api", { headers: { origin: "http://localhost:3000" } }));
+    process.env.APP_ORIGIN = "https://pilot.example";
+    checkOrigin(new Request("http://internal:3000/api", { headers: { origin: "https://pilot.example" } }));
+    assert.throws(() => checkOrigin(new Request("http://internal:3000/api", { headers: { origin: "http://internal:3000" } })), HttpError);
+  } finally {
+    if (previous === undefined) delete process.env.APP_ORIGIN;
+    else process.env.APP_ORIGIN = previous;
+  }
 });
 test("streamed request bodies cannot bypass upload limits", async () => {
   await assert.rejects(() => boundedBody(new Request("http://localhost/api", { method: "POST", body: "12345" }), 4), HttpError);
