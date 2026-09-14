@@ -1,0 +1,20 @@
+{
+  "name": "benchmark",
+  "private": true,
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w apps/web",
+    "build": "npm run build -w apps/web",
+    "start": "npm run start -w apps/web",
+    "lint": "npm run lint -w apps/web",
+    "typecheck": "npm run typecheck -w apps/web",
+    "test": "npm run test -w apps/web",
+    "db:migrate": "npm run db:migrate -w apps/web",
+    "test:integration": "npm run test:integration -w apps/web"
+  },
+  "engines": {
+    "node": ">=24 <27"
+  }
+}
