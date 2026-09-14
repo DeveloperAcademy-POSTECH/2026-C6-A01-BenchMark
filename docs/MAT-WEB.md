@@ -39,7 +39,7 @@ Node 24~26과 PostgreSQL이 필요하다. 저장소 루트에서 실행한다.
 ```bash
 npm ci
 cp .env.example .env
-# .env에 DATABASE_URL, ADMIN_PASSWORD(12자 이상), SESSION_SECRET(32자 이상)를 설정한다.
+# .env에 DATABASE_URL, ADMIN_PASSWORD(9자 이상), SESSION_SECRET(32자 이상)를 설정한다.
 node --env-file=.env --import tsx apps/web/scripts/migrate.ts
 node --env-file=.env node_modules/next/dist/bin/next dev apps/web
 ```
@@ -79,7 +79,7 @@ Railway CLI 5.54.1에서 기존 `railway.toml`의 배포 전 명령이 적용되
 | 변수 | 용도 |
 | --- | --- |
 | `DATABASE_URL` | 해당 프로젝트 PostgreSQL 연결 문자열 |
-| `ADMIN_PASSWORD` | 운영팀 공유 비밀번호, 12자 이상 |
+| `ADMIN_PASSWORD` | 운영팀 공유 비밀번호, 9자 이상 |
 | `SESSION_SECRET` | 세션·공감 식별자 HMAC 키, 무작위 32자 이상 |
 | `APP_ORIGIN` | 공개 HTTPS origin, 마지막 `/` 제외 |
 | `DONATION_BANK` | 기본값 신한은행 |

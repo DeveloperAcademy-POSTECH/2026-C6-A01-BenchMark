@@ -13,7 +13,7 @@ export function secret() {
 }
 function password() {
   const value = process.env.ADMIN_PASSWORD;
-  if (!value || value.length < 12) throw new HttpError(503, "관리자 비밀번호 설정을 확인해주세요.");
+  if (!value || value.length < 9) throw new HttpError(503, "관리자 비밀번호 설정을 확인해주세요.");
   return value;
 }
 export function hash(value: string) { return createHmac("sha256", secret()).update(value).digest("hex"); }

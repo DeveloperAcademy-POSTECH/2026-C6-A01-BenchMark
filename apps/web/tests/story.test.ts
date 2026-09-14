@@ -46,3 +46,17 @@ test("cross-origin and missing-origin mutations are rejected", () => {
 test("streamed request bodies cannot bypass upload limits", async () => {
   await assert.rejects(() => boundedBody(new Request("http://localhost/api", { method: "POST", body: "12345" }), 4), HttpError);
 });
+
+test("nine-character shared passwords support login and sessions", () => {
+  const previous = process.env.ADMIN_PASSWORD;
+  try {
+    process.env.ADMIN_PASSWORD = "test-only";
+    assert.equal(correctPassword("test-only"), true);
+    assert.equal(correctPassword("incorrect"), false);
+    assert.equal(validSession(makeSession()), true);
+    process.env.ADMIN_PASSWORD = "short";
+    assert.throws(() => correctPassword("short"), HttpError);
+  } finally {
+    process.env.ADMIN_PASSWORD = previous;
+  }
+});
