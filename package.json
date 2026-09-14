@@ -16,5 +16,8 @@
   },
   "engines": {
     "node": ">=24 <27"
+  },
+  "devDependencies": {
+    "railway": "3.11.0"
   }
 }

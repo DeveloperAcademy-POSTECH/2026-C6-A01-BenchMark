@@ -70,7 +70,9 @@ node --env-file=../../.env.test ../../node_modules/@playwright/test/cli.js test
 
 ## Railway 배포
 
-별도 외부 저장 서비스 없이 웹 서비스와 PostgreSQL 서비스 두 개를 사용한다. DB에는 영속 볼륨이 필요하다. 저장소 루트의 Dockerfile과 railway.toml을 사용하며 healthcheck는 `/api/health`다. [Railway 공식 healthcheck 문서](https://docs.railway.com/deployments/healthchecks)에 따라 앱은 제공된 PORT를 사용한다.
+별도 외부 저장 서비스 없이 웹 서비스와 PostgreSQL 서비스 두 개를 사용한다. DB에는 영속 볼륨이 필요하다. 저장소 루트의 Dockerfile과 `.railway/railway.ts`를 사용하며 healthcheck는 `/api/health`다. [Railway 공식 healthcheck 문서](https://docs.railway.com/deployments/healthchecks)에 따라 앱은 제공된 PORT를 사용한다.
+
+Railway CLI 5.54.1에서 기존 `railway.toml`의 배포 전 명령이 적용되지 않아 현재 IaC 형식으로 전환했다. `railway config plan`으로 변경 범위를 검토한 뒤 `railway config apply`를 실행하고 소스를 배포한다. `preserve()`는 Railway에 저장된 비밀 환경변수를 유지하며 소스에 값을 기록하지 않는다. 마이그레이션은 `preDeploy`에서 수행한다.
 
 필수 환경변수:
 
