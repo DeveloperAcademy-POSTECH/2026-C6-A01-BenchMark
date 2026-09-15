@@ -22,21 +22,21 @@ label{display:block;font-size:14px;font-weight:600}input,textarea,select{display
 .story-reading .story-paper{transform:none;padding:30px;border-radius:22px;background:#fffaf0;border-color:#e8dfc9;box-shadow:0 8px 30px #47381108}
 .donor-intro{margin-bottom:24px;overflow-wrap:anywhere}
 .donor-intro .eyebrow{letter-spacing:.04em;margin-bottom:20px}
-.donor-intro>p{font-family:"LeeSeoyun",sans-serif;font-size:25px}
-.donor-intro h1{font-family:"LeeSeoyun",sans-serif;color:var(--green);font-size:36px;font-weight:400;line-height:1.35;margin:8px 0;word-break:normal}
+.donor-intro>p{font-family:"LeeSeoyun",sans-serif;font-size:21.25px}
+.donor-intro h1{font-family:"LeeSeoyun",sans-serif;color:var(--green);font-size:30.6px;font-weight:400;line-height:1.35;margin:8px 0;word-break:normal}
 .story-reading .detail-photo{border-radius:16px;max-height:500px}
 .story-reading .story-letter{padding:28px 0 8px;text-align:left}
-.story-reading .story-letter p{line-height:1.65;font-size:25px}
+.story-reading .story-letter p{line-height:1.65;font-size:21.25px}
 .story-reading .story-letter>span{text-align:right;font-family:inherit}
 .reaction-wrap{margin:18px 0 45px}
 .reaction-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
 .reaction-grid .reaction-button{border-radius:16px;padding:15px 8px;display:flex;flex-direction:column;gap:6px;border:1px solid var(--border);background:#f5f1e6;color:var(--ink);min-width:0}
 .reaction-grid .reaction-button img{width:28px;height:28px;object-fit:contain}
 .reaction-grid .reaction-button>span{font-family:"LeeSeoyun",sans-serif;font-size:22px;color:inherit;line-height:1.4}
-.reaction-grid .reaction-button strong{border:0;padding:0;font-size:12px}
+.reaction-grid .reaction-button strong{border:0;padding:0;font-size:12px;color:var(--red)}
 .reaction-grid .reaction-button.reacted{background:#e7eddb;border-color:#94ac7a}
 .reaction-grid .reaction-button:not(:disabled):hover{background:#edf0e4}
-.usage-guide{background:#f3f0e5;border:1px solid var(--border);border-radius:22px;padding:32px;margin-bottom:35px}
+.usage-guide{background:#e8eef3;border:1px solid #d3dfe8;border-radius:22px;padding:32px;margin-bottom:35px}
 .story-donation+.usage-guide{margin-top:35px;margin-bottom:0}
 .usage-guide h2{font-family:"LeeSeoyun",sans-serif;font-size:36px;font-weight:400;margin:8px 0 22px}
 .usage-guide ol{padding-left:23px;margin:0;display:grid;gap:20px}
@@ -78,7 +78,7 @@ label{display:block;font-size:14px;font-weight:600}input,textarea,select{display
 .story-guidance ul{margin:0;padding-left:20px}
 .story-guidance li+li{margin-top:6px}
 .field-description{color:var(--muted);font-size:13px;margin-bottom:12px}
-.payment-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.payment-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .payment-options label{position:relative;min-width:0}
 .payment-options input{position:absolute;opacity:0;width:1px;height:1px;min-height:1px}
 .payment-options span{min-height:66px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:14px;background:#f4f1e7;text-align:center;font-weight:400;padding:10px 3px;cursor:pointer}
@@ -104,9 +104,9 @@ label{display:block;font-size:14px;font-weight:600}input,textarea,select{display
 @media(max-width:760px){
   .reading-brand{width:230px;margin:28px auto}
   .story-reading .story-paper{padding:22px}
-  .donor-intro h1{font-size:31px}
-  .donor-intro>p{font-size:23px}
-  .story-reading .story-letter p{font-size:24px}
+  .donor-intro h1{font-size:26.35px}
+  .donor-intro>p{font-size:19.55px}
+  .story-reading .story-letter p{font-size:20.4px}
   .usage-guide{padding:26px 22px}
   .story-donation{margin:0;padding:28px 22px}
   .reservation-page{padding:20px 22px 50px}
@@ -117,7 +117,7 @@ label{display:block;font-size:14px;font-weight:600}input,textarea,select{display
   .reading-brand{width:200px}
   .story-reading .story-detail{padding-left:20px;padding-right:20px}
   .story-reading .story-paper{padding:20px}
-  .donor-intro h1{font-size:29px}
+  .donor-intro h1{font-size:24.65px}
   .donor-intro .eyebrow{font-size:11px}
   .reaction-grid{gap:8px}
   .reaction-grid .reaction-button{padding:12px 3px;border-radius:12px}
@@ -145,7 +145,6 @@ label{display:block;font-size:14px;font-weight:600}input,textarea,select{display
 .activity-table th, .activity-table td { padding: 0.65rem; border-bottom: 1px solid var(--line, #d8d0bb); text-align: left; vertical-align: top; }
 .activity-table td { overflow-wrap: anywhere; min-width: 140px; }
 
-.amount-options{grid-template-columns:repeat(2,minmax(0,1fr))}
 .reservation-reason-dialog{width:min(560px,calc(100% - 32px));max-height:calc(100dvh - 32px);margin:auto;padding:28px;border:1px solid var(--border);border-radius:20px;background:var(--paper);color:var(--ink);overflow-y:auto;overscroll-behavior:contain}
 .reservation-reason-dialog::backdrop{background:#201b1466}
 .reservation-reason-dialog .section-heading{align-items:flex-start;margin-bottom:20px}
@@ -153,3 +152,14 @@ label{display:block;font-size:14px;font-weight:600}input,textarea,select{display
 .reservation-reason-dialog .text-button{flex-shrink:0}
 .reservation-reason-dialog .reservation-submit{margin-top:24px}
 @media(max-width:440px){.reservation-reason-dialog{padding:22px}.reservation-reason-dialog h2{font-size:24px}}
+
+.amount-note{color:var(--green)}
+.amount-input{position:relative}
+.amount-input .amount-unit{position:absolute;right:18px;top:50%;transform:translateY(-50%);font-size:20px;font-weight:400}
+.reservation-question .amount-input input:not([type=radio]):not([type=file]):not([type=checkbox]){background:#fff;padding-right:55px}
+.base-amounts{margin-top:18px}
+.base-amounts>p{font-size:14px;margin-bottom:8px}
+.base-amounts dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0;text-align:center}
+.base-amounts dl>div{background:#bddfb3;border-radius:14px;padding:12px 8px}
+.base-amounts dt{font-size:14px;color:var(--green)}
+.base-amounts dd{margin:3px 0 0;font-size:22px;line-height:1.3}

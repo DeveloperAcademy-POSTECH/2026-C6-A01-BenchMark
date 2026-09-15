@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { reservationDetailsInput, reservationInput } from "../src/lib/reservation";
 import { activityEvent } from "../src/lib/activity";
-const details = { email: "donor@example.test", displayName: "검증용", title: "검증", story: "스토리", paymentMethod: "deposit", amount: "3000" };
-test("only offered reservation amounts are accepted by the shared client/server schema", () => {
-  for (const amount of [3000,5000,"3000","5000"]) assert.equal(reservationDetailsInput.safeParse({ ...details, amount }).success, true);
-  for (const amount of [undefined,"",0,1,7200,3000.5,-3000,"other"]) assert.equal(reservationDetailsInput.safeParse({ ...details, amount }).success, false);
+const details = { email: "donor@example.test", displayName: "검증용", title: "검증", story: "스토리", paymentMethod: "deposit", amount: "10000" };
+test("whole-won donations accept free amounts from 10000 within the database integer range", () => {
+  for (const amount of [10000,10001,12500,20000,"10000","25000",2147483647]) assert.equal(reservationDetailsInput.safeParse({ ...details, amount }).success, true);
+  for (const amount of [undefined,null,"",0,1,9999,10000.5,-10000,2147483648,"other"]) assert.equal(reservationDetailsInput.safeParse({ ...details, amount }).success, false);
 });
 test("details can open the reason question but final submission still requires a reason", () => {
   assert.equal(reservationDetailsInput.safeParse(details).success, true);

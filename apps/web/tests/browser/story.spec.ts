@@ -89,10 +89,16 @@ test("admin registration, publication, mobile reading and one-device reaction", 
     await expect(page.getByRole("button", { name: "기부 예약 접수하기" })).toBeEnabled();
     await page.locator('input[name="photo"]').setInputFiles({ name: "test.jpg", mimeType: "image/jpeg", buffer: photo });
     await page.getByLabel("간편결제", { exact: true }).check();
-    await expect(page.getByRole("spinbutton")).toHaveCount(0);
-    await expect(page.getByRole("radio", { name: "3,000원", exact: true })).not.toBeChecked();
-    await expect(page.getByRole("radio", { name: "5,000원", exact: true })).not.toBeChecked();
-    await page.getByRole("radio", { name: "3,000원", exact: true }).check();
+    const amount = page.getByRole("spinbutton", { name: "기부금액", exact: true });
+    await expect(amount).toHaveAttribute("min", "10000");
+    await expect(amount).toHaveAttribute("step", "1");
+    await expect(page.locator(".base-amounts")).toContainText("10,000원");
+    await expect(page.locator(".base-amounts")).toContainText("20,000원");
+    await amount.fill("9999");
+    await page.getByRole("button", { name: "기부 예약 접수하기", exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    expect(await amount.evaluate(input => (input as HTMLInputElement).validity.rangeUnderflow)).toBe(true);
+    await amount.fill("10000");
     for (const width of [320,390,768,1440]) {
       await page.setViewportSize({width,height:900});
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -138,7 +144,7 @@ test("admin registration, publication, mobile reading and one-device reaction", 
     reservationId = sentId(requests[1])!;
     expect((await pool.query("SELECT phone FROM mat_reservations WHERE id=$1", [reservationId])).rows[0].phone).toBeNull();
     await page.goto("/admin");
-    await page.getByText("검증용 웹 예약자 · 3,000원 예약", {exact:true}).click();
+    await page.getByText("검증용 웹 예약자 · 10,000원 예약", {exact:true}).click();
     await expect(page.locator('a[href^="tel:"]')).toHaveCount(0);
     await page.getByRole("button", {name:"이 예약으로 이야기 등록"}).click();
     await expect(page.getByLabel("공개 이름")).toHaveValue("검증용 웹 예약자");

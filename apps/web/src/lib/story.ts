@@ -22,7 +22,7 @@ export const storyInput = z.object({
   revision: z.coerce.number().int().min(1).optional(),
 }).refine((s) => !s.published || s.paymentVerified, "입금 확인 후 공개할 수 있습니다.");
 export const uuid = z.string().uuid();
-export const sizes = { small: { label: "2~3인용", price: 3000 }, large: { label: "4~5인용", price: 5000 } };
+export const sizes = { small: { label: "2~3인용", price: 10000 }, large: { label: "4~5인용", price: 20000 } };
 export type Story = {
   id: string; mat_number: number; mat_size: "small" | "large";
   display_name: string; title: string; story: string; reaction_count: number;
