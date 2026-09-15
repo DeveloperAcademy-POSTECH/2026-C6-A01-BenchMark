@@ -10,7 +10,7 @@ export const activityLabels: Record<typeof activityNames[number], string> = {
 };
 export const publicPath = z.string().regex(/^\/(?:stories(?:\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})?|reserve|camera)?$/);
 const empty = z.object({}).strict();
-const reaction = z.object({ kind: z.enum(["like", "empathy", "sad", "cheer"]) }).strict();
+const reaction = z.object({ kind: z.enum(["like", "empathy", "sad", "cheer"]), action: z.enum(["react", "remove"]).optional() }).strict();
 const envelopeShape = { id: z.uuid(), visitId: z.uuid(), sessionId: z.uuid(), occurredAt: z.iso.datetime(), path: publicPath, storyId: z.uuid().optional() };
 const variants = [
   z.strictObject({ ...envelopeShape, name: z.literal("page_view"), properties: empty }),
