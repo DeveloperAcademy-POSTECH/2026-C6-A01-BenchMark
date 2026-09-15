@@ -61,9 +61,10 @@ test("admin registration, publication, mobile reading and one-device reaction", 
       await expect(otherPage.getByRole("button", { name: /공감해요/ })).toBeEnabled();
     } finally { await other.close(); }
     await page.setViewportSize({ width: 390, height: 844 }); await page.goto("/about");
-    await expect(page.getByRole("link", { name: /나도 이야기 남기기/ })).toHaveAttribute("href", "/reserve");
+    await expect(page).toHaveURL("/");
+    await expect(page.getByRole("link", { name: /나도 기부 참가하기/ })).toHaveAttribute("href", `/reserve?from=${storyId}`);
+    await expect(page.locator('a[href="/about"]')).toHaveCount(0);
     await expect(page.locator('a[href*="naver.me"]')).toHaveCount(0);
-    await page.screenshot({ path: `${screenshotDir}/about-mobile.png`, fullPage: true });
     await page.goto(`/reserve?from=${storyId}`);
     await page.screenshot({ path: `${screenshotDir}/reservation-mobile.png`, fullPage: true });
     await page.getByLabel("기부자 스토리를 보고 흥미가 생겨서").check();
