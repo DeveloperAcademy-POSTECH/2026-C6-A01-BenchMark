@@ -2,7 +2,7 @@
 
 ## 범위
 
-`/camera`는 DB 없이 동작하는 클라이언트 촬영 페이지다. 소개와 이야기 상세에 진입 링크를 추가했다.
+`/camera`는 DB 없이 동작하는 클라이언트 촬영 페이지다. 메인과 이야기 상세의 공통 StoryReading에 진입 링크를 추가했다. /about은 최신 develop 정책에 따라 /로 이동한다.
 공식 POSTECH/KAIST GLB는 아직 제공되지 않았고 임시 모델임을 화면에 표시한다. `apps/web/public/models/README.md`를 따라 교체한다.
 
 - 전/후면 카메라, 개별 캐릭터 선택·표시, 두 캐릭터 동시 표시

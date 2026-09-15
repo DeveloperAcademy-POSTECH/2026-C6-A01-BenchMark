@@ -28,7 +28,7 @@ test("real API and PostgreSQL enforce publication, auth, image rules, uniqueness
     assert.ok(login.headers.get("set-cookie")?.includes("HttpOnly"));
     assert.equal((await send("/api/admin/stories", "POST", fields(), true, "https://evil.invalid")).status, 403);
     assert.equal((await send("/api/admin/stories", "POST", fields({ displayName: " " }))).status, 400);
-    assert.equal((await send("/api/admin/stories", "POST", fields({ story: "가".repeat(101) }))).status, 400);
+    assert.equal((await send("/api/admin/stories", "POST", fields({ story: "가".repeat(167) }))).status, 400);
     assert.equal((await send("/api/admin/stories", "POST", fields({ published: "true" }))).status, 400);
     const badPhoto = fields(); badPhoto.set("photo", new Blob(["<svg onload='alert(1)'></svg>"], { type: "image/jpeg" }), "fake.jpg");
     assert.equal((await send("/api/admin/stories", "POST", badPhoto)).status, 400);

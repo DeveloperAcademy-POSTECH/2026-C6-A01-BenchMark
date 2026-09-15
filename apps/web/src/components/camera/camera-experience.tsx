@@ -146,7 +146,7 @@ export function CameraExperience() {
   }
   const current = placements[selected];
   return <section className={styles.page}>
-    <Link href="/about" className="back-link">← 프로젝트 소개</Link>
+    <Link href="/" className="back-link">← 이야기로 돌아가기</Link>
     <span className="eyebrow">POSTECH × KAIST · 포카전</span><h1>오늘의 쉼을, 한 컷에.</h1>
     <p>캐릭터를 움직여 친구들과 함께 사진을 남겨보세요.</p>
     <div className={styles.stage}>
