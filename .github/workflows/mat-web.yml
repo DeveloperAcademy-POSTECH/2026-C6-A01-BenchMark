@@ -1,0 +1,54 @@
+name: Mat story web
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    paths: ['apps/web/**', 'database/**', 'package*.json', 'Dockerfile', '.github/workflows/mat-web.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: benchmark_mat_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test-only-postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:test-only-postgres@127.0.0.1:5432/benchmark_mat_test
+      ADMIN_PASSWORD: test-only-ci-admin-password
+      SESSION_SECRET: test-only-ci-session-secret-at-least-32-characters
+      APP_ORIGIN: http://127.0.0.1:4314
+      TEST_BASE_URL: http://127.0.0.1:4314
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint && npm run typecheck && npm test && npm run build
+      - run: npm run db:migrate
+      - name: API and browser verification
+        shell: bash
+        run: |
+          node node_modules/next/dist/bin/next start apps/web --hostname 127.0.0.1 --port 4314 > /tmp/mat-web.log 2>&1 &
+          web_pid=$!
+          trap 'kill "$web_pid"; wait "$web_pid" || true' EXIT
+          ready=false
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:4314/api/health; then ready=true; break; fi
+            sleep 1
+          done
+          test "$ready" = true
+          npm run test:integration
+          export CHROME_EXECUTABLE="$(command -v google-chrome)"
+          test -n "$CHROME_EXECUTABLE"
+          cd apps/web
+          npx --no-install playwright test
