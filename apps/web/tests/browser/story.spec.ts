@@ -31,7 +31,15 @@ test("admin registration, publication, mobile reading and one-device reaction", 
     await page.screenshot({ path: `${screenshotDir}/admin-desktop.png`, fullPage: true });
     await page.goto("/");
     await page.evaluate(() => document.fonts.ready);
+    await expect(page.locator(".story-reading h1")).toHaveText("함께 쉬어 가는 자리에 남긴 마음");
+    await expect(page.getByRole("heading", { name: "사용 안내서" })).toBeVisible();
+    await expect(page.locator(".reaction-button")).toHaveCount(4);
+    await page.screenshot({ path: `${screenshotDir}/home-desktop.png`, fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: `${screenshotDir}/home-mobile.png`, fullPage: true });
+    await page.goto("/stories");
     await expect(page.locator(".story-card")).toHaveCount(1);
+    await page.setViewportSize({ width: 1440, height: 1000 });
     await page.screenshot({ path: `${screenshotDir}/stories-desktop.png`, fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: `${screenshotDir}/stories-mobile.png`, fullPage: true });
@@ -67,7 +75,9 @@ test("admin registration, publication, mobile reading and one-device reaction", 
     await page.getByRole("textbox", { name: "스토리", exact: true }).fill("검증용 예약입니다. 이 이야기를 읽고 다음 사람에게도 쉼을 남기고 싶었어요.");
     await page.locator('input[name="photo"]').setInputFiles({ name: "test.jpg", mimeType: "image/jpeg", buffer: photo });
     await page.getByLabel("간편결제", { exact: true }).check();
-    await page.getByRole("spinbutton", { name: "결제예정 금액" }).fill("7200");
+    const amount = page.getByRole("spinbutton", { name: "결제예정 금액" });
+    await amount.fill("7200");
+    expect(await amount.evaluate(input => getComputedStyle(input).appearance)).toBe("textfield");
     for (const width of [320,390,768,1440]) {
       await page.setViewportSize({width,height:900});
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -102,6 +112,10 @@ test("admin registration, publication, mobile reading and one-device reaction", 
     await page.getByRole("button", { name: "로그아웃" }).click();
     await expect(page.getByRole("button", { name: "관리자 페이지로 이동" })).toBeVisible();
     await page.goto(`/stories/${storyId}`); await expect(page.getByRole("heading", { name: "아직 펼쳐지지 않은 이야기예요." })).toBeVisible();
+    await page.goto("/");
+    await expect(page.locator(".empty-story h1")).toContainText("펼칠 준비를 하고 있어요.");
+    await expect(page.locator(".reaction-button:disabled")).toHaveCount(4);
+    await expect(page.getByRole("link", { name: /나도 이야기 남기기/ })).toHaveAttribute("href", "/reserve");
     expect(errors).toEqual([]);
   } finally {
     if (reservationId) await pool.query("DELETE FROM mat_reservations WHERE id=$1", [reservationId]);
