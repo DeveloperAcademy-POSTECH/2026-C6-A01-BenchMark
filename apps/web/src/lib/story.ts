@@ -1,7 +1,8 @@
 import { z } from "zod";
 
+export const STORY_MAX_BYTES = 1000;
 export const byteLength = (value: string) => new TextEncoder().encode(value).length;
-export const storyText = z.string().trim().min(1, "이야기를 입력해주세요.").refine((s) => byteLength(s) <= 500, "이야기는 500바이트 이내로 입력해주세요.");
+export const storyText = z.string().trim().min(1, "이야기를 입력해주세요.").refine((s) => byteLength(s) <= STORY_MAX_BYTES, `이야기는 ${STORY_MAX_BYTES}바이트 이내로 입력해주세요.`);
 export const storyTitle = z.string().trim().max(80, "제목은 80자 이내로 입력해주세요.");
 export const reactionKinds = ["like", "empathy", "sad", "cheer"] as const;
 export type ReactionKind = typeof reactionKinds[number];

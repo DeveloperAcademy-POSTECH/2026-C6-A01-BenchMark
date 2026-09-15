@@ -10,10 +10,13 @@ test("anonymous or whitespace names cannot be registered", () => {
 });
 test("story byte limit handles UTF-8 including emoji", () => {
   assert.equal(storyInput.safeParse({ ...input, story: "🧺".repeat(100) }).success, true);
-  assert.equal(storyText.safeParse("a".repeat(500)).success, true);
-  assert.equal(storyText.safeParse("a".repeat(501)).success, false);
-  assert.equal(storyText.safeParse("\uac00".repeat(166) + "ab").success, true);
-  assert.equal(storyText.safeParse("\uac00".repeat(167)).success, false);
+  assert.equal(storyText.safeParse("a".repeat(1000)).success, true);
+  assert.equal(storyText.safeParse("a".repeat(1001)).success, false);
+  assert.equal(storyText.safeParse("\uac00".repeat(333) + "a").success, true);
+  assert.equal(storyText.safeParse("\uac00".repeat(333) + "ab").success, false);
+  assert.equal(storyText.safeParse("🧺".repeat(250)).success, true);
+  assert.equal(storyText.safeParse("🧺".repeat(250) + "a").success, false);
+  assert.equal(storyText.safeParse("   ").success, false);
   assert.equal(byteLength("\ud83e\uddfa"), 4);
 });
 test("publication requires verified payment and valid mat type", () => {
