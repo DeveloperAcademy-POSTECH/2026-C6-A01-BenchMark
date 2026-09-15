@@ -107,7 +107,7 @@ node --env-file=../../.env.test ../../node_modules/@playwright/test/cli.js test
 | `reservation_attempt/success/failure` | 예약 이유까지 검증한 최종 제출 요청/접수 응답/실패. 예약은 실제 결제·기부 완료가 아님 |
 | `photo_selected` | 예약에서 사진 파일을 선택한 사실만 기록. 파일명·사진·미리보기는 수집하지 않음 |
 
-공통 필드는 이벤트 UUID, 방문 UUID, 탭 세션 UUID, 이벤트명, 클라이언트 발생 시각, 서버 수신 시각, 쿼리 없는 공개 경로, 해당 페이지의 스토리 UUID, 허용 속성이다. 메인에는 실제 표시한 스토리, 예약에는 서버가 UUID로 검증한 `from`을 연결한다. 기록할 스토리는 서버에서 현재 공개 여부를 검증한다. 관리자 페이지·예약 입력 내용·이름·연락처·본문·사진·인증정보·전체 URL·referrer·임의 속성은 수집하지 않는다. 최신 develop에 통합된 `/camera`는 진입 스토리 UUID를 이어받으며 `camera_start_attempt/ready/failure/switch/stop/retake`, `photo_capture_attempt/success/failure/cancelled`, `photo_share_attempt/success/failure/cancelled/unavailable`, `photo_download_click`을 별도 수집한다. 공유 성공은 Web Share API 완료이고 수신자의 열람을 뜻하지 않는다. 다운로드 클릭은 파일이 실제 저장됐다는 증거가 아니다. 카메라 영상·촬영 사진·파일명·오류 원문은 기록하지 않는다.
+공통 필드는 이벤트 UUID, 방문 UUID, 탭 세션 UUID, 이벤트명, 클라이언트 발생 시각, 서버 수신 시각, 쿼리 없는 공개 경로, 해당 페이지의 스토리 UUID, 허용 속성이다. 메인에는 실제 표시한 스토리, 예약에는 서버가 UUID로 검증한 `from`을 연결한다. 기록할 스토리는 서버에서 현재 공개 여부를 검증한다. 관리자 페이지·예약 입력 내용·이름·연락처·본문·사진·인증정보·전체 URL·referrer·임의 속성은 수집하지 않는다. 캐릭터 촬영 기능은 `develop` 전용이다. `main` 및 프로덕션에는 촬영 진입점, `/camera` 경로, 전용 모델·WASM·구현을 포함하지 않는다. 기존 카메라 이벤트 명칭과 적용된 마이그레이션은 과거 로그 호환성을 위해 유지한다.
 
 세션은 탭 메모리와 sessionStorage를 사용하며 새 탭/브라우저는 새 세션이다. 새로고침은 30분 이내의 같은 탭 세션을 재사용한다. 포인터·키보드·스크롤·포커스 복귀 등 사용자의 동작이 30분 이상 없으면 다음 동작 시 새 세션/방문을 시작한다. 자동 체류 전송은 세션 활동 시각을 연장하지 않는다. 저장소가 차단되면 메모리 세션으로 동작한다. 사용자 계정·기존 반응 device ID와 결합하지 않으며 날짜를 넘긴 고유 사용자/장기 재방문 지표를 제공하지 않는다.
 
