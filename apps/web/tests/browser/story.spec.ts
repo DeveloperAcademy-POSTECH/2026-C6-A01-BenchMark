@@ -115,7 +115,7 @@ test("admin registration, publication, mobile reading and one-device reaction", 
     await page.goto("/");
     await expect(page.locator(".empty-story h1")).toContainText("펼칠 준비를 하고 있어요.");
     await expect(page.locator(".reaction-button:disabled")).toHaveCount(4);
-    await expect(page.getByRole("link", { name: /나도 이야기 남기기/ })).toHaveAttribute("href", "/reserve");
+    await expect(page.getByRole("link", { name: /나도 기부 참가하기/ })).toHaveAttribute("href", "/reserve");
     expect(errors).toEqual([]);
   } finally {
     if (reservationId) await pool.query("DELETE FROM mat_reservations WHERE id=$1", [reservationId]);
