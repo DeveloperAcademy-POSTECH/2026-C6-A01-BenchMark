@@ -76,14 +76,16 @@ test("admin registration, publication, mobile reading and one-device reaction", 
     await page.screenshot({path:`${screenshotDir}/reservation-filled-mobile.png`,fullPage:true});
     await page.route("**/api/reservations", route => route.fulfill({status:503,contentType:"application/json",body:JSON.stringify({error:"검증용 접수 오류"})}));
     expect(await page.locator("form").evaluate((form) => Array.from((form as HTMLFormElement).elements).filter((e) => e instanceof HTMLInputElement || e instanceof HTMLTextAreaElement).filter((e) => !(e as HTMLInputElement).validity.valid).map((e) => ({name:(e as HTMLInputElement).name,message:(e as HTMLInputElement).validationMessage})))).toEqual([]);
-    await page.getByRole("button", { name: "기부 예약 접수하기" }).click();
+    await page.getByRole("button", { name: "기부 예약 접수하기" }).focus();
+    await page.getByRole("button", { name: "기부 예약 접수하기" }).press("Enter");
     await expect(page.locator('form [role="alert"]')).toHaveText("검증용 접수 오류").catch(async (error: Error) => {
       throw new Error(`${error.message}\nPage errors: ${JSON.stringify(errors)}\nCurrent URL: ${page.url()}\nForm state: ${await page.locator("form").innerText().catch(() => "No form")}`);
     });
     await expect(page.getByRole("textbox", { name:"성함",exact:true })).toHaveValue("검증용 웹 예약자");
     await page.unroute("**/api/reservations");
     expect(await page.locator("form").evaluate((form) => Array.from((form as HTMLFormElement).elements).filter((e) => e instanceof HTMLInputElement || e instanceof HTMLTextAreaElement).filter((e) => !(e as HTMLInputElement).validity.valid).map((e) => ({name:(e as HTMLInputElement).name,message:(e as HTMLInputElement).validationMessage})))).toEqual([]);
-    await page.getByRole("button", { name: "기부 예약 접수하기" }).click();
+    await page.getByRole("button", { name: "기부 예약 접수하기" }).focus();
+    await page.getByRole("button", { name: "기부 예약 접수하기" }).press("Enter");
     await expect(page.getByRole("heading", { name:"기부 예약이 접수됐어요." })).toBeVisible();
     reservationId=(await pool.query("SELECT id FROM mat_reservations WHERE phone='01000009904'")).rows[0].id;
     await page.goto("/admin");
