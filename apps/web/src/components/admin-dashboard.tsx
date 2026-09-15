@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { sizes, byteLength, type Story } from "@/lib/story";
+import { sizes, byteLength, STORY_MAX_BYTES, type Story } from "@/lib/story";
 import type { Reservation } from "@/lib/reservation";
 import { AdminReservations } from "./admin-reservations";
 
@@ -44,10 +44,10 @@ function StoryEditor({ story, reservation, onClose }: { story?: Story; reservati
     <label>공개 이름<input name="displayName" value={name} onChange={(e) => setName(e.target.value)} maxLength={40} required /></label>
     <label>제목<input name="title" defaultValue={story?.title || reservation?.title || ""} maxLength={80} /></label>
     <label>사진 한 장<input name="photo" type="file" accept="image/jpeg,image/png,image/webp" required={!story && !reservation} onChange={(e) => { const file = e.target.files?.[0]; setPreview(file ? URL.createObjectURL(file) : ""); }} /><small>JPG, PNG, WebP · 최대 5MB. {story && "새 사진을 선택하지 않으면 기존 사진을 유지합니다."}</small></label>
-    <label>이야기<textarea name="story" value={text} onChange={(e) => setText(e.target.value)} rows={4} required aria-describedby="story-length" /><small id="story-length" className={byteLength(text) > 500 ? "error-message" : ""}>{byteLength(text)} / 500바이트</small></label>
+    <label>이야기<textarea name="story" value={text} onChange={(e) => setText(e.target.value)} rows={4} required aria-describedby="story-length" /><small id="story-length" className={byteLength(text) > STORY_MAX_BYTES ? "error-message" : ""}>{byteLength(text)} / {STORY_MAX_BYTES}바이트</small></label>
     <div className="review-checks"><label><input type="checkbox" checked={verified} onChange={(e) => { setVerified(e.target.checked); if (!e.target.checked) setPublished(false); }} /> 입금 확인 완료</label><label><input type="checkbox" checked={published} disabled={!verified} onChange={(e) => setPublished(e.target.checked)} /> 내용 검토 완료 · 웹에 공개</label></div>
     <details className="preview-panel"><summary>공개 내용 미리보기</summary>{(preview || story || reservation) && <img src={preview || (reservation ? `/api/admin/reservations/${reservation.id}/photo` : `/api/stories/${story!.id}/photo?v=${story!.revision}`)} alt="공개할 사진 미리보기" />}<h3>{name || "공개 이름"}님의 이야기</h3><p>{text || "작성한 이야기가 여기에 표시됩니다."}</p></details>
-    {error && <p className="error-message" role="alert">{error}</p>}<button className="button primary" disabled={busy || byteLength(text) > 500}>{busy ? "처리 중…" : published ? "저장하고 공개" : "비공개로 저장"}</button>
+    {error && <p className="error-message" role="alert">{error}</p>}<button className="button primary" disabled={busy || byteLength(text) > STORY_MAX_BYTES}>{busy ? "처리 중…" : published ? "저장하고 공개" : "비공개로 저장"}</button>
     {story && <div className="delete-area">{confirmDelete ? <><p>사진과 공감을 포함해 영구 삭제합니다. 되돌릴 수 없습니다.</p><button type="button" className="danger-button" onClick={remove}>영구 삭제 확인</button><button type="button" className="text-button" onClick={() => setConfirmDelete(false)}>취소</button></> : <button type="button" className="danger-button" onClick={() => setConfirmDelete(true)}>이야기 삭제</button>}</div>}
   </fieldset></form></section>;
 }

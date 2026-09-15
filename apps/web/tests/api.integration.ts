@@ -28,7 +28,7 @@ test("real API and PostgreSQL enforce publication, auth, image rules, uniqueness
     assert.ok(login.headers.get("set-cookie")?.includes("HttpOnly"));
     assert.equal((await send("/api/admin/stories", "POST", fields(), true, "https://evil.invalid")).status, 403);
     assert.equal((await send("/api/admin/stories", "POST", fields({ displayName: " " }))).status, 400);
-    assert.equal((await send("/api/admin/stories", "POST", fields({ story: "가".repeat(167) }))).status, 400);
+    assert.equal((await send("/api/admin/stories", "POST", fields({ story: "가".repeat(333) + "ab" }))).status, 400);
     assert.equal((await send("/api/admin/stories", "POST", fields({ published: "true" }))).status, 400);
     const badPhoto = fields(); badPhoto.set("photo", new Blob(["<svg onload='alert(1)'></svg>"], { type: "image/jpeg" }), "fake.jpg");
     assert.equal((await send("/api/admin/stories", "POST", badPhoto)).status, 400);
@@ -48,7 +48,7 @@ test("real API and PostgreSQL enforce publication, auth, image rules, uniqueness
     const nextDevice = await send(`/api/stories/${id}/reaction`, "POST", JSON.stringify({ deviceId: randomUUID(), action: "react" }), false);
     assert.equal((await nextDevice.json()).count, 2);
     assert.equal((await send(`/api/admin/stories/${id}`, "PUT", fields({ revision: "1" }, false))).status, 409);
-    assert.equal((await send(`/api/admin/stories/${id}`, "PUT", fields({ revision: "2", matSize: "large" }, false))).status, 200);
+    assert.equal((await send(`/api/admin/stories/${id}`, "PUT", fields({ revision: "2", matSize: "large", story: "🧺".repeat(250) }, false))).status, 200);
     assert.equal((await fetch(`${base}/api/stories/${id}/photo`)).status, 404);
     assert.equal((await send(`/api/admin/stories/${id}`, "DELETE", JSON.stringify({ revision: 2 }))).status, 409);
     assert.equal((await send(`/api/admin/stories/${id}`, "DELETE", JSON.stringify({ revision: 3 }))).status, 200);
