@@ -1,8 +1,16 @@
 import { activityEvent, type ActivityEvent } from "./activity";
 
 type Action = { name: ActivityEvent["name"]; properties: Record<string, string | number> };
+type Reporter = (name: Action["name"], properties?: Action["properties"]) => void;
+let currentReporter: Reporter | undefined;
+export function activityReporter(): Reporter {
+  const reporter = currentReporter;
+  return (name, properties = {}) => {
+    try { reporter?.(name, properties); } catch { /* Analytics must never interrupt the page. */ }
+  };
+}
 export function trackActivity(name: Action["name"], properties: Action["properties"] = {}) {
-  try { window.dispatchEvent(new CustomEvent("mat-activity", { detail: { name, properties } })); } catch { /* Analytics must never interrupt the page. */ }
+  activityReporter()(name, properties);
 }
 const sessionKey = "mat-activity-session";
 let session: { id: string; last: number } | undefined;
@@ -89,11 +97,10 @@ export function startActivity(path: string, storyId?: string) {
     currentSession(lastInteraction);
   }
   function userScroll() { interaction(); scroll(); }
-  function action(event: Event) {
-    interaction();
-    const detail = (event as CustomEvent<Action>).detail;
-    if (detail) record(detail.name, detail.properties);
-  }
+  const reporter: Reporter = (name, properties = {}) => {
+    if (stopped) return;
+    interaction(); record(name, properties);
+  };
   function click(event: MouseEvent) {
     interaction();
     const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
@@ -101,7 +108,7 @@ export function startActivity(path: string, storyId?: string) {
     const url = new URL(link.href);
     if (url.origin !== location.origin) return;
     const match = /^\/stories\/([0-9a-f-]{36})$/.exec(url.pathname);
-    const target = match ? "story" : ({ "/": "home", "/stories": "stories", "/reserve": "reserve" } as Record<string, string>)[url.pathname];
+    const target = match ? "story" : ({ "/": "home", "/stories": "stories", "/reserve": "reserve", "/camera": "camera" } as Record<string, string>)[url.pathname];
     if (target) record("link_click", { target, ...(match ? { targetStoryId: match[1] } : {}) });
   }
   function visibility() { time(); if (document.visibilityState !== "visible") void flush(); }
@@ -111,10 +118,10 @@ export function startActivity(path: string, storyId?: string) {
   function pageShow(event: PageTransitionEvent) {
     if (event.persisted) { visitId = crypto.randomUUID(); reached.clear(); record("page_view"); accrue(); scroll(); }
   }
+  currentReporter = reporter;
   record("page_view"); scroll();
   const heartbeat = setInterval(() => { time(); void flush(); }, 15000);
   const transport = setInterval(() => { void flush(); }, 5000);
-  window.addEventListener("mat-activity", action);
   window.addEventListener("scroll", userScroll, { passive: true });
   window.addEventListener("pointerdown", interaction, { passive: true });
   window.addEventListener("keydown", interaction);
@@ -125,7 +132,8 @@ export function startActivity(path: string, storyId?: string) {
   return () => {
     time(); stopped = true; void flush();
     clearInterval(heartbeat); clearInterval(transport);
-    window.removeEventListener("mat-activity", action); window.removeEventListener("scroll", userScroll);
+    if (currentReporter === reporter) currentReporter = undefined;
+    window.removeEventListener("scroll", userScroll);
     window.removeEventListener("pointerdown", interaction); window.removeEventListener("keydown", interaction); window.removeEventListener("click", click);
     window.removeEventListener("focus", focus); window.removeEventListener("blur", blur);
     window.removeEventListener("pagehide", pageHide); window.removeEventListener("pageshow", pageShow);

@@ -1,11 +1,13 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
+import { ActivityTracker } from "../activity-tracker";
+import { activityReporter, trackActivity } from "@/lib/activity-client";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { clamp, defaults, drawCamera, type CharacterId } from "./composition";
 import styles from "./camera.module.css";
 
-export function CameraExperience() {
+export function CameraExperience({ sourceStoryId }: { sourceStoryId?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [running, setRunning] = useState(false), [ready, setReady] = useState(false);
   const [front, setFront] = useState(false), [behind, setBehind] = useState(false);
@@ -23,6 +25,7 @@ export function CameraExperience() {
 
   useEffect(() => {
     if (!running) return;
+    const reportActivity = activityReporter();
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -41,7 +44,7 @@ export function CameraExperience() {
     };
     document.addEventListener("visibilitychange", onVisibility);
     const stopStream = () => { stream?.getTracks().forEach(track => track.stop()); video.srcObject = null; };
-    function fail(text: string) { if (!disposed) { setMessage(text); setReady(false); setRunning(false); } }
+    function fail(text: string) { if (!disposed) { reportActivity("camera_failure"); setMessage(text); setReady(false); setRunning(false); } }
     function disableSegmentation() {
       failed = true; worker?.terminate(); worker = undefined; pending = false;
       segmentedFrame?.close(); segmentedFrame = undefined;
@@ -57,6 +60,7 @@ export function CameraExperience() {
         if (disposed) return;
         scene = createCharacterScene((id, loaded) => { if (!disposed) setModelStatus(s => ({ ...s, [id]: loaded })); });
         stream.getVideoTracks()[0]?.addEventListener("ended", () => { if (!disposed) fail("카메라 연결이 종료되었어요. 다시 시작해주세요."); });
+        reportActivity("camera_ready");
         setReady(true);
         function render(now: number) {
           if (disposed) return;
@@ -128,35 +132,40 @@ export function CameraExperience() {
     });
   }
   async function capture() {
+    const reportActivity = activityReporter();
     if (!ready || !canvasRef.current || captureLock.current) return;
+    reportActivity("photo_capture_attempt");
     captureLock.current = true; setCapturing(true); const token = generation.current;
     try {
       const blob = await new Promise<Blob>((resolve, reject) => canvasRef.current!.toBlob(b => b ? resolve(b) : reject(new Error()), "image/jpeg", .92));
-      if (token !== generation.current) return;
+      if (token !== generation.current) { reportActivity("photo_capture_cancelled"); return; }
+      reportActivity("photo_capture_success");
       setPhoto({ blob, url: URL.createObjectURL(blob) }); setRunning(false); setReady(false);
-    } catch { setMessage("사진을 만들지 못했어요. 다시 촬영해주세요."); }
+    } catch { reportActivity("photo_capture_failure"); setMessage("사진을 만들지 못했어요. 다시 촬영해주세요."); }
     finally { captureLock.current = false; setCapturing(false); }
   }
   async function share() {
+    const reportActivity = activityReporter();
     if (!photo) return;
+    reportActivity("photo_share_attempt");
     const file = new File([photo.blob], "benchmark-photo.jpg", { type: "image/jpeg" });
-    if (!navigator.canShare?.({ files: [file] })) { setMessage("아래 사진 다운로드를 이용하거나 사진을 길게 눌러 저장해주세요."); return; }
-    try { await navigator.share({ files: [file], title: "쉼, 펴 · 포카전의 추억" }); }
-    catch (error) { if (!(error instanceof Error && error.name === "AbortError")) setMessage("공유하지 못했어요. 사진 다운로드를 이용해주세요."); }
+    if (!navigator.canShare?.({ files: [file] })) { reportActivity("photo_share_unavailable"); setMessage("아래 사진 다운로드를 이용하거나 사진을 길게 눌러 저장해주세요."); return; }
+    try { await navigator.share({ files: [file], title: "쉼, 펴 · 포카전의 추억" }); reportActivity("photo_share_success"); }
+    catch (error) { reportActivity(error instanceof Error && error.name === "AbortError" ? "photo_share_cancelled" : "photo_share_failure"); if (!(error instanceof Error && error.name === "AbortError")) setMessage("공유하지 못했어요. 사진 다운로드를 이용해주세요."); }
   }
   const current = placements[selected];
-  return <section className={styles.page}>
+  return <section className={styles.page}><ActivityTracker storyId={sourceStoryId} />
     <Link href="/" className="back-link">← 이야기로 돌아가기</Link>
     <span className="eyebrow">POSTECH × KAIST · 포카전</span><h1>오늘의 쉼을, 한 컷에.</h1>
     <p>캐릭터를 움직여 친구들과 함께 사진을 남겨보세요.</p>
     <div className={styles.stage}>
       {photo ? <img src={photo.url} alt="캐릭터와 함께 촬영한 사진" /> : <canvas ref={canvasRef} aria-label="캐릭터 합성 카메라. 아래 버튼과 슬라이더로도 위치를 조절할 수 있습니다." onPointerDown={e => { if (!ready || points.current.size >= 2) return; e.currentTarget.setPointerCapture(e.pointerId); points.current.set(e.pointerId, { x: e.clientX, y: e.clientY }); }} onPointerMove={move} onPointerUp={e => points.current.delete(e.pointerId)} onPointerCancel={e => points.current.delete(e.pointerId)} onLostPointerCapture={e => points.current.delete(e.pointerId)} />}
-      {!running && !photo && <div className={styles.welcome}><strong>포카전의 추억을 함께 남겨요</strong><p>카메라 접근을 허용하면 시작할 수 있어요.</p><button className="button primary" onClick={() => { setMessage(""); setReady(false); setRunning(true); }}>카메라 시작</button></div>}
+      {!running && !photo && <div className={styles.welcome}><strong>포카전의 추억을 함께 남겨요</strong><p>카메라 접근을 허용하면 시작할 수 있어요.</p><button className="button primary" onClick={() => { trackActivity("camera_start_attempt"); setMessage(""); setReady(false); setRunning(true); }}>카메라 시작</button></div>}
       {running && !ready && <div className={styles.welcome} role="status">카메라를 준비하고 있어요…</div>}
     </div>
     <p className={styles.notice}>사진은 서버에 업로드하지 않아요. 공간 고정 없이 화면 위에 합성합니다.</p>
     <p role="status" aria-live="polite">{message}</p>
-    {photo ? <div className={styles.actions}><button className="button primary" onClick={share}>사진 공유·저장</button><a className="button secondary" href={photo.url} download="benchmark-photo.jpg">사진 다운로드</a><button className="button secondary" onClick={() => { setPhoto(null); setMessage(""); setRunning(true); }}>다시 촬영</button></div> : <>
+    {photo ? <div className={styles.actions}><button className="button primary" onClick={share}>사진 공유·저장</button><a className="button secondary" href={photo.url} download="benchmark-photo.jpg" onClick={() => trackActivity("photo_download_click")}>사진 다운로드</a><button className="button secondary" onClick={() => { trackActivity("camera_retake"); setPhoto(null); setMessage(""); setRunning(true); }}>다시 촬영</button></div> : <>
       <div className={styles.tabs} aria-label="조절할 캐릭터 선택">{(["postech", "kaist"] as const).map(id => <button key={id} aria-pressed={selected === id} onClick={() => { setSelected(id); setPlacements(p => ({ ...p, [id]: { ...p[id], visible: true } })); }}>{id === "postech" ? "포스텍" : "카이스트"}</button>)}<button onClick={() => setPlacements(p => ({ postech: { ...p.postech, visible: true }, kaist: { ...p.kaist, visible: true } }))}>둘 다 표시</button></div>
       <p className={styles.notice}>{!modelStatus[selected] ? "현재 선택한 캐릭터는 테스트용 임시 3D 모델입니다. 공식 캐릭터 GLB를 준비해주세요." : "캐릭터 모델을 불러왔어요."}</p>
       <div className={styles.controls}>
@@ -167,7 +176,7 @@ export function CameraExperience() {
         <label><input type="checkbox" checked={behind} onChange={e => setBehind(e.target.checked)} /> 캐릭터를 사람 뒤에 배치</label><small>인물 가림은 실험 기능입니다. 머리카락·손 경계가 흔들리거나 화면이 느려질 수 있어요.</small>
       </div>
       <p className={styles.notice}>한 손가락으로 이동 · 두 손가락으로 크기 조절 · 슬라이더로 회전</p>
-      <div className={styles.actions}><button className="button secondary" disabled={!ready || capturing} onClick={() => { setReady(false); setFront(!front); }}>카메라 전환</button><button className="button primary" disabled={!ready || capturing} onClick={capture}>{capturing ? "사진 만드는 중…" : "사진 촬영"}</button><button className="button secondary" onClick={() => setPlacements(defaults())}>초기화</button>{running && <button className="text-button" onClick={() => { setReady(false); setRunning(false); }}>카메라 끄기</button>}</div>
+      <div className={styles.actions}><button className="button secondary" disabled={!ready || capturing} onClick={() => { trackActivity("camera_switch"); setReady(false); setFront(!front); }}>카메라 전환</button><button className="button primary" disabled={!ready || capturing} onClick={capture}>{capturing ? "사진 만드는 중…" : "사진 촬영"}</button><button className="button secondary" onClick={() => setPlacements(defaults())}>초기화</button>{running && <button className="text-button" onClick={() => { trackActivity("camera_stop"); setReady(false); setRunning(false); }}>카메라 끄기</button>}</div>
     </>}
   </section>;
 }

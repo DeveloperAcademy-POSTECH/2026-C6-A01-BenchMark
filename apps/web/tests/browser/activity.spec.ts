@@ -100,3 +100,23 @@ test("activity survives transport failure, respects visibility, distinguishes na
     await pool.end();
   }
 });
+
+
+test("transport retries are capped and unavailable analytics does not block navigation", async ({ page }) => {
+  const counts = new Map<string, number>();
+  let viewId = "";
+  await page.route("**/api/activity", async route => {
+    const { events } = route.request().postDataJSON();
+    for (const event of events) {
+      counts.set(event.id, (counts.get(event.id) || 0) + 1);
+      if (event.name === "page_view") viewId ||= event.id;
+    }
+    await route.fulfill({ status: 503, contentType: "application/json", body: '{"error":"Test outage"}' });
+  });
+  await page.goto("/stories");
+  await expect.poll(() => counts.get(viewId), { timeout: 20000 }).toBe(3);
+  await page.waitForTimeout(6000);
+  expect(counts.get(viewId)).toBe(3);
+  await page.getByRole("link", { name: /나도 이야기 남기기/ }).click();
+  await expect(page.getByRole("heading", { name: "기부 예약", exact: true })).toBeVisible();
+});

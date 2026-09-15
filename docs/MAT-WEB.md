@@ -99,12 +99,12 @@ node --env-file=../../.env.test ../../node_modules/@playwright/test/cli.js test
 | `page_view` | 공개 페이지 방문당 한 번. 새로고침·뒤로 가기는 새 방문, React 재렌더링은 같은 방문 |
 | `scroll_depth` | 문서 높이 대비 화면 하단의 도달률 25/50/75/100%를 방문당 한 번씩. 최초 화면에 이미 보이는 구간 포함 |
 | `active_time` | visible이며 포커스가 있는 동안의 체류 시간 `milliseconds`. 약 15초마다 차분을 저장하고 숨김·포커스 이탈·페이지 이동 시 정산 |
-| `link_click` | 실제 존재하는 홈/이야기 목록/이야기 상세/예약 링크 클릭. `target`, 상세 링크의 `targetStoryId`만 기록 |
+| `link_click` | 실제 존재하는 홈/이야기 목록/이야기 상세/예약/카메라 링크 클릭. `target`, 상세 링크의 `targetStoryId`만 기록 |
 | `reaction_attempt/success/failure` | 반응 요청 직전/성공 응답/실패. `kind`는 like/empathy/sad/cheer 중 하나 |
 | `reservation_attempt/success/failure` | 클라이언트 입력 검증을 통과한 예약 제출 요청/접수 응답/실패. 예약은 실제 결제·기부 완료가 아님 |
 | `photo_selected` | 예약에서 사진 파일을 선택한 사실만 기록. 파일명·사진·미리보기는 수집하지 않음 |
 
-공통 필드는 이벤트 UUID, 방문 UUID, 탭 세션 UUID, 이벤트명, 클라이언트 발생 시각, 서버 수신 시각, 쿼리 없는 공개 경로, 해당 페이지의 스토리 UUID, 허용 속성이다. 메인에는 실제 표시한 스토리, 예약에는 서버가 UUID로 검증한 `from`을 연결한다. 기록할 스토리는 서버에서 현재 공개 여부를 검증한다. 관리자 페이지·예약 입력 내용·이름·연락처·본문·사진·인증정보·전체 URL·referrer·임의 속성은 수집하지 않는다. 공유/카메라 기능은 현재 존재하지 않으므로 해당 성공 이벤트를 만들지 않는다.
+공통 필드는 이벤트 UUID, 방문 UUID, 탭 세션 UUID, 이벤트명, 클라이언트 발생 시각, 서버 수신 시각, 쿼리 없는 공개 경로, 해당 페이지의 스토리 UUID, 허용 속성이다. 메인에는 실제 표시한 스토리, 예약에는 서버가 UUID로 검증한 `from`을 연결한다. 기록할 스토리는 서버에서 현재 공개 여부를 검증한다. 관리자 페이지·예약 입력 내용·이름·연락처·본문·사진·인증정보·전체 URL·referrer·임의 속성은 수집하지 않는다. 최신 develop에 통합된 `/camera`는 진입 스토리 UUID를 이어받으며 `camera_start_attempt/ready/failure/switch/stop/retake`, `photo_capture_attempt/success/failure/cancelled`, `photo_share_attempt/success/failure/cancelled/unavailable`, `photo_download_click`을 별도 수집한다. 공유 성공은 Web Share API 완료이고 수신자의 열람을 뜻하지 않는다. 다운로드 클릭은 파일이 실제 저장됐다는 증거가 아니다. 카메라 영상·촬영 사진·파일명·오류 원문은 기록하지 않는다.
 
 세션은 탭 메모리와 sessionStorage를 사용하며 새 탭/브라우저는 새 세션이다. 새로고침은 30분 이내의 같은 탭 세션을 재사용한다. 포인터·키보드·스크롤·포커스 복귀 등 사용자의 동작이 30분 이상 없으면 다음 동작 시 새 세션/방문을 시작한다. 자동 체류 전송은 세션 활동 시각을 연장하지 않는다. 저장소가 차단되면 메모리 세션으로 동작한다. 사용자 계정·기존 반응 device ID와 결합하지 않으며 날짜를 넘긴 고유 사용자/장기 재방문 지표를 제공하지 않는다.
 
@@ -114,7 +114,7 @@ node --env-file=../../.env.test ../../node_modules/@playwright/test/cli.js test
 
 - `POST /api/activity`: 동일 Origin만 허용, 전체 분당 600요청·세션당 120요청, 엄격한 이벤트/속성 검증, 최대 24시간 전~1분 후 발생 시각만 허용한다. 요청의 원문이나 오류 payload를 서버 콘솔에 출력하지 않는다. 공개 수집 API이므로 자동화된 허위 이벤트를 완전히 배제할 수는 없다.
 - `GET /api/admin/activity`: 기존 관리자 세션 인증 및 분당 60요청 제한을 적용한다. 미인증 JSON/CSV 요청을 모두 차단하고 `private, no-store`로 반환한다. 공유 관리자 비밀번호이므로 개별 조회자 신원은 구분하지 않는다.
-- `003_page_activity.sql`은 기존 데이터 변경 없이 로그 테이블과 인덱스를 추가한다. 운영 배포는 별도 수행하며 이 작업에서 운영 DB는 변경하지 않는다.
+- `003_page_activity.sql`은 기존 데이터 변경 없이 로그 테이블과 인덱스를 추가하고 `004_camera_activity.sql`은 카메라 이벤트 허용 목록을 확장한다. 운영 배포는 별도 수행하며 이 작업에서 운영 DB는 변경하지 않는다.
 - 발생 시각 기준 30일이 지난 로그는 즉시 조회/다운로드 대상에서 제외한다. Node 서버 시작 시와 실행 중 매시간 자동 삭제한다. 따라서 디스크에서의 실제 제거는 서버가 실행 중일 때 최대 약 1시간 늦을 수 있고, 서버 중단 중에는 다음 시작 시 제거된다. 삭제 실패 시 서버 로그 `Activity retention cleanup failed.`를 확인한다.
 - 즉시 정리가 필요하면 운영자가 DB에서 `DELETE FROM mat_activity_events WHERE occurred_at <= now() - interval '30 days';`를 실행한다. 전체 로그 제거는 `DELETE FROM mat_activity_events;`이며 되돌릴 수 없으므로 정확한 환경과 삭제 범위를 확인한다.
 - 내려받은 CSV와 DB 백업은 서버 자동 삭제 대상이 아니다. 다운로드한 관리자가 동일한 보관 정책에 따라 별도로 삭제한다. 이야기 삭제 후에도 30일 동안 기존 스토리 UUID가 로그에 남지만 이름·본문·사진은 없다.

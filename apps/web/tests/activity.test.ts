@@ -28,3 +28,10 @@ test("CSV uses fixed columns and quoted JSON, with no user free text", () => {
   assert.ok(csv.includes('"{""percent"":25}"'));
   assert.equal(csv.split("\r\n").length, 2);
 });
+test("camera telemetry contains outcomes without image or error contents", () => {
+  for (const name of ["camera_ready", "photo_capture_success", "photo_share_cancelled", "photo_download_click"]) {
+    assert.ok(activityEvent.safeParse({ ...event, path: "/camera", name }).success);
+    assert.equal(activityEvent.safeParse({ ...event, path: "/camera", name, properties: { filename: "private.jpg" } }).success, false);
+    assert.equal(activityEvent.safeParse({ ...event, name }).success, false);
+  }
+});

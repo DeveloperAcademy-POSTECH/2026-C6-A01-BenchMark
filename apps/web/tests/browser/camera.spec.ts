@@ -4,6 +4,8 @@ test.use({ permissions: ["camera"], viewport: { width: 390, height: 844 }, launc
   args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--enable-unsafe-swiftshader"],
 } });
 test("camera preview, controls, worker segmentation, capture and download without database", async ({ page }) => {
+  const activity: { name: string; properties: unknown }[] = [];
+  page.on("request", request => { if (new URL(request.url()).pathname === "/api/activity") activity.push(...request.postDataJSON().events); });
   const errors: string[] = []; page.on("pageerror", e => errors.push(e.message));
   const response = await page.goto("/camera");
   expect(response?.headers()["permissions-policy"]).toContain("camera=(self)");
@@ -30,6 +32,9 @@ test("camera preview, controls, worker segmentation, capture and download withou
   await page.getByRole("button", { name: "카메라 전환" }).click(); await expect(shutter).toBeEnabled();
   await page.getByRole("button", { name: "카메라 끄기" }).click();
   await expect(page.getByRole("button", { name: "카메라 시작", exact: true })).toBeVisible();
+  await expect.poll(() => activity.some(event => event.name === "photo_download_click"), { timeout: 10000 }).toBe(true);
+  for (const name of ["camera_start_attempt", "camera_ready", "photo_capture_attempt", "photo_capture_success", "photo_download_click"]) expect(activity.some(event => event.name === name)).toBe(true);
+  expect(activity.filter(event => event.name.startsWith("photo_")).every(event => JSON.stringify(event.properties) === "{}")).toBe(true);
   expect(errors).toEqual([]);
 });
 test("camera denial offers actionable retry", async ({ page }) => {

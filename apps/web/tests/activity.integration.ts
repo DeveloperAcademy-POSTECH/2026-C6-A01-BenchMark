@@ -27,6 +27,7 @@ test("activity persistence, retry deduplication, validation, limits, admin filte
     const scroll = event({ name: "scroll_depth", properties: { percent: 50 } });
     assert.equal((await send([scroll, { ...scroll, id: randomUUID() }])).status, 200);
     assert.equal((await pool.query("SELECT count(*)::int AS n FROM mat_activity_events WHERE session_id=$1", [sessionId])).rows[0].n, 2);
+    assert.equal((await send([event({ name: "photo_capture_success", path: "/camera" })])).status, 200);
     for (const bad of [event({ phone: "01000009999" }), event({ properties: { story: "private" } }), event({ path: "/reserve?phone=01000009999" }), event({ name: "donation_success" }), event({ occurredAt: "2000-01-01T00:00:00.000Z" }), event({ storyId: randomUUID() }), event({ name: "scroll_depth", properties: { percent: 101 } })]) assert.equal((await send([bad])).status, 400);
     assert.equal((await send(Array.from({ length: 21 }, () => event()))).status, 400);
     assert.equal((await send([event({ padding: "x".repeat(20000) })])).status, 413);

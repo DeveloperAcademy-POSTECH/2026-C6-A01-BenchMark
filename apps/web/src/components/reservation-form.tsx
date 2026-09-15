@@ -3,7 +3,7 @@
 import { ActivityTracker } from "./activity-tracker";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { trackActivity } from "@/lib/activity-client";
+import { activityReporter, trackActivity } from "@/lib/activity-client";
 import { byteLength } from "@/lib/story";
 import { reasons, paymentMethods, reservationInput } from "@/lib/reservation";
 
@@ -18,6 +18,7 @@ export function ReservationForm({ sourceStoryId }: { sourceStoryId?: string }) {
   const locked = useRef(false);
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
   async function submit(event: React.FormEvent<HTMLFormElement>) {
+    const reportActivity = activityReporter();
     event.preventDefault(); if (locked.current) return;
     const form = new FormData(event.currentTarget);
     requestId.current ||= crypto.randomUUID();
@@ -28,14 +29,14 @@ export function ReservationForm({ sourceStoryId }: { sourceStoryId?: string }) {
     const file = form.get("photo");
     if (!(file instanceof File) || !file.size) { setError("사진 한 장을 올려주세요."); return; }
     if (file.size > 5 * 1024 * 1024) { setError("사진은 5MB 이하로 올려주세요."); return; }
-    trackActivity("reservation_attempt");
+    reportActivity("reservation_attempt");
     locked.current = true; setBusy(true); setError("");
     try {
       const response = await fetch("/api/reservations", { method: "POST", body: form });
       const result = await response.json(); if (!response.ok) throw new Error(result.error);
-      trackActivity("reservation_success");
+      reportActivity("reservation_success");
       setDone(true); window.scrollTo({ top: 0, behavior: "instant" });
-    } catch (e) { trackActivity("reservation_failure"); setError(e instanceof Error ? e.message : "예약을 접수하지 못했어요. 입력한 내용은 유지됩니다. 다시 시도해주세요."); }
+    } catch (e) { reportActivity("reservation_failure"); setError(e instanceof Error ? e.message : "예약을 접수하지 못했어요. 입력한 내용은 유지됩니다. 다시 시도해주세요."); }
     finally { locked.current = false; setBusy(false); }
   }
   if (done) return <section className="reservation-success"><ActivityTracker storyId={sourceStoryId} /><span className="eyebrow">당신의 마음을 잘 받았어요</span><h1>기부 예약이 접수됐어요.</h1><p>남겨주신 이야기는 운영진이 확인할게요.<br />결제는 진행되지 않았으며,<br />기부 진행 방법은 남겨주신 휴대폰번호로 안내드릴게요.</p><Link href={sourceStoryId ? `/stories/${sourceStoryId}` : "/"} className="button primary">이야기로 돌아가기</Link></section>;
