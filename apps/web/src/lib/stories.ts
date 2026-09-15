@@ -1,7 +1,7 @@
 import { database } from "./db";
 import type { Story } from "./story";
 
-const publicFields = `s.id, s.mat_number, s.mat_size, s.display_name, s.story, s.revision,
+const publicFields = `s.id, s.mat_number, s.mat_size, s.display_name, s.title, s.story, s.revision,
   (SELECT count(*)::int FROM mat_reactions r WHERE r.story_id=s.id) AS reaction_count`;
 export async function listStories(admin = false): Promise<Story[]> {
   const result = await database().query(`SELECT ${publicFields}${admin ? ", s.payment_verified, s.published" : ""}
