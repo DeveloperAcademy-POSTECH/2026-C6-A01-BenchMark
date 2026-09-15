@@ -77,9 +77,6 @@ label{display:block;font-size:14px;font-weight:600}input,textarea,select{display
 .payment-options span{min-height:66px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:14px;background:#f4f1e7;text-align:center;font-weight:400;padding:10px 3px;cursor:pointer}
 .payment-options input:checked+span{border-color:var(--green);background:#e7eddb;color:var(--green);font-weight:600}
 .payment-options input:focus-visible+span{outline:3px solid var(--green);outline-offset:4px}
-.amount-input{position:relative}
-.amount-input>span:last-child{position:absolute;right:18px;top:17px;color:var(--muted);font-weight:400}
-.reservation-question .amount-input input{padding-right:55px}
 .reservation-submit{width:100%;min-height:56px}
 .reservation-footnote{text-align:center;color:var(--muted);font-size:12px;margin-top:-25px}
 .reservation-success{text-align:center;padding:90px 24px;min-height:65vh}
@@ -128,8 +125,6 @@ label{display:block;font-size:14px;font-weight:600}input,textarea,select{display
 }
 
 .reaction-grid .reaction-button img{mix-blend-mode:multiply}
-.amount-input input[type=number]{appearance:textfield;-moz-appearance:textfield}
-.amount-input input[type=number]::-webkit-inner-spin-button,.amount-input input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .story-reading .empty-story{text-align:center;padding:55px 22px}
 .empty-story h1{font-family:"LeeSeoyun",sans-serif;font-size:32px;font-weight:400;margin:24px 0}
 .empty-story>p{color:var(--muted);font-size:14px}
@@ -142,3 +137,12 @@ label{display:block;font-size:14px;font-weight:600}input,textarea,select{display
 .activity-table table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
 .activity-table th, .activity-table td { padding: 0.65rem; border-bottom: 1px solid var(--line, #d8d0bb); text-align: left; vertical-align: top; }
 .activity-table td { overflow-wrap: anywhere; min-width: 140px; }
+
+.amount-options{grid-template-columns:repeat(2,minmax(0,1fr))}
+.reservation-reason-dialog{width:min(560px,calc(100% - 32px));max-height:calc(100dvh - 32px);margin:auto;padding:28px;border:1px solid var(--border);border-radius:20px;background:var(--paper);color:var(--ink);overflow-y:auto;overscroll-behavior:contain}
+.reservation-reason-dialog::backdrop{background:#201b1466}
+.reservation-reason-dialog .section-heading{align-items:flex-start;margin-bottom:20px}
+.reservation-reason-dialog h2{font-family:"LeeSeoyun",sans-serif;font-size:28px;font-weight:400;line-height:1.4}
+.reservation-reason-dialog .text-button{flex-shrink:0}
+.reservation-reason-dialog .reservation-submit{margin-top:24px}
+@media(max-width:440px){.reservation-reason-dialog{padding:22px}.reservation-reason-dialog h2{font-size:24px}}
