@@ -20,6 +20,11 @@ test("admin registration, publication, mobile reading and one-device reaction", 
     await page.getByLabel("제목", { exact: true }).fill("함께 쉬어 가는 자리에 남긴 마음");
     await page.getByLabel("사진 한 장").setInputFiles({ name: "test.jpg", mimeType: "image/jpeg", buffer: photo });
     await page.getByRole("textbox", { name: /^이야기/ }).fill("이 화면은 검증용 데이터입니다. 함께 쉬어 가는 자리에 작은 마음을 남깁니다.");
+    await page.getByRole("textbox", { name: /^이야기/ }).fill("🧺".repeat(250) + "a");
+    await expect(page.getByRole("button", { name: "비공개로 저장" })).toBeDisabled();
+    await page.getByRole("textbox", { name: /^이야기/ }).fill("🧺".repeat(250));
+    await expect(page.locator("#story-length")).toHaveText("1000 / 1000바이트");
+    await expect(page.getByRole("button", { name: "비공개로 저장" })).toBeEnabled();
     await expect(page.getByLabel("내용 검토 완료 · 웹에 공개")).toBeDisabled();
     await page.getByLabel("입금 확인 완료").check();
     await page.getByLabel("내용 검토 완료 · 웹에 공개").check();
@@ -71,9 +76,11 @@ test("admin registration, publication, mobile reading and one-device reaction", 
     await page.getByRole("textbox", { name: "성함", exact: true }).fill("검증용 웹 예약자");
     await page.getByRole("textbox", { name: "휴대폰번호", exact: true }).fill("010-0000-9904");
     await page.getByRole("textbox", { name: "제목", exact: true }).fill("다음 사람에게도 편안한 쉼을");
-    await page.getByRole("textbox", { name: "스토리", exact: true }).fill("가".repeat(167));
+    await page.getByRole("textbox", { name: "스토리", exact: true }).fill("가".repeat(333) + "ab");
     await expect(page.getByRole("button", { name: "기부 예약 접수하기" })).toBeDisabled();
-    await page.getByRole("textbox", { name: "스토리", exact: true }).fill("검증용 예약입니다. 이 이야기를 읽고 다음 사람에게도 쉼을 남기고 싶었어요.");
+    await page.getByRole("textbox", { name: "스토리", exact: true }).fill("가".repeat(333) + "a");
+    await expect(page.locator("#reservation-bytes")).toHaveText("1000 / 1000바이트");
+    await expect(page.getByRole("button", { name: "기부 예약 접수하기" })).toBeEnabled();
     await page.locator('input[name="photo"]').setInputFiles({ name: "test.jpg", mimeType: "image/jpeg", buffer: photo });
     await page.getByLabel("간편결제", { exact: true }).check();
     const amount = page.getByRole("spinbutton", { name: "결제예정 금액" });
