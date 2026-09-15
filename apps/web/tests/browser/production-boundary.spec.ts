@@ -13,6 +13,6 @@ test("production excludes the develop-only character camera", async ({ page, req
   }
   await page.goto("/reserve");
   await expect(page.getByLabel("사진 추가", { exact: true })).toHaveCount(1);
-  await expect(page.getByRole("radio", { name: "3,000원", exact: true })).toBeVisible();
-  await expect(page.getByRole("radio", { name: "5,000원", exact: true })).toBeVisible();
+  await expect(page.getByRole("spinbutton", { name: "기부금액", exact: true })).toBeVisible();
+  await expect(page.getByRole("spinbutton", { name: "기부금액", exact: true })).toHaveAttribute("min", "10000");
 });

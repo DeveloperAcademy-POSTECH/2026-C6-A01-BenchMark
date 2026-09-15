@@ -6,7 +6,7 @@ const story = randomUUID();
 const event = { id: randomUUID(), visitId: randomUUID(), sessionId: randomUUID(), occurredAt: new Date().toISOString(), path: `/stories/${story}`, storyId: story, name: "page_view", properties: {} };
 test("strict activity allowlist excludes private fields, URLs and event properties", () => {
   assert.ok(activityEvent.safeParse(event).success);
-  for (const key of ["phone", "displayName", "story", "photo", "authorization", "referrer"]) {
+  for (const key of ["phone", "email", "displayName", "story", "photo", "authorization", "referrer"]) {
     assert.equal(activityEvent.safeParse({ ...event, [key]: "private" }).success, false);
     assert.equal(activityEvent.safeParse({ ...event, properties: { [key]: "private" } }).success, false);
   }
