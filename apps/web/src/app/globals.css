@@ -56,7 +56,9 @@ label{display:block;font-size:14px;font-weight:600}input,textarea,select{display
 .reservation-question legend{font-family:"LeeSeoyun",sans-serif;font-size:26px;line-height:1.5;margin-bottom:15px;max-width:100%}
 .reservation-question legend>span{font-family:inherit;font-size:17px;color:var(--green);display:block;margin-bottom:2px}
 .reservation-question>label+label{margin-top:12px}
-.reservation-question input:not([type=radio]):not([type=file]),.reservation-question textarea{border-radius:14px;background:#f4f1e7;border-color:#e4dfd1;padding:16px 18px;margin-top:0;font-weight:400}
+.reservation-question input:not([type=radio]):not([type=file]):not([type=checkbox]),.reservation-question textarea{border-radius:14px;background:#f4f1e7;border-color:#e4dfd1;padding:16px 18px;margin-top:0;font-weight:400}
+.reservation-question .anonymous-option{display:flex;align-items:center;gap:10px;min-height:44px;font-weight:400;cursor:pointer}
+.reservation-question input[name=displayName]:disabled{color:var(--muted)}
 .reservation-question input::placeholder,.reservation-question textarea::placeholder{color:#80776c}
 .reservation-question input:focus,.reservation-question textarea:focus{background:#fff}
 .reason-options{display:grid;gap:4px}
