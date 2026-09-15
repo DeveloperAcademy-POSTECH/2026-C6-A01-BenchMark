@@ -66,8 +66,8 @@ test("admin registration, publication, mobile reading and one-device reaction", 
       await expect(otherPage.getByRole("button", { name: /공감해요/ })).toBeEnabled();
     } finally { await other.close(); }
     await page.setViewportSize({ width: 390, height: 844 }); await page.goto("/about");
-    await expect(page).toHaveURL("/");
-    await expect(page.getByRole("link", { name: /나도 기부 참가하기/ })).toHaveAttribute("href", `/reserve?from=${storyId}`);
+    await expect(page).toHaveURL(`/stories/${storyId}`);
+    await expect(page.getByRole("link", { name: /나도 이야기 남기기/ })).toHaveAttribute("href", `/reserve?from=${storyId}`);
     await expect(page.locator('a[href="/about"]')).toHaveCount(0);
     await expect(page.locator('a[href*="naver.me"]')).toHaveCount(0);
     await page.goto(`/reserve?from=${storyId}`);
@@ -150,9 +150,9 @@ test("admin registration, publication, mobile reading and one-device reaction", 
     await expect(page.getByRole("button", { name: "관리자 페이지로 이동" })).toBeVisible();
     await page.goto(`/stories/${storyId}`); await expect(page.getByRole("heading", { name: "아직 펼쳐지지 않은 이야기예요." })).toBeVisible();
     await page.goto("/");
-    await expect(page.locator(".empty-story h1")).toContainText("펼칠 준비를 하고 있어요.");
-    await expect(page.locator(".reaction-button:disabled")).toHaveCount(4);
-    await expect(page.getByRole("link", { name: /나도 기부 참가하기/ })).toHaveAttribute("href", "/reserve");
+    await expect(page).toHaveURL("/stories");
+    await expect(page.locator(".empty-state h2")).toContainText("펼칠 준비를 하고 있어요.");
+    await expect(page.getByRole("link", { name: /나도 이야기 남기기/ })).toHaveAttribute("href", "/reserve");
     expect(errors).toEqual([]);
   } finally {
     if (reservationId) await pool.query("DELETE FROM mat_reservations WHERE id=$1", [reservationId]);

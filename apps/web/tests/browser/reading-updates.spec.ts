@@ -66,8 +66,8 @@ test("anonymous copy, section order and cancellable reactions survive failures a
     await expect(page.locator(".story-letter span")).toHaveText("이 자리를 선물한 검증용 운영팀 드림");
     await pool.query("UPDATE mat_stories SET published=false WHERE id=$1", [id]);
     await page.goto("/");
-    await expect(page.locator(".empty-story")).toBeVisible();
-    expect(await page.locator(".donation").evaluate(node => Boolean(node.compareDocumentPosition(document.querySelector(".usage-guide")!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+    await expect(page).toHaveURL("/stories");
+    await expect(page.locator(".empty-state")).toBeVisible();
   } finally {
     await pool.query("DELETE FROM mat_stories WHERE id=$1", [id]);
     await pool.end();
