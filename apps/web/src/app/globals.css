@@ -15,3 +15,116 @@ label{display:block;font-size:14px;font-weight:600}input,textarea,select{display
 
 .hero>p,.story-letter,.about-intro>p,.academy{font-family:"LeeSeoyun",sans-serif}.hero>p{font-size:26px}.story-letter p{font-size:26px}.academy{font-size:16px}.about-intro>p{font-size:23px}
 @media(max-width:760px){.hero>p{font-size:24px}.story-letter p{font-size:24px}.academy{font-size:13px}.about-intro>p{font-size:22px}}
+
+/* Lo-fi reading and reservation flow, using the existing brand palette. */
+.reading-brand{width:260px;max-width:65%;margin:38px auto 26px}
+.story-reading .story-detail{max-width:760px;padding-top:0}
+.story-reading .story-paper{transform:none;padding:30px;border-radius:22px;background:#fffaf0;border-color:#e8dfc9;box-shadow:0 8px 30px #47381108}
+.donor-intro{margin-bottom:24px;overflow-wrap:anywhere}
+.donor-intro .eyebrow{letter-spacing:.04em;margin-bottom:20px}
+.donor-intro>p{font-family:"LeeSeoyun",sans-serif;font-size:25px}
+.donor-intro h1{font-family:"LeeSeoyun",sans-serif;color:var(--green);font-size:36px;font-weight:400;line-height:1.35;margin:8px 0;word-break:normal}
+.story-reading .detail-photo{border-radius:16px;max-height:500px}
+.story-reading .story-letter{padding:28px 0 8px;text-align:left}
+.story-reading .story-letter p{line-height:1.65;font-size:25px}
+.story-reading .story-letter>span{text-align:right;font-family:inherit}
+.reaction-wrap{margin:18px 0 45px}
+.reaction-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.reaction-grid .reaction-button{border-radius:16px;padding:15px 8px;display:flex;flex-direction:column;gap:6px;border:1px solid var(--border);background:#f5f1e6;color:var(--ink);min-width:0}
+.reaction-grid .reaction-button img{width:28px;height:28px;object-fit:contain}
+.reaction-grid .reaction-button>span{font-family:"LeeSeoyun",sans-serif;font-size:22px;color:inherit;line-height:1.4}
+.reaction-grid .reaction-button strong{border:0;padding:0;font-size:12px}
+.reaction-grid .reaction-button.reacted{background:#e7eddb;border-color:#94ac7a}
+.reaction-grid .reaction-button:not(:disabled):hover{background:#edf0e4}
+.usage-guide{background:#f3f0e5;border:1px solid var(--border);border-radius:22px;padding:32px;margin-bottom:35px}
+.usage-guide h2{font-family:"LeeSeoyun",sans-serif;font-size:36px;font-weight:400;margin:8px 0 22px}
+.usage-guide ol{padding-left:23px;margin:0;display:grid;gap:20px}
+.usage-guide li{font-size:15px;line-height:1.9;padding-left:4px;word-break:keep-all}
+.usage-guide strong{color:var(--red);font-weight:500}
+.story-donation{display:block;margin:0;padding:32px}
+.story-donation .donation-heading{text-align:left}
+.story-donation .donation-heading>p{margin-bottom:24px}
+.story-donation .mat-options{display:none}
+.story-donation .donation-note{text-align:left}
+.mat-options{justify-items:center}
+.reservation-page{max-width:720px;margin:auto;padding:24px 30px 70px}
+.reservation-heading{margin:26px 0 38px}
+.reservation-heading h1{font-family:"LeeSeoyun",sans-serif;font-size:46px;font-weight:400;margin:8px 0 16px}
+.reservation-heading p{color:var(--muted);font-size:14px;line-height:1.9}
+.reservation-fields{display:flex;flex-direction:column;gap:38px}
+.reservation-question{min-width:0;width:100%}
+.reservation-question legend{font-family:"LeeSeoyun",sans-serif;font-size:26px;line-height:1.5;margin-bottom:15px;max-width:100%}
+.reservation-question legend>span{font-family:inherit;font-size:17px;color:var(--green);display:block;margin-bottom:2px}
+.reservation-question>label+label{margin-top:12px}
+.reservation-question input:not([type=radio]):not([type=file]),.reservation-question textarea{border-radius:14px;background:#f4f1e7;border-color:#e4dfd1;padding:16px 18px;margin-top:0;font-weight:400}
+.reservation-question input::placeholder,.reservation-question textarea::placeholder{color:#80776c}
+.reservation-question input:focus,.reservation-question textarea:focus{background:#fff}
+.reason-options{display:grid;gap:4px}
+.reason-options>label{display:flex;align-items:center;gap:12px;min-height:44px;font-weight:400;line-height:1.6;font-size:14px}
+.reason-options input{width:19px;height:19px;min-height:19px;flex-shrink:0;margin:0;accent-color:var(--green)}
+.other-reason{margin-top:12px}
+.byte-counter{text-align:right;margin:8px 0 0}
+.photo-upload{position:relative;display:grid;place-items:center;min-height:180px;border:1px dashed #b6bea5;border-radius:16px;background:#f0f1e6;overflow:hidden}
+.photo-upload:focus-within{outline:3px solid var(--green);outline-offset:4px}
+.photo-upload-copy{text-align:center;font-size:19px;color:var(--green);font-weight:400;padding:24px}
+.photo-upload-copy strong{display:block;font-size:32px;font-weight:400}
+.photo-upload img{max-height:280px;width:100%;object-fit:contain;padding:12px}
+.photo-upload input{position:absolute;inset:0;width:100%;height:100%;opacity:0;margin:0;cursor:pointer}
+.field-description{color:var(--muted);font-size:13px;margin-bottom:12px}
+.payment-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.payment-options label{position:relative;min-width:0}
+.payment-options input{position:absolute;opacity:0;width:1px;height:1px;min-height:1px}
+.payment-options span{min-height:66px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:14px;background:#f4f1e7;text-align:center;font-weight:400;padding:10px 3px;cursor:pointer}
+.payment-options input:checked+span{border-color:var(--green);background:#e7eddb;color:var(--green);font-weight:600}
+.payment-options input:focus-visible+span{outline:3px solid var(--green);outline-offset:4px}
+.amount-input{position:relative}
+.amount-input>span:last-child{position:absolute;right:18px;top:17px;color:var(--muted);font-weight:400}
+.reservation-question .amount-input input{padding-right:55px}
+.reservation-submit{width:100%;min-height:56px}
+.reservation-footnote{text-align:center;color:var(--muted);font-size:12px;margin-top:-25px}
+.reservation-success{text-align:center;padding:90px 24px;min-height:65vh}
+.reservation-success h1{font-family:"LeeSeoyun",sans-serif;font-size:36px;font-weight:400;margin:14px 0 22px}
+.reservation-success p{color:var(--muted);font-size:15px;line-height:2;margin-bottom:30px}
+.reservation-inbox{margin:45px 0}
+.reservation-entry{border:1px solid var(--border);border-radius:12px;background:white;margin:12px 0;padding:18px}
+.reservation-entry summary{cursor:pointer;overflow-wrap:anywhere}
+.reservation-entry summary>strong{font-size:15px;margin-left:12px}
+.reservation-entry summary>span:last-child{display:block;margin-top:9px;color:var(--muted);font-size:13px}
+.reservation-entry-body{padding-top:20px}
+.reservation-entry-body dl{display:grid;grid-template-columns:120px 1fr;font-size:14px;gap:12px}
+.reservation-entry-body dd{margin:0;overflow-wrap:anywhere}
+.reservation-entry-body dt{color:var(--muted)}
+.reservation-entry-body img{max-height:260px;margin:24px auto;object-fit:contain}
+.reservation-entry-body h3{font-size:19px;overflow-wrap:anywhere}
+.reservation-story{white-space:pre-wrap;overflow-wrap:anywhere;margin:14px 0 24px}
+@media(max-width:760px){
+  .reading-brand{width:230px;margin:28px auto}
+  .story-reading .story-paper{padding:22px}
+  .donor-intro h1{font-size:31px}
+  .donor-intro>p{font-size:23px}
+  .story-reading .story-letter p{font-size:24px}
+  .usage-guide{padding:26px 22px}
+  .story-donation{margin:0;padding:28px 22px}
+  .reservation-page{padding:20px 22px 50px}
+  .reservation-heading h1{font-size:40px}
+  .reservation-question legend{font-size:24px}
+}
+@media(max-width:440px){
+  .reading-brand{width:200px}
+  .story-reading .story-detail{padding-left:20px;padding-right:20px}
+  .story-reading .story-paper{padding:20px}
+  .donor-intro h1{font-size:29px}
+  .donor-intro .eyebrow{font-size:11px}
+  .reaction-grid{gap:8px}
+  .reaction-grid .reaction-button{padding:12px 3px;border-radius:12px}
+  .reaction-grid .reaction-button>span{font-size:19px}
+  .reaction-grid .reaction-button img{width:25px;height:25px}
+  .usage-guide h2{font-size:32px}
+  .usage-guide li{font-size:14px}
+  .reservation-question legend{font-size:22px}
+  .payment-options{gap:7px}
+  .payment-options span{font-size:13px}
+  .reservation-entry-body dl{grid-template-columns:90px 1fr;font-size:13px}
+}
+
+.reaction-grid .reaction-button img{mix-blend-mode:multiply}
