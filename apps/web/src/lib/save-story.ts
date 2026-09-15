@@ -47,7 +47,7 @@ export async function saveStory(request: Request, id?: string) {
     return id;
   } catch (error) {
     await client.query("ROLLBACK");
-    if ((error as { code?: string }).code === "23505") throw new HttpError(409, "이미 등록된 돗자리 번호입니다.");
+    if ((error as { code?: string }).code === "23505") throw new HttpError(409, "이야기 식별자가 중복되었습니다. 다시 시도해주세요.");
     throw error;
   } finally { client.release(); }
 }
