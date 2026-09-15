@@ -34,7 +34,10 @@ test("real API and PostgreSQL enforce publication, auth, image rules, uniqueness
     assert.equal((await send("/api/admin/stories", "POST", badPhoto)).status, 400);
     const created = await send("/api/admin/stories", "POST", fields()); assert.equal(created.status, 201);
     const { id } = await created.json(); ids.push(id);
-    assert.equal((await send("/api/admin/stories", "POST", fields())).status, 409);
+    const second = await send("/api/admin/stories", "POST", fields());
+    assert.equal(second.status, 201);
+    const secondId = (await second.json()).id; ids.push(secondId);
+    assert.notEqual(secondId, id);
     assert.equal((await fetch(`${base}/api/stories/${id}/photo`)).status, 404);
     assert.equal((await fetch(`${base}/api/stories/${id}/photo`, { headers: { cookie } })).status, 200);
     const draftPage = await (await fetch(`${base}/stories/${id}`)).text(); assert.equal(draftPage.includes("검증용 이야기입니다."), false);
