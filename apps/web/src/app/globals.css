@@ -166,3 +166,5 @@ label{display:block;font-size:14px;font-weight:600}input,textarea,select{display
 .amount-option:focus-visible{outline:3px solid #713f08;outline-offset:3px}
 .amount-option:disabled{cursor:default;opacity:.6}
 .amount-selection{font-size:14px;font-weight:700}
+
+.reservation-question legend small{display:block;font-size:14px;font-weight:400;margin-top:6px}
