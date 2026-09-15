@@ -23,3 +23,31 @@ test("reason-open analytics reports only the step and never the response", () =>
     assert.equal(activityEvent.safeParse({ ...base, name, properties: { reasonOther: "private" } }).success, false);
   }
 });
+
+const valid = { ...details, id: randomUUID(), reason: "rest", displayName: "신청자", phone: "010-0000-0000" };
+
+test("anonymous reservations normalize omitted, empty and submitted names", () => {
+  for (const displayName of [undefined, "", "실명 입력", "a".repeat(41)]) {
+    const result = reservationInput.parse({ ...valid, isAnonymous: "true", displayName });
+    assert.equal(result.displayName, "익명");
+    assert.equal(result.phone, "01000000000");
+  }
+});
+
+test("named and legacy reservations still require a valid name", () => {
+  for (const isAnonymous of [undefined, "false"]) {
+    assert.equal(reservationInput.parse({ ...valid, isAnonymous }).displayName, "신청자");
+    for (const displayName of [undefined, "", "   ", "a".repeat(41)]) {
+      assert.equal(reservationInput.safeParse({ ...valid, isAnonymous, displayName }).success, false);
+    }
+  }
+});
+
+test("anonymous selection rejects invalid flags and still requires contact and story", () => {
+  for (const isAnonymous of ["on", "yes", true, 1, null]) {
+    assert.equal(reservationInput.safeParse({ ...valid, isAnonymous }).success, false);
+  }
+  for (const invalid of [{ phone: "" }, { story: "" }, { title: "" }]) {
+    assert.equal(reservationInput.safeParse({ ...valid, isAnonymous: "true", ...invalid }).success, false);
+  }
+});

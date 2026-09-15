@@ -25,7 +25,7 @@ test("activity survives transport failure, respects visibility, distinguishes na
     await page.goto(`/stories/${storyId}?phone=private-query`);
     await expect(page.getByRole("button", { name: /공감해요/ })).toBeEnabled();
     await page.getByRole("button", { name: /공감해요/ }).click();
-    await expect(page.getByRole("button", { name: /공감해요/ })).toBeDisabled();
+    await expect(page.getByRole("button", { name: /공감해요/ })).toHaveAttribute("aria-pressed", "true");
     await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
     await expect.poll(() => attempts, { timeout: 20000 }).toBeGreaterThanOrEqual(2);
     const view = payloads.flatMap(p => p.events).find(e => e.name === "page_view")!;
@@ -33,6 +33,10 @@ test("activity survives transport failure, respects visibility, distinguishes na
     expect(payloads[1].events.some(e => e.id === view.id)).toBe(true);
     const rows = () => pool.query("SELECT * FROM mat_activity_events WHERE story_id=$1 ORDER BY occurred_at", [storyId]).then(r => r.rows);
     await expect.poll(async () => (await rows()).filter(r => r.name === "reaction_success").length).toBe(1);
+    expect((await rows()).find(r => r.name === "reaction_success").properties.action).toBe("react");
+    await page.getByRole("button", { name: /공감해요/ }).click();
+    await expect(page.getByRole("button", { name: /공감해요/ })).toHaveAttribute("aria-pressed", "false");
+    await expect.poll(async () => (await rows()).some(r => r.name === "reaction_success" && r.properties.action === "remove")).toBe(true);
     expect((await rows()).filter(r => r.name === "page_view")).toHaveLength(1);
     // Repeated scrolling and local state updates must not create a second view or duplicate bucket.
     await page.evaluate(() => { scrollTo(0, 0); scrollTo(0, document.documentElement.scrollHeight); });

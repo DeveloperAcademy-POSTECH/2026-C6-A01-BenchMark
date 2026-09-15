@@ -30,16 +30,28 @@ export function Reaction({ id }: { id?: string }) {
   }, [id]);
   async function react(kind: ReactionKind) {
     const reportActivity = activityReporter();
-    if (!id || locked.current || selected.includes(kind)) return;
-    reportActivity("reaction_attempt", { kind });
+    if (!id || !ready || locked.current) return;
+    const action = selected.includes(kind) ? "remove" : "react";
+    reportActivity("reaction_attempt", { kind, action });
     locked.current = true; setBusy(true); setError("");
     try {
-      const response = await fetch(`/api/stories/${id}/reaction`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: deviceId(), action: "react", kind }) });
+      const response = await fetch(`/api/stories/${id}/reaction`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: deviceId(), action, kind }) });
       const result = await response.json(); if (!response.ok) throw new Error(result.error);
       setCounts(result.counts); setSelected(result.selected);
-      reportActivity("reaction_success", { kind });
-    } catch (e) { reportActivity("reaction_failure", { kind }); setError(e instanceof Error ? e.message : "마음을 남기지 못했어요. 다시 시도해주세요."); }
+      reportActivity("reaction_success", { kind, action });
+    } catch (e) {
+      reportActivity("reaction_failure", { kind, action });
+      try {
+        const response = await fetch(`/api/stories/${id}/reaction`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: deviceId(), action: "status" }) });
+        const result = await response.json(); if (!response.ok) throw new Error(result.error);
+        setCounts(result.counts); setSelected(result.selected);
+        setError(e instanceof Error ? e.message : "반응을 처리하지 못했어요. 현재 상태를 확인한 뒤 다시 시도해주세요.");
+      } catch {
+        setReady(false);
+        setError("반응 상태를 확인하지 못했어요. 새로고침 후 다시 시도해주세요.");
+      }
+    }
     finally { locked.current = false; setBusy(false); }
   }
-  return <section className="reaction-wrap" aria-label="이야기에 마음 남기기"><div className="reaction-grid">{reactionKinds.map((kind) => <button key={kind} className={`reaction-button ${selected.includes(kind) ? "reacted" : ""}`} disabled={!ready || busy || selected.includes(kind)} onClick={() => react(kind)} aria-pressed={selected.includes(kind)} aria-label={`${reactionLabels[kind]} ${counts[kind]}개`}><img src={`/brand/reaction-${kind}.png`} width="28" height="28" alt="" /><span>{reactionLabels[kind]}</span><strong>{counts[kind]}</strong></button>)}</div><p>{id ? "마음이 닿는 반응을 모두 남겨주세요." : "이야기가 공개되면 마음을 남길 수 있어요."}</p>{error && <p className="error-message" role="alert">{error}</p>}</section>;
+  return <section className="reaction-wrap" aria-label="이야기에 마음 남기기"><div className="reaction-grid">{reactionKinds.map((kind) => <button key={kind} className={`reaction-button ${selected.includes(kind) ? "reacted" : ""}`} disabled={!ready || busy} onClick={() => react(kind)} aria-pressed={selected.includes(kind)} aria-label={`${reactionLabels[kind]} ${counts[kind]}개`}><img src={`/brand/reaction-${kind}.png`} width="28" height="28" alt="" /><span>{reactionLabels[kind]}</span><strong>{counts[kind]}</strong></button>)}</div><p>{id ? "마음이 닿는 반응을 모두 남겨주세요." : "이야기가 공개되면 마음을 남길 수 있어요."}</p>{error && <p className="error-message" role="alert">{error}</p>}</section>;
 }

@@ -51,10 +51,10 @@ test("admin registration, publication, mobile reading and one-device reaction", 
     await page.goto(`/stories/${storyId}`);
     const reaction = page.getByRole("button", { name: /공감해요/ });
     await expect(reaction).toBeEnabled(); await reaction.click();
-    await expect(page.getByRole("button", { name: /공감해요/ })).toBeDisabled();
+    await expect(page.getByRole("button", { name: /공감해요/ })).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: /응원해요/ }).click();
-    await expect(page.getByRole("button", { name: /응원해요/ })).toBeDisabled();
-    await page.reload(); await expect(page.getByRole("button", { name: /공감해요/ })).toBeDisabled();
+    await expect(page.getByRole("button", { name: /응원해요/ })).toHaveAttribute("aria-pressed", "true");
+    await page.reload(); await expect(page.getByRole("button", { name: /공감해요/ })).toHaveAttribute("aria-pressed", "true");
     await page.screenshot({ path: `${screenshotDir}/story-mobile.png`, fullPage: true });
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 900 });
