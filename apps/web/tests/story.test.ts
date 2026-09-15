@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { storyInput } from "../src/lib/story";
+import { storyInput, storyText, byteLength } from "../src/lib/story";
 import { correctPassword, makeSession, validSession, checkOrigin, boundedBody, HttpError } from "../src/lib/security";
 process.env.ADMIN_PASSWORD = "test-only-password-not-for-production";
 process.env.SESSION_SECRET = "test-only-session-secret-at-least-32-characters";
@@ -8,9 +8,13 @@ const input = { matNumber: 1, matSize: "small", displayName: "운영팀", story:
 test("anonymous or whitespace names cannot be registered", () => {
   for (const name of ["", "   ", "a".repeat(41)]) assert.equal(storyInput.safeParse({ ...input, displayName: name }).success, false);
 });
-test("story limit handles unicode and rejects over 100 code points", () => {
+test("story byte limit handles UTF-8 including emoji", () => {
   assert.equal(storyInput.safeParse({ ...input, story: "🧺".repeat(100) }).success, true);
-  assert.equal(storyInput.safeParse({ ...input, story: "가".repeat(101) }).success, false);
+  assert.equal(storyText.safeParse("a".repeat(500)).success, true);
+  assert.equal(storyText.safeParse("a".repeat(501)).success, false);
+  assert.equal(storyText.safeParse("\uac00".repeat(166) + "ab").success, true);
+  assert.equal(storyText.safeParse("\uac00".repeat(167)).success, false);
+  assert.equal(byteLength("\ud83e\uddfa"), 4);
 });
 test("publication requires verified payment and valid mat type", () => {
   assert.equal(storyInput.safeParse({ ...input, published: true }).success, false);
