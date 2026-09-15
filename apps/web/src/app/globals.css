@@ -134,3 +134,11 @@ label{display:block;font-size:14px;font-weight:600}input,textarea,select{display
 .empty-story h1{font-family:"LeeSeoyun",sans-serif;font-size:32px;font-weight:400;margin:24px 0}
 .empty-story>p{color:var(--muted);font-size:14px}
 .reaction-button:disabled:not(.reacted){opacity:.65}
+
+.activity-panel { margin-block: 2rem; padding-block: 1.5rem; border-block: 1px solid var(--line, #d8d0bb); }
+.activity-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 1rem; }
+.activity-table { overflow: auto; max-height: 28rem; margin-block: 1rem; }
+.activity-table th { position: sticky; top: 0; background: var(--paper, #fffdf7); white-space: nowrap; }
+.activity-table table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+.activity-table th, .activity-table td { padding: 0.65rem; border-bottom: 1px solid var(--line, #d8d0bb); text-align: left; vertical-align: top; }
+.activity-table td { overflow-wrap: anywhere; min-width: 140px; }

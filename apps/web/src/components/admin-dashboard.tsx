@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { sizes, byteLength, STORY_MAX_BYTES, type Story } from "@/lib/story";
 import type { Reservation } from "@/lib/reservation";
+import { AdminActivity } from "./admin-activity";
 import { AdminReservations } from "./admin-reservations";
 
 function StoryEditor({ story, reservation, onClose }: { story?: Story; reservation?: Reservation; onClose: () => void }) {
@@ -65,6 +66,7 @@ export function AdminDashboard({ stories, reservations }: { stories: Story[]; re
     <button className="button primary" onClick={() => { setReservation(undefined); setSelection("new"); }}>+ 새 이야기 등록</button>{error && <p role="alert" className="error-message">{error}</p>}
     {selection !== null && <StoryEditor key={selection === "new" ? reservation?.id || "new" : selection.id} story={selection === "new" ? undefined : selection} reservation={reservation} onClose={() => { setSelection(null); setReservation(undefined); }} />}
     <AdminReservations reservations={reservations} onSelect={(r) => { setReservation(r); setSelection("new"); window.scrollTo({ top: 180, behavior: "instant" }); }} />
+    <AdminActivity />
     <div className="admin-filters"><label><span className="sr-only">이름 또는 돗자리 번호 검색</span><input type="search" placeholder="이름 또는 돗자리 번호 검색" value={query} onChange={(e) => setQuery(e.target.value)} /></label><label><span className="sr-only">공개 상태</span><select value={filter} onChange={(e) => setFilter(e.target.value)}><option value="all">전체</option><option value="public">공개</option><option value="private">검토 대기</option></select></label></div>
     <div className="admin-list">{visible.map((s) => <article key={s.id}><div><span className={`status-badge ${s.published ? "public" : ""}`}>{s.published ? "공개" : "비공개"}</span><h2>#{String(s.mat_number).padStart(3, "0")} · {s.display_name}</h2><p>{sizes[s.mat_size].label} · {s.payment_verified ? "입금 확인" : "입금 미확인"} · 공감 {s.reaction_count}</p><p className="admin-story-text">{s.story}</p></div><div className="admin-actions"><button className="button secondary" onClick={() => { setReservation(undefined); setSelection(s); window.scrollTo({ top: 180, behavior: "instant" }); }}>수정·검토</button>{s.published && <Link className="text-link" href={`/stories/${s.id}`} target="_blank">공개 페이지 ↗</Link>}</div></article>)}{!visible.length && <p className="empty-state">표시할 이야기가 없습니다.</p>}</div>
   </div>;
