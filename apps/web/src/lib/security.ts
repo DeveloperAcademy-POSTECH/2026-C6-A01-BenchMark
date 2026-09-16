@@ -6,6 +6,22 @@ export class HttpError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 export const sessionCookie = "mat_admin";
+export const activityExclusionCookie = "mat_activity_excluded";
+export function activityExclusionToken() { return hash("activity-exclusion:v1"); }
+export function validActivityExclusion(token: string | undefined) {
+  return !!token && /^[a-f0-9]{64}$/.test(token) && timingSafeEqual(Buffer.from(token, "hex"), Buffer.from(activityExclusionToken(), "hex"));
+}
+export async function rememberAdminBrowser() {
+  (await cookies()).set(activityExclusionCookie, activityExclusionToken(), {
+    httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 400 * 24 * 60 * 60,
+  });
+}
+export async function excludeAdminActivity() {
+  const jar = await cookies();
+  if (!validActivityExclusion(jar.get(activityExclusionCookie)?.value) && !validSession(jar.get(sessionCookie)?.value)) return false;
+  await rememberAdminBrowser();
+  return true;
+}
 export function secret() {
   const value = process.env.SESSION_SECRET;
   if (!value || value.length < 32) throw new HttpError(503, "운영 설정을 확인해주세요.");

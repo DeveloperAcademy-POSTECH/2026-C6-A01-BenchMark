@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { activityEvent } from "@/lib/activity";
 import { database } from "@/lib/db";
-import { boundedBody, checkOrigin, HttpError, jsonError, rateLimit } from "@/lib/security";
+import { boundedBody, checkOrigin, excludeAdminActivity, HttpError, jsonError, rateLimit } from "@/lib/security";
 
 export async function POST(request: Request) {
   try {
     checkOrigin(request);
+    if (await excludeAdminActivity()) return Response.json({ accepted: 0 }, { headers: { "Cache-Control": "private, no-store" } });
     await rateLimit("activity:global", 600, 60);
     let body: unknown;
     try { body = JSON.parse((await boundedBody(request, 16384)).toString()); }
