@@ -29,7 +29,10 @@ export const activityEvent = z.discriminatedUnion("name", variants).superRefine(
 });
 export type ActivityEvent = z.infer<typeof activityEvent>;
 export type ActivityRecord = { id: string; visit_id: string; session_id: string; name: typeof activityNames[number]; occurred_at: string; received_at: string; path: string; story_id: string | null; properties: Record<string, string | number> };
+export function activityKoreaTime(iso: string) {
+  return new Date(new Date(iso).getTime() + 9 * 60 * 60 * 1000).toISOString().replace("Z", "+09:00");
+}
 export function csvActivity(rows: ActivityRecord[]) {
   const cell = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
-  return "\uFEFF" + [["event_id", "event", "occurred_at_utc", "received_at_utc", "page", "story_id", "session_id", "visit_id", "properties"], ...rows.map(r => [r.id, r.name, r.occurred_at, r.received_at, r.path, r.story_id, r.session_id, r.visit_id, JSON.stringify(r.properties)])].map(row => row.map(cell).join(",")).join("\r\n");
+  return "\uFEFF" + [["event_id", "event", "occurred_at_utc", "received_at_utc", "page", "story_id", "session_id", "visit_id", "properties", "occurred_date_kst", "occurred_at_kst"], ...rows.map(r => [r.id, r.name, r.occurred_at, r.received_at, r.path, r.story_id, r.session_id, r.visit_id, JSON.stringify(r.properties), activityKoreaTime(r.occurred_at).slice(0, 10), activityKoreaTime(r.occurred_at)])].map(row => row.map(cell).join(",")).join("\r\n");
 }
