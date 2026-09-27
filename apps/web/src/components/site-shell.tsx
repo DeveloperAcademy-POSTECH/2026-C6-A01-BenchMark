@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 
 export function SiteShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  if (pathname === "/concepts" || pathname.startsWith("/concepts/")) return children;
+  if (pathname === "/benchmark" || pathname === "/concepts" || pathname.startsWith("/concepts/")) return children;
   return <>
     <a href="#main" className="skip-link">본문으로 바로가기</a>
     <header className="site-header"><Link className="wordmark" href="/" aria-label="쉼, 펴 홈">쉼, 펴<span>이야기가 머무는 자리</span></Link><nav aria-label="주 메뉴"><Link href="/">이야기</Link></nav></header>
