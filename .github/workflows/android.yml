@@ -1,4 +1,4 @@
-name: Android lo-fi
+name: Android
 on:
   push:
     branches: [develop]
@@ -20,6 +20,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - name: Validate converted AR assets
+        run: python3 tools/check_ar_models.py
       - name: Build, navigation tests and lint
         run: ./gradlew --no-daemon assembleDebug testDebugUnitTest lintDebug
       - uses: actions/upload-artifact@v4
