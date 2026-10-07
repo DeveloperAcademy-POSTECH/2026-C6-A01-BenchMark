@@ -9,7 +9,7 @@ import androidx.lifecycle.ViewModel
 import kotlinx.parcelize.Parcelize
 
 enum class Screen(val title: String) {
-    LOGIN("로그인"), INTENT("기부자 정보"), ONBOARDING_PROFILE("인적 사항 작성"),
+    INTENT("기부자 정보"), ONBOARDING_PROFILE("인적 사항 작성"),
     ONBOARDING_VERIFY("본인인증"), HOME("BenchMark"), BENCHES("벤치 위치 확인"),
     BENCH("벤치 선택"), GUIDE("기부 안내"), TERMS("약관 동의"), VERIFY("본인인증"),
     AMOUNT("기부금 입력"), DONOR("인적사항 입력"), STORY("스토리 작성"),

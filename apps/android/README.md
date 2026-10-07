@@ -19,17 +19,34 @@ cd apps/android
 
 Android Studio에서 `app`을 선택하고 기기 또는 에뮬레이터로 Run합니다. APK는 `app/build/outputs/apk/debug/app-debug.apk`에 생성됩니다.
 
+## Google 로그인 설정
+
+현재 Android 구현과 Supabase 콜백 등록은 준비되어 있습니다. **Needs confirmation:** 지정한 Google 계정의 재인증, OAuth 클라이언트 생성과 Supabase Google 제공자 활성화, 실제 계정 로그인은 아직 완료되지 않았습니다.
+
+Supabase 프로젝트 `52gibu` (`kfzfzarslqdqmrazohej`)를 사용합니다. Google Cloud 프로젝트와 OAuth 설정은 프로젝트 운영 계정에서 관리합니다.
+
+1. Google Auth Platform에서 앱 이름 `52gibu`, 기본 `openid`, `email`, `profile` 범위로 OAuth를 구성합니다. 웹 애플리케이션 클라이언트의 승인된 리디렉션 URI는 `https://kfzfzarslqdqmrazohej.supabase.co/auth/v1/callback`입니다.
+2. Supabase Authentication → Google에 해당 Client ID와 Client Secret을 설정합니다. Client Secret은 앱·Git에 넣지 않습니다.
+3. Supabase URL Configuration의 허용 목록에 `kr.ac.postech.benchmark://auth/callback`을 추가합니다.
+4. Supabase **publishable key**를 환경 변수 `SUPABASE_PUBLISHABLE_KEY` 또는 Git에서 제외된 `apps/android/local.properties`의 같은 이름 속성으로 제공하고 다시 빌드합니다. `service_role` 또는 secret key를 사용하지 않습니다.
+
+키가 없으면 Google 로그인 버튼이 비활성화됩니다. 예시 로그인으로 우회하지 않습니다. Google OAuth가 테스트 상태이면 허용한 테스트 계정만 사용할 수 있습니다. 공개 배포 전에는 동의 화면·도메인 및 게시 상태를 확인해야 합니다.
+
+로그인은 외부 브라우저에서 진행하며 PKCE 검증자가 있는 요청만 콜백으로 교환합니다. 로그인 요청은 15분 뒤 만료됩니다. 브라우저에서 취소한 경우 앱의 `로그인 취소`를 누르고 재시도합니다. 세션과 PKCE 검증자는 Android Keystore 키로 암호화한 앱 전용 저장소에 보관하며 백업하지 않습니다. 프로필의 `로그아웃`은 로컬 세션과 현재 계정의 기부 예시 상태를 지웁니다. 네트워크 오류 시 원격 로그아웃을 확인할 수 없어도 로컬 세션을 지웁니다.
+
+기부자 입력과 기부 내역은 여전히 로컬 예시입니다. Google 로그인 성공 시 서버의 기존 Auth 트리거가 `public.users` 기본 행을 만들지만, 예시 기부자 정보는 해당 행으로 저장하지 않습니다.
+
 ## 범위
 
 [Figma Lofi 504:1861](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH/BenchMark?node-id=504-1861)의 화면 구성과 흐름을 구현했습니다. 디자인 고도화 요청이 아니므로 기본 Material 컴포넌트와 회색 이미지·지도 영역을 사용합니다. 원본 iPhone 시스템 바 및 iOS 권한 팝업은 Android에 복제하지 않습니다.
 
-- 로그인 예시 → 기부자 정보 입력 여부 → 입력/본인인증 예시 → 홈
+- Google 로그인 → 기부자 정보 입력 여부 → 입력/본인인증 예시 → 홈
 - 홈 → 벤치 위치 → 벤치 선택 → 기부 안내 → 약관 → 인증 예시 → 금액 → 인적사항 → 스토리/이미지 → 접수 예시
 - 나의 기부 → 빈 상태 또는 예시 내역 → 상세 → 편집/미리보기 → 진행 사항 → 설치 결과
 - NFC 예시 → 기부자의 이야기 → 실제 AR 카메라 → 바닥 배치 → 사진 / 음성 포함 영상 촬영·저장·공유
 - 홈·나의 기부·벤치·AR 체험 탭, 프로필, 알림 빈 화면
 
-실제 로그인, 본인인증, 결제, API, 데이터베이스, 지도 SDK, NFC, 위치 서비스는 연결하지 않습니다. AR 카메라와 촬영은 실제 기능입니다. 카메라 및 영상 촬영 시 마이크 권한을 요청하며 위치 권한은 요청하지 않습니다. 최소금액 100만원과 3년 기한은 lo-fi의 문구를 재현한 예시이며 실제 운영 정책 확정이 아닙니다. 로그인 입력은 예시이며 인증에 사용하거나 전송하지 않습니다. SNS 제공자 이름은 원본에 없어 SNS 1~3으로 표시합니다.
+Google 로그인은 Supabase Auth에 연결합니다. 본인인증, 결제, 기부 API/데이터베이스, 지도 SDK, NFC, 위치 서비스는 연결하지 않습니다. AR 카메라와 촬영은 실제 기능입니다. 카메라 및 영상 촬영 시 마이크 권한을 요청하며 위치 권한은 요청하지 않습니다. 최소금액 100만원과 3년 기한은 lo-fi의 문구를 재현한 예시이며 실제 운영 정책 확정이 아닙니다. Apple 로그인은 구현하지 않습니다.
 
 ## 화면 대응
 
@@ -52,7 +69,9 @@ Android Studio에서 `app`을 선택하고 기기 또는 에뮬레이터로 Run�
 - `BenchmarkApp.kt`: 단일 `NavHost`, 화면 연결, 탭과 뒤로가기
 - `LofiState.kt`: `SavedStateHandle`을 사용하는 화면 예시 상태
 - `DonationScreens.kt`: 기부 및 내역 화면
-- `ExperienceScreens.kt`: 로그인/인증 및 AR 진입 안내
+- `auth/`: Google PKCE 로그인, 세션 상태와 Android Keystore 암호화 저장
+- `MainActivity.kt`: 로그인 세션에 따른 앱 진입과 콜백 수신
+- `ExperienceScreens.kt`: 본인인증 예시 및 AR 진입 안내
 - `ar/`: 실제 AR 세션·캐릭터·조명·촬영·저장
 - `Components.kt`: 공통 입력/스크롤/회색 영역
 
@@ -91,7 +110,7 @@ JAVA_HOME='/Users/don/Library/Java/JavaVirtualMachines/ms-21.0.7/Contents/Home' 
 
 ## 실제 AR 실행
 
-Android Studio에서 `apps/android`를 열고 Gradle JDK 21로 Sync한 후 `app`을 실행합니다. 로그인 예시 → 건너뛰기 → AR 체험 탭 → 태그 결과 예시 → AR 카메라 열기 → AR 카메라 시작으로 들어갑니다.
+Android Studio에서 `apps/android`를 열고 Gradle JDK 21로 Sync한 후 `app`을 실행합니다. Google 로그인 → 건너뛰기 → AR 체험 탭 → 태그 결과 예시 → AR 카메라 열기 → AR 카메라 시작으로 들어갑니다.
 
 1. [ARCore 지원 실제 Android 기기](https://developers.google.com/ar/devices)를 USB로 연결하고 실행합니다.
 2. 카메라 권한을 허용합니다. 필요하면 Google Play Services for AR 설치/업데이트가 안내됩니다.
@@ -127,3 +146,16 @@ python3 tools/check_ar_models.py
 ```
 
 `ArModelRenderTest`는 AR 렌더러 자원 생성·해제와 Android GPU의 5개 GLB 로딩·애니메이션 적용·PixelCopy·영상/오디오 트랙 생성을 확인합니다. 캡처는 테스트 기기 내부 `files/ar-verification/`에 생성됩니다. 실제 카메라 AR 합성 캡처가 아닙니다. 실기기 인수 항목은 [AR 검증표](../../docs/android-ar-validation.md)를 사용합니다.
+
+## Google 로그인 구현 검증 (2026-10-07)
+
+```bash
+JAVA_HOME='/Users/don/Library/Java/JavaVirtualMachines/ms-21.0.7/Contents/Home' ANDROID_HOME='/Users/don/Library/Android/sdk' ./gradlew --no-daemon assembleDebug testDebugUnitTest lintDebug
+```
+
+- APK 빌드 성공, 단위·Compose 테스트 22개 통과(실패/스킵 0), lint 오류 0·경고 19.
+- PKCE 표준 벡터, 잘못된 콜백·재전송·만료·취소·통신 실패, 세션 복원, 계정 변경, 로그아웃 후 초안 제거와 기존 화면 이동을 검증했습니다.
+- 테스트 인증 서비스는 `src/test`에만 있으며 APK에 포함되지 않습니다. 테스트 통과는 실제 Google 계정 로그인이나 기기 Keystore 동작의 증거가 아닙니다.
+- 실제 Google OAuth 설정 완료·계정 로그인·기기에서의 암호화 저장 복원은 미검증입니다.
+
+![Google 로그인 화면 — Robolectric 렌더링](../../docs/android-lofi/google-login.png)
