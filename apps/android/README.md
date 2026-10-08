@@ -21,14 +21,14 @@ Android Studio에서 `app`을 선택하고 기기 또는 에뮬레이터로 Run�
 
 ## Google 로그인 설정
 
-현재 Android 구현과 Supabase 콜백 등록은 준비되어 있습니다. **Needs confirmation:** 지정한 Google 계정의 재인증, OAuth 클라이언트 생성과 Supabase Google 제공자 활성화, 실제 계정 로그인은 아직 완료되지 않았습니다.
+Android 구현, OAuth 웹 클라이언트 생성, Supabase Google 제공자 활성화와 콜백 등록을 완료했습니다. 실제 계정 로그인과 Android 기기에서의 앱 복귀는 아직 검증하지 않았습니다.
 
-Supabase 프로젝트 `52gibu` (`kfzfzarslqdqmrazohej`)를 사용합니다. Google Cloud 프로젝트와 OAuth 설정은 프로젝트 운영 계정에서 관리합니다.
+Supabase 프로젝트 `52gibu` (`kfzfzarslqdqmrazohej`)를 사용합니다. Google Cloud 프로젝트 `gibu-510908`의 OAuth 설정은 프로젝트 운영 계정에서 관리합니다. 현재 External / Testing 상태이며 운영 계정 한 개를 테스트 사용자로 등록했습니다.
 
 1. Google Auth Platform에서 앱 이름 `52gibu`, 기본 `openid`, `email`, `profile` 범위로 OAuth를 구성합니다. 웹 애플리케이션 클라이언트의 승인된 리디렉션 URI는 `https://kfzfzarslqdqmrazohej.supabase.co/auth/v1/callback`입니다.
 2. Supabase Authentication → Google에 해당 Client ID와 Client Secret을 설정합니다. Client Secret은 앱·Git에 넣지 않습니다.
 3. Supabase URL Configuration의 허용 목록에 `kr.ac.postech.benchmark://auth/callback`을 추가합니다.
-4. Supabase **publishable key**를 환경 변수 `SUPABASE_PUBLISHABLE_KEY` 또는 Git에서 제외된 `apps/android/local.properties`의 같은 이름 속성으로 제공하고 다시 빌드합니다. `service_role` 또는 secret key를 사용하지 않습니다.
+4. Supabase **publishable key 또는 기존 anon 공개 키**를 환경 변수 `SUPABASE_PUBLISHABLE_KEY` 또는 Git에서 제외된 `apps/android/local.properties`의 같은 이름 속성으로 제공하고 다시 빌드합니다. `service_role` 또는 secret key를 사용하지 않습니다.
 
 키가 없으면 Google 로그인 버튼이 비활성화됩니다. 예시 로그인으로 우회하지 않습니다. Google OAuth가 테스트 상태이면 허용한 테스트 계정만 사용할 수 있습니다. 공개 배포 전에는 동의 화면·도메인 및 게시 상태를 확인해야 합니다.
 
@@ -156,6 +156,9 @@ JAVA_HOME='/Users/don/Library/Java/JavaVirtualMachines/ms-21.0.7/Contents/Home' 
 - APK 빌드 성공, 단위·Compose 테스트 22개 통과(실패/스킵 0), lint 오류 0·경고 19.
 - PKCE 표준 벡터, 잘못된 콜백·재전송·만료·취소·통신 실패, 세션 복원, 계정 변경, 로그아웃 후 초안 제거와 기존 화면 이동을 검증했습니다.
 - 테스트 인증 서비스는 `src/test`에만 있으며 APK에 포함되지 않습니다. 테스트 통과는 실제 Google 계정 로그인이나 기기 Keystore 동작의 증거가 아닙니다.
-- 실제 Google OAuth 설정 완료·계정 로그인·기기에서의 암호화 저장 복원은 미검증입니다.
+- 2026-10-08 원격 설정 검증: `/auth/v1/settings`가 HTTP 200과 Google 활성화를 반환했고, `/auth/v1/authorize`가 HTTP 302로 올바른 Client ID·Supabase 콜백을 사용하는 Google 인증 URL을 반환했습니다. 기본 `openid`, `email`, `profile` 범위를 저장했습니다.
+- 기존 mobile 공개 키는 실제 API에서 HTTP 401을 반환하여, 동일 프로젝트의 정상 동작하는 기존 anon 공개 키로 Git에서 제외된 Android 로컬 설정을 변경했습니다. Client Secret은 Supabase에만 저장했습니다.
+- 2026-10-08 공개 키를 반영한 `./gradlew --no-daemon assembleDebug` 재실행 성공.
+- Needs confirmation: 실제 계정 로그인·Android 앱 복귀·기기에서의 암호화 저장 복원은 미검증입니다.
 
 ![Google 로그인 화면 — Robolectric 렌더링](../../docs/android-lofi/google-login.png)
