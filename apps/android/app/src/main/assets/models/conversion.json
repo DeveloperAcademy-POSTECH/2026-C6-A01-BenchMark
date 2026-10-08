@@ -1,0 +1,37 @@
+[
+  {
+    "name": "neopjuk",
+    "source_sha256": "e51ca94ff85a39557c555a49af646a3d27e0581458e3ae65c0b3769b0d9735bb",
+    "glb_sha256": "1eea30dad3a1d1a2b2d1f087718de86a5db3698f8248266333d0e15daf509054",
+    "bytes": 3467808,
+    "original_triangles": 97608
+  },
+  {
+    "name": "ponix",
+    "source_sha256": "56f421273179af9ef6f43f2810711dc29b86c5a42d16f9a6ae89a66d9a015098",
+    "glb_sha256": "cc37e1fbd0a5493e72653c154feae8d2d2818f359855092c5c56b42bf28f1321",
+    "bytes": 8296060,
+    "original_triangles": 1928847
+  },
+  {
+    "name": "ponixVsNeopjuk",
+    "source_sha256": "bf67a2dd18c2c0fc96615fa9d4c4f5e065c81c49ab3c8a0aa0edcc7c58633f37",
+    "glb_sha256": "06482f7aa252a0dfd41ede4b1d17e2e144d9968c5307100baa3a889f5f655689",
+    "bytes": 9065420,
+    "original_triangles": 196440
+  },
+  {
+    "name": "doni",
+    "source_sha256": "1e416debfad89cb42800304fec98a0efb3950cb1d109dedb219d65ca54dabad4",
+    "glb_sha256": "c51c387b769ab30795e6cd288a50769784fe754d03ad1dccdd901f5781f14100",
+    "bytes": 6090296,
+    "original_triangles": 466458
+  },
+  {
+    "name": "neopjukAnimated",
+    "source_sha256": "0607fb6336f13c8f7a4934b3fd5504cd6b9189e6a61680e30ab5a997de267c68",
+    "glb_sha256": "c7fdd30f28d8c41b830657fa539e2f26043ff765637cef0926c75520c067e22d",
+    "bytes": 4252072,
+    "original_triangles": 97608
+  }
+]
