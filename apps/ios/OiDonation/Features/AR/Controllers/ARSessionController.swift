@@ -5,11 +5,13 @@ import RealityKit
 import SwiftUI
 
 @MainActor @Observable
-final class ARSessionController: NSObject, ARSessionDelegate {
+final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognizerDelegate {
+    var photoViewport = CGRect.zero
     let view = RealityKit.ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
     let animation = ARAnimationController()
     private let characters = ARCharacterController()
     private let lighting = ARLightingController()
+    private let photoCapture = ARPhotoCaptureService()
     var motions: [ARAnimationController.Motion] { animation.motions }
     var selectedMotion: Int? { animation.selectedMotion }
     var motionPlaying: Bool { animation.motionPlaying }
@@ -23,6 +25,7 @@ final class ARSessionController: NSObject, ARSessionDelegate {
     var capturing = false
     var videoRecording = false
     var errorMessage: String?
+    var result: ARCaptureResult?
     let peopleSupported = ARWorldTrackingConfiguration.supportsFrameSemantics(.personSegmentationWithDepth)
     let meshSupported = ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh)
     private var anchor: AnchorEntity?
@@ -31,12 +34,24 @@ final class ARSessionController: NSObject, ARSessionDelegate {
     var canCapture: Bool { placed && ready && !loading && !capturing && !videoRecording && loadedCharacter == settings.character }
     private var loadTask: Task<Void, Never>?
     private var wantsRunning = false
+    private var pinchStartHeight: Float?
+    private var dragStart: (rotation: Float, floorOffset: Float)?
 
     override init() {
         super.init()
         view.session.delegate = self
         view.session.delegateQueue = .main
-        view.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped(_:))))
+        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:)))
+        let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(dragged(_:)))
+        pan.maximumNumberOfTouches = 1
+        pan.delegate = self
+        pinch.delegate = self
+        tap.require(toFail: pinch)
+        tap.require(toFail: pan)
+        view.addGestureRecognizer(pan)
+        view.addGestureRecognizer(pinch)
+        view.addGestureRecognizer(tap)
         lighting.install(in: view)
         applySettings()
     }
@@ -50,7 +65,7 @@ final class ARSessionController: NSObject, ARSessionDelegate {
         let allowed = await AVCaptureDevice.requestAccess(for: .video)
         guard wantsRunning else { return }
         guard allowed else {
-            message = "카메라 권한이 필요합니다. 설정 앱에서 OiDonation의 카메라 접근을 허용해 주세요."
+            message = "카메라 권한이 필요합니다. 설정 앱에서 오이기부의 카메라 접근을 허용해 주세요."
             return
         }
         ready = true
@@ -106,6 +121,7 @@ final class ARSessionController: NSObject, ARSessionDelegate {
             do {
                 let (root, model) = try await self.characters.load(selection)
                 try Task.checkCancellation()
+                model.generateCollisionShapes(recursive: true)
                 self.animation.load(from: model)
                 self.characterRoot?.removeFromParent()
                 self.characterRoot = root
@@ -132,6 +148,98 @@ final class ARSessionController: NSObject, ARSessionDelegate {
     func toggleMotion() {
         guard !loading, !capturing, !videoRecording else { return }
         animation.toggleMotion()
+    }
+
+    @objc private func dragged(_ gesture: UIPanGestureRecognizer) {
+        guard ready, placed, !loading, !capturing, !videoRecording, gesture.numberOfTouches == 1 else {
+            dragStart = nil
+            return
+        }
+        switch gesture.state {
+        case .began:
+            // Require the drag to start on the character rather than anywhere on the floor.
+            let translation = gesture.translation(in: view)
+            let location = gesture.location(in: view)
+            let origin = CGPoint(x: location.x - translation.x, y: location.y - translation.y)
+            guard touchesCharacter(at: origin) else {
+                dragStart = nil
+                return
+            }
+            dragStart = (settings.rotation, settings.floorOffset)
+        case .changed:
+            guard let initial = dragStart else { return }
+            let translation = gesture.translation(in: view)
+            settings.rotation = (initial.rotation + Float(translation.x) * 0.5 + 180)
+                .truncatingRemainder(dividingBy: 360)
+            if settings.rotation < 0 { settings.rotation += 360 }
+            settings.rotation -= 180
+            // Moving upward on screen lifts the character above the detected floor.
+            settings.floorOffset = min(0.3, max(-0.3, initial.floorOffset - Float(translation.y) * 0.002))
+            applySettings()
+        case .ended, .cancelled, .failed:
+            dragStart = nil
+        default: break
+        }
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        (gestureRecognizer is UIPanGestureRecognizer && other is UIPinchGestureRecognizer)
+            || (gestureRecognizer is UIPinchGestureRecognizer && other is UIPanGestureRecognizer)
+    }
+
+    private func touchesCharacter(at point: CGPoint) -> Bool {
+        guard let root = characterRoot else { return false }
+        if let hit = view.entity(at: point), belongsToCharacter(hit, root: root) { return true }
+        // Animated/thin meshes can miss collision ray tests; accept their visible screen bounds.
+        let bounds = root.visualBounds(relativeTo: nil)
+        var projected: [CGPoint] = []
+        for x in [bounds.min.x, bounds.max.x] {
+            for y in [bounds.min.y, bounds.max.y] {
+                for z in [bounds.min.z, bounds.max.z] {
+                    if let p = view.project(SIMD3(x, y, z)), p.x.isFinite, p.y.isFinite {
+                        projected.append(p)
+                    }
+                }
+            }
+        }
+        guard let first = projected.first else { return false }
+        var rect = CGRect(origin: first, size: .zero)
+        for p in projected {
+            rect = CGRect(x: min(rect.minX, p.x), y: min(rect.minY, p.y),
+                          width: max(rect.maxX, p.x) - min(rect.minX, p.x),
+                          height: max(rect.maxY, p.y) - min(rect.minY, p.y))
+        }
+        return rect.insetBy(dx: -16, dy: -16).contains(point)
+    }
+
+    private func belongsToCharacter(_ entity: Entity, root: Entity) -> Bool {
+        var candidate: Entity? = entity
+        while let current = candidate {
+            if current === root { return true }
+            candidate = current.parent
+        }
+        return false
+    }
+
+    @objc private func pinched(_ gesture: UIPinchGestureRecognizer) {
+        guard ready, placed, !loading, !capturing, !videoRecording else {
+            pinchStartHeight = nil
+            return
+        }
+        switch gesture.state {
+        case .began:
+            pinchStartHeight = settings.height
+        case .changed:
+            guard let initial = pinchStartHeight else { return }
+            let height = initial * Float(gesture.scale)
+            guard height.isFinite else { return }
+            settings.height = min(2.5, max(0.2, height))
+            applySettings()
+        case .ended, .cancelled, .failed:
+            pinchStartHeight = nil
+        default: break
+        }
     }
 
     @objc private func tapped(_ gesture: UITapGestureRecognizer) {
@@ -180,4 +288,17 @@ final class ARSessionController: NSObject, ARSessionDelegate {
         errorMessage = "AR 세션 오류: \(error.localizedDescription). 앱을 다시 활성화하거나 재시도해 주세요."
     }
 
+    func capture() {
+        guard canCapture, let frame = view.session.currentFrame, let anchor else { return }
+        capturing = true
+        photoCapture.capture(view: view, viewport: photoViewport, frame: frame, anchor: anchor, settings: settings,
+                             peopleSupported: peopleSupported, meshSupported: meshSupported) { [weak self] outcome in
+            guard let self else { return }
+            self.capturing = false
+            switch outcome {
+            case .success(let result): self.result = result
+            case .failure(let error): self.errorMessage = "사진 저장 실패: \(error.localizedDescription)"
+            }
+        }
+    }
 }
