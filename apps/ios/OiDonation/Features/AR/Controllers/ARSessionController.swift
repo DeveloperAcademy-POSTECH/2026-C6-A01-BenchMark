@@ -20,6 +20,8 @@ final class ARSessionController: NSObject, ARSessionDelegate {
     var placed = false
     var locked = false
     var ready = false
+    private let photoCapture = ARPhotoCaptureService()
+    var result: ARCaptureResult?
     var capturing = false
     var videoRecording = false
     var errorMessage: String?
@@ -180,4 +182,17 @@ final class ARSessionController: NSObject, ARSessionDelegate {
         errorMessage = "AR 세션 오류: \(error.localizedDescription). 앱을 다시 활성화하거나 재시도해 주세요."
     }
 
+    func capture() {
+        guard canCapture, let frame = view.session.currentFrame, let anchor else { return }
+        capturing = true
+        photoCapture.capture(view: view, frame: frame, anchor: anchor, settings: settings,
+                             peopleSupported: peopleSupported, meshSupported: meshSupported) { [weak self] outcome in
+            guard let self else { return }
+            self.capturing = false
+            switch outcome {
+            case .success(let result): self.result = result
+            case .failure(let error): self.errorMessage = "사진 저장 실패: \(error.localizedDescription)"
+            }
+        }
+    }
 }

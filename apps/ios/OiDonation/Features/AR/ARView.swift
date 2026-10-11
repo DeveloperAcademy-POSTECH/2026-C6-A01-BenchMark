@@ -20,7 +20,7 @@ struct ARView: View {
                     if controller.loading { ProgressView("캐릭터 로딩 중") }
                 }.font(.caption).padding(12).background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12)).padding()
             }.frame(maxWidth: .infinity, maxHeight: .infinity).clipped()
-            controls
+            controls.disabled(controller.capturing)
         }
         .background(Color.black).foregroundStyle(.white).preferredColorScheme(.dark)
         .task { await controller.start() }
@@ -30,6 +30,7 @@ struct ARView: View {
             else { controller.pause() }
         }
         .onChange(of: controller.settings) { previous, _ in controller.update(from: previous) }
+        .sheet(item: Binding(get: { controller.result }, set: { controller.result = $0 })) { ARPhotoResultView(result: $0) }
         .alert("AR 안내", isPresented: Binding(get: { controller.errorMessage != nil }, set: { if !$0 { controller.errorMessage = nil } })) {
             Button("확인") { controller.errorMessage = nil }
         } message: { Text(controller.errorMessage ?? "") }
@@ -56,6 +57,10 @@ struct ARView: View {
                 Text("회전").frame(width: 35)
                 Slider(value: $controller.settings.rotation, in: -180...180)
             }
+            Button(action: controller.capture) {
+                Label(controller.capturing ? "사진 처리 중" : "사진 촬영", systemImage: "camera.fill")
+                    .frame(maxWidth: .infinity).padding(.vertical, 8)
+            }.buttonStyle(.borderedProminent).disabled(!controller.canCapture)
             Text("주변 환경 조명이 자동 적용됩니다.").font(.caption).foregroundStyle(.secondary)
             if !controller.ready { Button("카메라 다시 시도") { Task { await controller.start() } } }
         }.padding().background(.ultraThinMaterial)
