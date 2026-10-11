@@ -8,7 +8,7 @@ final class ARCharacterController {
         try Task.checkCancellation()
         let bounds = model.visualBounds(relativeTo: nil)
         guard bounds.extents.y.isFinite, bounds.extents.y > 0.0001 else {
-            throw NSError(domain: "OiDonation", code: 1, userInfo: [NSLocalizedDescriptionKey: "모델의 높이를 계산할 수 없습니다."])
+            throw NSError(domain: "오이기부", code: 1, userInfo: [NSLocalizedDescriptionKey: "모델의 높이를 계산할 수 없습니다."])
         }
         // 모델의 바닥이 원점에 오도록 배치하고 높이를 1미터로 정규화합니다.
         let normalized = Entity()
