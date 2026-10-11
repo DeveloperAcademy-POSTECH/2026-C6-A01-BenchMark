@@ -15,4 +15,3 @@ struct ARCharacterThumbnail: View {
             .accessibilityHidden(true)
     }
 }
-
