@@ -11,8 +11,8 @@ struct UnconnectedPilotRepository: HomeRepository, BenchRepository, Participatio
     }
 }
 
-/// Explicit preview fixture; AppContainer.pilot never installs this implementation.
-struct PreviewHomeRepository: HomeRepository {
+/// Temporary Figma values for previews and pilot design review, never school-confirmed statistics.
+struct DesignDemoHomeRepository: HomeRepository {
     func fetchDashboard() async throws -> HomeDashboard? { .designExample }
 }
 

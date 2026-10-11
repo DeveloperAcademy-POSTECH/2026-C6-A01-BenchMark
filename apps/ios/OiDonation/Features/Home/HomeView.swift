@@ -211,5 +211,5 @@ private struct HomeImpactCard: View {
 }
 
 #Preview {
-    HomeView(repository: PreviewHomeRepository())
+    HomeView(repository: DesignDemoHomeRepository())
 }

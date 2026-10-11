@@ -7,13 +7,14 @@ struct AppContainer {
     let storyRepository: any StoryRepository
     let approvedLinkHost: String?
 
-    static let pilot = AppContainer(homeRepository: UnconnectedPilotRepository(),
+    // Temporary Figma dashboard for device design review; other services remain unconnected.
+    static let pilot = AppContainer(homeRepository: DesignDemoHomeRepository(),
         benchRepository: UnconnectedPilotRepository(), participationRepository: UnconnectedPilotRepository(),
         storyRepository: UnconnectedPilotRepository(), approvedLinkHost: nil)
 
     static var preview: AppContainer {
         let participation = PreviewParticipationRepository()
-        return AppContainer(homeRepository: PreviewHomeRepository(), benchRepository: participation,
+        return AppContainer(homeRepository: DesignDemoHomeRepository(), benchRepository: participation,
             participationRepository: participation, storyRepository: UnconnectedPilotRepository(), approvedLinkHost: nil)
     }
 }

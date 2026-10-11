@@ -3,7 +3,7 @@
 - 디자인: https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=1021-4493
 - HomeView: 로고·벤치 배너·기부 내역·바로가기·참여 현황 구성. Figma 원본 이미지는 Assets.xcassets에 저장했다.
 - RootTabView가 탭별 경로와 독립 카메라 버튼을 소유한다. HomeView는 홈 콘텐츠만 담당하며 전체 미리보기는 RootTabView(container: .preview)를 사용한다.
-- Preview의 이름과 현황만 HomeDashboard.designExample의 예시 데이터이며 화면에 예시임을 표시한다. 실제 실행은 미연결 현황을 표시한다. 서버·학교 확인 데이터 연동은 아직 없다. 진행률 78%의 산식도 정의하지 않았다.
+- 2026-10-11 요청에 따라 Preview와 실제 파일럿 실행 모두 DesignDemoHomeRepository로 Figma 예시를 표시한다: 김사과, 벤치 17/30, 참여자 235명, 진행률 78%. 화면에 예시임을 표시하며 서버·학교 확인 데이터가 아니다. 78%는 17/30의 계산 결과가 아닌 디자인 지정값이다. 서버 연결 시 AppContainer.pilot의 homeRepository를 실제 구현으로 교체한다.
 - 기부와 정기후원은 POSTECH 공식 절차로 안내하며 앱에서 결제를 처리하거나 납입 완료로 기록하지 않는다.
 - 알림·프로필·소식·혜택은 안내 화면이다. 내 기부·벤치 목록·참여 신청은 Repository 인터페이스에 연결했으나 실제 서버와 지도는 아직 연동하지 않았다.
 - 제공된 프레임에는 배너 한 개만 있으므로 실제 다섯 개 콘텐츠를 가정하거나 작동하지 않는 페이지 점을 표시하지 않았다. 여러 배너의 콘텐츠 확정 후 페이지 컨트롤을 연결해야 한다.
