@@ -7,14 +7,20 @@ struct ARSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("카메라 화면") {
+                    Toggle("촬영 영역 밖 배경을 검정색으로", isOn: $controller.settings.opaquePhotoMargins)
+                    Text("켜면 비율 밖 영역이 완전 검정색으로, 끄면 카메라 영상 위에 옅은 검정색으로 표시됩니다. 저장 사진에는 영향을 주지 않습니다.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .listRowBackground(Color.black.opacity(0.22))
                 Section("환경과 가림") {
                     Toggle("사람 가림", isOn: $controller.settings.peopleOcclusion).disabled(!controller.peopleSupported)
                     Toggle("공간 가림 · LiDAR", isOn: $controller.settings.sceneOcclusion).disabled(!controller.meshSupported)
                     Text("사람 가림: \(controller.peopleSupported ? "지원" : "미지원") · LiDAR 메시: \(controller.meshSupported ? "지원" : "미지원")").font(.caption)
                 }
                 .listRowBackground(Color.black.opacity(0.22))
-                Section("배치·조명 조절") {
-                    Text("촬영 화면 하단의 조절 버튼을 누르세요. 배치 탭에서 키·회전·바닥 높이를, 조명 탭에서 강도·방향·환경 밝기를 캐릭터를 보면서 조절할 수 있습니다.")
+                Section("캐릭터 조절") {
+                    Text("두 손가락을 벌리거나 모으면 크기가 바뀝니다. 캐릭터를 한 손가락으로 좌우로 드래그하면 회전하고 위아래로 드래그하면 바닥 기준 높이가 바뀝니다. 하단 조명 버튼에서는 강도·방향·환경 밝기를 조절할 수 있습니다.")
                 }
                 .listRowBackground(Color.black.opacity(0.22))
                 Section("촬영 안내") {

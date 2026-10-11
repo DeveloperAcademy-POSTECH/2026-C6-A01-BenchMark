@@ -3,9 +3,11 @@ import SwiftUI
 struct ARCameraPreview: View {
     let controller: ARSessionController
     let recording: Bool
+    var topInset: CGFloat = 0
     var body: some View {
         ZStack(alignment: .top) {
             ARCameraView(controller: controller)
+                .saturation(controller.settings.photoFilter.saturation)
             VStack(spacing: 8) {
                 Text(controller.tracking)
                     .font(.caption.weight(.medium))
@@ -22,6 +24,7 @@ struct ARCameraPreview: View {
                 }
             }
             .padding()
+            .padding(.top, topInset)
             .allowsHitTesting(false)
             .opacity(recording ? 0 : 1)
         }

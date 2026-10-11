@@ -12,7 +12,7 @@ struct ARCaptureDock: View {
     var body: some View {
         VStack(spacing: 12) {
             ARCaptureModePicker(videoMode: $model.videoMode)
-                .disabled(video.busy || controller.capturing)
+                .disabled(video.busy || controller.capturing || model.countdown != nil)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .overlay(alignment: .leading) {
                     motionButton
@@ -42,17 +42,17 @@ struct ARCaptureDock: View {
 
             HStack(spacing: 4) {
                 Button { showAdjustments.toggle() } label: {
-                    dockLabel("조절", symbol: "slider.horizontal.3")
+                    dockLabel("조명", symbol: "lightbulb")
                 }
-                .disabled(video.busy)
+                .disabled(video.busy || model.countdown != nil)
                 .foregroundStyle(showAdjustments ? Color.mint : Color.primary)
-                .accessibilityLabel("실시간 배치·조명 조절")
+                .accessibilityLabel("캐릭터 조명 조절")
                 .accessibilityValue(showAdjustments ? "열림" : "닫힘")
 
                 Button { controller.locked.toggle() } label: {
                     dockLabel("잠금", symbol: controller.locked ? "lock.fill" : "lock.open")
                 }
-                .disabled(!controller.placed || controller.capturing || video.busy)
+                .disabled(!controller.placed || controller.capturing || video.busy || model.countdown != nil)
                 .accessibilityLabel("위치 잠금")
                 .accessibilityValue(controller.locked ? "잠김" : "해제됨")
 
@@ -68,31 +68,27 @@ struct ARCaptureDock: View {
                             Circle().fill(videoMode ? Color.red : Color.primary).frame(width: 52, height: 52)
                         }
                         if controller.capturing { ProgressView().tint(.mint) }
+                        if let countdown = model.countdown { Text("\(countdown)").font(.title.bold()).foregroundStyle(.black) }
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .accessibilityLabel(video.state == .recording ? "녹화 정지" : (videoMode ? "영상 및 음성 녹화" : "AR 사진 촬영"))
+                .accessibilityLabel(model.countdown != nil ? "타이머 촬영 취소" : video.state == .recording ? "녹화 정지" : (videoMode ? "영상 및 음성 녹화" : "AR 사진 촬영"))
                 .disabled(video.state == .recording ? false : (video.busy || !controller.canCapture))
                 .opacity(controller.canCapture || video.busy ? 1 : 0.4)
 
                 Button { controller.resetPlacement() } label: {
                     dockLabel("재배치", symbol: "arrow.counterclockwise")
-                }.disabled(!controller.placed || controller.capturing || video.busy)
+                }.disabled(!controller.placed || controller.capturing || video.busy || model.countdown != nil)
 
                 Button { showSettings = true } label: {
                     dockLabel("설정", symbol: "gearshape")
-                }.accessibilityLabel("실험 설정").disabled(video.busy)
+                }.accessibilityLabel("실험 설정").disabled(video.busy || model.countdown != nil)
             }
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(.black, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
-                .allowsHitTesting(false)
-        }
+
     }
 
     private var motionButton: some View {
@@ -126,7 +122,7 @@ struct ARCaptureDock: View {
         }
         .accessibilityLabel("애니메이션 선택")
         .accessibilityValue(controller.motionPlaying ? "재생 중" : "정지 상태")
-        .disabled(controller.loading || controller.capturing || video.busy)
+        .disabled(controller.loading || controller.capturing || video.busy || model.countdown != nil)
     }
 
     private var characterButton: some View {
@@ -151,7 +147,7 @@ struct ARCaptureDock: View {
     }
     .accessibilityLabel("캐릭터 선택")
     .accessibilityValue(controller.settings.character.title)
-    .disabled(controller.loading || controller.capturing || video.busy)
+    .disabled(controller.loading || controller.capturing || video.busy || model.countdown != nil)
     }
 
     private func dockLabel(_ title: String, symbol: String) -> some View {
