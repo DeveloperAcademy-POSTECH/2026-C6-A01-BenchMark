@@ -1,7 +1,7 @@
 # 오이기부 아키텍처 및 팀 협업 제안
 
 - 작성일: 2026-10-11
-- 상태: **팀 검토 중인 제안**. 이 문서의 추가나 PR 병합만으로 모든 설계가 승인된 것으로 간주하지 않는다.
+- 상태: **팀 검토 중인 제안 및 #56의 초기 적용 기록**. 이 문서의 추가나 PR 병합만으로 모든 설계가 승인된 것으로 간주하지 않는다.
 - 서비스 기획 기준: [project.md](../project.md)
 - 작업 지침: [AGENTS.md](../AGENTS.md)
 
@@ -15,9 +15,19 @@
 
 ## 2. 현재 코드와 제안의 구분
 
-현재 develop에는 App/RootTabView, Features/Home 및 AR 화면 뼈대와 Models의 Donation, Donor, Organization, Story가 있다. 실제 저장소를 먼저 확인하고 기존 구현과 제안을 비교한다.
+2026-10-11 이슈 #56에서 초기 구조를 적용했다.
 
-아래 폴더, Repository, 운영자 기능과 상태 모델은 향후 제안이며 구현 완료를 의미하지 않는다. 기존 파일을 일괄 이동하거나 기존 모델을 무조건 교체하지 않는다. 로컬에서 작성 중인 홈 디자인은 이 문서 PR에 포함하지 않는다.
+- AppContainer가 실제 파일럿용 미연결 Repository와 명시적 Preview 구현을 구분한다.
+- RootTabView가 각 탭의 NavigationStack과 독립 카메라 버튼을 소유하고 HomeView는 홈 콘텐츠를 표시한다.
+- AppRouter와 PublicLinkParser가 벤치·스토리 경로를 분리한다. 운영 도메인은 미정이므로 실제 앱 링크 수신은 비활성 상태다. Associated Domains·NFC 태그 배포는 아직 하지 않았다.
+- 기존 모델은 Domain/Models로 이동하되 기존 Donation 등의 이름·필드는 유지했다. 기존 DonationStatus는 호환을 위해 남겼으며 새 참여 흐름은 신청·납입 확인·명패 상태를 각각 사용한다.
+- Home·Participation·MyDonations 화면 상태와 Repository 인터페이스, Benches 조회·공개 링크 상세 화면을 추가했다.
+- APIClient는 HTTPS·허용 호스트·HTTP 응답 검증을 위한 기반이며 실제 API 경로·DTO·토큰 저장·인증 공급자 연동은 아직 없다. 호출 전 승인된 서버와 인증 계약이 필요하다.
+- 2026-10-11 홈 디자인 확인 요청에 따라 실행 앱의 홈 현황에는 DesignDemoHomeRepository의 Figma 예시를 임시 표시한다. 화면에 예시임을 표시하며 실제 학교 수치가 아니다. 나머지 미연결 저장소는 빈 목록을 반환하고 신청 저장은 실패한다. Preview 신청은 메모리 전용이며 학교 확인 대기로만 생성된다.
+- 도메인·링크·중복 요청·미연결 상태 검증은 apps/ios/Tests/run-architecture-checks.sh로 실행할 수 있다.
+- 검증: iOS Simulator 빌드와 위 검증 스크립트 통과. 시뮬레이터에서 홈의 기부 시작 → 참여 신청 이동, 독립 카메라 버튼의 AR 화면 진입을 확인했다. 카메라 화면은 기존 뼈대이며 실제 촬영 검증은 아니다.
+
+운영자 웹·학교 확인 연동·서버 저장·로그인·실제 지도·AR 카메라 구현은 아직 없다. ARView는 기존 화면 뼈대를 유지했다. 아래 설계의 미적용 항목과 정책은 제안이며 이 코드가 서비스 완성을 의미하지 않는다.
 
 ## 3. 전체 서비스 구조
 
