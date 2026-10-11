@@ -14,7 +14,7 @@ final class ARPhotoCaptureService {
         let date = Date()
         view.snapshot(saveToHDR: false) { image in
             guard let image, let data = image.jpegData(compressionQuality: 0.95) else {
-                completion(.failure(NSError(domain: "OiDonation.Photo", code: 1, userInfo: [NSLocalizedDescriptionKey: "사진을 생성하지 못했습니다. 다시 촬영해 주세요."])))
+                completion(.failure(NSError(domain: "오이기부.Photo", code: 1, userInfo: [NSLocalizedDescriptionKey: "사진을 생성하지 못했습니다. 다시 촬영해 주세요."])))
                 return
             }
             do {

@@ -10,6 +10,7 @@ final class ARSessionController: NSObject, ARSessionDelegate {
     let animation = ARAnimationController()
     private let characters = ARCharacterController()
     private let lighting = ARLightingController()
+    private let photoCapture = ARPhotoCaptureService()
     var motions: [ARAnimationController.Motion] { animation.motions }
     var selectedMotion: Int? { animation.selectedMotion }
     var motionPlaying: Bool { animation.motionPlaying }
@@ -20,11 +21,10 @@ final class ARSessionController: NSObject, ARSessionDelegate {
     var placed = false
     var locked = false
     var ready = false
-    private let photoCapture = ARPhotoCaptureService()
-    var result: ARCaptureResult?
     var capturing = false
     var videoRecording = false
     var errorMessage: String?
+    var result: ARCaptureResult?
     let peopleSupported = ARWorldTrackingConfiguration.supportsFrameSemantics(.personSegmentationWithDepth)
     let meshSupported = ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh)
     private var anchor: AnchorEntity?
@@ -52,7 +52,7 @@ final class ARSessionController: NSObject, ARSessionDelegate {
         let allowed = await AVCaptureDevice.requestAccess(for: .video)
         guard wantsRunning else { return }
         guard allowed else {
-            message = "카메라 권한이 필요합니다. 설정 앱에서 OiDonation의 카메라 접근을 허용해 주세요."
+            message = "카메라 권한이 필요합니다. 설정 앱에서 오이기부의 카메라 접근을 허용해 주세요."
             return
         }
         ready = true
