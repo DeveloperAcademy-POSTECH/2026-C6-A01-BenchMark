@@ -1,5 +1,5 @@
 //
-//  ContentView.swift
+//  HomeView.swift
 //  OiDonation
 //
 //  Created by jiwon hong on 10/8/26.
@@ -7,9 +7,10 @@
 
 import SwiftUI
 
-struct ContentView: View {
-    var body: some View {
+struct HomeView: View {
+    let onARTap: () -> Void
 
+    var body: some View {
         ScrollView {
             VStack(spacing: 17) {
                 // 상단 로고와 버튼
@@ -64,17 +65,20 @@ struct ContentView: View {
                     .frame(height: 64)
 
                 // AR 진입 버튼
-                Circle()
-                    .fill(.gray.opacity(0.3))
-                    .frame(width: 64, height: 64)
+                Button {
+                    onARTap()
+                } label: {
+                    Circle()
+                        .fill(.gray.opacity(0.3))
+                        .frame(width: 64, height: 64)
+                }
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 8)
         }
-
     }
 }
 
 #Preview {
-    ContentView()
+    HomeView(onARTap: {})
 }
