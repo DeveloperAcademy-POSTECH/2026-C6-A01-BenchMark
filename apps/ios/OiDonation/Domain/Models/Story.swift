@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct Story: Identifiable {
+struct Story: Identifiable, Sendable {
     var id: String { plaqueID }
     let plaqueID: String
     let donorID: UUID
