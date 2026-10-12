@@ -68,3 +68,5 @@ Needs confirmation:
 ## 개편 웹 미리보기
 
 Railway `benchmark-mat-pilot` / `design-preview` / `oi-web-preview`를 사용한다. `OI_WEB_PREVIEW=1`이면 검색 제외 헤더를 제공하고 `/stories`, `/pilot`, `/reserve`, `/admin`은 기존 파일럿 운영 주소로 이동한다. 운영 DB·관리자 변수·마이그레이션은 복제하지 않는다. 기존 `main-concepts` 서비스와 운영 서비스는 별도로 유지한다.
+
+서비스 이름은 **오이기부**, 제작팀 이름은 **BenchMark**다. 공개 제목·로고·주요 안내는 서비스명을 사용하며 팀 이름은 제작팀 표기에만 사용한다.
