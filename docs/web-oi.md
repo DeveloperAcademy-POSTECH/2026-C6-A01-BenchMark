@@ -121,3 +121,10 @@ https://oi-web-preview-design-preview.up.railway.app/auth/callback?next=%2F
 - 정리한 사진의 4:3 비율·벤치 전체 구도 유지, 아치와 영어 문구를 다시 추가하지 않음
 - 공유 브랜드 CSS는 `.oi-*` 및 서비스 페이지 배경으로 범위를 제한해 기존 파일럿 입력·본문 스타일을 유지
 - lint·typecheck·unit 12개·build, 320/390/768/1440px 웹 흐름 및 Google PKCE 진입 검사 통과
+
+- 공유 디자인 공개 배포: 소스 `aa5bafd`, Railway deployment `5a300357-5865-4b45-ac5b-abdbe77d54b7` SUCCESS
+- 공개 두 웹의 Griun OMIRI·Pretendard 파일 SHA-256 일치 확인
+- 공개 390/1440px에서 크림 배경·제목 Griun OMIRI·본문 Pretendard 실제 계산 스타일 확인
+- 공개 반응형·기부 이동·Google PKCE 진입 2개 브라우저 테스트 통과
+
+![공유 디자인 기준의 오이기부 홈](web-oi/brand-hero-1440.png)
