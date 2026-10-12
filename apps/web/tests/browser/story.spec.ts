@@ -29,7 +29,7 @@ test("admin registration, publication, mobile reading and one-device reaction", 
     const screenshotDir = "../../docs/screenshots"; await mkdir(screenshotDir, { recursive: true });
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.screenshot({ path: `${screenshotDir}/admin-desktop.png`, fullPage: true });
-    await page.goto("/");
+    await page.goto("/pilot");
     await page.evaluate(() => document.fonts.ready);
     await expect(page.locator(".story-reading h1")).toHaveText("함께 쉬어 가는 자리에 남긴 마음");
     await expect(page.getByRole("heading", { name: "사용 안내서" })).toBeVisible();
@@ -62,7 +62,7 @@ test("admin registration, publication, mobile reading and one-device reaction", 
     } finally { await other.close(); }
     await page.setViewportSize({ width: 390, height: 844 }); await page.goto("/about");
     await expect(page).toHaveURL("/");
-    await expect(page.getByRole("link", { name: /나도 기부 참가하기/ })).toHaveAttribute("href", `/reserve?from=${storyId}`);
+    await expect(page.getByRole("link", { name: "기부 시작하기" })).toHaveAttribute("href", "/donate");
     await expect(page.locator('a[href="/about"]')).toHaveCount(0);
     await expect(page.locator('a[href*="naver.me"]')).toHaveCount(0);
     await page.goto(`/reserve?from=${storyId}`);
@@ -113,7 +113,7 @@ test("admin registration, publication, mobile reading and one-device reaction", 
     await page.getByRole("button", { name: "로그아웃" }).click();
     await expect(page.getByRole("button", { name: "관리자 페이지로 이동" })).toBeVisible();
     await page.goto(`/stories/${storyId}`); await expect(page.getByRole("heading", { name: "아직 펼쳐지지 않은 이야기예요." })).toBeVisible();
-    await page.goto("/");
+    await page.goto("/pilot");
     await expect(page.locator(".empty-story h1")).toContainText("펼칠 준비를 하고 있어요.");
     await expect(page.locator(".reaction-button:disabled")).toHaveCount(4);
     await expect(page.getByRole("link", { name: /나도 기부 참가하기/ })).toHaveAttribute("href", "/reserve");
