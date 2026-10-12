@@ -1,6 +1,7 @@
 import Image from "next/image";
 import s from "./brand-home.module.css";
 
+const serviceUrl = "https://oi-web-preview-design-preview.up.railway.app";
 const pilotUrl = "https://mat-web-production.up.railway.app";
 const sections = [
   ["belief", "OUR BELIEF"],
@@ -11,6 +12,7 @@ const sections = [
 function SectionNav({ footer = false }: { footer?: boolean }) {
   return <nav className={`${s.sectionNav} ${footer ? s.footerNav : ""}`} aria-label={footer ? "하단 목차" : "페이지 목차"}>
     {sections.map(([id, label], index) => <a key={id} href={`#${id}`}><span>{index + 1}.</span><span>{label}</span><span aria-hidden="true">→</span></a>)}
+    <a href={serviceUrl}><span aria-hidden="true">·</span><span>오이기부 서비스 보기</span><span aria-hidden="true">→</span></a>
   </nav>;
 }
 function SectionLabel({ index }: { index: number }) {
