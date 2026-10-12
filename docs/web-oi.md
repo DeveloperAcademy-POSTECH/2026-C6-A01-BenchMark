@@ -64,3 +64,7 @@ Needs confirmation:
 
 ![데스크톱 홈](web-oi/home-1440.png)
 ![모바일 홈](web-oi/home-390.png)
+
+## 개편 웹 미리보기
+
+Railway `benchmark-mat-pilot` / `design-preview` / `oi-web-preview`를 사용한다. `OI_WEB_PREVIEW=1`이면 검색 제외 헤더를 제공하고 `/stories`, `/pilot`, `/reserve`, `/admin`은 기존 파일럿 운영 주소로 이동한다. 운영 DB·관리자 변수·마이그레이션은 복제하지 않는다. 기존 `main-concepts` 서비스와 운영 서비스는 별도로 유지한다.
