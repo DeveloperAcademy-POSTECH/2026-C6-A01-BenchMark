@@ -62,3 +62,8 @@ TEST_BASE_URL=http://127.0.0.1:4328 npx --no-install playwright test tests/brows
 ## 오이기부와 상호 이동 — 2026-10-12
 
 메인 페이지 선정은 미정으로 유지한다. BenchMark의 기존 화면·주소·파일럿 연결은 보존하고 상단 화면 목차와 하단 목차에 `오이기부 서비스 보기`를 추가한다. 대상은 `https://oi-web-preview-design-preview.up.railway.app`이며 같은 탭에서 명시적인 링크로 이동한다. 오이기부에는 BenchMark 팀 소개로 돌아오는 링크를 제공한다. 두 웹 사이에 자동 리디렉션이나 메인 도메인 통합을 추가하지 않는다.
+
+- 공개 배포 소스 `803ab05`, Railway deployment `def78220-79ac-488a-92ac-e5397bf966a5` SUCCESS
+- 320/390/1440px에서 BenchMark → 오이기부 → BenchMark 실제 왕복 및 양쪽 푸터 링크 확인
+- `TEST_BASE_URL=https://main-concepts-design-preview.up.railway.app npx --no-install playwright test brand-home.spec.ts`: 7개 너비·목차·키보드·FAQ 검사 8개 통과
+- 배포 아카이브는 커밋된 Dockerfile·package 파일·apps/web·database로 한정해 모바일 자산 업로드를 제외
