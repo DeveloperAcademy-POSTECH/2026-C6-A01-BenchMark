@@ -31,7 +31,7 @@ fun BenchmarkApp(model: LofiModel = viewModel()) {
 
     Scaffold(
         topBar = {
-            Column {
+            if (current != Screen.HOME) Column {
                 TopAppBar(title = { Text(current.title) }, navigationIcon = {
                     if (current != Screen.LOGIN && current != Screen.HOME) {
                         TextButton({ back() }, Modifier.testTag("back")) { Text("뒤로") }
@@ -47,7 +47,7 @@ fun BenchmarkApp(model: LofiModel = viewModel()) {
             }
         },
         bottomBar = {
-            if (current in tabs) NavigationBar {
+            if (current in tabs) NavigationBar(containerColor = OiColors.Soft) {
                 tabs.forEach { screen ->
                     val label = when (screen) {
                         Screen.HOME -> "홈"
@@ -91,15 +91,12 @@ fun BenchmarkApp(model: LofiModel = viewModel()) {
                         Screen.ONBOARDING_VERIFY, Screen.VERIFY -> VerificationScreen {
                             if (screen == Screen.ONBOARDING_VERIFY) home() else open(Screen.AMOUNT)
                         }
-                        Screen.HOME -> Page {
-                            Block("캠퍼스의 기억이 누군가의 쉼이 됩니다.")
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                                Text("설치된 벤치\n00개"); Text("누적 참여자\n00명")
-                            }
-                            Action("기부할 벤치 찾기") { nav.tab(Screen.BENCHES) }
-                            Action("나의 기부 현황") { nav.tab(Screen.MY_DONATIONS) }
-                            Action("NFC 벤치 체험") { nav.tab(Screen.NFC) }
-                        }
+                        Screen.HOME -> HifiHomeScreen(state,
+                            benches = { nav.tab(Screen.BENCHES) },
+                            donations = { nav.tab(Screen.MY_DONATIONS) },
+                            nfc = { nav.tab(Screen.NFC) },
+                            profile = { open(Screen.PROFILE) },
+                            notifications = { open(Screen.NOTIFICATIONS) })
                         Screen.BENCHES -> BenchScreen(state.bench, { bench -> model.update { it.copy(bench = bench) } }) {
                             open(Screen.BENCH)
                         }

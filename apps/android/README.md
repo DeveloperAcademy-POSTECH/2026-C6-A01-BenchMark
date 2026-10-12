@@ -86,3 +86,7 @@ JAVA_HOME='/Users/don/Library/Java/JavaVirtualMachines/ms-21.0.7/Contents/Home' 
 | ![홈](../../docs/android-lofi/home.png) | ![상세](../../docs/android-lofi/donation.png) | ![작은 화면](../../docs/android-lofi/small-screen.png) |
 
 이미지는 Robolectric 테스트 캡처이며 실제 기기 캡처가 아닙니다.
+
+## Android hi-fi 시작
+
+#41 병합 후 홈 `1021:4493`과 공통 색상을 적용했습니다. 다른 화면은 기존 lo-fi이며 전체 hi-fi 완료가 아닙니다. 적용 범위·원본과의 차이·후속 화면 및 검증은 [hi-fi 기록](../../docs/android-hifi/README.md)을 확인하세요.
