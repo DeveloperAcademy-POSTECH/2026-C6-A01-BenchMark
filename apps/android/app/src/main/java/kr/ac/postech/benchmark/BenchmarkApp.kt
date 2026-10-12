@@ -173,8 +173,7 @@ fun BenchmarkApp(model: LofiModel = viewModel()) {
                             ReactionButtons(state.reaction) { value -> model.update { it.copy(reaction = value) } }
                             Action("AR 카메라 열기") { open(Screen.AR) }
                         }
-                        Screen.AR -> ArScreen { open(Screen.CAPTURE) }
-                        Screen.CAPTURE -> CaptureScreen { back() }
+                        Screen.AR -> ArScreen()
                         Screen.NOTIFICATIONS -> Page { Heading("새 알림이 없습니다"); Text("실제 알림은 아직 연결하지 않았습니다.") }
                     }
                 }

@@ -17,7 +17,7 @@ enum class Screen(val title: String) {
     MY_DONATIONS("나의 기부"), DONATION("기부 스토리 상세"), EDIT("스토리 편집"),
     PREVIEW("스토리 미리보기"), PROGRESS("설치 프로세스"), INSTALLED("나의 기부 벤치"),
     NFC("NFC 벤치 체험"), PUBLIC_STORY("기부자의 이야기"), AR("AR 카메라"),
-    CAPTURE("촬영 결과"), PROFILE("프로필"), NOTIFICATIONS("알림")
+    PROFILE("프로필"), NOTIFICATIONS("알림")
 }
 
 @Parcelize

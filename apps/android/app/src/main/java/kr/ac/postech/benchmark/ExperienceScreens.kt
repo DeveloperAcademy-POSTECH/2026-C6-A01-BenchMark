@@ -49,38 +49,12 @@ fun ReactionButtons(selected: String, select: (String) -> Unit) {
 }
 
 @Composable
-fun ArScreen(capture: () -> Unit) = Page {
-    var permissionStep by rememberSaveable { mutableIntStateOf(-1) }
-    var ready by rememberSaveable { mutableStateOf(false) }
-    var denied by rememberSaveable { mutableStateOf(false) }
-    val permissions = listOf("카메라", "사진", "위치")
-    Block("AR 미리보기 영역", 280)
-    Text("실제 카메라·AR·위치 기능은 연결하지 않았습니다.")
-    if (denied) Text("권한 거부 예시 · 체험을 다시 시작하거나 이전 화면으로 돌아갈 수 있습니다.")
-    if (ready) {
-        Action("촬영 결과 예시 보기", "capture", onClick = capture)
-    } else {
-        Action("AR 체험 시작", "start-ar") { permissionStep = 0; denied = false }
+fun ArScreen() = Page {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Heading("캐릭터와 함께 촬영하기")
+    Text("카메라로 바닥을 인식한 뒤 캐릭터를 배치하고 사진이나 음성 포함 영상을 촬영합니다.")
+    Text("ARCore 지원 기기가 필요합니다. 물체 가림은 Depth 지원 기기에서 제공됩니다.")
+    Action("AR 카메라 시작", "start-ar") {
+        context.startActivity(android.content.Intent(context, kr.ac.postech.benchmark.ar.ArCameraActivity::class.java))
     }
-    if (permissionStep in permissions.indices) {
-        AlertDialog(
-            onDismissRequest = { permissionStep = -1; denied = true },
-            title = { Text("${permissions[permissionStep]} 권한 (예시)") },
-            text = { Text("lo-fi의 권한 분기를 확인합니다. 시스템 권한은 요청하지 않습니다.") },
-            confirmButton = { TextButton({
-                if (permissionStep == permissions.lastIndex) { ready = true; permissionStep = -1 }
-                else permissionStep++
-            }) { Text("허용 예시") } },
-            dismissButton = { TextButton({ permissionStep = -1; denied = true }) { Text("허용 안 함") } }
-        )
-    }
-}
-
-@Composable
-fun CaptureScreen(back: () -> Unit) = Page {
-    var saved by rememberSaveable { mutableStateOf(false) }
-    Block("사진 촬영 결과 영역", 300)
-    if (saved) Text("저장 완료 화면 예시입니다. 실제 사진 파일은 생성하지 않았습니다.")
-    Action("저장 결과 예시 보기") { saved = true }
-    Action("다시 촬영", onClick = back)
 }

@@ -88,15 +88,12 @@ class NavigationTest {
         ui.onNodeWithTag("donor-name").assertTextContains("예시 사용자")
     }
 
-    @Test fun nfcArDenialRetryCaptureAndReturn() {
+    @Test fun nfcArEntryAndReturn() {
         home(); button("NFC 벤치 체험"); tap("nfc-example"); button("AR 카메라 열기")
-        tap("start-ar"); ui.onNodeWithText("허용 안 함").performClick()
-        ui.onNodeWithText("권한 거부 예시 · 체험을 다시 시작하거나 이전 화면으로 돌아갈 수 있습니다.").assertExists()
-        tap("start-ar")
-        repeat(3) { ui.onNodeWithText("허용 예시").performClick() }
-        tap("capture"); button("저장 결과 예시 보기")
-        screenshot("capture")
-        button("다시 촬영"); ui.onNodeWithTag("capture").assertExists()
+        ui.onNodeWithText("캐릭터와 함께 촬영하기").assertExists()
+        ui.onNodeWithTag("start-ar").assertExists()
+        screenshot("ar-entry")
+        back(); ui.onNodeWithText("AR 카메라 열기").assertExists()
     }
 
     @Test fun repeatedTabsDoNotAccumulateAndResetClearsExamples() {
