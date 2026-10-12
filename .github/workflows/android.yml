@@ -32,3 +32,4 @@ jobs:
             apps/android/app/build/outputs/apk/debug/*.apk
             apps/android/app/build/reports/
             apps/android/app/build/lofi-screenshots/
+            apps/android/app/build/hifi-screenshots/
