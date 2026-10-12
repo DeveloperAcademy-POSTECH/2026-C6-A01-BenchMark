@@ -1,16 +1,20 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
+import { currentAccount } from "@/lib/auth/server";
+import { logout } from "@/app/login/actions";
 import "./globals.css";
-
+export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
-  title: { default: "쉼, 펴 — 돗자리 위에 펼쳐진 이야기", template: "%s | 쉼, 펴" },
-  description: "포카전에서 펼쳐진 돗자리, 그 위에 담긴 아카데미 구성원의 사진과 이야기를 만나보세요.",
+  title: { default: "오이기부 — 오래 남는 이야기 기부", template: "%s | 오이기부" },
+  description: "POSTECH의 익숙한 벤치에 마음과 이야기를 남기는 오이기부. 기부 안내와 함께 펼친 이야기를 만나보세요.",
 };
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const { user } = await currentAccount();
   return <html lang="ko"><body>
     <a href="#main" className="skip-link">본문으로 바로가기</a>
-    <header className="site-header"><Link className="wordmark" href="/" aria-label="쉼, 펴 홈">쉼, 펴<span>이야기가 머무는 자리</span></Link><nav aria-label="주 메뉴"><Link href="/">이야기</Link></nav></header>
+    <header className="site-header oi-header"><Link className="oi-brand" href="/" aria-label="오이기부 홈"><Image src="/oi/logo.png" alt="" width={42} height={38} /><Image src="/oi/wordmark.png" alt="오이기부" width={110} height={27} /></Link><nav aria-label="주 메뉴"><a href="https://main-concepts-design-preview.up.railway.app/benchmark">BenchMark 팀 소개</a><Link href="/stories">이야기</Link><Link href="/donate">기부 안내</Link>{user ? <form action={logout}><button className="oi-account-button">로그아웃</button></form> : <Link href="/login">로그인</Link>}</nav></header>
     <main id="main">{children}</main>
-    <footer className="site-footer"><p>하나의 이야기가, 다음 사람의 쉼으로.</p><p className="academy">APPLE DEVELOPER ACADEMY @POSTECH</p><Link className="admin-link" href="/admin">관리자 페이지</Link></footer>
+    <footer className="site-footer oi-footer"><div><Link href="/" className="oi-footer-name">오이기부</Link><p>한 사람의 마음이 벤치에 머물고,<br />그 자리에서 또 다른 이야기가 시작됩니다.</p></div><div><a className="oi-team-link" href="https://main-concepts-design-preview.up.railway.app/benchmark">제작팀 BenchMark 소개 →</a><p className="academy">APPLE DEVELOPER ACADEMY @POSTECH</p><Link className="admin-link" href="/admin">파일럿 관리자</Link></div></footer>
   </body></html>;
 }
