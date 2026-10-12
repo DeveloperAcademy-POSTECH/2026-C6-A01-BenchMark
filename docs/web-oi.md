@@ -58,8 +58,7 @@ TEST_AUTH_CONFIGURED=true npx --no-install playwright test google-login.spec.ts
 통합·기존 스토리 브라우저 테스트는 이름이 `benchmark_mat_test`인 격리 DB를 요구한다. 환경 변수와 서버 시작 절차는 `.github/workflows/mat-web.yml`을 참고한다. `oi-web.spec.ts`는 공식 기부 URL 미설정·로그인 미설정 상태를 검증하므로 해당 두 설정을 비운 서버에서 실행한다.
 
 Needs confirmation:
-- 실제 Google 계정 로그인·콜백·새로고침 세션 복원·로그아웃 인수 검증
-- 운영 웹 origin과 Supabase의 웹 콜백 허용 목록
+- 운영 정식 도메인이 확정되면 해당 origin과 콜백을 별도 등록
 - 학교가 승인한 기부 URL 및 벤치 참여 신청·학교 확인 계약
 
 ![데스크톱 홈](web-oi/home-1440.png)
@@ -78,5 +77,25 @@ Railway `benchmark-mat-pilot` / `design-preview` / `oi-web-preview`를 사용한
 - `/`, `/donate`, `/login` HTTP 200, 제작팀 표시 및 noindex/nofollow 확인
 - `/stories`, `/pilot`, `/reserve`, `/admin`: 기존 운영 파일럿으로 HTTP 307 연결 확인
 - 공개 URL에서 `TEST_AUTH_CONFIGURED=true` Google PKCE 진입 및 반응형 웹 브라우저 검사 통과
-- 공식 학교 URL은 미설정이며 준비 중 안내를 유지한다. 실제 계정 로그인 완료·Supabase 운영 콜백 허용 목록은 여전히 Needs confirmation:
+- 공식 학교 URL은 미설정이며 준비 중 안내를 유지한다. 미리보기 계정 인증과 콜백은 아래 실제 검증 기록을 따른다. 정식 운영 도메인은 Needs confirmation:
 - 기존 운영·기존 디자인 서비스의 배포 ID 불변 확인. 프리뷰 서비스에 DATABASE_URL·관리자 비밀값·볼륨 복제 없음
+
+### 실제 Google 로그인 확인 — 2026-10-12
+
+- 원인: Supabase `52gibu` Redirect URLs에는 Android 콜백만 등록되어 있었고, 미리보기 웹 콜백이 누락되어 있었다.
+- 기존 Android 콜백과 Site URL은 유지하고 다음 정확한 웹 주소 3개만 추가했다. 와일드카드는 추가하지 않았다.
+
+```text
+https://oi-web-preview-design-preview.up.railway.app/auth/callback
+https://oi-web-preview-design-preview.up.railway.app/auth/callback?next=%2Fdonate
+https://oi-web-preview-design-preview.up.railway.app/auth/callback?next=%2F
+```
+
+- 격리된 작업용 Chrome 탭에서 기부 안내 → 로그인 → 실제 Google 팀 테스트 계정 선택·기본 프로필/이메일 승인 → 웹 콜백 → `/donate` 복귀 성공
+- 복귀 화면의 `로그아웃` 버튼과 `Google 계정으로 로그인되어 있어요.` 문구 확인. 화면은 서버의 Supabase `getUser` 검증 결과를 사용한다.
+- `/donate` 새로고침 후 로그인 상태 유지 확인
+- 웹 로그아웃 후 `/` 복귀와 `로그인` 링크 표시 확인. 테스트 세션은 종료했고 작업 탭 2개를 닫았다.
+- 앱/학교 기부 처리, 기존 운영 웹, Google Cloud OAuth 클라이언트 및 추가 권한은 변경하지 않았다. 일반 공개 계정 전체의 운영 인수 검증과 정식 도메인 설정은 별도다.
+- 동작 변경은 Supabase 설정만으로 해결했고 재배포는 수행하지 않았다. 최신 develop 통합 후 웹 lint·타입 검사·단위 테스트·빌드를 재확인했다.
+
+![실제 Google 로그인 후 기부 안내 복귀](web-oi/google-donate-verified.jpg)
