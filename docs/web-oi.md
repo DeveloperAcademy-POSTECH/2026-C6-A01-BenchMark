@@ -99,3 +99,7 @@ https://oi-web-preview-design-preview.up.railway.app/auth/callback?next=%2F
 - 동작 변경은 Supabase 설정만으로 해결했고 재배포는 수행하지 않았다. 최신 develop 통합 후 웹 lint·타입 검사·단위 테스트·빌드를 재확인했다.
 
 ![실제 Google 로그인 후 기부 안내 복귀](web-oi/google-donate-verified.jpg)
+
+### 홈 사진 정리 — 2026-10-12
+
+사용자 요청으로 아치 배경과 영어 문구를 제거했다. 사진 위의 중복 안내 문구도 정리하고, 배경 프레임 없이 4:3 비율로 표시한다. 사진을 늘리지 않으며 하단 구도로 벤치 전체를 보존한다. 모바일에서도 가로 공간을 채우도록 기존 320px 제한을 제거했다. 웹 lint·타입 검사·빌드 및 320/390/768/1440px 브라우저 검증을 통과했다.
