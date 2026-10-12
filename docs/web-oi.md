@@ -132,3 +132,11 @@ https://oi-web-preview-design-preview.up.railway.app/auth/callback?next=%2F
 ### BenchMark와 상호 이동 — 2026-10-12
 
 상단 메뉴와 푸터에 `BenchMark 팀 소개` 링크를 추가해 `https://main-concepts-design-preview.up.railway.app/benchmark`로 이동한다. BenchMark의 화면 목차와 하단 목차에는 오이기부 서비스 링크를 추가한다. 같은 탭의 일반 링크이며, 새 로그인·자동 리디렉션·메인 도메인 통합을 추가하지 않는다. 어느 웹을 메인으로 쓸지는 계속 미정이다. 기존 로그인 세션과 기부 안내 경로는 유지한다.
+
+- 상호 링크 공개 배포: 오이기부 `183be91` / `bf9de48a-84a1-4d3e-8834-84a97ed076ea`, BenchMark `803ab05` / `def78220-79ac-488a-92ac-e5397bf966a5`, 모두 SUCCESS
+- 320/390/1440px 실제 왕복 클릭, 양쪽 푸터 링크와 가로 넘침 없음 확인
+- 초기 전체 저장소 업로드는 413 용량 제한으로 실패했다. 이후 커밋된 Dockerfile·package 파일·apps/web·database만 아카이브해 배포 성공
+- 두 웹 모두 lint·typecheck·build 통과. 메인 선정·기존 파일럿·로그인·학교 연결 설정은 변경하지 않음
+
+![오이기부의 팀 소개 링크](web-oi/crosslinks-oi-390.png)
+![BenchMark의 서비스 링크](web-oi/crosslinks-team-1440.png)
