@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import java.io.File
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -12,15 +13,19 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35], qualifiers = "w402dp-h874dp-mdpi")
+@Config(sdk = [35], qualifiers = "w402dp-h874dp-mdpi", application = NavigationTestApplication::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class NavigationTest {
     @get:Rule val ui = createAndroidComposeRule<MainActivity>()
 
+    @Before fun awaitRestoredSession() {
+        ui.waitUntil(5_000) { ui.onAllNodesWithTag("skip-onboarding").fetchSemanticsNodes().size == 1 }
+    }
+
     private fun tap(tag: String) { ui.onNodeWithTag(tag).performScrollTo().performClick() }
     private fun button(text: String) { ui.onNodeWithText(text).performScrollTo().performClick() }
     private fun back() { ui.onNodeWithTag("back").performClick() }
-    private fun home() { tap("login"); tap("skip-onboarding") }
+    private fun home() { tap("skip-onboarding") }
     private fun screenshot(name: String) {
         val file = File("build/lofi-screenshots/$name.png")
         requireNotNull(file.parentFile).mkdirs()
@@ -77,7 +82,7 @@ class NavigationTest {
     }
 
     @Test fun onboardingProfileAndDraftSurviveRecreation() {
-        tap("login"); tap("enter-profile")
+        tap("enter-profile")
         ui.onNodeWithTag("donor-name").performScrollTo().performTextInput("예시 사용자")
         tap("next"); tap("verify")
         startDonation()

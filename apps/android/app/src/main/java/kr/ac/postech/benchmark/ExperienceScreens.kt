@@ -5,24 +5,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-
-@Composable
-fun LoginScreen(next: () -> Unit) = Page {
-    var username by rememberSaveable { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    Block("BenchMark", 100)
-    Field("아이디 (예시)", username, "login-name") { username = it }
-    OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(),
-        label = { Text("비밀번호 (예시)") }, singleLine = true,
-        visualTransformation = PasswordVisualTransformation())
-    Action("로그인 예시로 시작", "login", onClick = next)
-    Text("SNS 로그인 영역")
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-        for (index in 1..3) OutlinedButton(next) { Text("SNS $index") }
-    }
-}
 
 @Composable
 fun VerificationScreen(next: () -> Unit) = Page {

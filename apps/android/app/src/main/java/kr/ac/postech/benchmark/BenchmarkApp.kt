@@ -6,7 +6,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.*
 
@@ -20,20 +19,20 @@ private fun NavHostController.tab(screen: Screen) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BenchmarkApp(model: LofiModel = viewModel()) {
+fun BenchmarkApp(model: LofiModel, signOut: () -> Unit) {
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
-    val current = Screen.entries.firstOrNull { it.name == entry?.destination?.route } ?: Screen.LOGIN
+    val current = Screen.entries.firstOrNull { it.name == entry?.destination?.route } ?: Screen.INTENT
     val state = model.state
     fun open(screen: Screen) = nav.open(screen)
-    fun home() { nav.navigate(Screen.HOME.name) { popUpTo(Screen.LOGIN.name) { inclusive = true }; launchSingleTop = true } }
+    fun home() { nav.navigate(Screen.HOME.name) { popUpTo(Screen.INTENT.name) { inclusive = true }; launchSingleTop = true } }
     fun back() { nav.popBackStack() }
 
     Scaffold(
         topBar = {
             Column {
                 TopAppBar(title = { Text(current.title) }, navigationIcon = {
-                    if (current != Screen.LOGIN && current != Screen.HOME) {
+                    if (current != Screen.INTENT && current != Screen.HOME) {
                         TextButton({ back() }, Modifier.testTag("back")) { Text("뒤로") }
                     }
                 }, actions = {
@@ -42,7 +41,7 @@ fun BenchmarkApp(model: LofiModel = viewModel()) {
                         TextButton({ open(Screen.PROFILE) }) { Text("프로필") }
                     }
                 })
-                Text("Lo-fi 미리보기 · 실제 인증·결제·접수 없음", Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                Text("Lo-fi 미리보기 · 본인인증·결제·접수는 예시", Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.labelMedium)
             }
         },
@@ -62,11 +61,10 @@ fun BenchmarkApp(model: LofiModel = viewModel()) {
             }
         }
     ) { padding ->
-        NavHost(nav, Screen.LOGIN.name, Modifier.padding(padding)) {
+        NavHost(nav, Screen.INTENT.name, Modifier.padding(padding)) {
             Screen.entries.forEach { screen ->
                 composable(screen.name) {
                     when (screen) {
-                        Screen.LOGIN -> LoginScreen { open(Screen.INTENT) }
                         Screen.INTENT -> Page {
                             Heading("기부자 정보를 입력하시겠습니까?")
                             Text("이 정보는 기부 접수시에 자동입력 됩니다.")
@@ -83,9 +81,10 @@ fun BenchmarkApp(model: LofiModel = viewModel()) {
                                 }
                             }
                             if (screen == Screen.ONBOARDING_PROFILE) TextButton({ home() }) { Text("건너뛰기") }
+                            if (screen == Screen.PROFILE) TextButton({ model.reset(); signOut() }) { Text("로그아웃") }
                             if (screen == Screen.PROFILE) TextButton({
                                 model.reset()
-                                nav.navigate(Screen.LOGIN.name) { popUpTo(nav.graph.id) { inclusive = true } }
+                                nav.navigate(Screen.INTENT.name) { popUpTo(nav.graph.id) { inclusive = true } }
                             }) { Text("예시 초기화 및 처음으로") }
                         }
                         Screen.ONBOARDING_VERIFY, Screen.VERIFY -> VerificationScreen {
