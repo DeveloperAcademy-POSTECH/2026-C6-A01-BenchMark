@@ -37,7 +37,7 @@ class AuthScreenTest {
             kr.ac.postech.benchmark.auth.AuthAccount("same-user", null)) }
         ui.waitUntil(5_000) { ui.onAllNodesWithTag("skip-onboarding").fetchSemanticsNodes().size == 1 }
         ui.onNodeWithTag("skip-onboarding").performScrollTo().performClick()
-        ui.onNodeWithText("프로필").performClick()
+        ui.onNodeWithContentDescription("프로필").performClick()
         ui.onNodeWithTag("donor-name").performScrollTo().performTextInput("Private draft")
         ui.onNodeWithText("로그아웃").performScrollTo().performClick()
         ui.onNodeWithTag("google-login").assertExists()

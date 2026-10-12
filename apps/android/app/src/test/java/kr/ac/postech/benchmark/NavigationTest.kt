@@ -64,7 +64,7 @@ class NavigationTest {
     }
 
     @Test fun editingCancelAndSaveHaveSeparateState() {
-        home(); button("나의 기부 현황"); button("기부 내역 예시 불러오기"); button("작은 쉼")
+        home(); tap("home-donations"); button("기부 내역 예시 불러오기"); button("작은 쉼")
         tap("open-edit")
         ui.onNodeWithTag("story-title").performTextReplacement("취소할 제목")
         button("취소")
@@ -109,9 +109,9 @@ class NavigationTest {
             ui.onNodeWithTag("tab-NFC").performClick()
         }
         back(); ui.onNodeWithText("기부할 벤치 찾기").assertExists()
-        button("나의 기부 현황"); button("기부 내역 예시 불러오기")
+        tap("home-donations"); button("기부 내역 예시 불러오기")
         ui.onNodeWithText("프로필").performClick(); button("예시 초기화 및 처음으로")
-        home(); button("나의 기부 현황")
+        home(); tap("home-donations")
         ui.onNodeWithText("아직 기부 내역이 없습니다").assertExists()
     }
 

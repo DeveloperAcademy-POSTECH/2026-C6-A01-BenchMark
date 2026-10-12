@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
@@ -28,11 +27,7 @@ class MainActivity : ComponentActivity() {
         consumeCallback(intent)
         setContent {
             val state by auth.state.collectAsState()
-            MaterialTheme(colorScheme = lightColorScheme(
-                primary = Color(0xFF505050), secondary = Color(0xFF686868),
-                background = Color.White, surface = Color.White,
-                surfaceVariant = Color(0xFFE8E8E8)
-            )) {
+            OiTheme {
                 val account = state.account
                 if (account != null && !state.busy) {
                     key(account.id) {
