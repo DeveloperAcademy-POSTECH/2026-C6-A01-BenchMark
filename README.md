@@ -1,5 +1,9 @@
 # 2026-C6-A01-BenchMark
 
+- [오이기부 프로젝트 맥락과 기획](project.md)
+- [AI 에이전트 공통 작업 지침](AGENTS.md)
+- [팀 검토 중인 아키텍처·협업 제안](docs/architecture.md)
+
 # 깃 전략
 
 ### 태그 컨벤션
