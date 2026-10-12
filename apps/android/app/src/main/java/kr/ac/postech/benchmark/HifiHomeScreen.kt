@@ -75,7 +75,7 @@ fun HifiHomeScreen(state: LofiState, benches: () -> Unit, donations: () -> Unit,
             Shortcut(Icons.Default.Favorite, "정기후원", Modifier.weight(1f)) { information = "정기후원" }
         }
         HomeImpactUnavailable()
-        Text("화면 예시 · 실제 인증·접수·학교 현황 미연결", fontSize = 12.sp)
+        Text("기부·학교 현황은 로컬 예시 · Google 로그인은 선택", fontSize = 12.sp)
         TextButton(benches) { Text("기부할 벤치 찾기") }
         TextButton(nfc) { Text("NFC 벤치 체험") }
     }

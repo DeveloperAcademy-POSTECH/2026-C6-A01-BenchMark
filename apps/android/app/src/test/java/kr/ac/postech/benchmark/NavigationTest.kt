@@ -24,8 +24,8 @@ class NavigationTest {
 
     private fun tap(tag: String) { ui.onNodeWithTag(tag).performScrollTo().performClick() }
     private fun button(text: String) { ui.onNodeWithText(text).performScrollTo().performClick() }
-    private fun back() { ui.onNodeWithTag("back").performClick() }
-    private fun home() { tap("skip-onboarding") }
+    private fun back() { ui.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }; ui.waitForIdle() }
+    private fun home() { tap("skip-onboarding"); tap("onboarding-next") }
     private fun screenshot(name: String) {
         val file = File("build/lofi-screenshots/$name.png")
         requireNotNull(file.parentFile).mkdirs()
@@ -38,13 +38,13 @@ class NavigationTest {
         }
     }
     private fun startDonation() {
-        button("기부할 벤치 찾기"); tap("select-bench"); tap("start-donation"); tap("next")
+        button("기부할 벤치 찾기"); tap("select-bench"); tap("start-donation"); tap("next"); tap("next")
         ui.onNodeWithTag("next").assertIsNotEnabled()
         button("[필수] 개인정보 수집 동의"); tap("next"); tap("verify")
         ui.onNodeWithTag("next").assertIsNotEnabled()
-        ui.onNodeWithTag("amount").performTextInput("999999")
+        ui.onNodeWithTag("amount").performTextInput("49999")
         ui.onNodeWithTag("next").assertIsNotEnabled()
-        tap("fill-amount"); tap("next"); tap("next")
+        tap("fill-amount"); tap("next"); tap("next"); tap("next")
     }
 
     @Test fun donationPhotoReceiptAndBackStack() {
@@ -82,7 +82,7 @@ class NavigationTest {
     }
 
     @Test fun onboardingProfileAndDraftSurviveRecreation() {
-        tap("enter-profile")
+        tap("enter-profile"); tap("onboarding-next")
         ui.onNodeWithTag("donor-name").performScrollTo().performTextInput("예시 사용자")
         tap("next"); tap("verify")
         startDonation()
@@ -110,7 +110,7 @@ class NavigationTest {
         }
         back(); ui.onNodeWithText("기부할 벤치 찾기").assertExists()
         tap("home-donations"); button("기부 내역 예시 불러오기")
-        ui.onNodeWithText("프로필").performClick(); button("예시 초기화 및 처음으로")
+        ui.onNodeWithTag("tab-HOME").performClick(); ui.onNodeWithContentDescription("프로필").performClick(); button("예시 초기화 및 처음으로")
         home(); tap("home-donations")
         ui.onNodeWithText("아직 기부 내역이 없습니다").assertExists()
     }
@@ -118,6 +118,7 @@ class NavigationTest {
     @Test @Config(qualifiers = "w320dp-h640dp-mdpi")
     fun smallScreenScrollAndNavigation() {
         home(); startDonation()
+        ui.onNodeWithTag("story-title").performTextInput("작은 화면")
         ui.onNodeWithTag("story-body").performScrollTo().performTextInput("작은 화면 확인")
         tap("next"); ui.onNodeWithText("작은 화면 확인").assertExists()
         screenshot("small-screen")
