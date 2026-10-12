@@ -17,9 +17,9 @@ struct RootTabView: View {
                     HomeView(repository: container.homeRepository) { router.selectedTab = .participation }
                         .navigationDestination(for: PublicLinkParser.Destination.self) { publicDestination($0) }
                 }.tag(AppTab.home)
-                NavigationStack { MyDonationsView(repository: container.participationRepository) }.tag(AppTab.myDonations)
+                NavigationStack { MyDonationsView(repository: container.participationRepository, showDesignExamples: container.showsDesignExamples) { router.selectedTab = .participation } }.tag(AppTab.myDonations)
                 NavigationStack {
-                    ParticipationView(benches: container.benchRepository, participation: container.participationRepository)
+                    SponsorshipView(benches: container.benchRepository, participation: container.participationRepository) { router.selectedTab = .home }
                 }.tag(AppTab.participation)
                 NavigationStack(path: $router.benchPath) {
                     BenchesView(repository: container.benchRepository)

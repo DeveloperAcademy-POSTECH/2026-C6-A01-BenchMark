@@ -6,10 +6,17 @@
 //
 
 import SwiftUI
+import CoreText
 
 @main
 struct OiDonationApp: App {
     @UIApplicationDelegateAdaptor(ARRecordingOrientation.self) private var appDelegate
+    init() {
+        if let url = Bundle.main.url(forResource: "Griun_OMIRI-Rg", withExtension: "ttf")
+            ?? Bundle.main.url(forResource: "Griun_OMIRI-Rg", withExtension: "ttf", subdirectory: "Fonts") {
+            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+        }
+    }
     var body: some Scene {
         WindowGroup {
             RootTabView(container: .pilot)
