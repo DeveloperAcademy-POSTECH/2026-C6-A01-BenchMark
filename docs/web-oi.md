@@ -70,3 +70,13 @@ Needs confirmation:
 Railway `benchmark-mat-pilot` / `design-preview` / `oi-web-preview`를 사용한다. `OI_WEB_PREVIEW=1`이면 검색 제외 헤더를 제공하고 `/stories`, `/pilot`, `/reserve`, `/admin`은 기존 파일럿 운영 주소로 이동한다. 운영 DB·관리자 변수·마이그레이션은 복제하지 않는다. 기존 `main-concepts` 서비스와 운영 서비스는 별도로 유지한다.
 
 서비스 이름은 **오이기부**, 제작팀 이름은 **BenchMark**다. 공개 제목·로고·주요 안내는 서비스명을 사용하며 팀 이름은 제작팀 표기에만 사용한다.
+
+### 공개 배포 확인 — 2026-10-12
+
+- URL: https://oi-web-preview-design-preview.up.railway.app
+- 배포 소스: `eda45cc`, Railway deployment `4d31e895-972f-409d-981e-9fc24a7be2c3` SUCCESS
+- `/`, `/donate`, `/login` HTTP 200, 제작팀 표시 및 noindex/nofollow 확인
+- `/stories`, `/pilot`, `/reserve`, `/admin`: 기존 운영 파일럿으로 HTTP 307 연결 확인
+- 공개 URL에서 `TEST_AUTH_CONFIGURED=true` Google PKCE 진입 및 반응형 웹 브라우저 검사 통과
+- 공식 학교 URL은 미설정이며 준비 중 안내를 유지한다. 실제 계정 로그인 완료·Supabase 운영 콜백 허용 목록은 여전히 Needs confirmation:
+- 기존 운영·기존 디자인 서비스의 배포 ID 불변 확인. 프리뷰 서비스에 DATABASE_URL·관리자 비밀값·볼륨 복제 없음
