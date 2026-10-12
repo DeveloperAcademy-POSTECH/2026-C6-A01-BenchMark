@@ -17,12 +17,7 @@ private fun BenchPreview() {
 @Preview(name = "Large text", widthDp = 320, heightDp = 640, fontScale = 1.5f, showBackground = true)
 @Composable
 private fun StoryPreview() {
-    MaterialTheme {
-        Surface {
-            Page {
-                StoryFields(Story("작은 쉼", "캠퍼스의 기억을 남깁니다.", 1), {}, {})
-                Action("다음") {}
-            }
-        }
+    OiTheme {
+        Surface { HifiStory(Story("작은 쉼", "캠퍼스의 기억을 남깁니다.", 1), {}, {}, {}) }
     }
 }

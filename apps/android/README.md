@@ -107,6 +107,9 @@ JAVA_HOME='/Users/don/Library/Java/JavaVirtualMachines/ms-21.0.7/Contents/Home' 
 
 이미지는 Robolectric 테스트 캡처이며 실제 기기 캡처가 아닙니다.
 
+## Android hi-fi 시작
+
+#41 병합 후 홈 `1021:4493`과 공통 색상을 적용했습니다. 다른 화면은 기존 lo-fi이며 전체 hi-fi 완료가 아닙니다. 적용 범위·원본과의 차이·후속 화면 및 검증은 [hi-fi 기록](../../docs/android-hifi/README.md)을 확인하세요.
 
 ## 실제 AR 실행
 
@@ -162,3 +165,7 @@ JAVA_HOME='/Users/don/Library/Java/JavaVirtualMachines/ms-21.0.7/Contents/Home' 
 - Needs confirmation: 실제 계정 로그인·Android 앱 복귀·기기에서의 암호화 저장 복원은 미검증입니다.
 
 ![Google 로그인 화면 — Robolectric 렌더링](../../docs/android-lofi/google-login.png)
+
+## 후속 hi-fi와 공개 홈 진입
+
+후속 작업 브랜치는 로그인 없이 공개 홈을 표시하고 계정 기능·신청 입력에서 선택 로그인을 제공합니다. 온보딩 O/X, 내 기부 정렬·단일/2열·뒤집기, 후원 5단계를 적용했습니다. Google 인증·AR 구현은 보존합니다. [적용·검증·원본 차이](../../docs/android-hifi/followup.md)를 확인하세요. 후속 PR 병합 전 develop에는 이 변경이 포함되지 않습니다.

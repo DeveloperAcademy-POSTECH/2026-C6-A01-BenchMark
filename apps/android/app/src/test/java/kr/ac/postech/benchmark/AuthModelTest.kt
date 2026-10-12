@@ -18,8 +18,7 @@ class AuthTestApplication : BenchmarkApplication() {
     override fun createAuthService(): AuthService = fake
 }
 
-class FakeAuthService : AuthService {
-    override val configured = true
+class FakeAuthService(override val configured: Boolean = true) : AuthService {
     override val sessions = MutableStateFlow<AuthSession>(AuthSession.SignedOut)
     var waiting = false
     var completed = 0
