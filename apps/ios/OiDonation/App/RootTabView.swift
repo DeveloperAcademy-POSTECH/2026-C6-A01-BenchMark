@@ -11,23 +11,30 @@ struct RootTabView: View {
 
     var body: some View {
         @Bindable var router = router
-        VStack(spacing: 0) {
-            TabView(selection: $router.selectedTab) {
+        ZStack(alignment: .bottom) {
+            Group {
+                switch router.selectedTab {
+                case .home:
                 NavigationStack(path: $router.storyPath) {
                     HomeView(repository: container.homeRepository) { router.selectedTab = .participation }
                         .navigationDestination(for: PublicLinkParser.Destination.self) { publicDestination($0) }
-                }.tag(AppTab.home)
-                NavigationStack { MyDonationsView(repository: container.participationRepository, showDesignExamples: container.showsDesignExamples) { router.selectedTab = .participation } }.tag(AppTab.myDonations)
+                }
+                case .myDonations:
+                NavigationStack { MyDonationsView(repository: container.participationRepository, showDesignExamples: container.showsDesignExamples) { router.selectedTab = .participation } }
+                case .participation:
                 NavigationStack {
                     SponsorshipView(benches: container.benchRepository, participation: container.participationRepository) { router.selectedTab = .home }
-                }.tag(AppTab.participation)
+                }
+                case .benches:
                 NavigationStack(path: $router.benchPath) {
                     BenchesView(repository: container.benchRepository)
                         .navigationDestination(for: PublicLinkParser.Destination.self) { publicDestination($0) }
-                }.tag(AppTab.benches)
+                }
+                }
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .frame(maxWidth: .infinity, maxHeight: .infinity).clipped()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea(.container, edges: .bottom)
+            .contentMargins(.bottom, 86, for: .scrollContent)
             OiTabBar(selectedTab: $router.selectedTab) { router.isARPresented = true }
         }
         .background(Color.white).tint(Color("OiGreen"))

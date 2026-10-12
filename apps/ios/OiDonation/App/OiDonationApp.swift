@@ -19,7 +19,17 @@ struct OiDonationApp: App {
     }
     var body: some Scene {
         WindowGroup {
-            RootTabView(container: .pilot)
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-splash-preview-start") {
+                OiSplashView(previewLogoPhase: false)
+            } else if ProcessInfo.processInfo.arguments.contains("-splash-preview-logo") {
+                OiSplashView(previewLogoPhase: true)
+            } else {
+                OiLaunchView(container: .pilot)
+            }
+            #else
+            OiLaunchView(container: .pilot)
+            #endif
         }
     }
 }
