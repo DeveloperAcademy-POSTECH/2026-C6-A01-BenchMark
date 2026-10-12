@@ -5,6 +5,7 @@ COPY apps/web/package.json apps/web/package.json
 RUN npm ci
 COPY apps/web apps/web
 COPY database database
+ARG OI_WEB_PREVIEW=0
 RUN npm run build
 ENV NODE_ENV=production
 ENV PORT=3000
