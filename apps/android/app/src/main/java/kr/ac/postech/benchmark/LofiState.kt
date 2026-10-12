@@ -9,7 +9,7 @@ import androidx.lifecycle.ViewModel
 import kotlinx.parcelize.Parcelize
 
 enum class Screen(val title: String) {
-    LOGIN("로그인"), INTENT("기부자 정보"), ONBOARDING_PROFILE("인적 사항 작성"),
+    INTENT("기부자 정보"), ONBOARDING_PROFILE("인적 사항 작성"),
     ONBOARDING_VERIFY("본인인증"), HOME("BenchMark"), BENCHES("벤치 위치 확인"),
     BENCH("벤치 선택"), GUIDE("기부 안내"), TERMS("약관 동의"), VERIFY("본인인증"),
     AMOUNT("기부금 입력"), DONOR("인적사항 입력"), STORY("스토리 작성"),
@@ -17,7 +17,7 @@ enum class Screen(val title: String) {
     MY_DONATIONS("나의 기부"), DONATION("기부 스토리 상세"), EDIT("스토리 편집"),
     PREVIEW("스토리 미리보기"), PROGRESS("설치 프로세스"), INSTALLED("나의 기부 벤치"),
     NFC("NFC 벤치 체험"), PUBLIC_STORY("기부자의 이야기"), AR("AR 카메라"),
-    CAPTURE("촬영 결과"), PROFILE("프로필"), NOTIFICATIONS("알림")
+    PROFILE("프로필"), NOTIFICATIONS("알림")
 }
 
 @Parcelize

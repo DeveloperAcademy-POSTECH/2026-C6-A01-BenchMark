@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import java.io.File
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -12,15 +13,19 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35], qualifiers = "w402dp-h874dp-mdpi")
+@Config(sdk = [35], qualifiers = "w402dp-h874dp-mdpi", application = NavigationTestApplication::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class NavigationTest {
     @get:Rule val ui = createAndroidComposeRule<MainActivity>()
 
+    @Before fun awaitRestoredSession() {
+        ui.waitUntil(5_000) { ui.onAllNodesWithTag("skip-onboarding").fetchSemanticsNodes().size == 1 }
+    }
+
     private fun tap(tag: String) { ui.onNodeWithTag(tag).performScrollTo().performClick() }
     private fun button(text: String) { ui.onNodeWithText(text).performScrollTo().performClick() }
     private fun back() { ui.onNodeWithTag("back").performClick() }
-    private fun home() { tap("login"); tap("skip-onboarding") }
+    private fun home() { tap("skip-onboarding") }
     private fun screenshot(name: String) {
         val file = File("build/lofi-screenshots/$name.png")
         requireNotNull(file.parentFile).mkdirs()
@@ -59,7 +64,7 @@ class NavigationTest {
     }
 
     @Test fun editingCancelAndSaveHaveSeparateState() {
-        home(); button("나의 기부 현황"); button("기부 내역 예시 불러오기"); button("작은 쉼")
+        home(); tap("home-donations"); button("기부 내역 예시 불러오기"); button("작은 쉼")
         tap("open-edit")
         ui.onNodeWithTag("story-title").performTextReplacement("취소할 제목")
         button("취소")
@@ -77,7 +82,7 @@ class NavigationTest {
     }
 
     @Test fun onboardingProfileAndDraftSurviveRecreation() {
-        tap("login"); tap("enter-profile")
+        tap("enter-profile")
         ui.onNodeWithTag("donor-name").performScrollTo().performTextInput("예시 사용자")
         tap("next"); tap("verify")
         startDonation()
@@ -88,15 +93,12 @@ class NavigationTest {
         ui.onNodeWithTag("donor-name").assertTextContains("예시 사용자")
     }
 
-    @Test fun nfcArDenialRetryCaptureAndReturn() {
+    @Test fun nfcArEntryAndReturn() {
         home(); button("NFC 벤치 체험"); tap("nfc-example"); button("AR 카메라 열기")
-        tap("start-ar"); ui.onNodeWithText("허용 안 함").performClick()
-        ui.onNodeWithText("권한 거부 예시 · 체험을 다시 시작하거나 이전 화면으로 돌아갈 수 있습니다.").assertExists()
-        tap("start-ar")
-        repeat(3) { ui.onNodeWithText("허용 예시").performClick() }
-        tap("capture"); button("저장 결과 예시 보기")
-        screenshot("capture")
-        button("다시 촬영"); ui.onNodeWithTag("capture").assertExists()
+        ui.onNodeWithText("캐릭터와 함께 촬영하기").assertExists()
+        ui.onNodeWithTag("start-ar").assertExists()
+        screenshot("ar-entry")
+        back(); ui.onNodeWithText("AR 카메라 열기").assertExists()
     }
 
     @Test fun repeatedTabsDoNotAccumulateAndResetClearsExamples() {
@@ -107,9 +109,9 @@ class NavigationTest {
             ui.onNodeWithTag("tab-NFC").performClick()
         }
         back(); ui.onNodeWithText("기부할 벤치 찾기").assertExists()
-        button("나의 기부 현황"); button("기부 내역 예시 불러오기")
+        tap("home-donations"); button("기부 내역 예시 불러오기")
         ui.onNodeWithText("프로필").performClick(); button("예시 초기화 및 처음으로")
-        home(); button("나의 기부 현황")
+        home(); tap("home-donations")
         ui.onNodeWithText("아직 기부 내역이 없습니다").assertExists()
     }
 
