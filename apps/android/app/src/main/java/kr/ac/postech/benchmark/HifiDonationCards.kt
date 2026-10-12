@@ -88,9 +88,9 @@ fun DonationStoryCard(donation: Donation, mini: Boolean, modifier: Modifier = Mo
         .testTag("donation-card-${donation.id}").then(if (open != null) Modifier.clickable(role = Role.Button, onClick = open) else Modifier)) {
         if (flipped) {
             Image(painterResource(R.drawable.story_map), "Figma 캠퍼스 지도 예시", Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = .62f)
-            Column(Modifier.align(Alignment.Center).padding(16.dp).background(OiColors.Light, RoundedCornerShape(15.dp)).padding(12.dp)) {
-                Text("벤치 ${donation.bench} · 지도 예시", fontSize = if (mini) 14.sp else 20.sp)
-                Text("학교 확인 대기\n${installationStages[donation.stage.coerceIn(installationStages.indices)]}\n진행 상태는 로컬 예시입니다.", fontSize = 12.sp)
+            Column(Modifier.align(Alignment.Center).padding(if (mini) 8.dp else 16.dp).background(OiColors.Light, RoundedCornerShape(15.dp)).padding(if (mini) 8.dp else 12.dp)) {
+                Text(if (mini) "벤치 ${donation.bench}" else "벤치 ${donation.bench} · 지도 예시", fontSize = if (mini) 14.sp else 20.sp)
+                Text(if (mini) "학교 확인 대기" else "학교 확인 대기\n${installationStages[donation.stage.coerceIn(installationStages.indices)]}\n진행 상태는 로컬 예시입니다.", fontSize = 12.sp)
             }
         } else {
             storyImage(donation.story.photo)?.let { image ->
@@ -99,10 +99,11 @@ fun DonationStoryCard(donation: Donation, mini: Boolean, modifier: Modifier = Mo
                 Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xFF323F1D).copy(alpha = .8f)))))
                 if (donation.story.photo == 1 && !mini) {
                     val scale = maxWidth / 362.dp
+                    val benchY = minOf(272.dp * scale, (maxHeight - 75.dp * scale - 155.dp).coerceAtLeast(0.dp))
                     Image(painterResource(R.drawable.story_bench_shadow), null,
-                        Modifier.size(238.dp * scale, 86.dp * scale).align(Alignment.TopCenter).offset(y = 292.dp * scale), contentScale = ContentScale.FillBounds)
+                        Modifier.size(238.dp * scale, 86.dp * scale).align(Alignment.TopCenter).offset(y = benchY + 20.dp * scale), contentScale = ContentScale.FillBounds)
                     Image(painterResource(R.drawable.story_bench), null,
-                        Modifier.size(132.dp * scale, 75.dp * scale).align(Alignment.TopCenter).offset(y = 272.dp * scale), contentScale = ContentScale.FillBounds)
+                        Modifier.size(132.dp * scale, 75.dp * scale).align(Alignment.TopCenter).offset(y = benchY), contentScale = ContentScale.FillBounds)
                 }
             }
             Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(if (mini) 16.dp else 25.dp),
