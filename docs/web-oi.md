@@ -128,3 +128,7 @@ https://oi-web-preview-design-preview.up.railway.app/auth/callback?next=%2F
 - 공개 반응형·기부 이동·Google PKCE 진입 2개 브라우저 테스트 통과
 
 ![공유 디자인 기준의 오이기부 홈](web-oi/brand-hero-1440.png)
+
+### BenchMark와 상호 이동 — 2026-10-12
+
+상단 메뉴와 푸터에 `BenchMark 팀 소개` 링크를 추가해 `https://main-concepts-design-preview.up.railway.app/benchmark`로 이동한다. BenchMark의 화면 목차와 하단 목차에는 오이기부 서비스 링크를 추가한다. 같은 탭의 일반 링크이며, 새 로그인·자동 리디렉션·메인 도메인 통합을 추가하지 않는다. 어느 웹을 메인으로 쓸지는 계속 미정이다. 기존 로그인 세션과 기부 안내 경로는 유지한다.
