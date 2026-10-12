@@ -20,6 +20,7 @@ class HifiHomeTest {
     private fun home() {
         ui.waitUntil(5_000) { ui.onAllNodesWithTag("skip-onboarding").fetchSemanticsNodes().size == 1 }
         ui.onNodeWithTag("skip-onboarding").performScrollTo().performClick()
+        ui.onNodeWithTag("onboarding-next").performScrollTo().performClick()
     }
     private fun screenshot(name: String) {
         val file = File("build/hifi-screenshots/$name.png")

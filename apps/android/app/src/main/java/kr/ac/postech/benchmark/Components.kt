@@ -83,14 +83,6 @@ fun DonorFields(donor: Donor, onChange: (Donor) -> Unit) {
 }
 
 @Composable
-fun StoryFields(story: Story, onChange: (Story) -> Unit, photo: () -> Unit) {
-    Block(if (story.photo == 0) "이미지" else "선택한 예시 이미지 ${story.photo}")
-    OutlinedButton(photo, Modifier.fillMaxWidth().testTag("edit-photo")) { Text("이미지 선택 / 변경") }
-    Field("제목 / 명패 문구", story.title, "story-title") { onChange(story.copy(title = it)) }
-    Field("스토리 입력", story.body, "story-body", multiline = true) { onChange(story.copy(body = it)) }
-}
-
-@Composable
 fun StoryContent(story: Story) {
     Block(if (story.photo == 0) "이미지 없음" else "예시 이미지 ${story.photo}")
     Heading(story.title.ifBlank { "제목 없음" })
