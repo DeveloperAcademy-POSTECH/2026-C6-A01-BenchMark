@@ -12,13 +12,13 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35], qualifiers = "w402dp-h874dp-mdpi")
+@Config(sdk = [35], application = NavigationTestApplication::class, qualifiers = "w402dp-h874dp-mdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class HifiHomeTest {
     @get:Rule val ui = createAndroidComposeRule<MainActivity>()
 
     private fun home() {
-        ui.onNodeWithTag("login").performScrollTo().performClick()
+        ui.waitUntil(5_000) { ui.onAllNodesWithTag("skip-onboarding").fetchSemanticsNodes().size == 1 }
         ui.onNodeWithTag("skip-onboarding").performScrollTo().performClick()
     }
     private fun screenshot(name: String) {
