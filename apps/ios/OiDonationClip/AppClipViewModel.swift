@@ -28,12 +28,12 @@ final class AppClipViewModel {
         
         var description: String {
             switch self {
-            case .loading: "로딩 중"
-            case .ready: "준비 완료"
-            case .invalidLink: "유효하지 않은 링크"
-            case .loadFailed: "Story 불러오기를 실패하였습니다"
-            case .storyNotFound: "스토리가 없습니다"
-            case .arUnavailable: "AR을 사용할 수 없습니다"
+            case .loading: "이야기를 불러오는 중이에요"
+            case .ready: "AR을 시작할 준비가 되었어요"
+            case .invalidLink: "올바르지 않은 링크예요. 명패의 NFC를 다시 인식해 주세요"
+            case .loadFailed: "이야기를 불러오지 못했어요. 잠시 후 다시 시도해 주세요"
+            case .storyNotFound: "이 명패에 연결된 이야기를 찾을 수 없어요"
+            case .arUnavailable: "이 기기에서는 AR을 사용할 수 없어요. 대신 이야기를 확인해 주세요"
             }
         }
     }
