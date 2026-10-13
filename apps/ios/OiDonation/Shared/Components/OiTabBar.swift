@@ -4,6 +4,7 @@ struct OiTabBar: View {
     @Binding var selectedTab: AppTab
     let onCamera: () -> Void
     var body: some View {
+        GlassEffectContainer(spacing: 12) {
         HStack(spacing: 16) {
             HStack(spacing: 0) {
                 ForEach(AppTab.allCases) { tab in
@@ -14,22 +15,21 @@ struct OiTabBar: View {
                         }
                         .foregroundStyle(selectedTab == tab ? Color("OiGreen") : Color.primary)
                         .frame(maxWidth: .infinity).frame(height: 54)
-                        .background { if selectedTab == tab { Capsule().fill(Color("OiSoft")) } }
+                        .background { if selectedTab == tab { Capsule().fill(Color("OiGreen").opacity(0.12)) } }
                     }
                     .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
                 }
             }
-            .padding(4).background(.regularMaterial, in: Capsule())
-            .overlay(Capsule().stroke(Color.gray.opacity(0.2), lineWidth: 0.5))
+            .padding(4)
+            .glassEffect(.regular.interactive(), in: Capsule())
             Button(action: onCamera) {
                 Image(systemName: "camera.fill").font(.system(size: 23, weight: .semibold))
                     .foregroundStyle(.primary).frame(width: 62, height: 62)
-                    .background(.regularMaterial, in: Circle())
-                    .overlay(Circle().stroke(Color.gray.opacity(0.2), lineWidth: 0.5))
+                    .glassEffect(.regular.interactive(), in: Circle())
             }.accessibilityLabel("AR 카메라 열기")
         }
-        .buttonStyle(.plain).shadow(color: .black.opacity(0.06), radius: 8, y: 4)
+        .buttonStyle(.plain)
+        }
         .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 8)
-        .background(Color.white)
     }
 }
