@@ -92,7 +92,15 @@ struct ARCameraScreen: View {
             }
             .overlay(alignment: .bottom) {
                 if showPhotoSettings {
-                    ARPhotoSettingsPanel(settings: $controller.settings) { showPhotoSettings = false }
+                    ScrollView {
+                        ARPhotoSettingsPanel(settings: $controller.settings, reselectBench: {
+                            controller.selectBenchAgain()
+                            showPhotoSettings = false
+                        }) { showPhotoSettings = false }
+                    }
+                        .scrollIndicators(.hidden)
+                        .defaultScrollAnchor(.bottom, for: .alignment)
+                        .frame(maxHeight: min(520, max(0, geometry.size.height - 20)))
                         .padding(10)
                         .frame(maxWidth: 440)
                         .environment(\.colorScheme, .dark)
@@ -130,6 +138,12 @@ struct ARCameraScreen: View {
         .tint(.mint)
         .task { await controller.start() }
         .onChange(of: controller.settings) { old, _ in controller.update(from: old) }
+        .onChange(of: controller.settings.background) { _, background in
+            if background == .stadium { model.videoMode = false; showPhotoSettings = false }
+        }
+        .onChange(of: model.videoMode) { _, videoMode in
+            if videoMode { controller.settings.background = .original }
+        }
         .onChange(of: controller.settings.cameraExposure) { _, bias in
             guard let device = ARWorldTrackingConfiguration.configurableCaptureDeviceForPrimaryCamera else {
                 controller.errorMessage = "이 기기에서는 카메라 노출 조절을 지원하지 않습니다."

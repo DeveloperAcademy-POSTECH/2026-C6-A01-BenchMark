@@ -1,6 +1,7 @@
 import Foundation
 
 struct ARCaptureSettings: Codable, Equatable {
+    var background: ARCameraBackground = .original
     var photoRatio: ARPhotoRatio = .standard
     var photoTimer = 0
     var opaquePhotoMargins = false
@@ -33,4 +34,9 @@ enum ARPhotoFilter: String, Codable, CaseIterable {
     var saturation: Double {
         switch self { case .original: 1; case .vivid: 1.5; case .muted: 0.5; case .mono: 0 }
     }
+}
+
+// Static background; no camera images leave the device.
+enum ARCameraBackground: String, Codable, CaseIterable {
+    case original = "원본", stadium = "경기장"
 }
