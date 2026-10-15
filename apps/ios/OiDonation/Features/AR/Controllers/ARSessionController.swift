@@ -1,11 +1,21 @@
 import ARKit
 import AVFoundation
+import Metal
 import Observation
 import RealityKit
 import SwiftUI
 
 @MainActor @Observable
 final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognizerDelegate {
+    var backgroundMessage = ""
+    var backgroundReady = false
+    var selectingBench = false
+    @ObservationIgnored private lazy var background = ARStadiumBackgroundService(
+        background: UIImage(named: "StadiumBackground")?.cgImage) { [weak self] message, ready in
+            self?.backgroundMessage = message
+            self?.backgroundReady = ready
+            if ready { self?.selectingBench = false }
+        }
     var photoViewport = CGRect.zero
     let view = RealityKit.ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
     let animation = ARAnimationController()
@@ -31,7 +41,12 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     private var anchor: AnchorEntity?
     private var characterRoot: Entity?
     private var loadedCharacter: ARCharacter?
-    var canCapture: Bool { placed && ready && !loading && !capturing && !videoRecording && loadedCharacter == settings.character }
+    var canCapture: Bool {
+        (placed || settings.background == .stadium)
+            && (settings.background == .original || backgroundReady)
+            && ready && !loading && !capturing && !videoRecording
+            && loadedCharacter == settings.character
+    }
     private var loadTask: Task<Void, Never>?
     private var wantsRunning = false
     private var pinchStartHeight: Float?
@@ -52,6 +67,10 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         view.addGestureRecognizer(pan)
         view.addGestureRecognizer(pinch)
         view.addGestureRecognizer(tap)
+        let compositor = background
+        view.renderCallbacks.prepareWithDevice = { compositor.prepare(device: $0) }
+        view.renderCallbacks.postProcess = { compositor.render($0) }
+        if let device = MTLCreateSystemDefaultDevice() { compositor.prepare(device: device) }
         lighting.install(in: view)
         applySettings()
     }
@@ -70,6 +89,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         }
         ready = true
         configureSession()
+        updateBackground()
         if characterRoot == nil { loadCharacter() }
     }
 
@@ -83,6 +103,8 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     func pause() {
         wantsRunning = false
         view.session.pause()
+        background.setEnabled(false)
+        backgroundReady = false
         ready = false
     }
 
@@ -102,14 +124,40 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     func update(from previous: ARCaptureSettings) {
         if previous.character != settings.character { loadCharacter() }
         if previous.peopleOcclusion != settings.peopleOcclusion { configureSession() }
+        if previous.background != settings.background { updateBackground() }
         applySettings()
     }
 
     func applySettings() {
-        lighting.apply(settings, to: view, meshSupported: meshSupported)
+        var lightingSettings = settings
+        if settings.background == .stadium {
+            // Depth must identify virtual geometry, not reconstructed ground.
+            lightingSettings.groundingShadow = false
+            lightingSettings.sceneOcclusion = false
+        }
+        lighting.apply(lightingSettings, to: view, meshSupported: meshSupported)
         characterRoot?.scale = SIMD3(repeating: settings.height)
         characterRoot?.orientation = simd_quatf(angle: settings.rotation * .pi / 180, axis: [0, 1, 0])
         characterRoot?.position.y = settings.floorOffset
+    }
+
+    private func updateBackground() {
+        backgroundReady = false
+        selectingBench = settings.background == .stadium
+        background.setEnabled(ready && settings.background == .stadium)
+    }
+
+    func selectBenchAgain() {
+        guard ready, !capturing, !videoRecording else { return }
+        selectingBench = true
+        backgroundReady = false
+        background.reselectBench()
+    }
+
+    func session(_ session: ARSession, didUpdate frame: ARFrame) {
+        guard ready, settings.background == .stadium else { return }
+        background.submit(frame, viewport: view.bounds.size,
+                          orientation: view.window?.windowScene?.effectiveGeometry.interfaceOrientation ?? .portrait)
     }
 
     func loadCharacter() {
@@ -243,6 +291,12 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     }
 
     @objc private func tapped(_ gesture: UITapGestureRecognizer) {
+        if settings.background == .stadium && selectingBench {
+            guard ready, !capturing, !videoRecording, view.bounds.width > 0, view.bounds.height > 0 else { return }
+            let point = gesture.location(in: view)
+            background.selectBench(at: CGPoint(x: point.x / view.bounds.width, y: point.y / view.bounds.height))
+            return
+        }
         guard ready, !loading, !locked, !capturing, !videoRecording, let root = characterRoot else { return }
         guard let hit = view.raycast(from: gesture.location(in: view), allowing: .existingPlaneGeometry, alignment: .horizontal).first else {
             message = "아직 바닥을 찾지 못했습니다. 바닥을 여러 각도에서 비춰 주세요."
@@ -281,18 +335,29 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         }
     }
 
-    func sessionWasInterrupted(_ session: ARSession) { tracking = "카메라 일시 중단"; ready = false }
-    func sessionInterruptionEnded(_ session: ARSession) { ready = wantsRunning; configureSession() }
+    func sessionWasInterrupted(_ session: ARSession) { tracking = "카메라 일시 중단"; background.setEnabled(false); backgroundReady = false; ready = false }
+    func sessionInterruptionEnded(_ session: ARSession) { ready = wantsRunning; configureSession(); updateBackground() }
     func session(_ session: ARSession, didFailWithError error: Error) {
         ready = false
+        background.setEnabled(false)
+        backgroundReady = false
         errorMessage = "AR 세션 오류: \(error.localizedDescription). 앱을 다시 활성화하거나 재시도해 주세요."
     }
 
     func capture() {
-        guard canCapture, let frame = view.session.currentFrame, let anchor else { return }
+        guard canCapture, let frame = view.session.currentFrame else { return }
+        if settings.background == .stadium && !background.hasFreshMask {
+            errorMessage = "벤치를 다시 인식한 후 촬영해 주세요."
+            return
+        }
         capturing = true
         photoCapture.capture(view: view, viewport: photoViewport, frame: frame, anchor: anchor, settings: settings,
-                             peopleSupported: peopleSupported, meshSupported: meshSupported) { [weak self] outcome in
+                             peopleSupported: peopleSupported, meshSupported: meshSupported,
+                             snapshot: settings.background == .stadium ? { [background] completion in
+                                 background.captureNextFrame { image in
+                                     Task { @MainActor in completion(image.map { UIImage(cgImage: $0) }) }
+                                 }
+                             } : nil) { [weak self] outcome in
             guard let self else { return }
             self.capturing = false
             switch outcome {

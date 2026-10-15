@@ -18,6 +18,14 @@ struct ARCameraPreview: View {
                         .font(.callout).multilineTextAlignment(.center)
                         .padding(12).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
                 }
+                if controller.settings.background == .stadium && !controller.backgroundMessage.isEmpty {
+                    Text(controller.backgroundMessage)
+                        .font(.caption).multilineTextAlignment(.center)
+                        .padding(10).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                    if !controller.selectingBench && !controller.backgroundReady {
+                        Text("사진 설정에서 벤치를 다시 선택해 주세요.").font(.caption)
+                    }
+                }
                 if controller.loading {
                     ProgressView("캐릭터 불러오는 중…")
                         .padding(12).background(.regularMaterial, in: Capsule())
