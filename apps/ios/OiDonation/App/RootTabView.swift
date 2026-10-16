@@ -11,33 +11,40 @@ struct RootTabView: View {
 
     var body: some View {
         @Bindable var router = router
-        ZStack(alignment: .bottom) {
-            Group {
-                switch router.selectedTab {
-                case .home:
+        TabView(selection: $router.selectedTab) {
+            Tab(AppTab.home.title, systemImage: AppTab.home.symbol, value: .home) {
                 NavigationStack(path: $router.storyPath) {
                     HomeView(repository: container.homeRepository) { router.selectedTab = .participation }
                         .navigationDestination(for: PublicLinkParser.Destination.self) { publicDestination($0) }
                 }
-                case .myDonations:
-                NavigationStack { MyDonationsView(repository: container.participationRepository, showDesignExamples: container.showsDesignExamples) { router.selectedTab = .participation } }
-                case .participation:
+            }
+            Tab(AppTab.myDonations.title, systemImage: AppTab.myDonations.symbol, value: .myDonations) {
                 NavigationStack {
-                    SponsorshipView(benches: container.benchRepository, participation: container.participationRepository) { router.selectedTab = .home }
+                    MyDonationsView(repository: container.participationRepository,
+                                    showDesignExamples: container.showsDesignExamples) {
+                        router.selectedTab = .participation
+                    }
                 }
-                case .benches:
+            }
+            Tab(AppTab.participation.title, systemImage: AppTab.participation.symbol, value: .participation) {
+                NavigationStack {
+                    SponsorshipView(benches: container.benchRepository,
+                                    participation: container.participationRepository) {
+                        router.selectedTab = .home
+                    }
+                }
+            }
+            Tab(AppTab.benches.title, systemImage: AppTab.benches.symbol, value: .benches) {
                 NavigationStack(path: $router.benchPath) {
                     BenchesView(repository: container.benchRepository)
                         .navigationDestination(for: PublicLinkParser.Destination.self) { publicDestination($0) }
                 }
-                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .ignoresSafeArea(.container, edges: .bottom)
-            .contentMargins(.bottom, 86, for: .scrollContent)
-            OiTabBar(selectedTab: $router.selectedTab) { router.isARPresented = true }
         }
-        .background(Color.white).tint(Color("OiGreen"))
+        .background {
+            OiNativeTabBarCameraPlacement { router.isARPresented = true }
+        }
+        .tint(Color("OiGreen"))
         .fullScreenCover(isPresented: $router.isARPresented) { ARView() }
         .onOpenURL { router.open($0) }
     }
