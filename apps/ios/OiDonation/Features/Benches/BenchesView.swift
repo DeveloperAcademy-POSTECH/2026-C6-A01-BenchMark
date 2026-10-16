@@ -18,7 +18,6 @@ struct BenchesView: View {
     @State private var position: MapCameraPosition = .region(Self.campusRegion)
     @State private var mapAppearance = Appearance.standard
     @State private var benches: [Bench] = []
-    @State private var isLoading = true
     @State private var errorMessage: String?
 
     // Campus overview only; this is not an approved bench or NFC coordinate.
@@ -60,7 +59,17 @@ struct BenchesView: View {
             MapCompass()
             MapScaleView()
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { mapStatus }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let errorMessage {
+                HStack {
+                    Text(errorMessage).font(.subheadline)
+                    Spacer()
+                    Button("재시도") { Task { await load() } }
+                }
+                .padding()
+                .background(.regularMaterial)
+            }
+        }
         .navigationTitle("벤치지도")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -121,32 +130,8 @@ struct BenchesView: View {
         if !rect.isNull { position = .rect(rect) }
     }
 
-    private var mapStatus: some View {
-        HStack(spacing: 12) {
-            if isLoading { ProgressView() }
-            else { Image(systemName: errorMessage == nil ? "wave.3.right" : "exclamationmark.triangle") }
-            VStack(alignment: .leading, spacing: 4) {
-                Text(errorMessage ?? (isLoading ? "NFC 위치 확인 중" : locatedBenches.isEmpty ? "NFC 위치를 준비 중이에요" : "NFC 위치 \(locatedBenches.count)곳"))
-                    .font(.subheadline.weight(.semibold))
-                if !isLoading && errorMessage == nil && locatedBenches.isEmpty {
-                    Text("확정된 태그 위치가 등록되면 지도에 표시됩니다.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            Spacer(minLength: 0)
-            if errorMessage != nil {
-                Button("재시도") { Task { await load() } }
-            }
-        }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial)
-    }
-
     private func load() async {
-        isLoading = true
         errorMessage = nil
-        defer { isLoading = false }
         do { benches = try await repository.fetchBenches() }
         catch is CancellationError { }
         catch { errorMessage = "NFC 위치를 불러오지 못했어요." }
