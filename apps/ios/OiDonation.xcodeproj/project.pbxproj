@@ -256,6 +256,7 @@
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "지도에서 내 위치를 표시하고 현재 위치로 이동하기 위해 위치를 사용합니다.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "AR 영상에 음성을 함께 녹음하기 위해 마이크를 사용합니다.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "촬영한 AR 사진을 사용자가 선택할 때 사진 보관함에 저장합니다.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "AR 캐릭터와 함께 사진을 촬영하기 위해 카메라를 사용합니다.";
@@ -291,6 +292,7 @@
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "지도에서 내 위치를 표시하고 현재 위치로 이동하기 위해 위치를 사용합니다.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "AR 영상에 음성을 함께 녹음하기 위해 마이크를 사용합니다.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "촬영한 AR 사진을 사용자가 선택할 때 사진 보관함에 저장합니다.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "AR 캐릭터와 함께 사진을 촬영하기 위해 카메라를 사용합니다.";
