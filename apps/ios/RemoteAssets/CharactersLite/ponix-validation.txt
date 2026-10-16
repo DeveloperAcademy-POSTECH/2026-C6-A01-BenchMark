@@ -1,0 +1,4 @@
+
+Validation Result with no explicit variants set
+Warn: (usdShadeValidators:AaplConstantOcclusionValidator.AaplConstantOcclusionValue) UsdPreviewSurface </Root/Materials/mat0/PbrPreview> has occlusion set to constant value 1, which will dim the object. Consider connecting occlusion to a texture or removing the constant value.
+Success with warnings...

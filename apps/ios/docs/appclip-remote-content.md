@@ -116,3 +116,7 @@ NFC 실행은 15MB를 기준으로 한다. `check-appclip-size.py <Release-iphon
 - 실제 기기용 비서명 Clip Release 빌드 통과. 번들 파일 합 **743,623 bytes (약 0.74MB)**, 내장 3D 파일 없음. 서명/스토어 thinning 결과가 아님.
 - iPhone 17 Pro iOS 26.5 Simulator에서 개발용 벤치 URL → 실제 HTTP API → 사진·이야기 표시, AR 진입/미지원 안내, 닫기 후 이야기 복귀 확인.
 - 실제 NFC 카드 표시·실기기 AR 배치/사진·공유 및 운영 API 검증은 미수행.
+
+## 원격 캐릭터 경량화 — 2026-10-16
+
+사용자 요청으로 모든 캐릭터의 원격 배포용 경량본을 `apps/ios/RemoteAssets/CharactersLite`에 생성했다. 개별 크기는 약 3.25~3.71MB이며 원본은 보존한다. 외부 다운로드 방식과 Clip 타깃 리소스 구성은 유지한다. 운영 CDN에 올린 뒤 스토리 API의 URL과 manifest SHA를 함께 갱신해야 적용된다. [경량화 결과·비교·배포 방법](../RemoteAssets/CharactersLite/OPTIMIZATION.md)을 참고한다.

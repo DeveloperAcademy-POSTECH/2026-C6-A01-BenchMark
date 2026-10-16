@@ -1,0 +1,305 @@
+{
+  "version": 1,
+  "textureMaxDimension": 1024,
+  "staticTriangleTarget": 100000,
+  "models": [
+    {
+      "name": "doni",
+      "originalBytes": 32839893,
+      "sourceSHA256": "1e416debfad89cb42800304fec98a0efb3950cb1d109dedb219d65ca54dabad4",
+      "textures": [
+        {
+          "file": "extracted_image_2.jpg_roughness.png",
+          "before": [
+            2048,
+            2048
+          ],
+          "after": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "file": "extracted_image_2.jpg_metallic.png",
+          "before": [
+            2048,
+            2048
+          ],
+          "after": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "file": "extracted_image_0.jpg",
+          "before": [
+            4096,
+            4096
+          ],
+          "after": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "file": "extracted_image_1.jpg",
+          "before": [
+            4096,
+            4096
+          ],
+          "after": [
+            1024,
+            1024
+          ]
+        }
+      ],
+      "geometryLOD": true,
+      "originalSceneSHA256": "721af79342d9327c8b58cc4efad4912e819503ef0233449b4c4832c5abc537e3",
+      "expectedSceneSHA256": "721af79342d9327c8b58cc4efad4912e819503ef0233449b4c4832c5abc537e3",
+      "normalMapCorrection": false,
+      "originalTriangles": 466458,
+      "optimizedTriangles": 99999,
+      "vertices": 69524,
+      "complianceExitCode": 0,
+      "optimizedBytes": 3712175,
+      "sha256": "b255e4306faab1a8e2b470b377f610788a8e66594c74916510dc916695143c6d",
+      "file": "doni-lite-v1.usdz",
+      "reductionPercent": 88.7
+    },
+    {
+      "name": "neopjuk",
+      "originalBytes": 14174163,
+      "sourceSHA256": "e51ca94ff85a39557c555a49af646a3d27e0581458e3ae65c0b3769b0d9735bb",
+      "textures": [
+        {
+          "file": "extracted_image_2.jpg_roughness.png",
+          "before": [
+            2048,
+            2048
+          ],
+          "after": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "file": "extracted_image_2.jpg_metallic.png",
+          "before": [
+            2048,
+            2048
+          ],
+          "after": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "file": "extracted_image_0.jpg",
+          "before": [
+            4096,
+            4096
+          ],
+          "after": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "file": "extracted_image_1.jpg",
+          "before": [
+            4096,
+            4096
+          ],
+          "after": [
+            1024,
+            1024
+          ]
+        }
+      ],
+      "geometryLOD": false,
+      "originalSceneSHA256": "6d83bbe0b464f2133067735e13d35a1e70238f2a406805919a9a4081b4d7bdbf",
+      "expectedSceneSHA256": "6d83bbe0b464f2133067735e13d35a1e70238f2a406805919a9a4081b4d7bdbf",
+      "normalMapCorrection": false,
+      "complianceExitCode": 0,
+      "optimizedBytes": 3437966,
+      "sha256": "9cefd5f936c22ed458eafb7dfd227c8a8932250971a3c2d6734985d326d22b2f",
+      "file": "neopjuk-lite-v1.usdz",
+      "reductionPercent": 75.7
+    },
+    {
+      "name": "neopjukAnimated",
+      "originalBytes": 14227018,
+      "sourceSHA256": "0607fb6336f13c8f7a4934b3fd5504cd6b9189e6a61680e30ab5a997de267c68",
+      "textures": [
+        {
+          "file": "Material_0_Normal.jpg",
+          "before": [
+            4096,
+            4096
+          ],
+          "after": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "file": "Material_0_MetallicRoughness.jpg",
+          "before": [
+            2048,
+            2048
+          ],
+          "after": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "file": "Material_0_baseColor.jpg",
+          "before": [
+            4096,
+            4096
+          ],
+          "after": [
+            1024,
+            1024
+          ]
+        }
+      ],
+      "geometryLOD": false,
+      "originalSceneSHA256": "31c3bb9ff17c33829ddabb9ca32032fdc90544a75d9c5f2a106ffd1d0e02dce9",
+      "expectedSceneSHA256": "c7004ffe5792b89cc7b4ac1efdb4f22dbb1d935b255030073f9d2d549dcc5264",
+      "normalMapCorrection": true,
+      "complianceExitCode": 0,
+      "optimizedBytes": 3511093,
+      "sha256": "f94b40ea14e2d82389aaa4cfb9d924a8f27f9e4c662036c076b53e36fdcd96f5",
+      "file": "neopjukAnimated-lite-v1.usdz",
+      "reductionPercent": 75.3
+    },
+    {
+      "name": "ponix",
+      "originalBytes": 63865481,
+      "sourceSHA256": "56f421273179af9ef6f43f2810711dc29b86c5a42d16f9a6ae89a66d9a015098",
+      "textures": [
+        {
+          "file": "extracted_image_2.jpg_roughness.png",
+          "before": [
+            2048,
+            2048
+          ],
+          "after": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "file": "extracted_image_2.jpg_metallic.png",
+          "before": [
+            2048,
+            2048
+          ],
+          "after": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "file": "extracted_image_0.jpg",
+          "before": [
+            2048,
+            2048
+          ],
+          "after": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "file": "extracted_image_1.jpg",
+          "before": [
+            2048,
+            2048
+          ],
+          "after": [
+            1024,
+            1024
+          ]
+        }
+      ],
+      "geometryLOD": true,
+      "originalSceneSHA256": "50006b1f943b1cc672e7f16f3854951ccc4d3118eea1b32b140dcbcc149170bb",
+      "expectedSceneSHA256": "50006b1f943b1cc672e7f16f3854951ccc4d3118eea1b32b140dcbcc149170bb",
+      "normalMapCorrection": false,
+      "originalTriangles": 1928847,
+      "optimizedTriangles": 100000,
+      "vertices": 75641,
+      "complianceExitCode": 0,
+      "optimizedBytes": 3628991,
+      "sha256": "483e93325ea7510a19896dee5d81b55f337a9113ed97025a46fabea211414ace",
+      "file": "ponix-lite-v1.usdz",
+      "reductionPercent": 94.3
+    },
+    {
+      "name": "ponixVsNeopjuk",
+      "originalBytes": 12257612,
+      "sourceSHA256": "bf67a2dd18c2c0fc96615fa9d4c4f5e065c81c49ab3c8a0aa0edcc7c58633f37",
+      "textures": [
+        {
+          "file": "extracted_image_2.jpg_roughness.png",
+          "before": [
+            2048,
+            2048
+          ],
+          "after": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "file": "extracted_image_2.jpg_metallic.png",
+          "before": [
+            2048,
+            2048
+          ],
+          "after": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "file": "extracted_image_0.jpg",
+          "before": [
+            2048,
+            2048
+          ],
+          "after": [
+            1024,
+            1024
+          ]
+        },
+        {
+          "file": "extracted_image_1.jpg",
+          "before": [
+            2048,
+            2048
+          ],
+          "after": [
+            1024,
+            1024
+          ]
+        }
+      ],
+      "geometryLOD": true,
+      "originalSceneSHA256": "287507eb2675548d364acd1d6c79625682dd993ad0e2ddb742b5b58e74e8ec91",
+      "expectedSceneSHA256": "287507eb2675548d364acd1d6c79625682dd993ad0e2ddb742b5b58e74e8ec91",
+      "normalMapCorrection": false,
+      "originalTriangles": 196440,
+      "optimizedTriangles": 100000,
+      "vertices": 60188,
+      "complianceExitCode": 0,
+      "optimizedBytes": 3247941,
+      "sha256": "47123d6c47a7ddd1a55f015bd4473e4bdc6e9030205ac44a06a8e2d259e428b5",
+      "file": "ponixVsNeopjuk-lite-v1.usdz",
+      "reductionPercent": 73.5
+    }
+  ]
+}
