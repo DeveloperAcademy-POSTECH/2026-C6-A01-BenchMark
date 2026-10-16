@@ -3,6 +3,7 @@ import ARKit
 
 struct ARPhotoSettingsPanel: View {
     @Binding var settings: ARCaptureSettings
+    let reselectBench: () -> Void
     let close: () -> Void
 
     var body: some View {
@@ -12,6 +13,17 @@ struct ARPhotoSettingsPanel: View {
                 Spacer()
                 Button(action: close) { Image(systemName: "chevron.down").frame(width: 44, height: 32) }
                     .accessibilityLabel("사진 설정 패널 접기")
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Label("배경", systemImage: "soccerball")
+                Picker("배경", selection: $settings.background) {
+                    ForEach(ARCameraBackground.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }.pickerStyle(.segmented)
+                if settings.background == .stadium {
+                    Button("남길 벤치 다시 선택", systemImage: "hand.tap", action: reselectBench)
+                    Text("벤치는 터치로 선택하고 사람은 자동으로 남깁니다. 사진 촬영 전용입니다.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
             HStack {
                 Label("타이머", systemImage: "timer")
