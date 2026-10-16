@@ -13,7 +13,7 @@ protocol StoryRepository: Sendable {
 }
 
 /// 3-2. 테스트용 StoryRepository 작성
-class TestStoryRepository: StoryRepository {
+final class TestStoryRepository: StoryRepository {
     func fetchPublicStory(plaqueID: String) async throws -> Story? {
         
         guard plaqueID == "preview-plaque" else {
@@ -30,7 +30,7 @@ class TestStoryRepository: StoryRepository {
 }
 
 
-class RealStoryRepository: StoryRepository {
+final class RealStoryRepository: StoryRepository {
     func fetchPublicStory(plaqueID: String) async throws -> Story? {
         // 서버에 plaqueID를 넘겨서 받아온 Story 반환
         return nil

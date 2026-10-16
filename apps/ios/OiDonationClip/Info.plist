@@ -9,5 +9,16 @@
 		<key>NSAppClipRequestLocationConfirmation</key>
 		<false/>
 	</dict>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>OI_CLIP_API_BASE_URL</key>
+	<string>$(OI_CLIP_API_BASE_URL)</string>
+	<key>OI_CLIP_ASSET_HOSTS</key>
+	<string>$(OI_CLIP_ASSET_HOSTS)</string>
+	<key>OI_CLIP_PUBLIC_HOST</key>
+	<string>$(OI_CLIP_PUBLIC_HOST)</string>
 </dict>
 </plist>

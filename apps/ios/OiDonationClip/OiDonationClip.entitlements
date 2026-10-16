@@ -2,9 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>com.apple.developer.parent-application-identifiers</key>
-    <array>
-        <string>$(AppIdentifierPrefix)com.Spero.OiDonation</string>
-    </array>
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>appclips:$(OI_CLIP_PUBLIC_HOST)</string>
+	</array>
+	<key>com.apple.developer.on-demand-install-capable</key>
+	<true/>
+	<key>com.apple.developer.parent-application-identifiers</key>
+	<array>
+		<string>$(AppIdentifierPrefix)com.Spero.OiDonation</string>
+	</array>
 </dict>
 </plist>

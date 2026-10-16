@@ -3,6 +3,7 @@ import SwiftUI
 struct RootTabView: View {
     let container: AppContainer
     @State private var router: AppRouter
+    @State private var clipInvocation: ClipInvocation?
 
     init(container: AppContainer = .pilot) {
         self.container = container
@@ -46,7 +47,24 @@ struct RootTabView: View {
         }
         .tint(Color("OiGreen"))
         .fullScreenCover(isPresented: $router.isARPresented) { ARView() }
-        .onOpenURL { router.open($0) }
+        .onOpenURL { handlePublicLink($0) }
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            if let url = activity.webpageURL { handlePublicLink(url) }
+        }
+        .sheet(item: $clipInvocation) { invocation in
+            ContentView(configuration: invocation.configuration, invocationURL: invocation.url)
+                .overlay(alignment: .topTrailing) {
+                    Button("닫기", systemImage: "xmark") { clipInvocation = nil }
+                        .labelStyle(.iconOnly).padding().accessibilityLabel("벤치 이야기 닫기")
+                }
+        }
+    }
+
+    private func handlePublicLink(_ url: URL) {
+        if let configuration = try? ClipConfiguration.configured(),
+           (try? ClipRoute.parse(url, host: configuration.publicHost)) != nil {
+            clipInvocation = ClipInvocation(url: url, configuration: configuration)
+        } else { router.open(url) }
     }
 
     private func publicDestination(_ destination: PublicLinkParser.Destination) -> some View {
@@ -55,3 +73,9 @@ struct RootTabView: View {
 }
 
 #Preview { RootTabView(container: .preview) }
+
+private struct ClipInvocation: Identifiable {
+    let id = UUID()
+    let url: URL
+    let configuration: ClipConfiguration
+}
