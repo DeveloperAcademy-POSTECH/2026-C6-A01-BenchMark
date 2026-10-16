@@ -69,7 +69,7 @@ python3 apps/ios/Tests/Fixtures/clip-content-server.py \
 sh apps/ios/Tests/run-appclip-content-checks.sh
 ```
 
-Xcode에서 `OiDonationClip` 스킴을 선택하고 Run 환경 변수:
+개발용 로컬 서버를 실행한 뒤 Xcode에서 **`OiDonationClipLocal`** 스킴을 선택하면 다음 Run 환경 변수가 자동 적용된다. 일반 `OiDonationClip` 스킴은 운영 설정 주입용이며 이 테스트 값을 포함하지 않는다.
 
 ```text
 OI_CLIP_PUBLIC_HOST=clip.test
