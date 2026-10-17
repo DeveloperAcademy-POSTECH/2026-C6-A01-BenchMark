@@ -33,6 +33,10 @@ struct ParticipationView: View {
                     TextField("개인적인 이야기", text: $viewModel.draft.story, axis: .vertical).lineLimit(3...6)
                     Text("문구 길이와 명패 제공 기준은 학교와 협의 후 안내드립니다.").font(.caption)
                 }
+                Section("명패 미리보기") {
+                    PlaquePreviewView(message: $viewModel.draft.message, benchID: viewModel.draft.benchID,
+                        configuration: viewModel.benches.first(where: { $0.id == viewModel.draft.benchID })?.plaquePreview)
+                }
                 if let error = viewModel.errorMessage {
                     Section { Text(error).foregroundStyle(.red) }
                 }

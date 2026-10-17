@@ -1,9 +1,17 @@
 import Foundation
 
-struct Bench: Identifiable, Sendable, Equatable {
+nonisolated struct Bench: Identifiable, Sendable, Equatable {
     let id: String
     let name: String
     let locationDescription: String
+    let plaquePreview: BenchPlaquePreview?
+
+    init(id: String, name: String, locationDescription: String, plaquePreview: BenchPlaquePreview? = nil) {
+        self.id = id
+        self.name = name
+        self.locationDescription = locationDescription
+        self.plaquePreview = plaquePreview
+    }
 }
 
 enum ApplicationStatus: String, Sendable {
