@@ -1,7 +1,8 @@
 import Foundation
 import Observation
 
-@MainActor @Observable
+@MainActor
+@Observable
 final class AppRouter {
     var selectedTab: AppTab = .home
     var isARPresented = false

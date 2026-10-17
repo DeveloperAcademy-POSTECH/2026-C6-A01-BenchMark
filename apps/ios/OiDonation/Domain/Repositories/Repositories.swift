@@ -15,6 +15,3 @@ protocol ParticipationRepository: Sendable {
     func submit(_ draft: ParticipationDraft, idempotencyKey: UUID) async throws -> ParticipationApplication
 }
 
-protocol StoryRepository: Sendable {
-    func fetchPublicStory(plaqueID: String) async throws -> Story?
-}
