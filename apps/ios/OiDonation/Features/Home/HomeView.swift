@@ -37,7 +37,7 @@ struct HomeView: View {
                             Button("다시 확인") { Task { await viewModel.load() } }
                         }.frame(maxWidth: .infinity).frame(height: 180)
                     }
-                    Button {} label: {
+                    NavigationLink { PhotoTestView() } label: {
                         Text("사진 테스트")
                             .font(.headline)
                             .foregroundStyle(Color("OiGreen"))
