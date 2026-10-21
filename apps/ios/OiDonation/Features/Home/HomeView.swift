@@ -37,6 +37,14 @@ struct HomeView: View {
                             Button("다시 확인") { Task { await viewModel.load() } }
                         }.frame(maxWidth: .infinity).frame(height: 180)
                     }
+                    Button {} label: {
+                        Text("사진 테스트")
+                            .font(.headline)
+                            .foregroundStyle(Color("OiGreen"))
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(Color("OiLight"), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 16)
             }.clipped()
