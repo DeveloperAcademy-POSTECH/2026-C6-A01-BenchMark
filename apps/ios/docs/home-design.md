@@ -1,5 +1,7 @@
 # 홈 화면 구현
 
+- 2026-10-21: 홈 스크롤 최하단의 `사진 테스트`에서 자동 콜라주·고정 레이아웃 편집기로 이동한다. 상세 동작과 검증은 [사진 테스트](photo-test.md)를 따른다.
+
 - 디자인: https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=1021-4493
 - HomeView: 로고·벤치 배너·기부 내역·바로가기·참여 현황 구성. Figma 원본 이미지는 Assets.xcassets에 저장했다.
 - RootTabView가 탭별 경로와 독립 카메라 버튼을 소유한다. HomeView는 홈 콘텐츠만 담당하며 전체 미리보기는 RootTabView(container: .preview)를 사용한다.
