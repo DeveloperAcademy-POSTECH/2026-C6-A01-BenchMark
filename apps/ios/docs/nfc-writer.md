@@ -46,6 +46,12 @@ xcodebuild -project apps/ios/OiDonation.xcodeproj -scheme OiDonation \
 
 시뮬레이터는 NFC를 지원하지 않으므로 실제 기록 성공을 검증하지 않는다. 실제 iPhone에서 NFC 권한을 포함한 서명으로 빌드한 뒤, 쓰기 가능한 태그와 읽기 전용 태그·용량 부족·복수 태그·접촉 손실·취소·재시도를 확인해야 한다. 등록한 호출 URL을 기록하고 전체 앱이 설치되지 않은 iPhone에서 App Clip 카드와 콘텐츠 진입도 확인한다.
 
+## 화면 검증
+
+393pt 너비에서 실제 SwiftUI 화면을 격리된 시뮬레이터 앱으로 렌더링한 결과다. 시뮬레이터의 NFC 미지원 안내와 비활성 기록 버튼을 포함한다. 실물 태그 기록 화면의 성공 상태를 나타내지 않는다.
+
+![NFC 기록 화면](../../../docs/screenshots/nfc-writer/writer.png)
+
 ## Apple 근거
 
 - [Core NFC 태그 읽기·쓰기 예제](https://developer.apple.com/documentation/corenfc/building-an-nfc-tag-reader-app)
