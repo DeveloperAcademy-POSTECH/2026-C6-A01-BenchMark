@@ -2,7 +2,7 @@
 
 2026-10-22 / #89
 
-홈의 `사진 테스트` 바로 아래 `NFC` 버튼에서 기록 화면으로 이동한다. 사용자가 입력한 등록된 HTTPS 호출 URL을 Core NFC의 NDEF URI 레코드 하나로 기록한다. 기존 태그의 NDEF 내용은 교체하며 태그를 영구 잠금하지 않는다.
+홈의 `사진 테스트` 바로 아래 `NFC` 버튼에서 기록 화면으로 이동한다. OiDonation App Clip 번들 ID에 맞춘 Apple 기본 링크 `https://appclip.apple.com/id?p=com.Spero.OiDonation.Clip`을 미리 입력한다. 사용자는 필요한 호출 URL로 바꿀 수 있으며, 입력한 HTTPS URL을 Core NFC의 NDEF URI 레코드 하나로 기록한다. 기존 태그의 NDEF 내용은 교체하며 태그를 영구 잠금하지 않는다.
 
 ## 동작과 상태
 
@@ -20,7 +20,7 @@
 
 태그 기록 성공은 App Clip 호출 설정 완료를 뜻하지 않는다. Apple에서 발급한 기본/데모 링크 또는 등록한 웹 호출 URL을 사용해야 한다. 커스텀 웹 URL은 Associated Domains와 AASA 등 해당 호출 방식의 설정이 필요하다. 개발 기기에서는 로컬 경험으로 시험할 수 있다. 전체 앱이 설치되어 있으면 태그 호출이 전체 앱으로 연결될 수 있다.
 
-현재 App Clip 코드는 `example.com/stories/<plaqueID>`만 허용하는 초기 구현이며, 운영 URL·원격 콘텐츠 연결은 확정되지 않았다. NFC 화면은 예시 URL을 기본값으로 넣지 않는다. 실제 호출 URL과 App Clip의 링크 처리·콘텐츠 구성이 서로 맞는지 별도 확인해야 한다.
+현재 App Clip 코드는 `example.com/stories/<plaqueID>`만 허용하는 초기 구현이며, 운영 URL·원격 콘텐츠 연결은 확정되지 않았다. NFC 화면은 Apple의 기본 링크 형식에 실제 Clip 번들 ID를 넣어 미리 표시한다. 2026-10-22 App Store Connect 확인 시 기본 경험·기본 링크·데모 URL은 미설정 상태였다. 기본 링크 표시는 해당 링크의 활성화를 의미하지 않으며, 실제 호출에는 기본 경험 설정과 승인이 필요하다. 현재 Clip 파서는 Apple 기본 링크를 아직 해석하지 않으므로 실제 호출 URL과 App Clip의 링크 처리·콘텐츠 구성이 서로 맞는지 별도 확인해야 한다.
 
 ## 검증 명령
 

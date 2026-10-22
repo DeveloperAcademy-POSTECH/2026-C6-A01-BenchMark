@@ -5,7 +5,7 @@ import SwiftUI
 struct NFCWriteView: View {
     @Environment(\.scenePhase) private var scenePhase
     @FocusState private var isURLFocused: Bool
-    @State private var invocationURL = ""
+    @State private var invocationURL = "https://appclip.apple.com/id?p=com.Spero.OiDonation.Clip"
     @State private var writer = NFCWriter()
 
     private var validationMessage: String? {
@@ -44,7 +44,7 @@ struct NFCWriteView: View {
                         Label(validationMessage, systemImage: "exclamationmark.circle")
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
-                    Text("App Store Connect 또는 기기의 로컬 경험에 등록한 링크를 입력해 주세요. 링크 기록만으로 App Clip 호출 설정이 완료되지는 않아요.")
+                    Text("OiDonation 앱 클립의 기본 링크예요. 실제 호출에는 App Store Connect의 기본 경험 설정과 승인이 필요해요. 테스트용 호출 링크가 있다면 바꿔 주세요.")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
 
