@@ -45,6 +45,15 @@ struct HomeView: View {
                             .background(Color("OiLight"), in: RoundedRectangle(cornerRadius: 10))
                     }
                     .buttonStyle(.plain)
+                    NavigationLink { NFCWriteView() } label: {
+                        Text("NFC")
+                            .font(.headline)
+                            .foregroundStyle(Color("OiGreen"))
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(Color("OiLight"), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("App Clip 링크를 NFC 태그에 기록하는 화면을 엽니다")
                 }
                 .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 16)
             }.clipped()
