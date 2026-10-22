@@ -47,6 +47,9 @@ struct RootTabView: View {
         .tint(Color("OiGreen"))
         .fullScreenCover(isPresented: $router.isARPresented) { ARView() }
         .onOpenURL { router.open($0) }
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            if let url = activity.webpageURL { router.open(url) }
+        }
     }
 
     private func publicDestination(_ destination: PublicLinkParser.Destination) -> some View {

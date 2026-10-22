@@ -52,6 +52,7 @@
 			membershipExceptions = (
 				Domain/Models/Story.swift,
 				Domain/Repositories/StoryRepository.swift,
+				Domain/Routing/AppClipLink.swift,
 				Domain/Routing/PublicLinkParser.swift,
 			);
 			target = 87169564307CB1CF0090D456 /* OiDonationClip */;

@@ -5,7 +5,7 @@ import SwiftUI
 struct NFCWriteView: View {
     @Environment(\.scenePhase) private var scenePhase
     @FocusState private var isURLFocused: Bool
-    @State private var invocationURL = "https://appclip.apple.com/id?p=com.Spero.OiDonation.Clip"
+    @State private var invocationURL = AppClipLink.defaultURLString
     @State private var writer = NFCWriter()
 
     private var validationMessage: String? {
