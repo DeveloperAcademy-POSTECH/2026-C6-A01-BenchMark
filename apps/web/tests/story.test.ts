@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { storyInput, storyText, byteLength } from "../src/lib/story";
-import { correctPassword, makeSession, validSession, checkOrigin, boundedBody, HttpError } from "../src/lib/security";
+import { storyInput, storyText, byteLength } from "../lib/story";
+import { correctPassword, makeSession, validSession, checkOrigin, boundedBody, HttpError } from "../lib/security";
 process.env.ADMIN_PASSWORD = "test-only-password-not-for-production";
 process.env.SESSION_SECRET = "test-only-session-secret-at-least-32-characters";
 const input = { matNumber: 1, matSize: "small", displayName: "운영팀", story: "이야기", paymentVerified: false, published: false };
@@ -10,10 +10,13 @@ test("anonymous or whitespace names cannot be registered", () => {
 });
 test("story byte limit handles UTF-8 including emoji", () => {
   assert.equal(storyInput.safeParse({ ...input, story: "🧺".repeat(100) }).success, true);
-  assert.equal(storyText.safeParse("a".repeat(500)).success, true);
-  assert.equal(storyText.safeParse("a".repeat(501)).success, false);
-  assert.equal(storyText.safeParse("\uac00".repeat(166) + "ab").success, true);
-  assert.equal(storyText.safeParse("\uac00".repeat(167)).success, false);
+  assert.equal(storyText.safeParse("a".repeat(1000)).success, true);
+  assert.equal(storyText.safeParse("a".repeat(1001)).success, false);
+  assert.equal(storyText.safeParse("\uac00".repeat(333) + "a").success, true);
+  assert.equal(storyText.safeParse("\uac00".repeat(333) + "ab").success, false);
+  assert.equal(storyText.safeParse("🧺".repeat(250)).success, true);
+  assert.equal(storyText.safeParse("🧺".repeat(250) + "a").success, false);
+  assert.equal(storyText.safeParse("   ").success, false);
   assert.equal(byteLength("\ud83e\uddfa"), 4);
 });
 test("publication requires verified payment and valid mat type", () => {

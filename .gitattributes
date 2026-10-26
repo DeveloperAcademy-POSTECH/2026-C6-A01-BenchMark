@@ -1,0 +1,2 @@
+# Preserve upstream MediaPipe artifacts byte-for-byte when relocating them.
+apps/*/public/mediapipe/wasm/*.js -whitespace
