@@ -4,6 +4,7 @@ struct RootTabView: View {
     let container: AppContainer
     @State private var path = NavigationPath()
     @State private var store = CampusStoryStore()
+    @State private var geoPlacement: CampusPlacement?
     @State private var isARPresented = false
     @State private var isCameraCoverActive = false
 
@@ -17,7 +18,8 @@ struct RootTabView: View {
                 container: container,
                 store: store,
                 isCameraCoverActive: isCameraCoverActive,
-                onCamera: { isCameraCoverActive = true; isARPresented = true },
+                onCamera: { geoPlacement = nil; isCameraCoverActive = true; isARPresented = true },
+                onGeoCamera: { geoPlacement = $0; isCameraCoverActive = true; isARPresented = true },
                 onOpenStory: { path.append(CampusDestination.summary($0)) }
             )
             .navigationDestination(for: CampusDestination.self) { destination in
@@ -35,7 +37,11 @@ struct RootTabView: View {
         .fullScreenCover(isPresented: $isARPresented, onDismiss: {
             // Restore the map only after the camera's dismissal has finished.
             isCameraCoverActive = false
-        }) { ARView() }
+        }) {
+            if let placement = geoPlacement {
+                CampusGeoARScreen(placement: placement, stories: store)
+            } else { ARView() }
+        }
         .onOpenURL { handlePublicLink($0) }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL { handlePublicLink(url) }

@@ -6,6 +6,7 @@ struct HomeView: View {
     let store: CampusStoryStore
     let isCameraCoverActive: Bool
     let onCamera: () -> Void
+    let onGeoCamera: (CampusPlacement) -> Void
     let onOpenStory: (String) -> Void
     @Environment(\.scenePhase) private var scenePhase
     @State private var scene = CampusExploreScene()
@@ -17,6 +18,9 @@ struct HomeView: View {
     @State private var showingSchools = false
     @State private var searchResults: Set<String>?
     @State private var isOnScreen = false
+    @State private var placements = CampusPlacementStore()
+    @State private var showingPlacements = false
+    @State private var pendingAR: CampusPlacement?
 
     var body: some View {
         GeometryReader { geometry in
@@ -40,23 +44,50 @@ struct HomeView: View {
                             Text("디자인 예시").font(.caption2).padding(7).background(.thinMaterial, in: Capsule())
                         }
                     }.padding(.horizontal, 20).padding(.top, 6)
+                    if !scene.editingPlacement {
+                        HStack {
+                            Button("오이 배치", systemImage: "plus.viewfinder") { scene.beginPlacement() }
+                                .disabled(!scene.placementReady || !placements.ready)
+                                .accessibilityIdentifier("placement.begin")
+                            Spacer()
+                            Button("저장한 오이 \(placements.placements.count)", systemImage: "leaf") { showingPlacements = true }
+                        }.font(.subheadline).buttonStyle(.glass).padding(.horizontal, 20)
+                        if let error = scene.placementError {
+                            Button(error) { Task { await scene.preparePlacements() } }
+                                .font(.caption).padding(8).background(.regularMaterial, in: Capsule())
+                        } else if scene.placementLoading {
+                            ProgressView("오이 준비 중").font(.caption)
+                        }
+                    }
                     Spacer()
-                    if region == nil { homeActions.padding(.horizontal, 20).padding(.bottom, 14) }
+                    if !scene.editingPlacement && region == nil { homeActions.padding(.horizontal, 20).padding(.bottom, 14) }
                 }
                 if scene.isLoading { ProgressView("POSTECH 캠퍼스 불러오는 중").padding(22).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20)) }
                 if let error = scene.error {
                     ContentUnavailableView { Label("지도를 불러올 수 없어요", systemImage: "map") } description: { Text(error) } actions: {
-                        Button("다시 시도") { Task { await scene.load() } }
+                        Button("다시 시도") { Task { await loadCampus() } }
                     }.background(.regularMaterial)
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if let region { regionPanel(region, maxHeight: geometry.size.height * 0.72) }
+                if scene.editingPlacement {
+                    CampusPlacementEditor(scene: scene, placements: placements, stories: store.stories)
+                } else if let region { regionPanel(region, maxHeight: geometry.size.height * 0.72) }
             }
         }
         .toolbar(.hidden, for: .navigationBar)
         .background(CampusStyle.lightGreen)
         .sheet(isPresented: $showingProfile) { CampusProfileMenu(container: container, store: store, onCamera: openCamera) }
+        .sheet(isPresented: $showingPlacements, onDismiss: {
+            guard let placement = pendingAR else { return }
+            pendingAR = nil
+            scene.suspendForARCamera()
+            onGeoCamera(placement)
+        }) {
+            CampusPlacementList(placements: placements, stories: store) { placement in
+                pendingAR = placement; showingPlacements = false
+            }
+        }
         .sheet(isPresented: $showingSchools) {
             NavigationStack {
                 List {
@@ -79,11 +110,15 @@ struct HomeView: View {
                 // Use the same value-based path as list links and the summary's detail link.
                 onOpenStory(id)
             }
-            await scene.load()
+            await loadCampus()
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-campus-region-preview"), let first = CampusRegion.examples.first { scene.onRegion?(first) }
             #endif
         }
+        .onChange(of: placements.placements) { _, records in scene.syncPlacements(records: records) }
+        .alert("위치 저장 확인", isPresented: Binding(get: { placements.error != nil && !showingPlacements }, set: { if !$0 { placements.error = nil } })) {
+            Button("확인", role: .cancel) { placements.error = nil }
+        } message: { Text(placements.error ?? "") }
         .onAppear { isOnScreen = true; scene.setVisible(!isCameraCoverActive && scenePhase == .active) }
         .onDisappear { isOnScreen = false; scene.setVisible(false) }
         .onChange(of: scenePhase) { _, phase in scene.setVisible(isOnScreen && !isCameraCoverActive && phase == .active) }
@@ -96,6 +131,14 @@ struct HomeView: View {
                 scene.setVisible(scenePhase == .active)
             }
         }
+    }
+
+    private func loadCampus() async {
+        await scene.load()
+        guard let data = scene.data else { return }
+        placements.load(map: data, storyIDs: Set(store.stories.map(\.id)))
+        await scene.preparePlacements()
+        scene.syncPlacements(records: placements.placements)
     }
 
     private var homeActions: some View {

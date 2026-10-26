@@ -10,7 +10,17 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private(set) var ready = false
     var onRegion: ((CampusRegion) -> Void)?
     var onStory: ((String) -> Void)?
-    private var data: CampusMapData?
+    private(set) var data: CampusMapData?
+    private(set) var placementReady = false
+    private(set) var placementLoading = false
+    private(set) var placementError: String?
+    private(set) var editingPlacement = false
+    private(set) var draftPoint: SIMD3<Float>?
+    var placementMessage = "지도에서 건물 밖의 바닥을 눌러 주세요."
+    @ObservationIgnored private var oiTemplate: Entity?
+    @ObservationIgnored private let placementLayer = Entity()
+    @ObservationIgnored private var draftEntity: Entity?
+    @ObservationIgnored private var savedPlacements: [CampusPlacement] = []
     @ObservationIgnored private var canvas: CampusMapCanvas?
     @ObservationIgnored private let root = AnchorEntity(world: .zero)
     @ObservationIgnored private let camera = PerspectiveCamera()
@@ -53,6 +63,10 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             gesture.cancelsTouchesInView = true
             canvas.addGestureRecognizer(gesture)
         }
+        let tap = UITapGestureRecognizer(target: self, action: #selector(selectPlacement(_:)))
+        tap.delegate = self
+        for gesture in navigationGestures { tap.require(toFail: gesture) }
+        canvas.addGestureRecognizer(tap)
         canvas.didLayout = { [weak self] in self?.updateCamera() }
         if visible { attachRenderer(to: canvas) }
         updateCamera()
@@ -165,6 +179,97 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         focus(region, stories: []); radius = 38; pitch = 0.9; updateCamera()
     }
 
+    func preparePlacements() async {
+        guard !placementReady, !placementLoading else { return }
+        placementLoading = true; placementError = nil
+        defer { placementLoading = false }
+        do {
+            oiTemplate = try await CampusOiAsset.load()
+            try Task.checkCancellation()
+            root.addChild(placementLayer)
+            placementReady = true
+            syncPlacements(records: savedPlacements)
+        } catch is CancellationError { }
+        catch { placementError = "오이 모델을 불러오지 못했어요. 다시 시도해 주세요." }
+    }
+
+    func syncPlacements(records: [CampusPlacement]) {
+        savedPlacements = records
+        placementLayer.children.removeAll()
+        guard let data, let oiTemplate else { return }
+        for record in records {
+            let entity = oiTemplate.clone(recursive: true)
+            entity.name = "placement:" + record.id.uuidString
+            entity.position = data.world(latitude: record.latitude, longitude: record.longitude)
+            // Map symbols are enlarged for legibility; AR uses the saved size in metres.
+            entity.scale = SIMD3(repeating: Float(record.heightMeters * data.unitsPerMeter * 20))
+            entity.orientation = CampusOiAsset.heading(record.headingDegrees)
+            placementLayer.addChild(entity)
+        }
+    }
+
+    func beginPlacement() {
+        guard placementReady else { return }
+        editingPlacement = true; draftPoint = nil
+        placementMessage = "지도에서 건물 밖의 바닥을 눌러 주세요."
+        projectPins()
+    }
+
+    func endPlacement() {
+        editingPlacement = false; draftPoint = nil
+        draftEntity?.removeFromParent(); draftEntity = nil
+        projectPins()
+    }
+
+    func updateDraft(height: Double, heading: Double) {
+        guard let point = draftPoint, let data, let oiTemplate else { return }
+        if draftEntity == nil {
+            let entity = oiTemplate.clone(recursive: true)
+            root.addChild(entity); draftEntity = entity
+        }
+        draftEntity?.position = point
+        draftEntity?.scale = SIMD3(repeating: Float(height * data.unitsPerMeter * 20))
+        draftEntity?.orientation = CampusOiAsset.heading(heading)
+    }
+
+    @objc private func selectPlacement(_ gesture: UITapGestureRecognizer) {
+        guard gesture.state == .ended, let view = canvas?.map, let data else { return }
+        let point = gesture.location(in: view)
+        if editingPlacement {
+            guard let ray = view.ray(through: point),
+                  let hit = data.surface?.intersect(origin: ray.origin, direction: ray.direction) else {
+                draftPoint = nil; draftEntity?.isEnabled = false
+                placementMessage = "선택할 수 있는 캠퍼스 바닥을 다시 눌러 주세요."
+                return
+            }
+            if let error = data.placementError(at: hit) {
+                draftPoint = nil; draftEntity?.isEnabled = false; placementMessage = error
+            } else {
+                draftPoint = hit; draftEntity?.isEnabled = true
+                let coordinate = data.coordinate(hit)
+                placementMessage = String(format: "위도 %.6f · 경도 %.6f", coordinate.latitude, coordinate.longitude)
+            }
+        } else {
+            var entity = view.entity(at: point)
+            while let current = entity {
+                if let record = savedPlacements.first(where: { current.name == "placement:" + $0.id.uuidString }) {
+                    onStory?(record.storyID); return
+                }
+                entity = current.parent
+            }
+        }
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer is UITapGestureRecognizer else { return true }
+        var view = touch.view
+        while let current = view {
+            if current is UIControl { return false }
+            view = current.superview
+        }
+        return true
+    }
+
     func distances() -> [String: Float] { positions.mapValues { simd_distance($0, target) } }
     func visibleStoryIDs() -> Set<String> {
         guard let view = canvas?.map else { return [] }
@@ -189,7 +294,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         for (button, world) in pins {
             let local = camera.convert(position: world, from: nil)
             guard local.z < 0, let screen = view.project(world), screen.x.isFinite, screen.y.isFinite else { button.isHidden = true; continue }
-            button.isHidden = !view.bounds.insetBy(dx: -100, dy: -100).contains(screen)
+            button.isHidden = editingPlacement || !view.bounds.insetBy(dx: -100, dy: -100).contains(screen)
             button.center = CGPoint(x: screen.x, y: screen.y - button.bounds.height * 0.35)
         }
         if region == nil {
