@@ -187,4 +187,4 @@ AI 작업 요청 예시:
 
 ## 16. Sites 운영 전환 작업 — 2026-10-26 / #76
 
-사용자 요청으로 기존 Sites 검증 배포를 운영 전환 작업으로 이어간다. 배포된 소스를 `apps/web`(파일럿), `apps/oi-web`(오이기부), `apps/team-web`(팀 소개)에 동기화하고 파일럿의 PostgreSQL 접근을 D1, 사진 저장을 R2로 대체한다. 기존 Sites ID와 audience, Google 로그인과 Netlify 사진 변환을 유지한다. 루트의 Railway SDK·배포 정의·Docker 설정과 PostgreSQL CI는 사용하지 않는다. 앱별 Worker 빌드와 D1/R2 검증으로 전환한다. 적용 범위는 웹 호스팅이며 iOS·Android 구조와 미정 명패 정책을 변경하지 않는다. 원본 대조·마지막 증분·공개 진입·실제 로그인/사진/관리자 검증과 Railway 종료는 별도 증거로 확인해야 하며 현재 완료로 기록하지 않는다. 상세 현황은 `docs/SITES-CUTOVER.md`를 따른다.
+사용자 요청으로 기존 Sites 검증 배포를 운영 전환 작업으로 이어간다. 배포된 소스를 `apps/web`(파일럿), `apps/oi-web`(오이기부), `apps/team-web`(팀 소개)에 동기화하고 파일럿의 PostgreSQL 접근을 D1, 사진 저장을 R2로 대체한다. 기존 Sites ID와 audience, Google 로그인과 Netlify 사진 변환을 유지한다. 루트의 Railway SDK·배포 정의·Docker 설정과 PostgreSQL CI는 사용하지 않는다. 앱별 Worker 빌드와 D1/R2 검증으로 전환한다. 적용 범위는 웹 호스팅이며 iOS·Android 구조와 미정 명패 정책을 변경하지 않는다. 원본 대조·마지막 증분·실제 관리자/사진 검증과 Railway 웹·DB 중단을 확인했다. 파일럿·팀 소개는 사용자 요청으로 소유자 전용을 유지했다. 기존 Supabase 제공자의 DNS 장애로 Google 로그인은 미해결이다. 상세 현황은 `docs/SITES-CUTOVER.md`를 따른다.

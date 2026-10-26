@@ -39,7 +39,7 @@ npm --prefix apps/team-web run typecheck
 npm --prefix apps/team-web run build
 ```
 
-각 앱에서 `npm run dev` 또는 빌드 후 `npm start`로 미리보기를 실행한다. 출력되는 주소에 `APP_ORIGIN`을 맞춘다. 루트 `.env.example`은 파일럿의 키 이름을 안내한다. 실제 환경 파일은 앱 디렉터리의 무시된 `.dev.vars`에 두고 Git에 넣지 않는다. 로컬 D1과 운영 D1은 분리된다. 앱 README의 로컬 D1 절차대로 생성된 SQL을 적용한다.
+각 앱에서 `npm run dev` 또는 빌드 후 `npm start`로 미리보기를 실행한다. 출력되는 주소에 `APP_ORIGIN`을 맞춘다. 루트 `.env.example`은 파일럿의 키 이름을 안내한다. 실제 환경 값은 Git에 넣지 않는다. 빌드된 로컬 Worker의 HTTP 검증용 환경변수와 D1 준비 절차는 `.github/workflows/sites-web.yml`을 따른다. 로컬 D1과 운영 D1은 분리된다. 앱 README의 로컬 D1 절차대로 생성된 SQL을 적용한다.
 
 ## 배포와 전환
 
