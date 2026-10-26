@@ -1,0 +1,1 @@
+{"patches": [{"file": "campus-height-campus.bin", "width": 866, "height": 1176, "minX": -107.80595397949219, "minY": -127.56388854980469, "step": 0.24}, {"file": "campus-height-library.bin", "width": 701, "height": 635, "minX": 48.0, "minY": -65.0, "step": 0.03}], "verticalOffset": 0.025, "note": "Inferred terrain Z; not WGS84 AR altitude."}
