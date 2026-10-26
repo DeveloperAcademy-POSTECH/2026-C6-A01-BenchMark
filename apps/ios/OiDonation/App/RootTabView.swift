@@ -5,6 +5,7 @@ struct RootTabView: View {
     @State private var path = NavigationPath()
     @State private var store = CampusStoryStore()
     @State private var isARPresented = false
+    @State private var isCameraCoverActive = false
 
     init(container: AppContainer = .pilot) {
         self.container = container
@@ -15,7 +16,8 @@ struct RootTabView: View {
             HomeView(
                 container: container,
                 store: store,
-                onCamera: { isARPresented = true },
+                isCameraCoverActive: isCameraCoverActive,
+                onCamera: { isCameraCoverActive = true; isARPresented = true },
                 onOpenStory: { path.append(CampusDestination.summary($0)) }
             )
             .navigationDestination(for: CampusDestination.self) { destination in
@@ -30,7 +32,10 @@ struct RootTabView: View {
         }
         .tint(.black)
         .preferredColorScheme(.light)
-        .fullScreenCover(isPresented: $isARPresented) { ARView() }
+        .fullScreenCover(isPresented: $isARPresented, onDismiss: {
+            // Restore the map only after the camera's dismissal has finished.
+            isCameraCoverActive = false
+        }) { ARView() }
         .onOpenURL { handlePublicLink($0) }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL { handlePublicLink(url) }

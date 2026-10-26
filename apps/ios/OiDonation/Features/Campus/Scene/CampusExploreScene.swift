@@ -32,10 +32,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         let canvas = CampusMapCanvas()
         self.canvas = canvas
         canvas.isHidden = !visible
-        let view = canvas.map
-        view.environment.background = .color(UIColor(red: 0.78, green: 0.86, blue: 0.70, alpha: 1))
-        view.renderOptions = [.disableMotionBlur, .disableDepthOfField, .disableCameraGrain]
-        view.scene.addAnchor(root); root.addChild(camera)
+        root.addChild(camera)
         camera.camera.fieldOfViewInDegrees = 42
         camera.camera.near = 0.1; camera.camera.far = 1800
         let sun = DirectionalLight(); sun.light.intensity = 2200
@@ -57,6 +54,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             canvas.addGestureRecognizer(gesture)
         }
         canvas.didLayout = { [weak self] in self?.updateCamera() }
+        if visible { attachRenderer(to: canvas) }
         updateCamera()
         return canvas
     }
@@ -85,7 +83,26 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     func setVisible(_ active: Bool) {
         visible = active
         canvas?.isHidden = !active
-        if active { updateCamera() }
+        guard let canvas else { return }
+        if active {
+            attachRenderer(to: canvas)
+            updateCamera()
+        }
+    }
+
+    func suspendForARCamera() {
+        setVisible(false)
+        // Keep this renderer across story navigation. Only the AR camera needs it released.
+        canvas?.map?.scene.removeAnchor(root)
+        canvas?.removeRenderer()
+    }
+
+    private func attachRenderer(to canvas: CampusMapCanvas) {
+        guard canvas.map == nil else { return }
+        let view = canvas.installRenderer()
+        view.environment.background = .color(UIColor(red: 0.78, green: 0.86, blue: 0.70, alpha: 1))
+        view.renderOptions = [.disableMotionBlur, .disableDepthOfField, .disableCameraGrain]
+        view.scene.addAnchor(root)
     }
 
     func showOverview() {
@@ -242,11 +259,22 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 }
 
 final class CampusMapCanvas: UIView {
-    let map = RealityKit.ARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
+    private(set) var map: RealityKit.ARView?
     var didLayout: (() -> Void)?
-    override init(frame: CGRect) { super.init(frame: frame); addSubview(map) }
+    override init(frame: CGRect) { super.init(frame: frame) }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-    override func layoutSubviews() { super.layoutSubviews(); map.frame = bounds; didLayout?() }
+    func installRenderer() -> RealityKit.ARView {
+        if let map { return map }
+        let view = RealityKit.ARView(frame: bounds, cameraMode: .nonAR, automaticallyConfigureSession: false)
+        map = view
+        insertSubview(view, at: 0)
+        return view
+    }
+    func removeRenderer() {
+        map?.removeFromSuperview()
+        map = nil
+    }
+    override func layoutSubviews() { super.layoutSubviews(); map?.frame = bounds; didLayout?() }
 }
 
 struct CampusMapSurface: UIViewRepresentable {

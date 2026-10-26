@@ -4,6 +4,7 @@ import SwiftUI
 struct HomeView: View {
     let container: AppContainer
     let store: CampusStoryStore
+    let isCameraCoverActive: Bool
     let onCamera: () -> Void
     let onOpenStory: (String) -> Void
     @Environment(\.scenePhase) private var scenePhase
@@ -55,7 +56,7 @@ struct HomeView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .background(CampusStyle.lightGreen)
-        .sheet(isPresented: $showingProfile) { CampusProfileMenu(container: container, store: store, onCamera: onCamera) }
+        .sheet(isPresented: $showingProfile) { CampusProfileMenu(container: container, store: store, onCamera: openCamera) }
         .sheet(isPresented: $showingSchools) {
             NavigationStack {
                 List {
@@ -83,9 +84,18 @@ struct HomeView: View {
             if ProcessInfo.processInfo.arguments.contains("-campus-region-preview"), let first = CampusRegion.examples.first { scene.onRegion?(first) }
             #endif
         }
-        .onAppear { isOnScreen = true; scene.setVisible(scenePhase == .active) }
+        .onAppear { isOnScreen = true; scene.setVisible(!isCameraCoverActive && scenePhase == .active) }
         .onDisappear { isOnScreen = false; scene.setVisible(false) }
-        .onChange(of: scenePhase) { _, phase in scene.setVisible(isOnScreen && phase == .active) }
+        .onChange(of: scenePhase) { _, phase in scene.setVisible(isOnScreen && !isCameraCoverActive && phase == .active) }
+        .onChange(of: isCameraCoverActive) { _, active in
+            // Full-screen presentation doesn't always trigger this nested view's onAppear again.
+            if active {
+                scene.suspendForARCamera()
+            } else {
+                isOnScreen = true
+                scene.setVisible(scenePhase == .active)
+            }
+        }
     }
 
     private var homeActions: some View {
@@ -100,10 +110,15 @@ struct HomeView: View {
                 }
             }.buttonStyle(.plain).accessibilityLabel("내 프로필과 수집한 오이").accessibilityIdentifier("campus.profile")
             Spacer()
-            Button(action: onCamera) { Image(systemName: "camera.fill").font(.system(size: 34)).frame(width: 78, height: 78) }
+            Button(action: openCamera) { Image(systemName: "camera.fill").font(.system(size: 34)).frame(width: 78, height: 78) }
                 .buttonStyle(.glassProminent).buttonBorderShape(.circle).tint(Color(red: 0.40, green: 0.31, blue: 0.12))
                 .accessibilityLabel("AR 카메라 열기").accessibilityIdentifier("campus.camera")
         }
+    }
+
+    private func openCamera() {
+        scene.suspendForARCamera()
+        onCamera()
     }
 
     private func regionPanel(_ region: CampusRegion, maxHeight: CGFloat) -> some View {
