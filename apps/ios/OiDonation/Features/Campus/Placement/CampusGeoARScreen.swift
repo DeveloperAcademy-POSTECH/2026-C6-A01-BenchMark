@@ -30,10 +30,13 @@ struct CampusGeoARScreen: View {
                     Text(sharedError ?? controller.message).font(.subheadline)
                     TimelineView(.periodic(from: .now, by: 1)) { _ in
                         if let fix = location.location {
-                            Text("목표까지 \(target.distance(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude), specifier: "%.0f")m · GPS ±\(fix.horizontalAccuracy, specifier: "%.0f")m · \(location.isReady(for: target) ? "위치 확인됨" : "위치 재확인 중")")
+                            if fix.horizontalAccuracy >= 0 {
+                                Text("목표까지 약 \(target.distance(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude), specifier: "%.0f")m · GPS 불확실성 반경 \(fix.horizontalAccuracy, specifier: "%.0f")m")
+                                Text(location.isReady(for: target) ? "근접 조건 충족 · 정확한 배치 보장 아님" : "위치 재확인 중")
+                            } else { Text("유효한 GPS 위치를 기다리고 있어요.") }
                         } else { Text(location.message) }
                     }.font(.caption)
-                    Text("GPS 배치는 근사 위치이며, 직접 바닥 보정은 이 세션에만 적용됩니다.")
+                    Text("GPS 모드는 나침반과 주변 바닥 높이로 근사 배치합니다. 경사·계단에서는 높이가 다를 수 있고, 직접 바닥 보정은 이 세션에만 적용됩니다.")
                         .font(.caption2).foregroundStyle(.secondary)
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 Spacer()

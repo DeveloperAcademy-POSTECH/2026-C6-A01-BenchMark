@@ -49,11 +49,11 @@ struct CampusSharedEditor: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack { Text(editing == nil ? "공유 오이 심기" : "오이 수정").font(.headline); Spacer(); Button("취소") { scene.endPlacement() } }
             Text(scene.placementMessage).font(.caption)
-            HStack { Text("키 \(height, specifier: "%.1f")m"); Slider(value: $height, in: 0.4...2, step: 0.1).accessibilityLabel("AR 오이 높이") }
-            HStack { Text("방향 \(Int(heading))°"); Slider(value: $heading, in: 0...359, step: 1).accessibilityLabel("북쪽 기준 방향") }
-            Button("이 위치에 이야기 작성") { writing = true }
+            CampusPlacementTools(scene: scene)
+            CampusPlacementDimensions(height: $height, heading: $heading)
+            Button(editing == nil ? "이 위치에 이야기 작성" : "변경한 위치·내용 확인") { writing = true }
                 .buttonStyle(.borderedProminent).disabled(scene.draftPoint == nil)
-            Text("캠퍼스 지형 범위 안에서 선택해 주세요. 실제 출입 가능한 장소인지 공개 전에 검토합니다.").font(.caption2)
+            Text("지도는 미측량 지형이며 GPS·현장 AR 오차는 별도입니다. 실제 출입 가능한 장소인지 공개 전에 검토합니다.").font(.caption2)
         }.padding(16).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22)).padding(12)
             .onAppear {
                 if let editing {
@@ -113,6 +113,10 @@ struct CampusSharedStoryView: View {
     let id: UUID
     let store: CampusSharedStore
     var onAR: ((CampusSharedOi) -> Void)?
+    var onEdit: ((CampusSharedOi) -> Void)?
+    @Environment(\.dismiss) private var dismiss
+    @State private var confirmingDeletion = false
+    @State private var deleting = false
     @State private var item: CampusSharedOi?
     @State private var error: String?
     @State private var requestID = UUID()
@@ -130,11 +134,30 @@ struct CampusSharedStoryView: View {
                     if item.status == "published", let onAR {
                         Button("현장에서 AR로 보기", systemImage: "arkit") { onAR(item) }.buttonStyle(.borderedProminent)
                     }
+                    if store.authorized, store.mine.contains(where: { $0.id == item.id }), let onEdit {
+                        HStack {
+                            Button("위치·내용 수정", systemImage: "mappin.and.ellipse") { onEdit(item) }
+                            Button("삭제", systemImage: "trash", role: .destructive) { confirmingDeletion = true }
+                        }.buttonStyle(.bordered).disabled(deleting)
+                        if let error { Text(error).foregroundStyle(.red) }
+                    }
                 } else if let error {
                     Text(error); Button("다시 확인") { requestID = UUID() }
                 } else { ProgressView("이야기 확인 중") }
             }.frame(maxWidth: .infinity, alignment: .leading).padding(24)
         }.navigationTitle("오이 이야기").navigationBarTitleDisplayMode(.inline)
+            .interactiveDismissDisabled(deleting)
+            .confirmationDialog("이 오이와 이야기를 삭제할까요?", isPresented: $confirmingDeletion, titleVisibility: .visible) {
+                Button("오이와 이야기 삭제", role: .destructive) {
+                    guard let item else { return }
+                    deleting = true; error = nil
+                    Task {
+                        defer { deleting = false }
+                        do { try await store.remove(item); dismiss() }
+                        catch { self.error = error.localizedDescription }
+                    }
+                }
+            } message: { Text("공유 지도에서 오이와 이야기가 삭제됩니다.") }
             .task(id: requestID) {
                 item = nil; error = nil
                 do { item = try await store.story(id) }
@@ -166,7 +189,7 @@ struct CampusSharedList: View {
                 }
                 ForEach(own ? store.mine : store.items) { item in
                     VStack(alignment: .leading, spacing: 8) {
-                        NavigationLink { CampusSharedStoryView(id: item.id, store: store, onAR: onAR) } label: {
+                        NavigationLink { CampusSharedStoryView(id: item.id, store: store, onAR: onAR, onEdit: onEdit) } label: {
                             VStack(alignment: .leading) { Text(item.title).font(.headline); Text("\(item.displayName) · \(item.statusLabel)").font(.caption) }
                         }
                         if own {

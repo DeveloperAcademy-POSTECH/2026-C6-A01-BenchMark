@@ -20,6 +20,49 @@ import simd
         precondition(abs(metres.x * Float(map.unitsPerMeter) - point.x) < 0.001)
         precondition(abs(metres.z * Float(map.unitsPerMeter) - point.z) < 0.001, "AR north axis and map scale must agree")
         precondition(simd_length(record.offsetMeters(fromLatitude: ll.latitude, longitude: ll.longitude)) < 0.001)
+        // Selection precision must be measured in real metres, independent of map rotation.
+        let scale = Float(map.unitsPerMeter)
+        for yaw: Float in [0, .pi / 2, .pi, -.pi / 2] {
+            for step in [0.1, 0.5, 1.0] {
+                let right = CampusPlacementGeometry.offset(right: 1, forward: 0, meters: step, yaw: yaw, unitsPerMeter: map.unitsPerMeter)
+                let up = CampusPlacementGeometry.offset(right: 0, forward: 1, meters: step, yaw: yaw, unitsPerMeter: map.unitsPerMeter)
+                precondition(abs(simd_length(right) / scale - Float(step)) < 0.0001)
+                precondition(abs(simd_dot(right, up)) < 0.0001, "Screen directions must stay perpendicular")
+                let reverse = CampusPlacementGeometry.offset(right: -1, forward: 0, meters: step, yaw: yaw, unitsPerMeter: map.unitsPerMeter)
+                precondition(simd_length(right + reverse) < 0.0001)
+            }
+        }
+        let north = CampusPlacementGeometry.offset(right: 0, forward: 1, meters: 1, yaw: 0, unitsPerMeter: map.unitsPerMeter)
+        let east = CampusPlacementGeometry.offset(right: 1, forward: 0, meters: 1, yaw: 0, unitsPerMeter: map.unitsPerMeter)
+        precondition(north.z < 0 && east.x > 0)
+        let movedNorth = map.coordinate(point + north)
+        precondition(movedNorth.latitude > ll.latitude)
+        precondition(abs(record.distance(latitude: movedNorth.latitude, longitude: movedNorth.longitude) - 1) < 0.01)
+        for height in [0.4, 1, 2] {
+            let precise = CampusPlacementGeometry.mapScale(heightMeters: height, unitsPerMeter: map.unitsPerMeter, editing: true)
+            precondition(abs(precise / scale - Float(height)) < 0.0001, "Editing uses the physical AR height")
+            let browse = CampusPlacementGeometry.mapScale(heightMeters: height, unitsPerMeter: map.unitsPerMeter, editing: false)
+            precondition(abs(browse / precise - 20) < 0.0001)
+        }
+        let safeNudge = map.graph.values.compactMap { node -> (SIMD3<Float>, SIMD3<Float>)? in
+            let start = map.world(node.p)
+            guard map.placementError(at: start) == nil,
+                  let end = try? map.nudgedPlacement(from: start, right: 1, forward: 0, meters: 0.1, yaw: 0)
+            else { return nil }
+            return (start, end)
+        }.first!
+        precondition(abs((safeNudge.1.x - safeNudge.0.x) / scale - 0.1) < 0.001)
+        precondition(safeNudge.1.y == map.surface?.height(x: safeNudge.1.x, z: safeNudge.1.z))
+        precondition((try? map.nudgedPlacement(from: SIMD3(10000, 0, 10000), right: 1, forward: 0, meters: 1, yaw: 0)) == nil)
+        precondition((try? map.nudgedPlacement(from: point, right: 1, forward: 0, meters: .nan, yaw: 0)) == nil)
+        let buildingPoint = map.buildings.compactMap { building -> SIMD3<Float>? in
+            guard !building.p.isEmpty else { return nil }
+            let x = building.p.map { $0[0] }.reduce(0, +) / Double(building.p.count)
+            let y = building.p.map { $0[1] }.reduce(0, +) / Double(building.p.count)
+            let p = map.world([x, y])
+            return map.contains(p, polygon: building.p) ? p : nil
+        }.first!
+        precondition((try? map.nudgedPlacement(from: buildingPoint, right: 0, forward: 0, meters: 0.1, yaw: 0)) == nil)
         let now = Date()
         func quality(_ accuracy: Double = 5, age: Double = 0, lat: Double? = nil) -> Bool {
             CampusLocationQuality.allowsPlacement(latitude: lat ?? ll.latitude, longitude: ll.longitude,
@@ -51,7 +94,32 @@ import simd
         }.first!
         precondition(map.placementError(at: buildingCenter) != nil, "Building footprints cannot accept placements")
         precondition(store.placements == [record], "Invalid writes must preserve the previous state")
-        reopened.remove(record.id)
+        let otherPoint = map.graph.values.map { map.world($0.p) }.first {
+            simd_distance($0, point) > 5 && map.placementError(at: $0) == nil
+        }!
+        let otherLL = map.coordinate(otherPoint)
+        let moved = CampusPlacement(id: record.id, storyID: record.storyID,
+            latitude: otherLL.latitude, longitude: otherLL.longitude,
+            heightMeters: record.heightMeters, headingDegrees: record.headingDegrees)
+        precondition(store.update(moved) && store.placements == [moved], "Moving must replace the same ID, not create another cucumber")
+        let movedReload = CampusPlacementStore(repository: repository)
+        movedReload.load(map: map, storyIDs: ["example"])
+        precondition(movedReload.placements == [moved], "Moved coordinates and story must persist after relaunch")
+        let unknownUpdate = CampusPlacement(storyID: "example", latitude: ll.latitude, longitude: ll.longitude)
+        precondition(!store.update(unknownUpdate) && store.placements == [moved], "Editing a deleted/missing ID must not recreate it")
+        let invalidMove = CampusPlacement(id: record.id, storyID: record.storyID, latitude: 0, longitude: 0)
+        precondition(!store.update(invalidMove) && store.placements == [moved], "Invalid moves must leave the saved coordinates intact")
+
+        for _ in 0..<19 {
+            precondition(store.save(CampusPlacement(storyID: "example", latitude: ll.latitude, longitude: ll.longitude)))
+        }
+        let allIDs = store.placements.map(\.id)
+        precondition(store.update(record) && store.placements.count == 20, "Moving is allowed at the placement limit")
+        precondition(store.placements.map(\.id) == allIDs, "Moving must preserve the list order and other placements")
+        precondition(store.remove(record.id) && store.placements.count == 19)
+        let afterDelete = try repository.load()
+        precondition(afterDelete.map(\.id) == Array(allIDs.dropFirst()), "Deletion must remove only the selected ID")
+        for remaining in store.placements { precondition(store.remove(remaining.id)) }
         let deleted = try repository.load()
         precondition(deleted.isEmpty)
         try Data("invalid JSON".utf8).write(to: repository.url)
@@ -64,9 +132,10 @@ import simd
         let failing = FailingRepository(records: [record])
         let atomicStore = CampusPlacementStore(repository: failing)
         atomicStore.load(map: map, storyIDs: ["example"])
+        precondition(!atomicStore.update(moved) && atomicStore.placements == [record], "Failed writes must not publish a move")
         atomicStore.remove(record.id)
         precondition(atomicStore.placements == [record] && atomicStore.error != nil, "Failed disk writes must not publish a deletion")
-        print("PASS: \(map.graph.count) coordinate round trips, metre scale/north axis, proximity/freshness, persistence, story IDs, invalid/corrupt/failed writes")
+        print("PASS: \(map.graph.count) coordinate round trips, physical scale, rotated 10/50/100cm nudges, terrain/building/boundary validation, proximity/freshness, move/delete persistence, identity/capacity/order, invalid/corrupt/failed writes")
     }
 }
 

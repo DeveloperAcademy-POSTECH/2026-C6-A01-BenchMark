@@ -22,7 +22,9 @@ struct HomeView: View {
     @State private var isOnScreen = false
     @State private var placements = CampusPlacementStore()
     @State private var showingPlacements = false
-    @State private var pendingAR: CampusPlacement?
+    @State private var selectedPlacement: CampusPlacement?
+    @State private var editingPlacement: CampusPlacement?
+    @State private var pendingPlacementAction: PlacementAction?
     @State private var sharedMode = true
     @State private var showingWriter = false
     @State private var showingShared = false
@@ -30,11 +32,15 @@ struct HomeView: View {
     @State private var pendingSharedAR: CampusSharedOi?
     @State private var pendingEdit: CampusSharedOi?
     @State private var editingShared: CampusSharedOi?
+    private enum PlacementAction {
+        case edit(CampusPlacement), ar(CampusPlacement), story(String)
+    }
 
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                CampusMapSurface(scene: scene).ignoresSafeArea()
+                CampusMapSurface(scene: scene)
+                    .ignoresSafeArea(.container, edges: scene.editingPlacement ? .top : .all)
                 VStack {
                     HStack {
                         if region != nil {
@@ -49,6 +55,7 @@ struct HomeView: View {
                         } else {
                             Button { showingSchools = true } label: { Label("POSTECH", systemImage: "chevron.backward").font(.system(size: 18, weight: .semibold)) }
                                 .buttonStyle(.glass).buttonBorderShape(.capsule).controlSize(.large)
+                                .disabled(scene.editingPlacement)
                             Spacer()
                             Menu {
                                 Button("공유 캠퍼스") { sharedMode = true }
@@ -75,7 +82,7 @@ struct HomeView: View {
                             } else if shared.refreshing { ProgressView("공개 오이 확인 중").font(.caption) }
                         } else {
                             HStack {
-                                Button("예시 오이 배치", systemImage: "plus.viewfinder") { scene.beginPlacement() }
+                                Button("예시 오이 배치", systemImage: "plus.viewfinder") { editingPlacement = nil; scene.beginPlacement() }
                                     .disabled(!scene.placementReady || !placements.ready)
                                     .accessibilityIdentifier("placement.begin")
                                 Spacer()
@@ -104,7 +111,8 @@ struct HomeView: View {
                     if sharedMode {
                         CampusSharedEditor(scene: scene, store: shared, editing: editingShared)
                     } else {
-                        CampusPlacementEditor(scene: scene, placements: placements, stories: store.stories)
+                        CampusPlacementEditor(scene: scene, placements: placements, stories: store.stories, editing: editingPlacement)
+                            .id(editingPlacement?.id)
                     }
                 } else if let region { regionPanel(region, maxHeight: geometry.size.height * 0.72) }
             }
@@ -118,20 +126,22 @@ struct HomeView: View {
         }
         .sheet(item: $selectedShared, onDismiss: completeSharedSelection) { item in
             NavigationStack {
-                CampusSharedStoryView(id: item.id, store: shared) { target in pendingSharedAR = target; selectedShared = nil }
+                CampusSharedStoryView(id: item.id, store: shared,
+                    onAR: { target in pendingSharedAR = target; selectedShared = nil },
+                    onEdit: { target in pendingEdit = target; selectedShared = nil })
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("닫기") { selectedShared = nil } } }
             }
         }
         .sheet(isPresented: $showingProfile) { CampusProfileMenu(container: container, store: store, onCamera: openCamera) }
-        .sheet(isPresented: $showingPlacements, onDismiss: {
-            guard let placement = pendingAR else { return }
-            pendingAR = nil
-            scene.suspendForARCamera()
-            onGeoCamera(placement)
-        }) {
-            CampusPlacementList(placements: placements, stories: store) { placement in
-                pendingAR = placement; showingPlacements = false
-            }
+        .sheet(isPresented: $showingPlacements, onDismiss: completePlacementSelection) {
+            CampusPlacementList(placements: placements, stories: store,
+                onAR: { queuePlacementAction(.ar($0)) }, onEdit: { queuePlacementAction(.edit($0)) })
+        }
+        .sheet(item: $selectedPlacement, onDismiss: completePlacementSelection) { placement in
+            CampusPlacementDetail(placement: placement, placements: placements, stories: store,
+                onEdit: { queuePlacementAction(.edit(placement)) },
+                onAR: { queuePlacementAction(.ar(placement)) },
+                onStory: { queuePlacementAction(.story(placement.storyID)) })
         }
         .sheet(isPresented: $showingSchools) {
             NavigationStack {
@@ -157,10 +167,15 @@ struct HomeView: View {
             }
             scene.onPlacement = { id in
                 if sharedMode { selectedShared = shared.items.first { $0.id == id } }
-                else if let placement = placements.placements.first(where: { $0.id == id }) { onOpenStory(placement.storyID) }
+                else { selectedPlacement = placements.placements.first { $0.id == id } }
             }
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-campus-placement-check") { sharedMode = false }
+            #endif
             await loadCampus()
             #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-campus-placement-check") { scene.checkPrecisePlacement() }
+            if ProcessInfo.processInfo.arguments.contains("-campus-renderer-check") { await scene.checkRendererRestoration() }
             if ProcessInfo.processInfo.arguments.contains("-campus-region-preview"), let first = CampusRegion.examples.first { scene.onRegion?(first) }
             #endif
         }
@@ -176,7 +191,7 @@ struct HomeView: View {
         .onChange(of: sharedMode) { _, _ in
             region = nil; scene.endPlacement(); scene.setSharedMap(sharedMode); syncMap()
         }
-        .alert("위치 저장 확인", isPresented: Binding(get: { placements.error != nil && !showingPlacements }, set: { if !$0 { placements.error = nil } })) {
+        .alert("위치 저장 확인", isPresented: Binding(get: { placements.error != nil && !showingPlacements && selectedPlacement == nil }, set: { if !$0 { placements.error = nil } })) {
             Button("확인", role: .cancel) { placements.error = nil }
         } message: { Text(placements.error ?? "") }
         .onAppear { isOnScreen = true; scene.setVisible(!isCameraCoverActive && scenePhase == .active) }
@@ -215,7 +230,27 @@ struct HomeView: View {
         if let item = pendingSharedAR {
             pendingSharedAR = nil; scene.suspendForARCamera(); onSharedAR(item)
         } else if let item = pendingEdit {
-            pendingEdit = nil; editingShared = item; scene.beginPlacement()
+            pendingEdit = nil; editingShared = item; region = nil; expanded = false
+            scene.beginPlacement(editing: item.placement)
+        }
+    }
+
+    private func queuePlacementAction(_ action: PlacementAction) {
+        pendingPlacementAction = action
+        selectedPlacement = nil; showingPlacements = false
+    }
+
+    private func completePlacementSelection() {
+        guard let action = pendingPlacementAction else { return }
+        pendingPlacementAction = nil
+        // Wait until the sheet is gone before editing the map or presenting AR/navigation.
+        switch action {
+        case .edit(let placement):
+            editingPlacement = placement; region = nil; expanded = false
+            scene.beginPlacement(editing: placement)
+        case .ar(let placement):
+            scene.suspendForARCamera(); onGeoCamera(placement)
+        case .story(let id): onOpenStory(id)
         }
     }
 

@@ -1,5 +1,6 @@
 import SwiftUI
 import RealityKit
+import ARKit
 import Observation
 
 /// Reuses the OiCampus mesh/height-field format. All camera work stays in RealityKit.
@@ -20,12 +21,17 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private(set) var draftPoint: SIMD3<Float>?
     var placementMessage = "지도에서 건물 밖의 바닥을 눌러 주세요."
     @ObservationIgnored private var oiTemplate: Entity?
-    @ObservationIgnored private let placementLayer = Entity()
+    @ObservationIgnored private var placementLayer = Entity()
     @ObservationIgnored private var draftEntity: Entity?
+    @ObservationIgnored private var placementReticle: Entity?
+    private var draftHeight = 1.0
+    private var draftHeading = 0.0
+    private var browsingCamera: (target: SIMD3<Float>, radius: Float, yaw: Float, pitch: Float)?
     @ObservationIgnored private var savedPlacements: [CampusPlacement] = []
+    @ObservationIgnored private var editingPlacementID: UUID?
     @ObservationIgnored private var canvas: CampusMapCanvas?
-    @ObservationIgnored private let root = AnchorEntity(world: .zero)
-    @ObservationIgnored private let camera = PerspectiveCamera()
+    @ObservationIgnored private var root = AnchorEntity(world: .zero)
+    @ObservationIgnored private var camera = PerspectiveCamera()
     @ObservationIgnored private var pins: [(UIButton, SIMD3<Float>)] = []
     @ObservationIgnored private var positions: [String: SIMD3<Float>] = [:]
     private var target = SIMD3<Float>(25, 0, 25)
@@ -44,13 +50,6 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         let canvas = CampusMapCanvas()
         self.canvas = canvas
         canvas.isHidden = !visible
-        root.addChild(camera)
-        camera.camera.fieldOfViewInDegrees = 42
-        camera.camera.near = 0.1; camera.camera.far = 1800
-        let sun = DirectionalLight(); sun.light.intensity = 2200
-        sun.look(at: .zero, from: SIMD3(30, 60, 40), relativeTo: nil); root.addChild(sun)
-        let fill = DirectionalLight(); fill.light.intensity = 900
-        fill.look(at: .zero, from: SIMD3(-30, 40, -50), relativeTo: nil); root.addChild(fill)
         let pan = UIPanGestureRecognizer(target: self, action: #selector(pan(_:)))
         pan.minimumNumberOfTouches = 1
         pan.maximumNumberOfTouches = 2
@@ -90,7 +89,10 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                 Self.cachedMesh = loaded
                 map = loaded.clone(recursive: true)
             }
-            root.addChild(map); self.data = data; ready = true
+            // Loading may finish while AR has suspended the map. Keep the template
+            // detached until a renderer is available instead of reviving the old scene.
+            if canvas?.map != nil { root.addChild(map) }
+            self.data = data; ready = true
             if let region { focus(region, stories: stories) } else { showOverview() }
         } catch is CancellationError { }
         catch { self.error = "캠퍼스 지도를 불러오지 못했어요. 다시 시도해 주세요." }
@@ -111,6 +113,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         // Keep this renderer across story navigation. Only the AR camera needs it released.
         canvas?.map?.scene.removeAnchor(root)
         canvas?.removeRenderer()
+        panTouchCount = 0
     }
 
     private func attachRenderer(to canvas: CampusMapCanvas) {
@@ -118,7 +121,29 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         let view = canvas.installRenderer()
         view.environment.background = .color(UIColor(red: 0.78, green: 0.86, blue: 0.70, alpha: 1))
         view.renderOptions = [.disableMotionBlur, .disableDepthOfField, .disableCameraGrain]
+        // Do not move a previously rendered camera/anchor graph into another ARView.
+        // Its engine state can retain the old camera while UIKit pins keep moving.
+        // Rebuild scene entities; retain only navigation values and asset templates.
+        root = AnchorEntity(world: .zero)
+        camera = PerspectiveCamera()
+        camera.camera.fieldOfViewInDegrees = 42
+        camera.camera.near = editingPlacement ? 0.01 : 0.1; camera.camera.far = 1800
+        root.addChild(camera)
+        let sun = DirectionalLight(); sun.light.intensity = 2200
+        sun.look(at: .zero, from: SIMD3(30, 60, 40), relativeTo: nil); root.addChild(sun)
+        let fill = DirectionalLight(); fill.light.intensity = 900
+        fill.look(at: .zero, from: SIMD3(-30, 40, -50), relativeTo: nil); root.addChild(fill)
+        if ready, let mesh = Self.cachedMesh { root.addChild(mesh.clone(recursive: true)) }
+        placementLayer = Entity()
+        root.addChild(placementLayer)
+        syncPlacements(records: savedPlacements)
+        draftEntity = nil
+        placementReticle = nil
+        if editingPlacement, draftPoint != nil {
+            updateDraft(height: draftHeight, heading: draftHeading)
+        }
         view.scene.addAnchor(root)
+        updateCamera()
     }
 
     func showOverview() {
@@ -203,9 +228,11 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         for record in records {
             let entity = oiTemplate.clone(recursive: true)
             entity.name = "placement:" + record.id.uuidString
+            entity.isEnabled = record.id != editingPlacementID
             entity.position = data.world(latitude: record.latitude, longitude: record.longitude)
-            // Map symbols are enlarged for legibility; AR uses the saved size in metres.
-            entity.scale = SIMD3(repeating: Float(record.heightMeters * data.unitsPerMeter * 20))
+            // Browse with readable symbols; edit with the same physical proportions as AR.
+            entity.scale = SIMD3(repeating: CampusPlacementGeometry.mapScale(
+                heightMeters: record.heightMeters, unitsPerMeter: data.unitsPerMeter, editing: editingPlacement))
             entity.orientation = CampusOiAsset.heading(record.headingDegrees)
             placementLayer.addChild(entity)
         }
@@ -224,30 +251,102 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         draftPoint = point
         placementMessage = String(format: "위도 %.6f · 경도 %.6f", placement.latitude, placement.longitude)
         updateDraft(height: placement.heightMeters, heading: placement.headingDegrees)
+        focusPlacementFromAbove()
     }
 
-    func beginPlacement() {
+    func beginPlacement(editing placement: CampusPlacement? = nil) {
         guard placementReady else { return }
+        endPlacement()
+        if placement != nil, region != nil { showOverview() }
+        browsingCamera = (target, radius, yaw, pitch)
         editingPlacement = true; draftPoint = nil
-        placementMessage = "지도에서 건물 밖의 바닥을 눌러 주세요."
-        projectPins()
+        draftHeight = placement?.heightMeters ?? 1; draftHeading = placement?.headingDegrees ?? 0
+        editingPlacementID = placement?.id
+        syncPlacements(records: savedPlacements)
+        camera.camera.near = 0.01
+        placementMessage = "건물 밖 바닥을 누르면 실제 축척으로 확대해요."
+        if let placement, let data {
+            target = data.world(latitude: placement.latitude, longitude: placement.longitude)
+            setDraft(placement)
+        }
+        updateCamera()
     }
 
     func endPlacement() {
         editingPlacement = false; draftPoint = nil
+        editingPlacementID = nil
         draftEntity?.removeFromParent(); draftEntity = nil
-        projectPins()
+        placementReticle?.removeFromParent(); placementReticle = nil
+        syncPlacements(records: savedPlacements)
+        camera.camera.near = 0.1
+        if let browsingCamera {
+            target = browsingCamera.target; radius = browsingCamera.radius
+            yaw = browsingCamera.yaw; pitch = browsingCamera.pitch
+        }
+        browsingCamera = nil
+        updateCamera()
     }
 
     func updateDraft(height: Double, heading: Double) {
+        draftHeight = height; draftHeading = heading
         guard let point = draftPoint, let data, let oiTemplate else { return }
         if draftEntity == nil {
             let entity = oiTemplate.clone(recursive: true)
             root.addChild(entity); draftEntity = entity
         }
         draftEntity?.position = point
-        draftEntity?.scale = SIMD3(repeating: Float(height * data.unitsPerMeter * 20))
+        draftEntity?.scale = SIMD3(repeating: CampusPlacementGeometry.mapScale(
+            heightMeters: height, unitsPerMeter: data.unitsPerMeter, editing: true))
         draftEntity?.orientation = CampusOiAsset.heading(heading)
+        updatePlacementReticle(at: point)
+    }
+
+    func focusPlacementFromAbove() {
+        guard editingPlacement, let point = draftPoint, let data else { return }
+        target = point; yaw = 0; pitch = .pi / 2 - 0.01
+        radius = Float(max(6, draftHeight * 6) * data.unitsPerMeter)
+        updateCamera()
+    }
+
+    func showPlacementSurroundings() {
+        guard editingPlacement, let point = draftPoint, let data else { return }
+        target = point; pitch = 1.05
+        radius = Float(50 * data.unitsPerMeter)
+        updateCamera()
+    }
+
+    func nudgePlacement(right: Float, forward: Float, meters: Double) {
+        guard editingPlacement, let point = draftPoint, let data else { return }
+        do {
+            let moved = try data.nudgedPlacement(from: point, right: right, forward: forward, meters: meters, yaw: yaw)
+            draftPoint = moved
+            let coordinate = data.coordinate(moved)
+            placementMessage = String(format: "위도 %.6f · 경도 %.6f", coordinate.latitude, coordinate.longitude)
+            updateDraft(height: draftHeight, heading: draftHeading)
+        } catch {
+            placementMessage = "그 방향으로 이동할 수 없어요. 이전 위치를 유지합니다."
+        }
+    }
+
+    private func updatePlacementReticle(at point: SIMD3<Float>) {
+        guard let data else { return }
+        if placementReticle == nil {
+            let reticle = Entity()
+            // One metre cross, centred on the stored foot position. No collision shape:
+            // selecting a new location must still hit the terrain rather than the marker.
+            for (width, depth) in [(Float(1), Float(0.06)), (Float(0.06), Float(1))] {
+                let outline = ModelEntity(mesh: .generateBox(size: [width + 0.04, 0.006, depth + 0.04]),
+                    materials: [UnlitMaterial(color: .white)])
+                let line = ModelEntity(mesh: .generateBox(size: [width, 0.006, depth]),
+                    materials: [UnlitMaterial(color: UIColor(red: 0.05, green: 0.36, blue: 0.85, alpha: 1))])
+                line.position.y = 0.006
+                reticle.addChild(outline); reticle.addChild(line)
+            }
+            reticle.scale = SIMD3(repeating: Float(data.unitsPerMeter))
+            root.addChild(reticle); placementReticle = reticle
+        }
+        placementReticle?.position = point + SIMD3(0, Float(0.02 * data.unitsPerMeter), 0)
+        placementReticle?.isEnabled = true
     }
 
     @objc private func selectPlacement(_ gesture: UITapGestureRecognizer) {
@@ -256,16 +355,19 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         if editingPlacement {
             guard let ray = view.ray(through: point),
                   let hit = data.surface?.intersect(origin: ray.origin, direction: ray.direction) else {
-                draftPoint = nil; draftEntity?.isEnabled = false
+                draftPoint = nil; draftEntity?.isEnabled = false; placementReticle?.isEnabled = false
                 placementMessage = "선택할 수 있는 캠퍼스 바닥을 다시 눌러 주세요."
                 return
             }
             if let error = data.placementError(at: hit) {
-                draftPoint = nil; draftEntity?.isEnabled = false; placementMessage = error
+                draftPoint = nil; draftEntity?.isEnabled = false; placementReticle?.isEnabled = false; placementMessage = error
             } else {
+                let isFirstSelection = draftPoint == nil
                 draftPoint = hit; draftEntity?.isEnabled = true
                 let coordinate = data.coordinate(hit)
                 placementMessage = String(format: "위도 %.6f · 경도 %.6f", coordinate.latitude, coordinate.longitude)
+                updateDraft(height: draftHeight, heading: draftHeading)
+                if isFirstSelection { focusPlacementFromAbove() }
             }
         } else {
             var entity = view.entity(at: point)
@@ -349,7 +451,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         }
         if touches == 2 {
             yaw -= Float(delta.x) * 0.006
-            pitch = min(1.4, max(0.35, pitch + Float(delta.y) * 0.004))
+            pitch = min(editingPlacement ? .pi / 2 - 0.01 : 1.4, max(0.35, pitch + Float(delta.y) * 0.004))
         } else if touches == 1 {
             let right = SIMD3<Float>(cos(yaw), 0, -sin(yaw))
             let forward = SIMD3<Float>(sin(yaw), 0, cos(yaw))
@@ -361,7 +463,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
     @objc private func pinch(_ gesture: UIPinchGestureRecognizer) {
         guard gesture.state == .began || gesture.state == .changed else { return }
-        radius = min(600, max(20, radius / Float(gesture.scale)))
+        let minimum = editingPlacement ? Float(3 * (data?.unitsPerMeter ?? 0.12)) : 20
+        radius = min(600, max(minimum, radius / Float(gesture.scale)))
         gesture.scale = 1
         updateCamera()
     }
@@ -394,6 +497,8 @@ final class CampusMapCanvas: UIView {
         return view
     }
     func removeRenderer() {
+        map?.session.pause()
+        map?.scene.anchors.removeAll()
         map?.removeFromSuperview()
         map = nil
     }
@@ -405,3 +510,119 @@ struct CampusMapSurface: UIViewRepresentable {
     func makeUIView(context: Context) -> CampusMapCanvas { scene.makeView() }
     func updateUIView(_ view: CampusMapCanvas, context: Context) { }
 }
+
+#if DEBUG
+/// Development-only check: inspect the rendered bitmap, not only the gesture's camera values.
+@MainActor private final class CampusCheckPinch: UIPinchGestureRecognizer {
+    override var state: UIGestureRecognizer.State { get { .changed } set {} }
+}
+
+extension CampusExploreScene {
+    /// In-memory editor check; does not create or change a saved/shared placement.
+    func checkPrecisePlacement() {
+        guard ready, placementReady, let data,
+              let point = data.graph.values.map({ data.world($0.p) })
+                .filter({ data.placementError(at: $0) == nil })
+                .min(by: { simd_distance($0, target) < simd_distance($1, target) }) else { return }
+        let coordinate = data.coordinate(point)
+        let example = CampusPlacement(storyID: "precision-check", latitude: coordinate.latitude, longitude: coordinate.longitude)
+        beginPlacement(editing: example)
+        var passed = true
+        func check(_ condition: Bool, _ name: String) {
+            passed = passed && condition
+            print("[CampusPlacementCheck] \(name)=\(condition)")
+        }
+        guard let original = draftPoint else { return }
+        updateDraft(height: 2, heading: 90)
+        check(draftPoint == original, "resize-keeps-coordinate")
+        if let draftEntity {
+            check(abs(draftEntity.visualBounds(relativeTo: root).extents.y / Float(data.unitsPerMeter) - 2) < 0.001,
+                  "rendered-height-is-two-metres")
+        } else { check(false, "draft-created") }
+        yaw = .pi / 2
+        nudgePlacement(right: 1, forward: 0, meters: 0.1)
+        if let moved = draftPoint {
+            check(abs(simd_length(SIMD2(moved.x - original.x, moved.z - original.z)) / Float(data.unitsPerMeter) - 0.1) < 0.001,
+                  "rotated-nudge-is-ten-centimetres")
+            check(moved.z < original.z, "rotated-right-moves-north")
+        }
+        let preserved = draftPoint
+        let oldReticle = placementReticle
+        suspendForARCamera(); setVisible(true)
+        check(draftPoint == preserved && placementReticle != nil && placementReticle !== oldReticle,
+              "renderer-rebuild-restores-reticle")
+        check(draftEntity?.position == draftPoint, "renderer-rebuild-keeps-foot-position")
+        endPlacement()
+        check(draftPoint == nil && placementReticle == nil && draftEntity == nil, "cancel-clears-preview")
+        // Leave a fresh, unsaved preview open for visual inspection.
+        beginPlacement(); setDraft(example)
+        print("[CampusPlacementCheck] RESULT \(passed ? "PASS" : "FAIL")")
+    }
+
+    func checkRendererRestoration() async {
+        guard ready, let canvas, let window = canvas.window else { return }
+        let originalRadius = radius
+        func waitForFrames() async { try? await Task.sleep(for: .milliseconds(900)) }
+        func bitmap(_ view: RealityKit.ARView) async -> UIImage? {
+            await withCheckedContinuation { continuation in
+                view.snapshot(saveToHDR: false) { continuation.resume(returning: $0) }
+            }
+        }
+        func pixels(_ image: UIImage) -> [UInt8] {
+            var pixels = [UInt8](repeating: 0, count: 64 * 64 * 4)
+            guard let cg = image.cgImage else { return [] }
+            pixels.withUnsafeMutableBytes { bytes in
+                if let context = CGContext(data: bytes.baseAddress, width: 64, height: 64, bitsPerComponent: 8,
+                    bytesPerRow: 64 * 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+                    context.draw(cg, in: CGRect(x: 0, y: 0, width: 64, height: 64))
+                }
+            }
+            return pixels
+        }
+        print("[CampusRendererCheck] START")
+        var passed = true
+        for cycle in 0...3 {
+            if cycle > 0 {
+                suspendForARCamera()
+                // Exercise RealityKit's switch from a non-AR renderer to a camera session and back.
+                let ranAR = await CampusRendererARInterlude.run(in: window)
+                setVisible(true)
+                guard ranAR else {
+                    radius = originalRadius; updateCamera()
+                    print("[CampusRendererCheck] SKIPPED: camera permission and ARKit device required")
+                    return
+                }
+            }
+            radius = originalRadius; updateCamera()
+            await waitForFrames()
+            guard let renderer = canvas.map, let before = await bitmap(renderer) else {
+                print("[CampusRendererCheck] FAIL snapshot before cycle=\(cycle)"); return
+            }
+            let previousPosition = camera.position(relativeTo: nil)
+            let gesture = CampusCheckPinch()
+            gesture.scale = 0.65
+            pinch(gesture)
+            await waitForFrames()
+            guard let after = await bitmap(renderer) else {
+                print("[CampusRendererCheck] FAIL snapshot after cycle=\(cycle)"); return
+            }
+            let a = pixels(before), b = pixels(after)
+            var difference = 0.0
+            if a.count == b.count {
+                for index in a.indices where index % 4 != 3 {
+                    difference += Double(abs(Int(a[index]) - Int(b[index])))
+                }
+            }
+            let delta = difference / Double(64 * 64 * 3 * 255)
+            let movement = simd_distance(previousPosition, camera.position(relativeTo: nil))
+            let cameraError = simd_distance(renderer.cameraTransform.translation, camera.position(relativeTo: nil))
+            let ok = delta > 0.01 && movement > 1 && cameraError < 0.1
+            passed = passed && ok
+            print("[CampusRendererCheck] cycle=\(cycle) bitmapDelta=\(delta) cameraMove=\(movement) cameraError=\(cameraError) pass=\(ok)")
+        }
+        radius = originalRadius; updateCamera()
+        print("[CampusRendererCheck] RESULT \(passed ? "PASS" : "FAIL")")
+    }
+}
+#endif

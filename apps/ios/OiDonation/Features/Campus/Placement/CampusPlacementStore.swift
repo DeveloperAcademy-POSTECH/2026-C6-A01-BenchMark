@@ -59,21 +59,33 @@ import Observation
         do {
             guard ready else { throw CampusPlacementError.unreadable }
             try validate(placement)
-            var next = placements.filter { $0.id != placement.id }
-            guard next.count < 20 else { throw CampusPlacementError.capacity }
-            next.append(placement)
+            var next = placements
+            if let index = next.firstIndex(where: { $0.id == placement.id }) {
+                next[index] = placement
+            } else {
+                guard next.count < 20 else { throw CampusPlacementError.capacity }
+                next.append(placement)
+            }
             try repository.save(next)
             placements = next; error = nil
             return true
         } catch { self.error = error.localizedDescription; return false }
     }
-    func remove(_ id: UUID) {
+    @discardableResult func update(_ placement: CampusPlacement) -> Bool {
+        guard placements.contains(where: { $0.id == placement.id }) else {
+            error = "수정할 오이를 찾지 못했어요. 저장 목록을 다시 확인해 주세요."
+            return false
+        }
+        return save(placement)
+    }
+    @discardableResult func remove(_ id: UUID) -> Bool {
         do {
             guard ready else { throw CampusPlacementError.unreadable }
             let next = placements.filter { $0.id != id }
             try repository.save(next)
             placements = next; error = nil
-        } catch { self.error = error.localizedDescription }
+            return true
+        } catch { self.error = error.localizedDescription; return false }
     }
     private func validate(_ placement: CampusPlacement) throws {
         _ = try placement.validated()
