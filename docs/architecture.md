@@ -218,3 +218,11 @@ PR #93 기반 홈에 지도 지형 선택→WGS84 저장→현장 AR→같은 st
 `CampusExploreScene`의 카메라·제스처를 재사용하고 별도 맵 렌더러를 만들지 않는다. `CampusOiAsset`은 안전모 오이를 발 원점·1m로 정규화한다. `CampusGeoARController`는 지리 추적의 지원 여부/정확도, GPS 근사, 수동 지면 보정을 구분한다. 모델의 추정 높이는 ARGeoAnchor 고도로 보내지 않는다. 기존 일반 AR 화면은 유지한다. 현장 AR을 열 때 홈 렌더러를 해제하고 닫힌 후 복원하는 #93 처리를 따른다.
 
 기존 웹 프로토타입의 배치 API는 ChatGPT 웹 인증·owner별 저장·학술정보관 주변 범위 제한이며, 현재 오이기부 iOS에 연결되지 않았다. 이번 기능은 승인된 공개 기부 스토리 생성이나 공용 서버 저장이 아니다. [사용법, 좌표계, 서버 연결 과제, 검증 범위](../apps/ios/docs/campus-geo-placement.md)를 참고한다.
+
+## 캠퍼스 공유 API 연결 — 2026-10-27 / #96
+
+기존 `apps/web` Next.js/PostgreSQL에 별도 `campus_*` 테이블과 `/api/campus/*`, `/admin/campus`를 추가했다. 기존 돗자리 `mat_*` 계약은 유지한다. 비동기 `CampusSharedAPI`/`CampusSharedStore`와 별도 실제 콘텐츠 DTO가 iOS 공개 지도·텍스트 상세·현장 AR에 연결된다. 로컬 동기 예시 저장소/Fixture Story 모델을 실제 게시물로 재사용하지 않는다. RootTabView가 공유 저장소를 소유하며 모달 전환 시 기존 지도 렌더러 해제·복원 규칙을 유지한다.
+
+기존 서버에 일반 이용자 로그인 API가 없어, 운영자 외부 증빙 검토 후 한 번 사용하는 작성 코드로 Bearer 토큰을 교환하는 파일럿 인증을 구현했다. 키체인/서버 해시 저장, owner 검사, pending/published/hidden, revision 충돌·중복 생성·취소 후 공개 차단을 검증한다. 공유 관리자 로그인은 그대로 사용하므로 감사자의 개별 신원 식별은 후속 범위다. 최종 인증·코드 수명·공개 검토 운영 정책이 확정됐다는 의미는 아니다.
+
+캠퍼스 전체 모델의 경계와 건물 폴리곤을 서버에도 적용한다. 150m 웹 프로토타입 제한은 사용하지 않는다. API 주소는 `OI_CAMPUS_API_ORIGIN`으로 주입하며 운영 주소는 비어 있다. 팀원 소유 Railway 계정의 배포와 두 실기기 확인은 미완료다. 서버/API 계약, 검증 및 인계는 [공유 서버 문서](campus-server-handoff.md)를 따른다.

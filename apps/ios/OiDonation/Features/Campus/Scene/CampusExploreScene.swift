@@ -9,6 +9,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private(set) var error: String?
     private(set) var ready = false
     var onRegion: ((CampusRegion) -> Void)?
+    var onPlacement: ((UUID) -> Void)?
+    private var sharedMap = false
     var onStory: ((String) -> Void)?
     private(set) var data: CampusMapData?
     private(set) var placementReady = false
@@ -124,6 +126,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         // Fit both the northern science buildings and the eastern library into a portrait viewport.
         target = SIMD3(32, 2, 1); radius = 305; yaw = 0; pitch = 1.02
         guard let data else { updateCamera(); return }
+        guard !sharedMap else { updateCamera(); return }
         for region in CampusRegion.examples {
             guard let place = data.pois.first(where: { $0.id == region.placeID }) else { continue }
             let button = UIButton(type: .custom)
@@ -208,6 +211,21 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         }
     }
 
+    func setSharedMap(_ enabled: Bool) {
+        guard sharedMap != enabled else { return }
+        sharedMap = enabled
+        showOverview()
+    }
+
+    func setDraft(_ placement: CampusPlacement) {
+        guard let data else { return }
+        let point = data.world(latitude: placement.latitude, longitude: placement.longitude)
+        guard data.placementError(at: point) == nil else { return }
+        draftPoint = point
+        placementMessage = String(format: "위도 %.6f · 경도 %.6f", placement.latitude, placement.longitude)
+        updateDraft(height: placement.heightMeters, heading: placement.headingDegrees)
+    }
+
     func beginPlacement() {
         guard placementReady else { return }
         editingPlacement = true; draftPoint = nil
@@ -253,7 +271,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             var entity = view.entity(at: point)
             while let current = entity {
                 if let record = savedPlacements.first(where: { current.name == "placement:" + $0.id.uuidString }) {
-                    onStory?(record.storyID); return
+                    if let onPlacement { onPlacement(record.id) } else { onStory?(record.storyID) }; return
                 }
                 entity = current.parent
             }

@@ -48,9 +48,9 @@ export async function rateLimit(key: string, maximum: number, seconds: number) {
   if (result.rows[0].attempts > maximum) throw new HttpError(429, "요청이 많습니다. 잠시 후 다시 시도해주세요.");
 }
 export function jsonError(error: unknown) {
-  if (error instanceof HttpError) return Response.json({ error: error.message }, { status: error.status });
+  if (error instanceof HttpError) return Response.json({ error: error.message }, { status: error.status, headers: { "Cache-Control": "private, no-store" } });
   console.error("Story operation failed.");
-  return Response.json({ error: "처리하지 못했습니다. 잠시 후 다시 시도해주세요." }, { status: 503 });
+  return Response.json({ error: "처리하지 못했습니다. 잠시 후 다시 시도해주세요." }, { status: 503, headers: { "Cache-Control": "private, no-store" } });
 }
 export async function boundedBody(request: Request, maximum: number) {
   if (Number(request.headers.get("content-length")) > maximum) throw new HttpError(413, "파일 또는 요청 크기가 너무 큽니다.");

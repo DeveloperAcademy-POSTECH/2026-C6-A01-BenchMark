@@ -61,7 +61,7 @@ export function AdminDashboard({ stories, reservations }: { stories: Story[]; re
   }
   const visible = stories.filter((s) => (filter === "all" || (filter === "public" ? s.published : !s.published)) && `${s.mat_number} ${s.display_name}`.includes(query));
   return <div className="admin-page"><div className="section-heading"><div><span className="eyebrow">쉼, 펴 운영팀</span><h1>이야기 관리</h1></div><button className="text-button" onClick={logout}>로그아웃</button></div><p>접수된 기부 예약을 확인하고, 입금과 이야기를 검토한 뒤 공개해주세요.</p>
-    <div className="admin-summary"><span>등록 <strong>{stories.length}</strong></span><span>공개 <strong>{stories.filter((s) => s.published).length}</strong></span><span>검토 대기 <strong>{stories.filter((s) => !s.published).length}</strong></span><span>돗자리 목표 <strong>100개</strong></span></div>
+    <p><Link href="/admin/campus">캠퍼스 오이 위치·스토리 관리 →</Link></p><div className="admin-summary"><span>등록 <strong>{stories.length}</strong></span><span>공개 <strong>{stories.filter((s) => s.published).length}</strong></span><span>검토 대기 <strong>{stories.filter((s) => !s.published).length}</strong></span><span>돗자리 목표 <strong>100개</strong></span></div>
     <button className="button primary" onClick={() => { setReservation(undefined); setSelection("new"); }}>+ 새 이야기 등록</button>{error && <p role="alert" className="error-message">{error}</p>}
     {selection !== null && <StoryEditor key={selection === "new" ? reservation?.id || "new" : selection.id} story={selection === "new" ? undefined : selection} reservation={reservation} onClose={() => { setSelection(null); setReservation(undefined); }} />}
     <AdminReservations reservations={reservations} onSelect={(r) => { setReservation(r); setSelection("new"); window.scrollTo({ top: 180, behavior: "instant" }); }} />

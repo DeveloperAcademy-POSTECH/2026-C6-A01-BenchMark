@@ -450,6 +450,7 @@
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Configuration/OiDonation-Info.plist";
 				INFOPLIST_KEY_NSCameraUsageDescription = "AR 캐릭터와 함께 사진을 촬영하기 위해 카메라를 사용합니다.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "캠퍼스에 저장한 오이를 실제 위치의 AR에서 찾기 위해 현재 위치를 사용합니다.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "AR 영상에 음성을 함께 녹음하기 위해 마이크를 사용합니다.";
@@ -486,6 +487,7 @@
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Configuration/OiDonation-Info.plist";
 				INFOPLIST_KEY_NSCameraUsageDescription = "AR 캐릭터와 함께 사진을 촬영하기 위해 카메라를 사용합니다.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "캠퍼스에 저장한 오이를 실제 위치의 AR에서 찾기 위해 현재 위치를 사용합니다.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "AR 영상에 음성을 함께 녹음하기 위해 마이크를 사용합니다.";

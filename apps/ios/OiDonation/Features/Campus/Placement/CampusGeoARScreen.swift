@@ -5,6 +5,10 @@ import ARKit
 struct CampusGeoARScreen: View {
     let placement: CampusPlacement
     let stories: CampusStoryStore
+    var shared: CampusSharedStore? = nil
+    @State private var livePlacement: CampusPlacement?
+    @State private var sharedError: String?
+    private var target: CampusPlacement { livePlacement ?? placement }
     @State private var controller = CampusGeoARController()
     @State private var location = CampusGeoLocation()
     @State private var showingStory = false
@@ -17,16 +21,16 @@ struct CampusGeoARScreen: View {
             CampusGeoSurface(controller: controller).ignoresSafeArea()
             VStack {
                 HStack {
-                    Text("현장 AR · 기기 테스트").font(.headline)
+                    Text(shared == nil ? "현장 AR · 기기 테스트" : "공유 오이 · 현장 AR").font(.headline)
                     Spacer()
                     Button("닫기", systemImage: "xmark") { controller.stop(); dismiss() }
                 }
                 VStack(alignment: .leading, spacing: 6) {
                     Text(controller.mode.rawValue).font(.headline)
-                    Text(controller.message).font(.subheadline)
+                    Text(sharedError ?? controller.message).font(.subheadline)
                     TimelineView(.periodic(from: .now, by: 1)) { _ in
                         if let fix = location.location {
-                            Text("목표까지 \(placement.distance(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude), specifier: "%.0f")m · GPS ±\(fix.horizontalAccuracy, specifier: "%.0f")m · \(location.isReady(for: placement) ? "위치 확인됨" : "위치 재확인 중")")
+                            Text("목표까지 \(target.distance(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude), specifier: "%.0f")m · GPS ±\(fix.horizontalAccuracy, specifier: "%.0f")m · \(location.isReady(for: target) ? "위치 확인됨" : "위치 재확인 중")")
                         } else { Text(location.message) }
                     }.font(.caption)
                     Text("GPS 배치는 근사 위치이며, 직접 바닥 보정은 이 세션에만 적용됩니다.")
@@ -56,20 +60,41 @@ struct CampusGeoARScreen: View {
         .task(id: restartID) {
             guard scenePhase == .active, !showingStory else { return }
             controller.onStory = { showingStory = true }
-            await controller.start(placement, location: location)
+            sharedError = nil
+            do {
+                if let shared { livePlacement = try await shared.story(placement.id, publicOnly: true).placement }
+                try Task.checkCancellation()
+                await controller.start(target, location: location)
+                // Refresh publication and coordinates while AR is visible. Hidden/deleted stories stop rendering.
+                if let shared {
+                    while !Task.isCancelled {
+                        try await Task.sleep(for: .seconds(30))
+                        let updated = try await shared.story(placement.id, publicOnly: true)
+                        if updated.placement != target {
+                            livePlacement = updated.placement
+                            await controller.start(updated.placement, location: location)
+                        }
+                    }
+                }
+            } catch is CancellationError { }
+            catch { controller.stop(); sharedError = error.localizedDescription }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { restartID = UUID() } else { controller.stop() }
+            restartID = UUID() // Cancel in-flight server reads as well as the AR session.
+            if phase != .active { controller.stop() }
         }
         .onAppear { if !showingStory { restartID = UUID() } }
         .onDisappear { controller.stop() }
         .onChange(of: showingStory) { _, showing in
-            if showing { controller.stop() } else { restartID = UUID() }
+            restartID = UUID()
+            if showing { controller.stop() }
         }
         .sheet(isPresented: $showingStory) {
             NavigationStack {
                 Group {
-                    if let story = stories.story(placement.storyID) {
+                    if let shared {
+                        CampusSharedStoryView(id: placement.id, store: shared)
+                    } else if let story = stories.story(placement.storyID) {
                         CampusStoryDetailView(story: story, store: stories)
                             .navigationDestination(for: CampusDestination.self) { destination in
                                 // Keep related stories in this sheet without starting a second 3D renderer over AR.

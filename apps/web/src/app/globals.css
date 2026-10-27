@@ -134,3 +134,13 @@ label{display:block;font-size:14px;font-weight:600}input,textarea,select{display
 .empty-story h1{font-family:"LeeSeoyun",sans-serif;font-size:32px;font-weight:400;margin:24px 0}
 .empty-story>p{color:var(--muted);font-size:14px}
 .reaction-button:disabled:not(.reacted){opacity:.65}
+
+/* Campus pilot admin: scoped so the existing mat forms keep their layout. */
+.campus-admin fieldset{border:0;padding:0;min-width:0;display:grid;gap:16px}
+.campus-admin h2{margin-top:24px}.campus-admin>p{margin:12px 0}
+.campus-admin fieldset>label{display:flex;align-items:center;gap:10px;font-size:15px}
+.campus-admin input[type=checkbox]{width:22px;height:22px;flex:none;margin:0}
+.campus-admin button{min-height:44px;padding:10px 16px;border:1px solid var(--border);border-radius:9px;background:white;color:var(--ink);margin:4px 8px 4px 0}
+.campus-admin button.primary{background:var(--green);color:white}.campus-admin button:disabled{opacity:.5}
+.campus-admin .editor{margin:0;overflow-wrap:anywhere}.campus-admin article p{margin:8px 0}
+.campus-admin output{display:block;padding:14px;background:white;border:1px solid var(--border);border-radius:10px}

@@ -3,7 +3,7 @@ on:
   push:
     branches: [develop]
   pull_request:
-    paths: ['apps/web/**', 'database/**', 'package*.json', 'Dockerfile', '.github/workflows/mat-web.yml']
+    paths: ['apps/web/**', 'apps/ios/OiDonation/Resources/Campus/campus-data.json', 'database/**', 'package*.json', 'Dockerfile', '.github/workflows/mat-web.yml']
 permissions:
   contents: read
 jobs:

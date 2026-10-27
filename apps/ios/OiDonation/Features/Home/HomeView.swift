@@ -4,6 +4,8 @@ import SwiftUI
 struct HomeView: View {
     let container: AppContainer
     let store: CampusStoryStore
+    let shared: CampusSharedStore
+    let onSharedAR: (CampusSharedOi) -> Void
     let isCameraCoverActive: Bool
     let onCamera: () -> Void
     let onGeoCamera: (CampusPlacement) -> Void
@@ -21,6 +23,13 @@ struct HomeView: View {
     @State private var placements = CampusPlacementStore()
     @State private var showingPlacements = false
     @State private var pendingAR: CampusPlacement?
+    @State private var sharedMode = true
+    @State private var showingWriter = false
+    @State private var showingShared = false
+    @State private var selectedShared: CampusSharedOi?
+    @State private var pendingSharedAR: CampusSharedOi?
+    @State private var pendingEdit: CampusSharedOi?
+    @State private var editingShared: CampusSharedOi?
 
     var body: some View {
         GeometryReader { geometry in
@@ -41,17 +50,38 @@ struct HomeView: View {
                             Button { showingSchools = true } label: { Label("POSTECH", systemImage: "chevron.backward").font(.system(size: 18, weight: .semibold)) }
                                 .buttonStyle(.glass).buttonBorderShape(.capsule).controlSize(.large)
                             Spacer()
-                            Text("디자인 예시").font(.caption2).padding(7).background(.thinMaterial, in: Capsule())
+                            Menu {
+                                Button("공유 캠퍼스") { sharedMode = true }
+                                Button("기기 예시 테스트") { sharedMode = false }
+                            } label: {
+                                Text(sharedMode ? "공유 캠퍼스" : "기기 예시").font(.caption).padding(7).background(.thinMaterial, in: Capsule())
+                            }.disabled(scene.editingPlacement)
                         }
                     }.padding(.horizontal, 20).padding(.top, 6)
                     if !scene.editingPlacement {
-                        HStack {
-                            Button("오이 배치", systemImage: "plus.viewfinder") { scene.beginPlacement() }
-                                .disabled(!scene.placementReady || !placements.ready)
-                                .accessibilityIdentifier("placement.begin")
-                            Spacer()
-                            Button("저장한 오이 \(placements.placements.count)", systemImage: "leaf") { showingPlacements = true }
-                        }.font(.subheadline).buttonStyle(.glass).padding(.horizontal, 20)
+                        if sharedMode {
+                            HStack {
+                                Button(shared.authorized ? "오이 심기" : "작성 코드 등록", systemImage: "plus.viewfinder") {
+                                    if shared.authorized { editingShared = nil; scene.beginPlacement() }
+                                    else { showingWriter = true }
+                                }.disabled(!shared.configured || !scene.placementReady)
+                                Spacer()
+                                Button("오이 목록 \(shared.items.count)", systemImage: "leaf") { showingShared = true }
+                            }.font(.subheadline).buttonStyle(.glass).padding(.horizontal, 20)
+                            if !shared.configured {
+                                Text("공유 서버 연결 대기 · 메뉴에서 기기 예시를 볼 수 있어요.").font(.caption).padding(8).background(.regularMaterial, in: Capsule())
+                            } else if let error = shared.error {
+                                Button(error) { Task { await shared.refresh() } }.font(.caption).padding(8).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                            } else if shared.refreshing { ProgressView("공개 오이 확인 중").font(.caption) }
+                        } else {
+                            HStack {
+                                Button("예시 오이 배치", systemImage: "plus.viewfinder") { scene.beginPlacement() }
+                                    .disabled(!scene.placementReady || !placements.ready)
+                                    .accessibilityIdentifier("placement.begin")
+                                Spacer()
+                                Button("기기 저장 \(placements.placements.count)", systemImage: "leaf") { showingPlacements = true }
+                            }.font(.subheadline).buttonStyle(.glass).padding(.horizontal, 20)
+                        }
                         if let error = scene.placementError {
                             Button(error) { Task { await scene.preparePlacements() } }
                                 .font(.caption).padding(8).background(.regularMaterial, in: Capsule())
@@ -71,12 +101,27 @@ struct HomeView: View {
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if scene.editingPlacement {
-                    CampusPlacementEditor(scene: scene, placements: placements, stories: store.stories)
+                    if sharedMode {
+                        CampusSharedEditor(scene: scene, store: shared, editing: editingShared)
+                    } else {
+                        CampusPlacementEditor(scene: scene, placements: placements, stories: store.stories)
+                    }
                 } else if let region { regionPanel(region, maxHeight: geometry.size.height * 0.72) }
             }
         }
         .toolbar(.hidden, for: .navigationBar)
         .background(CampusStyle.lightGreen)
+        .sheet(isPresented: $showingWriter) { CampusWriterRegistration(store: shared) }
+        .sheet(isPresented: $showingShared, onDismiss: completeSharedSelection) {
+            CampusSharedList(store: shared, onAR: { item in pendingSharedAR = item; showingShared = false },
+                             onEdit: { item in pendingEdit = item; showingShared = false })
+        }
+        .sheet(item: $selectedShared, onDismiss: completeSharedSelection) { item in
+            NavigationStack {
+                CampusSharedStoryView(id: item.id, store: shared) { target in pendingSharedAR = target; selectedShared = nil }
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("닫기") { selectedShared = nil } } }
+            }
+        }
         .sheet(isPresented: $showingProfile) { CampusProfileMenu(container: container, store: store, onCamera: openCamera) }
         .sheet(isPresented: $showingPlacements, onDismiss: {
             guard let placement = pendingAR else { return }
@@ -110,12 +155,27 @@ struct HomeView: View {
                 // Use the same value-based path as list links and the summary's detail link.
                 onOpenStory(id)
             }
+            scene.onPlacement = { id in
+                if sharedMode { selectedShared = shared.items.first { $0.id == id } }
+                else if let placement = placements.placements.first(where: { $0.id == id }) { onOpenStory(placement.storyID) }
+            }
             await loadCampus()
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-campus-region-preview"), let first = CampusRegion.examples.first { scene.onRegion?(first) }
             #endif
         }
-        .onChange(of: placements.placements) { _, records in scene.syncPlacements(records: records) }
+        .task(id: sharedMode && isOnScreen && !isCameraCoverActive && scenePhase == .active) {
+            guard sharedMode, isOnScreen, !isCameraCoverActive, scenePhase == .active, shared.configured else { return }
+            repeat {
+                await shared.refresh()
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+            } while !Task.isCancelled
+        }
+        .onChange(of: placements.placements) { _, _ in syncMap() }
+        .onChange(of: shared.items) { _, _ in syncMap() }
+        .onChange(of: sharedMode) { _, _ in
+            region = nil; scene.endPlacement(); scene.setSharedMap(sharedMode); syncMap()
+        }
         .alert("위치 저장 확인", isPresented: Binding(get: { placements.error != nil && !showingPlacements }, set: { if !$0 { placements.error = nil } })) {
             Button("확인", role: .cancel) { placements.error = nil }
         } message: { Text(placements.error ?? "") }
@@ -134,11 +194,29 @@ struct HomeView: View {
     }
 
     private func loadCampus() async {
+        scene.setSharedMap(sharedMode)
         await scene.load()
         guard let data = scene.data else { return }
         placements.load(map: data, storyIDs: Set(store.stories.map(\.id)))
         await scene.preparePlacements()
-        scene.syncPlacements(records: placements.placements)
+        syncMap()
+    }
+
+    private func syncMap() {
+        let records = sharedMode ? shared.items.map(\.placement) : placements.placements
+        // Check the bundled map too; never render an unexpected server coordinate.
+        scene.syncPlacements(records: records.filter { record in
+            guard let data = scene.data else { return false }
+            return data.placementError(at: data.world(latitude: record.latitude, longitude: record.longitude)) == nil
+        })
+    }
+
+    private func completeSharedSelection() {
+        if let item = pendingSharedAR {
+            pendingSharedAR = nil; scene.suspendForARCamera(); onSharedAR(item)
+        } else if let item = pendingEdit {
+            pendingEdit = nil; editingShared = item; scene.beginPlacement()
+        }
     }
 
     private var homeActions: some View {
