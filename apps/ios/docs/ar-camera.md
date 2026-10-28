@@ -20,7 +20,7 @@
 - 오이기부의 기존 `ARView` 이름 및 다른 기능과 충돌하지 않도록 타입에 AR 접두사를 붙이고 RealityKit.ARView를 명시했다.
 - 별도 @main MyApp은 가져오지 않고 OiDonationApp에 원본의 방향 관리 delegate를 연결했다.
 - 기존 카메라 버튼의 fullScreenCover 안에 원본 ARCameraScreen을 표시한다.
-- 닫기 버튼과 종료 시 세션·로딩·애니메이션 정리를 추가했다. 촬영/녹화 처리 중 닫기를 막고 녹화 중에는 버튼도 숨긴다.
+- 닫기 버튼과 종료 시 세션·로딩·애니메이션 정리를 추가했다. 촬영/녹화 처리 중 닫기를 막고 녹화 중에는 버튼도 숨긴다. 사진 타이머 중에는 닫기로 타이머를 취소할 수 있다.
 - 카메라 권한 안내의 앱 이름을 오이기부로 변경했다. 기존 앱의 배포 대상·Bundle ID·공유 개발 팀은 유지한다.
 
 모델·썸네일은 사용자 제공 원본이다. 별도 권리 허가를 의미하지 않는다. 가장 큰 모델은 약 61MB이며 전체 모델 약 132MB로 로딩·메모리와 앱 용량은 실제 아이폰에서 확인해야 한다.
@@ -76,3 +76,31 @@
 ## 경기장 배경 실시간 미리보기 — 2026-10-14 / #72
 
 사진 설정에서 원본/경기장 배경을 전환하고 터치로 선택한 전경 벤치와 자동 인식한 사람을 남긴다. Vision 마스크와 RealityKit 깊이를 이용해 GPU에서 합성하며 사진도 같은 합성 출력에서 저장한다. 인식 실패·처리 지연은 원본 화면으로 복귀한다. 사진 전용이며 2D 경기장 배경이다. 실제 iPhone의 벤치 인식·속도는 아직 검증하지 않았다. 사용 방법·제약·검증 목록은 [ar-stadium-background.md](ar-stadium-background.md)를 따른다.
+
+## 권한·세션 복구 — 2026-10-28 / #101
+
+- 카메라 접근 거부, 기기 사용 제한, AR 미지원, 세션 중단·실패, 캐릭터 로딩 실패를 구분한다. 접근 거부에는 앱 설정 열기, 복구 가능한 오류에는 재시도, 모든 복구 안내에는 AR 카메라 닫기를 제공한다. 설정을 다녀오면 권한을 다시 확인한다.
+- 세션 시작 요청과 시스템 권한 요청을 중복 실행하지 않는다. 화면 이탈·비활성화가 시작 요청을 무효화하므로 늦은 권한 응답이나 중단 종료 콜백이 닫힌 카메라를 다시 켜지 않는다.
+- 일반적인 일시 중단·백그라운드 복귀는 기존 배치를 유지한다. 실패한 AR 세션을 재시도하면 추적과 앵커를 초기화하므로 사용자가 캐릭터를 다시 배치한다. 촬영 설정과 이미 저장한 사진·영상은 삭제하지 않는다.
+- 캐릭터 로딩 오류는 해당 모델만 다시 불러온다. 카메라 재시작이 녹화 마무리와 겹치면 녹화가 끝난 뒤 활성 화면에서만 재개한다. 복구 안내는 촬영물의 사진 보관함 저장 오류와 구분한다.
+- 복구 안내에서 닫기를 누르면 진행 중인 영상 시작·저장을 마무리한 뒤 종료한다. 결과가 생성됐다면 먼저 결과 화면에서 저장·공유하도록 하고 결과 화면을 닫으면 카메라를 종료한다. 큰 글자에서는 설명·재시도 영역을 스크롤하고 닫기 버튼은 계속 표시한다.
+- Figma의 제한시간 수집 게임은 이번 변경에 포함하지 않는다. 타이머·획득 조건·수집 거리 등 미정 정책을 정하지 않으며, 증빙·이야기 작성·계정 동기화 fail-safe는 #100에서 다룬다.
+
+자동 검사:
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer sh apps/ios/Tests/run-ar-recovery-checks.sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer sh apps/ios/Tests/run-ar-camera-lifecycle-checks.sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer sh apps/ios/Tests/run-ar-video-checks.sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer sh apps/ios/Tests/run-ar-background-checks.sh
+```
+
+순수 상태 전이 검사와 실제 ViewModel을 테스트용 카메라·녹화 객체에 연결하는 생명주기 검사를 분리한다. 실제 카메라 권한, ARKit 추적·중단·재배치, ReplayKit 녹화는 실기기 검증이 필요하다.
+
+2026-10-28에 iOS 27 iPhone 18 Pro Simulator의 격리된 미리보기 앱에서 **제품의 실제 `ARRecoveryPanel` 소스**를 확인했다. 권한 거부, 세션 실패, 가장 큰 Dynamic Type에서 닫기 버튼이 표시되는 것을 검증했다. 이 캡처는 복구 패널의 표시 검사이며 실제 카메라/마이크 권한 변경, AR 추적, 버튼 탭 검증을 대신하지 않는다. 임시 앱·Simulator는 종료·삭제했다.
+
+| 권한 거부 | 세션 실패 | 가장 큰 글자 |
+| --- | --- | --- |
+| ![권한 거부 복구 패널](ar-recovery/permission.png) | ![세션 실패 복구 패널](ar-recovery/session.png) | ![큰 글자에서 고정 닫기](ar-recovery/accessibility.png) |
+
+권한 상태와 중단 후 복구 판단은 Apple의 [AR 세션 생명주기 문서](https://developer.apple.com/documentation/arkit/managing-session-life-cycle-and-tracking-quality), [개인정보 보호 가이드](https://developer.apple.com/design/human-interface-guidelines/privacy/)를 참고했다. 이는 앱의 오류 복구 범위이며 새로운 기부·수집 운영 정책을 뜻하지 않는다.
