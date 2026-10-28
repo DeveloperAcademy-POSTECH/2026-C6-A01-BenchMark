@@ -4,10 +4,12 @@ import AVFoundation
 
 struct ARCameraScreen: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @State private var model = ARCameraViewModel()
     @State private var showSettings = false
     @State private var showAdjustments = false
     @State private var showPhotoSettings = false
+    @State private var closeAfterResult = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -63,32 +65,46 @@ struct ARCameraScreen: View {
             }
             .overlay(alignment: .top) {
                 HStack(spacing: 22) {
-                    Button { showPhotoSettings.toggle(); showAdjustments = false } label: {
-                        Label(controller.settings.photoTimer == 0 ? "끔" : "\(controller.settings.photoTimer)초", systemImage: "timer")
-                            .frame(minWidth: 44, minHeight: 44)
-                            .contentShape(Rectangle())
-                    }.accessibilityLabel("타이머 설정")
-                    Button { showPhotoSettings.toggle(); showAdjustments = false } label: {
-                        Text(controller.settings.photoRatio.rawValue)
-                            .frame(minWidth: 44, minHeight: 44)
-                            .contentShape(Rectangle())
-                    }.accessibilityLabel("사진 비율 설정")
-                    Button { showPhotoSettings.toggle(); showAdjustments = false } label: {
-                        Image(systemName: "camera.filters")
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }.accessibilityLabel("필터 설정")
+                    Group {
+                        Button { showPhotoSettings.toggle(); showAdjustments = false } label: {
+                            Label(controller.settings.photoTimer == 0 ? "끔" : "\(controller.settings.photoTimer)초", systemImage: "timer")
+                                .frame(minWidth: 44, minHeight: 44)
+                                .contentShape(Rectangle())
+                        }.accessibilityLabel("타이머 설정")
+                        Button { showPhotoSettings.toggle(); showAdjustments = false } label: {
+                            Text(controller.settings.photoRatio.rawValue)
+                                .frame(minWidth: 44, minHeight: 44)
+                                .contentShape(Rectangle())
+                        }.accessibilityLabel("사진 비율 설정")
+                        Button { showPhotoSettings.toggle(); showAdjustments = false } label: {
+                            Image(systemName: "camera.filters")
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }.accessibilityLabel("필터 설정")
+                    }
+                    .disabled(video.busy || controller.capturing || model.countdown != nil || controller.recoveryIssue != nil)
                     Spacer(minLength: 0)
-                    Button { Task { await model.close(); dismiss() } } label: {
+                    Button(action: closeCamera) {
                         Image(systemName: "xmark")
                             .frame(width: 44, height: 44)
                             .background(.black.opacity(0.2), in: Circle())
                     }.accessibilityLabel("AR 카메라 닫기")
+                        .disabled(video.busy || controller.capturing || model.closing)
                 }
                 .font(.caption.weight(.semibold))
                 .padding(.horizontal, 16)
                 .frame(height: max(44, controller.photoViewport.minY - geometry.frame(in: .global).minY))
-                .disabled(video.busy || controller.capturing || model.countdown != nil)
+            }
+            .overlay {
+                if let issue = controller.recoveryIssue {
+                    ARRecoveryPanel(issue: issue, starting: controller.starting, closing: model.closing,
+                                    openSettings: openCameraSettings,
+                                    retry: model.retryRecovery, close: closeCamera)
+                        .disabled(model.closing)
+                        .frame(maxWidth: 380, maxHeight: max(0, geometry.size.height - 140))
+                        .padding(.horizontal, 20)
+                        .environment(\.colorScheme, .dark)
+                }
             }
             .overlay(alignment: .bottom) {
                 if showPhotoSettings {
@@ -132,11 +148,11 @@ struct ARCameraScreen: View {
                 model.viewportChanged()
             }
         }
-        .onDisappear { Task { await model.close() } }
+        .onDisappear { model.disappear() }
         .background(.black)
         .statusBarHidden(true)
         .tint(.mint)
-        .task { await controller.start() }
+        .task { if !closeAfterResult { model.appear(in: scenePhase) } }
         .onChange(of: controller.settings) { old, _ in controller.update(from: old) }
         .onChange(of: controller.settings.background) { _, background in
             if background == .stadium { model.videoMode = false; showPhotoSettings = false }
@@ -164,18 +180,44 @@ struct ARCameraScreen: View {
                 .presentationBackground(.ultraThinMaterial)
                 .presentationCornerRadius(28)
         }
-        .onChange(of: video.busy) { _, busy in controller.videoRecording = busy }
+        .onChange(of: video.busy) { _, busy in model.recordingStateChanged(busy) }
         .onChange(of: controller.ready) { _, ready in
             model.sessionReadinessChanged(ready)
+        }
+        .onChange(of: controller.recoveryIssue) { _, issue in
+            if issue != nil { showSettings = false; showAdjustments = false; showPhotoSettings = false }
         }
         .onChange(of: video.errorMessage) { _, message in
             if let message { controller.errorMessage = message; video.errorMessage = nil }
         }
         .sheet(item: $video.result) { ARVideoResultView(result: $0) }
         .sheet(item: $controller.result) { ARPhotoResultView(result: $0) }
+        .onChange(of: video.result?.id) { _, _ in closeIfResultsFinished() }
+        .onChange(of: controller.result?.id) { _, _ in closeIfResultsFinished() }
         .alert("안내", isPresented: Binding(get: { controller.errorMessage != nil }, set: { if !$0 { controller.errorMessage = nil } })) {
             Button("확인", role: .cancel) { controller.errorMessage = nil }
         } message: { Text(controller.errorMessage ?? "") }
     }
 
+    private func closeCamera() {
+        Task {
+            guard !model.closing else { return }
+            await model.close()
+            closeAfterResult = model.video.result != nil || model.controller.result != nil
+            if !closeAfterResult { dismiss() }
+        }
+    }
+
+    private func closeIfResultsFinished() {
+        if closeAfterResult && model.video.result == nil && model.controller.result == nil { dismiss() }
+    }
+
+    private func openCameraSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        openURL(url) { accepted in
+            if !accepted {
+                model.controller.errorMessage = "설정을 열지 못했습니다. 설정 앱에서 오이기부의 카메라 접근을 확인해 주세요."
+            }
+        }
+    }
 }

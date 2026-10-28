@@ -13,7 +13,7 @@ struct ARCameraPreview: View {
                     .font(.caption.weight(.medium))
                     .padding(.horizontal, 12).padding(.vertical, 6)
                     .background(.ultraThinMaterial, in: Capsule())
-                if !controller.placed || !controller.ready {
+                if controller.recoveryIssue == nil && (!controller.placed || !controller.ready) {
                     Text(controller.message)
                         .font(.callout).multilineTextAlignment(.center)
                         .padding(12).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))

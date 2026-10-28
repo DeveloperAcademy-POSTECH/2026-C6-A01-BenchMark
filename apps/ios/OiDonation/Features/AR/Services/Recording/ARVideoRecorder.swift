@@ -18,18 +18,21 @@ final class ARVideoRecorder: NSObject, RPScreenRecorderDelegate {
     private let exporter = ARVideoExporter()
 
     func start(view: UIView) async {
-        guard !busy else { return }
+        guard !busy, !Task.isCancelled else { return }
         state = .preparing
         stopAfterStart = false
-        // 패널 접기와 오버레이 숨김이 반영된 뒤 촬영 영역의 위치와 크기를 측정합니다.
-        try? await Task.sleep(for: .milliseconds(250))
-        guard !stopAfterStart else { state = .idle; return }
-        guard await AVAudioApplication.requestRecordPermission() else {
+        // Wait for panels and overlays to settle before measuring the recording area.
+        do { try await Task.sleep(for: .milliseconds(250)) }
+        catch { state = .idle; return }
+        guard !Task.isCancelled, !stopAfterStart else { state = .idle; return }
+        let microphoneAllowed = await AVAudioApplication.requestRecordPermission()
+        guard !Task.isCancelled, !stopAfterStart else { state = .idle; return }
+        guard microphoneAllowed else {
             errorMessage = "음성을 녹음하려면 설정에서 마이크 접근을 허용해 주세요."
             state = .idle
             return
         }
-        guard !stopAfterStart, let window = view.window, !view.bounds.isEmpty else {
+        guard let window = view.window, !view.bounds.isEmpty else {
             state = .idle
             return
         }
@@ -44,6 +47,7 @@ final class ARVideoRecorder: NSObject, RPScreenRecorderDelegate {
             state = .idle
             return
         }
+        guard !Task.isCancelled, !stopAfterStart else { state = .idle; return }
         ARRecordingOrientation.lock(to: window)
         recorder.isMicrophoneEnabled = true
         recorder.delegate = self
@@ -56,11 +60,18 @@ final class ARVideoRecorder: NSObject, RPScreenRecorderDelegate {
             }
             startedAt = Date()
             state = .recording
-            if stopAfterStart { await stop() }
+            if Task.isCancelled {
+                // A cancelled start still owns the acquired recording; finish export without cancellation.
+                await Task { await self.stop() }.value
+            } else if stopAfterStart {
+                await stop()
+            }
         } catch {
             ARRecordingOrientation.unlock()
             recorder.isMicrophoneEnabled = false
-            errorMessage = "녹화 시작 실패: \(error.localizedDescription)"
+            if !Task.isCancelled, !stopAfterStart {
+                errorMessage = "녹화 시작 실패: \(error.localizedDescription)"
+            }
             state = .idle
         }
     }
