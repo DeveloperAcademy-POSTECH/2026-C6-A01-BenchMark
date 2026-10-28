@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1791964726528,
+      "tag": "0000_parallel_goliath",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1791964831962,
+      "tag": "0001_friendly_celestials",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791967045710,
+      "tag": "0002_great_ricochet",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1791968437353,
+      "tag": "0003_loose_tarantula",
+      "breakpoints": true
+    }
+  ]
+}
