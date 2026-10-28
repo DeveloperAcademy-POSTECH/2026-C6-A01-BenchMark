@@ -38,6 +38,8 @@ struct CampusProfileMenu: View {
                 Section("촬영") {
                     Button("AR 카메라", systemImage: "camera.fill") { dismiss(); DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { onCamera() } }
                     NavigationLink { PhotoTestView() } label: { Label("사진 테스트", systemImage: "photo.on.rectangle") }
+                    NavigationLink { NFCWriteView() } label: { Label("NFC", systemImage: "wave.3.right") }
+                        .accessibilityHint("App Clip 링크를 NFC 태그에 기록하는 화면을 엽니다")
                 }
                 Section {
                     Text("지도 속 오이의 수, 이름, 사진과 기부 횟수는 Figma 디자인 예시입니다. 위치는 캠퍼스 모델에 배치한 예시이며 실제 기부나 현장 방문을 인증하지 않습니다.")
