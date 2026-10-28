@@ -2,7 +2,7 @@
 
 2026-10-22 / #89
 
-홈의 `사진 테스트` 바로 아래 `NFC` 버튼에서 기록 화면으로 이동한다. OiDonation App Clip 번들 ID에 맞춘 Apple 기본 링크 `https://appclip.apple.com/id?p=com.Spero.OiDonation.Clip`을 미리 입력한다. 사용자는 필요한 호출 URL로 바꿀 수 있으며, 입력한 HTTPS URL을 Core NFC의 NDEF URI 레코드 하나로 기록한다. 기존 태그의 NDEF 내용은 교체하며 태그를 영구 잠금하지 않는다.
+캠퍼스 홈의 프로필 → `촬영` 메뉴에서 `사진 테스트` 바로 아래 `NFC`를 선택해 기록 화면으로 이동한다. 2026-10-28에 최신 캠퍼스 홈 구조에 맞춰 진입 위치를 통합했다. OiDonation App Clip 번들 ID에 맞춘 Apple 기본 링크 `https://appclip.apple.com/id?p=com.Spero.OiDonation.Clip`을 미리 입력한다. 사용자는 필요한 호출 URL로 바꿀 수 있으며, 입력한 HTTPS URL을 Core NFC의 NDEF URI 레코드 하나로 기록한다. 기존 태그의 NDEF 내용은 교체하며 태그를 영구 잠금하지 않는다.
 
 ## 동작과 상태
 
