@@ -46,6 +46,11 @@ struct RootTabView: View {
     }
 
     private func handlePublicLink(_ url: URL) {
+        if AppClipLink.matches(url) {
+            path = NavigationPath()
+            isARPresented = false
+            return
+        }
         if let host = container.approvedLinkHost,
                   let destination = PublicLinkParser(allowedHost: host).parse(url) {
             path = NavigationPath()

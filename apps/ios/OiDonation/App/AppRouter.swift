@@ -13,6 +13,12 @@ final class AppRouter {
         parser = approvedLinkHost.map { PublicLinkParser(allowedHost: $0) }
     }
     func open(_ url: URL) {
+        if AppClipLink.matches(url) {
+            selectedTab = .home
+            storyPath = []
+            isARPresented = false
+            return
+        }
         guard let destination = parser?.parse(url) else { return }
         switch destination {
         case .bench:

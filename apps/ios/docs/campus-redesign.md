@@ -24,7 +24,7 @@ Figma 파일 `nEDJaJBFrdzBCa1WcgADHH`의 다음 네 화면을 사용했다.
 - `Features/Campus/Scene/CampusExploreScene.swift`: RealityKit non-AR 렌더러, 카메라·제스처, 3D 위치를 화면 좌표로 투영하는 터치 마커.
 - `CampusSummaryView` → `CampusStoryDetailView`: ID 기반 경로를 push한다. 상세에서 뒤로 가면 실제 진입한 요약 화면으로 돌아가며, 프로필에서 열린 화면도 해당 스택으로 복귀한다.
 - `CampusStoryStore`: 예시 이야기와 지역별 개수, 정렬, 로컬 수집 상태. 서버 데이터와 기존 Domain의 기부 기록을 대체하지 않는다.
-- `CampusProfileMenu`: 기존 내 기부·후원·벤치·사진 테스트로 연결한다. 이전 화면의 비즈니스 로직은 유지한다.
+- `CampusProfileMenu`: 기존 내 기부·후원·벤치·사진 테스트로 연결한다. 2026-10-28 NFC 기록 도구를 사진 테스트 아래에 통합했다. 이전 화면의 비즈니스 로직은 유지한다.
 
 기존 별도 프로젝트 `oi-campus-prototype/ios/OiCampusAR/OiCampusAR`의 `campus-mobile.oimesh`, `campus-data.json`, 지면 높이 필드 3개와 로더·좌표 변환 코드를 재사용했다. 약 21 MB의 모델은 전체 앱 `Resources/Campus`에만 둔다. App Clip은 이 폴더를 참조하지 않는다. 좌표는 OiCampus의 WGS84 ENU 변환과 지면 높이를 사용한다.
 
