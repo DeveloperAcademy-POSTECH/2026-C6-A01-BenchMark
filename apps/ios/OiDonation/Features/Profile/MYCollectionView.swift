@@ -100,8 +100,7 @@ struct MYCollectionView: View {
                     .buttonStyle(.plain).accessibilityLabel("\(card.title) 카드 확대")
                     .accessibilityIdentifier("my.card.\(card.id)")
                     HStack(spacing: 0) {
-                        Text(card.title).font(.custom("Paperlogy-8ExtraBold", size: 16, relativeTo: .caption))
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        cardTitle(card.title)
                         Button { demo.toggleFavorite(card) } label: {
                             Image(systemName: demo.favorites.contains(card.id) ? "heart.fill" : "heart")
                                 .foregroundStyle(demo.favorites.contains(card.id) ? CampusStyle.coral : .black)
@@ -113,6 +112,25 @@ struct MYCollectionView: View {
                 }
             }
         }.padding(.bottom, 12)
+    }
+
+    private func cardTitle(_ title: String) -> some View {
+        ViewThatFits(in: .horizontal) {
+            Text(title).fixedSize(horizontal: true, vertical: true)
+            if title.hasSuffix("오이") {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(String(title.dropLast(2)).trimmingCharacters(in: .whitespaces))
+                    Text("오이").fixedSize(horizontal: true, vertical: true)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(title).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .font(.custom("Paperlogy-8ExtraBold", size: 16, relativeTo: .caption))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
     }
 
     private var schoolFolders: some View {

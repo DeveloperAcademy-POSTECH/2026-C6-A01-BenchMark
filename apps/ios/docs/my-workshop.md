@@ -11,6 +11,7 @@
 - 전체보기·학교별보기·학교 내부 목록·즐겨찾기, 최신순·가상 거리순·인기순, 카드 확대·이야기 표시를 제공한다. 즐겨찾기는 루트가 소유한 세션 메모리에만 유지하며 앱 재시작 시 초기화한다.
 - 학교 내부에서 하단 분류를 누르면 해당 분류가 선택된 부모 도감으로 돌아온다. 선택한 분류는 같은 세션에서 유지한다.
 - MY 더미 카드는 실제 지도 수집 기록, 기부자 권한, 증빙 승인, 학교 공식 납입 확인과 연결하지 않는다. 각 화면에 디자인 예시임을 표시한다.
+- 도감 카드 이름은 한 줄에 들어가면 그대로 표시하고, 부족하면 접미사 `오이` 앞에서 줄바꿈한다. `힘들어오 / 이`가 아닌 `힘들어 / 오이`로 표시하며, 긴 이름의 앞부분은 여러 줄을 허용한다. 글자 크기와 즐겨찾기 버튼의 44pt 터치 영역은 유지하고 VoiceOver에는 원래 전체 이름을 제공한다.
 
 ## 디자인 자산과 적응형 배치
 
@@ -86,3 +87,31 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 ![내 농장 더미 화면](verification/my98/farm.png)
 ![학교별 폴더](verification/my98/schools.png)
 ![학교별 기부도감 더미 화면](verification/my98/collection.png)
+
+## 도감 제목 줄바꿈 회귀 확인 — 2026-10-28
+
+`ViewThatFits`로 한 줄 전체 이름을 우선하고, 폭이 부족할 때만 이름 앞부분과 `오이`를 세로로 표시한다. 고정 줄 수·글자 축소·데이터의 강제 개행은 사용하지 않는다. 전체보기·학교별 카드·즐겨찾기가 같은 제목 렌더링을 공유한다.
+
+임시 XCTest의 초기 실패는 합쳐진 접근성 요소를 `StaticText`로 조회한 테스트 코드 때문이었다. 실제 요소 유형인 `Other`로 수정한 뒤 iPhone 17(402pt)과 iPhone SE 3세대(375pt)에서 각각 실패 0건으로 통과했다. `힘들어`와 `오이`의 분리, 단독 `이` 없음, `샤갈오이` 한 줄, 즐겨찾기 전환 후 전체 이름 유지를 검사했다. 두 화면의 캡처도 확인했다.
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer sh apps/ios/Tests/run-my-checks.sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+  -project /private/tmp/benchmark-wrap-98-qa/OiDonation.xcodeproj -scheme MYWrapQA \
+  -configuration Debug -destination 'platform=iOS Simulator,id=FCB148EF-950E-4F19-8946-22FF830DEEA0' \
+  -parallel-testing-enabled NO -derivedDataPath /private/tmp/benchmark-wrap-98-build \
+  -resultBundlePath /private/tmp/benchmark-wrap-98-qa/reference-fixed.xcresult CODE_SIGNING_ALLOWED=NO test
+```
+
+작은 화면은 같은 명령에서 destination을 `239140A1-151E-4F57-A4B3-D936D9AA288B`, 결과 경로를 `/private/tmp/benchmark-wrap-98-qa/small.xcresult`로 변경해 실행했다. 생성한 전용 Simulator 두 대는 각 검사 후 종료·삭제했으며 Computer Use 핸들·창은 만들지 않았다.
+
+연결된 iPhone 16 Pro용 Debug 빌드도 아래 명령으로 통과했다. 기존 로컬 개인 서명 설정은 변경·커밋하지 않았다.
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+  -project apps/ios/OiDonation.xcodeproj -scheme OiDonation -configuration Debug \
+  -destination 'id=00008140-000258D836DB001C' \
+  -derivedDataPath /private/tmp/benchmark-my-98-device build
+```
+
+![한 줄 제목과 오이 앞 줄바꿈](verification/my98/collection-wrapping.png)
