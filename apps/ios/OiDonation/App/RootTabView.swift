@@ -4,6 +4,7 @@ struct RootTabView: View {
     let container: AppContainer
     @State private var path = NavigationPath()
     @State private var store = CampusStoryStore()
+    @State private var myDemo = MYDemoStore()
     @State private var isARPresented = false
     @State private var isCameraCoverActive = false
 
@@ -16,8 +17,10 @@ struct RootTabView: View {
             HomeView(
                 container: container,
                 store: store,
+                myDemo: myDemo,
                 isCameraCoverActive: isCameraCoverActive,
-                onCamera: { isCameraCoverActive = true; isARPresented = true },
+                onCamera: { path = NavigationPath(); isCameraCoverActive = true; isARPresented = true },
+                onOpenProfile: { path.append(MYDestination.workshop) },
                 onOpenStory: { path.append(CampusDestination.summary($0)) }
             )
             .navigationDestination(for: CampusDestination.self) { destination in

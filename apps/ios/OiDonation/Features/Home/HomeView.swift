@@ -4,8 +4,10 @@ import SwiftUI
 struct HomeView: View {
     let container: AppContainer
     let store: CampusStoryStore
+    let myDemo: MYDemoStore
     let isCameraCoverActive: Bool
     let onCamera: () -> Void
+    let onOpenProfile: () -> Void
     let onOpenStory: (String) -> Void
     @Environment(\.scenePhase) private var scenePhase
     @State private var scene = CampusExploreScene()
@@ -13,7 +15,6 @@ struct HomeView: View {
     @State private var sort = CampusStorySort.latest
     @State private var distances: [String: Float] = [:]
     @State private var expanded = false
-    @State private var showingProfile = false
     @State private var showingSchools = false
     @State private var searchResults: Set<String>?
     @State private var isOnScreen = false
@@ -56,7 +57,15 @@ struct HomeView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .background(CampusStyle.lightGreen)
-        .sheet(isPresented: $showingProfile) { CampusProfileMenu(container: container, store: store, onCamera: openCamera) }
+        .navigationDestination(for: MYDestination.self) { destination in
+            switch destination {
+            case .workshop:
+                MYWorkshopView(container: container, store: store, demo: myDemo, onCamera: openCamera)
+            case .farm: MYFarmView()
+            case .collection: MYCollectionView(demo: myDemo)
+            case .school(let school): MYCollectionView(demo: myDemo, school: school)
+            }
+        }
         .sheet(isPresented: $showingSchools) {
             NavigationStack {
                 List {
@@ -100,7 +109,7 @@ struct HomeView: View {
 
     private var homeActions: some View {
         HStack(alignment: .top) {
-            Button { showingProfile = true } label: {
+            Button(action: onOpenProfile) {
                 VStack(spacing: 7) {
                     Image("OiFarmer").resizable().scaledToFill().frame(width: 100, height: 100, alignment: .top)
                         .background(Color(red: 0.96, green: 1, blue: 0.84)).clipShape(Circle())
@@ -108,7 +117,7 @@ struct HomeView: View {
                     Text("신서임당").font(CampusStyle.body(14)).frame(width: 104, height: 25)
                         .background(Color(.systemBackground), in: Capsule()).shadow(color: .black.opacity(0.15), radius: 4, y: 2)
                 }
-            }.buttonStyle(.plain).accessibilityLabel("내 프로필과 수집한 오이").accessibilityIdentifier("campus.profile")
+            }.buttonStyle(.plain).accessibilityLabel("신서임당의 MY 작업실").accessibilityIdentifier("campus.profile")
             Spacer()
             Button(action: openCamera) { Image(systemName: "camera.fill").font(.system(size: 34)).frame(width: 78, height: 78) }
                 .buttonStyle(.glassProminent).buttonBorderShape(.circle).tint(Color(red: 0.40, green: 0.31, blue: 0.12))
