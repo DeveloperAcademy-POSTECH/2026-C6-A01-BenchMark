@@ -12,9 +12,12 @@ import CoreText
 struct OiDonationApp: App {
     @UIApplicationDelegateAdaptor(ARRecordingOrientation.self) private var appDelegate
     init() {
-        if let url = Bundle.main.url(forResource: "Griun_OMIRI-Rg", withExtension: "ttf")
-            ?? Bundle.main.url(forResource: "Griun_OMIRI-Rg", withExtension: "ttf", subdirectory: "Fonts") {
-            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+        for name in ["Griun_OMIRI-Rg", "Paperlogy-4Regular", "Paperlogy-5Medium", "Paperlogy-6SemiBold", "Paperlogy-8ExtraBold", "Paperlogy-9Black", "Mona12TextKR", "Pretendard-Regular", "Pretendard-Bold", "PearToucan-Regular", "PearToucan-Light", "KIM-WILDgag-Bold"] {
+            let ext = name.hasPrefix("Pretendard") ? "otf" : "ttf"
+            if let url = Bundle.main.url(forResource: name, withExtension: ext)
+                ?? Bundle.main.url(forResource: name, withExtension: ext, subdirectory: "Fonts") {
+                CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+            }
         }
     }
     var body: some Scene {

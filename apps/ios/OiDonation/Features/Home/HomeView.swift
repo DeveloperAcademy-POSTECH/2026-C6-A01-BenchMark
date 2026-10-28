@@ -1,223 +1,176 @@
 import SwiftUI
 
+/// The home is now the immersive campus explorer; existing account flows live in its menu.
 struct HomeView: View {
-    var onParticipation: (() -> Void)?
-    @State private var viewModel: HomeViewModel
-    @State private var selectedDestination: HomeDestination?
-
-    init(repository: any HomeRepository, onParticipation: (() -> Void)? = nil) {
-        self.onParticipation = onParticipation
-        _viewModel = State(initialValue: HomeViewModel(repository: repository))
-    }
+    let container: AppContainer
+    let store: CampusStoryStore
+    let myDemo: MYDemoStore
+    let isCameraCoverActive: Bool
+    let onCamera: () -> Void
+    let onOpenProfile: () -> Void
+    let onOpenStory: (String) -> Void
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var scene = CampusExploreScene()
+    @State private var region: CampusRegion?
+    @State private var sort = CampusStorySort.latest
+    @State private var distances: [String: Float] = [:]
+    @State private var expanded = false
+    @State private var showingSchools = false
+    @State private var searchResults: Set<String>?
+    @State private var isOnScreen = false
 
     var body: some View {
         GeometryReader { geometry in
-            ScrollView {
-                VStack(spacing: 12) {
-                    header
-                    HomeStoryBanner(height: max(160, min(219, geometry.size.height - 520))) {
-                        selectedDestination = .introduction
-                    }
-                    donationCard
-                    shortcuts
-                    switch viewModel.state {
-                    case .idle, .loading:
-                        ProgressView("현황을 불러오는 중입니다").frame(height: 180)
-                    case .loaded(let dashboard):
-                        HomeImpactCard(dashboard: dashboard)
-                        if dashboard.isExample {
-                            Text("참여 현황과 이름은 디자인 확인용 예시입니다.")
-                                .font(.caption2).foregroundStyle(.secondary)
+            ZStack {
+                CampusMapSurface(scene: scene).ignoresSafeArea()
+                VStack {
+                    HStack {
+                        if region != nil {
+                            Button { region = nil; expanded = false; scene.showOverview() } label: { Image(systemName: "chevron.left") }
+                                .buttonStyle(.glass).buttonBorderShape(.circle).controlSize(.large)
+                                .accessibilityLabel("캠퍼스 전체 지도").accessibilityIdentifier("campus.overview")
+                            Spacer()
+                            Button { distances = scene.distances(); searchResults = scene.visibleStoryIDs() } label: { Label("이 지역 재검색", systemImage: "arrow.clockwise") }
+                                .font(CampusStyle.body(15)).buttonStyle(.glass).buttonBorderShape(.capsule)
+                            Spacer()
+                            Color.clear.frame(width: 50, height: 1)
+                        } else {
+                            Button { showingSchools = true } label: { Label("POSTECH", systemImage: "chevron.backward").font(.system(size: 18, weight: .semibold)) }
+                                .buttonStyle(.glass).buttonBorderShape(.capsule).controlSize(.large)
+                            Spacer()
+                            Text("디자인 예시").font(.caption2).padding(7).background(.thinMaterial, in: Capsule())
                         }
-                    case .unavailable:
-                        VStack(spacing: 12) {
-                            Text("참여 현황을 준비 중이에요").font(.headline)
-                            Text("학교에서 확인한 현황이 준비되면 안내드릴게요.").font(.subheadline)
-                                .foregroundStyle(.secondary)
-                            Button("다시 확인") { Task { await viewModel.load() } }
-                        }.frame(maxWidth: .infinity).frame(height: 180)
-                    }
-                    NavigationLink { PhotoTestView() } label: {
-                        Text("사진 테스트")
-                            .font(.headline)
-                            .foregroundStyle(Color("OiGreen"))
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .background(Color("OiLight"), in: RoundedRectangle(cornerRadius: 10))
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 16)
-            }.clipped()
-        }
-        .background(Color.white)
-        .task { await viewModel.load() }
-        .sheet(item: $selectedDestination) { HomeInformationSheet(destination: $0) }
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            Image("OiLogo").resizable().scaledToFit().frame(width: 38, height: 34)
-            Image("OiWordmark").resizable().scaledToFit().frame(width: 101, height: 24)
-            Spacer()
-            headerButton("bell.fill", label: "알림", destination: .notifications)
-            headerButton("person.fill", label: "내 프로필", destination: .profile)
-        }
-        .frame(height: 40)
-    }
-
-    private func headerButton(_ symbol: String, label: String, destination: HomeDestination) -> some View {
-        Button { selectedDestination = destination } label: {
-            Image(systemName: symbol)
-                .font(.system(size: 18))
-                .foregroundStyle(Color("OiDark"))
-                .frame(width: 44, height: 44)
-                .background { Image("HomeProfileBackground").resizable().frame(width: 38, height: 38) }
-        }
-        .accessibilityLabel(label)
-    }
-
-    private var donationCard: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 17) {
-                HStack(spacing: 5) {
-                    Image("OiLogo").resizable().scaledToFit().frame(width: 21, height: 18)
-                    (Text(viewModel.donorName).fontWeight(.semibold) + Text(" 님의 기부 내역"))
-                        .font(.system(size: 20)).foregroundStyle(Color("OiOlive"))
-                        .minimumScaleFactor(0.75).lineLimit(1)
-                }
-                Text("아직 기부 내역이 없어요\n기부자님의 이야기를 남겨보시겠어요?")
-                    .font(.system(size: 13)).lineSpacing(3).foregroundStyle(.black)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-            Button {
-                if let onParticipation { onParticipation() } else { selectedDestination = .donation }
-            } label: {
-                Text("기부\n시작").font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color("OiGreen"))
-                    .multilineTextAlignment(.center).frame(width: 70, height: 70)
-                    .background { Image("HomeDonationButton").resizable().frame(width: 90, height: 86) }
-            }
-            .accessibilityLabel("기부 시작")
-        }
-        .padding(.horizontal, 21).padding(.vertical, 21)
-        .frame(minHeight: 116)
-        .background(Color("OiLight"), in: RoundedRectangle(cornerRadius: 20))
-    }
-
-    private var shortcuts: some View {
-        HStack(spacing: 15) {
-            shortcut("receipt.fill", title: "기부금영수증", destination: .receipt)
-            shortcut("gift.fill", title: "이벤트/혜택", destination: .benefits)
-            shortcut("megaphone.fill", title: "오이 소식", destination: .news)
-            shortcut("heart.square.fill", title: "정기후원", destination: .recurring)
-        }
-    }
-
-    private func shortcut(_ symbol: String, title: String, destination: HomeDestination) -> some View {
-        Button { selectedDestination = destination } label: {
-            VStack(spacing: 8) {
-                Image(systemName: symbol).font(.system(size: 23))
-                Text(title).font(.system(size: 11, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
-            }
-            .foregroundStyle(Color("OiOlive"))
-            .frame(maxWidth: .infinity).frame(height: 79)
-            .background(Color("OiShortcut"), in: RoundedRectangle(cornerRadius: 10))
-            .shadow(color: Color("OiDark").opacity(0.25), radius: 2, x: 1, y: 1)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-private struct HomeStoryBanner: View {
-    var height: CGFloat = 219
-    let onDetails: () -> Void
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .topLeading) {
-                // Figma crops the portrait image 279 points above the 219-point banner.
-                Image("HomeBench").resizable().scaledToFill()
-                    .frame(width: geometry.size.width, height: geometry.size.width * 1096 / 729)
-                    .offset(y: -279 * geometry.size.width / 362)
-                    .frame(width: geometry.size.width, height: height, alignment: .top)
-                    .clipped()
-                LinearGradient(colors: [Color(red: 47/255, green: 63/255, blue: 24/255).opacity(0.7), .clear], startPoint: .top, endPoint: .bottom)
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("“오래도록 남는 이야기, 오이기부”")
-                        .font(.system(size: 22, weight: .medium)).minimumScaleFactor(0.7).lineLimit(1)
-                    Text("학교의 내일에 보탠 마음, 캠퍼스에 이야기로 남아요.\n첫 기부로 기억하고 싶은 순간을 벤치에 남겨보세요.")
-                        .font(.system(size: 12)).lineSpacing(4)
-                        .fixedSize(horizontal: false, vertical: true)
+                    }.padding(.horizontal, 20).padding(.top, 6)
                     Spacer()
-                    Button(action: onDetails) {
-                        HStack(spacing: 5) {
-                            Text("자세히보기").font(.system(size: 12, weight: .light))
-                            Image(systemName: "arrow.right").font(.system(size: 10))
-                        }
-                        .foregroundStyle(.black).padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(Color("OiLight"), in: Capsule())
+                    if region == nil { homeActions.padding(.horizontal, 20).padding(.bottom, 14) }
+                }
+                if scene.isLoading { ProgressView("POSTECH 캠퍼스 불러오는 중").padding(22).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20)) }
+                if let error = scene.error {
+                    ContentUnavailableView { Label("지도를 불러올 수 없어요", systemImage: "map") } description: { Text(error) } actions: {
+                        Button("다시 시도") { Task { await scene.load() } }
+                    }.background(.regularMaterial)
+                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if let region { regionPanel(region, maxHeight: geometry.size.height * 0.72) }
+            }
+        }
+        .toolbar(.hidden, for: .navigationBar)
+        .background(CampusStyle.lightGreen)
+        .navigationDestination(for: MYDestination.self) { destination in
+            switch destination {
+            case .workshop:
+                MYWorkshopView(container: container, store: store, demo: myDemo, onCamera: openCamera)
+            case .farm: MYFarmView()
+            case .collection: MYCollectionView(demo: myDemo)
+            case .school(let school): MYCollectionView(demo: myDemo, school: school)
+            }
+        }
+        .sheet(isPresented: $showingSchools) {
+            NavigationStack {
+                List {
+                    Button { showingSchools = false; region = nil; scene.showOverview() } label: {
+                        Label("POSTECH · 포항공과대학교", systemImage: "building.2.fill")
                     }
-                }
-                .foregroundStyle(Color("OiSoft")).padding(24).padding(.top, 7)
-                .frame(height: height)
-            }
-            .frame(width: geometry.size.width, height: height).clipped()
-            .clipShape(RoundedRectangle(cornerRadius: 20))
+                    Text("현재는 POSTECH 캠퍼스를 탐색할 수 있어요.").font(.footnote).foregroundStyle(.secondary)
+                }.navigationTitle("학교 선택").navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("닫기") { showingSchools = false } } }
+            }.presentationDetents([.medium])
         }
-        .frame(height: height)
+        .task {
+            scene.onRegion = { selected in
+                region = selected; sort = .latest; expanded = false; searchResults = nil
+                scene.focus(selected, stories: store.stories(in: selected.id, sortedBy: .latest))
+                distances = scene.distances()
+            }
+            scene.onStory = { id in
+                guard store.story(id) != nil else { return }
+                // Use the same value-based path as list links and the summary's detail link.
+                onOpenStory(id)
+            }
+            await scene.load()
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-campus-region-preview"), let first = CampusRegion.examples.first { scene.onRegion?(first) }
+            #endif
+        }
+        .onAppear { isOnScreen = true; scene.setVisible(!isCameraCoverActive && scenePhase == .active) }
+        .onDisappear { isOnScreen = false; scene.setVisible(false) }
+        .onChange(of: scenePhase) { _, phase in scene.setVisible(isOnScreen && !isCameraCoverActive && phase == .active) }
+        .onChange(of: isCameraCoverActive) { _, active in
+            // Full-screen presentation doesn't always trigger this nested view's onAppear again.
+            if active {
+                scene.suspendForARCamera()
+            } else {
+                isOnScreen = true
+                scene.setVisible(scenePhase == .active)
+            }
+        }
     }
-}
 
-private struct HomeImpactCard: View {
-    let dashboard: HomeDashboard
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 9) {
-                Text("POSTECH 오이").font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(Color("OiDark"))
-                    .padding(.horizontal, 18).padding(.vertical, 8)
-                    .background(Color("OiYellowGreen"), in: UnevenRoundedRectangle(topLeadingRadius: 20, bottomTrailingRadius: 20))
-                ZStack(alignment: .topTrailing) {
-                    Image("OiCucumber").resizable().scaledToFit().frame(width: 115, height: 125)
-                        .opacity(0.3)
-                        .overlay(alignment: .bottom) {
-                            Image("OiCucumber").resizable().scaledToFit().frame(width: 115, height: 125)
-                                .mask(VStack(spacing: 0) { Color.clear.frame(height: 52); Color.black })
+    private var homeActions: some View {
+        HStack(alignment: .top) {
+            Button(action: onOpenProfile) {
+                VStack(spacing: 7) {
+                    Image("OiFarmer").resizable().scaledToFill().frame(width: 100, height: 100, alignment: .top)
+                        .background(Color(red: 0.96, green: 1, blue: 0.84)).clipShape(Circle())
+                        .overlay(Circle().stroke(CampusStyle.green, lineWidth: 2))
+                    Text("신서임당").font(CampusStyle.body(14)).frame(width: 104, height: 25)
+                        .background(Color(.systemBackground), in: Capsule()).shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                }
+            }.buttonStyle(.plain).accessibilityLabel("신서임당의 MY 작업실").accessibilityIdentifier("campus.profile")
+            Spacer()
+            Button(action: openCamera) { Image(systemName: "camera.fill").font(.system(size: 34)).frame(width: 78, height: 78) }
+                .buttonStyle(.glassProminent).buttonBorderShape(.circle).tint(Color(red: 0.40, green: 0.31, blue: 0.12))
+                .accessibilityLabel("AR 카메라 열기").accessibilityIdentifier("campus.camera")
+        }
+    }
+
+    private func openCamera() {
+        scene.suspendForARCamera()
+        onCamera()
+    }
+
+    private func regionPanel(_ region: CampusRegion, maxHeight: CGFloat) -> some View {
+        let items = store.stories(in: region.id, sortedBy: sort, distances: distances)
+            .filter { searchResults?.contains($0.id) ?? true }
+        return VStack(spacing: 8) {
+            Button { withAnimation(.snappy) { expanded.toggle() } } label: {
+                Label(expanded ? "지도보기" : "목록보기", systemImage: "list.star")
+                    .font(CampusStyle.body(16)).padding(.horizontal, 20).padding(.vertical, 8)
+                    .background(Color(.systemBackground), in: Capsule())
+            }.buttonStyle(.plain).accessibilityIdentifier("campus.list.toggle")
+            VStack(spacing: 12) {
+                Capsule().fill(Color(.systemGray4)).frame(width: 52, height: 5).padding(.top, 5)
+                    .padding(.horizontal, 100).contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 20).onEnded { value in withAnimation(.snappy) { expanded = value.translation.height < 0 } })
+                HStack(spacing: 7) {
+                    ForEach(CampusStorySort.allCases, id: \.self) { item in
+                        Button { sort = item; distances = scene.distances() } label: {
+                            Text(item.rawValue).font(.system(size: 16)).padding(.horizontal, 12).padding(.vertical, 5)
+                                .foregroundStyle(sort == item ? .white : .black)
+                                .background(sort == item ? CampusStyle.lightGreen : Color(.systemGray5), in: Capsule())
+                        }.buttonStyle(.plain).accessibilityAddTraits(sort == item ? .isSelected : [])
+                    }
+                    Spacer(minLength: 0)
+                    Text("\(items.count)개").font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white).padding(.horizontal, 16).padding(.vertical, 5).background(CampusStyle.green, in: Capsule())
+                }
+                if sort == .distance { Text("지도 중심에서 가까운 순서").font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading) }
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        if items.isEmpty { Text("이 화면에는 오이가 없어요. 지도를 움직여 다시 검색해 주세요.").font(.subheadline).foregroundStyle(.secondary).padding() }
+                        ForEach(items) { story in
+                            NavigationLink(value: CampusDestination.summary(story.id)) { CampusStoryRow(story: story) }
+                                .buttonStyle(.plain).accessibilityIdentifier("campus.row.\(story.id)")
                         }
-                    Text("\(dashboard.progress)%").font(.system(size: 29, weight: .medium)).italic()
-                        .foregroundStyle(Color("OiGreen")).offset(x: 30, y: 13)
-                }
-                .padding(.leading, 16)
+                    }.padding(.bottom, 12)
+                }.scrollIndicators(.hidden)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("설치된 벤치 수").font(.system(size: 12, weight: .semibold))
-                HStack(alignment: .firstTextBaseline, spacing: 7) {
-                    Text("\(dashboard.attachedBenchCount)").font(.system(size: 48, weight: .heavy, design: .rounded))
-                        .foregroundStyle(Color("OiGreen"))
-                    Image("HomeSlash").resizable().scaledToFit().frame(width: 20, height: 29).accessibilityHidden(true)
-                    Text("\(dashboard.targetBenchCount)").font(.system(size: 28)).foregroundStyle(Color("OiGreen").opacity(0.5))
-                }
-                .frame(maxWidth: .infinity).frame(height: 40)
-                Image("HomeDivider").resizable().frame(height: 0.4).accessibilityHidden(true)
-                Text("누적 참여자 수").font(.system(size: 12, weight: .semibold))
-                HStack(alignment: .firstTextBaseline, spacing: 1) {
-                    Text("\(dashboard.participantCount)").font(.system(size: 47, weight: .heavy, design: .rounded))
-                        .foregroundStyle(Color("OiGreen"))
-                    Text("명").font(.system(size: 28)).foregroundStyle(Color("OiGreen").opacity(0.5))
-                }
-                .frame(maxWidth: .infinity).frame(height: 40)
+            .padding(.horizontal, 12).frame(height: expanded ? maxHeight : 230)
+            .background {
+                UnevenRoundedRectangle(topLeadingRadius: 30, topTrailingRadius: 30)
+                    .fill(Color(.systemBackground)).ignoresSafeArea(edges: .bottom)
             }
-            .foregroundStyle(Color("OiDark"))
-            .padding(14).frame(maxWidth: .infinity).frame(height: 162)
-            .background(Color("OiSoft"), in: RoundedRectangle(cornerRadius: 20))
-            .padding(.vertical, 8).padding(.trailing, 10)
-        }
-        .frame(height: 180)
-        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color("OiYellowGreen"), lineWidth: 2))
+        }.padding(.horizontal, 11)
     }
-}
-
-#Preview {
-    HomeView(repository: DesignDemoHomeRepository())
 }
