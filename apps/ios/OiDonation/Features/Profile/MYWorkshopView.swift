@@ -34,7 +34,7 @@ struct MYWorkshopView: View {
                     ZStack {
                         artwork("MYSettingsBoard", rect: CGRect(x: 281, y: 432.5, width: 92, height: 192), scale: scale, origin: origin)
                         artwork("MYRake", rect: CGRect(x: 292.7, y: 441.3, width: 68, height: 173), scale: scale, origin: origin)
-                        Text("설\n정").font(CampusStyle.hand(20)).dynamicTypeSize(.medium).lineSpacing(0)
+                        Text("설\n정").font(.custom("PearToucan-Regular", size: 20, relativeTo: .body)).dynamicTypeSize(.medium).lineSpacing(0)
                             .foregroundStyle(Color(red: 0.47, green: 0.25, blue: 0.08))
                             .position(x: origin.x + 352 * scale, y: origin.y + 463 * scale)
                     }
@@ -52,8 +52,8 @@ struct MYWorkshopView: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text(demo.nickname).font(CampusStyle.heading(28))
-                    Text("의 작업실").font(CampusStyle.hand(18))
+                    Text(demo.nickname).font(.custom("PearToucan-Regular", size: 35, relativeTo: .title))
+                    Text("의 작업실").font(.custom("PearToucan-Light", size: 20, relativeTo: .body))
                 }.foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6).accessibilityElement(children: .combine)
             }
         }

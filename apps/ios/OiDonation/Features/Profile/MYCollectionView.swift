@@ -70,7 +70,7 @@ struct MYCollectionView: View {
     private var sortButtons: some View {
         ForEach(CampusStorySort.allCases, id: \.self) { option in
             Button { sort = option } label: {
-                Text(option.rawValue).font(.custom("Pretendard-Regular", size: 16, relativeTo: .body))
+                Text(option.rawValue).font(.custom(sort == option ? "Pretendard-Bold" : "Pretendard-Regular", size: 16, relativeTo: .body))
                     .foregroundStyle(sort == option ? .white : .black)
                     .padding(.horizontal, 12).padding(.vertical, 5)
                     .background(sort == option ? CampusStyle.lightGreen : Color(.systemGray5), in: Capsule())
@@ -100,7 +100,7 @@ struct MYCollectionView: View {
                     .buttonStyle(.plain).accessibilityLabel("\(card.title) 카드 확대")
                     .accessibilityIdentifier("my.card.\(card.id)")
                     HStack(spacing: 0) {
-                        Text(card.title).font(.custom("Pretendard-Regular", size: 14, relativeTo: .caption))
+                        Text(card.title).font(.custom("Paperlogy-8ExtraBold", size: 16, relativeTo: .caption))
                             .frame(maxWidth: .infinity, alignment: .leading)
                         Button { demo.toggleFavorite(card) } label: {
                             Image(systemName: demo.favorites.contains(card.id) ? "heart.fill" : "heart")
@@ -121,7 +121,7 @@ struct MYCollectionView: View {
                 NavigationLink(value: MYDestination.school(school)) {
                     VStack(spacing: 10) {
                         MYSchoolFolder(count: demo.cards.filter { $0.school == school }.count)
-                        Text(school.rawValue).font(.custom("Pretendard-Regular", size: 24, relativeTo: .title2).bold())
+                        Text(school.rawValue).font(.custom("Pretendard-Bold", size: 24, relativeTo: .title2))
                             .foregroundStyle(Color(red: 0.41, green: 0.31, blue: 0.13))
                     }
                 }.buttonStyle(.plain).accessibilityLabel("\(school.rawValue), 예시 카드 \(demo.cards.filter { $0.school == school }.count)개")
@@ -146,7 +146,7 @@ struct MYCollectionView: View {
                 } label: {
                     VStack(spacing: 6) {
                         Image(systemName: option.symbol).font(.system(size: 20, weight: .bold))
-                        Text(option.rawValue).font(.custom("Pretendard-Regular", size: 12, relativeTo: .caption).bold())
+                        Text(option.rawValue).font(.custom("Pretendard-Bold", size: 12, relativeTo: .caption))
                     }
                     .frame(maxWidth: .infinity, minHeight: 64)
                     .foregroundStyle(filter == option ? CampusStyle.green : Color(.darkGray))
@@ -188,7 +188,7 @@ private struct MYSchoolFolder: View {
                 Image("MYFolderFront").resizable().frame(width: 187 * scale, height: 201.3 * scale)
                     .offset(x: -8 * scale, y: 30.7 * scale)
                 HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text("\(count)").font(CampusStyle.heading(42 * scale))
+                    Text("\(count)").font(.custom("KIMWILDgag-BOLD", size: 50 * scale, relativeTo: .title))
                     Text("card").font(.system(size: 24 * scale))
                 }.foregroundStyle(Color(red: 0.41, green: 0.31, blue: 0.13))
                     .position(x: 72 * scale, y: 198 * scale)
