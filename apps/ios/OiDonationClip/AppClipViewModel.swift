@@ -83,4 +83,12 @@ final class AppClipViewModel {
             state = .loadFailed
         }
     }
+
+    func showWelcome() {
+        invocationID = UUID()
+        invocationURL = nil
+        storyID = nil
+        story = nil
+        state = .welcome
+    }
 }

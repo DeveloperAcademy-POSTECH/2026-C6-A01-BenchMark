@@ -160,6 +160,10 @@ struct AppClipInvocationChecks {
         require(gameModel.state == .unavailable, "AR game handles unavailable AR")
         gameModel.reset()
         require(gameModel.state == .intro, "AR game resets to intro")
+
+        storyModel.showWelcome()
+        require(storyModel.state == .welcome, "back from AR game returns to welcome")
+        require(storyModel.story == nil && storyModel.storyID == nil, "back from AR game clears loaded story")
         print("PASS: \(valid.count) valid / \(invalid.count) invalid App Clip links, default launch, installed-app routing, story states, cancellation and stale responses")
     }
 

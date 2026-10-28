@@ -56,6 +56,7 @@
 				Domain/Repositories/StoryRepository.swift,
 				Domain/Routing/AppClipLink.swift,
 				Domain/Routing/PublicLinkParser.swift,
+				Resources/Fonts/PearToucan-Regular.ttf,
 			);
 			target = 87169564307CB1CF0090D456 /* OiDonationClip */;
 		};

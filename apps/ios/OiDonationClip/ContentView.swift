@@ -44,7 +44,9 @@ struct ContentView: View {
             case .loading: ProgressView(viewModel.state.description)
             case .ready:
                 if let story = viewModel.story {
-                    ARGameFlowView(story: story)
+                    ARGameFlowView(story: story) {
+                        viewModel.showWelcome()
+                    }
                 } else {
                     Text(viewModel.state.description)
                 }

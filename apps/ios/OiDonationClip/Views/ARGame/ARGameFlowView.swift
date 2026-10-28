@@ -9,37 +9,44 @@ import SwiftUI
 
 struct ARGameFlowView: View {
     let story: Story
+    let onBack: () -> Void
 
     @State private var viewModel = ARGameViewModel()
 
     var body: some View {
-        VStack(spacing: 20) {
-            Text(story.title)
-                .font(.headline)
-
+        Group {
             switch viewModel.state {
             case .intro:
-                statePanel(title: "AR 게임 시작", buttonTitle: "시작") {
+                ARGameIntroView(
+                    cucumberName: story.title,
+                    targetCount: 3,
+                    timeLimitSeconds: 30,
+                    onBack: onBack
+                ) {
                     viewModel.requestPermission()
                 }
             case .requestingPermission:
-                Text("카메라 권한 확인")
-                HStack {
-                    Button("허용") {
-                        viewModel.permissionGranted()
-                    }
-                    Button("거절") {
-                        viewModel.permissionDenied()
+                VStack(spacing: 20) {
+                    Text("카메라 권한 확인")
+                    HStack {
+                        Button("허용") {
+                            viewModel.permissionGranted()
+                        }
+                        Button("거절") {
+                            viewModel.permissionDenied()
+                        }
                     }
                 }
             case .playing:
-                Text("AR 게임 진행 중")
-                HStack {
-                    Button("성공") {
-                        viewModel.finishGame(succeeded: true)
-                    }
-                    Button("실패") {
-                        viewModel.finishGame(succeeded: false)
+                VStack(spacing: 20) {
+                    Text("AR 게임 진행 중")
+                    HStack {
+                        Button("성공") {
+                            viewModel.finishGame(succeeded: true)
+                        }
+                        Button("실패") {
+                            viewModel.finishGame(succeeded: false)
+                        }
                     }
                 }
             case .success:
@@ -57,7 +64,6 @@ struct ARGameFlowView: View {
             }
         }
         .buttonStyle(.borderedProminent)
-        .padding()
     }
 
     private func statePanel(
