@@ -102,5 +102,23 @@ select pg_temp.assert_true((select count(*)=0 from storage.objects),'revocation 
 select pg_temp.assert_true((select count(*)=0 from public.oi_collection_metrics()),'hidden story has no public count');
 
 reset role;
-select 'PASS: approval, owner isolation, private storage, optimistic revisions, publication, idempotency, favorites, revocation' as result;
+set local role authenticated;
+select set_config('request.jwt.claim.sub','b1000000-0000-4000-8000-000000000001',true);
+select public.oi_mutate('start_evidence','{"id":"b1000000-0000-4000-8000-000000000011"}');
+insert into storage.objects(bucket_id,name) values('oi-evidence','b1000000-0000-4000-8000-000000000001/b1000000-0000-4000-8000-000000000011/first.png');
+select public.oi_mutate('submit_evidence','{"id":"b1000000-0000-4000-8000-000000000011","object_path":"b1000000-0000-4000-8000-000000000001/b1000000-0000-4000-8000-000000000011/first.png"}');
+select set_config('request.jwt.claim.sub','b1000000-0000-4000-8000-000000000003',true);
+select public.oi_mutate('review_evidence','{"id":"b1000000-0000-4000-8000-000000000011","status":"changes_requested","review_note":"Synthetic correction request"}');
+select set_config('request.jwt.claim.sub','b1000000-0000-4000-8000-000000000002',true);
+select pg_temp.assert_true((select count(*)=0 from public.oi_evidence_history),'other evidence history hidden');
+select set_config('request.jwt.claim.sub','b1000000-0000-4000-8000-000000000001',true);
+select public.oi_mutate('reopen_evidence','{"id":"b1000000-0000-4000-8000-000000000011","operation_id":"b1000000-0000-4000-8000-000000000031","expected_status":"changes_requested","expected_object_path":"b1000000-0000-4000-8000-000000000001/b1000000-0000-4000-8000-000000000011/first.png"}');
+select public.oi_mutate('reopen_evidence','{"id":"b1000000-0000-4000-8000-000000000011","operation_id":"b1000000-0000-4000-8000-000000000031","expected_status":"changes_requested","expected_object_path":"b1000000-0000-4000-8000-000000000001/b1000000-0000-4000-8000-000000000011/first.png"}');
+select pg_temp.assert_error($command$select public.oi_mutate('reopen_evidence','{"id":"b1000000-0000-4000-8000-000000000011","operation_id":"b1000000-0000-4000-8000-000000000032","expected_status":"changes_requested"}')$command$,'40001');
+select pg_temp.assert_true((select count(*)=1 from public.oi_evidence_history where review_note='Synthetic correction request'),'review context retained');
+insert into storage.objects(bucket_id,name) values('oi-evidence','b1000000-0000-4000-8000-000000000001/b1000000-0000-4000-8000-000000000011/second.png');
+select public.oi_mutate('submit_evidence','{"id":"b1000000-0000-4000-8000-000000000011","object_path":"b1000000-0000-4000-8000-000000000001/b1000000-0000-4000-8000-000000000011/second.png"}');
+select pg_temp.assert_true((select count(*)=2 from public.oi_evidence_requests),'resubmission reuses original application');
+reset role;
+select 'PASS: approval, owner isolation, private storage, optimistic revisions, publication, idempotency, favorites, revocation, resubmission history' as result;
 rollback;
