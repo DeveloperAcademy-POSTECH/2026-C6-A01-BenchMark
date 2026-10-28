@@ -7,11 +7,19 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B10000000000000000000009 /* OiRemoteStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008; };
 		C02610260000000000000001 /* OiDonation.icon in Resources */ = {isa = PBXBuildFile; fileRef = C02610260000000000000002 /* OiDonation.icon */; };
 		87169571307CB1D00090D456 /* OiDonationClip.app in Embed App Clips */ = {isa = PBXBuildFile; fileRef = 87169565307CB1CF0090D456 /* OiDonationClip.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		B1000000000000000000000B = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8736DA6130777C9800D0CFC9;
+			proxyType = 1;
+			remoteGlobalIDString = 8736DA6830777C9800D0CFC9;
+			remoteInfo = OiDonation;
+		};
 		8716956F307CB1D00090D456 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 8736DA6130777C9800D0CFC9 /* Project object */;
@@ -36,12 +44,19 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		B10000000000000000000007 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = OiDonationTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiRemoteStoreTests.swift; sourceTree = SOURCE_ROOT; };
 		C02610260000000000000002 /* OiDonation.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = OiDonation.icon; path = "../../design/app-icon/OiDonation.icon"; sourceTree = SOURCE_ROOT; };
 		87169565307CB1CF0090D456 /* OiDonationClip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OiDonationClip.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8736DA6930777C9800D0CFC9 /* OiDonation.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OiDonation.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		B10000000000000000000001 /* Main app Info.plist */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (Info.plist,);
+			target = 8736DA6830777C9800D0CFC9 /* OiDonation */;
+		};
 		87169575307CB1D00090D456 /* Exceptions for "OiDonationClip" folder in "OiDonationClip" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -73,6 +88,7 @@
 		8736DA6B30777C9800D0CFC9 /* OiDonation */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
+				B10000000000000000000001 /* Main app Info.plist */,
 				8716959A307D0BAE0090D456 /* Exceptions for "OiDonation" folder in "OiDonationClip" target */,
 			);
 			path = OiDonation;
@@ -81,6 +97,7 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		B10000000000000000000005 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		87169562307CB1CF0090D456 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -101,6 +118,7 @@
 		8736DA6030777C9800D0CFC9 = {
 			isa = PBXGroup;
 			children = (
+				B10000000000000000000008,
 				8736DA6B30777C9800D0CFC9 /* OiDonation */,
 				87169566307CB1CF0090D456 /* OiDonationClip */,
 				8736DA6A30777C9800D0CFC9 /* Products */,
@@ -111,6 +129,7 @@
 		8736DA6A30777C9800D0CFC9 /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				B10000000000000000000007,
 				8736DA6930777C9800D0CFC9 /* OiDonation.app */,
 				87169565307CB1CF0090D456 /* OiDonationClip.app */,
 			);
@@ -120,6 +139,17 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		B10000000000000000000002 /* OiDonationTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B10000000000000000000003;
+			buildPhases = (B10000000000000000000004, B10000000000000000000005, B10000000000000000000006,);
+			buildRules = ();
+			dependencies = (B1000000000000000000000A,);
+			name = OiDonationTests;
+			productName = OiDonationTests;
+			productReference = B10000000000000000000007;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		87169564307CB1CF0090D456 /* OiDonationClip */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 87169576307CB1D00090D456 /* Build configuration list for PBXNativeTarget "OiDonationClip" */;
@@ -198,6 +228,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				B10000000000000000000002 /* OiDonationTests */,
 				8736DA6830777C9800D0CFC9 /* OiDonation */,
 				87169564307CB1CF0090D456 /* OiDonationClip */,
 			);
@@ -205,6 +236,7 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		B10000000000000000000006 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		87169563307CB1CF0090D456 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -223,6 +255,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		B10000000000000000000004 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (B10000000000000000000009,); runOnlyForDeploymentPostprocessing = 0; };
 		87169561307CB1CF0090D456 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -240,6 +273,7 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		B1000000000000000000000A = {isa = PBXTargetDependency; target = 8736DA6830777C9800D0CFC9; targetProxy = B1000000000000000000000B; };
 		87169570307CB1D00090D456 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 87169564307CB1CF0090D456 /* OiDonationClip */;
@@ -248,6 +282,42 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		B1000000000000000000000C = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = K8XVU78YCP;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				PRODUCT_BUNDLE_IDENTIFIER = com.Spero.OiDonation.Tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OiDonation.app/OiDonation";
+			};
+			name = Debug;
+		};
+		B1000000000000000000000D = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = K8XVU78YCP;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				PRODUCT_BUNDLE_IDENTIFIER = com.Spero.OiDonation.Tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OiDonation.app/OiDonation";
+			};
+			name = Release;
+		};
 		87169573307CB1D00090D456 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -453,6 +523,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NFCReaderUsageDescription = "App Clip을 여는 링크를 NFC 태그에 기록하고 기록 내용을 확인하기 위해 사용합니다.";
+				INFOPLIST_FILE = OiDonation/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "AR 캐릭터와 함께 사진을 촬영하기 위해 카메라를 사용합니다.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "AR 영상에 음성을 함께 녹음하기 위해 마이크를 사용합니다.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "촬영한 AR 사진과 만든 콜라주를 사용자가 선택할 때 사진 보관함에 저장합니다.";
@@ -490,6 +561,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NFCReaderUsageDescription = "App Clip을 여는 링크를 NFC 태그에 기록하고 기록 내용을 확인하기 위해 사용합니다.";
+				INFOPLIST_FILE = OiDonation/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "AR 캐릭터와 함께 사진을 촬영하기 위해 카메라를 사용합니다.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "AR 영상에 음성을 함께 녹음하기 위해 마이크를 사용합니다.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "촬영한 AR 사진과 만든 콜라주를 사용자가 선택할 때 사진 보관함에 저장합니다.";
@@ -518,6 +590,12 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		B10000000000000000000003 = {
+			isa = XCConfigurationList;
+			buildConfigurations = (B1000000000000000000000C, B1000000000000000000000D,);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		87169576307CB1D00090D456 /* Build configuration list for PBXNativeTarget "OiDonationClip" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
