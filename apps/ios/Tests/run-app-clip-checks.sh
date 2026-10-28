@@ -10,6 +10,7 @@ xcrun swiftc -parse-as-library -swift-version 5 -default-isolation MainActor \
   "$IOS_ROOT/OiDonation/Domain/Routing/AppClipLink.swift" \
   "$IOS_ROOT/OiDonation/App/AppRouter.swift" \
   "$IOS_ROOT/OiDonationClip/AppClipViewModel.swift" \
+  "$IOS_ROOT/OiDonationClip/Views/ARGame/ARGameViewModel.swift" \
   "$IOS_ROOT/Tests/AppClipInvocationChecks.swift" \
   -o "$CHECK_DIR/checks"
 "$CHECK_DIR/checks"

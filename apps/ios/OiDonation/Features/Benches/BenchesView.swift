@@ -53,7 +53,7 @@ struct PublicDestinationView: View {
                         title = bench.name; text = bench.locationDescription
                     } else { title = "벤치를 확인할 수 없어요"; text = "공개된 벤치인지 확인해 주세요." }
                 case .story(let id):
-                    if let story = try await stories.fetchPublicStory(plaqueID: id) {
+                    if let story = try await stories.fetchPublicStory(storyID: id) {
                         title = story.title; text = story.content
                     } else { title = "이야기를 확인할 수 없어요"; text = "삭제되었거나 아직 공개되지 않은 이야기입니다." }
                 }

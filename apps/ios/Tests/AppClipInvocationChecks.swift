@@ -9,11 +9,11 @@ private actor ControlledStoryRepository: StoryRepository {
     private var waiting: [String: CheckedContinuation<Void, Never>] = [:]
     private(set) var requestCount = 0
 
-    func fetchPublicStory(plaqueID: String) async throws -> Story? {
+    func fetchPublicStory(storyID: String) async throws -> Story? {
         requestCount += 1
         return try await withCheckedThrowingContinuation { continuation in
-            pending[plaqueID] = continuation
-            waiting.removeValue(forKey: plaqueID)?.resume()
+            pending[storyID] = continuation
+            waiting.removeValue(forKey: storyID)?.resume()
         }
     }
 
@@ -71,11 +71,11 @@ struct AppClipInvocationChecks {
         require(model.state == .welcome, "direct launch must not wait for a missing activity")
         for value in valid {
             await model.handleInvocationURL(invocationURL: url(value))
-            require(model.state == .welcome && model.story == nil && model.plaqueID == nil, "default launch")
+            require(model.state == .welcome && model.story == nil && model.storyID == nil, "default launch")
         }
         let count = await repository.requestCount
-        require(count == 0, "generic NFC link must not fetch an invented plaque")
-        await model.handleInvocationURL(invocationURL: url("https://example.com/stories/preview-plaque"))
+        require(count == 0, "generic NFC link must not fetch an invented story")
+        await model.handleInvocationURL(invocationURL: url("https://example.com/stories/preview-story"))
         require(model.state == .invalidLink, "sample domain must not be enabled in production")
         await model.handleInvocationURL(invocationURL: nil)
         require(model.state == .invalidLink && model.invocationURL == nil, "nil activity")
@@ -97,20 +97,20 @@ struct AppClipInvocationChecks {
 
         let storyModel = AppClipViewModel(linkParser: PublicLinkParser(allowedHost: "approved.example"),
                                          storyRepository: repository)
-        let story = Story(plaqueID: "first", donorID: UUID(), title: "Test", content: "Test content")
+        let story = Story(storyID: "first", donorID: UUID(), title: "Test", content: "Test content")
         let first = Task { await storyModel.handleInvocationURL(invocationURL: url("https://approved.example/stories/first")) }
         await repository.waitForRequest("first")
         require(storyModel.state == .loading, "story loading")
         await repository.finish("first", result: .success(story))
         await first.value
-        require(storyModel.state == .ready && storyModel.story?.plaqueID == "first", "story success")
+        require(storyModel.state == .ready && storyModel.story?.storyID == "first", "story success")
 
         let delayed = Task { await storyModel.handleInvocationURL(invocationURL: url("https://approved.example/stories/delayed")) }
         await repository.waitForRequest("delayed")
         await storyModel.handleInvocationURL(invocationURL: url(AppClipLink.defaultURLString))
         await repository.finish("delayed", result: .success(story))
         await delayed.value
-        require(storyModel.state == .welcome && storyModel.story == nil && storyModel.plaqueID == nil, "stale success cannot replace a newer launch")
+        require(storyModel.state == .welcome && storyModel.story == nil && storyModel.storyID == nil, "stale success cannot replace a newer launch")
 
         let staleFailure = Task { await storyModel.handleInvocationURL(invocationURL: url("https://approved.example/stories/stale-failure")) }
         await repository.waitForRequest("stale-failure")
@@ -138,6 +138,28 @@ struct AppClipInvocationChecks {
         await repository.finish("cancelled", result: .success(story))
         await cancelled.value
         require(storyModel.state == .welcome && storyModel.story == nil, "cancelled task must not publish content")
+
+        let gameModel = ARGameViewModel()
+        require(gameModel.state == .intro, "AR game starts at intro")
+        gameModel.permissionGranted()
+        require(gameModel.state == .intro, "AR game ignores permission result before request")
+        gameModel.requestPermission()
+        require(gameModel.state == .requestingPermission, "AR game requests permission")
+        gameModel.permissionGranted()
+        require(gameModel.state == .playing, "AR game starts after permission")
+        gameModel.finishGame(succeeded: true)
+        require(gameModel.state == .success, "AR game reaches success")
+        gameModel.reset()
+        gameModel.requestPermission()
+        gameModel.permissionGranted()
+        gameModel.finishGame(succeeded: false)
+        require(gameModel.state == .failure, "AR game reaches failure")
+        gameModel.reset()
+        gameModel.requestPermission()
+        gameModel.permissionDenied()
+        require(gameModel.state == .unavailable, "AR game handles unavailable AR")
+        gameModel.reset()
+        require(gameModel.state == .intro, "AR game resets to intro")
         print("PASS: \(valid.count) valid / \(invalid.count) invalid App Clip links, default launch, installed-app routing, story states, cancellation and stale responses")
     }
 

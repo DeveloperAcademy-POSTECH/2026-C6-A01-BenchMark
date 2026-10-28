@@ -8,8 +8,8 @@
 import Foundation
 
 struct Story: Identifiable, Sendable {
-    var id: String { plaqueID }
-    let plaqueID: String
+    var id: String { storyID }
+    let storyID: String
     let donorID: UUID
     let title: String
     let content: String

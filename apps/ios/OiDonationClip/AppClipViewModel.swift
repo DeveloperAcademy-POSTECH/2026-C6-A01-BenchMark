@@ -38,7 +38,7 @@ final class AppClipViewModel {
     }
     private(set) var state: State = .welcome
     private(set) var invocationURL: URL?
-    private(set) var plaqueID: String?
+    private(set) var storyID: String?
     private(set) var story: Story?
     init(linkParser: PublicLinkParser? = nil, storyRepository: any StoryRepository) {
         self.linkParser = linkParser
@@ -49,7 +49,7 @@ final class AppClipViewModel {
         let currentInvocation = UUID()
         invocationID = currentInvocation
         self.invocationURL = invocationURL
-        plaqueID = nil
+        storyID = nil
         story = nil
 
         guard let invocationURL else {
@@ -65,10 +65,10 @@ final class AppClipViewModel {
             return
         }
 
-        plaqueID = id
+        storyID = id
         state = .loading
         do {
-            let fetchedStory = try await storyRepository.fetchPublicStory(plaqueID: id)
+            let fetchedStory = try await storyRepository.fetchPublicStory(storyID: id)
             guard invocationID == currentInvocation, !Task.isCancelled else { return }
             if let fetchedStory {
                 self.story = fetchedStory

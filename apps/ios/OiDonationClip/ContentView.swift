@@ -43,8 +43,10 @@ struct ContentView: View {
                 }
             case .loading: ProgressView(viewModel.state.description)
             case .ready:
-                Button("전체 앱 보기") {
-                    isOverlayPresented = true
+                if let story = viewModel.story {
+                    ARGameFlowView(story: story)
+                } else {
+                    Text(viewModel.state.description)
                 }
             case .invalidLink: Text(viewModel.state.description)
             case .loadFailed: Text(viewModel.state.description)
