@@ -3,6 +3,10 @@
 - [오이기부 프로젝트 맥락과 기획](project.md)
 - [AI 에이전트 공통 작업 지침](AGENTS.md)
 - [팀 검토 중인 아키텍처·협업 제안](docs/architecture.md)
+- [웹 실행 및 Sites 배포](docs/MAT-WEB.md)
+- [Sites 운영 전환 상태와 남은 검증](docs/SITES-CUTOVER.md)
+
+웹은 기존 Sites 배포 소스에 맞춰 `apps/web`(돗자리 파일럿), `apps/oi-web`(오이기부), `apps/team-web`(팀 소개)로 관리한다. 앱별 잠금 파일로 의존성을 설치하며 Railway 배포 설정은 사용하지 않는다. 실제 원본 데이터 대조·운영 전환·서비스 종료 여부는 위 전환 기록을 확인한다.
 
 # 깃 전략
 
