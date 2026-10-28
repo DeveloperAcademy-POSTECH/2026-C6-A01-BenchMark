@@ -38,8 +38,8 @@ final class OiRemoteStore {
     private let drafts: OiDraftVault
     private let vault: any OiSessionStorage
 
-    init(api: OiServiceAPI? = nil, drafts: OiDraftVault = OiDraftVault(), vault: any OiSessionStorage = OiSessionVault()) {
-        self.api = api; self.drafts = drafts; self.vault = vault
+    init(api: OiServiceAPI? = nil, drafts: OiDraftVault = OiDraftVault(), vault: (any OiSessionStorage)? = nil) {
+        self.api = api; self.drafts = drafts; self.vault = vault ?? OiSessionVault()
     }
 
     func start() async {

@@ -28,7 +28,9 @@ struct OiStoryEditor: View {
 
     init(remote: OiRemoteStore, story: OiLiveStory? = nil, localID: UUID? = nil) {
         self.remote = remote
-        var value = story.map(OiStoryDraft.init(story:)) ?? OiStoryDraft()
+        var value: OiStoryDraft
+        if let story { value = OiStoryDraft(story: story) }
+        else { value = OiStoryDraft() }
         if let localID { value.id = localID }
         _draft = State(initialValue: value)
     }
