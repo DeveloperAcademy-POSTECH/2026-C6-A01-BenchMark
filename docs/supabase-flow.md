@@ -98,6 +98,14 @@ python3 supabase/tests/http-smoke.py
 
 HTTP 검사에는 개인 환경의 `OI_SUPABASE_PUBLISHABLE_KEY`가 필요하다. SQL 검사는 해당 프로젝트 SQL 실행 도구에서 `supabase/tests/oi-flow.sql` 전체를 단일 트랜잭션으로 실행한다. `bootstrap-local.sql`은 격리된 로컬 검증 전용이며 운영 프로젝트에 적용하지 않는다.
 
+아래 이미지는 실제 Google 계정이 아닌 격리된 가상 세션으로 native 화면을 렌더링한 결과다. 로그인·파일 업로드 완료 증거로 사용하지 않는다.
+
+| 너비 | 계정 | 작성 |
+| --- | --- | --- |
+| 375pt | [계정](images/supabase-flow/oi-account-375.png) | [작성](images/supabase-flow/oi-editor-375.png) |
+| 402pt | [계정](images/supabase-flow/oi-account-402.png) | [작성](images/supabase-flow/oi-editor-402.png) |
+| 440pt | [계정](images/supabase-flow/oi-account-440.png) | [작성](images/supabase-flow/oi-editor-440.png) |
+
 ## Advisor와 운영 주의
 
 Security Advisor의 비공개 스키마 3개 테이블 `RLS Enabled No Policy`는 클라이언트 접근을 전부 거절하는 의도된 설정이다. GraphQL의 테이블 이름 노출 경고는 REST를 위해 부여한 SELECT 권한에 대한 스키마 발견 가능성 경고이며 실제 행은 동일 RLS로 제한한다. [익명 스키마 노출](https://supabase.com/docs/guides/database/database-linter?lint=0026_pg_graphql_anon_table_exposed), [로그인 사용자 스키마 노출](https://supabase.com/docs/guides/database/database-linter?lint=0027_pg_graphql_authenticated_table_exposed)을 별도로 검토할 수 있다. 기존 Auth의 [유출 비밀번호 보호](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection)는 꺼져 있으며 이 작업에서 요금제나 인증 정책을 바꾸지 않았다.
