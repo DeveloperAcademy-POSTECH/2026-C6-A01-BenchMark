@@ -7,6 +7,7 @@ struct MYWorkshopView: View {
     let store: CampusStoryStore
     let demo: MYDemoStore
     let onCamera: () -> Void
+    var remote: OiRemoteStore? = nil
     @State private var showingSettings = false
 
     var body: some View {
@@ -42,7 +43,7 @@ struct MYWorkshopView: View {
                 artwork("MYFarmerShadow", rect: CGRect(x: 82, y: 737, width: 244, height: 70), scale: scale, origin: origin)
                     .accessibilityHidden(true)
                 artwork("OiFarmer", rect: CGRect(x: 63, y: 441, width: 264, height: 352), scale: scale, origin: origin)
-                    .accessibilityLabel("\(demo.nickname)의 농부 캐릭터, 디자인 예시")
+                    .accessibilityLabel("\(demo.nickname)의 농부 캐릭터")
             }.frame(width: geometry.size.width, height: geometry.size.height).clipped()
         }
         .ignoresSafeArea()
@@ -57,9 +58,9 @@ struct MYWorkshopView: View {
                 }.foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6).accessibilityElement(children: .combine)
             }
         }
-        .sheet(isPresented: $showingSettings) { CampusProfileMenu(container: container, store: store, onCamera: onCamera) }
+        .sheet(isPresented: $showingSettings) { CampusProfileMenu(container: container, store: store, onCamera: onCamera, remote: remote).id(remote?.account?.id) }
         .safeAreaInset(edge: .bottom) {
-            Text("디자인 예시 · 더미 프로필").font(.caption2)
+            Text(remote == nil ? "디자인 예시 · 더미 프로필" : "농부의 옷·아이템 꾸미기는 준비 중이에요").font(.caption2)
                 .padding(8).background(.thinMaterial, in: Capsule()).padding(.bottom, 8)
         }
     }

@@ -5,6 +5,7 @@ import SwiftUI
 struct MYCollectionView: View {
     let demo: MYDemoStore
     var school: MYSchool? = nil
+    var remote: OiRemoteStore? = nil
     @State private var sort = CampusStorySort.latest
     @State private var selectedCard: MYDemoCard?
     @State private var detailCard: MYDemoCard?
@@ -15,15 +16,19 @@ struct MYCollectionView: View {
     private var filter: MYCollectionFilter { demo.collectionFilter }
     private var cards: [MYDemoCard] { demo.visibleCards(filter: filter, school: school, sort: sort) }
     private var showsFolders: Bool { filter == .schools && school == nil }
+    private var schools: [MYSchool] { demo.campusStore == nil ? MYSchool.allCases : [.postech] }
 
     var body: some View {
         VStack(spacing: 12) {
             sortBar
+            if let remote { OiConnectionStatus(remote: remote) }
             ScrollView {
-                if showsFolders {
+                if let remote, !remote.hasLoadedRemote {
+                    if remote.loadError == nil { ProgressView("도감을 불러오는 중") }
+                } else if showsFolders {
                     schoolFolders
                 } else if cards.isEmpty {
-                    ContentUnavailableView("즐겨찾는 오이가 없어요", systemImage: "heart", description: Text("카드 옆 하트를 눌러 이 화면에 모아보세요."))
+                    ContentUnavailableView(filter == .favorites ? "즐겨찾는 오이가 없어요" : "아직 수집한 카드가 없어요", systemImage: filter == .favorites ? "heart" : "leaf", description: Text(filter == .favorites ? "카드 옆 하트를 눌러 이 화면에 모아보세요." : "로그인 후 캠퍼스의 공개 오이 이야기를 수집해 보세요."))
                         .padding(.top, 60)
                 } else {
                     cardGrid
@@ -47,7 +52,11 @@ struct MYCollectionView: View {
         }) { card in
             cardOverlay(card)
         }
-        .navigationDestination(item: $selectedDetail) { card in MYCardStoryView(card: card) }
+        .navigationDestination(item: $selectedDetail) { card in
+            if let id = card.storyID, let store = demo.campusStore, let story = store.story(id) {
+                CampusStoryDetailView(story: story, store: store)
+            } else { MYCardStoryView(card: card) }
+        }
     }
 
     private var sortBar: some View {
@@ -57,8 +66,11 @@ struct MYCollectionView: View {
             } else {
                 HStack(spacing: 7) { sortChoices; countBadge }
             }
-            Text(sort == .distance ? "디자인 예시 · 가상 거리 기준" : "디자인 예시 · 실제 기부 내역이 아니에요")
+            Text(demo.campusStore == nil ? (sort == .distance ? "디자인 예시 · 가상 거리 기준" : "디자인 예시 · 실제 기부 내역이 아니에요") : "내 계정에 저장한 카드 · 거리·인기 기준은 준비 중이에요")
                 .font(.caption2).foregroundStyle(.secondary)
+            if demo.campusStore != nil {
+                Text("카드 그림 안의 문구는 디자인 예시입니다. 실제 이야기는 자세히 보기에서 확인해 주세요.").font(.caption2).foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -77,13 +89,14 @@ struct MYCollectionView: View {
                     .frame(minHeight: 44).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(demo.campusStore != nil && option != .latest)
             .accessibilityAddTraits(sort == option ? .isSelected : [])
             .accessibilityIdentifier("my.sort.\(option)")
         }
     }
 
     private var countBadge: some View {
-        Text(showsFolders ? "\(MYSchool.allCases.count)학교" : "\(cards.count)개")
+        Text(showsFolders ? "\(schools.count)학교" : "\(cards.count)개")
             .font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
             .padding(.horizontal, 16).padding(.vertical, 5).background(CampusStyle.green, in: Capsule())
             .accessibilityIdentifier("my.collection.count")
@@ -150,7 +163,7 @@ struct MYCollectionView: View {
 
     private var sortedSchools: [MYSchool] {
         let orderedCards = demo.visibleCards(filter: .all, school: nil, sort: sort)
-        return MYSchool.allCases.sorted { first, second in
+        return schools.sorted { first, second in
             (orderedCards.firstIndex { $0.school == first } ?? .max) < (orderedCards.firstIndex { $0.school == second } ?? .max)
         }
     }

@@ -66,7 +66,13 @@ struct CampusSummaryView: View {
                         Image(name).resizable().scaledToFill().frame(width: name == "OiGallery01" ? 219 : 260, height: 146)
                             .clipped().clipShape(RoundedRectangle(cornerRadius: 20))
                     }
-                    if story.gallery.isEmpty { Text("함께할 이야기를 준비하고 있어요").font(.subheadline).frame(width: 320, height: 146).background(CampusStyle.background(story.palette), in: RoundedRectangle(cornerRadius: 20)) }
+                    ForEach(story.remoteMediaPaths, id: \.self) { path in
+                        OiStoryMediaImage(path: path) { path in
+                            guard let resolver = store.mediaURL else { throw OiServiceError.unavailable }
+                            return try await resolver(path)
+                        }.frame(width: 260, height: 146).clipShape(RoundedRectangle(cornerRadius: 20))
+                    }
+                    if story.gallery.isEmpty && story.remoteMediaPaths.isEmpty { Text("첨부된 사진이 없어요").font(.subheadline).frame(width: 320, height: 146).background(CampusStyle.background(story.palette), in: RoundedRectangle(cornerRadius: 20)) }
                 }.padding(.horizontal, 10)
             }.scrollIndicators(.hidden)
             Spacer(minLength: 0)
