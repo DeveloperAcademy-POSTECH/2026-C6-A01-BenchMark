@@ -262,6 +262,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = OiDonationClip/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = OiDonation;
+				INFOPLIST_KEY_NSCameraUsageDescription = "AR 오이를 찾기 위해 카메라를 사용합니다.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -298,6 +299,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = OiDonationClip/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = OiDonation;
+				INFOPLIST_KEY_NSCameraUsageDescription = "AR 오이를 찾기 위해 카메라를 사용합니다.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

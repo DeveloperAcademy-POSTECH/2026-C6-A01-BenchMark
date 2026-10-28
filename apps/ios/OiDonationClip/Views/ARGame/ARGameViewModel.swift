@@ -14,26 +14,39 @@ final class ARGameViewModel {
         case intro
         case requestingPermission
         case playing
+        case permissionDenied
         case success
         case failure
         case unavailable
     }
 
     private(set) var state: State = .intro
+    private let isARSupported: () -> Bool
+    private let requestCameraAccess: () async -> Bool
+
+    init(
+        isARSupported: @escaping () -> Bool,
+        requestCameraAccess: @escaping () async -> Bool
+    ) {
+        self.isARSupported = isARSupported
+        self.requestCameraAccess = requestCameraAccess
+    }
 
     func requestPermission() {
         guard state == .intro else { return }
         state = .requestingPermission
     }
 
-    func permissionGranted() {
+    func resolvePermission() async {
         guard state == .requestingPermission else { return }
-        state = .playing
-    }
+        guard isARSupported() else {
+            state = .unavailable
+            return
+        }
 
-    func permissionDenied() {
-        guard state == .requestingPermission else { return }
-        state = .unavailable
+        let isGranted = await requestCameraAccess()
+        guard state == .requestingPermission, !Task.isCancelled else { return }
+        state = isGranted ? .playing : .permissionDenied
     }
 
     func finishGame(succeeded: Bool) {

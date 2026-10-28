@@ -139,27 +139,42 @@ struct AppClipInvocationChecks {
         await cancelled.value
         require(storyModel.state == .welcome && storyModel.story == nil, "cancelled task must not publish content")
 
-        let gameModel = ARGameViewModel()
+        let gameModel = ARGameViewModel(
+            isARSupported: { true },
+            requestCameraAccess: { true }
+        )
         require(gameModel.state == .intro, "AR game starts at intro")
-        gameModel.permissionGranted()
-        require(gameModel.state == .intro, "AR game ignores permission result before request")
+        await gameModel.resolvePermission()
+        require(gameModel.state == .intro, "AR game ignores permission resolution before request")
         gameModel.requestPermission()
         require(gameModel.state == .requestingPermission, "AR game requests permission")
-        gameModel.permissionGranted()
+        await gameModel.resolvePermission()
         require(gameModel.state == .playing, "AR game starts after permission")
         gameModel.finishGame(succeeded: true)
         require(gameModel.state == .success, "AR game reaches success")
         gameModel.reset()
         gameModel.requestPermission()
-        gameModel.permissionGranted()
+        await gameModel.resolvePermission()
         gameModel.finishGame(succeeded: false)
         require(gameModel.state == .failure, "AR game reaches failure")
         gameModel.reset()
-        gameModel.requestPermission()
-        gameModel.permissionDenied()
-        require(gameModel.state == .unavailable, "AR game handles unavailable AR")
-        gameModel.reset()
         require(gameModel.state == .intro, "AR game resets to intro")
+
+        let deniedGameModel = ARGameViewModel(
+            isARSupported: { true },
+            requestCameraAccess: { false }
+        )
+        deniedGameModel.requestPermission()
+        await deniedGameModel.resolvePermission()
+        require(deniedGameModel.state == .permissionDenied, "AR game handles denied camera permission")
+
+        let unavailableGameModel = ARGameViewModel(
+            isARSupported: { false },
+            requestCameraAccess: { true }
+        )
+        unavailableGameModel.requestPermission()
+        await unavailableGameModel.resolvePermission()
+        require(unavailableGameModel.state == .unavailable, "AR game handles unavailable AR")
 
         storyModel.showWelcome()
         require(storyModel.state == .welcome, "back from AR game returns to welcome")

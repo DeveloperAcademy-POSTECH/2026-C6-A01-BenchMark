@@ -26,7 +26,17 @@ struct OiDonationClipApp: App {
     @ViewBuilder
     private var rootView: some View {
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-ar-intro-preview") {
+        if ProcessInfo.processInfo.arguments.contains("-ar-flow-preview") {
+            ARGameFlowView(
+                story: Story(
+                    storyID: "preview-story",
+                    donorID: UUID(),
+                    title: "화성갈끄니까오이",
+                    content: "AR 게임 실기기 확인용 이야기"
+                ),
+                onBack: {}
+            )
+        } else if ProcessInfo.processInfo.arguments.contains("-ar-intro-preview") {
             ARGameIntroView(
                 cucumberName: "화성갈끄니까오이",
                 targetCount: 3,

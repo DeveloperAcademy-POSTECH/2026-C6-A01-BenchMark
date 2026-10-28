@@ -5,13 +5,22 @@
 //  Created by jiwon hong on 10/28/26.
 //
 
+import ARKit
+import AVFoundation
 import SwiftUI
 
 struct ARGameFlowView: View {
     let story: Story
     let onBack: () -> Void
 
-    @State private var viewModel = ARGameViewModel()
+    @State private var viewModel = ARGameViewModel(
+        isARSupported: {
+            ARWorldTrackingConfiguration.isSupported
+        },
+        requestCameraAccess: {
+            await AVCaptureDevice.requestAccess(for: .video)
+        }
+    )
 
     var body: some View {
         Group {
@@ -26,29 +35,32 @@ struct ARGameFlowView: View {
                     viewModel.requestPermission()
                 }
             case .requestingPermission:
-                VStack(spacing: 20) {
-                    Text("카메라 권한 확인")
-                    HStack {
-                        Button("허용") {
-                            viewModel.permissionGranted()
-                        }
-                        Button("거절") {
-                            viewModel.permissionDenied()
-                        }
+                ProgressView("카메라 권한을 확인하고 있어요")
+                    .task {
+                        await viewModel.resolvePermission()
                     }
-                }
             case .playing:
-                VStack(spacing: 20) {
-                    Text("AR 게임 진행 중")
-                    HStack {
-                        Button("성공") {
-                            viewModel.finishGame(succeeded: true)
-                        }
-                        Button("실패") {
-                            viewModel.finishGame(succeeded: false)
-                        }
+                ZStack(alignment: .topLeading) {
+                    ARGameCameraView()
+                        .ignoresSafeArea()
+
+                    Button(action: onBack) {
+                        Image(systemName: "chevron.left")
+                            .font(.headline)
                     }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .controlSize(.large)
+                    .padding()
+                    .accessibilityLabel("AR 게임 나가기")
                 }
+            case .permissionDenied:
+                statePanel(
+                    title: "카메라 권한이 필요해요",
+                    message: "설정에서 오이기부의 카메라 접근을 허용해 주세요.",
+                    buttonTitle: "돌아가기",
+                    action: onBack
+                )
             case .success:
                 statePanel(title: "수집 성공", buttonTitle: "처음으로") {
                     viewModel.reset()
@@ -58,9 +70,12 @@ struct ARGameFlowView: View {
                     viewModel.reset()
                 }
             case .unavailable:
-                statePanel(title: "AR을 사용할 수 없어요", buttonTitle: "돌아가기") {
-                    viewModel.reset()
-                }
+                statePanel(
+                    title: "AR을 사용할 수 없어요",
+                    message: "AR을 지원하는 iPhone에서 다시 시도해 주세요.",
+                    buttonTitle: "돌아가기",
+                    action: onBack
+                )
             }
         }
         .buttonStyle(.borderedProminent)
@@ -68,13 +83,20 @@ struct ARGameFlowView: View {
 
     private func statePanel(
         title: String,
+        message: String? = nil,
         buttonTitle: String,
         action: @escaping () -> Void
     ) -> some View {
         VStack(spacing: 12) {
             Text(title)
                 .font(.title2)
+            if let message {
+                Text(message)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+            }
             Button(buttonTitle, action: action)
         }
+        .padding()
     }
 }
