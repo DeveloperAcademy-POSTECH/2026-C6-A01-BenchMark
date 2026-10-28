@@ -27,6 +27,7 @@ Figma 파일 `nEDJaJBFrdzBCa1WcgADHH`, 섹션 `2876:8320`:
 | MYFarmBackground | 2781:2645 | 농장 상단 일러스트 402×462 |
 | MYFarmPostech / MYFarmGardener / MYFarmShadowOne / MYFarmShadowTwo | 2876:8234 / 2876:8237 / 2876:8236 / 2876:8239 | 투명 오이 PNG와 원본 그림자를 개별 합성 |
 | MYFolderBack / MYFolderFront / MYFolderMask | 2558:9946 / 2558:9948 / 원본 폴더 마스크 | 원본 SVG 레이어와 카드 이미지를 합성하고 현재 학교의 개수를 표시 |
+| MYFolderCardBack / MYFolderCardMiddle | 2558:9955 / 2558:9953 | 폴더 뒤쪽 두 카드의 원본 PNG |
 | MYCollectionPaper | 2558:10111 | 학교별보기 종이 배경 원본 이미지 |
 | MYSpaceCard | 2869:7197 | 전체보기 우주복 오이 카드 원본 이미지 |
 | MYBasicCard / MYBlueCard / MYRedCard | 2558:10335 등의 카드 이미지 | 학교별 카드 원본 이미지 |
@@ -37,8 +38,12 @@ Figma 그룹 export가 흰색 배경을 포함하는 것을 Simulator 캡처에�
 
 작업실은 일러스트 안에서 창문·책장·가구의 상대 위치가 중요하므로 402×874 기준 좌표를 사용한다. 실제 루트 크기를 고정하지 않으며 화면에 맞춰 일러스트를 균등 축소·확대하고 배경은 전체 화면을 채운다. 제목과 뒤로가기는 시스템 탐색 영역을 사용한다. 도감은 적응형 Grid·ScrollView로 작은 화면과 큰 글자를 수용하고, 버튼은 최소 44pt 영역을 제공한다. 시스템 상태 표시줄·홈 인디케이터를 그림으로 중복 표시하지 않는다.
 
+사용자 제공 글꼴 적용 — 2026-10-28:
+- MY 제목은 `PearToucan-Regular` 35pt와 `PearToucan-Light` 20pt, 설정 글자는 Regular 20pt를 사용한다. 폴더 개수는 `KIMWILDgag-BOLD`, 카드 이름은 `Paperlogy-8ExtraBold`, 선택 버튼과 학교 이름은 `Pretendard-Bold`를 사용한다. 파일의 실제 PostScript 이름을 확인해 등록한다.
+- 제공된 WILDgag 압축 파일 두 개의 글꼴 SHA-256은 같아 하나만 포함했다. 제공된 Griun OMIRI는 기존 파일과 같아 재사용한다. 전체 글꼴 묶음 대신 필요한 다섯 파일만 추가한다.
+- PearToucan의 원본 `LICENSE.txt`를 함께 보존한다. 이 파일에는 앱 임베딩의 사전 문의 및 재배포 제한이 명시되어 있다. 사용자가 파일 적용을 명시적으로 요청했으며 사용권 확보 여부를 확인한 것으로 기록하지 않는다.
+
 Needs confirmation:
-- 제목의 `페어 큰부리새` 글꼴 파일이 저장소에 없고 제목 노드의 Figma export·screenshot은 빈 이미지를 반환한다. 사용자는 2026-10-28 원본 글꼴 파일을 제공한 뒤 정확히 적용하기로 선택했다. 현재 Paperlogy/Griun 표시는 검증용 임시 상태이며 최종 글꼴 적용 완료로 간주하지 않는다. Regular·Light 원본 파일과 앱 임베딩 라이선스 확인 후 교체해야 한다.
 - 농부 꾸미기의 화면·아이템 규격은 이번 요청에 포함되지 않았다. 캐릭터는 장식 이미지이며 Figma의 ‘캐릭터를 눌러주세요’ 문구를 동작 없이 노출하지 않는다.
 - 설정 노드는 빈 프레임이므로 기존 메뉴를 그대로 연결한다. 새로운 설정 항목·로그인·서버 연동을 추가하지 않는다.
 
@@ -60,7 +65,8 @@ MY 검사는 카드 ID 유일성, 학교 개수, 즐겨찾기 추가·해제·�
 - Xcode 27.0, 저장소의 기존 Swift 언어 모드·deployment target을 유지했다. generic iOS Simulator Debug 빌드와 MY·campus·architecture 검사 스크립트가 통과했다.
 - 임시 XCTest UI 타깃을 별도 프로젝트에 구성해 저장소의 `.pbxproj`를 수정하지 않고 검사했다. iPhone 17(402×874), iPhone SE 3세대(375×667), iPhone 17 Pro Max(440×956), iOS 27.0에서 MY → 농장 → 도감 → 즐겨찾기 → 학교 → 카드 확대·이야기 → 설정 → 지도 복귀를 확인했다. 각 실행은 실패 0건이다.
 - 최종 iPhone 17 UI 검사에는 학교 내부 분류에서 전체 도감으로 복귀, 설정 메뉴의 AR 카메라 진입·닫기·지도 복귀도 포함했다. Simulator에서 화면 이동을 검사한 것이며 실제 카메라 영상·AR 추적을 검증한 것은 아니다.
-- 원본 글꼴 적용은 파일 수령 대기다. 아래 캡처의 제목·설정 글자는 임시 글꼴이며 최종 디자인 승인 자료로 간주하지 않는다.
+- 사용자 제공 원본 글꼴을 등록해 적용한 버전에서도 iPhone 17 UI 검사가 실패 0건으로 통과했다. 제목·설정 글자·학교 폴더 개수의 실제 렌더를 확인하고 아래 캡처를 교체했다.
+- 최신 `develop`의 NFC 변경(`d5c4376`)을 통합한 뒤 MY·campus·architecture·NFC·App Clip 검사와 generic Simulator 빌드가 통과했다. 이후 글꼴 적용 UI 검사도 같은 최신 프로젝트 설정을 사용했다.
 - 원본 자산과 목록 참조를 검사했고 임시 Figma URL·새 패키지·개인 서명 설정은 추가하지 않았다. 기존 `StoryRepository`의 non-final Sendable 경고는 그대로 남아 있다.
 
 임시 UI 검사에 실제 사용한 명령:
@@ -69,13 +75,14 @@ MY 검사는 카드 ID 유일성, 학교 개수, 즐겨찾기 추가·해제·�
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
   -project /private/tmp/benchmark-my-98-qa/OiDonation.xcodeproj -scheme MYQA \
   -configuration Debug \
-  -destination 'platform=iOS Simulator,id=8AE132F6-6418-485B-94BD-8A378AEF3695' \
+  -destination 'platform=iOS Simulator,id=C3D66562-4453-4C9A-A163-9BE186884692' \
   -parallel-testing-enabled NO -derivedDataPath /private/tmp/benchmark-my-98-build \
-  -resultBundlePath /private/tmp/benchmark-my-98-qa/final.xcresult CODE_SIGNING_ALLOWED=NO test
+  -resultBundlePath /private/tmp/benchmark-my-98-qa/fonts.xcresult CODE_SIGNING_ALLOWED=NO test
 ```
 
-초기 임시 프로젝트 설정 오류(테스트 산출물 이름·Info.plist 상대 경로)를 수정한 뒤 성공했다. 제한 환경의 Swift 매크로 실행 오류는 동일 검사 스크립트를 적절한 권한으로 실행해 해소했다. 생성한 세 QA 기기는 각 검사 후 종료·삭제했다. 테스트 앱은 XCTest의 종료 정리로 중지했고, 마지막 프로세스·기기 조회에서 남은 QA 앱·실행 기기가 없음을 확인했다. Computer Use 핸들·사용자 창은 생성하지 않았다. 최대 동시 작업 리소스는 세 그룹(빌드·테스트 실행기, 전용 Simulator, 테스트 앱)이며 의도적으로 남긴 실행 리소스는 없다.
+초기 임시 프로젝트 설정 오류(테스트 산출물 이름·Info.plist 상대 경로)를 수정한 뒤 성공했다. 제한 환경의 Swift 매크로 실행 오류는 동일 검사 스크립트를 적절한 권한으로 실행해 해소했다. 생성한 네 QA 기기는 각 검사 후 종료·삭제했다. 테스트 앱은 XCTest의 종료 정리로 중지했고, 마지막 프로세스·기기 조회에서 남은 QA 앱·실행 기기가 없음을 확인했다. Computer Use 핸들·사용자 창은 생성하지 않았다. 최대 동시 작업 리소스는 세 그룹(빌드·테스트 실행기, 전용 Simulator, 테스트 앱)이며 의도적으로 남긴 실행 리소스는 없다.
 
-![MY 작업실 — 제목 글꼴 수령 대기](verification/my98/workshop.png)
+![MY 작업실](verification/my98/workshop.png)
 ![내 농장 더미 화면](verification/my98/farm.png)
+![학교별 폴더](verification/my98/schools.png)
 ![학교별 기부도감 더미 화면](verification/my98/collection.png)
