@@ -9,6 +9,8 @@ struct HomeView: View {
     let onCamera: () -> Void
     let onOpenProfile: () -> Void
     let onOpenStory: (String) -> Void
+    var remote: OiRemoteStore? = nil
+    var onAccount: (() -> Void)? = nil
     @Environment(\.scenePhase) private var scenePhase
     @State private var scene = CampusExploreScene()
     @State private var region: CampusRegion?
@@ -38,11 +40,27 @@ struct HomeView: View {
                             Button { showingSchools = true } label: { Label("POSTECH", systemImage: "chevron.backward").font(.system(size: 18, weight: .semibold)) }
                                 .buttonStyle(.glass).buttonBorderShape(.capsule).controlSize(.large)
                             Spacer()
-                            Text("디자인 예시").font(.caption2).padding(7).background(.thinMaterial, in: Capsule())
+                            if let remote {
+                                Button(action: { onAccount?() }) { Text(remote.account == nil ? "로그인" : "계정") }
+                                    .buttonStyle(.glass).accessibilityIdentifier("oi.account")
+                            } else {
+                                Text("디자인 예시").font(.caption2).padding(7).background(.thinMaterial, in: Capsule())
+                            }
                         }
                     }.padding(.horizontal, 20).padding(.top, 6)
                     Spacer()
-                    if region == nil { homeActions.padding(.horizontal, 20).padding(.bottom, 14) }
+                    if region == nil {
+                        if let remote, remote.isRefreshing || remote.loadError != nil || remote.syncWarning != nil || remote.needsReauthentication {
+                            OiConnectionStatus(remote: remote).padding(10).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 20)
+                        }
+                        homeActions.padding(.horizontal, 20).padding(.bottom, 14)
+                    }
+                }
+                if let remote, let error = remote.error {
+                    VStack(spacing: 8) {
+                        Text(error).font(.footnote)
+                        Button("연결 확인") { onAccount?() }
+                    }.padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
                 }
                 if scene.isLoading { ProgressView("POSTECH 캠퍼스 불러오는 중").padding(22).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20)) }
                 if let error = scene.error {
@@ -60,10 +78,10 @@ struct HomeView: View {
         .navigationDestination(for: MYDestination.self) { destination in
             switch destination {
             case .workshop:
-                MYWorkshopView(container: container, store: store, demo: myDemo, onCamera: openCamera)
-            case .farm: MYFarmView()
-            case .collection: MYCollectionView(demo: myDemo)
-            case .school(let school): MYCollectionView(demo: myDemo, school: school)
+                MYWorkshopView(container: container, store: store, demo: myDemo, onCamera: openCamera, remote: remote)
+            case .farm: MYFarmView(remote: remote)
+            case .collection: MYCollectionView(demo: myDemo, remote: remote)
+            case .school(let school): MYCollectionView(demo: myDemo, school: school, remote: remote)
             }
         }
         .sheet(isPresented: $showingSchools) {
@@ -88,6 +106,7 @@ struct HomeView: View {
                 // Use the same value-based path as list links and the summary's detail link.
                 onOpenStory(id)
             }
+            if remote != nil { scene.setRegionCounts(Dictionary(grouping: store.stories, by: \.regionID).mapValues(\.count)) }
             await scene.load()
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-campus-region-preview"), let first = CampusRegion.examples.first { scene.onRegion?(first) }
@@ -105,6 +124,10 @@ struct HomeView: View {
                 scene.setVisible(scenePhase == .active)
             }
         }
+        .onChange(of: store.stories) { _, _ in
+            if remote != nil { scene.setRegionCounts(Dictionary(grouping: store.stories, by: \.regionID).mapValues(\.count)) }
+            if let region { scene.focus(region, stories: store.stories(in: region.id, sortedBy: sort)) }
+        }
     }
 
     private var homeActions: some View {
@@ -114,10 +137,10 @@ struct HomeView: View {
                     Image("OiFarmer").resizable().scaledToFill().frame(width: 100, height: 100, alignment: .top)
                         .background(Color(red: 0.96, green: 1, blue: 0.84)).clipShape(Circle())
                         .overlay(Circle().stroke(CampusStyle.green, lineWidth: 2))
-                    Text("신서임당").font(CampusStyle.body(14)).frame(width: 104, height: 25)
+                    Text(myDemo.nickname).font(CampusStyle.body(14)).frame(width: 104, height: 25)
                         .background(Color(.systemBackground), in: Capsule()).shadow(color: .black.opacity(0.15), radius: 4, y: 2)
                 }
-            }.buttonStyle(.plain).accessibilityLabel("신서임당의 MY 작업실").accessibilityIdentifier("campus.profile")
+            }.buttonStyle(.plain).accessibilityLabel("\(myDemo.nickname)의 MY 작업실").accessibilityIdentifier("campus.profile")
             Spacer()
             Button(action: openCamera) { Image(systemName: "camera.fill").font(.system(size: 34)).frame(width: 78, height: 78) }
                 .buttonStyle(.glassProminent).buttonBorderShape(.circle).tint(Color(red: 0.40, green: 0.31, blue: 0.12))
@@ -156,9 +179,10 @@ struct HomeView: View {
                         .foregroundStyle(.white).padding(.horizontal, 16).padding(.vertical, 5).background(CampusStyle.green, in: Capsule())
                 }
                 if sort == .distance { Text("지도 중심에서 가까운 순서").font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading) }
+                if let remote { OiConnectionStatus(remote: remote) }
                 ScrollView {
                     LazyVStack(spacing: 8) {
-                        if items.isEmpty { Text("이 화면에는 오이가 없어요. 지도를 움직여 다시 검색해 주세요.").font(.subheadline).foregroundStyle(.secondary).padding() }
+                        if items.isEmpty, remote == nil || remote?.hasLoadedRemote == true { Text("이 화면에는 오이가 없어요. 지도를 움직여 다시 검색해 주세요.").font(.subheadline).foregroundStyle(.secondary).padding() }
                         ForEach(items) { story in
                             NavigationLink(value: CampusDestination.summary(story.id)) { CampusStoryRow(story: story) }
                                 .buttonStyle(.plain).accessibilityIdentifier("campus.row.\(story.id)")

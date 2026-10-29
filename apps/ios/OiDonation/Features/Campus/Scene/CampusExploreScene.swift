@@ -24,6 +24,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var navigationGestures: [UIGestureRecognizer] = []
     private var region: CampusRegion?
     private var stories: [CampusStory] = []
+    private var regionCounts: [String: Int]?
     private var visible = true
     private static var cachedMesh: Entity?
 
@@ -114,16 +115,22 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             guard let place = data.pois.first(where: { $0.id == region.placeID }) else { continue }
             let button = UIButton(type: .custom)
             button.setBackgroundImage(UIImage(named: "OiCluster"), for: .normal)
-            button.setTitle("\(region.sampleCount)", for: .normal)
+            let count = regionCounts?[region.id] ?? region.sampleCount
+            button.setTitle("\(count)", for: .normal)
             button.titleLabel?.font = UIFont(name: "Paperlogy-9Black", size: 30) ?? .systemFont(ofSize: 30, weight: .black)
             button.setTitleColor(UIColor(red: 0.95, green: 0.97, blue: 0.91, alpha: 1), for: .normal)
-            button.bounds.size = CGSize(width: region.sampleCount > 20 ? 120 : 86, height: region.sampleCount > 20 ? 145 : 106)
-            button.accessibilityLabel = "\(region.title), 오이 \(region.sampleCount)개"
+            button.bounds.size = CGSize(width: count > 20 ? 120 : 86, height: count > 20 ? 145 : 106)
+            button.accessibilityLabel = "\(region.title), 오이 \(count)개"
             button.accessibilityIdentifier = "campus.region.\(region.id)"
             button.addAction(UIAction { [weak self] _ in self?.onRegion?(region) }, for: .touchUpInside)
             attach(button, at: data.world(place.p) + SIMD3(0, 5, 0))
         }
         updateCamera()
+    }
+
+    func setRegionCounts(_ counts: [String: Int]) {
+        regionCounts = counts
+        if region == nil { showOverview() }
     }
 
     func focus(_ region: CampusRegion, stories: [CampusStory]) {
@@ -146,8 +153,12 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             selected.append(remaining.remove(at: next))
         }
         for (index, story) in stories.enumerated() {
-            guard index < selected.count else { break }
-            let point = selected[index]
+            let point: SIMD3<Float>
+            if let latitude = story.latitude, let longitude = story.longitude {
+                point = data.world(latitude: latitude, longitude: longitude)
+            } else if index < selected.count {
+                point = selected[index]
+            } else { continue }
             positions[story.id] = point
             let button = UIButton(type: .custom)
             button.setImage(UIImage(named: story.image), for: .normal)

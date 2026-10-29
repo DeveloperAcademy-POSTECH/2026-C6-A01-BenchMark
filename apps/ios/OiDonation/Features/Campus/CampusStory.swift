@@ -14,13 +14,19 @@ struct CampusStory: Identifiable, Hashable {
     let order: Int
     let popularity: Int
     let palette: Int
+    var remoteBody: String? = nil
+    var remoteMediaPaths: [String] = []
+    var latitude: Double? = nil
+    var longitude: Double? = nil
 
-    var isCats: Bool { image == "OiCats" }
+    var isCats: Bool { remoteBody == nil && image == "OiCats" }
     var excerpt: String {
-        isCats ? "포스텍 디벨로퍼학과 26학번의 고양이 6마리들의\n약 3개월간 즐거웠던 2학기를 기억하며..." : "캠퍼스에서 함께한 순간을 오래 기억하고 싶어요."
+        if let remoteBody { return String(remoteBody.prefix(120)) }
+        return isCats ? "포스텍 디벨로퍼학과 26학번의 고양이 6마리들의\n약 3개월간 즐거웠던 2학기를 기억하며..." : "캠퍼스에서 함께한 순간을 오래 기억하고 싶어요."
     }
     var gallery: [String] { isCats ? (1...11).map { String(format: "OiGallery%02d", $0) } : [] }
     var body: String {
+        if let remoteBody { return remoteBody }
         guard isCats else { return "이 이야기는 새 디자인을 확인하기 위한 예시입니다. 공개에 동의한 기부자의 이야기와 사진이 준비되면 이곳에 연결됩니다." }
         return """
         포스텍26학번 오후분반 6냥이들아,
@@ -64,14 +70,17 @@ enum CampusStorySort: String, CaseIterable { case latest = "최신순", distance
 
 @MainActor @Observable
 final class CampusStoryStore {
-    let stories: [CampusStory]
+    private(set) var stories: [CampusStory]
+    var collectAction: ((CampusStory) -> Void)?
+    var mediaURL: ((String) async throws -> URL)?
     private(set) var collected: Set<String>
     private let defaults: UserDefaults
     private static let collectionKey = "campus.designExample.collectedIDs.v1"
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, loadExamples: Bool = true) {
         self.defaults = defaults
         collected = Set(defaults.stringArray(forKey: Self.collectionKey) ?? [])
+        if !loadExamples { stories = []; collected = []; return }
         let images = ["OiCats", "OiMakgeolli", "OiPoka", "OiRaincoat", "OiGardener", "OiWizard", "OiPink", "OiOrange", "OiScientist", "OiBlue", "OiTraveler"]
         let names = ["6냥이오이", "막걸리오이", "포카전오이", "비 오는 날의 오이", "정원사오이", "마법사오이", "봄날의오이", "응원오이", "연구실오이", "푸른오이", "여행자오이"]
         stories = CampusRegion.examples.flatMap { region in
@@ -99,8 +108,14 @@ final class CampusStoryStore {
         }
     }
     func collect(_ story: CampusStory) {
+        if let collectAction { collectAction(story); return }
         guard collected.insert(story.id).inserted else { return }
         defaults.set(collected.sorted(), forKey: Self.collectionKey)
+    }
+
+    func synchronize(stories: [CampusStory], collected: Set<String>) {
+        self.stories = stories
+        self.collected = collected
     }
 }
 
