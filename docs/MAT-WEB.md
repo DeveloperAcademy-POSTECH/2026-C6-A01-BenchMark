@@ -48,3 +48,7 @@ Sites 스킬의 공식 source helper로 해당 Site 소스를 열고, 이 저장
 `MIGRATION_ENABLED`는 평상시 `false`다. 이전 창에서만 별도 `MIGRATION_TOKEN`을 설정하고 요청의 `x-migration-token` 헤더로 전달한다. Site 방문 권한만으로 원본 내보내기·가져오기를 허용하지 않는다. 전환 후 비활성화와 실제 404를 확인한다.
 
 완료 기준과 증거는 [Sites 전환 기록](SITES-CUTOVER.md)에 관리한다. 최신 원본 대조 → 전환 중 쓰기 보존·증분 반영 → 공개 링크·OAuth 콜백 전환 → 실제 예약·사진·관리자 검증 → 이전 API 폐쇄 → Railway 실행·잔여 과금 확인 순서다. 검증 배포만으로 완료 처리하지 않는다.
+
+## 활동 로그 일자 조회 — PR #36 통합
+
+한국 시간 일자별·기간별 조회와 UTC/KST CSV 열을 제공합니다. `date`와 `from`/`to`는 동시에 사용할 수 없습니다. 기존 Sites D1 조회·보관·관리자 인증 구조를 유지합니다. main의 과거 PostgreSQL·카메라 제거 변경을 현재 Sites 코드에 재적용하지 않습니다.
