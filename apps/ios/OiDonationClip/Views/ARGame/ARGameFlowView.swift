@@ -12,6 +12,7 @@ import SwiftUI
 struct ARGameFlowView: View {
     let experience: AppClipExperience
     let onBack: () -> Void
+    let onRequestFullApp: () -> Void
 
     private var story: Story { experience.story }
 
@@ -76,10 +77,13 @@ struct ARGameFlowView: View {
             case .storyCard:
                 AppClipStoryCardView(
                     experience: experience,
-                    isCollected: collectionStore.contains(storyID: story.storyID)
-                ) {
-                    collectionStore.collect(experience.storyCard)
-                }
+                    isCollected: collectionStore.contains(storyID: story.storyID),
+                    onCollect: {
+                        collectionStore.collect(experience.storyCard)
+                        onRequestFullApp()
+                    },
+                    onCancel: { viewModel.reset() }
+                )
             case .failure:
                 ARGameFailureView {
                     viewModel.reset()

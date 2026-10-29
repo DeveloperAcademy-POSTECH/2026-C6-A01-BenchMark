@@ -54,6 +54,13 @@ final class StoryCollectionStore {
         cards.contains { $0.storyID == storyID }
     }
 
+    func remove(storyID: String) {
+        let previousCount = cards.count
+        cards.removeAll { $0.storyID == storyID }
+        guard cards.count != previousCount else { return }
+        save()
+    }
+
     private func save() {
         guard let data = try? JSONEncoder().encode(cards) else { return }
         defaults.set(data, forKey: Self.storageKey)

@@ -203,6 +203,8 @@ struct AppClipInvocationChecks {
         require(collectionStore.cards.count == 1, "one collection record is stored per story")
         let reopenedCollectionStore = StoryCollectionStore(defaults: collectionDefaults)
         require(reopenedCollectionStore.cards == collectionStore.cards, "full app can reopen App Clip collection records")
+        reopenedCollectionStore.remove(storyID: storyCard.storyID)
+        require(reopenedCollectionStore.cards.isEmpty, "a selected preview collection record can be reset")
         collectionDefaults.removePersistentDomain(forName: collectionSuite)
 
         gameModel.reset()

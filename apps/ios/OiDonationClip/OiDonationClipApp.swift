@@ -7,10 +7,12 @@
 
 import SwiftUI
 import CoreText
+import StoreKit
 
 @main
 struct OiDonationClipApp: App {
     @State private var previewCollectionStore = StoryCollectionStore()
+    @State private var isOverlayPresented = false
 
     init() {
         for name in ["PearToucan-Regular", "KIM-WILDgag-Bold", "Griun_OMIRI-Rg", "Mona12TextKR", "Paperlogy-6SemiBold"] {
@@ -24,6 +26,16 @@ struct OiDonationClipApp: App {
     var body: some Scene {
         WindowGroup {
             rootView
+                .task {
+                    #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("-reset-preview-collection") {
+                        previewCollectionStore.remove(storyID: "preview-story")
+                    }
+                    #endif
+                }
+                .appStoreOverlay(isPresented: $isOverlayPresented) {
+                    SKOverlay.AppClipConfiguration(position: .bottom)
+                }
         }
     }
 
@@ -35,14 +47,18 @@ struct OiDonationClipApp: App {
         } else if ProcessInfo.processInfo.arguments.contains("-story-card-preview") {
             AppClipStoryCardView(
                 experience: previewExperience,
-                isCollected: previewCollectionStore.contains(storyID: previewExperience.story.storyID)
-            ) {
-                previewCollectionStore.collect(previewExperience.storyCard)
-            }
+                isCollected: previewCollectionStore.contains(storyID: previewExperience.story.storyID),
+                onCollect: {
+                    previewCollectionStore.collect(previewExperience.storyCard)
+                    isOverlayPresented = true
+                },
+                onCancel: {}
+            )
         } else if ProcessInfo.processInfo.arguments.contains("-ar-flow-preview") {
             ARGameFlowView(
                 experience: previewExperience,
-                onBack: {}
+                onBack: {},
+                onRequestFullApp: { isOverlayPresented = true }
             )
         } else if ProcessInfo.processInfo.arguments.contains("-ar-intro-preview") {
             ARGameIntroView(
@@ -54,10 +70,16 @@ struct OiDonationClipApp: App {
                 onStart: {}
             )
         } else {
-            ContentView(storyRepository: RealStoryRepository())
+            ContentView(
+                storyRepository: RealStoryRepository(),
+                onRequestFullApp: { isOverlayPresented = true }
+            )
         }
         #else
-        ContentView(storyRepository: RealStoryRepository())
+        ContentView(
+            storyRepository: RealStoryRepository(),
+            onRequestFullApp: { isOverlayPresented = true }
+        )
         #endif
     }
 

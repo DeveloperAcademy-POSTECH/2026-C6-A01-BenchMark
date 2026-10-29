@@ -12,6 +12,7 @@ struct AppClipStoryCardView: View {
     let experience: AppClipExperience
     let isCollected: Bool
     let onCollect: () -> Void
+    let onCancel: () -> Void
 
     private var story: Story { experience.story }
 
@@ -81,15 +82,15 @@ struct AppClipStoryCardView: View {
                         .background(collectButtonGradient, in: RoundedRectangle(cornerRadius: 20))
                 }
                 .buttonStyle(.plain)
-                .disabled(isCollected)
                 .accessibilityIdentifier("appclip.storyCard.collect")
 
-                Text("삭제")
+                Button("취소", action: onCancel)
+                    .buttonStyle(.plain)
                     .font(.custom("Paperlogy-6SemiBold", size: 14, relativeTo: .callout))
                     .foregroundStyle(.white)
                     .frame(width: 48, height: 44)
                     .background(Color(red: 0.867, green: 0.867, blue: 0.867), in: Capsule())
-                    .accessibilityLabel("삭제 기능 준비 중")
+                    .accessibilityIdentifier("appclip.storyCard.cancel")
             }
         }
         .foregroundStyle(.black)

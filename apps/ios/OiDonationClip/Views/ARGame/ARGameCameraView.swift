@@ -89,13 +89,14 @@ final class ARGameCameraController: NSObject, ARSessionDelegate {
 
     private func placeCollectibles(relativeTo cameraTransform: simd_float4x4) {
         let anchor = AnchorEntity(world: cameraTransform)
-        let spread: Float = 55 * .pi / 180
+        let spread: Float = 70 * .pi / 180
         let angles: [Float] = [0, spread, -spread]
         let heights: [Float] = [-0.02, 0.03, -0.03]
+        let distances: [Float] = [1.15, 1.25, 1.2]
 
         for index in 0..<targetCount {
             let angle = angles[index % angles.count]
-            let distance: Float = 1 + Float(index) * 0.03
+            let distance = distances[index % distances.count]
             let root = makeCollectible(index: index)
             root.position = [sin(angle) * distance, heights[index % heights.count], -cos(angle) * distance]
             anchor.addChild(root)
