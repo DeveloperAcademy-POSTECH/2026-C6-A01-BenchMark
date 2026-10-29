@@ -2,9 +2,36 @@
 
 import Foundation
 
+private struct LibraryCheckRepository: StoryRepository {
+    func fetchPublicStory(storyID: String) async throws -> Story? {
+        guard storyID == "collected-story" else { return nil }
+        return Story(
+            storyID: storyID,
+            donorID: UUID(),
+            donorDisplayName: "Test donor",
+            title: "Collected story",
+            content: "Collected content",
+            publishedAt: Date(timeIntervalSince1970: 0),
+            location: StoryLocation(locationID: "test", displayName: "Test location"),
+            tags: ["Test"],
+            cucumberID: "test-cucumber",
+            cucumberName: "Test cucumber"
+        )
+    }
+
+    func fetchPublicStoryCard(storyID: String) async throws -> StoryCard? {
+        guard storyID == "collected-story" else { return nil }
+        return StoryCard(
+            cardID: "collected-card",
+            storyID: storyID,
+            imageURL: URL(string: "https://example.com/collected-card.png")!
+        )
+    }
+}
+
 @main
 struct MYDemoChecks {
-    @MainActor static func main() {
+    @MainActor static func main() async {
         let demo = MYDemoStore()
         precondition(demo.cards.count == 23)
         precondition(Set(demo.cards.map(\.id)).count == demo.cards.count)
@@ -29,6 +56,34 @@ struct MYDemoChecks {
         demo.collectionFilter = .schools
         precondition(demo.collectionFilter == .schools)
         precondition(MYDemoStore().collectionFilter == .all)
-        print("PASS: demo card identity, school counts, favorites, filtering, distance/popularity sorting, session isolation")
+
+        let suite = "MYDemoChecks.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        let collectionStore = StoryCollectionStore(defaults: defaults)
+        collectionStore.collect(
+            StoryCard(
+                cardID: "collected-card",
+                storyID: "collected-story",
+                imageURL: URL(string: "https://example.com/collected-card.png")!
+            )
+        )
+        collectionStore.collect(
+            StoryCard(
+                cardID: "missing-card",
+                storyID: "missing-story",
+                imageURL: URL(string: "https://example.com/missing-card.png")!
+            )
+        )
+        let library = CollectedStoryLibrary(
+            repository: LibraryCheckRepository(),
+            collectionStore: collectionStore
+        )
+        await library.load()
+        precondition(library.items.map(\.id) == ["collected-story"])
+        precondition(library.unavailableRecords.map(\.storyID) == ["missing-story"])
+        defaults.removePersistentDomain(forName: suite)
+
+        print("PASS: demo collection behavior and App Clip record loading into the full-app library")
     }
 }

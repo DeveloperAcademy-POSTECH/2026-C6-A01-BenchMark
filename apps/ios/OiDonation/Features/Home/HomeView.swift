@@ -80,8 +80,8 @@ struct HomeView: View {
             case .workshop:
                 MYWorkshopView(container: container, store: store, demo: myDemo, onCamera: openCamera, remote: remote)
             case .farm: MYFarmView(remote: remote)
-            case .collection: MYCollectionView(demo: myDemo, remote: remote)
-            case .school(let school): MYCollectionView(demo: myDemo, school: school, remote: remote)
+            case .collection: MYCollectionView(demo: myDemo, storyRepository: container.storyRepository, remote: remote)
+            case .school(let school): MYCollectionView(demo: myDemo, school: school, storyRepository: container.storyRepository, remote: remote)
             }
         }
         .sheet(isPresented: $showingSchools) {

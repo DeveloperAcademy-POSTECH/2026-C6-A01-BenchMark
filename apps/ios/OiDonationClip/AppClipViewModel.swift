@@ -38,8 +38,9 @@ final class AppClipViewModel {
     }
     private(set) var state: State = .welcome
     private(set) var invocationURL: URL?
-    private(set) var plaqueID: String?
-    private(set) var story: Story?
+    private(set) var storyID: String?
+    private(set) var experience: AppClipExperience?
+    var story: Story? { experience?.story }
     init(linkParser: PublicLinkParser? = nil, storyRepository: any StoryRepository) {
         self.linkParser = linkParser
         self.storyRepository = storyRepository
@@ -49,8 +50,8 @@ final class AppClipViewModel {
         let currentInvocation = UUID()
         invocationID = currentInvocation
         self.invocationURL = invocationURL
-        plaqueID = nil
-        story = nil
+        storyID = nil
+        experience = nil
 
         guard let invocationURL else {
             state = .invalidLink
@@ -65,22 +66,38 @@ final class AppClipViewModel {
             return
         }
 
-        plaqueID = id
+        storyID = id
         state = .loading
         do {
-            let fetchedStory = try await storyRepository.fetchPublicStory(plaqueID: id)
+            let fetchedStory = try await storyRepository.fetchPublicStory(storyID: id)
             guard invocationID == currentInvocation, !Task.isCancelled else { return }
-            if let fetchedStory {
-                self.story = fetchedStory
-                state = .ready
-            } else {
+            guard let fetchedStory else {
                 state = .storyNotFound
+                return
             }
+
+            let fetchedStoryCard = try await storyRepository.fetchPublicStoryCard(storyID: id)
+            guard invocationID == currentInvocation, !Task.isCancelled else { return }
+            guard let fetchedStoryCard else {
+                state = .loadFailed
+                return
+            }
+
+            experience = AppClipExperience(story: fetchedStory, storyCard: fetchedStoryCard)
+            state = .ready
         } catch is CancellationError {
             return
         } catch {
             guard invocationID == currentInvocation, !Task.isCancelled else { return }
             state = .loadFailed
         }
+    }
+
+    func showWelcome() {
+        invocationID = UUID()
+        invocationURL = nil
+        storyID = nil
+        experience = nil
+        state = .welcome
     }
 }

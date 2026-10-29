@@ -8,8 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		B10000000000000000000009 /* OiRemoteStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008; };
-		C02610260000000000000001 /* OiDonation.icon in Resources */ = {isa = PBXBuildFile; fileRef = C02610260000000000000002 /* OiDonation.icon */; };
 		87169571307CB1D00090D456 /* OiDonationClip.app in Embed App Clips */ = {isa = PBXBuildFile; fileRef = 87169565307CB1CF0090D456 /* OiDonationClip.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		C02610260000000000000001 /* OiDonation.icon in Resources */ = {isa = PBXBuildFile; fileRef = C02610260000000000000002 /* OiDonation.icon */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -46,9 +46,9 @@
 /* Begin PBXFileReference section */
 		B10000000000000000000007 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = OiDonationTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B10000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiRemoteStoreTests.swift; sourceTree = SOURCE_ROOT; };
-		C02610260000000000000002 /* OiDonation.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = OiDonation.icon; path = "../../design/app-icon/OiDonation.icon"; sourceTree = SOURCE_ROOT; };
 		87169565307CB1CF0090D456 /* OiDonationClip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OiDonationClip.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8736DA6930777C9800D0CFC9 /* OiDonation.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OiDonation.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C02610260000000000000002 /* OiDonation.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = OiDonation.icon; path = "../../design/app-icon/OiDonation.icon"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -67,10 +67,17 @@
 		8716959A307D0BAE0090D456 /* Exceptions for "OiDonation" folder in "OiDonationClip" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Domain/Models/CollectedStoryCard.swift,
 				Domain/Models/Story.swift,
+				Domain/Models/StoryCard.swift,
 				Domain/Repositories/StoryRepository.swift,
 				Domain/Routing/AppClipLink.swift,
 				Domain/Routing/PublicLinkParser.swift,
+				"Resources/Fonts/Griun_OMIRI-Rg.ttf",
+				"Resources/Fonts/KIM-WILDgag-Bold.ttf",
+				Resources/Fonts/Mona12TextKR.ttf,
+				"Resources/Fonts/Paperlogy-6SemiBold.ttf",
+				"Resources/Fonts/PearToucan-Regular.ttf",
 			);
 			target = 87169564307CB1CF0090D456 /* OiDonationClip */;
 		};
@@ -329,6 +336,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = OiDonationClip/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = OiDonation;
+				INFOPLIST_KEY_NSCameraUsageDescription = "AR 오이를 찾기 위해 카메라를 사용합니다.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -365,6 +373,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = OiDonationClip/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = OiDonation;
+				INFOPLIST_KEY_NSCameraUsageDescription = "AR 오이를 찾기 위해 카메라를 사용합니다.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
