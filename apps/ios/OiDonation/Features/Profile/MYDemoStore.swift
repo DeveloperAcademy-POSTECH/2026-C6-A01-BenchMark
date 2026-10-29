@@ -30,16 +30,20 @@ struct MYDemoCard: Identifiable, Hashable {
     let order: Int
     let distance: Int
     let popularity: Int
+    var storyID: String? = nil
 }
 
 @MainActor @Observable
 final class MYDemoStore {
-    let nickname = "신서임당"
-    let cards: [MYDemoCard]
+    private(set) var nickname = "신서임당"
+    private(set) var cards: [MYDemoCard]
+    var favoriteAction: ((MYDemoCard) -> Void)?
+    var campusStore: CampusStoryStore?
     private(set) var favorites: Set<String> = []
     var collectionFilter = MYCollectionFilter.all
 
-    init() {
+    init(loadExamples: Bool = true) {
+        if !loadExamples { nickname = "농부"; cards = []; return }
         let titles = ["6냥이 오이", "힘들어오이", "샤갈오이", "너무할게오이", "안할래오이"]
         let images = ["MYBasicCard", "MYBlueCard", "MYRedCard", "MYBasicCard", "MYBasicCard"]
         cards = MYSchool.allCases.flatMap { school in
@@ -69,8 +73,15 @@ final class MYDemoStore {
     }
 
     func toggleFavorite(_ card: MYDemoCard) {
+        if let favoriteAction { favoriteAction(card); return }
         guard cards.contains(where: { $0.id == card.id }) else { return }
         if favorites.contains(card.id) { favorites.remove(card.id) } else { favorites.insert(card.id) }
+    }
+
+    func synchronize(nickname: String, cards: [MYDemoCard], favorites: Set<String>) {
+        self.nickname = nickname
+        self.cards = cards
+        self.favorites = favorites
     }
 }
 

@@ -8,10 +8,9 @@ struct AppContainer {
     let approvedLinkHost: String?
     var showsDesignExamples = false
 
-    // Temporary Figma dashboard for device design review; other services remain unconnected.
     static let pilot = AppContainer(homeRepository: DesignDemoHomeRepository(),
         benchRepository: UnconnectedPilotRepository(), participationRepository: UnconnectedPilotRepository(),
-        storyRepository: UnconnectedPilotRepository(), approvedLinkHost: nil, showsDesignExamples: true)
+        storyRepository: UnconnectedPilotRepository(), approvedLinkHost: nil, showsDesignExamples: false)
 
     static var preview: AppContainer {
         let participation = PreviewParticipationRepository()

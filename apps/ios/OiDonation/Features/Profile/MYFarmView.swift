@@ -3,7 +3,40 @@
 import SwiftUI
 
 struct MYFarmView: View {
+    var remote: OiRemoteStore? = nil
+
     var body: some View {
+        if let remote {
+            ScrollView {
+                Image("MYFarmBackground").resizable().scaledToFit().accessibilityHidden(true)
+                OiConnectionStatus(remote: remote).padding(.horizontal, 20)
+                if !remote.hasLoadedRemote {
+                    if remote.loadError == nil { ProgressView("내 농장을 불러오는 중") }
+                } else if remote.account == nil {
+                    ContentUnavailableView("로그인이 필요해요", systemImage: "person", description: Text("계정 메뉴에서 로그인하면 등록한 오이를 볼 수 있어요."))
+                } else if remote.ownStories.isEmpty {
+                    ContentUnavailableView("아직 등록한 오이가 없어요", systemImage: "leaf", description: Text("작성 승인 후 내 이야기에서 오이를 만들어 보세요."))
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 140))], spacing: 20) {
+                        ForEach(remote.ownStories) { story in
+                            NavigationLink { OiStoryManagement(remote: remote, storyID: story.id) } label: {
+                                VStack {
+                                    Image(story.cucumberAsset).resizable().scaledToFit().frame(height: 220)
+                                    Text(story.cucumberName).font(.headline)
+                                    Text(story.status.oiStatusTitle).font(.caption)
+                                }
+                            }.buttonStyle(.plain)
+                        }
+                    }.padding(20)
+                }
+            }
+            .background(Color(red: 193 / 255, green: 215 / 255, blue: 72 / 255))
+            .navigationTitle("내 농장").navigationBarTitleDisplayMode(.inline)
+            .toolbar(.visible, for: .navigationBar)
+        } else { exampleFarm }
+    }
+
+    private var exampleFarm: some View {
         GeometryReader { geometry in
             let scale = min(geometry.size.width / 402, geometry.size.height / 874)
             ZStack(alignment: .top) {
