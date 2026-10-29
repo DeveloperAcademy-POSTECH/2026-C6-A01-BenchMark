@@ -1,0 +1,594 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "309944f6-78ce-4f9f-bf91-deaf6ff102f3",
+  "prevId": "16d42d91-b35e-43bd-9a14-8d256545edfc",
+  "tables": {
+    "mat_activity_events": {
+      "name": "mat_activity_events",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "visit_id": {
+          "name": "visit_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%f','now') || '000Z')"
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "properties": {
+          "name": "properties",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "percent": {
+          "name": "percent",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "generated": {
+            "as": "(json_extract(properties,'$.percent'))",
+            "type": "virtual"
+          }
+        }
+      },
+      "indexes": {
+        "mat_activity_period": {
+          "name": "mat_activity_period",
+          "columns": [
+            "occurred_at",
+            "id"
+          ],
+          "isUnique": false
+        },
+        "mat_activity_received": {
+          "name": "mat_activity_received",
+          "columns": [
+            "received_at"
+          ],
+          "isUnique": false
+        },
+        "mat_activity_story": {
+          "name": "mat_activity_story",
+          "columns": [
+            "story_id",
+            "occurred_at"
+          ],
+          "isUnique": false
+        },
+        "mat_activity_name": {
+          "name": "mat_activity_name",
+          "columns": [
+            "name",
+            "occurred_at"
+          ],
+          "isUnique": false
+        },
+        "mat_activity_one_view": {
+          "name": "mat_activity_one_view",
+          "columns": [
+            "visit_id"
+          ],
+          "isUnique": true,
+          "where": "\"mat_activity_events\".\"name\" = 'page_view'"
+        },
+        "mat_activity_one_depth": {
+          "name": "mat_activity_one_depth",
+          "columns": [
+            "visit_id",
+            "percent"
+          ],
+          "isUnique": true,
+          "where": "\"mat_activity_events\".\"name\" = 'scroll_depth'"
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "activity_properties": {
+          "name": "activity_properties",
+          "value": "json_type(\"mat_activity_events\".\"properties\") = 'object' AND length(cast(\"mat_activity_events\".\"properties\" as blob)) <= 256"
+        }
+      }
+    },
+    "schema_migrations": {
+      "name": "schema_migrations",
+      "columns": {
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "applied_at": {
+          "name": "applied_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "mat_rate_limits": {
+      "name": "mat_rate_limits",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "window_start": {
+          "name": "window_start",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "attempts": {
+          "name": "attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "mat_reactions": {
+      "name": "mat_reactions",
+      "columns": {
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "device_hash": {
+          "name": "device_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'empathy'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%f','now') || '000Z')"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "mat_reactions_story_id_mat_stories_id_fk": {
+          "name": "mat_reactions_story_id_mat_stories_id_fk",
+          "tableFrom": "mat_reactions",
+          "tableTo": "mat_stories",
+          "columnsFrom": [
+            "story_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "mat_reactions_story_id_device_hash_kind_pk": {
+          "columns": [
+            "story_id",
+            "device_hash",
+            "kind"
+          ],
+          "name": "mat_reactions_story_id_device_hash_kind_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "reaction_kind": {
+          "name": "reaction_kind",
+          "value": "\"mat_reactions\".\"kind\" IN ('like','empathy','sad','cheer')"
+        }
+      }
+    },
+    "mat_reservations": {
+      "name": "mat_reservations",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "phone": {
+          "name": "phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reason_other": {
+          "name": "reason_other",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "story": {
+          "name": "story",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "photo": {
+          "name": "photo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payment_method": {
+          "name": "payment_method",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "amount": {
+          "name": "amount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_story_id": {
+          "name": "source_story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%f','now') || '000Z')"
+        }
+      },
+      "indexes": {
+        "mat_reservations_story_id_unique": {
+          "name": "mat_reservations_story_id_unique",
+          "columns": [
+            "story_id"
+          ],
+          "isUnique": true
+        },
+        "mat_reservations_created": {
+          "name": "mat_reservations_created",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "mat_reservations_source_story_id_mat_stories_id_fk": {
+          "name": "mat_reservations_source_story_id_mat_stories_id_fk",
+          "tableFrom": "mat_reservations",
+          "tableTo": "mat_stories",
+          "columnsFrom": [
+            "source_story_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "mat_reservations_story_id_mat_stories_id_fk": {
+          "name": "mat_reservations_story_id_mat_stories_id_fk",
+          "tableFrom": "mat_reservations",
+          "tableTo": "mat_stories",
+          "columnsFrom": [
+            "story_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "reservation_reason": {
+          "name": "reservation_reason",
+          "value": "\"mat_reservations\".\"reason\" IN ('story','rest','project','donate','other')"
+        },
+        "reservation_payment": {
+          "name": "reservation_payment",
+          "value": "\"mat_reservations\".\"payment_method\" IN ('deposit','easy','transfer','other')"
+        },
+        "reservation_amount": {
+          "name": "reservation_amount",
+          "value": "\"mat_reservations\".\"amount\" > 0 AND \"mat_reservations\".\"amount\" <= 2147483647"
+        },
+        "reservation_story_bytes": {
+          "name": "reservation_story_bytes",
+          "value": "length(cast(trim(\"mat_reservations\".\"story\") as blob)) BETWEEN 1 AND 1000"
+        },
+        "reservation_other_reason": {
+          "name": "reservation_other_reason",
+          "value": "\"mat_reservations\".\"reason\" <> 'other' OR length(trim(\"mat_reservations\".\"reason_other\")) > 0"
+        }
+      }
+    },
+    "mat_stories": {
+      "name": "mat_stories",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mat_number": {
+          "name": "mat_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mat_size": {
+          "name": "mat_size",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "story": {
+          "name": "story",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "photo": {
+          "name": "photo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payment_verified": {
+          "name": "payment_verified",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "published": {
+          "name": "published",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%f','now') || '000Z')"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%f','now') || '000Z')"
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "reservation_id": {
+          "name": "reservation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "mat_stories_reservation_id_unique": {
+          "name": "mat_stories_reservation_id_unique",
+          "columns": [
+            "reservation_id"
+          ],
+          "isUnique": true
+        },
+        "mat_stories_mat_order": {
+          "name": "mat_stories_mat_order",
+          "columns": [
+            "mat_number",
+            "created_at",
+            "id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "mat_number_range": {
+          "name": "mat_number_range",
+          "value": "\"mat_stories\".\"mat_number\" BETWEEN 1 AND 10000"
+        },
+        "mat_size_values": {
+          "name": "mat_size_values",
+          "value": "\"mat_stories\".\"mat_size\" IN ('small','large')"
+        },
+        "story_bytes": {
+          "name": "story_bytes",
+          "value": "length(cast(trim(\"mat_stories\".\"story\") as blob)) BETWEEN 1 AND 1000"
+        },
+        "publication_requires_payment": {
+          "name": "publication_requires_payment",
+          "value": "\"mat_stories\".\"published\" = 0 OR \"mat_stories\".\"payment_verified\" = 1"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}
