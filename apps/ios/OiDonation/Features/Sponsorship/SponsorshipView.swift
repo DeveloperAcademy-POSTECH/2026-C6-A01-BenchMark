@@ -20,6 +20,15 @@ struct SponsorshipView: View {
                 .frame(width: 26)
                 .background { RoundedRectangle(cornerRadius: 3).fill(Color("OiSoft")).frame(width: 6) }
                 VStack(alignment: .leading, spacing: 0) {
+                    NavigationLink {
+                        PlaquePreviewExperienceView()
+                    } label: {
+                        Label("명패 미리보기", systemImage: "rectangle.and.pencil.and.ellipsis")
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(maxWidth: .infinity, minHeight: 48)
+                            .background(Color("OiSoft"), in: RoundedRectangle(cornerRadius: 16))
+                    }.accessibilityIdentifier("sponsorship.plaquePreview")
+                        .padding(.bottom, 24)
                     VStack(alignment: .leading, spacing: 0) {
                         Text("누군가의 기억이")
                         Text("다른 누군가의")
