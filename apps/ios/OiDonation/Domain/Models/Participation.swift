@@ -4,13 +4,28 @@ nonisolated struct Bench: Identifiable, Sendable, Equatable {
     let id: String
     let name: String
     let locationDescription: String
+    var coordinate: BenchCoordinate? = nil
     let plaquePreview: BenchPlaquePreview?
 
-    init(id: String, name: String, locationDescription: String, plaquePreview: BenchPlaquePreview? = nil) {
+    init(id: String, name: String, locationDescription: String, plaquePreview: BenchPlaquePreview? = nil, coordinate: BenchCoordinate? = nil) {
         self.id = id
         self.name = name
         self.locationDescription = locationDescription
+        self.coordinate = coordinate
         self.plaquePreview = plaquePreview
+    }
+}
+
+/// Only confirmed public NFC positions belong here. Unknown coordinates remain nil.
+struct BenchCoordinate: Sendable, Equatable {
+    let latitude: Double
+    let longitude: Double
+
+    init?(latitude: Double, longitude: Double) {
+        guard latitude.isFinite, longitude.isFinite,
+              (-90...90).contains(latitude), (-180...180).contains(longitude) else { return nil }
+        self.latitude = latitude
+        self.longitude = longitude
     }
 }
 

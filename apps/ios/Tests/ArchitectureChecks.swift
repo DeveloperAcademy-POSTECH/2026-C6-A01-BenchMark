@@ -6,6 +6,12 @@ struct ArchitectureChecks {
         precondition(condition(), message)
     }
     static func main() async throws {
+        require(Bench(id: "unknown", name: "Unknown", locationDescription: "Pending").coordinate == nil,
+                "unconfirmed NFC location must remain absent")
+        require(BenchCoordinate(latitude: 36.0139, longitude: 129.3232) != nil, "valid public location")
+        for (latitude, longitude) in [(91.0, 0.0), (0.0, 181.0), (Double.nan, 0.0), (0.0, Double.infinity)] {
+            require(BenchCoordinate(latitude: latitude, longitude: longitude) == nil, "invalid map coordinate rejected")
+        }
         let parser = PublicLinkParser(allowedHost: "example.org")
         require(parser.parse(URL(string: "https://example.org/benches/bench-1")!) == .bench("bench-1"), "bench route")
         require(parser.parse(URL(string: "https://example.org/stories/plaque-1")!) == .story("plaque-1"), "story route")
@@ -45,6 +51,6 @@ struct ArchitectureChecks {
                 preconditionFailure("untrusted endpoint was sent")
             } catch APIError.untrustedEndpoint { }
         }
-        print("PASS: routing, validation, concurrent idempotency, pending verification and unavailable service")
+        print("PASS: NFC coordinates, routing, validation, concurrent idempotency, pending verification and unavailable service")
     }
 }
