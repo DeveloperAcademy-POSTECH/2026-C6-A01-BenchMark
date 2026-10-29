@@ -72,6 +72,14 @@ struct OiServiceAPI {
         }
     }
 
+    /// Use the public role even when an owner/operator session exists.
+    func publishedStory(_ id: UUID) async throws -> OiLiveStory {
+        let records = try await rows("oi_stories", query: "id=eq.\(id.uuidString)&status=eq.published", as: OiLiveStory.self)
+        try Task.checkCancellation()
+        guard let story = records.first, story.id == id, story.status == "published" else { throw OiServiceError.unavailable }
+        return story
+    }
+
     func collectionMetrics(token: String?) async throws -> [OiCollectionMetric] {
         var values: [OiCollectionMetric] = []
         var offset = 0

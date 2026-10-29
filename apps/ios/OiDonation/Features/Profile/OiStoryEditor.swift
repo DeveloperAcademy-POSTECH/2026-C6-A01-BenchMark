@@ -1,7 +1,6 @@
 // Created by 이돈혁
 
 import ImageIO
-import MapKit
 import PhotosUI
 import SwiftUI
 
@@ -275,42 +274,57 @@ private struct OiLocalPhoto: View {
 private struct OiLocationPicker: View {
     @Binding var latitude: Double?
     @Binding var longitude: Double?
-    @State private var position = MapCameraPosition.automatic
-    @State private var error: String?
+    @State private var scene = CampusExploreScene()
+    @State private var isOnScreen = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack {
-            MapReader { proxy in
-                Map(position: $position) {
-                    if let latitude, let longitude { Marker("선택 위치", coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude)) }
+            CampusMapSurface(scene: scene)
+                .ignoresSafeArea(.container, edges: .top)
+                .safeAreaInset(edge: .bottom) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if let error = scene.error ?? scene.placementError {
+                            Text(error).foregroundStyle(.red)
+                            Button("다시 시도") { Task { await prepare() } }
+                        } else if scene.isLoading || scene.placementLoading {
+                            ProgressView("캠퍼스 지도 준비 중")
+                        }
+                        Text(scene.placementMessage).font(.footnote)
+                        CampusPlacementTools(scene: scene)
+                    }.padding().background(.regularMaterial)
                 }
-                .onTapGesture { point in
-                    guard let coordinate = proxy.convert(point, from: .local) else { return }
-                    do {
-                        let data = try CampusMapData.load()
-                        let point = data.world(latitude: coordinate.latitude, longitude: coordinate.longitude)
-                        if let error = data.placementError(at: point) { self.error = error; return }
-                        latitude = coordinate.latitude; longitude = coordinate.longitude; error = nil
-                    } catch { self.error = error.localizedDescription }
+                .navigationTitle("위치 설정").navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("취소") { dismiss() } }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("선택 완료") {
+                            guard let point = scene.draftPoint, let data = scene.data,
+                                  data.placementError(at: point) == nil else { return }
+                            let coordinate = data.coordinate(point)
+                            latitude = coordinate.latitude; longitude = coordinate.longitude
+                            dismiss()
+                        }.disabled(scene.draftPoint == nil || !scene.placementReady)
+                    }
                 }
-                .onAppear {
-                    do {
-                        let data = try CampusMapData.load()
-                        let points = data.bounds.flatMap { $0 }.map { data.coordinate(data.world($0)) }
-                        guard let minLatitude = points.map(\.latitude).min(), let maxLatitude = points.map(\.latitude).max(),
-                              let minLongitude = points.map(\.longitude).min(), let maxLongitude = points.map(\.longitude).max() else { throw OiServiceError.unavailable }
-                        position = .region(MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: (minLatitude+maxLatitude)/2, longitude: (minLongitude+maxLongitude)/2),
-                            span: MKCoordinateSpan(latitudeDelta: (maxLatitude-minLatitude)*1.1, longitudeDelta: (maxLongitude-minLongitude)*1.1)))
-                    } catch { self.error = error.localizedDescription }
-                }
-            }
-            .safeAreaInset(edge: .bottom) {
-                Text(error ?? "캠퍼스의 건물 바깥 공간을 눌러주세요.").font(.footnote).padding().frame(maxWidth: .infinity).background(.regularMaterial)
-            }
-            .navigationTitle("위치 설정").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("선택 완료") { dismiss() }.disabled(latitude == nil || error != nil) } }
         }
+        .task { await prepare() }
+        .onAppear { isOnScreen = true; scene.setVisible(scenePhase == .active) }
+        .onDisappear { isOnScreen = false; scene.endPlacement(); scene.setVisible(false) }
+        .onChange(of: scenePhase) { _, phase in scene.setVisible(isOnScreen && phase == .active) }
+    }
+
+    private func prepare() async {
+        await scene.load()
+        guard !Task.isCancelled else { return }
+        await scene.preparePlacements()
+        guard !Task.isCancelled, scene.placementReady else { return }
+        let existing: CampusPlacement?
+        if let latitude, let longitude {
+            existing = CampusPlacement(storyID: "draft-location", latitude: latitude, longitude: longitude)
+        } else { existing = nil }
+        scene.beginPlacement(editing: existing)
     }
 }
 
