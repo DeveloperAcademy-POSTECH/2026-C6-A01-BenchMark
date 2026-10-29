@@ -124,6 +124,12 @@ final class OiRemoteStore {
         catch { if started == generation { loadError = error.localizedDescription; noteAuthenticationFailure(error) } }
     }
 
+    /// Always query as the public role so even an owner cannot render a hidden story in AR.
+    func publishedStory(_ id: UUID) async throws -> OiLiveStory {
+        guard let api else { throw OiServiceError.configuration }
+        return try await api.publishedStory(id)
+    }
+
     private func load() async throws {
         guard let api else { throw OiServiceError.configuration }
         let started = generation

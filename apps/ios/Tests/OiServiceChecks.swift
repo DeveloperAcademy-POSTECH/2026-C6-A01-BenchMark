@@ -48,6 +48,34 @@ struct OiServiceChecks {
         let profiles = try await api.rows("oi_profiles", as: OiProfile.self)
         precondition(profiles.count == 201 && Set(profiles.map(\.id)).count == 201)
 
+        let publicID = UUID()
+        func publicFixture(status: String, id: UUID) throws -> Data {
+            try JSONSerialization.data(withJSONObject: [[
+                "id": id.uuidString, "user_id": UUID().uuidString, "grant_id": UUID().uuidString,
+                "region_id": "pond", "title": "Test", "body": "Test story", "theme": "Test", "emotion": "Test",
+                "cucumber_name": "Test", "cucumber_asset": "OiCats", "card_asset": "MYBasicCard",
+                "latitude": 36.012, "longitude": 129.32, "status": status, "revision": 1,
+                "created_at": "2026-10-28T00:00:00Z"
+            ]])
+        }
+        let publicData = try publicFixture(status: "published", id: publicID)
+        OiURLProtocol.handler = { request in
+            precondition(request.url?.path == "/rest/v1/oi_stories")
+            precondition(request.value(forHTTPHeaderField: "Authorization") == nil)
+            let query = URLComponents(url: request.url ?? URL(fileURLWithPath: "/"), resolvingAgainstBaseURL: false)?.queryItems ?? []
+            precondition(query.contains { $0.name == "id" && $0.value == "eq.\(publicID.uuidString)" })
+            precondition(query.contains { $0.name == "status" && $0.value == "eq.published" })
+            return (200, publicData)
+        }
+        let publicStory = try await api.publishedStory(publicID)
+        precondition(publicStory.id == publicID)
+        for invalid in [Data("[]".utf8), try publicFixture(status: "hidden", id: publicID), try publicFixture(status: "published", id: UUID())] {
+            OiURLProtocol.handler = { _ in (200, invalid) }
+            do { _ = try await api.publishedStory(publicID); preconditionFailure("Non-public or mismatched AR story accepted") }
+            catch OiServiceError.unavailable {}
+        }
+        print("PASS: AR public-role lookup, stable story identity, hidden/deleted/mismatched story rejection")
+
         OiURLProtocol.handler = { request in
             precondition(request.url?.path == "/rest/v1/rpc/oi_mutate")
             precondition(request.value(forHTTPHeaderField: "Authorization") == "Bearer test-user-token")

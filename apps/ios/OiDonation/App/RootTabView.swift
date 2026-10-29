@@ -9,6 +9,7 @@ struct RootTabView: View {
     @State private var isCameraCoverActive = false
     @State private var remote = OiRemoteStore()
     @State private var showingAccount = false
+    @State private var geoPlacement: CampusPlacement?
     @Environment(\.scenePhase) private var scenePhase
 
     init(container: AppContainer = .pilot) {
@@ -24,7 +25,7 @@ struct RootTabView: View {
                 store: store,
                 myDemo: myDemo,
                 isCameraCoverActive: isCameraCoverActive,
-                onCamera: { path = NavigationPath(); isCameraCoverActive = true; isARPresented = true },
+                onCamera: { geoPlacement = nil; path = NavigationPath(); isCameraCoverActive = true; isARPresented = true },
                 onOpenProfile: { path.append(MYDestination.workshop) },
                 onOpenStory: { path.append(CampusDestination.summary($0)) },
                 remote: container.showsDesignExamples ? nil : remote,
@@ -33,7 +34,16 @@ struct RootTabView: View {
             .navigationDestination(for: CampusDestination.self) { destination in
                 switch destination {
                 case .summary(let id):
-                    if let story = store.story(id) { CampusSummaryView(story: story, store: store) }
+                    if let story = store.story(id) {
+                        CampusSummaryView(story: story, store: store)
+                            .toolbar {
+                                if story.latitude != nil && story.longitude != nil {
+                                    ToolbarItem(placement: .topBarTrailing) {
+                                        Button("현장 AR", systemImage: "arkit") { openGeoStory(story) }
+                                    }
+                                }
+                            }
+                    }
                 case .story(let id):
                     if let story = store.story(id) { CampusStoryDetailView(story: story, store: store) }
                 }
@@ -65,11 +75,22 @@ struct RootTabView: View {
         .fullScreenCover(isPresented: $isARPresented, onDismiss: {
             // Restore the map only after the camera's dismissal has finished.
             isCameraCoverActive = false
-        }) { ARView() }
+        }) {
+            if let geoPlacement {
+                CampusGeoARScreen(placement: geoPlacement, stories: store, remote: remote)
+            } else { ARView() }
+        }
         .onOpenURL { handlePublicLink($0) }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL { handlePublicLink(url) }
         }
+    }
+
+    private func openGeoStory(_ story: CampusStory) {
+        guard let id = UUID(uuidString: story.id), let latitude = story.latitude, let longitude = story.longitude else { return }
+        geoPlacement = CampusPlacement(id: id, storyID: story.id, latitude: latitude, longitude: longitude)
+        isCameraCoverActive = true
+        isARPresented = true
     }
 
     private func synchronizeRemote() {
