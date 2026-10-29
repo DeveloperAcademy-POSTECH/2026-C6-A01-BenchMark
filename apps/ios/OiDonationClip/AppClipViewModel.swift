@@ -39,7 +39,8 @@ final class AppClipViewModel {
     private(set) var state: State = .welcome
     private(set) var invocationURL: URL?
     private(set) var storyID: String?
-    private(set) var story: Story?
+    private(set) var experience: AppClipExperience?
+    var story: Story? { experience?.story }
     init(linkParser: PublicLinkParser? = nil, storyRepository: any StoryRepository) {
         self.linkParser = linkParser
         self.storyRepository = storyRepository
@@ -50,7 +51,7 @@ final class AppClipViewModel {
         invocationID = currentInvocation
         self.invocationURL = invocationURL
         storyID = nil
-        story = nil
+        experience = nil
 
         guard let invocationURL else {
             state = .invalidLink
@@ -70,12 +71,20 @@ final class AppClipViewModel {
         do {
             let fetchedStory = try await storyRepository.fetchPublicStory(storyID: id)
             guard invocationID == currentInvocation, !Task.isCancelled else { return }
-            if let fetchedStory {
-                self.story = fetchedStory
-                state = .ready
-            } else {
+            guard let fetchedStory else {
                 state = .storyNotFound
+                return
             }
+
+            let fetchedStoryCard = try await storyRepository.fetchPublicStoryCard(storyID: id)
+            guard invocationID == currentInvocation, !Task.isCancelled else { return }
+            guard let fetchedStoryCard else {
+                state = .loadFailed
+                return
+            }
+
+            experience = AppClipExperience(story: fetchedStory, storyCard: fetchedStoryCard)
+            state = .ready
         } catch is CancellationError {
             return
         } catch {
@@ -88,7 +97,7 @@ final class AppClipViewModel {
         invocationID = UUID()
         invocationURL = nil
         storyID = nil
-        story = nil
+        experience = nil
         state = .welcome
     }
 }

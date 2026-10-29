@@ -10,8 +10,12 @@ import AVFoundation
 import SwiftUI
 
 struct ARGameFlowView: View {
-    let story: Story
+    let experience: AppClipExperience
     let onBack: () -> Void
+
+    private var story: Story { experience.story }
+
+    @State private var collectionStore = StoryCollectionStore()
 
     @State private var viewModel = ARGameViewModel(
         isARSupported: {
@@ -27,7 +31,8 @@ struct ARGameFlowView: View {
             switch viewModel.state {
             case .intro:
                 ARGameIntroView(
-                    cucumberName: story.title,
+                    cucumberName: story.cucumberName,
+                    cucumberImageURL: story.cucumberImageURL,
                     targetCount: 3,
                     timeLimitSeconds: 30,
                     onBack: onBack
@@ -39,21 +44,24 @@ struct ARGameFlowView: View {
                     .task {
                         await viewModel.resolvePermission()
                     }
-            case .playing:
-                ZStack(alignment: .topLeading) {
-                    ARGameCameraView()
+            case .starting:
+                ZStack {
+                    Color.black.opacity(0.95)
                         .ignoresSafeArea()
-
-                    Button(action: onBack) {
-                        Image(systemName: "chevron.left")
-                            .font(.headline)
-                    }
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
-                    .controlSize(.large)
-                    .padding()
-                    .accessibilityLabel("AR 게임 나가기")
+                    Text("시작!")
+                        .font(.custom("KIMWILDgag-BOLD", size: 60, relativeTo: .largeTitle))
+                        .foregroundStyle(.white)
                 }
+                .task {
+                    try? await Task.sleep(for: .milliseconds(700))
+                    viewModel.beginPlaying()
+                }
+            case .playing:
+                ARGamePlayingView(
+                    viewModel: viewModel,
+                    cucumberImageURL: story.cucumberImageURL,
+                    onBack: onBack
+                )
             case .permissionDenied:
                 statePanel(
                     title: "카메라 권한이 필요해요",
@@ -62,11 +70,18 @@ struct ARGameFlowView: View {
                     action: onBack
                 )
             case .success:
-                statePanel(title: "수집 성공", buttonTitle: "처음으로") {
-                    viewModel.reset()
+                ARGameSuccessView {
+                    viewModel.showStoryCard()
+                }
+            case .storyCard:
+                AppClipStoryCardView(
+                    experience: experience,
+                    isCollected: collectionStore.contains(storyID: story.storyID)
+                ) {
+                    collectionStore.collect(experience.storyCard)
                 }
             case .failure:
-                statePanel(title: "수집 실패", buttonTitle: "다시 시도") {
+                ARGameFailureView {
                     viewModel.reset()
                 }
             case .unavailable:
@@ -78,7 +93,6 @@ struct ARGameFlowView: View {
                 )
             }
         }
-        .buttonStyle(.borderedProminent)
     }
 
     private func statePanel(
@@ -96,6 +110,7 @@ struct ARGameFlowView: View {
                     .foregroundStyle(.secondary)
             }
             Button(buttonTitle, action: action)
+                .buttonStyle(.borderedProminent)
         }
         .padding()
     }

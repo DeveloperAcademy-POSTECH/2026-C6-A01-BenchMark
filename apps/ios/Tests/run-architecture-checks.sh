@@ -7,6 +7,8 @@ xcrun swiftc -parse-as-library \
   "$IOS_ROOT/OiDonation/Domain/Models/Participation.swift" \
   "$IOS_ROOT/OiDonation/Domain/Models/HomeDashboard.swift" \
   "$IOS_ROOT/OiDonation/Domain/Models/Story.swift" \
+  "$IOS_ROOT/OiDonation/Domain/Models/StoryCard.swift" \
+  "$IOS_ROOT/OiDonation/Domain/Models/CollectedStoryCard.swift" \
   "$IOS_ROOT/OiDonation/Domain/Repositories/Repositories.swift" \
   "$IOS_ROOT/OiDonation/Domain/Repositories/StoryRepository.swift" \
   "$IOS_ROOT/OiDonation/Domain/Routing/PublicLinkParser.swift" \

@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ARGameIntroView: View {
     let cucumberName: String
+    let cucumberImageURL: URL?
     let targetCount: Int
     let timeLimitSeconds: Int
     let onBack: () -> Void
@@ -103,9 +104,7 @@ struct ARGameIntroView: View {
                 .opacity(0.55)
                 .blur(radius: 24 * scale)
 
-            Image("ARGameIntroCucumber")
-                .resizable()
-                .scaledToFill()
+            CucumberCharacterImage(imageURL: cucumberImageURL, contentMode: .fill)
                 .frame(width: 212 * scale, height: 338 * scale)
                 .clipped()
         }
@@ -153,6 +152,7 @@ struct ARGameIntroView: View {
 #Preview("AR 게임 시작", traits: .fixedLayout(width: 402, height: 874)) {
     ARGameIntroView(
         cucumberName: "화성갈끄니까오이",
+        cucumberImageURL: nil,
         targetCount: 3,
         timeLimitSeconds: 30,
         onBack: {},
@@ -163,6 +163,7 @@ struct ARGameIntroView: View {
 #Preview("작은 화면", traits: .fixedLayout(width: 375, height: 667)) {
     ARGameIntroView(
         cucumberName: "아주 긴 이름을 가진 우주 오이",
+        cucumberImageURL: nil,
         targetCount: 3,
         timeLimitSeconds: 30,
         onBack: {},

@@ -4,9 +4,11 @@ import SwiftUI
 
 struct MYCollectionView: View {
     let demo: MYDemoStore
-    var school: MYSchool? = nil
+    let school: MYSchool?
+    @State private var collectedLibrary: CollectedStoryLibrary
     @State private var sort = CampusStorySort.latest
     @State private var selectedCard: MYDemoCard?
+    @State private var selectedCollectedCard: CollectedStoryLibraryItem?
     @State private var detailCard: MYDemoCard?
     @State private var selectedDetail: MYDemoCard?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -16,10 +18,29 @@ struct MYCollectionView: View {
     private var cards: [MYDemoCard] { demo.visibleCards(filter: filter, school: school, sort: sort) }
     private var showsFolders: Bool { filter == .schools && school == nil }
 
+    init(
+        demo: MYDemoStore,
+        school: MYSchool? = nil,
+        storyRepository: any StoryRepository
+    ) {
+        self.demo = demo
+        self.school = school
+        _collectedLibrary = State(
+            initialValue: CollectedStoryLibrary(
+                repository: storyRepository,
+                collectionStore: StoryCollectionStore()
+            )
+        )
+    }
+
     var body: some View {
         VStack(spacing: 12) {
             sortBar
             ScrollView {
+                if shouldShowCollectedSection {
+                    collectedSection
+                }
+
                 if showsFolders {
                     schoolFolders
                 } else if cards.isEmpty {
@@ -42,12 +63,90 @@ struct MYCollectionView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarRole(.navigationStack)
         .safeAreaInset(edge: .bottom) { collectionFilters }
+        .task { await collectedLibrary.load() }
+        .refreshable { await collectedLibrary.load() }
         .sheet(item: $selectedCard, onDismiss: {
             if let card = detailCard { detailCard = nil; selectedDetail = card }
         }) { card in
             cardOverlay(card)
         }
+        .sheet(item: $selectedCollectedCard) { item in
+            collectedCardOverlay(item)
+        }
         .navigationDestination(item: $selectedDetail) { card in MYCardStoryView(card: card) }
+    }
+
+    private var shouldShowCollectedSection: Bool {
+        school == nil && filter == .all && !collectedLibrary.records.isEmpty
+    }
+
+    private var collectedSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("App Clip에서 수집한 카드")
+                    .font(.custom("Paperlogy-8ExtraBold", size: 19, relativeTo: .headline))
+                Spacer()
+                if collectedLibrary.isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(collectedLibrary.items) { item in
+                        Button { selectedCollectedCard = item } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                collectedCardImage(url: item.storyCard.imageURL)
+                                Text(item.story.cucumberName)
+                                    .font(.custom("Paperlogy-8ExtraBold", size: 15, relativeTo: .caption))
+                                    .foregroundStyle(.black)
+                                    .lineLimit(2)
+                            }
+                            .frame(width: 112, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(item.story.cucumberName) 수집 카드")
+                    }
+
+                    ForEach(collectedLibrary.unavailableRecords) { record in
+                        VStack(alignment: .leading, spacing: 6) {
+                            ContentUnavailableView("연결 대기", systemImage: "arrow.triangle.2.circlepath")
+                                .frame(width: 112, height: 156)
+                                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+                            Text("스토리 \(record.storyID)")
+                                .font(.caption)
+                                .lineLimit(2)
+                        }
+                        .frame(width: 112, alignment: .leading)
+                        .accessibilityLabel("서버 연결을 기다리는 수집 카드")
+                    }
+                }
+            }
+            .scrollIndicators(.hidden)
+        }
+        .padding(.bottom, 16)
+    }
+
+    private func collectedCardImage(url: URL) -> some View {
+        AsyncImage(url: url) { phase in
+            switch phase {
+            case .empty:
+                ProgressView()
+            case .success(let image):
+                image.resizable().scaledToFit()
+            case .failure:
+                Image(systemName: "photo")
+                    .font(.title)
+                    .foregroundStyle(.secondary)
+            @unknown default:
+                Color.clear
+            }
+        }
+        .frame(width: 112, height: 156)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .shadow(color: .black.opacity(0.16), radius: 3, x: 1, y: 2)
     }
 
     private var sortBar: some View {
@@ -188,6 +287,37 @@ struct MYCollectionView: View {
         }.padding(20).presentationDetents([.large]).presentationDragIndicator(.visible)
             .presentationBackground(.ultraThinMaterial)
     }
+
+    private func collectedCardOverlay(_ item: CollectedStoryLibraryItem) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                AsyncImage(url: item.storyCard.imageURL) { phase in
+                    switch phase {
+                    case .empty:
+                        ProgressView("카드를 불러오는 중이에요")
+                            .frame(maxWidth: .infinity, minHeight: 320)
+                    case .success(let image):
+                        image.resizable().scaledToFit()
+                    case .failure:
+                        ContentUnavailableView("카드를 불러오지 못했어요", systemImage: "photo")
+                            .frame(minHeight: 320)
+                    @unknown default:
+                        Color.clear
+                    }
+                }
+                Text(item.story.cucumberName)
+                    .font(.custom("Paperlogy-8ExtraBold", size: 28, relativeTo: .title))
+                Text(item.story.content)
+                    .font(.body)
+                Text("수집일 \(item.record.collectedAt.formatted(date: .abbreviated, time: .omitted))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(20)
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
 }
 
 private struct MYSchoolFolder: View {
@@ -234,4 +364,8 @@ struct MYCardStoryView: View {
     }
 }
 
-#Preview("도감") { NavigationStack { MYCollectionView(demo: MYDemoStore()) } }
+#Preview("도감") {
+    NavigationStack {
+        MYCollectionView(demo: MYDemoStore(), storyRepository: AppContainer.preview.storyRepository)
+    }
+}

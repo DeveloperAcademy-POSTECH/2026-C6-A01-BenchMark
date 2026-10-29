@@ -62,8 +62,10 @@ struct HomeView: View {
             case .workshop:
                 MYWorkshopView(container: container, store: store, demo: myDemo, onCamera: openCamera)
             case .farm: MYFarmView()
-            case .collection: MYCollectionView(demo: myDemo)
-            case .school(let school): MYCollectionView(demo: myDemo, school: school)
+            case .collection:
+                MYCollectionView(demo: myDemo, storyRepository: container.storyRepository)
+            case .school(let school):
+                MYCollectionView(demo: myDemo, school: school, storyRepository: container.storyRepository)
             }
         }
         .sheet(isPresented: $showingSchools) {

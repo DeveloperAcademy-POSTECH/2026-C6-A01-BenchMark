@@ -213,3 +213,15 @@ AI 작업 요청 예시:
 ## MY 작업실 더미 화면 — 2026-10-28 / #98
 
 사용자 요청으로 기본맵의 프로필 버튼을 `MYDestination` 기반 작업실 화면 이동으로 연결한다. 창문·책장·갈퀴에서 내 농장·기부도감·기존 프로필 메뉴로 이동한다. `MYDemoStore`의 카드와 즐겨찾기는 세션 메모리 전용이며 실제 지도 수집·기부·증빙 승인·학교 데이터와 구분한다. 화면 범위, 원본 Figma 자산, 적응형 배치 및 검증 방법은 [MY 작업실 문서](../apps/ios/docs/my-workshop.md)를 따른다. 서버·꾸미기·수집 정책 전체의 승인을 의미하지 않는다.
+
+## App Clip 공용 스토리 모델 — 2026-10-28 / #86 브랜치
+
+App Clip의 AR 수집 성공 후 스토리 요약을 표시할 수 있도록 공용 `Story`에 공개 기부자명, 발행일, 표시 장소, 태그, 오이 식별자와 표시 정보를 포함한다. 장소는 화면용 문자열만 저장하지 않고 `StoryLocation`의 식별자와 표시명으로 구분한다. 수집 카드는 스토리 본문과 중복하지 않고 `StoryCard`로 분리하며 `storyID`로 원본 스토리를 참조한다. `AppClipExperience`는 `Story`와 `StoryCard`를 한 경험으로 묶는다.
+
+`CampusStory`, `DonationDesignCard`, `MYDemoCard`는 현재 각 화면의 디자인 예시이므로 이 변경으로 즉시 교체하지 않는다. 실제 서버 DTO·이미지 URL·계정별 수집 API와 기존 데모 화면의 공용 모델 이전은 별도 이슈에서 합의한다.
+
+## App Clip 수집 기록 공유 — 2026-10-29 / #86 브랜치
+
+App Clip에서 성공한 카드의 `storyID`, `cardID`, 수집 시각을 `group.com.Spero.OiDonation` App Group의 `UserDefaults`에 저장한다. `StoryCollectionStore`는 같은 스토리의 중복 수집을 무시하며 App Clip과 전체 앱 타깃이 동일한 기록을 읽는다. 카드 이미지와 본문 사본은 공유 컨테이너에 저장하지 않고, 전체 앱이 식별자로 서버의 최신 공개 데이터를 다시 조회하는 경계를 유지한다.
+
+전체 앱 도감은 공유 기록을 읽어 `StoryRepository`에서 Story와 StoryCard를 조회하고, 성공한 항목을 기존 `MYDemoStore` 디자인 예시와 분리된 `App Clip에서 수집한 카드` 영역에 표시한다. Repository가 아직 데이터를 제공하지 못하면 기록을 삭제하지 않고 연결 대기로 표시한다. 로그인 후 계정 귀속, 서버 동기화 및 다른 기기 복원은 서버 API와 인증 계약이 확정된 뒤 연결한다. App Group 식별자는 배포 서명 전에 Apple Developer의 두 App ID와 프로비저닝 프로파일에 같은 값으로 등록되어야 한다.

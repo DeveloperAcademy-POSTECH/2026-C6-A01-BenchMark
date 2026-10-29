@@ -17,6 +17,13 @@ private actor ControlledStoryRepository: StoryRepository {
         }
     }
 
+    func fetchPublicStoryCard(storyID: String) async throws -> StoryCard? {
+        guard storyID != "missing-card" else { return nil }
+        let imageURL = URL(string: "https://example.com/story-cards/\(storyID).png")
+            ?? URL(fileURLWithPath: "/\(storyID).png")
+        return StoryCard(cardID: "card-\(storyID)", storyID: storyID, imageURL: imageURL)
+    }
+
     func waitForRequest(_ id: String) async {
         if pending[id] != nil { return }
         await withCheckedContinuation { waiting[id] = $0 }
@@ -97,13 +104,25 @@ struct AppClipInvocationChecks {
 
         let storyModel = AppClipViewModel(linkParser: PublicLinkParser(allowedHost: "approved.example"),
                                          storyRepository: repository)
-        let story = Story(storyID: "first", donorID: UUID(), title: "Test", content: "Test content")
+        let story = Story(
+            storyID: "first",
+            donorID: UUID(),
+            donorDisplayName: "Test donor",
+            title: "Test",
+            content: "Test content",
+            publishedAt: Date(timeIntervalSince1970: 0),
+            location: StoryLocation(locationID: "test-location", displayName: "Test location"),
+            tags: ["Test"],
+            cucumberID: "test-cucumber",
+            cucumberName: "Test cucumber"
+        )
         let first = Task { await storyModel.handleInvocationURL(invocationURL: url("https://approved.example/stories/first")) }
         await repository.waitForRequest("first")
         require(storyModel.state == .loading, "story loading")
         await repository.finish("first", result: .success(story))
         await first.value
         require(storyModel.state == .ready && storyModel.story?.storyID == "first", "story success")
+        require(storyModel.experience?.storyCard.storyID == "first", "story card success")
 
         let delayed = Task { await storyModel.handleInvocationURL(invocationURL: url("https://approved.example/stories/delayed")) }
         await repository.waitForRequest("delayed")
@@ -125,6 +144,12 @@ struct AppClipInvocationChecks {
         await missing.value
         require(storyModel.state == .storyNotFound, "missing story")
 
+        let missingCard = Task { await storyModel.handleInvocationURL(invocationURL: url("https://approved.example/stories/missing-card")) }
+        await repository.waitForRequest("missing-card")
+        await repository.finish("missing-card", result: .success(story))
+        await missingCard.value
+        require(storyModel.state == .loadFailed && storyModel.experience == nil, "missing story card")
+
         let failed = Task { await storyModel.handleInvocationURL(invocationURL: url("https://approved.example/stories/failed")) }
         await repository.waitForRequest("failed")
         await repository.finish("failed", result: .failure(CheckError.failed))
@@ -140,6 +165,7 @@ struct AppClipInvocationChecks {
         require(storyModel.state == .welcome && storyModel.story == nil, "cancelled task must not publish content")
 
         let gameModel = ARGameViewModel(
+            timeLimitSeconds: 2,
             isARSupported: { true },
             requestCameraAccess: { true }
         )
@@ -149,13 +175,43 @@ struct AppClipInvocationChecks {
         gameModel.requestPermission()
         require(gameModel.state == .requestingPermission, "AR game requests permission")
         await gameModel.resolvePermission()
+        require(gameModel.state == .starting, "AR game shows starting transition after permission")
+        gameModel.beginPlaying()
         require(gameModel.state == .playing, "AR game starts after permission")
-        gameModel.finishGame(succeeded: true)
+        gameModel.collectCucumber()
+        gameModel.collectCucumber()
+        require(gameModel.state == .playing, "AR game continues before target count")
+        gameModel.collectCucumber()
         require(gameModel.state == .success, "AR game reaches success")
+        gameModel.showStoryCard()
+        require(gameModel.state == .storyCard, "AR game opens the story card after success")
+
+        let collectionSuite = "AppClipInvocationChecks.\(UUID().uuidString)"
+        guard let collectionDefaults = UserDefaults(suiteName: collectionSuite) else {
+            preconditionFailure("Unable to create collection test defaults")
+        }
+        collectionDefaults.removePersistentDomain(forName: collectionSuite)
+        let storyCard = storyModel.experience?.storyCard
+            ?? StoryCard(
+                cardID: "card-first",
+                storyID: "first",
+                imageURL: url("https://example.com/story-cards/first.png")
+            )
+        let collectionStore = StoryCollectionStore(defaults: collectionDefaults)
+        require(collectionStore.collect(storyCard, at: Date(timeIntervalSince1970: 1)), "first collection is stored")
+        require(!collectionStore.collect(storyCard, at: Date(timeIntervalSince1970: 2)), "duplicate collection is ignored")
+        require(collectionStore.cards.count == 1, "one collection record is stored per story")
+        let reopenedCollectionStore = StoryCollectionStore(defaults: collectionDefaults)
+        require(reopenedCollectionStore.cards == collectionStore.cards, "full app can reopen App Clip collection records")
+        collectionDefaults.removePersistentDomain(forName: collectionSuite)
+
         gameModel.reset()
         gameModel.requestPermission()
         await gameModel.resolvePermission()
-        gameModel.finishGame(succeeded: false)
+        gameModel.beginPlaying()
+        gameModel.elapseSecond()
+        require(gameModel.state == .playing, "AR game continues before timer expires")
+        gameModel.elapseSecond()
         require(gameModel.state == .failure, "AR game reaches failure")
         gameModel.reset()
         require(gameModel.state == .intro, "AR game resets to intro")

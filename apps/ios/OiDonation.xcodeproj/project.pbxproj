@@ -7,8 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		C02610260000000000000001 /* OiDonation.icon in Resources */ = {isa = PBXBuildFile; fileRef = C02610260000000000000002 /* OiDonation.icon */; };
 		87169571307CB1D00090D456 /* OiDonationClip.app in Embed App Clips */ = {isa = PBXBuildFile; fileRef = 87169565307CB1CF0090D456 /* OiDonationClip.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		C02610260000000000000001 /* OiDonation.icon in Resources */ = {isa = PBXBuildFile; fileRef = C02610260000000000000002 /* OiDonation.icon */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -36,9 +36,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		C02610260000000000000002 /* OiDonation.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = OiDonation.icon; path = "../../design/app-icon/OiDonation.icon"; sourceTree = SOURCE_ROOT; };
 		87169565307CB1CF0090D456 /* OiDonationClip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OiDonationClip.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8736DA6930777C9800D0CFC9 /* OiDonation.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OiDonation.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C02610260000000000000002 /* OiDonation.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = OiDonation.icon; path = "../../design/app-icon/OiDonation.icon"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -52,11 +52,17 @@
 		8716959A307D0BAE0090D456 /* Exceptions for "OiDonation" folder in "OiDonationClip" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Domain/Models/CollectedStoryCard.swift,
 				Domain/Models/Story.swift,
+				Domain/Models/StoryCard.swift,
 				Domain/Repositories/StoryRepository.swift,
 				Domain/Routing/AppClipLink.swift,
 				Domain/Routing/PublicLinkParser.swift,
-				Resources/Fonts/PearToucan-Regular.ttf,
+				"Resources/Fonts/Griun_OMIRI-Rg.ttf",
+				"Resources/Fonts/KIM-WILDgag-Bold.ttf",
+				Resources/Fonts/Mona12TextKR.ttf,
+				"Resources/Fonts/Paperlogy-6SemiBold.ttf",
+				"Resources/Fonts/PearToucan-Regular.ttf",
 			);
 			target = 87169564307CB1CF0090D456 /* OiDonationClip */;
 		};
