@@ -241,3 +241,7 @@ App Clip의 AR 수집 성공 후 스토리 요약을 표시할 수 있도록 공
 App Clip에서 성공한 카드의 `storyID`, `cardID`, 수집 시각을 `group.com.Spero.OiDonation` App Group의 `UserDefaults`에 저장한다. `StoryCollectionStore`는 같은 스토리의 중복 수집을 무시하며 App Clip과 전체 앱 타깃이 동일한 기록을 읽는다. 카드 이미지와 본문 사본은 공유 컨테이너에 저장하지 않고, 전체 앱이 식별자로 서버의 최신 공개 데이터를 다시 조회하는 경계를 유지한다.
 
 전체 앱 도감은 공유 기록을 읽어 `StoryRepository`에서 Story와 StoryCard를 조회하고, 성공한 항목을 기존 `MYDemoStore` 디자인 예시와 분리된 `App Clip에서 수집한 카드` 영역에 표시한다. Repository가 아직 데이터를 제공하지 못하면 기록을 삭제하지 않고 연결 대기로 표시한다. 로그인 후 계정 귀속, 서버 동기화 및 다른 기기 복원은 서버 API와 인증 계약이 확정된 뒤 연결한다. App Group 식별자는 배포 서명 전에 Apple Developer의 두 App ID와 프로비저닝 프로파일에 같은 값으로 등록되어야 한다.
+
+## 15. iOS 벤치 사진 명패 미리보기 — 2026-10-14 / #73
+
+참여 신청의 기존 문구 Binding을 명패 확대/벤치 전체 보기에 연결한다. 직렬 `PlaquePreviewRenderer` actor가 Core Text 명패와 Core Image 원근 합성을 하나의 결과로 생성한다. `Bench.plaquePreview`는 사진별 네 모서리·에셋·버전의 선택적 설정이며 실제 승인된 학교 사진/위치 공급은 아직 없다. 후원 화면에서 별도 체험이 가능하고, 실제 사진 선택과 위치 조정은 임시 기기 내 상태로만 사용한다. API·수납·명패 정책은 변경하지 않는다. 자세한 사용법·제약·검증은 [명패 사진 미리보기](../apps/ios/docs/plaque-photo-preview.md)를 따른다.
