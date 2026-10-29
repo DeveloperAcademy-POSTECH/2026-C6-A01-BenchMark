@@ -5,7 +5,8 @@ struct UnconnectedPilotRepository: HomeRepository, BenchRepository, Participatio
     func fetchDashboard() async throws -> HomeDashboard? { nil }
     func fetchBenches() async throws -> [Bench] { [] }
     func fetchApplications() async throws -> [ParticipationApplication] { [] }
-    func fetchPublicStory(plaqueID: String) async throws -> Story? { nil }
+    func fetchPublicStory(storyID: String) async throws -> Story? { nil }
+    func fetchPublicStoryCard(storyID: String) async throws -> StoryCard? { nil }
     func submit(_ draft: ParticipationDraft, idempotencyKey: UUID) async throws -> ParticipationApplication {
         throw ParticipationError.serviceUnavailable
     }
