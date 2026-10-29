@@ -35,6 +35,8 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     var capturing = false
     var videoRecording = false
     var errorMessage: String?
+    var recoveryIssue: ARRecoveryIssue?
+    var starting: Bool { lifecycle.starting }
     var result: ARCaptureResult?
     let peopleSupported = ARWorldTrackingConfiguration.supportsFrameSemantics(.personSegmentationWithDepth)
     let meshSupported = ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh)
@@ -48,7 +50,8 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
             && loadedCharacter == settings.character
     }
     private var loadTask: Task<Void, Never>?
-    private var wantsRunning = false
+    private var lifecycle = ARSessionLifecycle()
+    @ObservationIgnored private var cameraAuthorizationTask: Task<Bool, Never>?
     private var pinchStartHeight: Float?
     private var dragStart: (rotation: Float, floorOffset: Float)?
 
@@ -76,39 +79,79 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     }
 
     func start() async {
-        wantsRunning = true
+        await start(recovering: false)
+    }
+
+    private func start(recovering: Bool) async {
+        guard let attempt = lifecycle.beginStart(recovering: recovering) else { return }
         guard ARWorldTrackingConfiguration.isSupported else {
-            message = "AR 촬영은 지원되는 실제 iPhone에서 실행해 주세요. 시뮬레이터에서는 카메라 AR을 사용할 수 없습니다."
+            if lifecycle.rejectStart(attempt) { showRecovery(.unsupported) }
             return
         }
-        let allowed = await AVCaptureDevice.requestAccess(for: .video)
-        guard wantsRunning else { return }
-        guard allowed else {
-            message = "카메라 권한이 필요합니다. 설정 앱에서 오이기부의 카메라 접근을 허용해 주세요."
+        if AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined {
+            // Reuse the system prompt if the app resumed before its older request completed.
+            let authorization = cameraAuthorizationTask ?? Task { await AVCaptureDevice.requestAccess(for: .video) }
+            cameraAuthorizationTask = authorization
+            _ = await authorization.value
+            cameraAuthorizationTask = nil
+        }
+        // A newer start may already own the session after a pause during the prompt.
+        guard lifecycle.isCurrent(attempt) else { return }
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized: break
+        case .restricted:
+            if lifecycle.rejectStart(attempt) { showRecovery(.cameraRestricted) }
+            return
+        case .denied, .notDetermined:
+            if lifecycle.rejectStart(attempt) { showRecovery(.cameraDenied) }
+            return
+        @unknown default:
+            if lifecycle.rejectStart(attempt) { showRecovery(.cameraRestricted) }
             return
         }
+        guard lifecycle.completeStart(attempt) else { return }
+        recoveryIssue = nil
         ready = true
-        configureSession()
+        configureSession(resetTracking: attempt.requiresTrackingReset)
         updateBackground()
-        if characterRoot == nil { loadCharacter() }
+        if loadedCharacter != settings.character { loadCharacter() }
+    }
+
+    func retryRecovery() async {
+        guard let recoveryIssue, recoveryIssue.canRetry, !capturing, !videoRecording else { return }
+        switch recoveryIssue {
+        case .characterLoadFailure:
+            if lifecycle.running && ready { loadCharacter() }
+            else { await start() }
+        case .interrupted, .sessionFailure:
+            await start(recovering: true)
+        case .unsupported, .cameraDenied, .cameraRestricted:
+            break
+        }
+    }
+
+    private func showRecovery(_ issue: ARRecoveryIssue) {
+        recoveryIssue = issue
+        message = issue.message
     }
 
     func stop() {
         pause()
-        loadTask?.cancel()
-        loading = false
         animation.stop()
     }
 
     func pause() {
-        wantsRunning = false
+        lifecycle.pause()
+        loadTask?.cancel()
+        loadTask = nil
+        loading = false
         view.session.pause()
         background.setEnabled(false)
         backgroundReady = false
         ready = false
     }
 
-    func configureSession() {
+    func configureSession(resetTracking: Bool = false) {
         guard ready else { return }
         let config = ARWorldTrackingConfiguration()
         config.planeDetection = [.horizontal]
@@ -118,7 +161,12 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
             config.frameSemantics.insert(.personSegmentationWithDepth)
         }
         if meshSupported { config.sceneReconstruction = .mesh }
-        view.session.run(config)
+        if resetTracking {
+            resetPlacement()
+            view.session.run(config, options: [.resetTracking, .removeExistingAnchors])
+        } else {
+            view.session.run(config)
+        }
     }
 
     func update(from previous: ARCaptureSettings) {
@@ -161,7 +209,9 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     }
 
     func loadCharacter() {
+        guard lifecycle.running, ready else { return }
         loadTask?.cancel()
+        if case .characterLoadFailure = recoveryIssue { recoveryIssue = nil }
         loading = true
         let selection = settings.character
         loadTask = Task { [weak self] in
@@ -169,6 +219,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
             do {
                 let (root, model) = try await self.characters.load(selection)
                 try Task.checkCancellation()
+                guard self.lifecycle.running, self.settings.character == selection else { return }
                 model.generateCollisionShapes(recursive: true)
                 self.animation.load(from: model)
                 self.characterRoot?.removeFromParent()
@@ -176,14 +227,16 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
                 self.loadedCharacter = selection
                 self.anchor?.addChild(root)
                 self.loading = false
+                self.loadTask = nil
                 self.applySettings()
                 self.message = self.placed ? "캐릭터를 바꿨습니다." : "캐릭터 준비 완료 · 인식된 바닥을 터치하세요."
             } catch is CancellationError {
                 return
             } catch {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, self.lifecycle.running, self.settings.character == selection else { return }
                 self.loading = false
-                self.errorMessage = "캐릭터 로딩 실패: \(error.localizedDescription)"
+                self.loadTask = nil
+                self.showRecovery(.characterLoadFailure(error.localizedDescription))
             }
         }
     }
@@ -321,6 +374,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     }
 
     func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
+        guard lifecycle.running else { return }
         switch camera.trackingState {
         case .normal: tracking = "추적 정상"
         case .notAvailable: tracking = "추적 불가"
@@ -335,13 +389,37 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         }
     }
 
-    func sessionWasInterrupted(_ session: ARSession) { tracking = "카메라 일시 중단"; background.setEnabled(false); backgroundReady = false; ready = false }
-    func sessionInterruptionEnded(_ session: ARSession) { ready = wantsRunning; configureSession(); updateBackground() }
-    func session(_ session: ARSession, didFailWithError error: Error) {
-        ready = false
+    func sessionWasInterrupted(_ session: ARSession) {
+        guard lifecycle.interrupt() else { return }
+        tracking = "카메라 일시 중단"
+        loadTask?.cancel()
+        loadTask = nil
+        loading = false
         background.setEnabled(false)
         backgroundReady = false
-        errorMessage = "AR 세션 오류: \(error.localizedDescription). 앱을 다시 활성화하거나 재시도해 주세요."
+        ready = false
+        showRecovery(.interrupted)
+    }
+
+    func sessionInterruptionEnded(_ session: ARSession) {
+        guard lifecycle.endInterruption() else { return }
+        if case .interrupted = recoveryIssue { recoveryIssue = nil }
+        ready = true
+        configureSession()
+        updateBackground()
+        if loadedCharacter != settings.character { loadCharacter() }
+    }
+
+    func session(_ session: ARSession, didFailWithError error: Error) {
+        guard lifecycle.fail() else { return }
+        ready = false
+        loadTask?.cancel()
+        loadTask = nil
+        loading = false
+        view.session.pause()
+        background.setEnabled(false)
+        backgroundReady = false
+        showRecovery(.sessionFailure(error.localizedDescription))
     }
 
     func capture() {
