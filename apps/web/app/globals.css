@@ -168,3 +168,15 @@ label{display:block;font-size:14px;font-weight:600}input,textarea,select{display
 .amount-selection{font-size:14px;font-weight:700}
 
 .reservation-question legend small{display:block;font-size:14px;font-weight:400;margin-top:6px}
+
+.activity-description { color: var(--muted); font-size: 13px; margin: 12px 0 20px; }
+.activity-period { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.activity-mode { display: flex; padding: 4px; border-radius: 10px; background: #ece8de; }
+.activity-mode button, .activity-presets button { min-height: 44px; padding: 10px 18px; border: 1px solid transparent; border-radius: 7px; background: transparent; font: inherit; font-size: 14px; }
+.activity-mode button[aria-pressed=true] { background: var(--green); color: white; font-weight: 700; }
+.activity-presets { display: flex; gap: 8px; }
+.activity-presets button { border-color: var(--border); background: white; }
+.activity-details { margin-top: 24px; }
+.activity-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
+.activity-applied { font-size: 14px; font-weight: 600; margin-block: 16px 8px; }
+@media(max-width:440px) { .activity-actions .button { flex: 1 1 100%; } }
