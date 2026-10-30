@@ -3,7 +3,7 @@
 import SwiftUI
 
 struct MYCollectionView: View {
-    let demo: MYDemoStore
+    let demo: MYLibraryStore
     let school: MYSchool?
     var remote: OiRemoteStore?
     @State private var collectedLibrary: CollectedStoryLibrary
@@ -15,23 +15,22 @@ struct MYCollectionView: View {
         get { demo.pinnedOnly }
         nonmutating set { demo.pinnedOnly = newValue }
     }
-    @State private var selectedCard: MYDemoCard?
+    @State private var selectedCard: MYCard?
     @State private var selectedCollectedCard: CollectedStoryLibraryItem?
-    @State private var detailCard: MYDemoCard?
-    @State private var selectedDetail: MYDemoCard?
+    @State private var detailCard: MYCard?
+    @State private var selectedDetail: MYCard?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.dismiss) private var dismiss
 
     private var filter: MYCollectionFilter { demo.collectionFilter }
-    private var cards: [MYDemoCard] { demo.collectionCards(school: school, sort: sort, pinnedOnly: pinnedOnly) }
+    private var cards: [MYCard] { demo.collectionCards(school: school, sort: sort, pinnedOnly: pinnedOnly) }
     private var showsFolders: Bool { filter == .schools && school == nil }
     private var schools: [MYSchool] {
-        let available: [MYSchool] = demo.campusStore == nil ? MYSchool.allCases : [.postech]
-        return available.filter { school in !demo.collectionCards(school: school, sort: sort, pinnedOnly: pinnedOnly).isEmpty }
+        Array(Set(cards.map(\.school))).sorted { $0.name < $1.name }
     }
 
     init(
-        demo: MYDemoStore,
+        demo: MYLibraryStore,
         school: MYSchool? = nil,
         storyRepository: any StoryRepository,
         remote: OiRemoteStore? = nil
@@ -57,7 +56,7 @@ struct MYCollectionView: View {
                 }
                 if let remote, !remote.hasLoadedRemote {
                     if remote.loadError == nil { ProgressView("도감을 불러오는 중") }
-                } else if showsFolders {
+                } else if showsFolders && !schools.isEmpty {
                     schoolFolders
                 } else if cards.isEmpty {
                     ContentUnavailableView(pinnedOnly ? "즐겨찾는 오이가 없어요" : "아직 수집한 카드가 없어요", systemImage: pinnedOnly ? "pin" : "leaf", description: Text(pinnedOnly ? "카드 확대 화면의 핀을 눌러 이 화면에 모아보세요." : "로그인 후 캠퍼스의 공개 오이 이야기를 수집해 보세요."))
@@ -101,7 +100,7 @@ struct MYCollectionView: View {
     }
 
     private var shouldShowCollectedSection: Bool {
-        school == nil && filter == .all && !collectedLibrary.records.isEmpty
+        school == nil && filter == .all && !pinnedOnly && !collectedLibrary.records.isEmpty
     }
 
     private var collectedSection: some View {
@@ -121,7 +120,7 @@ struct MYCollectionView: View {
                     ForEach(collectedLibrary.items) { item in
                         Button { selectedCollectedCard = item } label: {
                             VStack(alignment: .leading, spacing: 6) {
-                                collectedCardImage(url: item.storyCard.imageURL)
+                                VStack { Text(item.story.cucumberName).font(.headline); Text(item.story.content).font(.caption).lineLimit(5) }.padding(10).frame(width: 112, height: 156).background(CampusStyle.lightGreen.opacity(0.3), in: RoundedRectangle(cornerRadius: 10))
                                 Text(item.story.cucumberName)
                                     .font(.custom("Paperlogy-8ExtraBold", size: 15, relativeTo: .caption))
                                     .foregroundStyle(.black)
@@ -152,7 +151,7 @@ struct MYCollectionView: View {
         .padding(.bottom, 16)
     }
 
-    private func collectedCardImage(url: URL) -> some View {
+    private func collectedCardImage(url: URL?) -> some View {
         AsyncImage(url: url) { phase in
             switch phase {
             case .empty:
@@ -180,11 +179,9 @@ struct MYCollectionView: View {
             } else {
                 HStack(spacing: 7) { sortChoices; countBadge }
             }
-            Text(demo.campusStore == nil ? "디자인 예시 · 실제 기부 내역이 아니에요" : "내 계정에 저장한 카드")
+            Text("내 계정에 저장한 카드")
                 .font(.caption2).foregroundStyle(.secondary)
-            if demo.campusStore != nil {
-                Text("카드 그림 안의 문구는 디자인 예시입니다. 실제 이야기는 자세히 보기에서 확인해 주세요.").font(.caption2).foregroundStyle(.secondary)
-            }
+
         }
     }
 
@@ -230,7 +227,7 @@ struct MYCollectionView: View {
             ForEach(cards) { card in
                 VStack(spacing: 0) {
                     Button { selectedCard = card } label: {
-                        Image(card.image).resizable().scaledToFit()
+                        MYCardArtwork(card: card)
                             .shadow(color: .black.opacity(0.2), radius: 3, x: 2, y: 3)
                     }
                     .buttonStyle(.plain).accessibilityLabel("\(card.title) 카드 확대")
@@ -250,7 +247,7 @@ struct MYCollectionView: View {
                         Text(school.rawValue).font(.custom("Paperlogy-6SemiBold", size: 25, relativeTo: .title2))
                             .foregroundStyle(Color(red: 0.41, green: 0.31, blue: 0.13))
                     }
-                }.buttonStyle(.plain).accessibilityLabel("\(school.rawValue), 예시 카드 \(demo.collectionCards(school: school, sort: sort, pinnedOnly: pinnedOnly).count)개")
+                }.buttonStyle(.plain).accessibilityLabel("\(school.rawValue), 수집 카드 \(demo.collectionCards(school: school, sort: sort, pinnedOnly: pinnedOnly).count)개")
                     .accessibilityIdentifier("my.school.\(school.id)")
             }
         }
@@ -285,9 +282,9 @@ struct MYCollectionView: View {
 
     }
 
-    private func cardOverlay(_ card: MYDemoCard) -> some View {
+    private func cardOverlay(_ card: MYCard) -> some View {
         VStack(spacing: 15) {
-            Image(card.image).resizable().scaledToFit().accessibilityLabel("\(card.title), \(card.school.rawValue)의 디자인 예시 카드")
+            MYCardArtwork(card: card).accessibilityLabel("\(card.title), \(card.school.rawValue)의 카드")
             HStack(spacing: 7) {
                 Button { detailCard = card; selectedCard = nil } label: {
                     Text("자세히 보기").font(.custom("Paperlogy-6SemiBold", size: 20, relativeTo: .headline))
@@ -308,24 +305,22 @@ struct MYCollectionView: View {
     private func collectedCardOverlay(_ item: CollectedStoryLibraryItem) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                AsyncImage(url: item.storyCard.imageURL) { phase in
-                    switch phase {
-                    case .empty:
-                        ProgressView("카드를 불러오는 중이에요")
-                            .frame(maxWidth: .infinity, minHeight: 320)
-                    case .success(let image):
-                        image.resizable().scaledToFit()
-                    case .failure:
-                        ContentUnavailableView("카드를 불러오지 못했어요", systemImage: "photo")
-                            .frame(minHeight: 320)
-                    @unknown default:
-                        Color.clear
-                    }
-                }
                 Text(item.story.cucumberName)
                     .font(.custom("Paperlogy-8ExtraBold", size: 28, relativeTo: .title))
                 Text(item.story.content)
                     .font(.body)
+                if let remote {
+                    Button("내 계정 도감에 저장") {
+                        Task {
+                            await remote.perform("collect", payload: ["id": item.story.id])
+                            if remote.collections.contains(where: { $0.storyId.uuidString.caseInsensitiveCompare(item.story.id) == .orderedSame }) {
+                                collectedLibrary.removeImported(storyID: item.story.id)
+                                selectedCollectedCard = nil
+                            }
+                        }
+                    }.disabled(remote.account == nil || remote.isBusy)
+                    if let error = remote.error { Text(error).foregroundStyle(.red) }
+                }
                 Text("수집일 \(item.record.collectedAt.formatted(date: .abbreviated, time: .omitted))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -338,7 +333,7 @@ struct MYCollectionView: View {
 }
 
 private struct MYSchoolFolder: View {
-    let cards: [MYDemoCard]
+    let cards: [MYCard]
 
     var body: some View {
         GeometryReader { geometry in
@@ -346,7 +341,7 @@ private struct MYSchoolFolder: View {
             ZStack(alignment: .topLeading) {
                 Image("MYFolderBack").resizable().frame(width: 171 * scale, height: 228 * scale)
                 ForEach(Array(cards.prefix(3).reversed().enumerated()), id: \.element.id) { index, card in
-                    Image(card.image).resizable().scaledToFit()
+                    MYCardArtwork(card: card)
                         .frame(width: 147.6 * scale, height: 204.7 * scale)
                         .offset(x: [20.7, 11.7, 6.5][index] * scale, y: [9.1, 5.2, 11.7][index] * scale)
                 }
@@ -364,16 +359,16 @@ private struct MYSchoolFolder: View {
 }
 
 struct MYCardStoryView: View {
-    let card: MYDemoCard
+    let card: MYCard
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Image(card.image).resizable().scaledToFit().frame(maxHeight: 502)
-                    .frame(maxWidth: .infinity).accessibilityLabel("\(card.title) 디자인 예시 카드")
+                MYCardArtwork(card: card).frame(maxHeight: 502)
+                    .frame(maxWidth: .infinity).accessibilityLabel("\(card.title) 카드")
                 Text(card.title).font(CampusStyle.heading(28))
                 Text(card.school.rawValue).font(.headline)
-                Text("이 카드와 이야기는 MY 화면을 확인하기 위한 더미 데이터입니다. 실제 기부·증빙 승인·학교 납입 확인과 연결되지 않습니다.")
+                Text(card.body)
                     .font(.body).foregroundStyle(.secondary)
             }.padding(20)
         }.navigationTitle("카드 이야기").navigationBarTitleDisplayMode(.inline)
@@ -383,6 +378,6 @@ struct MYCardStoryView: View {
 
 #Preview("도감") {
     NavigationStack {
-        MYCollectionView(demo: MYDemoStore(), storyRepository: AppContainer.preview.storyRepository)
+        MYCollectionView(demo: MYLibraryStore(), storyRepository: AppContainer.preview.storyRepository)
     }
 }

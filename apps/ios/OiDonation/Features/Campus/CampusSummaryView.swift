@@ -22,7 +22,7 @@ struct CampusSummaryView: View {
         .navigationBarTitleDisplayMode(.inline).toolbarRole(.editor)
         .task {
             await scene.load()
-            if let region = CampusRegion.examples.first(where: { $0.id == story.regionID }) { scene.focusBackdrop(region) }
+            if let region = CampusRegion.campus.first(where: { $0.id == story.regionID }) { scene.focusBackdrop(region) }
         }
         .onAppear { isOnScreen = true; scene.setVisible(scenePhase == .active) }
         .onDisappear { isOnScreen = false; scene.setVisible(false) }
@@ -35,12 +35,7 @@ struct CampusSummaryView: View {
                 Image(story.image).resizable().scaledToFit()
                     .frame(width: geometry.size.width * 0.75, height: geometry.size.height)
                     .shadow(color: .black.opacity(0.18), radius: 12, y: 16)
-                if story.isCats {
-                    NavigationLink(value: CampusDestination.story(story.id)) {
-                        Image("OiStoryCard").resizable().scaledToFit().frame(width: geometry.size.width * 0.28)
-                            .shadow(color: .black.opacity(0.2), radius: 4, y: 4)
-                    }.buttonStyle(.plain).accessibilityLabel("6냥이오이 카드와 이야기 자세히 보기")
-                }
+
             }.frame(width: geometry.size.width, height: geometry.size.height)
         }
     }
@@ -62,17 +57,13 @@ struct CampusSummaryView: View {
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 19)
             ScrollView(.horizontal) {
                 HStack(spacing: 6) {
-                    ForEach(story.gallery, id: \.self) { name in
-                        Image(name).resizable().scaledToFill().frame(width: name == "OiGallery01" ? 219 : 260, height: 146)
-                            .clipped().clipShape(RoundedRectangle(cornerRadius: 20))
-                    }
                     ForEach(story.remoteMediaPaths, id: \.self) { path in
                         OiStoryMediaImage(path: path) { path in
                             guard let resolver = store.mediaURL else { throw OiServiceError.unavailable }
                             return try await resolver(path)
                         }.frame(width: 260, height: 146).clipShape(RoundedRectangle(cornerRadius: 20))
                     }
-                    if story.gallery.isEmpty && story.remoteMediaPaths.isEmpty { Text("첨부된 사진이 없어요").font(.subheadline).frame(width: 320, height: 146).background(CampusStyle.background(story.palette), in: RoundedRectangle(cornerRadius: 20)) }
+                    if story.remoteMediaPaths.isEmpty { Text("첨부된 사진이 없어요").font(.subheadline).frame(width: 320, height: 146).background(CampusStyle.background(story.palette), in: RoundedRectangle(cornerRadius: 20)) }
                 }.padding(.horizontal, 10)
             }.scrollIndicators(.hidden)
             Spacer(minLength: 0)

@@ -5,7 +5,7 @@ import SwiftUI
 struct MYSettingsView: View {
     let container: AppContainer
     let store: CampusStoryStore
-    let demo: MYDemoStore
+    let demo: MYLibraryStore
     let onCamera: () -> Void
     var remote: OiRemoteStore?
     @Environment(\.openURL) private var openURL
@@ -16,10 +16,8 @@ struct MYSettingsView: View {
             VStack(alignment: .leading, spacing: 34) {
                 NavigationLink { account } label: { row("닉네임 설정") }
                 NavigationLink {
-                    List {
-                        Label("POSTECH", systemImage: "checkmark")
-                        Text("현재는 POSTECH 캠퍼스만 지원해요.").font(.footnote).foregroundStyle(.secondary)
-                    }.navigationTitle("학교 설정")
+                    if let remote { MYSchoolSettings(remote: remote) }
+                    else { ContentUnavailableView("로그인이 필요해요", systemImage: "person") }
                 } label: { row("학교 설정") }
                 Button { openAppSettings() } label: { row("권한 허용") }
                 NavigationLink { account } label: { row("로그인 계정") }
@@ -43,11 +41,36 @@ struct MYSettingsView: View {
 
     @ViewBuilder private var account: some View {
         if let remote { OiAccountView(remote: remote) }
-        else { ContentUnavailableView("디자인 예시 프로필", systemImage: "person", description: Text("현재 닉네임은 \(demo.nickname)입니다. 실제 계정 설정은 서비스 모드에서 로그인 후 사용할 수 있어요.")) }
+        else { ContentUnavailableView("로그인이 필요해요", systemImage: "person") }
     }
 
     private func openAppSettings() {
         guard let url = URL(string: UIApplication.openSettingsURLString) else { settingsError = true; return }
         openURL(url) { accepted in if !accepted { settingsError = true } }
+    }
+}
+
+private struct MYSchoolSettings: View {
+    let remote: OiRemoteStore
+    var body: some View {
+        List {
+            OiConnectionStatus(remote: remote)
+            if remote.account == nil {
+                NavigationLink("로그인하기") { OiAccountView(remote: remote) }
+            } else {
+                ForEach(remote.schools) { school in
+                    Button {
+                        Task { await remote.updateProfile(nickname: remote.profile?.nickname ?? "농부", schoolID: school.id) }
+                    } label: {
+                        HStack {
+                            Text(school.name); Spacer()
+                            if remote.profile?.schoolId == school.id { Image(systemName: "checkmark") }
+                        }.frame(minHeight: 44)
+                    }.disabled(remote.isBusy)
+                }
+                if remote.schools.isEmpty { Text("등록된 학교가 없어요.") }
+            }
+            if let error = remote.error { Text(error).foregroundStyle(.red) }
+        }.navigationTitle("학교 설정").navigationBarTitleDisplayMode(.inline)
     }
 }

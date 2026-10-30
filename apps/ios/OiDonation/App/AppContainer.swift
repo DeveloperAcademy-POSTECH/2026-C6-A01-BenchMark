@@ -6,15 +6,10 @@ struct AppContainer {
     let participationRepository: any ParticipationRepository
     let storyRepository: any StoryRepository
     let approvedLinkHost: String?
-    var showsDesignExamples = false
 
-    static let pilot = AppContainer(homeRepository: DesignDemoHomeRepository(),
+    static let pilot = AppContainer(homeRepository: UnconnectedPilotRepository(),
         benchRepository: UnconnectedPilotRepository(), participationRepository: UnconnectedPilotRepository(),
-        storyRepository: UnconnectedPilotRepository(), approvedLinkHost: nil, showsDesignExamples: false)
+        storyRepository: RealStoryRepository(), approvedLinkHost: nil)
 
-    static var preview: AppContainer {
-        let participation = PreviewParticipationRepository()
-        return AppContainer(homeRepository: DesignDemoHomeRepository(), benchRepository: participation,
-            participationRepository: participation, storyRepository: UnconnectedPilotRepository(), approvedLinkHost: nil, showsDesignExamples: true)
-    }
+    static var preview: AppContainer { pilot }
 }

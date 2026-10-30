@@ -5,7 +5,7 @@ import SwiftUI
 struct MYWorkshopView: View {
     let container: AppContainer
     let store: CampusStoryStore
-    let demo: MYDemoStore
+    let demo: MYLibraryStore
     let onCamera: () -> Void
     var remote: OiRemoteStore? = nil
 
@@ -58,7 +58,7 @@ struct MYWorkshopView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            Text(remote == nil ? "디자인 예시 · 더미 프로필" : "농부의 옷·아이템 꾸미기는 준비 중이에요").font(.caption2)
+            Text("농부의 옷·아이템 꾸미기는 준비 중이에요").font(.caption2)
                 .padding(8).background(.thinMaterial, in: Capsule()).padding(.bottom, 8)
         }
     }
@@ -72,11 +72,11 @@ struct MYWorkshopView: View {
 }
 
 #Preview("MY 기준", traits: .fixedLayout(width: 402, height: 874)) {
-    NavigationStack { MYWorkshopView(container: .preview, store: CampusStoryStore(), demo: MYDemoStore(), onCamera: {}) }
+    NavigationStack { MYWorkshopView(container: .preview, store: CampusStoryStore(), demo: MYLibraryStore(), onCamera: {}) }
 }
 #Preview("MY 작은 화면", traits: .fixedLayout(width: 375, height: 667)) {
-    NavigationStack { MYWorkshopView(container: .preview, store: CampusStoryStore(), demo: MYDemoStore(), onCamera: {}) }
+    NavigationStack { MYWorkshopView(container: .preview, store: CampusStoryStore(), demo: MYLibraryStore(), onCamera: {}) }
 }
 #Preview("MY 큰 화면", traits: .fixedLayout(width: 440, height: 956)) {
-    NavigationStack { MYWorkshopView(container: .preview, store: CampusStoryStore(), demo: MYDemoStore(), onCamera: {}) }
+    NavigationStack { MYWorkshopView(container: .preview, store: CampusStoryStore(), demo: MYLibraryStore(), onCamera: {}) }
 }

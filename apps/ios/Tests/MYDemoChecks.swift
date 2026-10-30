@@ -32,35 +32,27 @@ private struct LibraryCheckRepository: StoryRepository {
 @main
 struct MYDemoChecks {
     @MainActor static func main() async {
-        let demo = MYDemoStore()
-        precondition(demo.cards.count == 23)
-        precondition(Set(demo.cards.map(\.id)).count == demo.cards.count)
-        precondition(demo.visibleCards(filter: .all, school: .postech, sort: .latest).count == 15)
-        precondition(demo.visibleCards(filter: .all, school: .apple, sort: .latest).count == 8)
-        precondition(demo.visibleCards(filter: .favorites, school: nil, sort: .latest).isEmpty)
-        let newest = demo.collectionCards(school: nil, sort: .latest, pinnedOnly: false)
-        let oldest = demo.collectionCards(school: nil, sort: .oldest, pinnedOnly: false)
-        precondition(newest.map(\.id) == oldest.reversed().map(\.id))
-        precondition(demo.collectionCards(school: nil, sort: .latest, pinnedOnly: true).isEmpty)
-        let first = demo.cards[0]
-        let apple = demo.cards[15]
-        demo.toggleFavorite(first)
-        demo.toggleFavorite(apple)
-        precondition(demo.visibleCards(filter: .favorites, school: nil, sort: .latest).count == 2)
-        precondition(demo.visibleCards(filter: .favorites, school: .postech, sort: .latest).map(\.id) == [first.id])
-        precondition(demo.collectionCards(school: .postech, sort: .oldest, pinnedOnly: true).map(\.id) == [first.id])
-        demo.toggleFavorite(first)
-        precondition(demo.favorites == [apple.id])
-        for school in MYSchool.allCases {
-            let distance = demo.visibleCards(filter: .all, school: school, sort: .distance)
-            precondition(zip(distance, distance.dropFirst()).allSatisfy { $0.distance <= $1.distance })
-            let popular = demo.visibleCards(filter: .all, school: school, sort: .popular)
-            precondition(zip(popular, popular.dropFirst()).allSatisfy { $0.popularity >= $1.popularity })
-        }
-        precondition(MYDemoStore().favorites.isEmpty)
-        demo.collectionFilter = .schools
-        precondition(demo.collectionFilter == .schools)
-        precondition(MYDemoStore().collectionFilter == .all)
+        let libraryStore = MYLibraryStore()
+        precondition(libraryStore.cards.isEmpty && libraryStore.favorites.isEmpty)
+        let school = MYSchool(id: "school-b", name: "School B")
+        let first = MYCard(id: "one", title: "One", image: "OiCats", school: .postech, order: 0, body: "First", donor: "Owner", date: "")
+        let second = MYCard(id: "two", title: "Two", image: "OiGardener", school: school, order: 1, body: "Second", donor: "Owner", date: "")
+        libraryStore.synchronize(nickname: "Owner", cards: [first,second], favorites: [second.id,"missing"])
+        precondition(libraryStore.favorites == [second.id])
+        precondition(libraryStore.collectionCards(school: nil, sort: .oldest, pinnedOnly: false).map(\.id) == [second.id,first.id])
+        precondition(libraryStore.collectionCards(school: .postech, sort: .latest, pinnedOnly: true).isEmpty)
+        precondition(libraryStore.collectionCards(school: school, sort: .latest, pinnedOnly: true).map(\.id) == [second.id])
+        libraryStore.toggleFavorite(first)
+        precondition(libraryStore.favorites == [second.id], "No local success before a server receipt")
+        var requested: String?
+        libraryStore.favoriteAction = { requested = $0.id }
+        libraryStore.toggleFavorite(first)
+        precondition(requested == first.id && !libraryStore.favorites.contains(first.id))
+        libraryStore.synchronize(nickname: "Other", cards: [], favorites: [])
+        precondition(libraryStore.cards.isEmpty && libraryStore.favorites.isEmpty)
+        libraryStore.pinnedOnly = true; libraryStore.collectionSort = .oldest
+        libraryStore.resetFilters()
+        precondition(!libraryStore.pinnedOnly && libraryStore.collectionSort == .latest)
 
         let suite = "MYDemoChecks.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -89,6 +81,6 @@ struct MYDemoChecks {
         precondition(library.unavailableRecords.map(\.storyID) == ["missing-story"])
         defaults.removePersistentDomain(forName: suite)
 
-        print("PASS: demo collection behavior and App Clip record loading into the full-app library")
+        print("PASS: live library projection, server receipt boundary and account isolation and App Clip record loading into the full-app library")
     }
 }
