@@ -28,8 +28,14 @@ struct OiServiceAPI {
     }
 
     static func configured() throws -> Self {
-        let key = ProcessInfo.processInfo.environment["OI_SUPABASE_PUBLISHABLE_KEY"]
+        var key = ProcessInfo.processInfo.environment["OI_SUPABASE_PUBLISHABLE_KEY"]
             ?? Bundle.main.object(forInfoDictionaryKey: "OI_SUPABASE_PUBLISHABLE_KEY") as? String ?? ""
+        if key.isEmpty || key.contains("$(") {
+            struct Configuration: Decodable { let publishableKey: String }
+            if let url = Bundle.main.url(forResource: "Service.local", withExtension: "plist") {
+                key = try PropertyListDecoder().decode(Configuration.self, from: Data(contentsOf: url)).publishableKey
+            }
+        }
         return try Self(key: key)
     }
 
@@ -122,8 +128,8 @@ struct OiServiceAPI {
         }
     }
 
-    func updateProfile(owner: UUID, nickname: String, token: String) async throws -> OiProfile {
-        let body = try JSONSerialization.data(withJSONObject: ["nickname":nickname])
+    func updateProfile(owner: UUID, nickname: String, schoolID: String? = nil, token: String) async throws -> OiProfile {
+        let body = try JSONSerialization.data(withJSONObject: ["nickname": nickname, "school_id": schoolID as Any? ?? NSNull()])
         let data = try await request("rest/v1/oi_profiles?id=eq.\(owner.uuidString)", method: "PATCH", token: token,
             body: body, prefer: "return=representation")
         let profiles = try decoder.decode([OiProfile].self, from: data)
