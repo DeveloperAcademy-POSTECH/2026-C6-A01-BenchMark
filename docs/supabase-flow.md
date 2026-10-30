@@ -119,3 +119,51 @@ Needs confirmation:
 - 증빙 수집 항목·인정 기준·보관 기간, 최종 약관/동의문과 버전 관리. 현재 증빙 UI는 가상 자료를 사용하는 내부 검증용이다.
 
 위 미정 정책을 데이터베이스의 임의 상수나 자동 승인으로 대신하지 않는다.
+
+## MY 실데이터 전환 — 2026-10-30 / #107·#100 후속
+
+사용자 요청으로 MY의 예시 생성·가상 학교·로컬 즐겨찾기 성공 경로를 제거했다. `MYLibraryStore`는 서버 목록의 화면 투영만 맡고, 수집·핀 저장은 기존 `oi_mutate`의 응답 이후에만 반영한다. 계정 전환 시 목록과 정렬·핀 필터를 초기화한다. 지도도 예시 스토리·가상 수집 기록·고정 기부 통계를 생성하지 않는다. 레거시 미연동 기부·명패 메뉴는 현재 MY 진입에서 제거했다.
+
+학교·구역·자산 목록은 `oi_schools`, `oi_regions`, `oi_assets`에서 조회한다. 학교 선택은 본인의 `oi_profiles.school_id`에 저장하며 닉네임과 함께 재시작 후 복원한다. 기존 FK·RLS와 프로필 허용 열을 재사용하므로 신규 스키마 변경은 필요하지 않았다. 기존 프로젝트·Auth 사용자·증빙·이야기는 삭제하지 않는다.
+
+정적 카드 안의 다른 사람 이야기·기부 횟수는 더 이상 표시하지 않는다. 실제 오이 외형·이름·본문·작성자·날짜와 저장된 카드 배경 선택을 SwiftUI에서 합성한다. 농장은 실제 본인 이야기 목록·공개 상태를 표시한다. 빈 목록을 채우기 위한 스토리를 운영 DB에 추가하지 않는다.
+
+`RealStoryRepository`의 빈 반환 구현도 실제 공개 Supabase 조회로 교체했다. App Clip과 앱이 같은 공개 이야기 ID·본문을 조회하며 소유자·운영자 토큰을 사용하지 않는다. 숨김·삭제 이야기는 표시하지 않고, 이미지가 없는 카드에 가짜 URL을 만들지 않는다. App Clip의 기기 보관과 계정 도감 저장은 구분하며, 전체 앱에서 로그인 후 ‘내 계정 도감에 저장’을 실행해 서버 응답을 확인한 뒤 기기 대기 항목을 제거한다.
+
+### 로컬 실행 설정
+
+키 값은 Git에 넣지 않는다. 아래 스크립트는 기존 프로젝트의 공개 키만 두 앱의 Git 제외 `Service.local.plist`에 저장한다. 새 Supabase 프로젝트나 키를 생성하지 않으며 비밀 키를 요구하지 않는다. 기존 로컬 파일이 다른 값이면 덮어쓰지 않는다.
+
+```sh
+python3 scripts/configure-ios-service.py --from-cli --http-check
+```
+
+CI는 `OI_SUPABASE_PUBLISHABLE_KEY` 환경변수와 `python3 scripts/configure-ios-service.py`를 사용한다. 두 plist는 각 앱의 파일 시스템 동기화 그룹으로 리소스에 포함된다. 공개 키라도 실제 값은 로그·커밋·PR에 남기지 않는다. 외부 호스트로의 리다이렉트는 기존 APIClient가 차단한다.
+
+### 실제 서버와 자동 검사
+
+- 실제 프로젝트: `52gibu`, `kfzfzarslqdqmrazohej`, ACTIVE_HEALTHY. 기존 5개 마이그레이션을 확인했다. 공개 이야기·수집은 조회 당시 각각 0건이었으며 가짜 기록을 채우지 않았다.
+- `supabase/tests/oi-flow.sql`에 학교 저장·잘못된 학교 FK 거절을 추가해 실제 PostgreSQL 17에서 실행했다. 프로필·승인 전 작성 차단·소유권·비공개 Storage·공개·수집·핀·리비전·증빙 재제출 검사는 통과했고 전체 가상 자료는 rollback했다.
+- 위 설정 명령의 `--http-check`가 실제 HTTPS 익명 공개 조회·비공개 테이블 접근 차단·익명 쓰기 차단·집계·Google provider 활성화 검사에 통과했다.
+- `sh apps/ios/Tests/run-my-checks.sh`, `run-campus-checks.sh`, `run-architecture-checks.sh`, `run-app-clip-checks.sh`, `run-oi-service-checks.sh`를 Xcode 27 도구 체인으로 실행했다. 예시 생성 검사는 서버 응답 전 성공 금지·계정 격리·실제 목록 투영 검사로 대체했다. 테스트 안의 격리 fixture는 운영 앱에 포함하지 않는다.
+- `OiFlowChecks` native 11개 검사에서 학교 저장·재시작 복원·잘못된 학교 차단, 실제 공개 Repository의 본문·ID·숨김 거절, 기존 업로드 재시도·인증 만료·계정 전환 검사가 통과했다. 이 검사는 격리된 URLProtocol을 사용하며 실제 Google 로그인 성공 증거와 구분한다.
+- Security Advisor의 기존 GraphQL 스키마 발견 경고, private 스키마의 의도된 RLS 전면 차단, 유출 비밀번호 보호 비활성은 별도 운영 항목이다. 이 변경으로 Auth 정책·요금제를 수정하지 않았다.
+
+Needs confirmation:
+- 실제 Google 계정 로그인·사용자 파일 업로드·실기기 권한과 AR 정확도는 사용자 인증이 필요한 검증이다. 자동 성공으로 표시하지 않는다.
+- 실제 증빙 접수의 인정 기준·담당자·보관 기간·최종 동의문은 여전히 운영 결정이다. 최소 금액·피클코인·성장·옷 슬롯 정책을 새로 확정하지 않았다.
+
+### 실행 명령과 최종 실제 화면
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project apps/ios/OiDonation.xcodeproj -scheme OiFlowChecks -configuration Debug -destination 'platform=iOS Simulator,id=6CC1A80E-70DB-474F-A605-0229DCB82D04' -parallel-testing-enabled NO -derivedDataPath /private/tmp/benchmark-live-build -resultBundlePath /private/tmp/benchmark-live-native-final.xcresult CODE_SIGNING_ALLOWED=NO test
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project /private/tmp/benchmark-mylive-qa/OiDonation.xcodeproj -scheme MYQA -configuration Debug -destination 'platform=iOS Simulator,id=53588BEC-519B-49BE-9EDF-1DD86CC88992' -parallel-testing-enabled NO -derivedDataPath /private/tmp/benchmark-mylive-ui-build -resultBundlePath /private/tmp/benchmark-mylive-ui-signed.xcresult CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- test
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project apps/ios/OiDonation.xcodeproj -scheme OiDonation -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath /private/tmp/benchmark-live-build CODE_SIGNING_ALLOWED=NO build
+```
+
+실제 52gibu API를 사용하는 UI 검사에서 수집 0개·빈 학교 목록·로그인 전 농장·Google 로그인 진입을 확인했다. 최초 무서명 Simulator에서는 Keychain 접근 오류가 일반 연결 오류로 표시되는 것을 캡처로 발견했다. 계정 저장소 오류를 별도 오류 코드로 구분하고, 정상 로컬 서명 빌드로 같은 실제 서비스 UI 검사를 다시 실행해 오류 없는 로그인 진입이 통과했다. 실제 Google 계정 인증을 완료한 검사가 아니다. 원본 앱·Clip 타깃의 팀·Bundle ID·권한은 변경하지 않았다.
+
+최대 동시 실행 리소스는 3그룹(검사 실행기·전용 기기·검사 앱)이었다. 전용 Simulator 두 대는 검사 후 삭제했고 실행기·앱 종료와 빈 booted 목록을 확인했다. 완료 시점에 별도로 요청한 `simctl screenshot` 명령 하나가 종료된 기기를 기다려 남은 것을 확인하여 정확한 PID에 TERM을 보내 종료했다. 최종 캡처는 성공한 XCTest 첨부에서 추출했다. Computer Use 세션·커서·가시/숨김 창·브라우저·승인 터미널은 만들지 않았고 남긴 실행 리소스는 없다.
+
+![실제 서버의 빈 계정 도감](../apps/ios/docs/verification/mylive/collection.png)
+![정상 로컬 서명에서 실제 로그인 진입](../apps/ios/docs/verification/mylive/account.png)

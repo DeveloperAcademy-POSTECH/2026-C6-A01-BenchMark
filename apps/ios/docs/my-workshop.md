@@ -153,3 +153,7 @@ MY·캠퍼스·아키텍처 검사와 전체 Simulator 빌드는 통과했다. �
 ![학교 내부 도감과 정렬](verification/my107/school-cards.png)
 ![빈 농장](verification/my107/empty-farm.png)
 ![MY 설정](verification/my107/settings.png)
+
+## 더미 제거와 실제 데이터 적용 — 2026-10-30 후속
+
+이 문서 위쪽의 더미 카드 23개·가상 학교·세션 즐겨찾기와 예시 캡처는 이전 구현 기록이다. 현재 실행 경로는 사용자 요청에 따라 기존 Supabase의 실제 계정·학교·구역·이야기·수집·핀·승인 목록만 사용한다. `MYDemoStore`는 제거했고 `MYLibraryStore`로 서버 상태를 투영한다. 카드에는 다른 기부자의 문구가 박힌 예시 비트맵 대신 실제 이야기 내용을 합성한다. 현재 공개 이야기·수집이 0건인 DB를 가짜 항목으로 채우지 않았다. 로컬 실행 설정과 실제 서버/서명 검증은 [최신 Supabase 문서](../../../docs/supabase-flow.md)의 ‘MY 실데이터 전환’을 따른다. 실제 Google 계정 인증·사용자 파일 제출·실기기 AR 검증과 미정 운영 정책은 별도다.
