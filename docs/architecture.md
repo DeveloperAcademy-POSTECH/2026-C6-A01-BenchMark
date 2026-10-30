@@ -257,3 +257,7 @@ Bench에 선택적 BenchCoordinate를 추가했다. 유효한 확정 공개 NFC 
 ## 정밀 위치·현장 AR 통합 — 2026-10-29 / PR #97
 
 Figma 기본 지도와 Supabase 승인·계정 흐름을 기준으로 충돌을 통합했다. OiStoryEditor의 위치 선택은 기존 3D 캠퍼스·미세 이동 도구를 사용하고 선택 완료 시 기존 초안 좌표를 갱신한다. 현장 AR은 공개 이야기 UUID·좌표를 같은 Supabase API에서 익명 권한으로 재확인한다. 별도 작성 코드 서버·PostgreSQL API·이전 호스팅 설정은 다시 도입하지 않는다. 3D 외형은 기존 helmet-oi이며 2D 카드별 외형 변환과 현장 정확도는 별도 확인이 필요하다. 범위·한계는 apps/ios/docs/campus-geo-placement.md를 따른다.
+
+## MY 디자인 후속 적용 — 2026-10-30 / #107
+
+MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하며 기존 계정 수집·즐겨찾기 콜백을 유지한다. MYSettingsView는 기존 OiAccountView와 시스템 앱 설정을 연결하고 서버 계약·학교 필드를 추가하지 않는다. 농장 빈 상태는 기존 운영자 작성 승인 흐름을 안내한다. 최소 기부금·피클코인은 미정으로 유지한다. 자세한 디자인 차이와 검증은 [MY 문서](../apps/ios/docs/my-workshop.md)에 기록한다.
