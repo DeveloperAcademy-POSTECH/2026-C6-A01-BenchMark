@@ -11,6 +11,7 @@ import Observation
 @MainActor
 final class ARGameViewModel {
     enum State: Equatable {
+        case introBackground
         case intro
         case requestingPermission
         case starting
@@ -22,7 +23,7 @@ final class ARGameViewModel {
         case unavailable
     }
 
-    private(set) var state: State = .intro
+    private(set) var state: State = .introBackground
     private(set) var collectedCount = 0
     private(set) var remainingSeconds: Int
     let targetCount: Int
@@ -41,6 +42,11 @@ final class ARGameViewModel {
         self.remainingSeconds = timeLimitSeconds
         self.isARSupported = isARSupported
         self.requestCameraAccess = requestCameraAccess
+    }
+
+    func showIntro() {
+        guard state == .introBackground else { return }
+        state = .intro
     }
 
     func requestPermission() {

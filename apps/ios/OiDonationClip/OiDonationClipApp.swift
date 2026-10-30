@@ -15,7 +15,7 @@ struct OiDonationClipApp: App {
     @State private var isOverlayPresented = false
 
     init() {
-        for name in ["PearToucan-Regular", "KIM-WILDgag-Bold", "Griun_OMIRI-Rg", "Mona12TextKR", "Paperlogy-6SemiBold"] {
+        for name in ["PearToucan-Regular", "KIM-WILDgag-Bold", "Griun_OMIRI-Rg", "Mona12TextKR", "Paperlogy-4Regular", "Paperlogy-6SemiBold"] {
             if let url = Bundle.main.url(forResource: name, withExtension: "ttf")
                 ?? Bundle.main.url(forResource: name, withExtension: "ttf", subdirectory: "Fonts") {
                 CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)

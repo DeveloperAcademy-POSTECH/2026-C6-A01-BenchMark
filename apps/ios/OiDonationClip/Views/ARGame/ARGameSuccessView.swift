@@ -12,11 +12,11 @@ struct ARGameSuccessView: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.95)
+            Color.black
 
             Text("성공!")
-                .font(.custom("KIMWILDgag-BOLD", size: 60, relativeTo: .largeTitle))
-                .tracking(1.2)
+                .font(.custom("PearToucan-Regular", size: 60, relativeTo: .largeTitle).weight(.bold))
+                .tracking(2.4)
                 .foregroundStyle(.white)
         }
         .ignoresSafeArea()

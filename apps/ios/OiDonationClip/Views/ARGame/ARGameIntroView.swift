@@ -53,28 +53,12 @@ struct ARGameIntroView: View {
                     .minimumScaleFactor(0.6)
                     .padding(.horizontal, 30 * scale)
                     .frame(minHeight: 44 * scale)
-                    .background(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 222 / 255, green: 237 / 255, blue: 250 / 255),
-                                Color(red: 93 / 255, green: 180 / 255, blue: 240 / 255)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        ),
-                        in: Capsule()
-                    )
+                    .background(Color(red: 234 / 255, green: 238 / 255, blue: 226 / 255), in: Capsule())
                     .frame(maxWidth: 362 * scale)
                     .position(x: origin.x + 201 * scale, y: origin.y + 505 * scale)
 
                 targetText(scale: scale)
-                    .position(x: origin.x + 201 * scale, y: origin.y + 621 * scale)
-
-                Text("제한시간 \(timeLimitSeconds)초")
-                    .font(pearFont(size: 16 * scale, relativeTo: .body, bold: true))
-                    .foregroundStyle(.red)
-                    .shadow(color: .white, radius: 12 * scale)
-                    .position(x: origin.x + 201 * scale, y: origin.y + 727 * scale)
+                    .position(x: origin.x + 201 * scale, y: origin.y + 637 * scale)
 
                 startButton(scale: scale, origin: origin)
             }
@@ -101,6 +85,7 @@ struct ARGameIntroView: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: 248 * scale, height: 343 * scale)
+                .rotationEffect(.degrees(16.56))
                 .opacity(0.55)
                 .blur(radius: 24 * scale)
 
@@ -114,14 +99,18 @@ struct ARGameIntroView: View {
     }
 
     private func targetText(scale: CGFloat) -> some View {
-        (Text("\(targetCount)마리")
-            .foregroundStyle(Color(red: 240 / 255, green: 255 / 255, blue: 143 / 255))
-        + Text("를 찾으세요!")
-            .foregroundStyle(.white))
-        .font(pearFont(size: 40 * scale, relativeTo: .largeTitle, bold: true))
-        .lineLimit(1)
-        .minimumScaleFactor(0.65)
-        .accessibilityLabel("\(targetCount)마리를 찾으세요")
+        let highlight = Color(red: 240 / 255, green: 255 / 255, blue: 143 / 255)
+        let timeLimit = Text("\(timeLimitSeconds)초").foregroundStyle(highlight)
+        let target = Text("\(targetCount)마리").foregroundStyle(highlight)
+
+        return Text("\(timeLimit) 안에\n\(target)를 찾으세요!")
+            .foregroundStyle(.white)
+            .font(pearFont(size: 40 * scale, relativeTo: .largeTitle, bold: false))
+            .multilineTextAlignment(.center)
+            .lineSpacing(20 * scale)
+            .lineLimit(2)
+            .minimumScaleFactor(0.6)
+            .accessibilityLabel("\(timeLimitSeconds)초 안에 \(targetCount)마리를 찾으세요")
     }
 
     private func startButton(scale: CGFloat, origin: CGPoint) -> some View {
