@@ -67,6 +67,7 @@
 		8716959A307D0BAE0090D456 /* Exceptions for "OiDonation" folder in "OiDonationClip" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Data/Networking/APIClient.swift,
 				Domain/Models/CollectedStoryCard.swift,
 				Domain/Models/Story.swift,
 				Domain/Models/StoryCard.swift,

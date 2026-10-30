@@ -30,6 +30,10 @@ set local role authenticated;
 select set_config('request.jwt.claim.sub','b1000000-0000-4000-8000-000000000001',true);
 select pg_temp.assert_true((public.oi_capabilities()->>'operator')::boolean=false,'not operator by default');
 select pg_temp.assert_true((public.oi_capabilities()->>'coins_enabled')::boolean=false,'coins disabled');
+update public.oi_profiles set nickname='Synthetic farmer',school_id='postech' where id=auth.uid();
+select pg_temp.assert_true((select nickname='Synthetic farmer' and school_id='postech' from public.oi_profiles where id=auth.uid()),'profile and school persisted');
+select pg_temp.assert_error($command$update public.oi_profiles set school_id='nonexistent-school' where id=auth.uid()$command$,'23503');
+
 select pg_temp.assert_error('insert into benchmark_private.oi_operators values (auth.uid())','42501');
 select pg_temp.assert_error('update public.oi_profiles set id=gen_random_uuid() where id=auth.uid()','42501');
 select public.oi_mutate('start_evidence','{"id":"b1000000-0000-4000-8000-000000000010"}');
