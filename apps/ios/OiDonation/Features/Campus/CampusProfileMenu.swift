@@ -16,8 +16,8 @@ struct CampusProfileMenu: View {
                     HStack(spacing: 16) {
                         Image("OiFarmer").resizable().scaledToFit().frame(width: 60, height: 80)
                         VStack(alignment: .leading, spacing: 5) {
-                            Text(remote == nil ? "신서임당" : remote?.profile?.nickname ?? "농부").font(.title2.bold())
-                            Text(remote == nil ? "디자인 예시 프로필 · 이 기기에 수집 \(store.collected.count)개" : "계정에 저장한 오이 \(store.collected.count)개").font(.caption).foregroundStyle(.secondary)
+                            Text(remote?.profile?.nickname ?? "농부").font(.title2.bold())
+                            Text("계정에 저장한 오이 \(store.collected.count)개").font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -32,15 +32,6 @@ struct CampusProfileMenu: View {
                         NavigationLink(value: CampusDestination.story(story.id)) { Label(story.title, systemImage: "leaf.fill") }
                     }
                 }
-                Section(remote == nil ? "나의 참여" : "이전 파일럿 메뉴 · 미연동") {
-                    NavigationLink {
-                        MyDonationsView(repository: container.participationRepository, showDesignExamples: container.showsDesignExamples) { information = .donation }
-                    } label: { Label("내 기부", systemImage: "heart.fill") }
-                    NavigationLink {
-                        SponsorshipView(benches: container.benchRepository, participation: container.participationRepository) { dismiss() }
-                    } label: { Label("후원 · 참여 안내", systemImage: "hand.palm.facing.fill") }
-                    NavigationLink { BenchesView(repository: container.benchRepository) } label: { Label("기존 벤치지도", systemImage: "map") }
-                }
                 Section("촬영") {
                     Button("AR 카메라", systemImage: "camera.fill") { dismiss(); DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { onCamera() } }
                     NavigationLink { PhotoTestView() } label: { Label("사진 테스트", systemImage: "photo.on.rectangle") }
@@ -48,7 +39,7 @@ struct CampusProfileMenu: View {
                         .accessibilityHint("App Clip 링크를 NFC 태그에 기록하는 화면을 엽니다")
                 }
                 Section {
-                    Text(remote == nil ? "지도 속 오이의 수, 이름, 사진과 기부 횟수는 Figma 디자인 예시입니다. 위치는 캠퍼스 모델에 배치한 예시이며 실제 기부나 현장 방문을 인증하지 않습니다." : "계정의 수집 기록, 운영자의 글 작성 승인과 학교 공식 기부 확인은 서로 다릅니다. 현장 방문 인증과 AR 수집 게임은 아직 준비 중입니다.")
+                    Text("계정의 수집 기록, 운영자의 글 작성 승인과 학교 공식 기부 확인은 서로 다릅니다.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }

@@ -9,9 +9,4 @@ struct HomeDashboard: Sendable {
     var progress: Int
     var isExample: Bool
 
-    static let designExample = HomeDashboard(
-        donorName: "김사과", attachedBenchCount: 17, targetBenchCount: 30,
-        participantCount: 235, progress: 78, isExample: true
-    )
 }
-

@@ -4,7 +4,7 @@ struct RootTabView: View {
     let container: AppContainer
     @State private var path = NavigationPath()
     @State private var store = CampusStoryStore()
-    @State private var myDemo = MYDemoStore()
+    @State private var myDemo = MYLibraryStore()
     @State private var isARPresented = false
     @State private var isCameraCoverActive = false
     @State private var remote = OiRemoteStore()
@@ -14,8 +14,8 @@ struct RootTabView: View {
 
     init(container: AppContainer = .pilot) {
         self.container = container
-        _store = State(initialValue: CampusStoryStore(loadExamples: container.showsDesignExamples))
-        _myDemo = State(initialValue: MYDemoStore(loadExamples: container.showsDesignExamples))
+        _store = State(initialValue: CampusStoryStore())
+        _myDemo = State(initialValue: MYLibraryStore())
     }
 
     var body: some View {
@@ -28,7 +28,7 @@ struct RootTabView: View {
                 onCamera: { geoPlacement = nil; path = NavigationPath(); isCameraCoverActive = true; isARPresented = true },
                 onOpenProfile: { path.append(MYDestination.workshop) },
                 onOpenStory: { path.append(CampusDestination.summary($0)) },
-                remote: container.showsDesignExamples ? nil : remote,
+                remote: remote,
                 onAccount: { showingAccount = true }
             )
             .navigationDestination(for: CampusDestination.self) { destination in
@@ -53,9 +53,9 @@ struct RootTabView: View {
         .tint(.black)
         .sheet(isPresented: $showingAccount) { NavigationStack { OiAccountView(remote: remote) }.id(remote.account?.id) }
         .onChange(of: remote.revision) { _, _ in synchronizeRemote() }
-        .onChange(of: remote.account?.id) { _, _ in path = NavigationPath(); myDemo.collectionFilter = .all }
+        .onChange(of: remote.account?.id) { _, _ in path = NavigationPath(); myDemo.resetFilters() }
         .task(id: scenePhase) {
-            guard !container.showsDesignExamples, scenePhase == .active else { return }
+            guard scenePhase == .active else { return }
             store.collectAction = { story in
                 Task { await remote.perform("collect", payload: ["id": story.id]) }
             }
@@ -94,12 +94,11 @@ struct RootTabView: View {
     }
 
     private func synchronizeRemote() {
-        guard !container.showsDesignExamples else { return }
         let mapped = remote.stories.enumerated().map { index, item in
             var story = CampusStory(id: item.id.uuidString, regionID: item.regionId, title: item.cucumberName,
                 image: item.cucumberAsset, tags: [item.theme,item.emotion],
                 donor: remote.profiles.first(where: { $0.id == item.userId })?.nickname ?? "작성자 정보 확인 중",
-                location: CampusRegion.examples.first(where: { $0.id == item.regionId })?.title ?? "POSTECH",
+                location: remote.regions.first(where: { $0.id == item.regionId })?.name ?? "POSTECH",
                 date: item.createdDateLabel, order: index, popularity: remote.collectionCounts[item.id] ?? 0, palette: 0)
             story.remoteBody = item.body
             story.remoteMediaPaths = remote.mediaPaths(storyID: item.id)
@@ -107,10 +106,14 @@ struct RootTabView: View {
             return story
         }
         store.synchronize(stories: mapped, collected: Set(remote.collections.map { $0.storyId.uuidString }))
-        let cards = remote.collections.enumerated().compactMap { index, collection -> MYDemoCard? in
+        let cards = remote.collections.enumerated().compactMap { index, collection -> MYCard? in
             guard let story = remote.stories.first(where: { $0.id == collection.storyId }) else { return nil }
-            return MYDemoCard(id: story.id.uuidString, title: story.cucumberName, image: story.cardAsset,
-                school: .postech, order: index, distance: 0, popularity: 0, storyID: story.id.uuidString)
+            guard let region = remote.regions.first(where: { $0.id == story.regionId }),
+                  let school = remote.schools.first(where: { $0.id == region.schoolId }) else { return nil }
+            return MYCard(id: story.id.uuidString, title: story.cucumberName, image: story.cucumberAsset,
+                school: MYSchool(id: school.id, name: school.name), order: index,
+                body: story.body, donor: remote.profiles.first(where: { $0.id == story.userId })?.nickname ?? "농부",
+                date: story.createdDateLabel, storyID: story.id.uuidString, appearance: story.cardAsset)
         }
         myDemo.synchronize(nickname: remote.profile?.nickname ?? "농부", cards: cards,
             favorites: Set(remote.favorites.map(\.uuidString)))

@@ -28,6 +28,8 @@ final class OiTestBackend {
     static let grant = UUID(uuidString: "b1000000-0000-4000-8000-000000000010") ?? UUID()
     private let lock = NSLock()
     struct State {
+        var nickname = "Owner A"
+        var schoolID: String?
         var failReads = false
         var failRefreshToken = false
         var loseEvidenceResponse = false
@@ -119,8 +121,15 @@ final class OiTestBackend {
         else if path.hasSuffix("/oi_stories") {
             if state.failReads { status = 503 }
             else if let story = state.story, story["user_id"] as? String == owner.uuidString { result = [story] }
-        } else if path.hasSuffix("/oi_profiles") {
-            result = [["id":owner.uuidString,"nickname":owner == Self.owner ? "Owner A" : "Owner B","farmer_asset":"OiFarmer"]]
+        } else if path.hasSuffix("/oi_schools") { result = [["id":"postech","name":"POSTECH"]] }
+        else if path.hasSuffix("/oi_regions") { result = [["id":"pond","school_id":"postech","name":"Pond"]] }
+        else if path.hasSuffix("/oi_assets") { result = [["id":"OiCats","kind":"cucumber","name":"Cats"]] }
+        else if path.hasSuffix("/oi_profiles") {
+            if request.httpMethod == "PATCH" {
+                state.nickname = body["nickname"] as? String ?? state.nickname
+                state.schoolID = body["school_id"] as? String
+            }
+            result = [["id":owner.uuidString,"nickname":owner == Self.owner ? state.nickname : "Owner B","farmer_asset":"OiFarmer", "school_id":state.schoolID as Any? ?? NSNull()]]
         } else if path.hasSuffix("/oi_story_media") {
             result = state.paths.enumerated().map { position, path in
                 ["id":UUID().uuidString,"story_id":state.story?["id"] ?? "","object_path":path,"position":position]
@@ -149,6 +158,42 @@ final class OiMemorySession: OiSessionStorage {
 }
 
 final class OiRemoteStoreTests: XCTestCase {
+    @MainActor func testLiveCatalogAndSchoolPersistAcrossRelaunch() async throws {
+        let (store,backend,vault,session,directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        XCTAssertEqual(store.schools.map(\.id), ["postech"])
+        XCTAssertEqual(store.regions.first?.schoolId, "postech")
+        XCTAssertEqual(store.assets.first?.kind, "cucumber")
+        await store.updateProfile(nickname: "  Saved name  ", schoolID: "postech")
+        XCTAssertEqual(store.profile?.nickname, "Saved name")
+        XCTAssertEqual(store.profile?.schoolId, "postech")
+        let restored = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session), drafts: OiDraftVault(directory: directory), vault: vault)
+        await restored.start()
+        XCTAssertEqual(restored.profile?.schoolId, "postech")
+        await restored.updateProfile(nickname: "Wrong", schoolID: "unknown")
+        XCTAssertNotNil(restored.error)
+        XCTAssertEqual(backend.snapshot().nickname, "Saved name")
+    }
+
+    @MainActor func testPublicRepositoryLoadsActualStoryAndRejectsHidden() async throws {
+        let (store,backend,_,session,directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        guard let saved = await store.save(draft(title: "Public body test")) else { XCTFail("Save failed"); return }
+        backend.configure { $0.story?["status"] = "published" }
+        let repository = RealStoryRepository(key: "sb_publishable_testing", session: session)
+        let story = try await repository.fetchPublicStory(storyID: saved.id.uuidString)
+        XCTAssertEqual(story?.id, saved.id.uuidString)
+        XCTAssertEqual(story?.content, saved.body)
+        let card = try await repository.fetchPublicStoryCard(storyID: saved.id.uuidString)
+        XCTAssertEqual(card?.storyID, story?.id)
+        XCTAssertNil(card?.imageURL, "No fabricated card image URL")
+        backend.configure { $0.story?["status"] = "hidden" }
+        do { _ = try await repository.fetchPublicStory(storyID: saved.id.uuidString); XCTFail("Hidden story rendered") }
+        catch {}
+    }
+
     @MainActor func testAccountAndEditorLayoutsAtSupportedWidths() async throws {
         let (store,backend,_,session,directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }

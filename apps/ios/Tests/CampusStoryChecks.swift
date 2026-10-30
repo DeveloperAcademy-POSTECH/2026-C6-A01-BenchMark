@@ -6,14 +6,18 @@ struct CampusStoryChecks {
         let suite = "campus-checks-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(["pond-0"], forKey: "campus.designExample.collectedIDs.v1")
+        defaults.set("preserved", forKey: "unrelated-user-setting")
         let store = CampusStoryStore(defaults: defaults)
-        precondition(Set(store.stories.map(\.id)).count == store.stories.count, "Story routes must have unique identifiers")
-        for region in CampusRegion.examples {
-            precondition(store.stories(in: region.id, sortedBy: .latest).count == region.sampleCount, "Map counts must match the region list")
+        precondition(defaults.object(forKey: "campus.designExample.collectedIDs.v1") == nil)
+        precondition(defaults.string(forKey: "unrelated-user-setting") == "preserved")
+        precondition(store.stories.isEmpty && store.collected.isEmpty)
+        let records = (0..<3).map { index in
+            CampusStory(id: "test-\(index)", regionID: "pond", title: "Test", image: "OiCats", tags: [], donor: "Test", location: "Test", date: "", order: index, popularity: index, palette: 0)
         }
+        store.synchronize(stories: records, collected: [])
         precondition(store.story("missing") == nil)
-        precondition(store.stories(in: "missing", sortedBy: .latest).isEmpty)
-
+        precondition(Set(store.stories.map(\.id)).count == records.count)
         let pond = store.stories(in: "pond", sortedBy: .latest)
         let first = pond[0], second = pond[1]
         let byDistance = store.stories(in: "pond", sortedBy: .distance, distances: [first.id: 20, second.id: 1])
@@ -23,15 +27,16 @@ struct CampusStoryChecks {
         let popular = store.stories(in: "pond", sortedBy: .popular)
         precondition(zip(popular, popular.dropFirst()).allSatisfy { $0.popularity >= $1.popularity })
 
-        precondition(store.collected.isEmpty)
         store.collect(first)
+        precondition(store.collected.isEmpty, "Missing transport cannot report a successful collection")
+        var requested: String?
+        store.collectAction = { requested = $0.id }
         store.collect(first)
-        precondition(store.collected == [first.id], "Repeated taps must not create duplicate collection records")
+        precondition(requested == first.id && store.collected.isEmpty)
+        store.synchronize(stories: records, collected: [first.id])
+        precondition(store.collected == [first.id])
         let reopened = CampusStoryStore(defaults: defaults)
-        precondition(reopened.collected == [first.id], "Collection must survive reopening the app")
-        reopened.collect(second)
-        precondition(reopened.collected == [first.id, second.id])
-        precondition(store.stories.count == reopened.stories.count, "Collecting must not remove map stories")
-        print("PASS: unique routes, map counts, distance/popularity sorting, idempotent persistent collection")
+        precondition(reopened.collected.isEmpty, "No account data restored from an unrelated local fixture cache")
+        print("PASS: live story projection, ordering and server-confirmed collection")
     }
 }

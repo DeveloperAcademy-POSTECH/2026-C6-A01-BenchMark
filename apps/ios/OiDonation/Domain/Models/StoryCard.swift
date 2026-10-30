@@ -11,5 +11,5 @@ struct StoryCard: Identifiable, Sendable {
     var id: String { cardID }
     let cardID: String
     let storyID: String
-    let imageURL: URL
+    let imageURL: URL?
 }

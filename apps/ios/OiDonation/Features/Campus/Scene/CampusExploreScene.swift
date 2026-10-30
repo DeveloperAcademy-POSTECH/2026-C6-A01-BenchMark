@@ -153,11 +153,11 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         target = SIMD3(32, 2, 1); radius = 305; yaw = 0; pitch = 1.02
         guard let data else { updateCamera(); return }
         guard !sharedMap else { updateCamera(); return }
-        for region in CampusRegion.examples {
+        for region in CampusRegion.campus {
             guard let place = data.pois.first(where: { $0.id == region.placeID }) else { continue }
             let button = UIButton(type: .custom)
             button.setBackgroundImage(UIImage(named: "OiCluster"), for: .normal)
-            let count = regionCounts?[region.id] ?? region.sampleCount
+            let count = regionCounts?[region.id] ?? 0
             button.setTitle("\(count)", for: .normal)
             button.titleLabel?.font = UIFont(name: "Paperlogy-9Black", size: 30) ?? .systemFont(ofSize: 30, weight: .black)
             button.setTitleColor(UIColor(red: 0.95, green: 0.97, blue: 0.91, alpha: 1), for: .normal)

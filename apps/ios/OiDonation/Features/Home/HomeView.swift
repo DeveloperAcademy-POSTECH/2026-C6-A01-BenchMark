@@ -4,7 +4,7 @@ import SwiftUI
 struct HomeView: View {
     let container: AppContainer
     let store: CampusStoryStore
-    let myDemo: MYDemoStore
+    let myDemo: MYLibraryStore
     let isCameraCoverActive: Bool
     let onCamera: () -> Void
     let onOpenProfile: () -> Void
@@ -44,7 +44,7 @@ struct HomeView: View {
                                 Button(action: { onAccount?() }) { Text(remote.account == nil ? "로그인" : "계정") }
                                     .buttonStyle(.glass).accessibilityIdentifier("oi.account")
                             } else {
-                                Text("디자인 예시").font(.caption2).padding(7).background(.thinMaterial, in: Capsule())
+                                Text("연결 확인 필요").font(.caption2).padding(7).background(.thinMaterial, in: Capsule())
                             }
                         }
                     }.padding(.horizontal, 20).padding(.top, 6)
@@ -79,7 +79,7 @@ struct HomeView: View {
             switch destination {
             case .workshop:
                 MYWorkshopView(container: container, store: store, demo: myDemo, onCamera: openCamera, remote: remote)
-            case .farm: MYFarmView(remote: remote)
+            case .farm: MYFarmView(remote: remote, nickname: myDemo.nickname)
             case .collection: MYCollectionView(demo: myDemo, storyRepository: container.storyRepository, remote: remote)
             case .school(let school): MYCollectionView(demo: myDemo, school: school, storyRepository: container.storyRepository, remote: remote)
             }
@@ -109,7 +109,7 @@ struct HomeView: View {
             if remote != nil { scene.setRegionCounts(Dictionary(grouping: store.stories, by: \.regionID).mapValues(\.count)) }
             await scene.load()
             #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("-campus-region-preview"), let first = CampusRegion.examples.first { scene.onRegion?(first) }
+            if ProcessInfo.processInfo.arguments.contains("-campus-region-preview"), let first = CampusRegion.campus.first { scene.onRegion?(first) }
             #endif
         }
         .onAppear { isOnScreen = true; scene.setVisible(!isCameraCoverActive && scenePhase == .active) }

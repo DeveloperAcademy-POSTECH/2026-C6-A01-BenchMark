@@ -54,3 +54,22 @@ struct ArchitectureChecks {
         print("PASS: NFC coordinates, routing, validation, concurrent idempotency, pending verification and unavailable service")
     }
 }
+
+actor PreviewParticipationRepository: BenchRepository, ParticipationRepository {
+    private var submissions: [UUID: ParticipationApplication] = [:]
+    func fetchBenches() async throws -> [Bench] {
+        [Bench(id: "preview-bench", name: "예시 벤치", locationDescription: "디자인 확인용 장소")]
+    }
+    func fetchApplications() async throws -> [ParticipationApplication] { Array(submissions.values) }
+    func submit(_ draft: ParticipationDraft, idempotencyKey: UUID) async throws -> ParticipationApplication {
+        let validated = try draft.validated()
+        if let existing = submissions[idempotencyKey] {
+            guard existing.draft == validated else { throw ParticipationError.idempotencyConflict }
+            return existing
+        }
+        let application = ParticipationApplication(id: UUID(), draft: validated,
+            applicationStatus: .submitted, verificationStatus: .awaitingSchoolConfirmation, plaqueStatus: nil)
+        submissions[idempotencyKey] = application
+        return application
+    }
+}
