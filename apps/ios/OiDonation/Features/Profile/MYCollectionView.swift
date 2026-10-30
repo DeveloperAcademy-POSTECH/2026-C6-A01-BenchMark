@@ -7,7 +7,14 @@ struct MYCollectionView: View {
     let school: MYSchool?
     var remote: OiRemoteStore?
     @State private var collectedLibrary: CollectedStoryLibrary
-    @State private var sort = CampusStorySort.latest
+    private var sort: MYCardSort {
+        get { demo.collectionSort }
+        nonmutating set { demo.collectionSort = newValue }
+    }
+    private var pinnedOnly: Bool {
+        get { demo.pinnedOnly }
+        nonmutating set { demo.pinnedOnly = newValue }
+    }
     @State private var selectedCard: MYDemoCard?
     @State private var selectedCollectedCard: CollectedStoryLibraryItem?
     @State private var detailCard: MYDemoCard?
@@ -16,9 +23,12 @@ struct MYCollectionView: View {
     @Environment(\.dismiss) private var dismiss
 
     private var filter: MYCollectionFilter { demo.collectionFilter }
-    private var cards: [MYDemoCard] { demo.visibleCards(filter: filter, school: school, sort: sort) }
+    private var cards: [MYDemoCard] { demo.collectionCards(school: school, sort: sort, pinnedOnly: pinnedOnly) }
     private var showsFolders: Bool { filter == .schools && school == nil }
-    private var schools: [MYSchool] { demo.campusStore == nil ? MYSchool.allCases : [.postech] }
+    private var schools: [MYSchool] {
+        let available: [MYSchool] = demo.campusStore == nil ? MYSchool.allCases : [.postech]
+        return available.filter { school in !demo.collectionCards(school: school, sort: sort, pinnedOnly: pinnedOnly).isEmpty }
+    }
 
     init(
         demo: MYDemoStore,
@@ -50,7 +60,7 @@ struct MYCollectionView: View {
                 } else if showsFolders {
                     schoolFolders
                 } else if cards.isEmpty {
-                    ContentUnavailableView(filter == .favorites ? "즐겨찾는 오이가 없어요" : "아직 수집한 카드가 없어요", systemImage: filter == .favorites ? "heart" : "leaf", description: Text(filter == .favorites ? "카드 옆 하트를 눌러 이 화면에 모아보세요." : "로그인 후 캠퍼스의 공개 오이 이야기를 수집해 보세요."))
+                    ContentUnavailableView(pinnedOnly ? "즐겨찾는 오이가 없어요" : "아직 수집한 카드가 없어요", systemImage: pinnedOnly ? "pin" : "leaf", description: Text(pinnedOnly ? "카드 확대 화면의 핀을 눌러 이 화면에 모아보세요." : "로그인 후 캠퍼스의 공개 오이 이야기를 수집해 보세요."))
                         .padding(.top, 60)
                 } else {
                     cardGrid
@@ -59,11 +69,15 @@ struct MYCollectionView: View {
         }
         .padding(.horizontal, 20)
         .background {
-            if filter == .schools || school != nil {
-                Image("MYCollectionPaper").resizable().ignoresSafeArea()
+            if school != nil {
+                Color(red: 186 / 255, green: 154 / 255, blue: 95 / 255).ignoresSafeArea()
             } else { Color(.systemBackground).ignoresSafeArea() }
         }
         .navigationTitle(school?.rawValue ?? "도감")
+        .toolbar { ToolbarItem(placement: .principal) {
+            Text(school?.rawValue ?? "도감").font(.custom("Paperlogy-6SemiBold", size: 30, relativeTo: .title))
+                .foregroundStyle(Color(red: 117 / 255, green: 75 / 255, blue: 0))
+        } }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .toolbarBackground(.hidden, for: .navigationBar)
@@ -166,7 +180,7 @@ struct MYCollectionView: View {
             } else {
                 HStack(spacing: 7) { sortChoices; countBadge }
             }
-            Text(demo.campusStore == nil ? (sort == .distance ? "디자인 예시 · 가상 거리 기준" : "디자인 예시 · 실제 기부 내역이 아니에요") : "내 계정에 저장한 카드 · 거리·인기 기준은 준비 중이에요")
+            Text(demo.campusStore == nil ? "디자인 예시 · 실제 기부 내역이 아니에요" : "내 계정에 저장한 카드")
                 .font(.caption2).foregroundStyle(.secondary)
             if demo.campusStore != nil {
                 Text("카드 그림 안의 문구는 디자인 예시입니다. 실제 이야기는 자세히 보기에서 확인해 주세요.").font(.caption2).foregroundStyle(.secondary)
@@ -175,24 +189,33 @@ struct MYCollectionView: View {
     }
 
     private var sortChoices: some View {
-        ScrollView(.horizontal) { HStack(spacing: 7) { sortButtons } }
-            .scrollIndicators(.hidden)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 7) { sortButtons }.fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: .leading, spacing: 4) { sortButtons }
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var sortButtons: some View {
-        ForEach(CampusStorySort.allCases, id: \.self) { option in
+    @ViewBuilder private var sortButtons: some View {
+        ForEach(MYCardSort.allCases, id: \.self) { option in
             Button { sort = option } label: {
-                Text(option.rawValue).font(.custom(sort == option ? "Pretendard-Bold" : "Pretendard-Regular", size: 16, relativeTo: .body))
+                Text(option.rawValue).font(.custom(sort == option ? "Paperlogy-5Medium" : "Paperlogy-4Regular", size: 16, relativeTo: .body))
                     .foregroundStyle(sort == option ? .white : .black)
                     .padding(.horizontal, 12).padding(.vertical, 5)
                     .background(sort == option ? CampusStyle.lightGreen : Color(.systemGray5), in: Capsule())
                     .frame(minHeight: 44).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(demo.campusStore != nil && option != .latest)
             .accessibilityAddTraits(sort == option ? .isSelected : [])
             .accessibilityIdentifier("my.sort.\(option)")
         }
+        Button { pinnedOnly.toggle() } label: {
+            Image(systemName: "pin.fill").font(.system(size: 14, weight: .bold))
+                .foregroundStyle(pinnedOnly ? .white : .black)
+                .padding(.horizontal, 12).padding(.vertical, 7)
+                .background(pinnedOnly ? CampusStyle.lightGreen : Color(.systemGray5), in: Capsule())
+                .frame(minWidth: 44, minHeight: 44)
+        }.buttonStyle(.plain).accessibilityLabel("고정한 카드만 보기")
+            .accessibilityAddTraits(pinnedOnly ? .isSelected : []).accessibilityIdentifier("my.pinned")
     }
 
     private var countBadge: some View {
@@ -212,38 +235,10 @@ struct MYCollectionView: View {
                     }
                     .buttonStyle(.plain).accessibilityLabel("\(card.title) 카드 확대")
                     .accessibilityIdentifier("my.card.\(card.id)")
-                    HStack(spacing: 0) {
-                        cardTitle(card.title)
-                        Button { demo.toggleFavorite(card) } label: {
-                            Image(systemName: demo.favorites.contains(card.id) ? "heart.fill" : "heart")
-                                .foregroundStyle(demo.favorites.contains(card.id) ? CampusStyle.coral : .black)
-                                .frame(minWidth: 44, minHeight: 44)
-                        }.buttonStyle(.plain)
-                            .accessibilityLabel("\(card.title) 즐겨찾기 \(demo.favorites.contains(card.id) ? "해제" : "추가")")
-                            .accessibilityIdentifier("my.favorite.\(card.id)")
-                    }
+
                 }
             }
         }.padding(.bottom, 12)
-    }
-
-    private func cardTitle(_ title: String) -> some View {
-        ViewThatFits(in: .horizontal) {
-            Text(title).fixedSize(horizontal: true, vertical: true)
-            if title.hasSuffix("오이") {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(String(title.dropLast(2)).trimmingCharacters(in: .whitespaces))
-                    Text("오이").fixedSize(horizontal: true, vertical: true)
-                }
-                .fixedSize(horizontal: false, vertical: true)
-            } else {
-                Text(title).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .font(.custom("Paperlogy-8ExtraBold", size: 16, relativeTo: .caption))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title)
     }
 
     private var schoolFolders: some View {
@@ -251,18 +246,18 @@ struct MYCollectionView: View {
             ForEach(sortedSchools) { school in
                 NavigationLink(value: MYDestination.school(school)) {
                     VStack(spacing: 10) {
-                        MYSchoolFolder(count: demo.cards.filter { $0.school == school }.count)
-                        Text(school.rawValue).font(.custom("Pretendard-Bold", size: 24, relativeTo: .title2))
+                        MYSchoolFolder(cards: demo.collectionCards(school: school, sort: sort, pinnedOnly: pinnedOnly))
+                        Text(school.rawValue).font(.custom("Paperlogy-6SemiBold", size: 25, relativeTo: .title2))
                             .foregroundStyle(Color(red: 0.41, green: 0.31, blue: 0.13))
                     }
-                }.buttonStyle(.plain).accessibilityLabel("\(school.rawValue), 예시 카드 \(demo.cards.filter { $0.school == school }.count)개")
+                }.buttonStyle(.plain).accessibilityLabel("\(school.rawValue), 예시 카드 \(demo.collectionCards(school: school, sort: sort, pinnedOnly: pinnedOnly).count)개")
                     .accessibilityIdentifier("my.school.\(school.id)")
             }
         }
     }
 
     private var sortedSchools: [MYSchool] {
-        let orderedCards = demo.visibleCards(filter: .all, school: nil, sort: sort)
+        let orderedCards = demo.collectionCards(school: nil, sort: sort, pinnedOnly: pinnedOnly)
         return schools.sorted { first, second in
             (orderedCards.firstIndex { $0.school == first } ?? .max) < (orderedCards.firstIndex { $0.school == second } ?? .max)
         }
@@ -270,7 +265,7 @@ struct MYCollectionView: View {
 
     private var collectionFilters: some View {
         HStack(spacing: 6) {
-            ForEach(MYCollectionFilter.allCases, id: \.self) { option in
+            ForEach([MYCollectionFilter.all, .schools], id: \.self) { option in
                 Button {
                     demo.collectionFilter = option
                     if school != nil { dismiss() }
@@ -285,18 +280,26 @@ struct MYCollectionView: View {
                 }.buttonStyle(.plain).accessibilityAddTraits(filter == option ? .isSelected : [])
                     .accessibilityIdentifier("my.filter.\(option)")
             }
-        }.frame(maxWidth: 282).padding(.bottom, 6)
+        }.frame(maxWidth: 186).padding(.bottom, 6)
             .frame(maxWidth: .infinity).padding(.top, 8)
-            .background(.regularMaterial)
+
     }
 
     private func cardOverlay(_ card: MYDemoCard) -> some View {
         VStack(spacing: 15) {
             Image(card.image).resizable().scaledToFit().accessibilityLabel("\(card.title), \(card.school.rawValue)의 디자인 예시 카드")
-            Button { detailCard = card; selectedCard = nil } label: {
-                Text("자세히 보기").font(.system(size: 20, weight: .bold))
-                    .frame(maxWidth: .infinity, minHeight: 44).background(.white, in: Capsule())
-            }.buttonStyle(.plain).accessibilityIdentifier("my.card.details")
+            HStack(spacing: 7) {
+                Button { detailCard = card; selectedCard = nil } label: {
+                    Text("자세히 보기").font(.custom("Paperlogy-6SemiBold", size: 20, relativeTo: .headline))
+                        .frame(maxWidth: .infinity, minHeight: 44).background(.white, in: Capsule())
+                }.buttonStyle(.plain).accessibilityIdentifier("my.card.details")
+                Button { demo.toggleFavorite(card) } label: {
+                    Image(systemName: "pin.fill").font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(demo.favorites.contains(card.id) ? CampusStyle.green : .black)
+                        .frame(width: 49, height: 44).background(.white, in: Capsule())
+                }.buttonStyle(.plain).accessibilityLabel("카드 고정 \(demo.favorites.contains(card.id) ? "해제" : "추가")")
+                    .accessibilityIdentifier("my.favorite.\(card.id)")
+            }.foregroundStyle(.black)
             Button("닫기") { selectedCard = nil }.frame(minHeight: 44)
         }.padding(20).presentationDetents([.large]).presentationDragIndicator(.visible)
             .presentationBackground(.ultraThinMaterial)
@@ -335,22 +338,22 @@ struct MYCollectionView: View {
 }
 
 private struct MYSchoolFolder: View {
-    let count: Int
+    let cards: [MYDemoCard]
 
     var body: some View {
         GeometryReader { geometry in
             let scale = geometry.size.width / 171
             ZStack(alignment: .topLeading) {
                 Image("MYFolderBack").resizable().frame(width: 171 * scale, height: 228 * scale)
-                ForEach(Array(["MYFolderCardBack", "MYFolderCardMiddle", "MYBasicCard"].enumerated()), id: \.element) { index, name in
-                    Image(name).resizable().scaledToFit()
+                ForEach(Array(cards.prefix(3).reversed().enumerated()), id: \.element.id) { index, card in
+                    Image(card.image).resizable().scaledToFit()
                         .frame(width: 147.6 * scale, height: 204.7 * scale)
                         .offset(x: [20.7, 11.7, 6.5][index] * scale, y: [9.1, 5.2, 11.7][index] * scale)
                 }
                 Image("MYFolderFront").resizable().frame(width: 187 * scale, height: 201.3 * scale)
                     .offset(x: -8 * scale, y: 30.7 * scale)
                 HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text("\(count)").font(.custom("KIMWILDgag-BOLD", size: 50 * scale, relativeTo: .title))
+                    Text("\(cards.count)").font(.custom("PearToucan-Regular", size: 50 * scale, relativeTo: .title))
                     Text("card").font(.system(size: 24 * scale))
                 }.foregroundStyle(Color(red: 0.41, green: 0.31, blue: 0.13))
                     .position(x: 72 * scale, y: 198 * scale)

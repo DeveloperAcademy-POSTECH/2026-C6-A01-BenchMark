@@ -8,7 +8,6 @@ struct MYWorkshopView: View {
     let demo: MYDemoStore
     let onCamera: () -> Void
     var remote: OiRemoteStore? = nil
-    @State private var showingSettings = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -31,7 +30,7 @@ struct MYWorkshopView: View {
                 NavigationLink(value: MYDestination.collection) {
                     artwork("MYCollection", rect: CGRect(x: 220, y: 180.5, width: 163, height: 231), scale: scale, origin: origin)
                 }.buttonStyle(.plain).accessibilityLabel("오이 도감").accessibilityIdentifier("my.collection")
-                Button { showingSettings = true } label: {
+                NavigationLink { MYSettingsView(container: container, store: store, demo: demo, onCamera: onCamera, remote: remote) } label: {
                     ZStack {
                         artwork("MYSettingsBoard", rect: CGRect(x: 281, y: 432.5, width: 92, height: 192), scale: scale, origin: origin)
                         artwork("MYRake", rect: CGRect(x: 292.7, y: 441.3, width: 68, height: 173), scale: scale, origin: origin)
@@ -58,7 +57,6 @@ struct MYWorkshopView: View {
                 }.foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6).accessibilityElement(children: .combine)
             }
         }
-        .sheet(isPresented: $showingSettings) { CampusProfileMenu(container: container, store: store, onCamera: onCamera, remote: remote).id(remote?.account?.id) }
         .safeAreaInset(edge: .bottom) {
             Text(remote == nil ? "디자인 예시 · 더미 프로필" : "농부의 옷·아이템 꾸미기는 준비 중이에요").font(.caption2)
                 .padding(8).background(.thinMaterial, in: Capsule()).padding(.bottom, 8)

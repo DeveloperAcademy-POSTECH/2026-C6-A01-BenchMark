@@ -38,12 +38,17 @@ struct MYDemoChecks {
         precondition(demo.visibleCards(filter: .all, school: .postech, sort: .latest).count == 15)
         precondition(demo.visibleCards(filter: .all, school: .apple, sort: .latest).count == 8)
         precondition(demo.visibleCards(filter: .favorites, school: nil, sort: .latest).isEmpty)
+        let newest = demo.collectionCards(school: nil, sort: .latest, pinnedOnly: false)
+        let oldest = demo.collectionCards(school: nil, sort: .oldest, pinnedOnly: false)
+        precondition(newest.map(\.id) == oldest.reversed().map(\.id))
+        precondition(demo.collectionCards(school: nil, sort: .latest, pinnedOnly: true).isEmpty)
         let first = demo.cards[0]
         let apple = demo.cards[15]
         demo.toggleFavorite(first)
         demo.toggleFavorite(apple)
         precondition(demo.visibleCards(filter: .favorites, school: nil, sort: .latest).count == 2)
         precondition(demo.visibleCards(filter: .favorites, school: .postech, sort: .latest).map(\.id) == [first.id])
+        precondition(demo.collectionCards(school: .postech, sort: .oldest, pinnedOnly: true).map(\.id) == [first.id])
         demo.toggleFavorite(first)
         precondition(demo.favorites == [apple.id])
         for school in MYSchool.allCases {

@@ -17,9 +17,14 @@ enum MYCollectionFilter: String, CaseIterable {
         switch self {
         case .all: "rectangle.grid.3x2.fill"
         case .schools: "graduationcap.fill"
-        case .favorites: "heart.fill"
+        case .favorites: "pin.fill"
         }
     }
+}
+
+enum MYCardSort: String, CaseIterable {
+    case latest = "최신순"
+    case oldest = "오래된순"
 }
 
 struct MYDemoCard: Identifiable, Hashable {
@@ -41,17 +46,19 @@ final class MYDemoStore {
     var campusStore: CampusStoryStore?
     private(set) var favorites: Set<String> = []
     var collectionFilter = MYCollectionFilter.all
+    var collectionSort = MYCardSort.latest
+    var pinnedOnly = false
 
     init(loadExamples: Bool = true) {
         if !loadExamples { nickname = "농부"; cards = []; return }
-        let titles = ["6냥이 오이", "힘들어오이", "샤갈오이", "너무할게오이", "안할래오이"]
-        let images = ["MYBasicCard", "MYBlueCard", "MYRedCard", "MYBasicCard", "MYBasicCard"]
+        let titles = ["화성갈끄니까오이", "개강한대학생오이", "개강한아기오이", "6냥이오이", "대학원생갈겠오이"]
+        let images = ["MYSpaceCard", "MYPostechCard", "MYHoodCard", "MYCatCard", "MYDoctorCard"]
         cards = MYSchool.allCases.flatMap { school in
             (0..<(school == .postech ? 15 : 8)).map { index in
                 MYDemoCard(
                     id: "my-demo-\(school.id)-\(index)",
-                    title: school == .apple && index == 0 ? "화성갈끄니까오이" : titles[index % titles.count],
-                    image: school == .apple && index == 0 ? "MYSpaceCard" : images[index % images.count],
+                    title: school == .apple ? ["6냥이오이", "연구원 오이"][index % 2] : titles[index % titles.count],
+                    image: school == .apple ? ["MYCatCard", "MYDoctorCard"][index % 2] : images[index % images.count],
                     school: school, order: index + (school == .postech ? 0 : 15),
                     distance: (index * 31 + (school == .postech ? 80 : 420)) % 900,
                     popularity: (index * 37 + 120) % 200
@@ -70,6 +77,11 @@ final class MYDemoStore {
             case .popular: return first.popularity == second.popularity ? first.order < second.order : first.popularity > second.popularity
             }
         }
+    }
+
+    func collectionCards(school: MYSchool?, sort: MYCardSort, pinnedOnly: Bool) -> [MYDemoCard] {
+        cards.filter { (school == nil || $0.school == school) && (!pinnedOnly || favorites.contains($0.id)) }
+            .sorted { sort == .latest ? $0.order < $1.order : $0.order > $1.order }
     }
 
     func toggleFavorite(_ card: MYDemoCard) {
