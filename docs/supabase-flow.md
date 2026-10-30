@@ -167,3 +167,5 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project app
 
 ![실제 서버의 빈 계정 도감](../apps/ios/docs/verification/mylive/collection.png)
 ![정상 로컬 서명에서 실제 로그인 진입](../apps/ios/docs/verification/mylive/account.png)
+
+기존 `campus.designExample.collectedIDs.v1` 예시 수집 캐시도 앱 시작 때 해당 키만 제거한다. 서버 수집·App Clip 기기 보관·다른 사용자 설정은 삭제하지 않는다. 격리된 UserDefaults 검사에서 예시 키 제거와 무관한 설정 보존을 확인했다.

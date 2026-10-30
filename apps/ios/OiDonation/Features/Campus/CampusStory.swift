@@ -47,7 +47,8 @@ final class CampusStoryStore {
     var mediaURL: ((String) async throws -> URL)?
     private(set) var collected: Set<String>
 
-    init() {
+    init(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: "campus.designExample.collectedIDs.v1")
         stories = []; collected = []
     }
     func story(_ id: String) -> CampusStory? { stories.first { $0.id == id } }

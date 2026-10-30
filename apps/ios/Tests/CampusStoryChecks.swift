@@ -6,7 +6,11 @@ struct CampusStoryChecks {
         let suite = "campus-checks-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
-        let store = CampusStoryStore()
+        defaults.set(["pond-0"], forKey: "campus.designExample.collectedIDs.v1")
+        defaults.set("preserved", forKey: "unrelated-user-setting")
+        let store = CampusStoryStore(defaults: defaults)
+        precondition(defaults.object(forKey: "campus.designExample.collectedIDs.v1") == nil)
+        precondition(defaults.string(forKey: "unrelated-user-setting") == "preserved")
         precondition(store.stories.isEmpty && store.collected.isEmpty)
         let records = (0..<3).map { index in
             CampusStory(id: "test-\(index)", regionID: "pond", title: "Test", image: "OiCats", tags: [], donor: "Test", location: "Test", date: "", order: index, popularity: index, palette: 0)
@@ -31,7 +35,7 @@ struct CampusStoryChecks {
         precondition(requested == first.id && store.collected.isEmpty)
         store.synchronize(stories: records, collected: [first.id])
         precondition(store.collected == [first.id])
-        let reopened = CampusStoryStore()
+        let reopened = CampusStoryStore(defaults: defaults)
         precondition(reopened.collected.isEmpty, "No account data restored from an unrelated local fixture cache")
         print("PASS: live story projection, ordering and server-confirmed collection")
     }
