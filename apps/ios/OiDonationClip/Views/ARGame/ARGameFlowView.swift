@@ -30,9 +30,24 @@ struct ARGameFlowView: View {
     var body: some View {
         Group {
             switch viewModel.state {
+            case .introBackground:
+                Image("ARGameIntroBackground")
+                    .resizable()
+                    .scaledToFill()
+                    .ignoresSafeArea()
+                    .accessibilityHidden(true)
+                    .task {
+                        do {
+                            try await Task.sleep(for: .milliseconds(300))
+                        } catch {
+                            return
+                        }
+                        guard !Task.isCancelled else { return }
+                        viewModel.showIntro()
+                    }
             case .intro:
                 ARGameIntroView(
-                    cucumberName: story.cucumberName,
+                    cucumberName: story.title,
                     cucumberImageURL: story.cucumberImageURL,
                     targetCount: 3,
                     timeLimitSeconds: 30,
@@ -50,7 +65,7 @@ struct ARGameFlowView: View {
                     Color.black.opacity(0.95)
                         .ignoresSafeArea()
                     Text("시작!")
-                        .font(.custom("KIMWILDgag-BOLD", size: 60, relativeTo: .largeTitle))
+                        .font(.custom("PearToucan-Regular", size: 60, relativeTo: .largeTitle).weight(.bold))
                         .foregroundStyle(.white)
                 }
                 .task {
@@ -60,8 +75,7 @@ struct ARGameFlowView: View {
             case .playing:
                 ARGamePlayingView(
                     viewModel: viewModel,
-                    cucumberImageURL: story.cucumberImageURL,
-                    onBack: onBack
+                    cucumberImageURL: story.cucumberImageURL
                 )
             case .permissionDenied:
                 statePanel(

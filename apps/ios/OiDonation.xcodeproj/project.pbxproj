@@ -76,6 +76,7 @@
 				"Resources/Fonts/Griun_OMIRI-Rg.ttf",
 				"Resources/Fonts/KIM-WILDgag-Bold.ttf",
 				Resources/Fonts/Mona12TextKR.ttf,
+				"Resources/Fonts/Paperlogy-4Regular.ttf",
 				"Resources/Fonts/Paperlogy-6SemiBold.ttf",
 				"Resources/Fonts/PearToucan-Regular.ttf",
 			);

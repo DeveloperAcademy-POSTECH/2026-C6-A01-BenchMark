@@ -169,9 +169,13 @@ struct AppClipInvocationChecks {
             isARSupported: { true },
             requestCameraAccess: { true }
         )
-        require(gameModel.state == .intro, "AR game starts at intro")
+        require(gameModel.state == .introBackground, "AR game starts at intro background")
         await gameModel.resolvePermission()
-        require(gameModel.state == .intro, "AR game ignores permission resolution before request")
+        require(gameModel.state == .introBackground, "AR game ignores permission resolution during intro background")
+        gameModel.requestPermission()
+        require(gameModel.state == .introBackground, "AR game ignores permission requests during intro background")
+        gameModel.showIntro()
+        require(gameModel.state == .intro, "AR game shows intro after background transition")
         gameModel.requestPermission()
         require(gameModel.state == .requestingPermission, "AR game requests permission")
         await gameModel.resolvePermission()
@@ -222,6 +226,7 @@ struct AppClipInvocationChecks {
             isARSupported: { true },
             requestCameraAccess: { false }
         )
+        deniedGameModel.showIntro()
         deniedGameModel.requestPermission()
         await deniedGameModel.resolvePermission()
         require(deniedGameModel.state == .permissionDenied, "AR game handles denied camera permission")
@@ -230,6 +235,7 @@ struct AppClipInvocationChecks {
             isARSupported: { false },
             requestCameraAccess: { true }
         )
+        unavailableGameModel.showIntro()
         unavailableGameModel.requestPermission()
         await unavailableGameModel.resolvePermission()
         require(unavailableGameModel.state == .unavailable, "AR game handles unavailable AR")

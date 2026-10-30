@@ -19,18 +19,17 @@ struct AppClipStoryCardView: View {
     var body: some View {
         GeometryReader { geometry in
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 38) {
+                VStack(spacing: 34) {
                     StoryCardImage(url: experience.storyCard.imageURL)
                         .aspectRatio(320 / 444, contentMode: .fit)
                         .frame(width: min(320, geometry.size.width - 32))
                         .shadow(color: .black.opacity(0.25), radius: 3.5, x: 3, y: 6)
 
                     summaryCard
-                        .frame(maxWidth: 380)
-                        .padding(.horizontal, 11)
+                        .frame(width: min(362, geometry.size.width - 40), height: 216)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.top, 52)
+                .padding(.top, 42)
                 .padding(.bottom, max(34, geometry.safeAreaInsets.bottom + 8))
             }
         }
@@ -38,37 +37,22 @@ struct AppClipStoryCardView: View {
     }
 
     private var summaryCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 5) {
-                Text(story.cucumberName)
-                    .font(.custom("KIMWILDgag-BOLD", size: 30, relativeTo: .title))
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .center, spacing: 6) {
+                Text(story.title)
+                    .font(.custom("PearToucan-Regular", size: 28, relativeTo: .title).weight(.bold))
+                    .tracking(1.12)
                     .lineLimit(1)
                     .minimumScaleFactor(0.65)
 
-                verifiedBadge
-
-                Spacer(minLength: 8)
+                Spacer(minLength: 0)
 
                 tags
             }
 
-            Text(metadataText)
-                .font(.custom("GriunOMIRI-Regular", size: 10, relativeTo: .caption2))
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
-                .padding(.top, 1)
+            metadata
 
-            Text("“ \(story.content)”")
-                .font(.custom("GriunOMIRI-Regular", size: 18, relativeTo: .body))
-                .tracking(-0.72)
-                .lineSpacing(2)
-                .lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 11)
-
-            Spacer(minLength: 8)
-
-            HStack(spacing: 6) {
+            HStack(spacing: 16) {
                 Button(action: onCollect) {
                     HStack(spacing: 5) {
                         if isCollected {
@@ -78,79 +62,76 @@ struct AppClipStoryCardView: View {
                     }
                         .font(.custom("Paperlogy-6SemiBold", size: 14, relativeTo: .callout))
                         .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .background(collectButtonGradient, in: RoundedRectangle(cornerRadius: 20))
+                        .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44)
+                        .background(collectButtonColor, in: RoundedRectangle(cornerRadius: 20))
                 }
                 .buttonStyle(.plain)
+                .frame(maxWidth: 239)
                 .accessibilityIdentifier("appclip.storyCard.collect")
 
-                Button("취소", action: onCancel)
+                Button("삭제", action: onCancel)
                     .buttonStyle(.plain)
                     .font(.custom("Paperlogy-6SemiBold", size: 14, relativeTo: .callout))
                     .foregroundStyle(.white)
-                    .frame(width: 48, height: 44)
+                    .frame(width: 67, height: 44)
                     .background(Color(red: 0.867, green: 0.867, blue: 0.867), in: Capsule())
                     .accessibilityIdentifier("appclip.storyCard.cancel")
             }
         }
         .foregroundStyle(.black)
-        .padding(.horizontal, 19)
-        .padding(.vertical, 17)
-        .frame(maxWidth: .infinity, minHeight: 213)
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.white, in: RoundedRectangle(cornerRadius: 30))
-        .shadow(color: .black.opacity(0.25), radius: 3, x: 2, y: 3)
+        .shadow(color: Color(red: 0.18, green: 0.31, blue: 0.09).opacity(0.4), radius: 5)
     }
 
     private var tags: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             ForEach(story.tags.prefix(2), id: \.self) { tag in
                 Text(tag)
-                    .font(.custom("Mona12TextKR-Regular", size: 13, relativeTo: .caption))
-                    .tracking(-0.52)
+                    .font(.custom("Paperlogy-4Regular", size: 16, relativeTo: .caption))
+                    .tracking(0.32)
                     .lineLimit(1)
-                    .padding(.horizontal, 12)
-                    .frame(height: 26)
-                    .background(Color(red: 0.941, green: 0.941, blue: 0.941), in: Capsule())
+                    .padding(.horizontal, 14)
+                    .frame(height: 30)
+                    .background(Color(red: 0.812, green: 0.812, blue: 0.812), in: Capsule())
             }
         }
     }
 
-    private var verifiedBadge: some View {
-        ZStack {
-            Circle()
-                .fill(Color(red: 0.831, green: 0.714, blue: 0.345))
-            Image(systemName: "checkmark")
-                .font(.system(size: 7, weight: .black))
-                .foregroundStyle(Color(red: 1, green: 0.949, blue: 0.808))
+    private var metadata: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            metadataRow(label: "기부자", value: story.donorDisplayName)
+            metadataRow(label: "위치", value: story.location.displayName)
+            metadataRow(label: "날짜", value: Self.dateFormatter.string(from: story.publishedAt))
         }
-        .frame(width: 14, height: 14)
-        .accessibilityHidden(true)
+        .font(.custom("Paperlogy-4Regular", size: 15, relativeTo: .caption))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var metadataText: String {
-        "\(story.donorDisplayName)  |  \(story.location.displayName)  |  \(Self.dateFormatter.string(from: story.publishedAt))"
+    private func metadataRow(label: String, value: String) -> some View {
+        HStack(spacing: 5) {
+            Text(label)
+            Text("|")
+            Text(value)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
     }
 
     private var storyCardBackground: Color {
-        Color(red: 0.867, green: 0.918, blue: 0.953)
+        Color(red: 0.953, green: 0.969, blue: 0.902)
     }
 
-    private var collectButtonGradient: LinearGradient {
-        LinearGradient(
-            colors: [
-                Color(red: 0.337, green: 0.651, blue: 0.867),
-                Color(red: 0.145, green: 0.408, blue: 0.631)
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
+    private var collectButtonColor: Color {
+        Color(red: 0.439, green: 0.549, blue: 0.251)
     }
 
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.locale = Locale(identifier: "ko_KR")
         formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.dateFormat = "yyyy.MM.dd.EEE"
+        formatter.dateFormat = "yyyy년 M월 d일 EEEE"
         return formatter
     }()
 }
