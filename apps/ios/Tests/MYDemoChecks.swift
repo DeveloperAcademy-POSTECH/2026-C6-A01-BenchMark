@@ -57,6 +57,41 @@ struct MYDemoChecks {
         precondition(demo.collectionFilter == .schools)
         precondition(MYDemoStore().collectionFilter == .all)
 
+        let previewSlots = OiStoryListState.preview.slots()
+        precondition(previewSlots.count == 4)
+        precondition(previewSlots.compactMap(\.item).count == 2)
+        precondition(previewSlots[2].item == nil && previewSlots[3].item == nil)
+        precondition(OiStoryListState.empty.slots().allSatisfy { $0.item == nil })
+        let stressSlots = OiStoryListState.layoutStressPreview.slots()
+        precondition(stressSlots.count == 4)
+        precondition(stressSlots[0].item?.tags == ["행복한추억", "오랜우정"])
+
+        let remoteStory = OiLiveStory(
+            id: UUID(),
+            userId: UUID(),
+            grantId: UUID(),
+            regionId: "pond",
+            title: "Test story",
+            body: "Test body",
+            theme: "우정",
+            emotion: "행복함",
+            cucumberName: "테스트오이",
+            cucumberAsset: "OiCats",
+            cardAsset: "MYBasicCard",
+            latitude: 36,
+            longitude: 129,
+            status: "draft",
+            revision: 0,
+            createdAt: "2026-10-31T00:00:00Z"
+        )
+        let listItem = OiStoryListItem(
+            story: remoteStory,
+            donorDisplayName: "테스트 기부자",
+            locationDisplayName: "테스트 위치"
+        )
+        precondition(listItem.tags == ["행복함", "우정"])
+        precondition(listItem.cucumberName == "테스트오이")
+
         let suite = "MYDemoChecks.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)

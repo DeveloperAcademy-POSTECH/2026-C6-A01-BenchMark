@@ -19,6 +19,31 @@ struct RootTabView: View {
     }
 
     var body: some View {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-story-list-preview") {
+            OiStoryListPreviewHost(state: storyListPreviewState)
+        } else {
+            appContent
+        }
+        #else
+        appContent
+        #endif
+    }
+
+    #if DEBUG
+    private var storyListPreviewState: OiStoryListState {
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("-story-list-preview-loading") { return .loading }
+        if arguments.contains("-story-list-preview-empty") { return .empty }
+        if arguments.contains("-story-list-preview-error") {
+            return .failure("네트워크 연결을 확인한 뒤 다시 시도해 주세요.")
+        }
+        if arguments.contains("-story-list-preview-long") { return .layoutStressPreview }
+        return .preview
+    }
+    #endif
+
+    private var appContent: some View {
         NavigationStack(path: $path) {
             HomeView(
                 container: container,
@@ -133,5 +158,44 @@ struct RootTabView: View {
         PublicDestinationView(destination: destination, benches: container.benchRepository, stories: container.storyRepository)
     }
 }
+
+#if DEBUG
+private struct OiStoryListPreviewHost: View {
+    let state: OiStoryListState
+    @State private var notice: PreviewNotice?
+
+    var body: some View {
+        NavigationStack {
+            OiStoryListView(
+                state: state,
+                ticketCountText: "3pc",
+                notices: OiStoryListView.figmaPreviewNotices,
+                onRetry: { show("다시 시도", "실제 앱에서는 서버의 이야기 목록을 다시 불러옵니다.") },
+                onAddTicket: { show("티켓 추가", "티켓 추가 정책이 확정되면 실제 흐름에 연결됩니다.") },
+                onSelectStory: { _ in show("이야기 선택", "실제 앱에서는 기존 이야기 관리 화면으로 이동합니다.") },
+                onCreateStory: { show("오이 만들기", "실제 앱에서는 작성 승인을 확인한 뒤 이야기 에디터로 이동합니다.") },
+                onUseTicket: { show("티켓 사용", "티켓 사용 정책이 확정되면 실제 흐름에 연결됩니다.") }
+            )
+        }
+        .alert(item: $notice) { notice in
+            Alert(
+                title: Text(notice.title),
+                message: Text(notice.message),
+                dismissButton: .default(Text("확인"))
+            )
+        }
+    }
+
+    private func show(_ title: String, _ message: String) {
+        notice = PreviewNotice(title: title, message: message)
+    }
+}
+
+private struct PreviewNotice: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+}
+#endif
 
 #Preview { RootTabView(container: .preview) }
