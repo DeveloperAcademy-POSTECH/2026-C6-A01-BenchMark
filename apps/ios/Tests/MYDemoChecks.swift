@@ -92,6 +92,16 @@ struct MYDemoChecks {
         precondition(listItem.tags == ["행복함", "우정"])
         precondition(listItem.cucumberName == "테스트오이")
 
+        precondition(OiStoryConsentClause.figmaDrafts.count == 3)
+        var consent = OiStoryConsentState()
+        precondition(!consent.allRequiredClausesAreAgreed)
+        for id in OiStoryConsentClause.ID.allCases {
+            consent.setAgreed(true, to: id)
+        }
+        precondition(consent.allRequiredClausesAreAgreed)
+        consent.setAgreed(false, to: .donationEvidence)
+        precondition(!consent.allRequiredClausesAreAgreed)
+
         let suite = "MYDemoChecks.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)

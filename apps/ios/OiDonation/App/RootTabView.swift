@@ -22,6 +22,8 @@ struct RootTabView: View {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-story-list-preview") {
             OiStoryListPreviewHost(state: storyListPreviewState)
+        } else if ProcessInfo.processInfo.arguments.contains("-story-consent-preview") {
+            OiStoryConsentPreviewHost()
         } else {
             appContent
         }
@@ -160,6 +162,14 @@ struct RootTabView: View {
 }
 
 #if DEBUG
+private struct OiStoryConsentPreviewHost: View {
+    var body: some View {
+        NavigationStack {
+            OiStoryConsentView(clauses: OiStoryConsentClause.figmaDrafts)
+        }
+    }
+}
+
 private struct OiStoryListPreviewHost: View {
     let state: OiStoryListState
     @State private var notice: PreviewNotice?
