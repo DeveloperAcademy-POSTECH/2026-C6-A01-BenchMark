@@ -69,7 +69,7 @@ struct OiAccountView: View {
                     }
                     .accessibilityIdentifier("oi.story.list")
                     if remote.grants.contains(where: { $0.revokedAt == nil }) {
-                        NavigationLink("오이 만들기") { OiStoryEditor(remote: remote) }
+                        NavigationLink("오이 만들기") { OiStoryCreationConsentFlow(remote: remote) }
                             .accessibilityIdentifier("oi.story.create")
                     } else {
                         Text("증빙 검토와 작성 승인이 필요해요.").foregroundStyle(.secondary)
