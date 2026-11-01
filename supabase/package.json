@@ -1,0 +1,10 @@
+{
+  "name": "@benchmark/evidence-analysis-checks",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24 <27" },
+  "scripts": {
+    "test": "node --test tests/evidence-analysis.test.mjs",
+    "check": "deno check functions/analyze-evidence/index.ts"
+  }
+}
