@@ -257,3 +257,7 @@ Bench에 선택적 BenchCoordinate를 추가했다. 유효한 확정 공개 NFC 
 ## 정밀 위치·현장 AR 통합 — 2026-10-29 / PR #97
 
 Figma 기본 지도와 Supabase 승인·계정 흐름을 기준으로 충돌을 통합했다. OiStoryEditor의 위치 선택은 기존 3D 캠퍼스·미세 이동 도구를 사용하고 선택 완료 시 기존 초안 좌표를 갱신한다. 현장 AR은 공개 이야기 UUID·좌표를 같은 Supabase API에서 익명 권한으로 재확인한다. 별도 작성 코드 서버·PostgreSQL API·이전 호스팅 설정은 다시 도입하지 않는다. 3D 외형은 기존 helmet-oi이며 2D 카드별 외형 변환과 현장 정확도는 별도 확인이 필요하다. 범위·한계는 apps/ios/docs/campus-geo-placement.md를 따른다.
+
+## 증빙 AI 시각 분석 — 2026-11-02 / #116
+
+기존 운영자 권한·증빙 신청·비공개 Storage를 재사용하는 `supabase/functions/analyze-evidence`를 추가한다. 사용자 JWT를 검증하고 운영자에게만 현재 제출본의 AI 시각 분석을 반환한다. OpenAI 키는 서버 환경에만 두며 JPEG·PNG·PDF 입력, 응답 스키마·오류·시간 제한, 재제출·권한 회수 재확인을 적용한다. DB·Storage 쓰기와 자동 승인은 수행하지 않는다. 버튼·화면·CORS origin·원격 배포는 별도 연결 범위다. 결과 계약과 검증·개인정보 및 판별 한계는 [증빙 AI 분석 문서](evidence-ai-analysis.md)를 따른다.
