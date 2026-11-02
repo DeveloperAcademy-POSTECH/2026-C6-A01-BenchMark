@@ -265,3 +265,7 @@ MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하
 ## MY 서버 데이터 전환 — 2026-10-30
 
 사용자의 실동작 요청에 따라 MYLibraryStore가 계정 수집의 화면 투영을 맡고 기존 OiRemoteStore·oi_mutate가 읽기/쓰기를 소유한다. 학교·구역·자산 카탈로그는 DB에서 읽고 프로필 학교는 기존 FK/RLS로 저장한다. 고정 예시 카드와 로컬 성공 대체 경로를 제거하며 실제 이야기 내용으로 카드를 렌더링한다. 실제 공개 StoryRepository와 App Clip도 같은 공용 ID를 조회한다. 기존 DB 계약을 재사용하고 데이터·Auth 계정을 삭제하지 않는다. 설정·검증·미확정 운영 정책은 docs/supabase-flow.md의 최신 기록을 따른다.
+
+## 증빙 AI 시각 분석 — 2026-11-02 / #116
+
+기존 운영자 권한·증빙 신청·비공개 Storage를 재사용하는 `supabase/functions/analyze-evidence`를 추가한다. 사용자 JWT를 검증하고 운영자에게만 현재 제출본의 AI 시각 분석을 반환한다. OpenAI 키는 서버 환경에만 두며 JPEG·PNG·PDF 입력, 응답 스키마·오류·시간 제한, 재제출·권한 회수 재확인을 적용한다. DB·Storage 쓰기와 자동 승인은 수행하지 않는다. 버튼·화면·CORS origin·원격 배포는 별도 연결 범위다. 결과 계약과 검증·개인정보 및 판별 한계는 [증빙 AI 분석 문서](evidence-ai-analysis.md)를 따른다.
