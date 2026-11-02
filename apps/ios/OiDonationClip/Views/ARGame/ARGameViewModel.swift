@@ -63,10 +63,14 @@ final class ARGameViewModel {
 
         let isGranted = await requestCameraAccess()
         guard state == .requestingPermission, !Task.isCancelled else { return }
-        state = isGranted ? .starting : .permissionDenied
+        if isGranted {
+            state = .starting
+        } else {
+            state = .permissionDenied
+        }
     }
 
-    func beginPlaying() {
+    func finishStartAnimation() {
         guard state == .starting else { return }
         state = .playing
     }

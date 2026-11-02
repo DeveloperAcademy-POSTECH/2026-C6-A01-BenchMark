@@ -44,6 +44,7 @@ struct ARGamePlayingView: View {
                         .padding(.horizontal, 27)
                         .padding(.bottom, 2)
                 }
+
             }
         }
         .task {
@@ -57,6 +58,7 @@ struct ARGamePlayingView: View {
             Text("\(viewModel.remainingSeconds)")
                 .font(.custom("PearToucan-Regular", size: 30, relativeTo: .title))
                 .contentTransition(.numericText())
+                .animation(.easeInOut(duration: 0.2), value: viewModel.remainingSeconds)
         }
         .font(.title)
         .foregroundStyle(.white)
@@ -86,6 +88,10 @@ struct ARGamePlayingView: View {
                 }
             }
             .frame(width: 291, height: 158)
+            .animation(
+                .spring(duration: 0.32, bounce: 0.35),
+                value: viewModel.collectedCount
+            )
         }
         .frame(maxWidth: 348)
         .aspectRatio(348 / 158, contentMode: .fit)

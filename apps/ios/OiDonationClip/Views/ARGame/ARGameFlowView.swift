@@ -23,7 +23,16 @@ struct ARGameFlowView: View {
             ARWorldTrackingConfiguration.isSupported
         },
         requestCameraAccess: {
-            await AVCaptureDevice.requestAccess(for: .video)
+            switch AVCaptureDevice.authorizationStatus(for: .video) {
+            case .authorized:
+                true
+            case .notDetermined:
+                await AVCaptureDevice.requestAccess(for: .video)
+            case .denied, .restricted:
+                false
+            @unknown default:
+                false
+            }
         }
     )
 
@@ -62,15 +71,13 @@ struct ARGameFlowView: View {
                     }
             case .starting:
                 ZStack {
-                    Color.black.opacity(0.95)
+                    Image("ARGameIntroBackground")
+                        .resizable()
+                        .scaledToFill()
                         .ignoresSafeArea()
-                    Text("시작!")
-                        .font(.custom("PearToucan-Regular", size: 60, relativeTo: .largeTitle).weight(.bold))
-                        .foregroundStyle(.white)
-                }
-                .task {
-                    try? await Task.sleep(for: .milliseconds(700))
-                    viewModel.beginPlaying()
+                        .accessibilityHidden(true)
+
+                    ARGameStartOverlay(onFinished: viewModel.finishStartAnimation)
                 }
             case .playing:
                 ARGamePlayingView(

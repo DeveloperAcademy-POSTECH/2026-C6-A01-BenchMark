@@ -116,7 +116,7 @@ struct ARGameIntroView: View {
     private func startButton(scale: CGFloat, origin: CGPoint) -> some View {
         Button(action: onStart) {
             Text("시작")
-                .font(pearFont(size: 20 * scale, relativeTo: .title3, bold: true))
+                .font(.custom("Paperlogy-7Bold", size: 20 * scale, relativeTo: .title3))
                 .foregroundStyle(.black)
                 .frame(maxWidth: .infinity, minHeight: max(56 * scale, 50))
                 .background(.white, in: Capsule())
