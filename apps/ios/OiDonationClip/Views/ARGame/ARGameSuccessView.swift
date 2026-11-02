@@ -15,7 +15,7 @@ struct ARGameSuccessView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let scale = max(
+            let scale = min(
                 geometry.size.width / 402,
                 geometry.size.height / 874
             )
@@ -38,7 +38,7 @@ struct ARGameSuccessView: View {
                 )
 
                 Text("성공!")
-                    .font(.custom("PearToucan-Regular", size: 60, relativeTo: .largeTitle).weight(.bold))
+                    .font(.custom("PearToucan-Regular", fixedSize: 60).weight(.bold))
                     .tracking(2.4)
                     .foregroundStyle(isExpanded ? successGreen : .white)
                     .fixedSize()
@@ -51,6 +51,8 @@ struct ARGameSuccessView: View {
                 y: (geometry.size.height - 874 * scale) / 2
             )
         }
+        .background(Color.black)
+        .clipped()
         .ignoresSafeArea()
         .task {
             isExpanded = reduceMotion
