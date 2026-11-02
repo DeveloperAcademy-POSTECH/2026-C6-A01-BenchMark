@@ -32,12 +32,24 @@ private final class ARGameVisualScene: UIResponder, UIWindowSceneDelegate {
         do {
             let output = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-            for name in ["PearToucan-Regular", "Paperlogy-7Bold"] {
+            for name in ["PearToucan-Regular", "Paperlogy-7Bold", "Paperlogy-4Regular", "Paperlogy-6SemiBold", "Paperlogy-2ExtraLight"] {
                 if let url = Bundle.main.url(forResource: name, withExtension: "ttf") {
                     CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
                 }
             }
+            for name in ["PearToucan-Regular", "Paperlogy-7Bold", "Paperlogy-4Regular", "Paperlogy-6SemiBold", "Paperlogy-2ExtraLight"] {
+                precondition(UIFont(name: name, size: 20)?.fontName == name, "Packaged font must resolve without fallback: \(name)")
+            }
             checkNormalization()
+            try await AppClipPublicStoryChecks.run()
+            let fallback = await CucumberArtwork.load(imageURL: nil)
+            for name in ["61272", "0e35d", "9ac42", "aeb3a"] {
+                guard let url = Bundle.main.url(forResource: name, withExtension: "png"),
+                      let artwork = await CucumberArtwork.load(imageURL: url) else {
+                    preconditionFailure("Packaged story character must load")
+                }
+                precondition(artwork !== fallback, "A selected preset must not silently become the space-cucumber fallback")
+            }
             print("Reduce Motion: \(UIAccessibility.isReduceMotionEnabled)")
             let sizes: [(String, CGSize)] = [
                 ("402x874", CGSize(width: 402, height: 874)),
@@ -74,6 +86,24 @@ private final class ARGameVisualScene: UIResponder, UIWindowSceneDelegate {
                                output: output.appendingPathComponent("start-assembled.png"), delay: UIAccessibility.isReduceMotionEnabled ? 0.1 : 0.82)
             try await snapshot(ARGameFailureView(onRetry: {}), size: sizes[0].1,
                                output: output.appendingPathComponent("failure-midpoint.png"), delay: 0.6)
+            for scheme: ColorScheme in [.light, .dark] {
+                let suffix = scheme == .dark ? "dark" : "light"
+                for (name, size) in sizes {
+                    try await snapshot(storyCard(hasImage: true).preferredColorScheme(scheme), size: size,
+                                       output: output.appendingPathComponent("story-card-\(name)-\(suffix).png"), delay: 0.3)
+                    if name == "402x874" { try checkStoryCardSnapshot(output.appendingPathComponent("story-card-\(name)-\(suffix).png")) }
+                }
+                try await snapshot(storyCard(hasImage: false).preferredColorScheme(scheme), size: sizes[0].1,
+                                   output: output.appendingPathComponent("story-card-no-image-\(suffix).png"), delay: 0.3)
+            }
+            try await snapshot(storyCard(hasImage: false, imageURL: URL(fileURLWithPath: "/missing-card-image.png")),
+                               size: sizes[0].1, output: output.appendingPathComponent("story-card-file-error.png"), delay: 0.3)
+            try await snapshot(storyCard(hasImage: true).environment(\.dynamicTypeSize, .accessibility5)
+                               .defaultScrollAnchor(.bottom), size: sizes[0].1,
+                               output: output.appendingPathComponent("story-card-accessibility5-bottom.png"), delay: 0.3)
+            try await snapshot(storyCard(hasImage: true).environment(\.dynamicTypeSize, .xxxLarge)
+                               .defaultScrollAnchor(.bottom), size: sizes[0].1,
+                               output: output.appendingPathComponent("story-card-xxxlarge-bottom.png"), delay: 0.3)
             try "PASS\n".write(to: output.appendingPathComponent("result.txt"), atomically: true, encoding: .utf8)
             print("PASS: transparent-image normalization and AR game visual captures")
             exit(0)
@@ -86,6 +116,17 @@ private final class ARGameVisualScene: UIResponder, UIWindowSceneDelegate {
     private var intro: some View {
         ARGameIntroView(cucumberName: "화성갈끄니까오이", cucumberImageURL: nil,
                         targetCount: 3, timeLimitSeconds: 30, onBack: {}, onStart: {})
+    }
+
+    private func storyCard(hasImage: Bool, imageURL: URL? = nil) -> some View {
+        let story = Story(storyID: "visual-story", donorID: UUID(), donorDisplayName: "20학번 디벨로퍼학과 신예은",
+                          title: "화성갈끄니까오이", content: "검증용 이야기", publishedAt: Date(timeIntervalSince1970: 1_792_724_400),
+                          location: StoryLocation(locationID: "visual-location", displayName: "포항공과대학교 지곡회관 옆 연못길"),
+                          tags: ["기대감", "미래"], cucumberID: "visual-cucumber", cucumberName: "화성오이")
+        let card = StoryCard(cardID: "visual-card", storyID: story.storyID,
+                             imageURL: imageURL ?? (hasImage ? Bundle.main.url(forResource: "AppClipStoryCardPreview", withExtension: "png") : nil))
+        return AppClipStoryCardView(experience: AppClipExperience(story: story, storyCard: card),
+                                   isCollected: false, onCollect: {}, onCancel: {})
     }
 
     private func snapshot<V: View>(_ view: V, size: CGSize, output: URL, delay: Double) async throws {
@@ -107,6 +148,26 @@ private final class ARGameVisualScene: UIResponder, UIWindowSceneDelegate {
         let renderer = UIGraphicsImageRenderer(size: size, format: format)
         let png = renderer.pngData { _ in host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true) }
         try png.write(to: output)
+    }
+
+    private func checkStoryCardSnapshot(_ url: URL) throws {
+        guard let image = UIImage(data: try Data(contentsOf: url))?.cgImage,
+              let context = CGContext(data: nil, width: image.width, height: image.height,
+                                      bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue),
+              let bytes = context.data else { preconditionFailure("Missing story card capture") }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let pixels = bytes.bindMemory(to: UInt8.self, capacity: image.width * image.height * 4)
+        var colorPixels = 0
+        for y in 104..<548 {
+            for x in 41..<361 {
+                let i = (y * image.width + x) * 4
+                let channels = [pixels[i], pixels[i + 1], pixels[i + 2]]
+                if Int(channels.max() ?? 0) - Int(channels.min() ?? 0) > 30 { colorPixels += 1 }
+            }
+        }
+        precondition(colorPixels > 10_000, "The actual card artwork must render; a text block must fail this regression check")
     }
 
     private func checkNormalization() {
