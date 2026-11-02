@@ -11,8 +11,10 @@ import StoreKit
 
 @main
 struct OiDonationClipApp: App {
-    @State private var previewCollectionStore = StoryCollectionStore()
     @State private var isOverlayPresented = false
+    #if DEBUG
+    @State private var previewCollectionStore = StoryCollectionStore()
+    #endif
 
     init() {
         for name in [
@@ -34,13 +36,6 @@ struct OiDonationClipApp: App {
     var body: some Scene {
         WindowGroup {
             rootView
-                .task {
-                    #if DEBUG
-                    if ProcessInfo.processInfo.arguments.contains("-reset-preview-collection") {
-                        previewCollectionStore.remove(storyID: "preview-story")
-                    }
-                    #endif
-                }
                 .appStoreOverlay(isPresented: $isOverlayPresented) {
                     SKOverlay.AppClipConfiguration(position: .bottom)
                 }

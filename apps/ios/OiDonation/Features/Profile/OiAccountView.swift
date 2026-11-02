@@ -15,7 +15,7 @@ struct OiAccountView: View {
         List {
             OiConnectionStatus(remote: remote)
             if let error = remote.error ?? fileError {
-                Section { Text(error).foregroundStyle(.red); Button("다시 불러오기") { Task { await remote.refresh() } } }
+                Section { Text(error).foregroundStyle(.red).accessibilityIdentifier("oi.account.error"); Button("다시 불러오기") { Task { await remote.refresh() } } }
             }
             if let account = remote.account {
                 Section("내 계정") {
@@ -28,11 +28,11 @@ struct OiAccountView: View {
                     Button("로그아웃", role: .destructive) { Task { await remote.signOut() } }
                 }
                 Section("기부 증빙 · 작성 승인") {
-                    Text("현재는 개발 검증용 가상 자료만 제출해 주세요. 실제 증빙 인정 기준·수집 항목·보관 기간은 아직 확정되지 않았습니다.")
+                    Text("기부 사실을 확인할 자료에서 불필요한 개인정보를 가려 제출해 주세요. 증빙은 공개 이야기나 도감에 표시되지 않습니다.")
                         .font(.footnote).foregroundStyle(.secondary)
                     Text("운영자 검토 후 글 작성 권한을 승인합니다. 학교 공식 납입 확인이나 영수증 발급과는 다릅니다.")
                         .font(.footnote)
-                    Button("가상 증빙 제출 (JPEG·PNG·PDF, 10MB 이하)") { replacingEvidence = nil; importingEvidence = true }
+                    Button("증빙 제출 (JPEG·PNG·PDF, 10MB 이하)") { replacingEvidence = nil; importingEvidence = true }
                         .accessibilityIdentifier("oi.evidence.upload")
                     ForEach(remote.evidence.filter { $0.userId == account.id }) { request in
                         VStack(alignment: .leading, spacing: 4) {
