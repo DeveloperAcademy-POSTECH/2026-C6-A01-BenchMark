@@ -29,9 +29,9 @@ final class AppClipViewModel {
             case .welcome: "오래 남는 이야기 기부"
             case .loading: "이야기를 불러오는 중이에요"
             case .ready: "AR을 시작할 준비가 되었어요"
-            case .invalidLink: "올바르지 않은 링크예요. 명패의 NFC를 다시 인식해 주세요"
+            case .invalidLink: "이야기 링크를 확인할 수 없어요. 올바른 링크로 다시 열어 주세요"
             case .loadFailed: "이야기를 불러오지 못했어요. 잠시 후 다시 시도해 주세요"
-            case .storyNotFound: "이 명패에 연결된 이야기를 찾을 수 없어요"
+            case .storyNotFound: "이 링크에 연결된 공개 이야기를 찾을 수 없어요"
             case .arUnavailable: "이 기기에서는 AR을 사용할 수 없어요. 대신 이야기를 확인해 주세요"
             }
         }

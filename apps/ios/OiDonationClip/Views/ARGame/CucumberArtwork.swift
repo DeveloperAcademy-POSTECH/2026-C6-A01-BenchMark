@@ -19,10 +19,16 @@ enum CucumberArtwork {
         var request = URLRequest(url: imageURL)
         request.timeoutInterval = 10
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let data: Data
+            if imageURL.isFileURL {
+                data = try Data(contentsOf: imageURL)
+            } else {
+                let (download, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return fallback }
+                data = download
+            }
             try Task.checkCancellation()
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-                  let source = CGImageSourceCreateWithData(data as CFData, nil),
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
                   let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                     kCGImageSourceCreateThumbnailFromImageAlways: true,
                     kCGImageSourceCreateThumbnailWithTransform: true,

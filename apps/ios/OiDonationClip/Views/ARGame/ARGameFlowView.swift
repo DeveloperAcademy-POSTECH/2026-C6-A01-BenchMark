@@ -17,6 +17,10 @@ struct ARGameFlowView: View {
     private var story: Story { experience.story }
 
     @State private var collectionStore = StoryCollectionStore()
+    @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isReturningFromSettings = false
 
     @State private var viewModel = ARGameViewModel(
         isARSupported: {
@@ -56,7 +60,7 @@ struct ARGameFlowView: View {
                     }
             case .intro:
                 ARGameIntroView(
-                    cucumberName: story.title,
+                    cucumberName: story.cucumberName,
                     cucumberImageURL: story.cucumberImageURL,
                     targetCount: 3,
                     timeLimitSeconds: 30,
@@ -75,16 +79,29 @@ struct ARGameFlowView: View {
                     cucumberImageURL: story.cucumberImageURL
                 )
             case .permissionDenied:
-                statePanel(
-                    title: "카메라 권한이 필요해요",
-                    message: "설정에서 오이기부의 카메라 접근을 허용해 주세요.",
-                    buttonTitle: "돌아가기",
-                    action: onBack
-                )
+                VStack(spacing: 16) {
+                    statePanel(
+                        title: "카메라 권한이 필요해요",
+                        message: "설정에서 오이기부의 카메라 접근을 허용해 주세요.",
+                        buttonTitle: "돌아가기",
+                        action: onBack
+                    )
+                    Button("설정 열기") {
+                        guard let settings = URL(string: UIApplication.openSettingsURLString) else { return }
+                        isReturningFromSettings = true
+                        openURL(settings) { accepted in
+                            if !accepted { isReturningFromSettings = false }
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
             case .success:
                 ARGameSuccessView {
-                    viewModel.showStoryCard()
+                    withAnimation(reduceMotion ? nil : .timingCurve(0, 0, 0.58, 1, duration: 0.3)) {
+                        viewModel.showStoryCard()
+                    }
                 }
+                .transition(.opacity)
             case .storyCard:
                 AppClipStoryCardView(
                     experience: experience,
@@ -93,8 +110,12 @@ struct ARGameFlowView: View {
                         collectionStore.collect(experience.storyCard)
                         onRequestFullApp()
                     },
-                    onCancel: { viewModel.reset() }
+                    onCancel: {
+                        collectionStore.remove(storyID: story.storyID)
+                        viewModel.reset()
+                    }
                 )
+                .transition(.opacity)
             case .failure:
                 ARGameFailureView {
                     viewModel.reset()
@@ -114,6 +135,11 @@ struct ARGameFlowView: View {
                     action: viewModel.reset
                 )
             }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, isReturningFromSettings else { return }
+            isReturningFromSettings = false
+            viewModel.retryPermission()
         }
     }
 

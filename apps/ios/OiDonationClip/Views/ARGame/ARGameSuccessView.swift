@@ -37,12 +37,13 @@ struct ARGameSuccessView: View {
                     expandedDiameter: 585
                 )
 
-                Text("성공!")
-                    .font(.custom("PearToucan-Regular", fixedSize: 60).weight(.bold))
-                    .tracking(2.4)
+                Image("ARGameSuccessTitle")
+                    .renderingMode(.template)
+                    .resizable()
+                    .frame(width: 120, height: 64)
                     .foregroundStyle(isExpanded ? successGreen : .white)
-                    .fixedSize()
                     .position(x: 200.5, y: 437)
+                    .accessibilityLabel("수집 성공")
             }
             .frame(width: 402, height: 874, alignment: .topLeading)
             .scaleEffect(scale, anchor: .topLeading)
@@ -54,17 +55,18 @@ struct ARGameSuccessView: View {
         .background(Color.black)
         .clipped()
         .ignoresSafeArea()
-        .task {
+        .task(id: reduceMotion) {
             isExpanded = reduceMotion
             if !reduceMotion {
-                await Task.yield()
-                withAnimation(.easeInOut(duration: 0.8)) {
+                do { try await Task.sleep(for: .milliseconds(1)) } catch { return }
+                withAnimation(.timingCurve(0, 0, 0.58, 1, duration: 0.6)) {
                     isExpanded = true
                 }
             }
 
             do {
-                try await Task.sleep(for: .milliseconds(800))
+                if !reduceMotion { try await Task.sleep(for: .milliseconds(600)) }
+                try await Task.sleep(for: .milliseconds(400))
             } catch {
                 return
             }

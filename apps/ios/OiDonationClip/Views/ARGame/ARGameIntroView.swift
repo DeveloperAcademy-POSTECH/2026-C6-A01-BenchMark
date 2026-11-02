@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ARGameIntroView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .title2) private var accessibleTitleWidth = 140
     let cucumberName: String
     let cucumberImageURL: URL?
     let targetCount: Int
@@ -40,12 +41,9 @@ struct ARGameIntroView: View {
                 } else {
                     backButton(scale: scale, origin: origin)
 
-                    Text("오이 수집 게임")
-                        .font(pearFont(size: 25 * scale, relativeTo: .title2, bold: true))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                        .position(x: origin.x + 201 * scale, y: origin.y + 91 * scale)
+                    titleArtwork
+                        .frame(width: 140 * scale, height: 27 * scale)
+                        .position(x: origin.x + 200 * scale, y: origin.y + 91 * scale)
                         .accessibilityAddTraits(.isHeader)
 
                     cucumberArtwork(scale: scale, origin: origin)
@@ -154,10 +152,9 @@ struct ARGameIntroView: View {
                     .buttonStyle(.glass)
                     .buttonBorderShape(.circle)
                     .accessibilityLabel("이전 화면")
-                    Text("오이 수집 게임")
-                        .font(pearFont(size: 25, relativeTo: .title2, bold: true))
-                        .lineSpacing(12)
-                        .fixedSize(horizontal: false, vertical: true)
+                    titleArtwork
+                        .aspectRatio(140 / 27, contentMode: .fit)
+                        .frame(maxWidth: accessibleTitleWidth)
                         .accessibilityAddTraits(.isHeader)
                 }
                 CucumberCharacterImage(imageURL: cucumberImageURL, contentMode: .fit)
@@ -190,6 +187,13 @@ struct ARGameIntroView: View {
             .padding(.bottom, 68)
             .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    // The original static title outlines preserve Figma Bold without substituting a font.
+    private var titleArtwork: some View {
+        Image("ARGameIntroTitle")
+            .resizable()
+            .accessibilityLabel("오이 수집 게임")
     }
 }
 

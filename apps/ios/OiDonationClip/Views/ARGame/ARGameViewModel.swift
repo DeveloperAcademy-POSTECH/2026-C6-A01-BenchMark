@@ -33,6 +33,8 @@ final class ARGameViewModel {
     private let isARSupported: () -> Bool
     private let requestCameraAccess: () async -> Bool
     private let sleepOneSecond: () async throws -> Void
+    private let monotonicNow: () -> TimeInterval
+    private var roundDeadline: TimeInterval?
     private var roundID = UUID()
     private var timerRunID: UUID?
 
@@ -43,7 +45,8 @@ final class ARGameViewModel {
         requestCameraAccess: @escaping () async -> Bool,
         sleepOneSecond: @escaping () async throws -> Void = {
             try await Task.sleep(for: .seconds(1))
-        }
+        },
+        monotonicNow: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     ) {
         self.targetCount = targetCount
         self.timeLimitSeconds = timeLimitSeconds
@@ -51,6 +54,7 @@ final class ARGameViewModel {
         self.isARSupported = isARSupported
         self.requestCameraAccess = requestCameraAccess
         self.sleepOneSecond = sleepOneSecond
+        self.monotonicNow = monotonicNow
     }
 
     func showIntro() {
@@ -79,12 +83,20 @@ final class ARGameViewModel {
         }
     }
 
+    func retryPermission() {
+        guard state == .permissionDenied else { return }
+        state = .requestingPermission
+    }
+
     func finishStartAnimation() {
         guard state == .starting else { return }
+        roundDeadline = monotonicNow() + TimeInterval(timeLimitSeconds)
         state = .playing
     }
 
     func collectCucumber() {
+        guard state == .playing else { return }
+        updateRemainingTime()
         guard state == .playing else { return }
         collectedCount = min(collectedCount + 1, targetCount)
         if collectedCount == targetCount {
@@ -105,6 +117,7 @@ final class ARGameViewModel {
         defer {
             if timerRunID == runID { timerRunID = nil }
         }
+        updateRemainingTime()
         while state == .playing, remainingSeconds > 0, !Task.isCancelled {
             do {
                 try await sleepOneSecond()
@@ -112,20 +125,22 @@ final class ARGameViewModel {
                 return
             }
             guard !Task.isCancelled, currentRound == roundID else { return }
-            elapseSecond()
+            updateRemainingTime()
         }
     }
 
-    func elapseSecond() {
-        guard state == .playing else { return }
-        remainingSeconds = max(remainingSeconds - 1, 0)
-        if remainingSeconds == 0 {
+    func updateRemainingTime() {
+        guard state == .playing, let roundDeadline else { return }
+        let remaining = max(0, roundDeadline - monotonicNow())
+        remainingSeconds = min(timeLimitSeconds, Int(ceil(remaining)))
+        if remaining == 0 {
             state = .failure
         }
     }
 
     func reset() {
         roundID = UUID()
+        roundDeadline = nil
         timerRunID = nil
         collectedCount = 0
         remainingSeconds = timeLimitSeconds

@@ -38,7 +38,7 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         Text("오이기부").font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
                         Text(viewModel.state.description).font(.title2)
-                        Text("기존 벤치에 남긴 명패와 NFC로 기부자의 이야기를 이어가는 서비스예요.")
+                        Text("캠퍼스의 오이를 찾아 수집하고, 그곳에 남겨진 이야기를 만나 보세요.")
                         Button("전체 앱 보기", action: onRequestFullApp)
                             .frame(minHeight: 44)
                     }
@@ -56,10 +56,16 @@ struct ContentView: View {
                 } else {
                     Text(viewModel.state.description)
                 }
-            case .invalidLink: Text(viewModel.state.description)
-            case .loadFailed: Text(viewModel.state.description)
-            case .storyNotFound: Text(viewModel.state.description)
-            case .arUnavailable: Text(viewModel.state.description)
+            case .invalidLink, .loadFailed, .storyNotFound, .arUnavailable:
+                VStack(spacing: 16) {
+                    Text(viewModel.state.description).multilineTextAlignment(.center)
+                    if viewModel.state == .loadFailed, let url = viewModel.invocationURL {
+                        Button("다시 시도") { invocation = Invocation(url: url) }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    Button("처음으로") { viewModel.showWelcome() }
+                }
+                .padding()
             }
         }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { userActivity in
