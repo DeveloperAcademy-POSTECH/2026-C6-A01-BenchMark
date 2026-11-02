@@ -54,6 +54,9 @@ struct OiDonationClipApp: App {
                 },
                 onCancel: {}
             )
+            .defaultScrollAnchor(
+                ProcessInfo.processInfo.arguments.contains("-story-card-preview-bottom") ? .bottom : .top
+            )
         } else if ProcessInfo.processInfo.arguments.contains("-ar-flow-preview") {
             ARGameFlowView(
                 experience: previewExperience,
