@@ -5,6 +5,7 @@ struct OiStoryConsentView: View {
     var onContinue: () -> Void = {}
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var consentState = OiStoryConsentState()
 
     var body: some View {
@@ -59,7 +60,8 @@ struct OiStoryConsentView: View {
         VStack(alignment: .leading, spacing: 11) {
             Text(clause.title)
                 .font(.custom("Paperlogy-6SemiBold", size: 18, relativeTo: .headline))
-                .lineLimit(2)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                .fixedSize(horizontal: false, vertical: true)
 
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 14) {
@@ -87,7 +89,7 @@ struct OiStoryConsentView: View {
             Button {
                 toggleAgreement(for: clause.id)
             } label: {
-                HStack(spacing: 4) {
+                HStack(alignment: dynamicTypeSize.isAccessibilitySize ? .top : .center, spacing: 4) {
                     Image(consentState.isAgreed(to: clause.id) ? "ConsentChecked" : "ConsentUnchecked")
                         .resizable()
                         .frame(width: 18, height: 18)
@@ -95,11 +97,14 @@ struct OiStoryConsentView: View {
                     Text(clause.agreementText)
                         .font(.custom("Paperlogy-5Medium", size: 14, relativeTo: .subheadline))
                         .tracking(0.28)
-                        .lineLimit(1)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                         .minimumScaleFactor(0.8)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .foregroundStyle(consentTextColor)
                 .padding(.horizontal, 12)
+                .padding(.vertical, dynamicTypeSize.isAccessibilitySize ? 10 : 0)
                 .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
                 .background(
                     agreementBackgroundColor(for: clause.id),
