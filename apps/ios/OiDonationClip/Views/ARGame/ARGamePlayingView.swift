@@ -1,111 +1,61 @@
-//
-//  ARGamePlayingView.swift
-//  OiDonationClip
-//
-//  Created by jiwon hong on 10/28/26.
-//
+// Created by 이돈혁
 
 import SwiftUI
 
+// Both states occupy this single branch of ARGameFlowView's switch.
 struct ARGamePlayingView: View {
     let viewModel: ARGameViewModel
     let cucumberImageURL: URL?
-    @State private var cameraController: ARGameCameraController
 
-    init(
-        viewModel: ARGameViewModel,
-        cucumberImageURL: URL?
-    ) {
-        self.viewModel = viewModel
-        self.cucumberImageURL = cucumberImageURL
-        _cameraController = State(
-            initialValue: ARGameCameraController(
-                targetCount: viewModel.targetCount,
-                cucumberImageURL: cucumberImageURL
-            ) { [weak viewModel] in
-                viewModel?.collectCucumber()
-            }
-        )
-    }
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var cameraController: ARGameCameraController?
 
     var body: some View {
         GeometryReader { _ in
             ZStack {
-                ARGameCameraView(controller: cameraController)
-                    .ignoresSafeArea()
-
-                VStack {
-                    timer
-                        .padding(.top, 8)
-
-                    Spacer()
-
-                    collectionTray
-                        .padding(.horizontal, 27)
-                        .padding(.bottom, 2)
+                Color.black
+                if let cameraController {
+                    ARGameCameraView(controller: cameraController, isCollecting: viewModel.state == .playing)
                 }
 
-            }
-        }
-        .task {
-            await viewModel.runTimer()
-        }
-    }
+                ARGameHUD(
+                    remainingSeconds: viewModel.remainingSeconds,
+                    collectedCount: viewModel.collectedCount,
+                    targetCount: viewModel.targetCount,
+                    cucumberImageURL: cucumberImageURL
+                )
 
-    private var timer: some View {
-        HStack(spacing: 13) {
-            Image(systemName: "clock.fill")
-            Text("\(viewModel.remainingSeconds)")
-                .font(.custom("PearToucan-Regular", size: 30, relativeTo: .title))
-                .contentTransition(.numericText())
-                .animation(.easeInOut(duration: 0.2), value: viewModel.remainingSeconds)
-        }
-        .font(.title)
-        .foregroundStyle(.white)
-        .padding(.horizontal, 30)
-        .frame(minHeight: 60)
-        .background(Color.red.opacity(0.2), in: Capsule())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("남은 시간 \(viewModel.remainingSeconds)초")
-    }
-
-    private var collectionTray: some View {
-        ZStack {
-            Image("ARGameCollectionTray")
-                .resizable()
-                .scaledToFit()
-                .accessibilityHidden(true)
-
-            HStack(spacing: 0) {
-                ForEach(0..<viewModel.targetCount, id: \.self) { index in
-                    ZStack {
-                        if index < viewModel.collectedCount {
-                            collectionCharacter
-                                .transition(.scale.combined(with: .opacity))
-                        }
+                if viewModel.state == .starting {
+                    if cameraController?.isReady == true {
+                        ARGameStartOverlay(onFinished: viewModel.finishStartAnimation)
+                    } else {
+                        ProgressView("카메라를 준비하고 있어요")
+                            .tint(.white)
+                            .foregroundStyle(.white)
+                            .accessibilityLabel("카메라를 준비하고 있어요")
                     }
-                    .frame(width: 97, height: 158)
                 }
             }
-            .frame(width: 291, height: 158)
-            .animation(
-                .spring(duration: 0.32, bounce: 0.35),
-                value: viewModel.collectedCount
+        }
+        .ignoresSafeArea()
+        .task {
+            // Lazy creation avoids constructing discarded ARViews on body updates.
+            guard cameraController == nil else { return }
+            let model = viewModel
+            cameraController = ARGameCameraController(
+                targetCount: viewModel.targetCount,
+                cucumberImageURL: cucumberImageURL,
+                onUnavailable: { [weak model] in model?.cameraBecameUnavailable() },
+                onCollect: { [weak model] in model?.collectCucumber() }
             )
         }
-        .frame(maxWidth: 348)
-        .aspectRatio(348 / 158, contentMode: .fit)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("오이 \(viewModel.collectedCount)마리 수집, 목표 \(viewModel.targetCount)마리")
-    }
-
-    private var collectionCharacter: some View {
-        CucumberCharacterImage(
-            imageURL: cucumberImageURL,
-            contentMode: .fit
-        )
-        .frame(width: 106, height: 187)
-        .offset(x: 3.5, y: 7.5)
+        .task(id: viewModel.state) {
+            // A stable view identity must still start a new task on entering playing.
+            if viewModel.state == .playing { await viewModel.runTimer() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { viewModel.cameraBecameUnavailable() }
+        }
     }
 
 }

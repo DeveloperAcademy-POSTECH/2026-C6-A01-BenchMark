@@ -69,17 +69,7 @@ struct ARGameFlowView: View {
                     .task {
                         await viewModel.resolvePermission()
                     }
-            case .starting:
-                ZStack {
-                    Image("ARGameIntroBackground")
-                        .resizable()
-                        .scaledToFill()
-                        .ignoresSafeArea()
-                        .accessibilityHidden(true)
-
-                    ARGameStartOverlay(onFinished: viewModel.finishStartAnimation)
-                }
-            case .playing:
+            case .starting, .playing:
                 ARGamePlayingView(
                     viewModel: viewModel,
                     cucumberImageURL: story.cucumberImageURL
@@ -115,6 +105,13 @@ struct ARGameFlowView: View {
                     message: "AR을 지원하는 iPhone에서 다시 시도해 주세요.",
                     buttonTitle: "돌아가기",
                     action: onBack
+                )
+            case .cameraUnavailable:
+                statePanel(
+                    title: "카메라가 중단되었어요",
+                    message: "주변을 비추며 다시 시작해 주세요.",
+                    buttonTitle: "다시 시작",
+                    action: viewModel.reset
                 )
             }
         }

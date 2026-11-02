@@ -5,6 +5,7 @@
 //  Created by jiwon hong on 10/28/26.
 //
 
+import Foundation
 import Observation
 
 @Observable
@@ -21,6 +22,7 @@ final class ARGameViewModel {
         case storyCard
         case failure
         case unavailable
+        case cameraUnavailable
     }
 
     private(set) var state: State = .introBackground
@@ -30,18 +32,25 @@ final class ARGameViewModel {
     let timeLimitSeconds: Int
     private let isARSupported: () -> Bool
     private let requestCameraAccess: () async -> Bool
+    private let sleepOneSecond: () async throws -> Void
+    private var roundID = UUID()
+    private var timerRunID: UUID?
 
     init(
         targetCount: Int = 3,
         timeLimitSeconds: Int = 30,
         isARSupported: @escaping () -> Bool,
-        requestCameraAccess: @escaping () async -> Bool
+        requestCameraAccess: @escaping () async -> Bool,
+        sleepOneSecond: @escaping () async throws -> Void = {
+            try await Task.sleep(for: .seconds(1))
+        }
     ) {
         self.targetCount = targetCount
         self.timeLimitSeconds = timeLimitSeconds
         self.remainingSeconds = timeLimitSeconds
         self.isARSupported = isARSupported
         self.requestCameraAccess = requestCameraAccess
+        self.sleepOneSecond = sleepOneSecond
     }
 
     func showIntro() {
@@ -89,12 +98,20 @@ final class ARGameViewModel {
     }
 
     func runTimer() async {
+        guard state == .playing, timerRunID == nil, !Task.isCancelled else { return }
+        let runID = UUID()
+        let currentRound = roundID
+        timerRunID = runID
+        defer {
+            if timerRunID == runID { timerRunID = nil }
+        }
         while state == .playing, remainingSeconds > 0, !Task.isCancelled {
             do {
-                try await Task.sleep(for: .seconds(1))
+                try await sleepOneSecond()
             } catch {
                 return
             }
+            guard !Task.isCancelled, currentRound == roundID else { return }
             elapseSecond()
         }
     }
@@ -108,8 +125,15 @@ final class ARGameViewModel {
     }
 
     func reset() {
+        roundID = UUID()
+        timerRunID = nil
         collectedCount = 0
         remainingSeconds = timeLimitSeconds
         state = .intro
+    }
+
+    func cameraBecameUnavailable() {
+        guard state == .starting || state == .playing else { return }
+        state = .cameraUnavailable
     }
 }
