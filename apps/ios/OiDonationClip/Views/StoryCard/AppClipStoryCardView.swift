@@ -20,7 +20,11 @@ struct AppClipStoryCardView: View {
         GeometryReader { geometry in
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 38) {
-                    StoryCardImage(url: experience.storyCard.imageURL)
+                    VStack(alignment: .leading, spacing: 20) {
+                        Text(story.cucumberName).font(.title.bold())
+                        Text(story.content).font(.body)
+                        Text(story.donorDisplayName).font(.caption)
+                    }.padding(24).frame(minHeight: 300).background(.background, in: RoundedRectangle(cornerRadius: 20))
                         .aspectRatio(320 / 444, contentMode: .fit)
                         .frame(width: min(320, geometry.size.width - 32))
                         .shadow(color: .black.opacity(0.25), radius: 3.5, x: 3, y: 6)
@@ -74,7 +78,7 @@ struct AppClipStoryCardView: View {
                         if isCollected {
                             Image(systemName: "checkmark")
                         }
-                        Text(isCollected ? "도감 저장 완료" : "도감 저장하기")
+                        Text(isCollected ? "이 기기에 보관됨" : "이 기기에 보관하기")
                     }
                         .font(.custom("Paperlogy-6SemiBold", size: 14, relativeTo: .callout))
                         .foregroundStyle(.white)
@@ -153,43 +157,4 @@ struct AppClipStoryCardView: View {
         formatter.dateFormat = "yyyy.MM.dd.EEE"
         return formatter
     }()
-}
-
-private struct StoryCardImage: View {
-    let url: URL
-
-    var body: some View {
-        Group {
-            if url.isFileURL, let image = UIImage(contentsOfFile: url.path) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                AsyncImage(url: url, transaction: Transaction(animation: .easeInOut(duration: 0.2))) { phase in
-                    switch phase {
-                    case .empty:
-                        ProgressView("카드를 불러오는 중이에요")
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(Color(.secondarySystemBackground))
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFill()
-                    case .failure:
-                        ContentUnavailableView(
-                            "카드를 불러오지 못했어요",
-                            systemImage: "photo",
-                            description: Text("잠시 후 다시 확인해 주세요")
-                        )
-                        .background(Color(.secondarySystemBackground))
-                    @unknown default:
-                        Color(.secondarySystemBackground)
-                    }
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipped()
-        .accessibilityLabel("스토리 카드")
-    }
 }

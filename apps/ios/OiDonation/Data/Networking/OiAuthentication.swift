@@ -16,7 +16,7 @@ struct OiSessionVault: OiSessionStorage {
         var value: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &value)
         if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = value as? Data else { throw OiServiceError.unavailable }
+        guard status == errSecSuccess, let data = value as? Data else { throw OiServiceError.secureStorage(status) }
         return try JSONDecoder().decode(OiSession.self, from: data)
     }
 
@@ -25,7 +25,7 @@ struct OiSessionVault: OiSessionStorage {
             kSecAttrService as String: service, kSecAttrAccount as String: "session"]
         guard let session else {
             let status = SecItemDelete(query as CFDictionary)
-            guard status == errSecSuccess || status == errSecItemNotFound else { throw OiServiceError.unavailable }
+            guard status == errSecSuccess || status == errSecItemNotFound else { throw OiServiceError.secureStorage(status) }
             return
         }
         let data = try JSONEncoder().encode(session)
@@ -34,8 +34,9 @@ struct OiSessionVault: OiSessionStorage {
             var values = query
             values[kSecValueData as String] = data
             values[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-            guard SecItemAdd(values as CFDictionary, nil) == errSecSuccess else { throw OiServiceError.unavailable }
-        } else if status != errSecSuccess { throw OiServiceError.unavailable }
+            let added = SecItemAdd(values as CFDictionary, nil)
+            guard added == errSecSuccess else { throw OiServiceError.secureStorage(added) }
+        } else if status != errSecSuccess { throw OiServiceError.secureStorage(status) }
     }
 }
 
