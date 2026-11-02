@@ -2,6 +2,10 @@
 
 import Foundation
 
+struct OiSchool: Codable, Identifiable { let id: String; let name: String }
+struct OiRegion: Codable, Identifiable { let id: String; let schoolId: String; let name: String }
+struct OiAsset: Codable, Identifiable { let id: String; let kind: String; let name: String }
+
 struct OiAccount: Codable, Equatable {
     let id: UUID
     let email: String?
@@ -146,9 +150,11 @@ enum OiServiceError: LocalizedError {
     case configuration, signInRequired, invalidDraft, invalidCallback, unavailable, accountChanged
     case server(String)
     case invalidInput, conflict
+    case secureStorage(Int32)
 
     var errorDescription: String? {
         switch self {
+        case .secureStorage(let status): "계정 저장소에 접근할 수 없습니다(코드 \(status)). 앱 서명과 키체인 권한을 확인해 주세요."
         case .configuration: "Supabase 연결 설정이 없습니다. 개발용 공개 키를 설정한 빌드를 사용해 주세요."
         case .signInRequired: "로그인이 필요합니다."
         case .invalidDraft: "작성 승인과 모든 입력 항목, 캠퍼스 바깥 공간의 위치를 확인해 주세요."

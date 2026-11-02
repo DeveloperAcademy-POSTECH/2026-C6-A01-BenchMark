@@ -66,21 +66,22 @@ struct OiStoryEditor: View {
                 TextField("오이 이름 입력", text: $draft.cucumberName)
                 Image(draft.cucumberAsset).resizable().scaledToFit().frame(height: 180).frame(maxWidth: .infinity)
                 Picker("준비된 오이 프리셋", selection: $draft.cucumberAsset) {
-                    Text("6냥이").tag("OiCats"); Text("농부").tag("OiGardener")
-                    Text("마법사").tag("OiWizard"); Text("여행자").tag("OiTraveler")
+                    ForEach(remote.assets.filter { $0.kind == "cucumber" }) { asset in
+                        Text(asset.name).tag(asset.id)
+                    }
                 }
                 Text("포즈·상의·하의·모자별 교체는 자산 규격이 확정되면 연결합니다.").font(.caption).foregroundStyle(.secondary)
             }
             Section("카드 커스텀") {
-                Image(draft.cardAsset).resizable().scaledToFit().frame(height: 180).frame(maxWidth: .infinity)
+                MYCardArtwork(card: MYCard(id: draft.id.uuidString, title: draft.cucumberName, image: draft.cucumberAsset, school: .postech, order: 0, body: draft.body, donor: remote.profile?.nickname ?? "농부", date: "", appearance: draft.cardAsset)).frame(height: 220)
                 Picker("준비된 카드 프리셋", selection: $draft.cardAsset) {
-                    Text("기본").tag("MYBasicCard"); Text("파랑").tag("MYBlueCard"); Text("빨강").tag("MYRedCard")
+                    ForEach(remote.assets.filter { $0.kind == "card" }) { asset in Text(asset.name).tag(asset.id) }
                 }
-                Text("개별 패턴·테두리·크기 편집은 준비 중입니다. 프리셋 카드 안의 예시 문구는 실제 이야기 내용이 아닙니다.").font(.caption).foregroundStyle(.secondary)
+                Text("개별 패턴·테두리·크기 편집은 준비 중입니다. 카드에는 현재 작성한 이야기 내용이 표시됩니다.").font(.caption).foregroundStyle(.secondary)
             }
             Section("위치 설정") {
                 Picker("캠퍼스 구역", selection: $draft.regionId) {
-                    ForEach(CampusRegion.examples) { region in Text(region.title).tag(region.id) }
+                    ForEach(remote.regions) { region in Text(region.name).tag(region.id) }
                 }
                 Button("캠퍼스 지도에서 위치 선택") { selectingLocation = true }
                 if let latitude = draft.latitude, let longitude = draft.longitude {

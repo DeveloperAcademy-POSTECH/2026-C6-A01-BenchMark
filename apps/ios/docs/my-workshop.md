@@ -115,3 +115,45 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 ```
 
 ![한 줄 제목과 오이 앞 줄바꿈](verification/my98/collection-wrapping.png)
+
+## MY 디자인 변경 적용 — 2026-10-30 / #107
+
+최신 Figma MY 섹션을 다시 조회해 다음 차이를 반영했다. #98의 초기 구현 기록보다 이 절이 우선한다.
+
+- 도감은 최신순·오래된순·핀 필터와 하단 두 분류(전체·학교별)로 구성한다. 별도 카드 이름·하트 행을 제거하고 카드 확대 화면의 자세히 보기 옆 핀으로 고정한다. 정렬과 핀 필터는 학교 진입·복귀에도 유지한다. 실제 계정의 수집 목록은 기존 서버 `created_at.desc,story_id.asc` 순서를 사용한다.
+- 원본 카드 이미지 `54f94/aa20c/07d90/bd15a/f4c7f`를 로컬 자산으로 저장했다. 우주복은 기존 파일과 동일하여 재사용한다. 폴더는 현재 학교의 정렬·필터된 카드와 개수로 구성한다. 외부 학교의 카드가 섞이지 않는다.
+- 학교 폴더 화면은 흰 배경, 학교 내부는 #BA9A5F 배경이다. 도감 제목·학교명·정렬은 기존 Paperlogy를 사용한다. 폴더 개수는 기존 PearToucan Regular를 사용한다. Figma Bold 글꼴은 제공되지 않아 Regular가 차이로 남는다.
+- 농장은 닉네임의 ‘쉬쏘밭’ 제목, 캐릭터 위치와 안내를 갱신했다. 실제 계정은 임의 두 오이를 표시하지 않고 기존 서버 목록과 관리 링크를 유지한다. 로그인·로딩·실패 상태도 유지한다.
+- 빈 농장에는 원본 `3478:4418` 오이 이미지와 작성 승인 안내를 표시하고 기존 계정·증빙·이야기 흐름으로 연결한다. 사용자는 2026-10-30 최소 기부금·피클코인이 미정임을 재확인했다. Figma의 5,000원·코인 지급 문구는 적용하지 않았다.
+- 설정은 화면 이동으로 연결하고 닉네임·학교·권한·로그인 계정·위치설정을 표시한다. 계정은 기존 OiAccountView, 권한·위치는 공식 iOS 앱 설정 URL로 연결한다. 학교는 현재 지원하는 POSTECH만 안내하며 서버 프로필에 임의 학교 필드를 추가하지 않는다. 기존 촬영·수집·참여 메뉴 접근도 유지한다.
+
+Needs confirmation:
+- 농부 꾸미기 화면·아이템 규격은 링크된 MY 섹션에 없다. 기존 안내와 준비 중 상태를 유지하며 동작하지 않는 꾸미기 버튼은 추가하지 않았다.
+- 설정 세부 화면은 Figma에 없으므로 기존 계정 화면과 시스템 권한 화면을 재사용한다. 실제 계정 변경·시스템 권한 변경은 자동 검사에서 수행하지 않는다.
+
+### 후속 검증 명령
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer sh apps/ios/Tests/run-my-checks.sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer sh apps/ios/Tests/run-campus-checks.sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer sh apps/ios/Tests/run-architecture-checks.sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project apps/ios/OiDonation.xcodeproj -scheme OiDonation -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath /private/tmp/benchmark-my107-build CODE_SIGNING_ALLOWED=NO build
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project /private/tmp/benchmark-my107-qa/OiDonation.xcodeproj -scheme MYQA -configuration Debug -destination 'platform=iOS Simulator,id=C184DA81-DEB4-4295-B1B4-49542C53B944' -parallel-testing-enabled NO -derivedDataPath /private/tmp/benchmark-my107-qa-build -resultBundlePath /private/tmp/benchmark-my107-qa/reference.xcresult CODE_SIGNING_ALLOWED=NO test
+```
+
+MY·캠퍼스·아키텍처 검사와 전체 Simulator 빌드는 통과했다. 첫 빌드에서 정렬 버튼의 ViewBuilder 누락을 발견해 수정 후 재빌드했다. 제한 환경의 Swift 모듈 캐시 쓰기 실패는 같은 명령을 적절한 권한으로 실행해 해소했다. Xcode 27.0과 기존 deployment target 26.2를 유지했다. 기준 iPhone 17 UI 검사에서 작업실·농장·전체 도감·최신/오래된순·핀 추가/필터·학교 폴더·학교 내부·설정·학교 안내 이동이 실패 0건으로 통과했다. QA 프로젝트는 별도 임시 파일이며 실제 앱의 개인 서명·타깃 설정은 수정하지 않는다. 서버 데이터 쓰기·실기기 권한 변경은 수행하지 않았다.
+
+작은 iPhone SE 3세대(375×667)와 큰 iPhone 17 Pro Max(440×956), iOS 27.0에서 탐색·빈 농장 검사 각각 실패 0건으로 통과했다. 작은 화면 명령은 위 UI 검사 명령의 destination을 `03BBE904-4593-405E-936D-5AC387785094`, 결과 경로를 `small.xcresult`로, 큰 화면은 `CCAE932A-86EF-496C-903D-EA3508DA6B3B`, `large.xcresult`로 변경했다. 캡처를 검토하면서 학교 내부 화면의 가로 스크롤 정렬 컨테이너가 비어 보이는 문제를 발견하여 `ViewThatFits`의 가로/세로 버튼 배치로 교체하고 학교 내부 정렬 버튼의 실제 표시·터치 가능 여부를 최종 UI 검사에 추가했다.
+
+최종 iPhone 17 재검사는 destination `AF8DCE8E-8C8C-47B6-A428-F848B7B0316F`, 결과 경로 `final.xcresult`로 같은 명령을 실행해 두 검사 모두 실패 0건으로 통과했다. 학교 내부 정렬 버튼의 표시·터치를 확인하고 최종 캡처를 교체했다. 원본 자산의 로컬 파일·슬롯·호출부·렌더 비율을 확인했다. 더미 카드 개수는 고정 Figma 숫자로 덮어쓰지 않고 기존 예시 모델에서 계산한다.
+
+최대 동시 작업 리소스는 3그룹(검사 실행기·전용 Simulator·검사 앱)이었다. 전용 기기 네 대는 각 검사 후 XCTest 종료 상태를 확인하고 삭제했다. 마지막 `simctl list devices booted`는 비어 있었고 프로세스 조회에 남은 MY107 검사 앱·실행기는 없었다. Computer Use 핸들·가시/숨김 창·커서·브라우저·승인 터미널은 생성하지 않았다. 의도적으로 남긴 실행 리소스는 없다. 원래 작업 폴더의 개인 서명 변경과 다른 작업 파일은 보존했다.
+
+![최종 MY 도감](verification/my107/collection.png)
+![학교 내부 도감과 정렬](verification/my107/school-cards.png)
+![빈 농장](verification/my107/empty-farm.png)
+![MY 설정](verification/my107/settings.png)
+
+## 더미 제거와 실제 데이터 적용 — 2026-10-30 후속
+
+이 문서 위쪽의 더미 카드 23개·가상 학교·세션 즐겨찾기와 예시 캡처는 이전 구현 기록이다. 현재 실행 경로는 사용자 요청에 따라 기존 Supabase의 실제 계정·학교·구역·이야기·수집·핀·승인 목록만 사용한다. `MYDemoStore`는 제거했고 `MYLibraryStore`로 서버 상태를 투영한다. 카드에는 다른 기부자의 문구가 박힌 예시 비트맵 대신 실제 이야기 내용을 합성한다. 현재 공개 이야기·수집이 0건인 DB를 가짜 항목으로 채우지 않았다. 로컬 실행 설정과 실제 서버/서명 검증은 [최신 Supabase 문서](../../../docs/supabase-flow.md)의 ‘MY 실데이터 전환’을 따른다. 실제 Google 계정 인증·사용자 파일 제출·실기기 AR 검증과 미정 운영 정책은 별도다.

@@ -4,7 +4,7 @@ struct RootTabView: View {
     let container: AppContainer
     @State private var path = NavigationPath()
     @State private var store = CampusStoryStore()
-    @State private var myDemo = MYDemoStore()
+    @State private var myDemo = MYLibraryStore()
     @State private var isARPresented = false
     @State private var isCameraCoverActive = false
     @State private var remote = OiRemoteStore()
@@ -14,11 +14,38 @@ struct RootTabView: View {
 
     init(container: AppContainer = .pilot) {
         self.container = container
-        _store = State(initialValue: CampusStoryStore(loadExamples: container.showsDesignExamples))
-        _myDemo = State(initialValue: MYDemoStore(loadExamples: container.showsDesignExamples))
+        _store = State(initialValue: CampusStoryStore())
+        _myDemo = State(initialValue: MYLibraryStore())
     }
 
     var body: some View {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-story-list-preview") {
+            OiStoryListPreviewHost(state: storyListPreviewState)
+        } else if ProcessInfo.processInfo.arguments.contains("-story-consent-preview") {
+            OiStoryConsentPreviewHost()
+        } else {
+            appContent
+        }
+        #else
+        appContent
+        #endif
+    }
+
+    #if DEBUG
+    private var storyListPreviewState: OiStoryListState {
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("-story-list-preview-loading") { return .loading }
+        if arguments.contains("-story-list-preview-empty") { return .empty }
+        if arguments.contains("-story-list-preview-error") {
+            return .failure("네트워크 연결을 확인한 뒤 다시 시도해 주세요.")
+        }
+        if arguments.contains("-story-list-preview-long") { return .layoutStressPreview }
+        return .preview
+    }
+    #endif
+
+    private var appContent: some View {
         NavigationStack(path: $path) {
             HomeView(
                 container: container,
@@ -28,7 +55,7 @@ struct RootTabView: View {
                 onCamera: { geoPlacement = nil; path = NavigationPath(); isCameraCoverActive = true; isARPresented = true },
                 onOpenProfile: { path.append(MYDestination.workshop) },
                 onOpenStory: { path.append(CampusDestination.summary($0)) },
-                remote: container.showsDesignExamples ? nil : remote,
+                remote: remote,
                 onAccount: { showingAccount = true }
             )
             .navigationDestination(for: CampusDestination.self) { destination in
@@ -53,9 +80,9 @@ struct RootTabView: View {
         .tint(.black)
         .sheet(isPresented: $showingAccount) { NavigationStack { OiAccountView(remote: remote) }.id(remote.account?.id) }
         .onChange(of: remote.revision) { _, _ in synchronizeRemote() }
-        .onChange(of: remote.account?.id) { _, _ in path = NavigationPath(); myDemo.collectionFilter = .all }
+        .onChange(of: remote.account?.id) { _, _ in path = NavigationPath(); myDemo.resetFilters() }
         .task(id: scenePhase) {
-            guard !container.showsDesignExamples, scenePhase == .active else { return }
+            guard scenePhase == .active else { return }
             store.collectAction = { story in
                 Task { await remote.perform("collect", payload: ["id": story.id]) }
             }
@@ -94,12 +121,11 @@ struct RootTabView: View {
     }
 
     private func synchronizeRemote() {
-        guard !container.showsDesignExamples else { return }
         let mapped = remote.stories.enumerated().map { index, item in
             var story = CampusStory(id: item.id.uuidString, regionID: item.regionId, title: item.cucumberName,
                 image: item.cucumberAsset, tags: [item.theme,item.emotion],
                 donor: remote.profiles.first(where: { $0.id == item.userId })?.nickname ?? "작성자 정보 확인 중",
-                location: CampusRegion.examples.first(where: { $0.id == item.regionId })?.title ?? "POSTECH",
+                location: remote.regions.first(where: { $0.id == item.regionId })?.name ?? "POSTECH",
                 date: item.createdDateLabel, order: index, popularity: remote.collectionCounts[item.id] ?? 0, palette: 0)
             story.remoteBody = item.body
             story.remoteMediaPaths = remote.mediaPaths(storyID: item.id)
@@ -107,10 +133,14 @@ struct RootTabView: View {
             return story
         }
         store.synchronize(stories: mapped, collected: Set(remote.collections.map { $0.storyId.uuidString }))
-        let cards = remote.collections.enumerated().compactMap { index, collection -> MYDemoCard? in
+        let cards = remote.collections.enumerated().compactMap { index, collection -> MYCard? in
             guard let story = remote.stories.first(where: { $0.id == collection.storyId }) else { return nil }
-            return MYDemoCard(id: story.id.uuidString, title: story.cucumberName, image: story.cardAsset,
-                school: .postech, order: index, distance: 0, popularity: 0, storyID: story.id.uuidString)
+            guard let region = remote.regions.first(where: { $0.id == story.regionId }),
+                  let school = remote.schools.first(where: { $0.id == region.schoolId }) else { return nil }
+            return MYCard(id: story.id.uuidString, title: story.cucumberName, image: story.cucumberAsset,
+                school: MYSchool(id: school.id, name: school.name), order: index,
+                body: story.body, donor: remote.profiles.first(where: { $0.id == story.userId })?.nickname ?? "농부",
+                date: story.createdDateLabel, storyID: story.id.uuidString, appearance: story.cardAsset)
         }
         myDemo.synchronize(nickname: remote.profile?.nickname ?? "농부", cards: cards,
             favorites: Set(remote.favorites.map(\.uuidString)))
@@ -133,5 +163,52 @@ struct RootTabView: View {
         PublicDestinationView(destination: destination, benches: container.benchRepository, stories: container.storyRepository)
     }
 }
+
+#if DEBUG
+private struct OiStoryConsentPreviewHost: View {
+    var body: some View {
+        NavigationStack {
+            OiStoryConsentView(clauses: OiStoryConsentClause.figmaDrafts)
+        }
+    }
+}
+
+private struct OiStoryListPreviewHost: View {
+    let state: OiStoryListState
+    @State private var notice: PreviewNotice?
+
+    var body: some View {
+        NavigationStack {
+            OiStoryListView(
+                state: state,
+                ticketCountText: "3pc",
+                notices: OiStoryListView.figmaPreviewNotices,
+                onRetry: { show("다시 시도", "실제 앱에서는 서버의 이야기 목록을 다시 불러옵니다.") },
+                onAddTicket: { show("티켓 추가", "티켓 추가 정책이 확정되면 실제 흐름에 연결됩니다.") },
+                onSelectStory: { _ in show("이야기 선택", "실제 앱에서는 기존 이야기 관리 화면으로 이동합니다.") },
+                onCreateStory: { show("오이 만들기", "실제 앱에서는 작성 승인을 확인한 뒤 이야기 에디터로 이동합니다.") },
+                onUseTicket: { show("티켓 사용", "티켓 사용 정책이 확정되면 실제 흐름에 연결됩니다.") }
+            )
+        }
+        .alert(item: $notice) { notice in
+            Alert(
+                title: Text(notice.title),
+                message: Text(notice.message),
+                dismissButton: .default(Text("확인"))
+            )
+        }
+    }
+
+    private func show(_ title: String, _ message: String) {
+        notice = PreviewNotice(title: title, message: message)
+    }
+}
+
+private struct PreviewNotice: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+}
+#endif
 
 #Preview { RootTabView(container: .preview) }

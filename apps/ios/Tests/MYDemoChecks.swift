@@ -32,30 +32,72 @@ private struct LibraryCheckRepository: StoryRepository {
 @main
 struct MYDemoChecks {
     @MainActor static func main() async {
-        let demo = MYDemoStore()
-        precondition(demo.cards.count == 23)
-        precondition(Set(demo.cards.map(\.id)).count == demo.cards.count)
-        precondition(demo.visibleCards(filter: .all, school: .postech, sort: .latest).count == 15)
-        precondition(demo.visibleCards(filter: .all, school: .apple, sort: .latest).count == 8)
-        precondition(demo.visibleCards(filter: .favorites, school: nil, sort: .latest).isEmpty)
-        let first = demo.cards[0]
-        let apple = demo.cards[15]
-        demo.toggleFavorite(first)
-        demo.toggleFavorite(apple)
-        precondition(demo.visibleCards(filter: .favorites, school: nil, sort: .latest).count == 2)
-        precondition(demo.visibleCards(filter: .favorites, school: .postech, sort: .latest).map(\.id) == [first.id])
-        demo.toggleFavorite(first)
-        precondition(demo.favorites == [apple.id])
-        for school in MYSchool.allCases {
-            let distance = demo.visibleCards(filter: .all, school: school, sort: .distance)
-            precondition(zip(distance, distance.dropFirst()).allSatisfy { $0.distance <= $1.distance })
-            let popular = demo.visibleCards(filter: .all, school: school, sort: .popular)
-            precondition(zip(popular, popular.dropFirst()).allSatisfy { $0.popularity >= $1.popularity })
+        let libraryStore = MYLibraryStore()
+        precondition(libraryStore.cards.isEmpty && libraryStore.favorites.isEmpty)
+        let school = MYSchool(id: "school-b", name: "School B")
+        let first = MYCard(id: "one", title: "One", image: "OiCats", school: .postech, order: 0, body: "First", donor: "Owner", date: "")
+        let second = MYCard(id: "two", title: "Two", image: "OiGardener", school: school, order: 1, body: "Second", donor: "Owner", date: "")
+        libraryStore.synchronize(nickname: "Owner", cards: [first,second], favorites: [second.id,"missing"])
+        precondition(libraryStore.favorites == [second.id])
+        precondition(libraryStore.collectionCards(school: nil, sort: .oldest, pinnedOnly: false).map(\.id) == [second.id,first.id])
+        precondition(libraryStore.collectionCards(school: .postech, sort: .latest, pinnedOnly: true).isEmpty)
+        precondition(libraryStore.collectionCards(school: school, sort: .latest, pinnedOnly: true).map(\.id) == [second.id])
+        libraryStore.toggleFavorite(first)
+        precondition(libraryStore.favorites == [second.id], "No local success before a server receipt")
+        var requested: String?
+        libraryStore.favoriteAction = { requested = $0.id }
+        libraryStore.toggleFavorite(first)
+        precondition(requested == first.id && !libraryStore.favorites.contains(first.id))
+        libraryStore.synchronize(nickname: "Other", cards: [], favorites: [])
+        precondition(libraryStore.cards.isEmpty && libraryStore.favorites.isEmpty)
+        libraryStore.pinnedOnly = true; libraryStore.collectionSort = .oldest
+        libraryStore.resetFilters()
+        precondition(!libraryStore.pinnedOnly && libraryStore.collectionSort == .latest)
+
+        let previewSlots = OiStoryListState.preview.slots()
+        precondition(previewSlots.count == 4)
+        precondition(previewSlots.compactMap(\.item).count == 2)
+        precondition(previewSlots[2].item == nil && previewSlots[3].item == nil)
+        precondition(OiStoryListState.empty.slots().allSatisfy { $0.item == nil })
+        let stressSlots = OiStoryListState.layoutStressPreview.slots()
+        precondition(stressSlots.count == 4)
+        precondition(stressSlots[0].item?.tags == ["행복한추억", "오랜우정"])
+
+        let remoteStory = OiLiveStory(
+            id: UUID(),
+            userId: UUID(),
+            grantId: UUID(),
+            regionId: "pond",
+            title: "Test story",
+            body: "Test body",
+            theme: "우정",
+            emotion: "행복함",
+            cucumberName: "테스트오이",
+            cucumberAsset: "OiCats",
+            cardAsset: "MYBasicCard",
+            latitude: 36,
+            longitude: 129,
+            status: "draft",
+            revision: 0,
+            createdAt: "2026-10-31T00:00:00Z"
+        )
+        let listItem = OiStoryListItem(
+            story: remoteStory,
+            donorDisplayName: "테스트 기부자",
+            locationDisplayName: "테스트 위치"
+        )
+        precondition(listItem.tags == ["행복함", "우정"])
+        precondition(listItem.cucumberName == "테스트오이")
+
+        precondition(OiStoryConsentClause.figmaDrafts.count == 3)
+        var consent = OiStoryConsentState()
+        precondition(!consent.allRequiredClausesAreAgreed)
+        for id in OiStoryConsentClause.ID.allCases {
+            consent.setAgreed(true, to: id)
         }
-        precondition(MYDemoStore().favorites.isEmpty)
-        demo.collectionFilter = .schools
-        precondition(demo.collectionFilter == .schools)
-        precondition(MYDemoStore().collectionFilter == .all)
+        precondition(consent.allRequiredClausesAreAgreed)
+        consent.setAgreed(false, to: .donationEvidence)
+        precondition(!consent.allRequiredClausesAreAgreed)
 
         let suite = "MYDemoChecks.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -84,6 +126,6 @@ struct MYDemoChecks {
         precondition(library.unavailableRecords.map(\.storyID) == ["missing-story"])
         defaults.removePersistentDomain(forName: suite)
 
-        print("PASS: demo collection behavior and App Clip record loading into the full-app library")
+        print("PASS: live library projection, server receipt boundary and account isolation and App Clip record loading into the full-app library")
     }
 }

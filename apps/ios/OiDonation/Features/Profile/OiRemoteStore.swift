@@ -5,6 +5,9 @@ import Observation
 
 @MainActor @Observable
 final class OiRemoteStore {
+    private(set) var schools: [OiSchool] = []
+    private(set) var regions: [OiRegion] = []
+    private(set) var assets: [OiAsset] = []
     private(set) var account: OiAccount?
     private(set) var profile: OiProfile?
     private(set) var stories: [OiLiveStory] = []
@@ -136,6 +139,9 @@ final class OiRemoteStore {
         loadSequence += 1
         let sequence = loadSequence
         let accessToken = account == nil ? nil : try await token()
+        let fetchedSchools = try await api.rows("oi_schools", query: "order=id.asc", as: OiSchool.self)
+        let fetchedRegions = try await api.rows("oi_regions", query: "order=id.asc", as: OiRegion.self)
+        let fetchedAssets = try await api.rows("oi_assets", query: "order=id.asc", as: OiAsset.self)
         let fetched = try await api.rows("oi_stories", query: "order=created_at.desc,id.asc", token: accessToken, as: OiLiveStory.self)
         let fetchedProfiles = try await api.rows("oi_profiles", token: accessToken, as: OiProfile.self)
         let fetchedMedia = try await api.rows("oi_story_media", query: "order=position.asc,id.asc", token: accessToken, as: OiMedia.self)
@@ -150,6 +156,7 @@ final class OiRemoteStore {
             capabilities = try await api.capabilities(token: accessToken).operator
         }
         guard started == generation, sequence == loadSequence else { throw CancellationError() }
+        schools = fetchedSchools; regions = fetchedRegions; assets = fetchedAssets
         stories = fetched.filter { $0.status == "published" }
         ownStories = fetched.filter { $0.userId == account?.id && $0.status != "deleted" }
         reviewStories = capabilities ? fetched.filter { ["pending","published","hidden"].contains($0.status) } : []
@@ -223,12 +230,23 @@ final class OiRemoteStore {
         await change("submit_story", payload: ["id":story.id.uuidString,"revision":story.revision], as: OiLiveStory.self)
     }
 
-    func updateProfile(nickname: String) async {
-        guard !isBusy, let account, let api else { return }
+    func updateProfile(nickname: String, schoolID: String? = nil) async {
+        guard !isBusy, let account, let api else { error = OiServiceError.signInRequired.localizedDescription; return }
+        let owner = account.id
+        let started = generation
+        let cleaned = nickname.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty, cleaned.count <= 30,
+              schoolID == nil || schools.contains(where: { $0.id == schoolID }) else {
+            error = OiServiceError.invalidInput.localizedDescription; return
+        }
         isBusy = true; error = nil
         defer { isBusy = false }
-        do { profile = try await api.updateProfile(owner: account.id, nickname: nickname, token: token()); revision += 1; await refreshAfterCommit() }
-        catch { noteAuthenticationFailure(error); self.error = error.localizedDescription }
+        do {
+            let saved = try await api.updateProfile(owner: owner, nickname: cleaned,
+                schoolID: schoolID ?? profile?.schoolId, token: token())
+            guard started == generation, self.account?.id == owner else { return }
+            profile = saved; revision += 1; await refreshAfterCommit()
+        } catch { if started == generation { noteAuthenticationFailure(error); self.error = error.localizedDescription } }
     }
 
     func submitEvidence(data: Data, contentType: String, fileExtension: String, replacing request: OiEvidence? = nil) async {
