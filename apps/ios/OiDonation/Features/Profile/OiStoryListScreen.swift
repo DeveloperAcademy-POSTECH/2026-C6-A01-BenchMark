@@ -4,7 +4,7 @@ struct OiStoryListScreen: View {
     let remote: OiRemoteStore
 
     @State private var selectedStoryID: UUID?
-    @State private var showingEditor = false
+    @State private var showingConsent = false
     @State private var showingApprovalNotice = false
     @State private var showingTicketNotice = false
 
@@ -19,8 +19,8 @@ struct OiStoryListScreen: View {
         .navigationDestination(item: $selectedStoryID) { storyID in
             OiStoryManagement(remote: remote, storyID: storyID)
         }
-        .navigationDestination(isPresented: $showingEditor) {
-            OiStoryEditor(remote: remote)
+        .navigationDestination(isPresented: $showingConsent) {
+            OiStoryCreationConsentFlow(remote: remote)
         }
         .alert("작성 승인이 필요해요", isPresented: $showingApprovalNotice) {
             Button("확인", role: .cancel) {}
@@ -58,7 +58,7 @@ struct OiStoryListScreen: View {
 
     private func beginCreatingStory() {
         if remote.grants.contains(where: { $0.revokedAt == nil }) {
-            showingEditor = true
+            showingConsent = true
         } else {
             showingApprovalNotice = true
         }

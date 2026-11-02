@@ -12,6 +12,7 @@ xcrun swiftc -parse-as-library \
   "$IOS_ROOT/OiDonation/Features/Campus/CampusStory.swift" \
   "$IOS_ROOT/OiDonation/Features/Profile/MYDemoStore.swift" \
   "$IOS_ROOT/OiDonation/Features/Profile/CollectedStoryLibrary.swift" \
+  "$IOS_ROOT/OiDonation/Features/Profile/OiStoryConsentPresentation.swift" \
   "$IOS_ROOT/OiDonation/Features/Profile/OiStoryListPresentation.swift" \
   "$IOS_ROOT/Tests/MYDemoChecks.swift" \
   -o "$CHECK_DIR/checks"
