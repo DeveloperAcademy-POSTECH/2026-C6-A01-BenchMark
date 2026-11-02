@@ -79,3 +79,42 @@ Needs confirmation:
 | ![중간](verification/ar109/failure-midpoint.png) | ![최종](verification/ar109/failure-402x874.png) | ![접근성](verification/ar109/reduced-failure-accessibility5.png) |
 
 최대 접근성 크기의 시작 버튼은 [스크롤 하단 캡처](verification/ar109/intro-accessibility5-bottom.png)로 확인했다. [작은 화면](verification/ar109/intro-375x667.png)과 [큰 화면](verification/ar109/intro-440x956.png)도 같은 자산과 의도된 배율을 사용한다.
+
+## 2026-11-02 후속 전체 점검 — 최초 검증 누락 정정
+
+첨부 피드백에서 성공 카드가 검은 텍스트 박스로 바뀌고 시작 글꼴 굵기가 다른 문제가 확인됐다. `0d8ab51` 충돌 해결이 기존 `StoryCardImage`를 텍스트로 대체한 것이 카드 회귀의 원인이다. 이전 화면 검사에서 성공 원 애니메이션만 보고 성공 카드를 제외한 것은 검증 누락이었다. 검사 앱에 source 폰트를 직접 복사해 실제 Clip의 `Paperlogy-7Bold` 누락까지 가린 점도 수정했다. 앞의 최초 검증 기록을 성공 카드와 실제 번들의 검증 근거로 사용하면 안 된다.
+
+### 수정과 검증 경계
+
+- 카드 URL의 파일/원격 이미지 표시를 복원하고 비율을 유지해 잘리지 않도록 표시한다. 원격 오류 재시도를 제공한다. URL 부재는 실제 상태로 안내하며 타인의 예시 카드로 대체하지 않는다.
+- 실제 Clip 타깃에 Paperlogy 7Bold·2ExtraLight를 포함한다. 2ExtraLight는 [공식 배포 페이지](https://freesentation.blog/paperlogyfont)가 연결하는 Freesentation/paperlogy v1.001 원본에서 추가했다. 기존 SIL OFL을 유지하고 원본 파일을 수정하지 않았다.
+- 시작 제목과 성공 문구는 Figma 원본 윤곽으로 표시한다. 성공은 프로토타입의 Ease Out 600ms·유지 400ms·카드 전환 300ms로 수정했다. 기존 성공 원의 위치·크기·색은 보존한다.
+- 사용하지 않는 Clip의 Griun/KIM/Mona 임베딩을 제외했다. 본 앱의 해당 폰트는 유지한다. clean build 후 Clip에는 실제 사용하는 5개 폰트만 존재하며 CoreText·UIFont가 번들 파일에서 fallback 없이 로드되는지 검사한다.
+- 삭제 버튼은 해당 기기 보관 기록도 삭제한다. 권한 거부 후 설정에서 허용하고 돌아오면 같은 experience로 재조회한다. 콘텐츠 조회 오류에는 실제 재시도/처음으로 동작을 제공한다. 구 기획의 명패·NFC 필수처럼 읽히는 문구는 현재 기획에 맞췄다.
+- 타이머는 playing 진입 시 기록한 monotonic deadline을 사용한다. 지연 wake가 경과 시간을 누락하지 않고, deadline 이후 터치는 마지막 수집으로 성공할 수 없다. 기존 중복·취소·이전 round 차단도 유지한다.
+- 오이 이름 슬롯은 이야기 제목과 구분된 `cucumberName`을 사용한다. 요약 카드 날짜는 한국 시간대로 고정하고 기본보다 큰 글자는 고정 높이를 해제한다. 텍스트에 그림자가 번지지 않도록 카드 단위로 합성한다.
+- 실제 공개 저장소는 기존 `cucumber_asset`을 읽어 허용된 4개 프리셋을 원본 PNG로 연결한다. Main Asset Catalog 전체를 Clip에 넣거나 이미지를 복제하지 않고 원본 파일만 Clip Resources에 참조한다. 파일 URL도 공통 정규화·캐시 경로에서 로드한다.
+- 기존 설정 스크립트로 같은 프로젝트의 공개 클라이언트 설정을 Git 제외 로컬 plist에 준비했다. 값은 출력·커밋하지 않았다. 공개 카탈로그는 7개(오이 4종), 공개 이야기는 검사 시점 0개로 확인됐다. 원격 DB/Auth/Storage 쓰기는 하지 않았다.
+
+사용자가 공개 호출 도메인과 실제 이야기용 카드 이미지 공급을 팀원이 처리한다고 명시했다. 현재 승인 도메인·카드 URL nil 계약은 임의 변경하지 않는다. 새로운 카드 데이터를 공급하면 기존 `StoryCard.imageURL` 파일/HTTPS 경로로 표시할 수 있다.
+
+Needs confirmation:
+- 동적인 오이 이름의 실제 PearToucan Bold 원본 파일·사용 범위는 디자이너 확인 대상이다. 정적 시작/성공 문구는 원본 outline으로 해결했으나 임의 대체 폰트를 추가하지 않았다.
+- 실제 기기의 라이브 AR·터치·재도전 anchor/투영 크기는 앞서 기록한 서명 문제 때문에 여전히 통과로 주장하지 않는다.
+
+### 재현 명령
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer CLANG_MODULE_CACHE_PATH=/private/tmp/benchmark-ar-109-cache sh apps/ios/Tests/run-app-clip-checks.sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer sh apps/ios/Tests/run-app-clip-font-checks.sh /private/tmp/benchmark-ar-109-build/Build/Products/Debug-iphonesimulator/OiDonationClip.app
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project apps/ios/OiDonation.xcodeproj -scheme OiDonation -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath /private/tmp/benchmark-ar-109-build CODE_SIGNING_ALLOWED=NO clean build
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer sh apps/ios/Tests/run-ar-game-visual-checks.sh 9807D9A4-42EC-47D0-9B44-576BF73E6A87 /private/tmp/benchmark-ar-109-audit-complete /private/tmp/benchmark-ar-109-build/Build/Products/Debug-iphonesimulator/OiDonationClip.app
+```
+
+화면 검사는 이제 실제 빌드의 Assets.car·폰트·원본 PNG만 복사하며 소스 자산을 대신 주입하지 않는다. 검은 텍스트 박스가 다시 생기면 실패하도록 카드 그림의 색상 픽셀도 검사한다. URLProtocol fixture로 실제 Repository의 자산 디코딩/매핑을 네트워크 없이 실행하고, 4종 PNG가 실제 loader에서 fallback으로 바뀌지 않는지도 검사한다. 기본/xxxLarge/최대 접근성, 라이트/다크, 카드 URL nil/잘못된 파일, Reduce Motion을 캡처한다. 실제 빌드 자체도 전용 Simulator에 설치해 DEBUG fixture 카드·시작 화면을 확인했다. 이 캡처는 UI·패키징 증거이며 실제 서버 카드나 실기기 AR 증거가 아니다.
+
+| 실제 App Clip 성공 카드 | 실제 App Clip 시작 |
+| --- | --- |
+| ![실제 번들 카드](verification/ar109-followup/actual-card.png) | ![실제 번들 시작](verification/ar109-followup/actual-intro.png) |
+
+[다크 모드 카드](verification/ar109-followup/story-card-402x874-dark.png), [xxxLarge](verification/ar109-followup/story-card-xxxlarge-bottom.png), [최대 접근성](verification/ar109-followup/story-card-accessibility5-bottom.png), [이미지 오류](verification/ar109-followup/story-card-file-error.png)도 확인했다.
