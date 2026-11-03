@@ -1,6 +1,14 @@
 import SwiftUI
 
 enum CampusStyle {
+    static let sectionGreen = Color(red: 84 / 255, green: 105 / 255, blue: 48 / 255)
+    static let secondaryAction = Color(red: 211 / 255, green: 219 / 255, blue: 196 / 255)
+    static let summaryAction = Color(red: 90 / 255, green: 112 / 255, blue: 51 / 255)
+    static let listBackground = Color(white: 0.96)
+    static let mapSheet = Color(red: 234 / 255, green: 238 / 255, blue: 226 / 255)
+    static let mapAction = Color(red: 101 / 255, green: 126 / 255, blue: 58 / 255)
+    static func medium(_ size: CGFloat) -> Font { .custom("Paperlogy-5Medium", size: size, relativeTo: .body) }
+    static func semibold(_ size: CGFloat) -> Font { .custom("Paperlogy-6SemiBold", size: size, relativeTo: .headline) }
     static let green = Color(red: 0.44, green: 0.55, blue: 0.25)
     static let lightGreen = Color(red: 0.60, green: 0.73, blue: 0.39)
     static let coral = Color(red: 0.784, green: 0.376, blue: 0.365)
@@ -30,51 +38,62 @@ struct CampusDonorBadge: View {
 struct CampusTags: View {
     let story: CampusStory
     var compact = false
+    private var background: Color {
+        [Color(white: 0.81), Color(red: 0.63, green: 0.88, blue: 1), Color(red: 1, green: 0.72, blue: 0.47)][story.palette % 3]
+    }
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: compact ? 4 : 6) {
             ForEach(story.tags, id: \.self) { tag in
-                Text(tag).font(.custom("Mona12TextKR-Regular", size: compact ? 10 : 13, relativeTo: .caption))
-                    .foregroundStyle(Color(red: 0.41, green: 0.19, blue: 0.19))
-                    .padding(.horizontal, compact ? 10 : 12).padding(.vertical, compact ? 5 : 7)
-                    .background(CampusStyle.coral.opacity(0.14), in: Capsule())
+                Text(tag).font(CampusStyle.body(compact ? 12 : 16))
+                    .foregroundStyle(.black.opacity(0.85))
+                    .padding(.horizontal, compact ? 10 : 14).padding(.vertical, compact ? 4 : 6)
+                    .background(background, in: Capsule())
             }
-        }
+        }.fixedSize(horizontal: true, vertical: false)
     }
 }
 
 struct CampusStoryRow: View {
     let story: CampusStory
+    var showsDate = true
+    var outlined = false
     var body: some View {
-        HStack(spacing: 12) {
-            Image(story.image).resizable().scaledToFit().frame(width: 78, height: 93)
-                .background(CampusStyle.portrait(story.palette), in: RoundedRectangle(cornerRadius: 15))
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 2) {
-                    Text(story.title).font(CampusStyle.heading(20)).lineLimit(1).minimumScaleFactor(0.7)
-                    Spacer(minLength: 0)
-                    CampusTags(story: story, compact: true)
+        VStack(alignment: .trailing, spacing: 5) {
+            HStack(spacing: 12) {
+                Image(story.portraitImage).resizable().scaledToFit().padding(4)
+                    .frame(width: 86, height: 86)
+                    .background(Color(white: 0.94), in: RoundedRectangle(cornerRadius: 16))
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 4) {
+                        Text(story.title).font(CampusStyle.heading(24)).lineLimit(1).minimumScaleFactor(0.6)
+                        Spacer(minLength: 0)
+                        CampusTags(story: story, compact: true)
+                    }
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("| " + story.donor)
+                        Text("| " + story.location)
+                    }.font(CampusStyle.body(14)).lineLimit(1).minimumScaleFactor(0.75)
                 }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(story.donor)
-                    Text(story.location)
-                    Text(story.date)
-                }.font(CampusStyle.hand(12)).lineLimit(1).minimumScaleFactor(0.8)
             }
-        }
-        .foregroundStyle(.black).padding(7).frame(maxWidth: .infinity, alignment: .leading)
-        .background(CampusStyle.background(story.palette), in: RoundedRectangle(cornerRadius: 20))
-        .contentShape(RoundedRectangle(cornerRadius: 20))
+            .foregroundStyle(.black).padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .background(.white, in: RoundedRectangle(cornerRadius: 28))
+            .overlay(RoundedRectangle(cornerRadius: 28).stroke(outlined ? CampusStyle.secondaryAction : .clear, lineWidth: 1))
+            if showsDate {
+                Text(story.date).font(CampusStyle.body(10)).foregroundStyle(.secondary).padding(.trailing, 20)
+            }
+        }.contentShape(Rectangle())
     }
 }
 
 struct CampusCollectButton: View {
     let story: CampusStory
     let store: CampusStoryStore
+    var fill: Color = CampusStyle.green
     var body: some View {
         Button { store.collect(story) } label: {
-            Label(store.collected.contains(story.id) ? "수집 완료" : "수집하기", systemImage: store.collected.contains(story.id) ? "checkmark" : "plus")
+            Text(store.collected.contains(story.id) ? "수집 완료" : "수집하기")
                 .font(.system(size: 16, weight: .semibold)).frame(maxWidth: .infinity, minHeight: 46)
-                .foregroundStyle(.white).background(CampusStyle.action, in: RoundedRectangle(cornerRadius: 20))
+                .foregroundStyle(.white).background(fill, in: RoundedRectangle(cornerRadius: 20))
         }
         .buttonStyle(.plain).sensoryFeedback(.success, trigger: store.collected.contains(story.id))
         .accessibilityIdentifier("campus.collect")

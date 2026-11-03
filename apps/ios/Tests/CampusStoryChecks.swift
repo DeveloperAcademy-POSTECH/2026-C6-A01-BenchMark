@@ -19,7 +19,17 @@ struct CampusStoryChecks {
         precondition(store.story("missing") == nil)
         precondition(Set(store.stories.map(\.id)).count == records.count)
         let pond = store.stories(in: "pond", sortedBy: .latest)
+        precondition(store.stories(in: "pond", sortedBy: .oldest).map(\.id) == pond.reversed().map(\.id))
         let first = pond[0], second = pond[1]
+        let entry = CampusSearchEntry(story: first, publicID: nil, cucumberName: "오이 농부", code: "OI-0123",
+            school: "POSTECH 포스텍", donorName: "공개닉네임")
+        precondition(entry.matches(CampusSearchQuery(text: " 오이농부 "), mode: .name))
+        precondition(entry.matches(CampusSearchQuery(text: " oi-0123 "), mode: .code))
+        precondition(!entry.matches(CampusSearchQuery(text: "0123"), mode: .code))
+        precondition(!entry.matches(CampusSearchQuery(), mode: .donor))
+        precondition(entry.matches(CampusSearchQuery(school: "postech", name: "닉네임"), mode: .donor))
+        precondition(!entry.matches(CampusSearchQuery(school: "카이스트", name: "닉네임"), mode: .donor))
+        precondition(!entry.matches(CampusSearchQuery(department: "오이"), mode: .donor), "Missing public metadata must not be guessed")
         let byDistance = store.stories(in: "pond", sortedBy: .distance, distances: [first.id: 20, second.id: 1])
         precondition(byDistance.first?.id == second.id, "Distance ordering must reflect the current map center")
         let unknownDistances = store.stories(in: "pond", sortedBy: .distance)

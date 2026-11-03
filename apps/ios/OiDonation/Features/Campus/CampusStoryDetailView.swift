@@ -12,7 +12,7 @@ struct CampusStoryDetailView: View {
         GeometryReader { geometry in
           ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Image(story.image).resizable().scaledToFill()
+                Image(story.portraitImage).resizable().scaledToFill()
                     .frame(width: geometry.size.width, height: 275).clipped()
                     .background(CampusStyle.background(story.palette))
                 VStack(alignment: .leading, spacing: 30) {
@@ -47,8 +47,8 @@ struct CampusStoryDetailView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             HStack(spacing: 8) {
                 Button { donationInfo = true } label: {
-                    Text("이어서 기부하기").font(CampusStyle.body(12)).frame(width: 113, height: 46)
-                        .foregroundStyle(.black).background(CampusStyle.action.opacity(0.4), in: RoundedRectangle(cornerRadius: 20))
+                    Text("이어서 기부하기").font(CampusStyle.body(12)).frame(maxWidth: .infinity, minHeight: 46)
+                        .foregroundStyle(.black).background(CampusStyle.secondaryAction, in: RoundedRectangle(cornerRadius: 20))
                 }.buttonStyle(.plain)
                 CampusCollectButton(story: story, store: store)
             }.padding(.horizontal, 15).padding(.top, 10).padding(.bottom, 6)
@@ -71,7 +71,6 @@ struct CampusStoryDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
                 Text(story.title).font(CampusStyle.heading(36)).lineLimit(1).minimumScaleFactor(0.7)
-                CampusDonorBadge(size: 23)
                 Spacer(minLength: 1)
                 CampusTags(story: story)
             }
@@ -79,7 +78,7 @@ struct CampusStoryDetailView: View {
                 Text("기부자 | \(story.donor)")
                 Text("위치 | \(story.location)")
                 Text("날짜 | \(story.date)")
-            }.font(CampusStyle.hand(15))
+            }.font(CampusStyle.body(15))
         }
     }
 
@@ -87,11 +86,11 @@ struct CampusStoryDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle("기부자 스토리")
             VStack(alignment: .leading, spacing: 14) {
-                Text(story.excerpt).font(CampusStyle.hand(18)).lineSpacing(3)
+                Text(story.excerpt).font(CampusStyle.body(18)).lineSpacing(3)
                 VStack(spacing: 2) { Divider(); Divider() }
                 Text(story.body).font(CampusStyle.body(14)).lineSpacing(5).fixedSize(horizontal: false, vertical: true)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
-                .background(Color(red: 0.988, green: 0.945, blue: 0.945), in: RoundedRectangle(cornerRadius: 20))
+                .background(CampusStyle.listBackground, in: RoundedRectangle(cornerRadius: 20))
         }
     }
 
@@ -99,7 +98,7 @@ struct CampusStoryDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionTitle("오이 & 카드")
             HStack(spacing: 20) {
-                Image(story.image).resizable().scaledToFill().frame(width: 147, height: 220).clipped()
+                Image(story.portraitImage).resizable().scaledToFill().frame(width: 147, height: 220).clipped()
                 MYCardArtwork(card: MYCard(id: story.id, title: story.title, image: story.image,
                     school: .postech, order: story.order, body: story.body, donor: story.donor, date: story.date))
                     .frame(maxWidth: .infinity).frame(height: 220)
@@ -123,7 +122,7 @@ struct CampusStoryDetailView: View {
     private var related: some View {
         let items = Array(store.stories(in: story.regionID, sortedBy: .latest).filter { $0.id != story.id }.prefix(3))
         return VStack(spacing: 8) {
-            HStack { sectionTitle("이어진 기부"); Spacer(); Text("\(min(items.count, 3))개").font(.headline).foregroundStyle(.white).padding(.horizontal, 16).padding(.vertical, 5).background(CampusStyle.coral, in: Capsule()) }
+            HStack { sectionTitle("이어진 기부"); Spacer(); Text("\(min(items.count, 3))개").font(.headline).foregroundStyle(.white).padding(.horizontal, 16).padding(.vertical, 5).background(CampusStyle.sectionGreen, in: Capsule()) }
             ForEach(Array(items.prefix(showingAllRelated ? items.count : 2))) { next in
                 NavigationLink(value: CampusDestination.summary(next.id)) { CampusStoryRow(story: next) }.buttonStyle(.plain)
             }
@@ -155,7 +154,7 @@ struct CampusStoryDetailView: View {
     private func donorField(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 3) { Text(label).font(.system(size: 14, weight: .heavy)); Text(value).font(.system(size: 15)) }
     }
-    private func sectionTitle(_ text: String) -> some View { Text(text).font(.system(size: 24, weight: .bold)).foregroundStyle(CampusStyle.coral) }
+    private func sectionTitle(_ text: String) -> some View { Text(text).font(.system(size: 24, weight: .bold)).foregroundStyle(CampusStyle.sectionGreen) }
 }
 
 private struct CampusImageSelection: Identifiable {

@@ -155,13 +155,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         guard !sharedMap else { updateCamera(); return }
         for region in CampusRegion.campus {
             guard let place = data.pois.first(where: { $0.id == region.placeID }) else { continue }
-            let button = UIButton(type: .custom)
-            button.setBackgroundImage(UIImage(named: "OiCluster"), for: .normal)
             let count = regionCounts?[region.id] ?? 0
-            button.setTitle("\(count)", for: .normal)
-            button.titleLabel?.font = UIFont(name: "Paperlogy-9Black", size: 30) ?? .systemFont(ofSize: 30, weight: .black)
-            button.setTitleColor(UIColor(red: 0.95, green: 0.97, blue: 0.91, alpha: 1), for: .normal)
-            button.bounds.size = CGSize(width: count > 20 ? 120 : 86, height: count > 20 ? 145 : 106)
+            let button = CampusRegionButton(count: count, diameter: count > 20 ? 146 : count >= 10 ? 118 : 90)
             button.accessibilityLabel = "\(region.title), 오이 \(count)개"
             button.accessibilityIdentifier = "campus.region.\(region.id)"
             button.addAction(UIAction { [weak self] _ in self?.onRegion?(region) }, for: .touchUpInside)
@@ -170,7 +165,24 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         updateCamera()
     }
 
+    func nearestRegion() -> CampusRegion? { nearestRegion(to: target) }
+    private func nearestRegion(to point: SIMD3<Float>) -> CampusRegion? {
+        guard let data else { return nil }
+        return CampusRegion.campus.compactMap { region -> (CampusRegion, Float)? in
+            guard let place = data.pois.first(where: { $0.id == region.placeID }) else { return nil }
+            return (region, simd_distance_squared(data.world(place.p), point))
+        }.min { $0.1 < $1.1 }?.0
+    }
+
+    func showStoriesInCurrentArea(_ region: CampusRegion, stories: [CampusStory]) {
+        let saved = (target, radius, yaw, pitch)
+        focus(region, stories: stories)
+        (target, radius, yaw, pitch) = saved
+        updateCamera()
+    }
+
     func setRegionCounts(_ counts: [String: Int]) {
+        guard regionCounts != counts else { return }
         regionCounts = counts
         if region == nil { showOverview() }
     }
@@ -203,7 +215,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             } else { continue }
             positions[story.id] = point
             let button = UIButton(type: .custom)
-            button.setImage(UIImage(named: story.image), for: .normal)
+            button.setImage(UIImage(named: story.portraitImage), for: .normal)
             button.imageView?.contentMode = .scaleAspectFit
             button.bounds.size = CGSize(width: 62, height: 76)
             button.accessibilityLabel = "\(story.title) 이야기 보기"
@@ -241,9 +253,9 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             entity.name = "placement:" + record.id.uuidString
             entity.isEnabled = record.id != editingPlacementID
             entity.position = data.world(latitude: record.latitude, longitude: record.longitude)
-            // Browse with readable symbols; edit with the same physical proportions as AR.
+            // Map icons use a constant 1m reference; AR keeps the saved physical height.
             entity.scale = SIMD3(repeating: CampusPlacementGeometry.mapScale(
-                heightMeters: record.heightMeters, unitsPerMeter: data.unitsPerMeter, editing: editingPlacement))
+                unitsPerMeter: data.unitsPerMeter, editing: editingPlacement))
             entity.orientation = CampusOiAsset.heading(record.headingDegrees)
             placementLayer.addChild(entity)
         }
@@ -275,7 +287,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         editingPlacementID = placement?.id
         syncPlacements(records: savedPlacements)
         camera.camera.near = 0.01
-        placementMessage = "건물 밖 바닥을 누르면 실제 축척으로 확대해요."
+        placementMessage = "건물 밖 바닥을 누르면 배치 위치를 확대해요."
         if let placement, let data {
             target = data.world(latitude: placement.latitude, longitude: placement.longitude)
             setDraft(placement)
@@ -307,7 +319,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         }
         draftEntity?.position = point
         draftEntity?.scale = SIMD3(repeating: CampusPlacementGeometry.mapScale(
-            heightMeters: height, unitsPerMeter: data.unitsPerMeter, editing: true))
+            unitsPerMeter: data.unitsPerMeter, editing: true))
         draftEntity?.orientation = CampusOiAsset.heading(heading)
         updatePlacementReticle(at: point)
     }
@@ -315,7 +327,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     func focusPlacementFromAbove() {
         guard editingPlacement, let point = draftPoint, let data else { return }
         target = point; yaw = 0; pitch = .pi / 2 - 0.01
-        radius = Float(max(6, draftHeight * 6) * data.unitsPerMeter)
+        radius = Float(6 * data.unitsPerMeter)
         updateCamera()
     }
 
@@ -423,6 +435,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private func projectPins() {
         guard visible, let view = canvas?.map else { return }
         for (button, world) in pins {
+            (button as? CampusRegionButton)?.setPanel(pitch < 0.95)
             let local = camera.convert(position: world, from: nil)
             guard local.z < 0, let screen = view.project(world), screen.x.isFinite, screen.y.isFinite else { button.isHidden = true; continue }
             button.isHidden = editingPlacement || !view.bounds.insetBy(dx: -100, dy: -100).contains(screen)
@@ -495,6 +508,66 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
 }
 
+@MainActor private final class CampusRegionButton: UIButton {
+    private let diameter: CGFloat
+    private let panel = UIImageView(image: UIImage(named: "CampusRegionPanel"))
+    private let content = UIStackView()
+    private let icon = UIImageView(image: UIImage(named: "OiMapCucumber"))
+    private let number = UILabel()
+    private lazy var iconWidth = icon.widthAnchor.constraint(equalToConstant: 19)
+    private lazy var iconHeight = icon.heightAnchor.constraint(equalToConstant: 23)
+    private var panelMode: Bool?
+    init(count: Int, diameter: CGFloat) {
+        self.diameter = diameter
+        super.init(frame: CGRect(x: 0, y: 0, width: diameter, height: diameter))
+        panel.isUserInteractionEnabled = false
+        panel.layer.shadowColor = UIColor(red: 0.28, green: 0.39, blue: 0.15, alpha: 1).cgColor
+        panel.layer.shadowOpacity = 0.42
+        panel.layer.shadowRadius = 5
+        panel.layer.shadowOffset = CGSize(width: 0, height: 3)
+        panel.contentMode = .scaleToFill
+        addSubview(panel)
+        icon.contentMode = .scaleAspectFit
+        number.text = String(count)
+        number.font = UIFont(name: "Paperlogy-9Black", size: 26) ?? .systemFont(ofSize: 26, weight: .black)
+        number.textColor = UIColor(red: 101 / 255, green: 126 / 255, blue: 58 / 255, alpha: 1)
+        number.textAlignment = .center
+        content.addArrangedSubview(icon); content.addArrangedSubview(number)
+        content.axis = .vertical; content.alignment = .center; content.spacing = 4
+        content.isUserInteractionEnabled = false
+        addSubview(content)
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([iconWidth, iconHeight])
+        isAccessibilityElement = true
+        setPanel(false)
+    }
+    func setPanel(_ enabled: Bool) {
+        guard panelMode != enabled else { return }
+        panelMode = enabled
+        // Tilted views show more terrain behind the screen-space badge. Keep the
+        // panel compact while preserving count tiers and at least a 44pt hit area.
+        let height = enabled ? max(64, diameter * 0.70) : diameter
+        bounds.size = CGSize(width: enabled ? height * 0.9 : diameter, height: height)
+        panel.isHidden = !enabled
+        // Export includes 12 points of shadow around its 81×90 silhouette.
+        panel.frame = bounds.insetBy(dx: -height * 12/90, dy: -height * 12/90)
+        backgroundColor = enabled ? .clear : UIColor(red: 241/255, green: 244/255, blue: 236/255, alpha: 1)
+        layer.cornerRadius = enabled ? 0 : diameter / 2
+        layer.shadowColor = UIColor(red: 0.28, green: 0.39, blue: 0.15, alpha: 1).cgColor
+        layer.shadowOpacity = enabled ? 0 : 0.42
+        layer.shadowRadius = 7; layer.shadowOffset = CGSize(width: 0, height: 3)
+        layer.shadowPath = enabled ? nil : UIBezierPath(ovalIn: bounds).cgPath
+        let fontSize: CGFloat = enabled ? 21 : 26
+        number.font = UIFont(name: "Paperlogy-9Black", size: fontSize) ?? .systemFont(ofSize: fontSize, weight: .black)
+        iconWidth.constant = enabled ? 15 : 19
+        iconHeight.constant = enabled ? 18 : 23
+        content.spacing = enabled ? 3 : 4
+        content.frame = CGRect(x: 0, y: 0, width: bounds.width, height: enabled ? 46 : 57)
+        content.center = CGPoint(x: bounds.midX, y: bounds.midY - (enabled ? height * 0.08 : 0))
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+}
+
 final class CampusMapCanvas: UIView {
     private(set) var map: RealityKit.ARView?
     var didLayout: (() -> Void)?
@@ -547,8 +620,8 @@ extension CampusExploreScene {
         updateDraft(height: 2, heading: 90)
         check(draftPoint == original, "resize-keeps-coordinate")
         if let draftEntity {
-            check(abs(draftEntity.visualBounds(relativeTo: root).extents.y / Float(data.unitsPerMeter) - 2) < 0.001,
-                  "rendered-height-is-two-metres")
+            check(abs(draftEntity.visualBounds(relativeTo: root).extents.y / Float(data.unitsPerMeter) - 1) < 0.001,
+                  "map-height-stays-at-one-metre")
         } else { check(false, "draft-created") }
         yaw = .pi / 2
         nudgePlacement(right: 1, forward: 0, meters: 0.1)

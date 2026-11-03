@@ -1,5 +1,3 @@
-// Created by 이돈혁
-
 import SwiftUI
 
 /// Shared by device examples and the server-backed story editor.
@@ -33,7 +31,7 @@ struct CampusPlacementTools: View {
                 nudge("아래쪽", symbol: "arrow.down", right: 0, forward: -1)
                 nudge("오른쪽", symbol: "arrow.right", right: 1, forward: 0)
             }
-            Text("십자 중심이 저장 위치 · 십자 길이 1m · 실제 축척")
+            Text("십자 중심이 저장 위치 · 십자 길이 1m")
                 .font(.caption2).foregroundStyle(.secondary)
         }
         .disabled(scene.draftPoint == nil)
@@ -59,8 +57,10 @@ struct CampusPlacementDimensions: View {
 
     var body: some View {
         DisclosureGroup {
+            Text("지도에서는 1m 기준 크기로 표시하고, 설정한 키는 AR에 적용해요.")
+                .foregroundStyle(.secondary)
             HStack {
-                Text("키").frame(width: 34, alignment: .leading)
+                Text("AR 키").frame(width: 40, alignment: .leading)
                 Slider(value: $height, in: 0.4...2, step: 0.1).accessibilityLabel("실제 오이 높이")
             }
             HStack {
@@ -68,7 +68,7 @@ struct CampusPlacementDimensions: View {
                 Slider(value: $heading, in: 0...359, step: 1).accessibilityLabel("북쪽 기준 시계 방향")
             }
         } label: {
-            Text("실제 키 \(height, specifier: "%.1f")m · 방향 \(Int(heading))°")
+            Text("AR 키 \(height, specifier: "%.1f")m · 방향 \(Int(heading))°")
         }.font(.caption)
     }
 }

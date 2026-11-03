@@ -19,6 +19,8 @@ struct CampusStory: Identifiable, Hashable {
     var latitude: Double? = nil
     var longitude: Double? = nil
 
+    var portraitImage: String { image == "OiCats" ? "OiCatsPortrait" : image }
+
     var excerpt: String { String((remoteBody ?? "").prefix(120)) }
     var body: String { remoteBody ?? "" }
 
@@ -38,7 +40,7 @@ struct CampusRegion: Identifiable, Hashable {
     ]
 }
 
-enum CampusStorySort: String, CaseIterable { case latest = "최신순", distance = "거리순", popular = "인기순" }
+enum CampusStorySort: String, CaseIterable { case latest = "최신순", oldest = "오래된순", distance = "거리순", popular = "인기순" }
 
 @MainActor @Observable
 final class CampusStoryStore {
@@ -56,6 +58,7 @@ final class CampusStoryStore {
         stories.filter { $0.regionID == regionID }.sorted { a, b in
             switch sort {
             case .latest: return a.order < b.order
+            case .oldest: return a.order > b.order
             case .popular: return a.popularity == b.popularity ? a.order < b.order : a.popularity > b.popularity
             case .distance:
                 let ad = distances[a.id] ?? .greatestFiniteMagnitude, bd = distances[b.id] ?? .greatestFiniteMagnitude

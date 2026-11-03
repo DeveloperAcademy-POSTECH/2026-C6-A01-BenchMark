@@ -20,6 +20,11 @@ struct HomeView: View {
     @State private var showingSchools = false
     @State private var searchResults: Set<String>?
     @State private var isOnScreen = false
+    @State private var showingSearchChoice = false
+    @State private var pendingSearchMode: CampusSearchMode?
+    @State private var searchMode: CampusSearchMode?
+    @State private var pendingStoryID: String?
+    @State private var showingRequests = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -32,7 +37,7 @@ struct HomeView: View {
                                 .buttonStyle(.glass).buttonBorderShape(.circle).controlSize(.large)
                                 .accessibilityLabel("캠퍼스 전체 지도").accessibilityIdentifier("campus.overview")
                             Spacer()
-                            Button { distances = scene.distances(); searchResults = scene.visibleStoryIDs() } label: { Label("이 지역 재검색", systemImage: "arrow.clockwise") }
+                            Button { searchVisibleArea() } label: { Label("이 지역 재검색", systemImage: "arrow.clockwise") }
                                 .font(CampusStyle.body(15)).buttonStyle(.glass).buttonBorderShape(.capsule)
                             Spacer()
                             Color.clear.frame(width: 50, height: 1)
@@ -85,15 +90,30 @@ struct HomeView: View {
             }
         }
         .sheet(isPresented: $showingSchools) {
+            CampusSchoolSearchView {
+                showingSchools = false; region = nil; expanded = false; searchResults = nil
+                scene.showOverview()
+            }
+        }
+        .sheet(isPresented: $showingSearchChoice, onDismiss: {
+            searchMode = pendingSearchMode; pendingSearchMode = nil
+        }) {
+            CampusSearchChoiceSheet { pendingSearchMode = $0; showingSearchChoice = false }
+        }
+        .fullScreenCover(item: $searchMode, onDismiss: {
+            // Push only after the search cover has gone, so it cannot cover the destination.
+            if let id = pendingStoryID { pendingStoryID = nil; onOpenStory(id) }
+        }) { mode in
+            CampusSearchView(mode: mode, entries: searchEntries, isExample: false) {
+                pendingStoryID = $0.id; searchMode = nil
+            }
+        }
+        .sheet(isPresented: $showingRequests) {
             NavigationStack {
-                List {
-                    Button { showingSchools = false; region = nil; scene.showOverview() } label: {
-                        Label("POSTECH · 포항공과대학교", systemImage: "building.2.fill")
-                    }
-                    Text("현재는 POSTECH 캠퍼스를 탐색할 수 있어요.").font(.footnote).foregroundStyle(.secondary)
-                }.navigationTitle("학교 선택").navigationBarTitleDisplayMode(.inline)
-                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("닫기") { showingSchools = false } } }
-            }.presentationDetents([.medium])
+                ContentUnavailableView("카드 요청 준비 중", systemImage: "envelope",
+                    description: Text("카드 요청은 아직 지원하지 않아요. 공개된 오이는 이야기 화면에서 수집할 수 있어요."))
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("닫기") { showingRequests = false } } }
+            }
         }
         .task {
             scene.onRegion = { selected in
@@ -109,6 +129,11 @@ struct HomeView: View {
             if remote != nil { scene.setRegionCounts(Dictionary(grouping: store.stories, by: \.regionID).mapValues(\.count)) }
             await scene.load()
             #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-campus-renderer-check") { await scene.checkRendererRestoration() }
+            if ProcessInfo.processInfo.arguments.contains("-campus-placement-check") {
+                await scene.preparePlacements(); scene.checkPrecisePlacement()
+            }
+            if ProcessInfo.processInfo.arguments.contains("-campus-schools-preview") { showingSchools = true }
             if ProcessInfo.processInfo.arguments.contains("-campus-region-preview"), let first = CampusRegion.campus.first { scene.onRegion?(first) }
             #endif
         }
@@ -126,7 +151,7 @@ struct HomeView: View {
         }
         .onChange(of: store.stories) { _, _ in
             if remote != nil { scene.setRegionCounts(Dictionary(grouping: store.stories, by: \.regionID).mapValues(\.count)) }
-            if let region { scene.focus(region, stories: store.stories(in: region.id, sortedBy: sort)) }
+            if let region { scene.showStoriesInCurrentArea(region, stories: store.stories(in: region.id, sortedBy: sort)) }
         }
     }
 
@@ -142,10 +167,44 @@ struct HomeView: View {
                 }
             }.buttonStyle(.plain).accessibilityLabel("\(myDemo.nickname)의 MY 작업실").accessibilityIdentifier("campus.profile")
             Spacer()
-            Button(action: openCamera) { Image(systemName: "camera.fill").font(.system(size: 34)).frame(width: 78, height: 78) }
-                .buttonStyle(.glassProminent).buttonBorderShape(.circle).tint(Color(red: 0.40, green: 0.31, blue: 0.12))
-                .accessibilityLabel("AR 카메라 열기").accessibilityIdentifier("campus.camera")
+            VStack(spacing: 10) {
+                HStack(spacing: 10) {
+                    mapAction("envelope", label: "카드 요청", id: "campus.requests") { showingRequests = true }
+                    mapAction("magnifyingglass", label: "오이 검색", id: "campus.search") { showingSearchChoice = true }
+                    mapAction("plus", label: "오이 심기 · 작성 승인과 내 이야기", id: "placement.begin") { onAccount?() }
+                }
+                Button(action: openCamera) { Image(systemName: "camera.fill").font(.system(size: 34)).frame(width: 78, height: 78) }
+                    .buttonStyle(.glassProminent).buttonBorderShape(.circle).tint(Color(red: 0.40, green: 0.31, blue: 0.12))
+                    .accessibilityLabel("AR 카메라 열기").accessibilityIdentifier("campus.camera")
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }.frame(maxWidth: 190)
+
         }
+    }
+
+    private func mapAction(_ symbol: String, label: String, id: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 24)).foregroundStyle(.white)
+                .frame(width: 52, height: 52).background(CampusStyle.green.opacity(0.8), in: Circle())
+        }.buttonStyle(.plain).accessibilityLabel(label).accessibilityIdentifier(id)
+    }
+
+    private var searchEntries: [CampusSearchEntry] {
+        store.stories.map { story in
+            let live = remote?.stories.first { $0.id.uuidString == story.id }
+            let schoolID = remote?.regions.first { $0.id == story.regionID }?.schoolId
+            let school = remote?.schools.first { $0.id == schoolID }?.name ?? "POSTECH"
+            let nickname = remote?.profiles.first { $0.id == live?.userId }?.nickname ?? ""
+            return CampusSearchEntry(story: story, publicID: UUID(uuidString: story.id), cucumberName: story.title,
+                code: story.id, school: school + (schoolID == "postech" ? " 포스텍 포항공과대학교" : ""), donorName: nickname)
+        }
+    }
+
+    private func searchVisibleArea() {
+        guard let closest = scene.nearestRegion() else { return }
+        region = closest; expanded = false
+        scene.showStoriesInCurrentArea(closest, stories: store.stories(in: closest.id, sortedBy: sort))
+        distances = scene.distances(); searchResults = scene.visibleStoryIDs()
     }
 
     private func openCamera() {
@@ -167,13 +226,17 @@ struct HomeView: View {
                     .padding(.horizontal, 100).contentShape(Rectangle())
                     .gesture(DragGesture(minimumDistance: 20).onEnded { value in withAnimation(.snappy) { expanded = value.translation.height < 0 } })
                 HStack(spacing: 7) {
-                    ForEach(CampusStorySort.allCases, id: \.self) { item in
+                    ForEach([CampusStorySort.latest, .oldest], id: \.self) { item in
                         Button { sort = item; distances = scene.distances() } label: {
                             Text(item.rawValue).font(.system(size: 16)).padding(.horizontal, 12).padding(.vertical, 5)
                                 .foregroundStyle(sort == item ? .white : .black)
                                 .background(sort == item ? CampusStyle.lightGreen : Color(.systemGray5), in: Capsule())
                         }.buttonStyle(.plain).accessibilityAddTraits(sort == item ? .isSelected : [])
                     }
+                    Menu {
+                        Button("거리순") { sort = .distance; distances = scene.distances() }
+                        Button("인기순") { sort = .popular }
+                    } label: { Image(systemName: "ellipsis").frame(width: 32, height: 32) }.accessibilityLabel("다른 정렬")
                     Spacer(minLength: 0)
                     Text("\(items.count)개").font(.system(size: 16, weight: .bold))
                         .foregroundStyle(.white).padding(.horizontal, 16).padding(.vertical, 5).background(CampusStyle.green, in: Capsule())

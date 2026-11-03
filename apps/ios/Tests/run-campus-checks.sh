@@ -5,6 +5,7 @@ CHECK_DIR=$(mktemp -d)
 trap 'rm -f "$CHECK_DIR/checks"; rmdir "$CHECK_DIR"' EXIT
 xcrun swiftc -parse-as-library \
   "$IOS_ROOT/OiDonation/Features/Campus/CampusStory.swift" \
+  "$IOS_ROOT/OiDonation/Features/Campus/Search/CampusMapSearch.swift" \
   "$IOS_ROOT/Tests/CampusStoryChecks.swift" \
   -o "$CHECK_DIR/checks"
 "$CHECK_DIR/checks"
