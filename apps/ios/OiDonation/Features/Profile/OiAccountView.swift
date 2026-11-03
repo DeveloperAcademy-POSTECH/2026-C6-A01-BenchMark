@@ -5,11 +5,17 @@ import UniformTypeIdentifiers
 
 struct OiAccountView: View {
     let remote: OiRemoteStore
+    @State private var appleAuthentication = OiAppleAuthentication()
     @State private var nickname = ""
     @State private var importingEvidence = false
     @State private var fileError: String?
     @State private var replacingEvidence: OiEvidence?
     @State private var localDrafts: [OiLocalDraft] = []
+    @State private var unreadableDraftCount = 0
+    @State private var draftLoadError: String?
+    @State private var isLoadingDrafts = false
+    @State private var draftLoadID = UUID()
+    @State private var displayedDraftOwner: UUID?
 
     var body: some View {
         List {
@@ -19,13 +25,31 @@ struct OiAccountView: View {
             }
             if let account = remote.account {
                 Section("내 계정") {
-                    Text(account.email ?? "Google 계정")
+                    Text(account.email ?? "로그인 계정")
                     Text("계정 ID: \(account.id.uuidString)").font(.caption).textSelection(.enabled)
                     TextField("농부 닉네임", text: $nickname).textInputAutocapitalization(.never)
                         .onAppear { nickname = remote.profile?.nickname ?? "농부" }
                     Button("닉네임 저장") { Task { await remote.updateProfile(nickname: nickname) } }
                         .disabled(nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || nickname.count > 30)
                     Button("로그아웃", role: .destructive) { Task { await remote.signOut() } }
+                }
+                Section("로그인 방법과 계정") {
+                    if !remote.accountProviders.isEmpty {
+                        Text("사용 가능한 로그인: " + remote.accountProviders.map { $0 == "apple" ? "Apple" : "Google" }.joined(separator: " · "))
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    NavigationLink("로그인 방법 추가") { OiAccountMergeView(remote: remote, mode: .addLoginMethod).environment(\.isEnabled, true) }
+                        .disabled(!remote.isAccountMergeAvailable || remote.isOperator)
+                        .accessibilityIdentifier("oi.identity.add")
+                    NavigationLink("기존 계정 통합") { OiAccountMergeView(remote: remote).environment(\.isEnabled, true) }
+                        .disabled(!remote.isAccountMergeAvailable || remote.isOperator)
+                        .accessibilityIdentifier("oi.account.merge")
+                    if remote.isOperator {
+                        Text("운영자 계정은 자동 통합 대상에서 제외됩니다.").font(.footnote).foregroundStyle(.secondary)
+                    } else if !remote.isAccountMergeAvailable {
+                        Text("계정 통합은 서버 설정이 완료된 후 사용할 수 있습니다.").font(.footnote).foregroundStyle(.secondary)
+                    }
+                    if let warning = remote.localRecoveryWarning { Text(warning).font(.footnote).foregroundStyle(.secondary) }
                 }
                 Section("기부 증빙 · 작성 승인") {
                     Text("기부 사실을 확인할 자료에서 불필요한 개인정보를 가려 제출해 주세요. 증빙은 공개 이야기나 도감에 표시되지 않습니다.")
@@ -54,6 +78,16 @@ struct OiAccountView: View {
                     }
                 }
                 Section("이 계정의 기기 초안·보관본") {
+                    if isLoadingDrafts { ProgressView("기기 초안 확인 중") }
+                    if unreadableDraftCount > 0 {
+                        Text("기기 초안 \(unreadableDraftCount)개를 읽지 못했습니다. 원본은 보관하고 읽을 수 있는 초안만 표시합니다.")
+                            .font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("oi.drafts.recoveryWarning")
+                    }
+                    if let draftLoadError { Text(draftLoadError).font(.footnote).foregroundStyle(.red) }
+                    if unreadableDraftCount > 0 || draftLoadError != nil {
+                        Button("기기 초안 다시 확인") { Task { await loadLocalDrafts() } }
+                            .disabled(isLoadingDrafts).accessibilityIdentifier("oi.drafts.retry")
+                    }
                     ForEach(localDrafts) { record in
                         NavigationLink { OiStoryEditor(remote: remote, localID: record.id) } label: {
                             VStack(alignment: .leading) {
@@ -90,6 +124,9 @@ struct OiAccountView: View {
                     Text("로그인하면 수집한 오이와 즐겨찾기, 내 이야기가 계정에 저장됩니다.")
                     Button("Google로 로그인") { Task { await remote.signIn() } }
                         .disabled(!remote.isConfigured).accessibilityIdentifier("oi.auth.google")
+                    OiAppleSignInButton { Task { await remote.signIn(using: appleAuthentication) } }
+                        .frame(minHeight: 44)
+                        .disabled(!remote.isConfigured || remote.isBusy)
                     if !remote.isConfigured { Text(OiServiceError.configuration.localizedDescription).font(.footnote).foregroundStyle(.secondary) }
                 }
             }
@@ -103,10 +140,7 @@ struct OiAccountView: View {
         .disabled(remote.isBusy)
         .overlay { if remote.isBusy { ProgressView().padding(24).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) } }
         .refreshable { await remote.refresh() }
-        .task(id: remote.account?.id) {
-            do { localDrafts = try await remote.localDrafts() }
-            catch { fileError = error.localizedDescription }
-        }
+        .task(id: remote.account?.id) { await loadLocalDrafts() }
         .fileImporter(isPresented: $importingEvidence, allowedContentTypes: [.jpeg,.png,.pdf]) { result in
             do {
                 let url = try result.get()
@@ -124,6 +158,25 @@ struct OiAccountView: View {
                 let request = replacingEvidence
                 Task { await remote.submitEvidence(data: data, contentType: mime, fileExtension: ext, replacing: request) }
             } catch { fileError = error.localizedDescription }
+        }
+    }
+
+    private func loadLocalDrafts() async {
+        let owner = remote.account?.id
+        let attempt = UUID()
+        draftLoadID = attempt
+        if displayedDraftOwner != owner { localDrafts = []; displayedDraftOwner = owner }
+        unreadableDraftCount = 0; draftLoadError = nil; isLoadingDrafts = true
+        defer { if draftLoadID == attempt { isLoadingDrafts = false } }
+        do {
+            let listing = try await remote.localDraftListing()
+            try Task.checkCancellation()
+            guard draftLoadID == attempt, remote.account?.id == owner else { return }
+            localDrafts = listing.drafts; unreadableDraftCount = listing.unreadableFiles.count
+        } catch is CancellationError {
+        } catch {
+            guard draftLoadID == attempt, remote.account?.id == owner else { return }
+            draftLoadError = "기기 초안을 불러오지 못했습니다. 원본은 보관했습니다. \(error.localizedDescription)"
         }
     }
 

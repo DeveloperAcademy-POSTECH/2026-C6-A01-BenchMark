@@ -14,6 +14,16 @@ struct OiLocalDraft: Codable, Identifiable, Equatable {
     var id: UUID { draft.id }
 }
 
+struct OiDraftListing {
+    let drafts: [OiLocalDraft]
+    let unreadableFiles: [String]
+}
+
+private struct OiUnreadableDraftsError: LocalizedError {
+    let count: Int
+    var errorDescription: String? { "기기 초안 \(count)개를 읽지 못했습니다. 원본은 그대로 보관했습니다." }
+}
+
 struct OiEvidenceOperation: Codable, Equatable {
     var requestID: UUID
     var uploadID: UUID
@@ -23,9 +33,10 @@ struct OiEvidenceOperation: Codable, Equatable {
     var previousPath: String?
     var phase: String
     var failure: String?
+    var storageOwnerID: UUID? = nil
 
     func objectPath(owner: UUID) -> String {
-        "\(owner.uuidString.lowercased())/\(requestID.uuidString.lowercased())/\(uploadID.uuidString.lowercased()).\(fileExtension)"
+        "\((storageOwnerID ?? owner).uuidString.lowercased())/\(requestID.uuidString.lowercased())/\(uploadID.uuidString.lowercased()).\(fileExtension)"
     }
 }
 
@@ -67,11 +78,82 @@ actor OiDraftVault {
     }
 
     func list(owner: UUID) throws -> [OiLocalDraft] {
+        let result = try listing(owner: owner)
+        guard result.unreadableFiles.isEmpty else { throw OiUnreadableDraftsError(count: result.unreadableFiles.count) }
+        return result.drafts
+    }
+
+    func listing(owner: UUID) throws -> OiDraftListing {
         let folder = try ownerDirectory(owner)
-        return try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+        let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
             .filter { $0.lastPathComponent.hasPrefix("draft-") && $0.pathExtension == "json" }
-            .map { try JSONDecoder().decode(OiLocalDraft.self, from: Data(contentsOf: $0)) }
-            .sorted { $0.id.uuidString < $1.id.uuidString }
+        var drafts: [OiLocalDraft] = []
+        var unreadableFiles: [String] = []
+        for file in files {
+            // File-system failures must remain visible; only decoding failures are isolated.
+            let data = try Data(contentsOf: file)
+            do { drafts.append(try JSONDecoder().decode(OiLocalDraft.self, from: data)) }
+            catch is DecodingError { unreadableFiles.append(file.lastPathComponent) }
+        }
+        return OiDraftListing(drafts: drafts.sorted { $0.id.uuidString < $1.id.uuidString },
+                              unreadableFiles: unreadableFiles.sorted())
+    }
+
+    /// Copies account-scoped drafts after a verified server merge. Originals are never removed.
+    func adoptDrafts(from owners: Set<UUID>, into target: UUID) throws -> Int {
+        var unresolved = 0
+        for owner in owners where owner != target {
+            do {
+                if var operation = try evidence(owner: owner), ["failed", "prepared", "uploading", "submitting"].contains(operation.phase) {
+                    if let current = try evidence(owner: target) {
+                        if current.uploadID != operation.uploadID { unresolved += 1 }
+                    } else {
+                        operation.storageOwnerID = operation.storageOwnerID ?? owner
+                        let data = try attachment(owner: owner, id: operation.uploadID)
+                        let destination = try ownerDirectory(target).appending(path: "attachment-\(operation.uploadID.uuidString)")
+                        if FileManager.default.fileExists(atPath: destination.path), try Data(contentsOf: destination) != data {
+                            throw OiServiceError.conflict
+                        }
+                        try saveAttachment(data, owner: target, id: operation.uploadID)
+                        try saveEvidence(operation, owner: target)
+                    }
+                }
+            } catch { unresolved += 1 }
+            let sourceDirectory = try ownerDirectory(owner)
+            let markerURL = sourceDirectory.appending(path: "adopted-drafts.json")
+            var markers: [String: Int] = [:]
+            if FileManager.default.fileExists(atPath: markerURL.path) {
+                markers = try JSONDecoder().decode([String: Int].self, from: Data(contentsOf: markerURL))
+            }
+            let listing = try listing(owner: owner)
+            unresolved += listing.unreadableFiles.count
+            for record in listing.drafts {
+                let marker = "\(target.uuidString)/\(record.id.uuidString)"
+                if let adoptedVersion = markers[marker], adoptedVersion >= record.version { continue }
+                do {
+                    if let existing = try load(owner: target, id: record.id) {
+                        if existing != record {
+                            unresolved += 1; continue
+                        }
+                    } else {
+                        var attachments: [(UUID, Data)] = []
+                        for photoID in record.photos {
+                            let data = try attachment(owner: owner, id: photoID)
+                            let destination = try ownerDirectory(target).appending(path: "attachment-\(photoID.uuidString)")
+                            if FileManager.default.fileExists(atPath: destination.path), try Data(contentsOf: destination) != data {
+                                throw OiServiceError.conflict
+                            }
+                            attachments.append((photoID, data))
+                        }
+                        for (photoID, data) in attachments { try saveAttachment(data, owner: target, id: photoID) }
+                        try save(record, owner: target)
+                    }
+                    markers[marker] = record.version
+                    try write(JSONEncoder().encode(markers), to: markerURL)
+                } catch { unresolved += 1 }
+            }
+        }
+        return unresolved
     }
 
     func attachment(owner: UUID, id: UUID) throws -> Data {

@@ -2,6 +2,7 @@
 
 import XCTest
 import SwiftUI
+import UIKit
 @testable import OiDonation
 
 final class OiStoreURLProtocol: URLProtocol {
@@ -34,6 +35,8 @@ final class OiTestBackend {
         var failRefreshToken = false
         var loseEvidenceResponse = false
         var holdOwnerRead = false
+        var holdPostMergeRead = false
+        var mergeConfirmCount = 0
         var didHold: (() -> Void)?
         var held: (OiStoreURLProtocol, Data)?
         var story: [String:Any]?
@@ -42,6 +45,10 @@ final class OiTestBackend {
         var evidence: [String:Any]?
         var requestIDs: Set<String> = []
         var submittedTitle: String?
+        var canonicalAccountID: UUID?
+        var refreshSucceeds = false
+        var refreshRequestCount = 0
+        var grantOwnerQueries: [String] = []
     }
     private var state = State()
 
@@ -49,7 +56,7 @@ final class OiTestBackend {
     func snapshot() -> State { lock.lock(); defer { lock.unlock() }; return state }
     func releaseHeldRead() {
         let value = snapshot().held
-        configure { $0.held = nil; $0.holdOwnerRead = false }
+        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false }
         value?.0.respond(200, value?.1 ?? Data())
     }
     func install() { OiStoreURLProtocol.handle = { [weak self] request, client in self?.receive(request, client: client) } }
@@ -71,13 +78,25 @@ final class OiTestBackend {
         let path = request.url?.path ?? ""
         let raw = Self.body(request)
         let body = (try? JSONSerialization.jsonObject(with: raw)) as? [String:Any] ?? [:]
-        let owner = request.value(forHTTPHeaderField: "Authorization") == "Bearer token-b" ? Self.other : Self.owner
+        let rawOwner = request.value(forHTTPHeaderField: "Authorization") == "Bearer token-b" ? Self.other : Self.owner
         lock.lock()
+        let owner = state.canonicalAccountID ?? rawOwner
         var status = 200
         var result: Any = []
         var bytes: Data?
-        if path == "/auth/v1/token" { status = state.failRefreshToken ? 400 : 500 }
+        if path == "/auth/v1/token" {
+            state.refreshRequestCount += 1
+            if state.refreshSucceeds && !state.failRefreshToken {
+                result = ["access_token":"token-a","refresh_token":"next-refresh","expires_in":3600,
+                          "user":["id":Self.owner.uuidString]]
+            } else { status = state.failRefreshToken ? 400 : 500 }
+        }
         else if path == "/auth/v1/logout" { result = [:] }
+        else if path == "/functions/v1/account-merge", body["action"] as? String == "confirm" {
+            state.mergeConfirmCount += 1
+            state.canonicalAccountID = rawOwner
+            result = ["account_id":rawOwner.uuidString,"already_merged":false]
+        }
         else if path.contains("/object/authenticated/") {
             let key = path.replacingOccurrences(of: "/storage/v1/object/authenticated/", with: "")
             bytes = state.uploads[key]; if bytes == nil { status = 404 }
@@ -109,14 +128,24 @@ final class OiTestBackend {
             } else if action == "start_evidence" {
                 let id = payload["id"] as? String ?? ""
                 state.requestIDs.insert(id)
-                if state.evidence == nil { state.evidence = ["id":id,"user_id":owner.uuidString,"status":"draft"] }
+                if state.evidence == nil {
+                    state.evidence = ["id":id,"user_id":owner.uuidString,"storage_owner_id":owner.uuidString,"status":"draft"]
+                }
                 result = state.evidence ?? [:]
             } else if action == "submit_evidence" {
                 state.evidence?["status"] = "pending"; state.evidence?["object_path"] = payload["object_path"]
                 result = state.evidence ?? [:]
                 if state.loseEvidenceResponse { status = 503; state.loseEvidenceResponse = false }
             } else { result = ["id":payload["id"] ?? ""] }
-        } else if path.hasSuffix("/rpc/oi_capabilities") { result = ["operator":false,"coins_enabled":false] }
+        } else if path.hasSuffix("/rpc/oi_capabilities") {
+            var capabilities: [String:Any] = ["operator":false,"coins_enabled":false]
+            if let canonical = state.canonicalAccountID {
+                capabilities["account_id"] = canonical.uuidString
+                capabilities["account_merge_enabled"] = true
+                capabilities["account_member_ids"] = [Self.owner.uuidString,Self.other.uuidString]
+            }
+            result = capabilities
+        }
         else if path.hasSuffix("/rpc/oi_collection_metrics") { result = [] }
         else if path.hasSuffix("/oi_stories") {
             if state.failReads { status = 503 }
@@ -135,9 +164,16 @@ final class OiTestBackend {
                 ["id":UUID().uuidString,"story_id":state.story?["id"] ?? "","object_path":path,"position":position]
             }
         } else if path.hasSuffix("/oi_evidence_requests"), let evidence = state.evidence { result = [evidence] }
-        else if path.hasSuffix("/oi_writing_grants") { result = [["id":Self.grant.uuidString,"story_limit":5]] }
+        else if path.hasSuffix("/oi_writing_grants") {
+            if let url = request.url,
+               let owner = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "user_id" })?.value {
+                state.grantOwnerQueries.append(owner)
+            }
+            result = [["id":Self.grant.uuidString,"story_limit":5]]
+        }
         let data = bytes ?? ((try? JSONSerialization.data(withJSONObject: result)) ?? Data())
-        if path.hasSuffix("/oi_stories"), owner == Self.owner, state.holdOwnerRead {
+        if (path.hasSuffix("/oi_stories") && owner == Self.owner && state.holdOwnerRead)
+            || (path.hasSuffix("/rpc/oi_capabilities") && state.holdPostMergeRead && state.mergeConfirmCount > 0) {
             state.held = (client,data)
             let notify = state.didHold
             lock.unlock(); notify?(); return
@@ -155,6 +191,24 @@ final class OiMemorySession: OiSessionStorage {
     }
     func read() throws -> OiSession? { value }
     func write(_ session: OiSession?) throws { value = session }
+}
+
+@MainActor
+final class OiControlledAuthentication: OiAuthenticating {
+    private(set) var requests = 0
+    private var continuation: CheckedContinuation<OiSession, Error>?
+    var isPending: Bool { continuation != nil }
+
+    func signIn(api: OiServiceAPI) async throws -> OiSession {
+        requests += 1
+        return try await withCheckedThrowingContinuation { continuation = $0 }
+    }
+
+    func complete(_ result: Result<OiSession, Error>) {
+        let pending = continuation
+        continuation = nil
+        pending?.resume(with: result)
+    }
 }
 
 final class OiRemoteStoreTests: XCTestCase {
@@ -230,7 +284,7 @@ final class OiRemoteStoreTests: XCTestCase {
         }
     }
 
-    @MainActor private func context(expired: Bool = false) throws -> (OiRemoteStore, OiTestBackend, OiMemorySession, URLSession, URL) {
+    @MainActor private func context(expired: Bool = false, authentication: (any OiAuthenticating)? = nil) throws -> (OiRemoteStore, OiTestBackend, OiMemorySession, URLSession, URL) {
         let backend = OiTestBackend(); backend.install()
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [OiStoreURLProtocol.self]
@@ -238,7 +292,7 @@ final class OiRemoteStoreTests: XCTestCase {
         let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
         let vault = OiMemorySession(expired: expired)
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        return (OiRemoteStore(api: api, drafts: OiDraftVault(directory: directory), vault: vault),backend,vault,session,directory)
+        return (OiRemoteStore(api: api, drafts: OiDraftVault(directory: directory), vault: vault, authentication: authentication),backend,vault,session,directory)
     }
 
     private func clean(_ session: URLSession, directory: URL) {
@@ -562,4 +616,304 @@ final class OiPhotoCropTests: XCTestCase {
         }
         return rgba
     }
+}
+
+extension OiRemoteStoreTests {
+    @MainActor func testCanceledAdditionalProofPreservesCanonicalLoginAndVault() async throws {
+        let (store,backend,vault,session,directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.canonicalAccountID = OiTestBackend.other }
+        await store.start()
+        let before = try XCTUnwrap(vault.value)
+        let authentication = OiControlledAuthentication()
+        let additional = Task { try await store.authenticateAdditional(using: authentication) }
+        while !authentication.isPending { await Task.yield() }
+        authentication.complete(.failure(CancellationError()))
+        do {
+            _ = try await additional.value
+            XCTFail("Canceled additional proof unexpectedly succeeded")
+        } catch is CancellationError { }
+        XCTAssertEqual(store.account?.id, OiTestBackend.other)
+        XCTAssertEqual(vault.value?.user, before.user)
+        XCTAssertEqual(vault.value?.accessToken, before.accessToken)
+        XCTAssertEqual(vault.value?.refreshToken, before.refreshToken)
+        XCTAssertEqual(vault.value?.appAccount, before.appAccount)
+        XCTAssertNil(store.error)
+        XCTAssertFalse(store.isBusy)
+    }
+
+    @MainActor func testAdditionalAuthenticationDoesNotReplaceTheActiveAccount() async throws {
+        let (store,backend,vault,session,directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let before = try XCTUnwrap(vault.value)
+        let authentication = OiControlledAuthentication()
+        let additional = Task { try await store.authenticateAdditional(using: authentication) }
+        while !authentication.isPending { await Task.yield() }
+        authentication.complete(.success(try XCTUnwrap(OiMemorySession(owner: OiTestBackend.other).value)))
+        let proof = try await additional.value
+        XCTAssertEqual(proof.user.id, OiTestBackend.other)
+        XCTAssertEqual(store.account?.id, before.user.id)
+        XCTAssertEqual(vault.value?.user, before.user)
+        XCTAssertEqual(vault.value?.accessToken, before.accessToken)
+        XCTAssertEqual(vault.value?.appAccount, before.appAccount)
+        XCTAssertNil(store.error)
+        XCTAssertFalse(store.isBusy)
+    }
+
+    @MainActor func testCanonicalCatalogUsesTargetOwnerWhileRefreshUsesRawAuthIdentity() async throws {
+        let (store,backend,vault,session,directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.canonicalAccountID = OiTestBackend.other; $0.refreshSucceeds = true }
+        await store.start()
+        XCTAssertEqual(store.account?.id, OiTestBackend.other)
+        XCTAssertEqual(vault.value?.appAccount?.id, OiTestBackend.other)
+        vault.value?.expiresAt = 0
+        await store.start()
+        XCTAssertTrue(store.hasLoadedRemote)
+        XCTAssertFalse(store.needsReauthentication)
+        XCTAssertEqual(backend.snapshot().refreshRequestCount, 1)
+        XCTAssertEqual(vault.value?.user.id, OiTestBackend.owner)
+        XCTAssertEqual(vault.value?.appAccount?.id, OiTestBackend.other)
+        XCTAssertEqual(store.profile?.id, OiTestBackend.other)
+        XCTAssertFalse(store.grants.isEmpty)
+        XCTAssertEqual(backend.snapshot().grantOwnerQueries.last, "eq.\(OiTestBackend.other.uuidString)")
+        guard let saved = await store.save(draft()) else { XCTFail("Canonical story save failed"); return }
+        XCTAssertEqual(saved.userId, OiTestBackend.other)
+        XCTAssertEqual(store.ownStories.first?.id, saved.id)
+        XCTAssertTrue(store.isAccountMergeAvailable)
+    }
+
+    @MainActor func testMergedStoryPhotoUploadRetainsOriginalStoragePrefix() async throws {
+        let (store,backend,_,session,directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.canonicalAccountID = OiTestBackend.other }
+        await store.start()
+        guard let saved = await store.save(draft()) else { XCTFail("Canonical story save failed"); return }
+        backend.configure { $0.story?["storage_owner_id"] = OiTestBackend.owner.uuidString }
+        await store.refresh()
+        let merged = try XCTUnwrap(store.ownStories.first(where: { $0.id == saved.id }))
+        XCTAssertEqual(merged.userId, OiTestBackend.other)
+        XCTAssertEqual(merged.storageOwnerId, OiTestBackend.owner)
+        let photoID = UUID()
+        let updated = await store.uploadStoryImage(Data([1,2,3]), photoID: photoID, story: merged)
+        XCTAssertNotNil(updated)
+        let expected = "\(OiTestBackend.owner.uuidString.lowercased())/\(saved.id.uuidString.lowercased())/\(photoID.uuidString.lowercased()).jpg"
+        XCTAssertEqual(backend.snapshot().paths, [expected])
+        XCTAssertNotNil(backend.snapshot().uploads["oi-story-media/" + expected])
+    }
+
+    @MainActor func testConfirmedMergeReceiptSurvivesCanceledPostCommitRefresh() async throws {
+        let (store,backend,vault,session,directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.canonicalAccountID = OiTestBackend.owner }
+        await store.start()
+        XCTAssertTrue(store.isAccountMergeAvailable)
+        let source = try XCTUnwrap(vault.value)
+        let target = try XCTUnwrap(OiMemorySession(owner: OiTestBackend.other).value)
+        let preview = OiMergePreview(challengeId: UUID(), targetAccountId: OiTestBackend.other,
+            sourceAccountId: OiTestBackend.owner, sourceIsNew: false,
+            expiresAt: ISO8601DateFormatter().string(from: Date().addingTimeInterval(300)),
+            counts: OiMergeCounts(stories: 0, collections: 0, favorites: 0, evidence: 0, grants: 0))
+        let held = expectation(description: "Merge receipt installed before post-commit capabilities read")
+        backend.configure { $0.holdPostMergeRead = true; $0.didHold = { held.fulfill() } }
+        let confirmation = Task {
+            try await store.confirmMerge(target: target, source: source, preview: preview, operationID: UUID())
+        }
+        await fulfillment(of: [held], timeout: 5)
+        XCTAssertEqual(vault.value?.user.id, target.user.id)
+        XCTAssertEqual(vault.value?.appAccount?.id, preview.targetAccountId)
+        confirmation.cancel()
+        backend.releaseHeldRead()
+        let receipt = try await confirmation.value
+        XCTAssertEqual(receipt.accountId, preview.targetAccountId)
+        XCTAssertFalse(receipt.alreadyMerged)
+        XCTAssertEqual(backend.snapshot().mergeConfirmCount, 1)
+        XCTAssertEqual(store.account?.id, preview.targetAccountId)
+        XCTAssertEqual(vault.value?.accessToken, target.accessToken)
+        XCTAssertEqual(vault.value?.refreshToken, target.refreshToken)
+        XCTAssertFalse(store.isBusy)
+        XCTAssertFalse(store.isAccountMergeAvailable)
+        XCTAssertFalse(store.hasLoadedRemote)
+        XCTAssertFalse(store.needsReauthentication)
+        XCTAssertNil(store.error)
+        XCTAssertNil(store.loadError)
+    }
+
+    @MainActor func testAdoptedUncreatedEvidenceUsesNewServerStorageOwner() async throws {
+        let (store,backend,_,session,directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        let local = OiDraftVault(directory: directory)
+        let data = Data([4,5,6])
+        let original = OiEvidenceOperation(requestID: UUID(), uploadID: UUID(), contentType: "image/png",
+            fileExtension: "png", phase: "failed", failure: "Offline before server application creation")
+        try await local.saveAttachment(data, owner: OiTestBackend.owner, id: original.uploadID)
+        try await local.saveEvidence(original, owner: OiTestBackend.owner)
+        backend.configure { $0.canonicalAccountID = OiTestBackend.other }
+        await store.start()
+        XCTAssertTrue(backend.snapshot().requestIDs.isEmpty)
+        XCTAssertNil(backend.snapshot().evidence)
+        XCTAssertEqual(store.evidenceOperation?.storageOwnerID, OiTestBackend.owner)
+        await store.retryEvidence()
+        let expected = "\(OiTestBackend.other.uuidString.lowercased())/\(original.requestID.uuidString.lowercased())/\(original.uploadID.uuidString.lowercased()).png"
+        let state = backend.snapshot()
+        XCTAssertEqual(state.requestIDs, Set([original.requestID.uuidString]))
+        XCTAssertEqual(state.evidence?["storage_owner_id"] as? String, OiTestBackend.other.uuidString)
+        XCTAssertEqual(state.evidence?["object_path"] as? String, expected)
+        XCTAssertEqual(state.uploads["oi-evidence/" + expected], data)
+        XCTAssertEqual(state.uploads.count, 1)
+        XCTAssertEqual(store.evidenceOperation?.storageOwnerID, OiTestBackend.other)
+        XCTAssertEqual(store.evidenceOperation?.phase, "pending")
+        XCTAssertNil(store.error)
+        let preservedOperation = try await local.evidence(owner: OiTestBackend.owner)
+        let preservedAttachment = try await local.attachment(owner: OiTestBackend.owner, id: original.uploadID)
+        let adoptedOperation = try await local.evidence(owner: OiTestBackend.other)
+        XCTAssertEqual(preservedOperation, original)
+        XCTAssertEqual(preservedAttachment, data)
+        XCTAssertEqual(adoptedOperation?.storageOwnerID, OiTestBackend.other)
+    }
+
+    @MainActor func testRepeatedLoginDoesNotBecomeConfigurationError() async throws {
+        let authentication = OiControlledAuthentication()
+        let (store,backend,_,session,directory) = try context(authentication: authentication)
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let first = Task { await store.signIn() }
+        while !authentication.isPending { await Task.yield() }
+        await store.signIn()
+        XCTAssertTrue(store.isBusy)
+        XCTAssertNil(store.error)
+        XCTAssertEqual(authentication.requests, 1)
+        authentication.complete(.failure(CancellationError()))
+        await first.value
+        XCTAssertFalse(store.isBusy)
+        XCTAssertNil(store.error)
+    }
+
+    @MainActor func testCanceledLoginPreservesPreviousAccountWithoutGlobalError() async throws {
+        let authentication = OiControlledAuthentication()
+        let (store,backend,vault,session,directory) = try context(authentication: authentication)
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let previous = store.account
+        for cancellation in [CancellationError() as Error, URLError(.cancelled)] {
+            let login = Task { await store.signIn() }
+            while !authentication.isPending { await Task.yield() }
+            authentication.complete(.failure(cancellation))
+            await login.value
+            XCTAssertNil(store.error)
+            XCTAssertEqual(store.account, previous)
+            XCTAssertEqual(vault.value?.user, previous)
+            XCTAssertFalse(store.isBusy)
+        }
+    }
+
+    @MainActor func testCanceledLoginTaskCannotCommitLateSuccess() async throws {
+        let authentication = OiControlledAuthentication()
+        let (store,backend,vault,session,directory) = try context(authentication: authentication)
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let previous = store.account
+        let login = Task { await store.signIn() }
+        while !authentication.isPending { await Task.yield() }
+        login.cancel()
+        let replacement = try XCTUnwrap(OiMemorySession(owner: OiTestBackend.other).value)
+        authentication.complete(.success(replacement))
+        await login.value
+        XCTAssertEqual(store.account, previous)
+        XCTAssertEqual(vault.value?.user, previous)
+        XCTAssertNil(store.error)
+        XCTAssertFalse(store.isBusy)
+    }
+
+    @MainActor func testSuccessfulRetryClearsPreviousOperationError() async throws {
+        let (store,backend,_,session,directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        _ = await store.save(OiStoryDraft())
+        XCTAssertNotNil(store.error)
+        await store.refresh()
+        XCTAssertNil(store.error)
+        XCTAssertNil(store.loadError)
+    }
+
+    @MainActor func testRefreshCannotEraseAnErrorFromANewerOperation() async throws {
+        let (store,backend,_,session,directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let held = expectation(description: "Refresh is in flight")
+        backend.configure { $0.holdOwnerRead = true; $0.didHold = { held.fulfill() } }
+        let refresh = Task { await store.refresh() }
+        await fulfillment(of: [held], timeout: 5)
+        _ = await store.save(OiStoryDraft())
+        let newestError = try XCTUnwrap(store.error)
+        backend.releaseHeldRead()
+        await refresh.value
+        XCTAssertEqual(store.error, newestError)
+    }
+
+    @MainActor func testTransportCancellationIsNotAConnectivityWarning() async throws {
+        let (store,backend,_,session,directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        OiStoreURLProtocol.handle = { _, client in
+            client.client?.urlProtocol(client, didFailWithError: URLError(.cancelled))
+        }
+        await store.refresh()
+        XCTAssertNil(store.loadError)
+        XCTAssertNil(store.error)
+        XCTAssertFalse(store.isRefreshing)
+    }
+
+    @MainActor func testRealConnectivityFailureStillProducesAWarning() async throws {
+        let (store,backend,_,session,directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        OiStoreURLProtocol.handle = { _, client in
+            client.client?.urlProtocol(client, didFailWithError: URLError(.notConnectedToInternet))
+        }
+        await store.refresh()
+        XCTAssertNotNil(store.loadError)
+        XCTAssertFalse(store.isRefreshing)
+    }
+    @MainActor func testAccountConnectionScreensRenderWithoutRetainedWindows() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.canonicalAccountID = OiTestBackend.owner }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        defer { previousKeyWindow?.makeKey() }
+        for width in [375.0, 402.0, 440.0] {
+            let screens: [(String, AnyView)] = [
+                ("account", AnyView(NavigationStack { OiAccountView(remote: store) })),
+                ("add-method", AnyView(NavigationStack { OiAccountMergeView(remote: store, mode: .addLoginMethod) })),
+                ("merge-existing", AnyView(NavigationStack { OiAccountMergeView(remote: store) })),
+            ]
+            for (name, view) in screens {
+                let window = UIWindow(windowScene: scene)
+                defer { window.isHidden = true; window.rootViewController = nil }
+                let controller = UIHostingController(rootView: view.environment(\.locale, Locale(identifier: "ko_KR")))
+                window.frame = CGRect(x: 0, y: 0, width: width, height: 874)
+                window.rootViewController = controller
+                window.makeKeyAndVisible()
+                try await Task.sleep(for: .milliseconds(250))
+                controller.view.layoutIfNeeded()
+                var rendered = false
+                let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                    rendered = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+                }
+                XCTAssertTrue(rendered)
+                let attachment = XCTAttachment(image: image)
+                attachment.name = "account-connection-\(name)-\(Int(width))"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+                window.isHidden = true
+                window.rootViewController = nil
+                XCTAssertTrue(window.isHidden)
+                XCTAssertNil(window.rootViewController)
+            }
+        }
+    }
+
 }

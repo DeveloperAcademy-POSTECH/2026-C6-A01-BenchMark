@@ -190,7 +190,9 @@ struct ARCameraScreen: View {
         .onChange(of: video.errorMessage) { _, message in
             if let message { controller.errorMessage = message; video.errorMessage = nil }
         }
-        .sheet(item: $video.result) { ARVideoResultView(result: $0) }
+        .sheet(item: $video.result) { result in
+            ARVideoResultView(result: result, discardRecovery: { try video.discardRecovery(result.url) })
+        }
         .sheet(item: $controller.result) { ARPhotoResultView(result: $0) }
         .onChange(of: video.result?.id) { _, _ in closeIfResultsFinished() }
         .onChange(of: controller.result?.id) { _, _ in closeIfResultsFinished() }

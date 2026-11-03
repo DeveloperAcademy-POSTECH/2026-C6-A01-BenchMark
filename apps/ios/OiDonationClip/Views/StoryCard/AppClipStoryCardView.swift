@@ -9,6 +9,9 @@ import SwiftUI
 import UIKit
 
 struct AppClipStoryCardView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .title) private var titleLineSpacing = 8
+
     let experience: AppClipExperience
     let isCollected: Bool
     let onCollect: () -> Void
@@ -19,22 +22,18 @@ struct AppClipStoryCardView: View {
     var body: some View {
         GeometryReader { geometry in
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 38) {
-                    VStack(alignment: .leading, spacing: 20) {
-                        Text(story.cucumberName).font(.title.bold())
-                        Text(story.content).font(.body)
-                        Text(story.donorDisplayName).font(.caption)
-                    }.padding(24).frame(minHeight: 300).background(.background, in: RoundedRectangle(cornerRadius: 20))
+                VStack(spacing: 34) {
+                    StoryCardImage(url: experience.storyCard.imageURL)
                         .aspectRatio(320 / 444, contentMode: .fit)
                         .frame(width: min(320, geometry.size.width - 32))
+                        .compositingGroup()
                         .shadow(color: .black.opacity(0.25), radius: 3.5, x: 3, y: 6)
 
                     summaryCard
-                        .frame(maxWidth: 380)
-                        .padding(.horizontal, 11)
+                        .frame(width: min(362, geometry.size.width - 40), height: usesAccessibilityLayout ? nil : 216)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.top, 52)
+                .padding(.top, 42)
                 .padding(.bottom, max(34, geometry.safeAreaInsets.bottom + 8))
             }
         }
@@ -42,119 +41,211 @@ struct AppClipStoryCardView: View {
     }
 
     private var summaryCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 5) {
+        VStack(alignment: .leading, spacing: 16) {
+            headerLayout {
                 Text(story.cucumberName)
-                    .font(.custom("KIMWILDgag-BOLD", size: 30, relativeTo: .title))
-                    .lineLimit(1)
+                    .font(.custom("PearToucan-Regular", size: 28, relativeTo: .title).weight(.bold))
+                    .tracking(1.12)
+                    .lineSpacing(usesAccessibilityLayout ? titleLineSpacing : 0)
+                    .lineLimit(usesAccessibilityLayout ? nil : 1)
                     .minimumScaleFactor(0.65)
+                    .fixedSize(horizontal: false, vertical: usesAccessibilityLayout)
 
-                verifiedBadge
-
-                Spacer(minLength: 8)
+                if !usesAccessibilityLayout {
+                    Spacer(minLength: 0)
+                }
 
                 tags
             }
 
-            Text(metadataText)
-                .font(.custom("GriunOMIRI-Regular", size: 10, relativeTo: .caption2))
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
-                .padding(.top, 1)
+            metadata
 
-            Text("“ \(story.content)”")
-                .font(.custom("GriunOMIRI-Regular", size: 18, relativeTo: .body))
-                .tracking(-0.72)
-                .lineSpacing(2)
-                .lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 11)
-
-            Spacer(minLength: 8)
-
-            HStack(spacing: 6) {
+            actionsLayout {
                 Button(action: onCollect) {
                     HStack(spacing: 5) {
                         if isCollected {
                             Image(systemName: "checkmark")
                         }
                         Text(isCollected ? "이 기기에 보관됨" : "이 기기에 보관하기")
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: usesAccessibilityLayout)
                     }
                         .font(.custom("Paperlogy-6SemiBold", size: 14, relativeTo: .callout))
                         .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .background(collectButtonGradient, in: RoundedRectangle(cornerRadius: 20))
+                        .padding(.horizontal, usesAccessibilityLayout ? 12 : 0)
+                        .padding(.vertical, usesAccessibilityLayout ? 12 : 0)
+                        .frame(maxWidth: .infinity, minHeight: 44, maxHeight: usesAccessibilityLayout ? nil : 44)
+                        .background(collectButtonColor, in: RoundedRectangle(cornerRadius: 20))
                 }
                 .buttonStyle(.plain)
+                .frame(maxWidth: usesAccessibilityLayout ? .infinity : 239)
                 .accessibilityIdentifier("appclip.storyCard.collect")
 
-                Button("취소", action: onCancel)
+                Button("삭제", action: onCancel)
                     .buttonStyle(.plain)
                     .font(.custom("Paperlogy-6SemiBold", size: 14, relativeTo: .callout))
                     .foregroundStyle(.white)
-                    .frame(width: 48, height: 44)
+                    .fixedSize(horizontal: false, vertical: usesAccessibilityLayout)
+                    .padding(.vertical, usesAccessibilityLayout ? 12 : 0)
+                    .frame(maxWidth: usesAccessibilityLayout ? .infinity : nil, minHeight: 44)
+                    .frame(width: usesAccessibilityLayout ? nil : 67)
                     .background(Color(red: 0.867, green: 0.867, blue: 0.867), in: Capsule())
                     .accessibilityIdentifier("appclip.storyCard.cancel")
+                    .accessibilityHint("이 기기에 보관한 카드를 삭제하고 수집 시작 화면으로 돌아갑니다")
             }
         }
         .foregroundStyle(.black)
-        .padding(.horizontal, 19)
-        .padding(.vertical, 17)
-        .frame(maxWidth: .infinity, minHeight: 213)
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: usesAccessibilityLayout ? nil : .infinity)
         .background(.white, in: RoundedRectangle(cornerRadius: 30))
-        .shadow(color: .black.opacity(0.25), radius: 3, x: 2, y: 3)
+        .compositingGroup()
+        .shadow(color: Color(red: 0.18, green: 0.31, blue: 0.09).opacity(0.4), radius: 5)
     }
 
     private var tags: some View {
-        HStack(spacing: 4) {
+        tagsLayout {
             ForEach(story.tags.prefix(2), id: \.self) { tag in
                 Text(tag)
-                    .font(.custom("Mona12TextKR-Regular", size: 13, relativeTo: .caption))
-                    .tracking(-0.52)
-                    .lineLimit(1)
-                    .padding(.horizontal, 12)
-                    .frame(height: 26)
-                    .background(Color(red: 0.941, green: 0.941, blue: 0.941), in: Capsule())
+                    .font(.custom("Paperlogy-4Regular", size: 16, relativeTo: .caption))
+                    .tracking(0.32)
+                    .lineLimit(usesAccessibilityLayout ? nil : 1)
+                    .fixedSize(horizontal: false, vertical: usesAccessibilityLayout)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, usesAccessibilityLayout ? 8 : 0)
+                    .frame(height: usesAccessibilityLayout ? nil : 30)
+                    .background(Color(red: 0.812, green: 0.812, blue: 0.812), in: Capsule())
             }
         }
     }
 
-    private var verifiedBadge: some View {
-        ZStack {
-            Circle()
-                .fill(Color(red: 0.831, green: 0.714, blue: 0.345))
-            Image(systemName: "checkmark")
-                .font(.system(size: 7, weight: .black))
-                .foregroundStyle(Color(red: 1, green: 0.949, blue: 0.808))
+    private var metadata: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            metadataRow(label: "기부자", value: story.donorDisplayName)
+            metadataRow(label: "위치", value: story.location.displayName)
+            metadataRow(label: "날짜", value: Self.dateFormatter.string(from: story.publishedAt))
         }
-        .frame(width: 14, height: 14)
-        .accessibilityHidden(true)
+        .font(.custom("Paperlogy-2ExtraLight", size: 15, relativeTo: .caption))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var metadataText: String {
-        "\(story.donorDisplayName)  |  \(story.location.displayName)  |  \(Self.dateFormatter.string(from: story.publishedAt))"
+    private func metadataRow(label: String, value: String) -> some View {
+        metadataLayout {
+            Text(label)
+            if !usesAccessibilityLayout {
+                Text("|")
+            }
+            Text(value)
+                .lineLimit(usesAccessibilityLayout ? nil : 1)
+                .minimumScaleFactor(0.8)
+                .fixedSize(horizontal: false, vertical: usesAccessibilityLayout)
+        }
+    }
+
+    private var usesAccessibilityLayout: Bool { dynamicTypeSize > .large }
+
+    private var headerLayout: AnyLayout {
+        usesAccessibilityLayout
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 6))
+    }
+
+    private var actionsLayout: AnyLayout {
+        usesAccessibilityLayout
+            ? AnyLayout(VStackLayout(spacing: 16))
+            : AnyLayout(HStackLayout(spacing: 16))
+    }
+
+    private var tagsLayout: AnyLayout {
+        usesAccessibilityLayout
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+            : AnyLayout(HStackLayout(spacing: 6))
+    }
+
+    private var metadataLayout: AnyLayout {
+        usesAccessibilityLayout
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 5))
+            : AnyLayout(HStackLayout(spacing: 5))
     }
 
     private var storyCardBackground: Color {
-        Color(red: 0.867, green: 0.918, blue: 0.953)
+        Color(red: 0.953, green: 0.969, blue: 0.902)
     }
 
-    private var collectButtonGradient: LinearGradient {
-        LinearGradient(
-            colors: [
-                Color(red: 0.337, green: 0.651, blue: 0.867),
-                Color(red: 0.145, green: 0.408, blue: 0.631)
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
+    private var collectButtonColor: Color {
+        Color(red: 0.439, green: 0.549, blue: 0.251)
     }
 
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.locale = Locale(identifier: "ko_KR")
         formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.dateFormat = "yyyy.MM.dd.EEE"
+        formatter.timeZone = TimeZone(identifier: "Asia/Seoul")
+        formatter.dateFormat = "yyyy년 M월 d일 EEEE"
         return formatter
     }()
+}
+
+private struct StoryCardImage: View {
+    let url: URL?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var reloadID = 0
+
+    var body: some View {
+        Group {
+            if let url {
+                if url.isFileURL {
+                    if let image = UIImage(contentsOfFile: url.path) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                    } else {
+                        unavailableImage(canRetry: false)
+                    }
+                } else {
+                    AsyncImage(url: url, transaction: Transaction(animation: reduceMotion ? nil : .easeInOut(duration: 0.2))) { phase in
+                        switch phase {
+                        case .empty:
+                            ProgressView("카드를 불러오는 중이에요")
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFit()
+                        case .failure:
+                            unavailableImage(canRetry: true)
+                        @unknown default:
+                            unavailableImage(canRetry: true)
+                        }
+                    }
+                    .id(reloadID)
+                }
+            } else {
+                ContentUnavailableView(
+                    "카드 이미지가 없어요",
+                    systemImage: "photo",
+                    description: Text("이 이야기의 카드 이미지가 제공되지 않았어요.")
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(red: 234 / 255, green: 238 / 255, blue: 226 / 255))
+        .environment(\.colorScheme, .light)
+        .clipped()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("스토리 카드")
+    }
+
+    private func unavailableImage(canRetry: Bool) -> some View {
+        VStack(spacing: 12) {
+            ContentUnavailableView(
+                "카드를 불러오지 못했어요",
+                systemImage: "photo",
+                description: Text("잠시 후 다시 확인해 주세요.")
+            )
+            if canRetry {
+                Button("다시 불러오기") { reloadID += 1 }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+    }
 }
