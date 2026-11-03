@@ -3,7 +3,7 @@ import { AnalysisError, analyzeDocument, DEFAULT_MODEL, MAX_FILE_BYTES, PROMPT_V
 type Configuration = {
   supabaseUrl: string; supabaseKey: string; openaiKey: string; model?: string;
 };
-type Evidence = { id: string; user_id: string; status: string; object_path: string; submitted_at: string };
+type Evidence = { id: string; user_id: string; storage_owner_id?: string; status: string; object_path: string; submitted_at: string };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function json(value: unknown, status = 200): Response {
@@ -71,14 +71,16 @@ export function createHandler(config: Configuration, fetcher: typeof fetch = fet
       active.add(id);
       lockedId = id;
       const loadEvidence = async (): Promise<Evidence> => {
-        const rows = await readJSON(await call(`/rest/v1/oi_evidence_requests?id=eq.${id}&select=id,user_id,status,object_path,submitted_at&limit=1`), "evidence_unavailable");
+        const rows = await readJSON(await call(`/rest/v1/oi_evidence_requests?id=eq.${id}&select=id,user_id,storage_owner_id,status,object_path,submitted_at&limit=1`), "evidence_unavailable");
         if (!Array.isArray(rows) || rows.length !== 1) throw new AnalysisError(404, "evidence_not_found");
         const row = rows[0];
         if (row.status !== "pending" || typeof row.object_path !== "string" || !row.submitted_at) {
           throw new AnalysisError(409, "evidence_not_pending");
         }
+        const storageOwner = row.storage_owner_id ?? row.user_id;
         if (row.id !== id || typeof row.user_id !== "string" || !uuid.test(row.user_id)
-          || !row.object_path.startsWith(`${row.user_id}/${id}/`)
+          || typeof storageOwner !== "string" || !uuid.test(storageOwner)
+          || !row.object_path.startsWith(`${storageOwner}/${id}/`)
           || row.object_path.split("/").length !== 3 || /[\\\x00-\x1f]/.test(row.object_path)
           || [".", "..", ""].includes(row.object_path.split("/")[2])) {
           throw new AnalysisError(409, "invalid_evidence_reference");
