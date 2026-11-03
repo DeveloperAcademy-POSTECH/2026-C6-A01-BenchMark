@@ -12,14 +12,13 @@ struct CampusStoryDetailView: View {
         GeometryReader { geometry in
           ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Image(story.isCats ? "OiGallery02" : story.image).resizable().scaledToFill()
+                Image(story.image).resizable().scaledToFill()
                     .frame(width: geometry.size.width, height: 275).clipped()
                     .background(CampusStyle.background(story.palette))
                 VStack(alignment: .leading, spacing: 30) {
                     heading
                     storyBlock
                     characterAndCard
-                    if !story.gallery.isEmpty { gallery }
                     if !story.remoteMediaPaths.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             sectionTitle("갤러리")
@@ -34,7 +33,7 @@ struct CampusStoryDetailView: View {
                     location
                     related
                     donor
-                    Text(story.remoteBody == nil ? "디자인 확인용 예시 스토리입니다. 수집 기록은 이 기기에만 저장되며 실제 기부 내역과 무관합니다." : "작성·공개는 운영자 검토 기준이며 학교 공식 납입 확인과 다릅니다. 로그인 후 수집 기록이 계정에 저장됩니다.")
+                    Text("작성·공개는 운영자 검토 기준이며 학교 공식 납입 확인과 다릅니다. 로그인 후 수집 기록이 계정에 저장됩니다.")
                         .font(.caption).foregroundStyle(.secondary)
                 }.frame(width: max(0, geometry.size.width - 40), alignment: .leading)
                     .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 25)
@@ -101,40 +100,13 @@ struct CampusStoryDetailView: View {
             sectionTitle("오이 & 카드")
             HStack(spacing: 20) {
                 Image(story.image).resizable().scaledToFill().frame(width: 147, height: 220).clipped()
-                if story.isCats {
-                    Button { selectedImage = .init(name: "OiStoryCard", title: "6냥이오이 카드") } label: {
-                        Image("OiStoryCard").resizable().scaledToFit().frame(maxWidth: .infinity).frame(height: 220)
-                    }.buttonStyle(.plain).accessibilityLabel("오이 카드 확대")
-                }
+                MYCardArtwork(card: MYCard(id: story.id, title: story.title, image: story.image,
+                    school: .postech, order: story.order, body: story.body, donor: story.donor, date: story.date))
+                    .frame(maxWidth: .infinity).frame(height: 220)
             }.frame(maxWidth: .infinity)
         }
     }
 
-    private var gallery: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionTitle("갤러리")
-            // The Figma collage's row proportions, with responsive widths and the original photos.
-            galleryRow([("OiGallery01", 163), ("OiGallery02", 195)], height: 109)
-            galleryRow([("OiGallery03", 213), ("OiGallery04", 145)], height: 120)
-            galleryRow([("OiGallery05", 179), ("OiGallery06", 179)], height: 101)
-            galleryRow([("OiGallery07", 68), ("OiGallery08", 215), ("OiGallery09", 68)], height: 121)
-            galleryRow([("OiGallery10", 179), ("OiGallery11", 179)], height: 101)
-        }
-    }
-    private func galleryRow(_ items: [(String, CGFloat)], height: CGFloat) -> some View {
-        GeometryReader { geometry in
-            let available = geometry.size.width - CGFloat(items.count - 1) * 4
-            let total = items.reduce(CGFloat(0)) { $0 + $1.1 }
-            HStack(spacing: 4) {
-                ForEach(items, id: \.0) { name, width in
-                    Button { selectedImage = .init(name: name, title: "6냥이의 추억") } label: {
-                        Image(name).resizable().scaledToFill().frame(width: available * width / total, height: height)
-                            .clipped().clipShape(RoundedRectangle(cornerRadius: 10))
-                    }.buttonStyle(.plain).accessibilityLabel("갤러리 사진 확대")
-                }
-            }
-        }.frame(height: height).padding(.bottom, -8)
-    }
     private var location: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionTitle("위치")
@@ -144,14 +116,7 @@ struct CampusStoryDetailView: View {
                 }.frame(height: 245).clipShape(RoundedRectangle(cornerRadius: 20)).allowsHitTesting(false)
                     .accessibilityLabel("저장한 위치: \(story.location)")
             } else {
-            GeometryReader { geometry in
-                Image("OiStoryLocation").resizable().scaledToFill()
-                    .frame(width: geometry.size.width, height: geometry.size.width * 662 / 362)
-                    .offset(y: -geometry.size.width * 314.5 / 362)
-                    .frame(width: geometry.size.width, height: 245, alignment: .top).clipped()
-                    .overlay { Image(systemName: "mappin.circle.fill").font(.system(size: 28)).foregroundStyle(.red).background(.white, in: Circle()) }
-            }.frame(height: 245).clipShape(RoundedRectangle(cornerRadius: 20))
-                .accessibilityLabel("지곡회관 옆 연못길, 디자인 예시 위치")
+                Text("등록된 위치가 없어요.").foregroundStyle(.secondary)
             }
         }
     }
@@ -173,15 +138,8 @@ struct CampusStoryDetailView: View {
             HStack(spacing: 15) {
                 Image("OiFarmer").resizable().scaledToFit().frame(width: 120, height: 160)
                 VStack(alignment: .leading, spacing: 15) {
-                    if story.remoteBody != nil {
-                        donorField("닉네임", story.donor)
-                        donorField("이야기 캠퍼스", "POSTECH")
-                        Text("학번·학과·공식 기부 횟수는 연동하지 않았어요.").font(.caption).foregroundStyle(.secondary)
-                    } else {
-                    HStack(spacing: 36) { donorField("이름", story.isCats ? "신서연" : "예시 기부자"); donorField("학번", "26학번") }
-                    donorField("학교/학과", "포스텍 디벨로퍼학과")
-                    donorField("기부 횟수", "총 8회 · 예시")
-                    }
+                    donorField("닉네임", story.donor)
+                    donorField("이야기 장소", story.location)
                 }
                 Spacer(minLength: 0)
             }.padding(14).frame(maxWidth: .infinity).frame(minHeight: 199)

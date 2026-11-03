@@ -27,6 +27,12 @@ final class CollectedStoryLibrary {
         self.collectionStore = collectionStore
     }
 
+    func removeImported(storyID: String) {
+        collectionStore.remove(storyID: storyID)
+        items.removeAll { $0.id == storyID }
+        unavailableRecords.removeAll { $0.storyID == storyID }
+    }
+
     func load() async {
         guard !isLoading else { return }
         isLoading = true

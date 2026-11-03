@@ -65,10 +65,11 @@ struct OiStoryListScreen: View {
     }
 
     private func locationDisplayName(for regionID: String) -> String {
-        guard let region = CampusRegion.examples.first(where: { $0.id == regionID }) else {
-            return "포항공과대학교"
+        guard let region = remote.regions.first(where: { $0.id == regionID }) else {
+            return "장소 확인 중"
         }
-        return "포항공과대학교 \(region.title)"
+        let schoolName = remote.schools.first(where: { $0.id == region.schoolId })?.name
+        return [schoolName, region.name].compactMap { $0 }.joined(separator: " ")
     }
 }
 

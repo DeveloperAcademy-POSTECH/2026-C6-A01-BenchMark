@@ -3,6 +3,7 @@ import SwiftUI
 struct OiStoryListView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .title3) private var titleLineSpacing = 8
 
     let state: OiStoryListState
     var minimumVisibleSlotCount = 4
@@ -217,8 +218,10 @@ struct OiStoryListView: View {
         Text(title)
             .font(.custom("PearToucan-Regular", size: 20, relativeTo: .title3))
             .tracking(0.8)
-            .lineLimit(usesAccessibilityLayout ? 2 : 1)
+            .lineSpacing(usesAccessibilityLayout ? titleLineSpacing : 0)
+            .lineLimit(usesAccessibilityLayout ? nil : 1)
             .minimumScaleFactor(usesAccessibilityLayout ? 1 : 0.85)
+            .fixedSize(horizontal: false, vertical: usesAccessibilityLayout)
             .layoutPriority(1)
     }
 

@@ -4,6 +4,7 @@ IOS_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 CHECK_DIR=$(mktemp -d)
 trap 'rm -f "$CHECK_DIR/checks"; rmdir "$CHECK_DIR"' EXIT
 xcrun swiftc -parse-as-library -swift-version 5 -default-isolation MainActor \
+  "$IOS_ROOT/OiDonation/Data/Networking/APIClient.swift" \
   "$IOS_ROOT/OiDonation/Domain/Models/Story.swift" \
   "$IOS_ROOT/OiDonation/Domain/Models/StoryCard.swift" \
   "$IOS_ROOT/OiDonation/Domain/Models/CollectedStoryCard.swift" \

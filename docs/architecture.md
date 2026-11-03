@@ -257,3 +257,15 @@ Bench에 선택적 BenchCoordinate를 추가했다. 유효한 확정 공개 NFC 
 ## 정밀 위치·현장 AR 통합 — 2026-10-29 / PR #97
 
 Figma 기본 지도와 Supabase 승인·계정 흐름을 기준으로 충돌을 통합했다. OiStoryEditor의 위치 선택은 기존 3D 캠퍼스·미세 이동 도구를 사용하고 선택 완료 시 기존 초안 좌표를 갱신한다. 현장 AR은 공개 이야기 UUID·좌표를 같은 Supabase API에서 익명 권한으로 재확인한다. 별도 작성 코드 서버·PostgreSQL API·이전 호스팅 설정은 다시 도입하지 않는다. 3D 외형은 기존 helmet-oi이며 2D 카드별 외형 변환과 현장 정확도는 별도 확인이 필요하다. 범위·한계는 apps/ios/docs/campus-geo-placement.md를 따른다.
+
+## MY 디자인 후속 적용 — 2026-10-30 / #107
+
+MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하며 기존 계정 수집·즐겨찾기 콜백을 유지한다. MYSettingsView는 기존 OiAccountView와 시스템 앱 설정을 연결하고 서버 계약·학교 필드를 추가하지 않는다. 농장 빈 상태는 기존 운영자 작성 승인 흐름을 안내한다. 최소 기부금·피클코인은 미정으로 유지한다. 자세한 디자인 차이와 검증은 [MY 문서](../apps/ios/docs/my-workshop.md)에 기록한다.
+
+## MY 서버 데이터 전환 — 2026-10-30
+
+사용자의 실동작 요청에 따라 MYLibraryStore가 계정 수집의 화면 투영을 맡고 기존 OiRemoteStore·oi_mutate가 읽기/쓰기를 소유한다. 학교·구역·자산 카탈로그는 DB에서 읽고 프로필 학교는 기존 FK/RLS로 저장한다. 고정 예시 카드와 로컬 성공 대체 경로를 제거하며 실제 이야기 내용으로 카드를 렌더링한다. 실제 공개 StoryRepository와 App Clip도 같은 공용 ID를 조회한다. 기존 DB 계약을 재사용하고 데이터·Auth 계정을 삭제하지 않는다. 설정·검증·미확정 운영 정책은 docs/supabase-flow.md의 최신 기록을 따른다.
+
+## 증빙 AI 시각 분석 — 2026-11-02 / #116
+
+기존 운영자 권한·증빙 신청·비공개 Storage를 재사용하는 `supabase/functions/analyze-evidence`를 추가한다. 사용자 JWT를 검증하고 운영자에게만 현재 제출본의 AI 시각 분석을 반환한다. OpenAI 키는 서버 환경에만 두며 JPEG·PNG·PDF 입력, 응답 스키마·오류·시간 제한, 재제출·권한 회수 재확인을 적용한다. DB·Storage 쓰기와 자동 승인은 수행하지 않는다. 버튼·화면·CORS origin·원격 배포는 별도 연결 범위다. 결과 계약과 검증·개인정보 및 판별 한계는 [증빙 AI 분석 문서](evidence-ai-analysis.md)를 따른다.
