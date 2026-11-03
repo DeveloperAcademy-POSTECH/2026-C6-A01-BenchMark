@@ -32,6 +32,14 @@ import Observation
         }
     }
     func stop() { active = false; manager.stopUpdatingLocation(); location = nil }
+    var hasUsableFix: Bool {
+        guard active, let location, manager.accuracyAuthorization == .fullAccuracy,
+              manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways
+        else { return false }
+        return CampusLocationQuality.allowsFix(latitude: location.coordinate.latitude,
+            longitude: location.coordinate.longitude, accuracy: location.horizontalAccuracy,
+            timestamp: location.timestamp)
+    }
     func isReady(for target: CampusPlacement) -> Bool {
         guard active, let location, manager.accuracyAuthorization == .fullAccuracy,
               manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways

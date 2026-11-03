@@ -2,6 +2,13 @@ import Foundation
 import simd
 
 struct CampusMapData: Decodable {
+    /// Display-only building groups; these do not create server donation regions.
+    struct BuildingLabelGroup: Decodable {
+        let id: String
+        let name: String
+        let buildingIDs: [String]
+    }
+    var buildingLabelGroups: [BuildingLabelGroup]? = nil
     struct Place: Decodable, Identifiable {let id:String;let name:String;let category:String;let p:[Double];let node:String;let buildingId:String?}
     struct Node: Decodable {let p:[Double];let links:[String];let wgs84:[Double]?}
     struct Building: Decodable {let id:String;let p:[[Double]];let name:String?;let levels:Double?;let kind:String?;let modelRoofZ:Double?}
@@ -10,7 +17,7 @@ struct CampusMapData: Decodable {
     let coordinateSystem:CoordinateSystem?
     let initialView:InitialView?
     var surface:CampusHeightField?
-    enum CodingKeys:String,CodingKey {case origin,unitsPerMeter,bounds,buildings,pois,graph,coordinateSystem,initialView}
+    enum CodingKeys:String,CodingKey {case origin,unitsPerMeter,bounds,buildings,pois,graph,coordinateSystem,initialView,buildingLabelGroups}
     private var enu:Bool {coordinateSystem?.horizontalFrameVersion?.hasPrefix("WGS84_ENU") == true}
     private var frame:CampusGeoreference{CampusGeoreference(longitude:origin[0],latitude:origin[1],scale:unitsPerMeter)}
     let origin:[Double]

@@ -63,6 +63,13 @@ enum CampusPlacementError: LocalizedError {
 enum CampusLocationQuality {
     static let radiusMeters = 25.0
     static let maximumAccuracy = 15.0
+    static func allowsFix(latitude: Double, longitude: Double, accuracy: Double,
+                          timestamp: Date, now: Date = Date()) -> Bool {
+        latitude.isFinite && longitude.isFinite && (-90...90).contains(latitude)
+            && (-180...180).contains(longitude) && accuracy.isFinite
+            && (0...maximumAccuracy).contains(accuracy)
+            && abs(timestamp.timeIntervalSince(now)) < 10
+    }
     static func allowsPlacement(latitude: Double, longitude: Double, accuracy: Double,
                                 timestamp: Date, target: CampusPlacement, now: Date = Date()) -> Bool {
         latitude.isFinite && longitude.isFinite && (-90...90).contains(latitude)

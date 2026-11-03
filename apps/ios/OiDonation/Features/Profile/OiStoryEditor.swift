@@ -6,6 +6,7 @@ import SwiftUI
 
 struct OiStoryEditor: View {
     let remote: OiRemoteStore
+    var onFinish: (() -> Void)?
     @State private var draft: OiStoryDraft
     @State private var owner: UUID?
     @State private var photos: [UUID] = []
@@ -16,8 +17,12 @@ struct OiStoryEditor: View {
     @State private var restorationError: String?
     @State private var restorationAttempt = 0
     @State private var submitted = false
-    @State private var selectingLocation = false
-    @State private var photo: PhotosPickerItem?
+    @State private var locationRequest: OiLocationPickerRequest?
+    @State private var photoSelections: [PhotosPickerItem] = []
+    @State private var step: OiCreationStep = .story
+    @State private var customization = OiDraftCustomization()
+    @State private var removedMediaPaths: [String] = []
+    @State private var saving = false
     @State private var localError: String?
     @State private var saveLabel = "기기 저장 준비 중"
     @State private var preparingPhoto = false
@@ -28,8 +33,9 @@ struct OiStoryEditor: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
 
-    init(remote: OiRemoteStore, story: OiLiveStory? = nil, localID: UUID? = nil) {
+    init(remote: OiRemoteStore, story: OiLiveStory? = nil, localID: UUID? = nil, onFinish: (() -> Void)? = nil) {
         self.remote = remote
+        self.onFinish = onFinish
         var value: OiStoryDraft
         if let story { value = OiStoryDraft(story: story) }
         else { value = OiStoryDraft() }
@@ -38,107 +44,83 @@ struct OiStoryEditor: View {
     }
 
     var body: some View {
-        Form {
-            if !restored {
-                Section("기기 초안 복원") {
-                    if isRestoring { ProgressView("기기 초안을 확인하고 있어요") }
-                    if let restorationError {
-                        Text("초안을 복원하지 못했습니다. 원본을 덮어쓰지 않고 보관했습니다. \(restorationError)")
-                            .font(.footnote).foregroundStyle(.red).accessibilityIdentifier("oi.draft.restoreError")
-                        Button("초안 복원 다시 시도") { restorationAttempt += 1 }
-                            .disabled(isRestoring).accessibilityIdentifier("oi.draft.restoreRetry")
-                    }
-                    Button("원본 보관하고 나가기") { dismiss() }.accessibilityIdentifier("oi.draft.preserveAndExit")
-                }
+        presentedContent
+        .task(id: restorationAttempt) { await restoreDraft() }
+        .onChange(of: draft) { _, _ in scheduleSave() }
+        .onChange(of: photos) { _, _ in scheduleSave() }
+        .onChange(of: uploadedPhotos) { _, _ in scheduleSave() }
+        .onChange(of: step) { _, _ in scheduleSave() }
+        .onChange(of: customization) { _, _ in scheduleSave() }
+        .onChange(of: removedMediaPaths) { _, _ in scheduleSave() }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { scheduleSave() } }
+        .onDisappear { if restored { scheduleSave() } }
+        .task(id: photoSelections) {
+            let selections = photoSelections
+            guard !selections.isEmpty, let owner else { return }
+            preparingPhoto = true
+            defer { preparingPhoto = false; photoSelections = [] }
+            var failures = 0
+            for selection in selections {
+                do {
+                    guard let data = try await selection.loadTransferable(type: Data.self) else { throw OiServiceError.invalidInput }
+                    let jpeg = try OiPhotoProcessor.prepare(data)
+                    try Task.checkCancellation()
+                    let id = UUID()
+                    try await remote.saveLocalPhoto(jpeg, id: id, owner: owner)
+                    try Task.checkCancellation()
+                    guard remote.account?.id == owner else { throw OiServiceError.accountChanged }
+                    photos.append(id); localVersion += 1; _ = await persist()
+                } catch is CancellationError { return }
+                catch { failures += 1 }
             }
-            Group {
-            OiConnectionStatus(remote: remote)
-            if let error = localError ?? remote.error { Text(error).foregroundStyle(.red) }
-            Text(saveLabel).font(.caption).accessibilityIdentifier("oi.draft.saveState")
-            if let saved = remote.ownStories.first(where: { $0.id == draft.id }), saved.revision != draft.revision {
-                Section("서버의 초안이 변경됐어요") {
-                    Text("현재 입력은 기기에 보관합니다. 서버 초안을 대신 불러오려면 아래 버튼을 눌러주세요.").font(.footnote)
-                    Button("서버 초안 다시 불러오기") { draft = OiStoryDraft(story: saved); submitted = false }
-                }
-            }
-            Section("작성 승인") {
-                Picker("사용할 승인", selection: $draft.grantId) {
-                    Text("선택해 주세요").tag(Optional<UUID>.none)
-                    ForEach(remote.grants.filter { $0.revokedAt == nil }) { permission in
-                        Text("승인 \(permission.id.uuidString.prefix(8)) · 최대 \(permission.storyLimit)개").tag(Optional(permission.id))
-                    }
-                }.disabled(draft.revision > 0)
-            }
-            Section("테마 선택 · 감정 선택") {
-                TextField("테마", text: $draft.theme)
-                TextField("감정", text: $draft.emotion)
-                Text("추천 목록은 준비 중입니다. 지금은 직접 입력해 주세요.").font(.caption).foregroundStyle(.secondary)
-            }
-            Section("제목 입력 · 내용 입력") {
-                TextField("이야기 제목", text: $draft.title).accessibilityIdentifier("oi.draft.title")
-                TextEditor(text: $draft.body).frame(minHeight: 150).accessibilityLabel("이야기 내용")
-            }
-            Section("오이 커스텀") {
-                TextField("오이 이름 입력", text: $draft.cucumberName)
-                Image(draft.cucumberAsset).resizable().scaledToFit().frame(height: 180).frame(maxWidth: .infinity)
-                Picker("준비된 오이 프리셋", selection: $draft.cucumberAsset) {
-                    ForEach(remote.assets.filter { $0.kind == "cucumber" }) { asset in
-                        Text(asset.name).tag(asset.id)
-                    }
-                }
-                Text("포즈·상의·하의·모자별 교체는 자산 규격이 확정되면 연결합니다.").font(.caption).foregroundStyle(.secondary)
-            }
-            Section("카드 커스텀") {
-                MYCardArtwork(card: MYCard(id: draft.id.uuidString, title: draft.cucumberName, image: draft.cucumberAsset, school: .postech, order: 0, body: draft.body, donor: remote.profile?.nickname ?? "농부", date: "", appearance: draft.cardAsset)).frame(height: 220)
-                Picker("준비된 카드 프리셋", selection: $draft.cardAsset) {
-                    ForEach(remote.assets.filter { $0.kind == "card" }) { asset in Text(asset.name).tag(asset.id) }
-                }
-                Text("개별 패턴·테두리·크기 편집은 준비 중입니다. 카드에는 현재 작성한 이야기 내용이 표시됩니다.").font(.caption).foregroundStyle(.secondary)
-            }
-            Section("위치 설정") {
-                Picker("캠퍼스 구역", selection: $draft.regionId) {
-                    ForEach(remote.regions) { region in Text(region.name).tag(region.id) }
-                }
-                Button("캠퍼스 지도에서 위치 선택") { selectingLocation = true }
-                if let latitude = draft.latitude, let longitude = draft.longitude {
-                    Text("\(latitude.formatted(.number.precision(.fractionLength(6)))), \(longitude.formatted(.number.precision(.fractionLength(6))))").font(.caption)
-                }
-                Text("건물 안과 캠퍼스 밖의 위치는 서버에서 거절합니다. 지도 좌표는 실제 현장 AR 정밀도를 보장하지 않습니다.").font(.caption).foregroundStyle(.secondary)
-            }
-            Section("사진 선택 · 기기에 보관") {
-                PhotosPicker("사진 추가", selection: $photo, matching: .images)
-                if let owner {
-                    ForEach(photos, id: \.self) { id in
-                        VStack {
-                            OiLocalPhoto(remote: remote, owner: owner, id: id).frame(height: 140)
-                            Text(uploadedPhotos.contains(id) ? "서버 첨부 확인됨" : "기기에 보관 · 업로드 대기").font(.caption)
-                        }
-                    }
-                }
-                ForEach(remote.mediaPaths(storyID: draft.id), id: \.self) { path in
-                    OiStoryMediaImage(path: path) { path in try await remote.mediaURL(bucket: "oi-story-media", path: path) }.frame(height: 180)
-                }
-            }
-            Section {
-                Button("초안 저장·사진 업로드") { Task { _ = await saveCurrent() } }.disabled(!draft.valid || submitted)
-                    .accessibilityIdentifier("oi.story.save")
-                Button("현재 내용 미리보기·검토 요청") { showingPreview = true }.disabled(!draft.valid || submitted)
-                    .accessibilityIdentifier("oi.story.submit")
-                if submitted { Text("공개 검토 요청이 접수됐습니다. 기기의 보관본도 유지합니다.").foregroundStyle(.secondary) }
-            }
-            Section {
-                Text("내부 검증용입니다. 최종 약관·증빙 운영 정책과 개별 꾸미기 자산은 아직 미정이며, 코인 기능은 사용하지 않습니다.").font(.footnote).foregroundStyle(.secondary)
-            }
-            }.disabled(!restored)
+            if failures > 0 { localError = "\(failures)장의 사진을 추가하지 못했어요. 기기에서 열 수 있는 사진인지 확인한 뒤 다시 선택해 주세요." }
         }
-        .disabled(remote.isBusy || preparingPhoto || publishing)
-        .navigationTitle("이야기와 오이 만들기").navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var presentedContent: some View {
+        VStack(spacing: 0) {
+            if !restored {
+                restorationStatus
+            } else if submitted {
+                completion
+            } else {
+                if step != .photos { OiCreationProgressHeader(step: step.progress).padding(.horizontal, 20).padding(.vertical, 8) }
+                ScrollViewReader { scroll in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            Color.clear.frame(height: 1).id("creation.top")
+                            editorStatus
+                            stepContent
+                        }.padding(.horizontal, 20).padding(.bottom, 24)
+                    }.scrollDismissesKeyboard(.interactively)
+                        .onChange(of: step) { _, _ in scroll.scrollTo("creation.top", anchor: .top) }
+                }
+                OiCreationNextButton(title: step == .card ? "미리보기·검토 요청" : "다음", enabled: canContinue) {
+                    if let next = step.next { step = next } else { showingPreview = true }
+                }.accessibilityIdentifier("oi.creation.next").padding(.horizontal, 20).padding(.vertical, 10)
+            }
+        }
+        .background(step == .photos ? Color(white: 0.14) : Color(.systemBackground))
+        .preferredColorScheme(step == .photos ? .dark : .light)
+        .environment(\.colorScheme, step == .photos ? .dark : .light)
+        .toolbarColorScheme(step == .photos ? .dark : .light, for: .navigationBar)
+        .toolbarBackground(step == .photos ? Color(white: 0.14) : Color(.systemBackground), for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .disabled(remote.isBusy || preparingPhoto || publishing || saving)
+        .navigationTitle(submitted ? "접수 완료" : step.title).navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden()
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button("뒤로") {
-                    if restored { choosingExit = true } else { dismiss() }
-                }.disabled(remote.isBusy || preparingPhoto || publishing)
+                Button {
+                    if !restored { dismiss() }
+                    else if submitted { finish() }
+                    else if let previous = step.previous { step = previous }
+                    else { choosingExit = true }
+                } label: { Image(systemName: "chevron.left") }
+                .accessibilityLabel("이전 단계").disabled(remote.isBusy || preparingPhoto || publishing || saving)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                if !submitted { Button("나가기") { if restored { choosingExit = true } else { dismiss() } }.disabled(remote.isBusy || preparingPhoto || publishing || saving) }
             }
         }
         .interactiveDismissDisabled()
@@ -155,63 +137,24 @@ struct OiStoryEditor: View {
             }
             Button("계속 작성", role: .cancel) {}
         } message: { Text("버리기는 이 기기의 초안과 사진 복사본만 삭제합니다. 서버에 저장된 이야기는 삭제하지 않습니다.") }
-        .sheet(isPresented: $selectingLocation) { OiLocationPicker(latitude: $draft.latitude, longitude: $draft.longitude) }
-        .sheet(isPresented: $showingPreview) {
-            NavigationStack {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text(draft.title).font(.title2.bold())
-                        Text(draft.body)
-                        Text("\(draft.theme) · \(draft.emotion) · \(draft.cucumberName)")
-                        if let latitude = draft.latitude, let longitude = draft.longitude { Text("\(latitude), \(longitude)").font(.caption) }
-                        if let owner { ForEach(photos, id: \.self) { OiLocalPhoto(remote: remote, owner: owner, id: $0).frame(height: 180) } }
-                        ForEach(remote.mediaPaths(storyID: draft.id).filter { path in
-                            !photos.contains { path.contains($0.uuidString.lowercased()) }
-                        }, id: \.self) { path in
-                            OiStoryMediaImage(path: path) { path in try await remote.mediaURL(bucket: "oi-story-media", path: path) }.frame(height: 180)
-                        }
-                        if let error = localError ?? remote.error { Text(error).foregroundStyle(.red) }
-                        OiConnectionStatus(remote: remote)
-                        Button("이 내용으로 저장 후 검토 요청") {
-                            Task {
-                                publishing = true
-                                defer { publishing = false }
-                                if let saved = await saveCurrent(), let receipt = await remote.submitStory(saved) {
-                                    draft = OiStoryDraft(story: receipt); submitted = true; localVersion += 1
-                                    _ = await persist(); showingPreview = false
-                                }
-                            }
-                        }.disabled(remote.isBusy || publishing).accessibilityIdentifier("oi.story.confirmSubmit")
-                    }.padding(20)
-                }.navigationTitle("공개 검토 전 확인").navigationBarTitleDisplayMode(.inline)
-                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("수정으로 돌아가기") { showingPreview = false }.disabled(publishing) } }
-                    .interactiveDismissDisabled(publishing)
+        .fullScreenCover(item: $locationRequest) { request in
+            OiLocationPicker(latitude: $draft.latitude, longitude: $draft.longitude, focusPlaceID: request.focusPlaceID)
+        }
+        .sheet(isPresented: $showingPreview) { reviewSheet }
+    }
+
+    private var restorationStatus: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("기기 초안 복원").font(.headline)
+            if isRestoring { ProgressView("기기 초안을 확인하고 있어요") }
+            if let restorationError {
+                Text("초안을 복원하지 못했습니다. 원본을 덮어쓰지 않고 보관했습니다. \(restorationError)")
+                    .font(.footnote).foregroundStyle(.red).accessibilityIdentifier("oi.draft.restoreError")
+                Button("초안 복원 다시 시도") { restorationAttempt += 1 }
+                    .disabled(isRestoring).accessibilityIdentifier("oi.draft.restoreRetry")
             }
-        }
-        .task(id: restorationAttempt) { await restoreDraft() }
-        .onChange(of: draft) { _, _ in scheduleSave() }
-        .onChange(of: photos) { _, _ in scheduleSave() }
-        .onChange(of: uploadedPhotos) { _, _ in scheduleSave() }
-        .onChange(of: scenePhase) { _, phase in if phase != .active { scheduleSave() } }
-        .onDisappear { if restored { scheduleSave() } }
-        .task(id: photo) {
-            guard let photo, let owner else { return }
-            preparingPhoto = true
-            defer { preparingPhoto = false }
-            do {
-                guard let data = try await photo.loadTransferable(type: Data.self), data.count <= 40_000_000,
-                      let source = CGImageSourceCreateWithData(data as CFData, nil),
-                      let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                        kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
-                        kCGImageSourceThumbnailMaxPixelSize: 2048] as CFDictionary),
-                      let jpeg = UIImage(cgImage: thumbnail).jpegData(compressionQuality: 0.85) else { throw OiServiceError.invalidInput }
-                let id = UUID()
-                try await remote.saveLocalPhoto(jpeg, id: id, owner: owner)
-                try Task.checkCancellation()
-                guard remote.account?.id == owner else { throw OiServiceError.accountChanged }
-                photos.append(id); localVersion += 1; _ = await persist()
-            } catch { localError = error.localizedDescription }
-        }
+            Button("원본 보관하고 나가기") { dismiss() }.accessibilityIdentifier("oi.draft.preserveAndExit")
+        }.padding(20).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func restoreDraft() async {
@@ -231,7 +174,14 @@ struct OiStoryEditor: View {
             if let record {
                 draft = record.draft; photos = record.photos; uploadedPhotos = Set(record.uploadedPhotos)
                 localVersion = record.version; submitted = record.submitted
+                step = record.creationStep.flatMap(OiCreationStep.init(rawValue:)) ?? .story
+                customization = record.customization ?? OiDraftCustomization()
+                removedMediaPaths = record.removedMediaPaths ?? []
             }
+            if let server = remote.ownStories.first(where: { $0.id == draft.id }) {
+                submitted = !OiCreationAccess.canEdit(status: server.status, submitted: submitted)
+            }
+            if draft.grantId == nil { draft.grantId = availableGrants.first?.id }
             restored = true; localError = nil; saveLabel = "이 계정의 기기 초안 자동 저장"
         } catch is CancellationError {
         } catch {
@@ -239,8 +189,140 @@ struct OiStoryEditor: View {
         }
     }
 
+    private var reviewSheet: some View {
+            NavigationStack {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        MYCardArtwork(card: publicCard).frame(height: 280).frame(maxWidth: .infinity)
+                        Text("공개 예정 카드 프리셋").font(.caption).foregroundStyle(.secondary)
+                        Text("커스텀 색상과 의상 설정은 이 기기의 미리보기에만 보관됩니다.").font(.caption)
+                        Text(draft.title).font(.title2.bold())
+                        Text(draft.body)
+                        Text("\(draft.theme) · \(draft.emotion) · \(draft.cucumberName)")
+                        if let latitude = draft.latitude, let longitude = draft.longitude { Text("\(latitude), \(longitude)").font(.caption) }
+                        ForEach(editingPhotos) { photo in reviewPhoto(photo).frame(height: 180) }
+                        if let error = localError ?? remote.error { Text(error).foregroundStyle(.red) }
+                        OiConnectionStatus(remote: remote)
+                        Button("이 내용으로 저장 후 검토 요청") {
+                            Task {
+                                publishing = true
+                                defer { publishing = false }
+                                if let saved = await saveCurrent(), let receipt = await remote.submitStory(saved) {
+                                    draft = OiStoryDraft(story: receipt); submitted = true; localVersion += 1
+                                    _ = await persist(); showingPreview = false
+                                }
+                            }
+                        }.disabled(remote.isBusy || publishing || saving || !draft.valid || !hasApproval).accessibilityIdentifier("oi.story.confirmSubmit")
+                    }.padding(20)
+                }.navigationTitle("공개 검토 전 확인").navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("수정으로 돌아가기") { showingPreview = false }.disabled(publishing) } }
+                    .interactiveDismissDisabled(publishing)
+            }
+    }
+
+    @ViewBuilder private func reviewPhoto(_ photo: OiEditingPhoto) -> some View {
+        switch photo {
+        case .local(let id):
+            if let owner { OiLocalPhoto(remote: remote, owner: owner, id: id) }
+        case .uploaded(let path):
+            OiStoryMediaImage(path: path) { try await remote.mediaURL(bucket: "oi-story-media", path: $0) }
+        }
+    }
+
+    private var availableGrants: [OiWritingGrant] { remote.grants.filter { $0.revokedAt == nil } }
+    private var hasApproval: Bool { availableGrants.contains { $0.id == draft.grantId } }
+    private var canContinue: Bool { hasApproval && step.canContinue(draft: draft) }
+    private var editingPhotos: [OiEditingPhoto] {
+        OiEditingPhoto.ordered(local: photos, remote: remote.mediaPaths(storyID: draft.id), removed: removedMediaPaths)
+    }
+    private var publicCard: MYCard {
+        MYCard(id: draft.id.uuidString, title: draft.cucumberName, image: draft.cucumberAsset, school: .postech, order: 0,
+               body: draft.body, donor: remote.profile?.nickname ?? "농부", date: "", appearance: draft.cardAsset)
+    }
+
+    @ViewBuilder private var editorStatus: some View {
+        OiConnectionStatus(remote: remote)
+        if let error = localError ?? remote.error { Text(error).font(.footnote).foregroundStyle(.red) }
+        Text(saveLabel).font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("oi.draft.saveState")
+        if !hasApproval { Text("유효한 작성 승인이 필요해요. 계정에서 승인 상태를 확인해 주세요.").font(.footnote).foregroundStyle(.orange) }
+        if let saved = remote.ownStories.first(where: { $0.id == draft.id }), saved.revision != draft.revision {
+            VStack(alignment: .leading) {
+                Text("서버 초안이 변경됐어요. 현재 입력은 기기에 보관합니다.").font(.footnote)
+                Button("서버 초안 다시 불러오기") {
+                    draft = OiStoryDraft(story: saved)
+                    submitted = !OiCreationAccess.canEdit(status: saved.status, submitted: false)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var stepContent: some View {
+        switch step {
+        case .story: OiStoryWritingStep(draft: $draft, grants: availableGrants)
+        case .photos:
+            OiStoryPhotoStep(items: editingPhotos,
+                uploadedPhotos: uploadedPhotos, selections: $photoSelections,
+                loadPhoto: { id in
+                    guard let owner, remote.account?.id == owner else { throw OiServiceError.accountChanged }
+                    return try await remote.localPhoto(id: id, owner: owner)
+                }, edit: { id, edit in Task { await editPhoto(id, operation: edit) } }, remove: removePhoto, photo: reviewPhoto)
+        case .location:
+            OiStoryLocationStep(draft: $draft, regions: remote.regions.filter { $0.schoolId == "postech" }) { placeID in
+                locationRequest = OiLocationPickerRequest(focusPlaceID: placeID)
+            }
+        case .cucumber: OiCucumberCustomizationStep(draft: $draft, customization: $customization, assets: remote.assets)
+        case .card:
+            OiCardCustomizationStep(draft: $draft, customization: $customization, assets: remote.assets)
+            Button("초안 저장·사진 업로드") { Task { _ = await saveCurrent() } }
+                .disabled(!draft.valid || !hasApproval).accessibilityIdentifier("oi.story.save")
+        }
+    }
+
+    private var completion: some View {
+        ScrollView {
+            VStack(spacing: 22) {
+                MYCardArtwork(card: publicCard).frame(height: 360)
+                Text(draft.cucumberName).font(CampusStyle.semibold(28))
+                Text("이야기 검토 요청이 접수됐어요").font(.headline)
+                Text("운영자가 공개 승인하면 캠퍼스 지도와 현장 AR에서 볼 수 있어요.")
+                    .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                OiCreationNextButton(title: "이야기 목록으로 돌아가기", action: finish)
+            }.padding(24)
+        }.background(Color("OiLight"))
+    }
+
+    private func finish() {
+        if let onFinish { onFinish() } else { dismiss() }
+    }
+
+    private func removePhoto(_ item: OiEditingPhoto) {
+        switch item {
+        case .local(let id):
+            if uploadedPhotos.contains(id) {
+                removedMediaPaths += remote.mediaPaths(storyID: draft.id).filter { $0.contains(id.uuidString.lowercased()) }
+            }
+            photos.removeAll { $0 == id }; uploadedPhotos.remove(id)
+        case .uploaded(let path): removedMediaPaths.append(path)
+        }
+        scheduleSave()
+    }
+
+    private func editPhoto(_ id: UUID, operation: OiPhotoEdit) async {
+        guard let owner, !uploadedPhotos.contains(id), !preparingPhoto, !saving, !publishing else { return }
+        preparingPhoto = true
+        defer { preparingPhoto = false }
+        do {
+            let data = try await remote.localPhoto(id: id, owner: owner)
+            let jpeg = try OiPhotoProcessor.edit(data, operation: operation)
+            let newID = UUID()
+            try await remote.saveLocalPhoto(jpeg, id: newID, owner: owner)
+            guard remote.account?.id == owner, let index = photos.firstIndex(of: id) else { throw OiServiceError.accountChanged }
+            photos[index] = newID; localVersion += 1; _ = await persist()
+        } catch { localError = error.localizedDescription }
+    }
+
     private func record() -> OiLocalDraft {
-        OiLocalDraft(draft: draft, photos: photos, uploadedPhotos: Array(uploadedPhotos), version: localVersion, submitted: submitted)
+        OiLocalDraft(draft: draft, photos: photos, uploadedPhotos: Array(uploadedPhotos), version: localVersion, submitted: submitted, creationStep: step.rawValue, customization: customization, removedMediaPaths: removedMediaPaths)
     }
 
     private func scheduleSave() {
@@ -265,6 +347,9 @@ struct OiStoryEditor: View {
     }
 
     private func saveCurrent() async -> OiLiveStory? {
+        guard !saving, hasApproval, OiCreationStep.allCases.allSatisfy({ $0.canContinue(draft: draft) }) else { return nil }
+        saving = true
+        defer { saving = false }
         guard let owner, await persist(), var current = await remote.save(draft) else { return nil }
         draft = OiStoryDraft(story: current); localVersion += 1
         guard await persist() else { return nil }
@@ -276,11 +361,17 @@ struct OiStoryEditor: View {
                 guard await persist() else { return nil }
             } catch { localError = error.localizedDescription; return nil }
         }
+        if !removedMediaPaths.isEmpty {
+            let paths = remote.mediaPaths(storyID: draft.id).filter { !removedMediaPaths.contains($0) }
+            guard let updated = await remote.setStoryMedia(paths, story: current) else { return nil }
+            current = updated; draft.revision = updated.revision; removedMediaPaths = []; localVersion += 1
+            guard await persist() else { return nil }
+        }
         return current
     }
 }
 
-private struct OiLocalPhoto: View {
+struct OiLocalPhoto: View {
     let remote: OiRemoteStore
     let owner: UUID
     let id: UUID
@@ -306,62 +397,6 @@ private struct OiLocalPhoto: View {
     }
 }
 
-private struct OiLocationPicker: View {
-    @Binding var latitude: Double?
-    @Binding var longitude: Double?
-    @State private var scene = CampusExploreScene()
-    @State private var isOnScreen = false
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.scenePhase) private var scenePhase
-
-    var body: some View {
-        NavigationStack {
-            CampusMapSurface(scene: scene)
-                .ignoresSafeArea(.container, edges: .top)
-                .safeAreaInset(edge: .bottom) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        if let error = scene.error ?? scene.placementError {
-                            Text(error).foregroundStyle(.red)
-                            Button("다시 시도") { Task { await prepare() } }
-                        } else if scene.isLoading || scene.placementLoading {
-                            ProgressView("캠퍼스 지도 준비 중")
-                        }
-                        Text(scene.placementMessage).font(.footnote)
-                        CampusPlacementTools(scene: scene)
-                    }.padding().background(.regularMaterial)
-                }
-                .navigationTitle("위치 설정").navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("취소") { dismiss() } }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("선택 완료") {
-                            guard let point = scene.draftPoint, let data = scene.data,
-                                  data.placementError(at: point) == nil else { return }
-                            let coordinate = data.coordinate(point)
-                            latitude = coordinate.latitude; longitude = coordinate.longitude
-                            dismiss()
-                        }.disabled(scene.draftPoint == nil || !scene.placementReady)
-                    }
-                }
-        }
-        .task { await prepare() }
-        .onAppear { isOnScreen = true; scene.setVisible(scenePhase == .active) }
-        .onDisappear { isOnScreen = false; scene.endPlacement(); scene.setVisible(false) }
-        .onChange(of: scenePhase) { _, phase in scene.setVisible(isOnScreen && phase == .active) }
-    }
-
-    private func prepare() async {
-        await scene.load()
-        guard !Task.isCancelled else { return }
-        await scene.preparePlacements()
-        guard !Task.isCancelled, scene.placementReady else { return }
-        let existing: CampusPlacement?
-        if let latitude, let longitude {
-            existing = CampusPlacement(storyID: "draft-location", latitude: latitude, longitude: longitude)
-        } else { existing = nil }
-        scene.beginPlacement(editing: existing)
-    }
-}
 
 struct OiStoryMediaImage: View {
     let path: String

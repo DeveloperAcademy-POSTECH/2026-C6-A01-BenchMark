@@ -9,6 +9,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private(set) var isLoading = false
     private(set) var error: String?
     private(set) var ready = false
+    private(set) var hasMovedFromOverview = false
     var onRegion: ((CampusRegion) -> Void)?
     var onPlacement: ((UUID) -> Void)?
     private var sharedMap = false
@@ -34,6 +35,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var camera = PerspectiveCamera()
     @ObservationIgnored private var pins: [(UIButton, SIMD3<Float>)] = []
     @ObservationIgnored private var positions: [String: SIMD3<Float>] = [:]
+    @ObservationIgnored private let mapLabels = CampusMapLabels()
     private var target = SIMD3<Float>(25, 0, 25)
     private var radius: Float = 180
     private var yaw: Float = 0
@@ -50,6 +52,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         if let canvas { return canvas }
         let canvas = CampusMapCanvas()
         self.canvas = canvas
+        if let data { mapLabels.configure(data: data, in: canvas) }
         canvas.isHidden = !visible
         let pan = UIPanGestureRecognizer(target: self, action: #selector(pan(_:)))
         pan.minimumNumberOfTouches = 1
@@ -94,6 +97,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             // detached until a renderer is available instead of reviving the old scene.
             if canvas?.map != nil { root.addChild(map) }
             self.data = data; ready = true
+            if let canvas { mapLabels.configure(data: data, in: canvas) }
             if let region { focus(region, stories: stories) } else { showOverview() }
         } catch is CancellationError { }
         catch { self.error = "캠퍼스 지도를 불러오지 못했어요. 다시 시도해 주세요." }
@@ -109,9 +113,14 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         }
     }
 
+    func setMapLabelPresentation(enabled: Bool, topInset: CGFloat, bottomInset: CGFloat, controls: [CGRect] = []) {
+        mapLabels.setPresentation(enabled: enabled, insets: UIEdgeInsets(top: topInset, left: 0, bottom: bottomInset, right: 0), controls: controls)
+        projectPins()
+    }
+
     func suspendForARCamera() {
         setVisible(false)
-        // Keep this renderer across story navigation. Only the AR camera needs it released.
+        // Release before presenting another RealityKit renderer; navigation values stay here.
         canvas?.map?.scene.removeAnchor(root)
         canvas?.removeRenderer()
         panTouchCount = 0
@@ -148,20 +157,14 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
 
     func showOverview() {
-        region = nil; clearPins()
-        // Fit both the northern science buildings and the eastern library into a portrait viewport.
+        region = nil; hasMovedFromOverview = false; clearPins()
         target = SIMD3(32, 2, 1); radius = 305; yaw = 0; pitch = 1.02
         guard let data else { updateCamera(); return }
         guard !sharedMap else { updateCamera(); return }
         for region in CampusRegion.campus {
             guard let place = data.pois.first(where: { $0.id == region.placeID }) else { continue }
-            let button = UIButton(type: .custom)
-            button.setBackgroundImage(UIImage(named: "OiCluster"), for: .normal)
             let count = regionCounts?[region.id] ?? 0
-            button.setTitle("\(count)", for: .normal)
-            button.titleLabel?.font = UIFont(name: "Paperlogy-9Black", size: 30) ?? .systemFont(ofSize: 30, weight: .black)
-            button.setTitleColor(UIColor(red: 0.95, green: 0.97, blue: 0.91, alpha: 1), for: .normal)
-            button.bounds.size = CGSize(width: count > 20 ? 120 : 86, height: count > 20 ? 145 : 106)
+            let button = CampusRegionButton(count: count, diameter: count > 20 ? 146 : count >= 10 ? 118 : 90)
             button.accessibilityLabel = "\(region.title), 오이 \(count)개"
             button.accessibilityIdentifier = "campus.region.\(region.id)"
             button.addAction(UIAction { [weak self] _ in self?.onRegion?(region) }, for: .touchUpInside)
@@ -170,48 +173,80 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         updateCamera()
     }
 
+    func nearestRegion() -> CampusRegion? { nearestRegion(to: target) }
+    private func nearestRegion(to point: SIMD3<Float>) -> CampusRegion? {
+        guard let data else { return nil }
+        return CampusRegion.campus.compactMap { region -> (CampusRegion, Float)? in
+            guard let place = data.pois.first(where: { $0.id == region.placeID }) else { return nil }
+            return (region, simd_distance_squared(data.world(place.p), point))
+        }.min { $0.1 < $1.1 }?.0
+    }
+
+    func showStoriesInCurrentArea(_ region: CampusRegion, stories: [CampusStory]) {
+        self.region = region; self.stories = stories
+        makeStoryPins(stories)
+        updateCamera()
+    }
+
     func setRegionCounts(_ counts: [String: Int]) {
+        guard regionCounts != counts else { return }
         regionCounts = counts
-        if region == nil { showOverview() }
+        if region == nil {
+            let saved = (target, radius, yaw, pitch, hasMovedFromOverview)
+            showOverview()
+            (target, radius, yaw, pitch, hasMovedFromOverview) = saved
+            updateCamera()
+        }
     }
 
     func focus(_ region: CampusRegion, stories: [CampusStory]) {
-        self.region = region; self.stories = stories; clearPins()
+        self.region = region; self.stories = stories
         guard let data, let place = data.pois.first(where: { $0.id == region.placeID }) else { return }
         target = data.world(place.p); radius = 63; yaw = 0.1; pitch = 0.88
-        let center = target
-        // Spread fixtures across nearby walking paths instead of stacking them on adjacent nodes.
-        let candidates = data.graph.sorted { $0.key < $1.key }.map { data.world($0.value.p) }
-            .filter { simd_distance_squared($0, target) < 15 * 15 }
-        var remaining = candidates
-        var selected: [SIMD3<Float>] = []
-        while !remaining.isEmpty, selected.count < stories.count {
-            let next = remaining.indices.max { a, b in
-                func score(_ point: SIMD3<Float>) -> Float {
-                    selected.isEmpty ? -simd_distance_squared(point, center) : selected.map { simd_distance_squared(point, $0) }.min()!
-                }
-                return score(remaining[a]) < score(remaining[b])
-            }!
-            selected.append(remaining.remove(at: next))
-        }
-        for (index, story) in stories.enumerated() {
-            let point: SIMD3<Float>
-            if let latitude = story.latitude, let longitude = story.longitude {
-                point = data.world(latitude: latitude, longitude: longitude)
-            } else if index < selected.count {
-                point = selected[index]
-            } else { continue }
-            positions[story.id] = point
-            let button = UIButton(type: .custom)
-            button.setImage(UIImage(named: story.image), for: .normal)
-            button.imageView?.contentMode = .scaleAspectFit
-            button.bounds.size = CGSize(width: 62, height: 76)
-            button.accessibilityLabel = "\(story.title) 이야기 보기"
-            button.accessibilityIdentifier = "campus.pin.\(story.id)"
-            button.addAction(UIAction { [weak self] _ in self?.onStory?(story.id) }, for: .touchUpInside)
-            attach(button, at: point + SIMD3(0, 2.5, 0))
-        }
+        makeStoryPins(stories)
         updateCamera()
+    }
+
+    private func makeStoryPins(_ stories: [CampusStory]) {
+        clearPins()
+        guard let data else { return }
+        // Re-search can span multiple regions. Legacy records without coordinates
+        // must still use their own region's paths, never the nearest region's center.
+        for story in stories {
+            if let latitude = story.latitude, let longitude = story.longitude {
+                attachStory(story, at: data.world(latitude: latitude, longitude: longitude))
+            }
+        }
+        for region in CampusRegion.campus {
+            let records = stories.filter { $0.regionID == region.id && ($0.latitude == nil || $0.longitude == nil) }
+            guard !records.isEmpty, let place = data.pois.first(where: { $0.id == region.placeID }) else { continue }
+            let center = data.world(place.p)
+            var remaining = data.graph.sorted { $0.key < $1.key }.map { data.world($0.value.p) }
+                .filter { simd_distance_squared($0, center) < 15 * 15 }
+            var selected: [SIMD3<Float>] = []
+            while !remaining.isEmpty, selected.count < records.count {
+                let next = remaining.indices.max { a, b in
+                    func score(_ point: SIMD3<Float>) -> Float {
+                        selected.isEmpty ? -simd_distance_squared(point, center) : selected.map { simd_distance_squared(point, $0) }.min()!
+                    }
+                    return score(remaining[a]) < score(remaining[b])
+                }!
+                selected.append(remaining.remove(at: next))
+            }
+            for (story, point) in zip(records, selected) { attachStory(story, at: point) }
+        }
+    }
+
+    private func attachStory(_ story: CampusStory, at point: SIMD3<Float>) {
+        positions[story.id] = point
+        let button = UIButton(type: .custom)
+        button.setImage(UIImage(named: story.portraitImage), for: .normal)
+        button.imageView?.contentMode = .scaleAspectFit
+        button.bounds.size = CGSize(width: 62, height: 76)
+        button.accessibilityLabel = "\(story.title) 이야기 보기"
+        button.accessibilityIdentifier = "campus.pin.\(story.id)"
+        button.addAction(UIAction { [weak self] _ in self?.onStory?(story.id) }, for: .touchUpInside)
+        attach(button, at: point + SIMD3(0, 2.5, 0))
     }
 
     func focusBackdrop(_ region: CampusRegion) {
@@ -241,9 +276,9 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             entity.name = "placement:" + record.id.uuidString
             entity.isEnabled = record.id != editingPlacementID
             entity.position = data.world(latitude: record.latitude, longitude: record.longitude)
-            // Browse with readable symbols; edit with the same physical proportions as AR.
+            // Map icons use a constant 1m reference; AR keeps the saved physical height.
             entity.scale = SIMD3(repeating: CampusPlacementGeometry.mapScale(
-                heightMeters: record.heightMeters, unitsPerMeter: data.unitsPerMeter, editing: editingPlacement))
+                unitsPerMeter: data.unitsPerMeter, editing: editingPlacement))
             entity.orientation = CampusOiAsset.heading(record.headingDegrees)
             placementLayer.addChild(entity)
         }
@@ -253,6 +288,13 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         guard sharedMap != enabled else { return }
         sharedMap = enabled
         showOverview()
+    }
+
+    func focusPlaceForPlacement(_ id: String) {
+        guard editingPlacement, let data, let place = data.pois.first(where: { $0.id == id }) else { return }
+        target = data.world(place.p); radius = 32; pitch = 1.25
+        placementMessage = "\(place.name) 주변의 건물 밖 바닥을 선택해 주세요."
+        updateCamera()
     }
 
     func setDraft(_ placement: CampusPlacement) {
@@ -275,7 +317,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         editingPlacementID = placement?.id
         syncPlacements(records: savedPlacements)
         camera.camera.near = 0.01
-        placementMessage = "건물 밖 바닥을 누르면 실제 축척으로 확대해요."
+        placementMessage = "건물 밖 바닥을 누르면 배치 위치를 확대해요."
         if let placement, let data {
             target = data.world(latitude: placement.latitude, longitude: placement.longitude)
             setDraft(placement)
@@ -307,7 +349,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         }
         draftEntity?.position = point
         draftEntity?.scale = SIMD3(repeating: CampusPlacementGeometry.mapScale(
-            heightMeters: height, unitsPerMeter: data.unitsPerMeter, editing: true))
+            unitsPerMeter: data.unitsPerMeter, editing: true))
         draftEntity?.orientation = CampusOiAsset.heading(heading)
         updatePlacementReticle(at: point)
     }
@@ -315,7 +357,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     func focusPlacementFromAbove() {
         guard editingPlacement, let point = draftPoint, let data else { return }
         target = point; yaw = 0; pitch = .pi / 2 - 0.01
-        radius = Float(max(6, draftHeight * 6) * data.unitsPerMeter)
+        radius = Float(6 * data.unitsPerMeter)
         updateCamera()
     }
 
@@ -423,6 +465,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private func projectPins() {
         guard visible, let view = canvas?.map else { return }
         for (button, world) in pins {
+            (button as? CampusRegionButton)?.setPanel(pitch < 0.95)
             let local = camera.convert(position: world, from: nil)
             guard local.z < 0, let screen = view.project(world), screen.x.isFinite, screen.y.isFinite else { button.isHidden = true; continue }
             button.isHidden = editingPlacement || !view.bounds.insetBy(dx: -100, dy: -100).contains(screen)
@@ -446,6 +489,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                 }
             }
         }
+        mapLabels.update(map: view, camera: camera, radius: radius, pins: pins.map(\.0))
     }
     @objc private func pan(_ gesture: UIPanGestureRecognizer) {
         guard gesture.state == .began || gesture.state == .changed else {
@@ -470,6 +514,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             target.x = min(110, max(-120, target.x))
             target.z = min(150, max(-180, target.z))
         }
+        hasMovedFromOverview = true
         updateCamera()
     }
     @objc private func pinch(_ gesture: UIPinchGestureRecognizer) {
@@ -477,6 +522,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         let minimum = editingPlacement ? Float(3 * (data?.unitsPerMeter ?? 0.12)) : 20
         radius = min(600, max(minimum, radius / Float(gesture.scale)))
         gesture.scale = 1
+        hasMovedFromOverview = true
         updateCamera()
     }
     @objc private func rotate(_ gesture: UIRotationGestureRecognizer) {
@@ -484,6 +530,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         // Incremental changes compose with two-finger dragging instead of overwriting its yaw.
         yaw -= Float(gesture.rotation)
         gesture.rotation = 0
+        hasMovedFromOverview = true
         updateCamera()
     }
     func gestureRecognizer(
@@ -493,6 +540,60 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         navigationGestures.contains { $0 === gestureRecognizer }
             && navigationGestures.contains { $0 === otherGestureRecognizer }
     }
+}
+
+@MainActor private final class CampusRegionButton: UIButton {
+    private let diameter: CGFloat
+    private let panel = UIImageView(image: UIImage(named: "CampusRegionPanel"))
+    private let content = UIStackView()
+    private let icon = UIImageView(image: UIImage(named: "OiMapCucumber"))
+    private let number = UILabel()
+    private lazy var iconWidth = icon.widthAnchor.constraint(equalToConstant: 19)
+    private lazy var iconHeight = icon.heightAnchor.constraint(equalToConstant: 23)
+    private var panelMode: Bool?
+    init(count: Int, diameter: CGFloat) {
+        self.diameter = diameter
+        super.init(frame: CGRect(x: 0, y: 0, width: diameter, height: diameter))
+        panel.isUserInteractionEnabled = false
+        panel.contentMode = .scaleToFill
+        addSubview(panel)
+        icon.contentMode = .scaleAspectFit
+        number.text = String(count)
+        number.font = UIFont(name: "PearToucan-Bold", size: 26) ?? .systemFont(ofSize: 26, weight: .bold)
+        number.attributedText = NSAttributedString(string: String(count), attributes: [.kern: 1.04])
+        number.textColor = UIColor(red: 101 / 255, green: 126 / 255, blue: 58 / 255, alpha: 1)
+        number.textAlignment = .center
+        content.addArrangedSubview(icon); content.addArrangedSubview(number)
+        content.axis = .vertical; content.alignment = .center; content.spacing = 4
+        content.isUserInteractionEnabled = false
+        addSubview(content)
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([iconWidth, iconHeight])
+        isAccessibilityElement = true
+        setPanel(false)
+    }
+    func setPanel(_ enabled: Bool) {
+        guard panelMode != enabled else { return }
+        panelMode = enabled
+        // Figma changes the silhouette at a lower pitch, not the count's type size.
+        let height = diameter
+        bounds.size = CGSize(width: enabled ? height * 0.9 : diameter, height: height)
+        panel.isHidden = !enabled
+        // Export includes 12 points of shadow around its 81×90 silhouette.
+        panel.frame = bounds.insetBy(dx: -height * 12/90, dy: -height * 12/90)
+        backgroundColor = enabled ? .clear : UIColor(red: 241/255, green: 244/255, blue: 236/255, alpha: 1)
+        layer.cornerRadius = enabled ? 0 : diameter / 2
+        layer.shadowColor = UIColor(red: 0.28, green: 0.39, blue: 0.15, alpha: 1).cgColor
+        layer.shadowOpacity = enabled ? 0 : 0.42
+        layer.shadowRadius = 7; layer.shadowOffset = CGSize(width: 0, height: 3)
+        layer.shadowPath = enabled ? nil : UIBezierPath(ovalIn: bounds).cgPath
+        iconWidth.constant = 19
+        iconHeight.constant = 23
+        content.spacing = 4
+        content.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 57)
+        content.center = CGPoint(x: bounds.midX, y: bounds.midY - (enabled ? height * 0.08 : 0))
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 }
 
 final class CampusMapCanvas: UIView {
@@ -529,6 +630,63 @@ struct CampusMapSurface: UIViewRepresentable {
 }
 
 extension CampusExploreScene {
+    /// Exercise the real projection, pinch and renderer-rebuild paths without writing any data.
+    func checkMapLabels() async {
+        guard ready else { return }
+        var passed = true
+        func settle() async {
+            try? await Task.sleep(for: .milliseconds(500))
+            projectPins()
+        }
+        func check(_ condition: Bool, _ name: String) {
+            passed = passed && condition
+            print("[CampusMapLabelCheck] \(name)=\(condition) areas=\(mapLabels.visibleAreaCount) buildings=\(mapLabels.visibleBuildingCount)")
+        }
+        showOverview(); await settle()
+        check(mapLabels.visibleAreaCount > 0 && mapLabels.visibleBuildingCount == 0, "overview")
+        check(mapLabels.isVisible("area.rist-labs"), "rist-overview")
+        let zoomIn = CampusCheckPinch(); zoomIn.scale = 4; pinch(zoomIn); await settle()
+        check(mapLabels.visibleAreaCount == 0 && mapLabels.visibleBuildingCount > 0, "pinch-in")
+        yaw += 0.4; pitch = 0.85; updateCamera(); await settle()
+        check(mapLabels.visibleBuildingCount > 0, "rotated-roofs")
+        let savedCamera = (target, radius, yaw, pitch)
+        suspendForARCamera(); setVisible(true); await settle()
+        check(target == savedCamera.0 && radius == savedCamera.1 && yaw == savedCamera.2 && pitch == savedCamera.3
+              && mapLabels.visibleBuildingCount > 0, "renderer-return")
+        let zoomOut = CampusCheckPinch(); zoomOut.scale = 0.25; pinch(zoomOut); await settle()
+        check(mapLabels.visibleAreaCount > 0 && mapLabels.visibleBuildingCount == 0, "pinch-out")
+        if let data, let rist = CampusBuildingLabel.groups(data).first(where: { $0.id == "rist-labs" }) {
+            target = rist.anchor; radius = 85; yaw = 0; pitch = 1.1
+            updateCamera(); await settle()
+            let ids = data.buildingLabelGroups?.first(where: { $0.id == "rist-labs" })?.buildingIDs ?? []
+            check(ids.contains { mapLabels.isVisible("building.\($0)") }, "rist-building-roofs")
+        } else { check(false, "rist-group-data") }
+        showOverview(); await settle()
+        print("[CampusMapLabelCheck] RESULT \(passed ? "PASS" : "FAIL")")
+    }
+
+    /// Regressions: a count refresh and area search must not reset the user's camera.
+    func checkMapBrowsing() {
+        guard ready else { return }
+        showOverview()
+        let gesture = CampusCheckPinch(); gesture.scale = 1.1; pinch(gesture)
+        pitch = 0.7; updateCamera()
+        let saved = (target, radius, yaw, pitch)
+        let counts = regionCounts ?? [:]
+        var changed = counts; changed["pond", default: 0] += 1
+        setRegionCounts(changed)
+        var passed = target == saved.0 && radius == saved.1 && yaw == saved.2 && pitch == saved.3 && hasMovedFromOverview
+        setRegionCounts(counts)
+        if let nearest = nearestRegion() {
+            showStoriesInCurrentArea(nearest, stories: [])
+            passed = passed && target == saved.0 && radius == saved.1 && yaw == saved.2 && pitch == saved.3
+        } else { passed = false }
+        showOverview()
+        (target, radius, yaw, pitch) = saved
+        hasMovedFromOverview = true; updateCamera()
+        print("[CampusMapBrowsingCheck] RESULT \(passed ? "PASS" : "FAIL")")
+    }
+
     /// In-memory editor check; does not create or change a saved/shared placement.
     func checkPrecisePlacement() {
         guard ready, placementReady, let data,
@@ -547,8 +705,8 @@ extension CampusExploreScene {
         updateDraft(height: 2, heading: 90)
         check(draftPoint == original, "resize-keeps-coordinate")
         if let draftEntity {
-            check(abs(draftEntity.visualBounds(relativeTo: root).extents.y / Float(data.unitsPerMeter) - 2) < 0.001,
-                  "rendered-height-is-two-metres")
+            check(abs(draftEntity.visualBounds(relativeTo: root).extents.y / Float(data.unitsPerMeter) - 1) < 0.001,
+                  "map-height-stays-at-one-metre")
         } else { check(false, "draft-created") }
         yaw = .pi / 2
         nudgePlacement(right: 1, forward: 0, meters: 0.1)

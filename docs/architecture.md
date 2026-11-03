@@ -270,6 +270,36 @@ MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하
 
 기존 운영자 권한·증빙 신청·비공개 Storage를 재사용하는 `supabase/functions/analyze-evidence`를 추가한다. 사용자 JWT를 검증하고 운영자에게만 현재 제출본의 AI 시각 분석을 반환한다. OpenAI 키는 서버 환경에만 두며 JPEG·PNG·PDF 입력, 응답 스키마·오류·시간 제한, 재제출·권한 회수 재확인을 적용한다. DB·Storage 쓰기와 자동 승인은 수행하지 않는다. 버튼·화면·CORS origin·원격 배포는 별도 연결 범위다. 결과 계약과 검증·개인정보 및 판별 한계는 [증빙 AI 분석 문서](evidence-ai-analysis.md)를 따른다.
 
+### 2026-11-03 로컬 캠퍼스 기능 복원
+
+최신 develop의 `OiServiceAPI`·`OiRemoteStore`·증빙/이야기 승인 계약을 유지하면서 학교 선택, 지도 마커·검색·고정 표시 배율과 주변 AR을 통합했다. 주변 AR은 공개 역할로 `oi_stories`를 다시 조회하고, 실패/숨김/삭제 시 앵커를 제거한다. 기존 `CampusShared*` 계층과 기기 예시 기반 수집은 복원하지 않는다. 적용 범위, 공개 AR 기본 높이·공통 모델의 한계 및 검증은 [복원 기록](local-work-restoration.md)을 참고한다.
+
+### 2026-11-03 Figma 이야기 예시
+
+`CampusStoryExamples`의 번들 예시 3개는 별도의 읽기 전용 `CampusStoryStore(isExample: true)`로 표시한다. 홈은 동일한 지도 렌더러에 선택된 스토어를 전달하고, 모드 전환 시 마커 탭 콜백도 갱신한다. 실제/예시 스토어는 서로의 레코드를 수용하지 않으며 예시의 수집 요청은 서비스로 보내지 않는다. `CampusStoryExample`의 본문·카드·로컬 갤러리는 원격 데이터 계약에 추가하지 않는다. 화면 전환 시 숨은 RealityKit 렌더러를 해제하고 복귀 시 카메라 상태를 보존해 다시 연결한다. 자료 출처와 확인 범위는 [복원 기록](local-work-restoration.md)을 따른다.
+
+### 2026-11-03 확대 단계별 지도 이름표
+
+`CampusMapLabels`는 Home의 `CampusExploreScene` 캔버스 위에 터치를 가로채지 않는 UIKit 이름표를 투영한다. 전체 지도는 `CampusRegion`의 6개 구역과 표시용 RIST 실험동 구역을, 확대 화면은 기존 이름 있는 건물 82개와 RIST 실험동 8개 중 화면에 충분히 크게 보이는 건물을 대상으로 한다. POI/실내 시설명이 아닌 건물 ID별 한 이름을 사용한다. 지붕 높이와 외곽선 안의 점에 고정하며, 오목한 외곽선은 내부 후보점으로 보정한다.
+
+화면 높이·카메라 FOV·거리에 따른 투영 밀도로 구역/건물 단계를 전환한다. 진입 6.5pt/unit, 이탈 5.3pt/unit의 차이를 두어 미세 핀치에서 깜박임을 줄인다. 개별 건물의 화면 외곽 크기도 검사하며, 주요 건물 우선의 안정된 순서로 이름 간 충돌을 제외한다. 이름표는 흰 테두리의 작은 녹색 글씨이며 숫자 패널, 홈 버튼, 헤더, 목록 아래에 겹치지 않게 한다. 확장 목록에서는 숨긴다. 카메라 갱신과 렌더러 복귀 때 위치를 다시 투영하고, 이름 표시가 없는 요약 지도나 실제 AR 배치 좌표·크기에는 영향을 주지 않는다.
+
+`campus-data.json`의 선택적 `buildingLabelGroups`는 검토한 건물 ID들을 공통 구역명에 연결한다. 원본 건물명이 있으면 우선 사용하고, 빈 이름만 이 메타데이터로 보완한다. RIST 실험동 8개에는 공통 이름을 사용하며 개별 동 번호를 추측하지 않는다. 표시용 구역에는 오이 수 버튼을 만들지 않고 서버의 지역 ID·스토리 분류를 변경하지 않는다. 구역 중심이 화면 밖에 있으면 보이는 구성 건물의 지붕 위치에서 이름표 후보를 찾고, 가장자리와 기존 마커와의 충돌을 피한다. 메타데이터가 없는 기존 지도도 디코딩된다.
+
+검증: `sh apps/ios/Tests/run-campus-label-checks.sh`로 90개 지붕 좌표·오목한 건물·단계 전환·표시 크기·충돌 제외를 검사한다. Debug 실행 인자 `-campus-map-label-check`는 실제 투영과 핀치 핸들러를 통해 전체→확대→회전→렌더러 재생성→축소를 검사한다. 상세 검증 범위는 [복원 기록](local-work-restoration.md)을 따른다.
+
+
+### 2026-11-03 + 버튼 이야기 생성 흐름
+
+`RootTabView`가 지도 + 버튼에서 `OiStoryListScreen`을 push한다. 팀원의 `OiStoryListView`·`OiStoryConsentView`·승인 검사를 재사용하고, `OiStoryEditor`의 기존 초안·사진 업로드·revision 기반 저장·검토 요청에 단계별 화면을 연결한다. 사진/위치/커스텀 화면은 `Features/Profile/Creation`에 둔다. `OiCreationStep`은 단계 순서와 입력 검증, `OiCreationAccess`는 서버 상태에 따른 편집 가능 여부를 담당한다.
+
+`OiLocalDraft`의 선택적 `creationStep`·`customization`·`removedMediaPaths`는 구버전 초안을 그대로 읽을 수 있게 추가한다. `OiDraftCustomization`은 로컬 미리보기 전용이며 `OiStoryDraft.payload()`나 공유 DB를 확장하지 않는다. 업로드 사진 순서를 유지하고 기기 사본과 서버 경로를 중복 표시하지 않는다. 기존 `attach_media` RPC로 사진 연결을 변경하며, 변경 직후 목록 동기화가 실패해도 응답의 revision과 경로를 보존한다.
+
+위치 선택은 기존 `CampusExploreScene`과 `CampusPlacementTools`를 재사용한다. 건물 검색은 카메라만 이동시키고 좌표를 자동 확정하지 않는다. 사용자가 바닥을 선택하고 확인하면 좌표를 초안에 전달한다. 선택 화면이 닫힐 때 숨은 RealityKit 렌더러를 해제한다. 구현 경계와 검증 절차는 [이야기 생성 흐름](story-creation-flow.md)을 따른다.
+
+증빙 없는 개발용 체험은 `#if DEBUG`의 `OiCreationPreviewHost`·`OiCreationPracticeSession`으로 분리한다. 실제 단계 UI와 사진 변환만 공유하며 원격 저장소·계정·승인·영속 저장을 의존하지 않는다. 사진은 메모리에 보관하고 종료 시 초기화한다. 최종 버튼은 로컬 완료 상태만 전환하며 `OiStoryDraft`에 가짜 grant를 넣지 않는다. 지도 검색 모달은 `OiLocationPickerRequest` item으로 전달해 화면 열림과 검색 대상이 함께 갱신되도록 한다.
+
+사진 자르기는 공통 `OiPhotoCropEditor`의 고정 사진과 자유 비율 선택 격자로 구성한다. `OiPhotoCropGeometry`가 모서리·가장자리 크기 변경 및 선택 영역 이동을 이미지 경계 안으로 제한한다. 이미지의 aspect-fit 프레임을 기준으로 선택 영역을 정규화하여 `OiPhotoProcessor`에서 픽셀 크롭한다. 편집 화면은 선택만 소유하며 적용 전에는 초안 사진을 쓰지 않는다. 실제 편집기와 체험은 사진 읽기·편집 콜백으로 기존 저장 경계를 유지한다.
 ## App Clip 수집 AR 카메라 생명주기 — 2026-11-02 / #109 브랜치
 
 사용자가 요청한 시작·실패 애니메이션 보완 범위에서 `.starting`과 `.playing`이 같은 컨테이너의 AR 컨트롤러·ARView·ARSession을 공유한다. 카메라 추적·텍스처·배치 준비 후 overlay를 표시하고, 조립·유지·페이드가 끝나야 수집과 단일 타이머를 활성화한다. 화면 이탈 때만 세션을 중지하고 anchor·비동기 작업을 해제한다. 실패는 고정 배경 위 원본 글자 세 조각의 transform을 단일 시간축으로 보간한다. 세부 Figma 값, 이미지 정규화, 접근성 대응과 실기기 서명 검증의 미완료 항목은 [검증 문서](../apps/ios/docs/app-clip-ar-collection.md)에 기록한다. 서버 수집 계약·권한·기부 정책은 변경하지 않는다.

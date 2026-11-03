@@ -74,6 +74,22 @@ struct OiServiceChecks {
             do { _ = try await api.publishedStory(publicID); preconditionFailure("Non-public or mismatched AR story accepted") }
             catch OiServiceError.unavailable {}
         }
+        OiURLProtocol.handler = { request in
+            precondition(request.value(forHTTPHeaderField: "Authorization") == nil, "Nearby query must not use owner privileges")
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            precondition(query.contains { $0.name == "status" && $0.value == "eq.published" })
+            precondition(query.contains { $0.name == "order" && $0.value == "id.asc" })
+            return (200, publicData)
+        }
+        let nearby = try await api.publishedStories()
+        precondition(nearby.map(\.id) == [publicID])
+        let hiddenData = try publicFixture(status: "hidden", id: publicID)
+        OiURLProtocol.handler = { _ in (200, hiddenData) }
+        let hiddenNearby = try await api.publishedStories()
+        precondition(hiddenNearby.isEmpty)
+        OiURLProtocol.handler = { _ in (503, Data()) }
+        do { _ = try await api.publishedStories(); preconditionFailure("Network failure must not return cached nearby objects") }
+        catch OiServiceError.unavailable { }
         print("PASS: AR public-role lookup, stable story identity, hidden/deleted/mismatched story rejection")
 
         OiURLProtocol.handler = { request in
@@ -116,6 +132,30 @@ struct OiServiceChecks {
         draft.theme = "감사"; draft.emotion = "기쁨"; draft.cucumberName = "Test"
         draft.latitude = 36.01261057021347; draft.longitude = 129.3197268697784
         precondition(draft.valid)
+        precondition(OiCreationStep.allCases.allSatisfy { $0.canContinue(draft: draft) })
+        precondition(OiCreationStep.story.previous == nil && OiCreationStep.card.next == nil)
+        var invalid = draft; invalid.title = String(repeating: "가", count: 101)
+        precondition(!OiCreationStep.story.canContinue(draft: invalid))
+        invalid = draft; invalid.emotion = "   "
+        precondition(!OiCreationStep.story.canContinue(draft: invalid))
+        invalid = draft; invalid.latitude = .nan
+        precondition(!OiCreationStep.location.canContinue(draft: invalid))
+        invalid = draft; invalid.longitude = 181
+        precondition(!OiCreationStep.location.canContinue(draft: invalid))
+        invalid = draft; invalid.cucumberName = String(repeating: "가", count: 51)
+        precondition(!OiCreationStep.cucumber.canContinue(draft: invalid))
+        for status in ["pending", "published", "hidden", "deleted"] {
+            precondition(!OiCreationAccess.canEdit(status: status, submitted: false))
+        }
+        precondition(OiCreationAccess.canEdit(status: "draft", submitted: true))
+        precondition(!OiCreationAccess.canEdit(status: nil, submitted: true))
+        let localA = UUID(), localB = UUID(), removedPhoto = UUID()
+        let oldPath = "owner/story/remote-only.jpg"
+        let localPath = "owner/story/\(localA.uuidString.lowercased()).jpg"
+        let removedPath = "owner/story/\(removedPhoto.uuidString.lowercased()).jpg"
+        let ordered = OiEditingPhoto.ordered(local: [localA, localB], remote: [oldPath, localPath, removedPath], removed: [removedPath])
+        precondition(ordered == [.uploaded(oldPath), .local(localA), .local(localB)])
+        print("PASS: creation validation, server review lock, and stable deduplicated photo ordering")
         let payload = try draft.payload()
         precondition(payload["revision"] as? Int == 0 && payload["cucumber_asset"] as? String == "OiCats")
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -123,6 +163,13 @@ struct OiServiceChecks {
         let vault = OiDraftVault(directory: directory)
         let owner = UUID(), other = UUID(), photoID = UUID()
         var record = OiLocalDraft(draft: draft, photos: [photoID], version: 2)
+        let legacyJSON = try JSONEncoder().encode(record)
+        let legacy = try JSONDecoder().decode(OiLocalDraft.self, from: legacyJSON)
+        precondition(legacy.creationStep == nil && legacy.customization == nil && legacy.removedMediaPaths == nil)
+        record.creationStep = OiCreationStep.card.rawValue
+        record.customization = OiDraftCustomization(fill: .gradient, firstColor: 0xABCDEF, secondColor: 0x123456,
+                                                   showsCharacter: false, garmentColors: ["모자":0x445566])
+        record.removedMediaPaths = [oldPath]
         try await vault.saveAttachment(Data([1,2,3]), owner: owner, id: photoID)
         try await vault.save(record, owner: owner)
         record.version = 1; record.draft.title = "Stale edit"
@@ -130,6 +177,10 @@ struct OiServiceChecks {
         let reopened = OiDraftVault(directory: directory)
         let recovered = try await reopened.load(owner: owner, id: draft.id)
         precondition(recovered?.draft.title == "Title" && recovered?.photos == [photoID])
+        precondition(recovered?.creationStep == "card" && recovered?.customization?.fill == .gradient)
+        precondition(recovered?.customization?.firstColor == 0xABCDEF && recovered?.customization?.garmentColors["모자"] == 0x445566)
+        precondition(recovered?.customization?.showsCharacter == false && recovered?.removedMediaPaths == [oldPath])
+        precondition(payload["customization"] == nil && payload["creationStep"] == nil, "Local scaffold must not alter shared API")
         let photoData = try await reopened.attachment(owner: owner, id: photoID)
         precondition(photoData == Data([1,2,3]))
         let unrelated = try await reopened.list(owner: other)

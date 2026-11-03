@@ -92,6 +92,13 @@ struct OiServiceAPI {
         return story
     }
 
+    /// Nearby AR must never include an owner's drafts or hidden stories.
+    func publishedStories() async throws -> [OiLiveStory] {
+        let records = try await rows("oi_stories", query: "status=eq.published&order=id.asc", as: OiLiveStory.self)
+        try Task.checkCancellation()
+        return records.filter { $0.status == "published" }
+    }
+
     func collectionMetrics(token: String?) async throws -> [OiCollectionMetric] {
         var values: [OiCollectionMetric] = []
         var offset = 0

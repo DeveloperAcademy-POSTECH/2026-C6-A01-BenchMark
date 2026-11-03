@@ -224,6 +224,23 @@ final class OiRemoteStore {
         return try await api.publishedStory(id)
     }
 
+    func publishedStories() async throws -> [OiLiveStory] {
+        guard let api else { throw OiServiceError.configuration }
+        return try await api.publishedStories()
+    }
+
+    func campusStory(_ item: OiLiveStory, order: Int = 0) -> CampusStory {
+        var story = CampusStory(id: item.id.uuidString, regionID: item.regionId, title: item.cucumberName,
+            image: item.cucumberAsset, tags: [item.theme, item.emotion],
+            donor: profiles.first { $0.id == item.userId }?.nickname ?? "작성자 정보 확인 중",
+            location: regions.first { $0.id == item.regionId }?.name ?? "POSTECH",
+            date: item.createdDateLabel, order: order, popularity: collectionCounts[item.id] ?? 0, palette: 0)
+        story.remoteBody = item.body
+        story.remoteMediaPaths = mediaPaths(storyID: item.id)
+        story.latitude = item.latitude; story.longitude = item.longitude
+        return story
+    }
+
     private func load() async throws {
         guard let api else { throw OiServiceError.configuration }
         let started = generation
@@ -450,6 +467,26 @@ final class OiRemoteStore {
             applyReceipt(updated, action: "attach_media", payload: [:]); await refreshAfterCommit()
             return updated
         } catch { if started == generation { noteAuthenticationFailure(error); self.error = error.localizedDescription }; return nil }
+    }
+
+    func setStoryMedia(_ paths: [String], story: OiLiveStory) async -> OiLiveStory? {
+        guard !isBusy, let api else { return nil }
+        let started = generation
+        isBusy = true; error = nil
+        defer { isBusy = false }
+        do {
+            let updated = try await api.mutate("attach_media", payload: ["id": story.id.uuidString,
+                "revision": story.revision, "paths": paths], token: token(), as: OiLiveStory.self)
+            guard started == generation else { throw OiServiceError.accountChanged }
+            committedMediaPaths[story.id] = paths
+            applyReceipt(updated, action: "attach_media", payload: [:])
+            await refreshAfterCommit()
+            guard started == generation else { return nil }
+            return updated
+        } catch {
+            if started == generation { noteAuthenticationFailure(error); self.error = error.localizedDescription }
+            return nil
+        }
     }
 
     func mediaPaths(storyID: UUID) -> [String] {
