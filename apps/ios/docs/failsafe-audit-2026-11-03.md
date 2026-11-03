@@ -52,6 +52,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -quiet \
   -maximum-concurrent-test-simulator-destinations 1 test
 ```
 
+최신 `develop`의 App Clip AR 변경(`d028406`)을 통합한 뒤 `OiFlowChecks build-for-testing` 전체 빌드와 App Clip·AR 복구·카메라 lifecycle 검사를 다시 통과했다. 위 XCTest 25개는 통합 전 동일한 인증·계정 소스에서 실행한 결과다.
+
 로컬 Deno 실행 파일은 없어 Edge Deno 타입 검사는 수행하지 못했다. CI의 `npm --prefix supabase run check`와 PostgreSQL 16 검사를 별도로 확인한다.
 
 ## 계정 화면 캡처
