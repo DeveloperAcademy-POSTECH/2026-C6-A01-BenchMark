@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct ARGameIntroView: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .title2) private var accessibleTitleWidth = 140
     let cucumberName: String
     let cucumberImageURL: URL?
     let targetCount: Int
@@ -34,49 +36,34 @@ struct ARGameIntroView: View {
                 Color.black.opacity(0.4)
                     .accessibilityHidden(true)
 
-                backButton(scale: scale, origin: origin)
+                if dynamicTypeSize.isAccessibilitySize {
+                    accessibleContent
+                } else {
+                    backButton(scale: scale, origin: origin)
 
-                Text("오이 수집 게임")
-                    .font(pearFont(size: 25 * scale, relativeTo: .title2, bold: true))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .position(x: origin.x + 201 * scale, y: origin.y + 91 * scale)
-                    .accessibilityAddTraits(.isHeader)
+                    titleArtwork
+                        .frame(width: 140 * scale, height: 27 * scale)
+                        .position(x: origin.x + 200 * scale, y: origin.y + 91 * scale)
+                        .accessibilityAddTraits(.isHeader)
 
-                cucumberArtwork(scale: scale, origin: origin)
+                    cucumberArtwork(scale: scale, origin: origin)
 
-                Text(cucumberName)
-                    .font(pearFont(size: 20 * scale, relativeTo: .title3, bold: false))
-                    .foregroundStyle(.black)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .padding(.horizontal, 30 * scale)
-                    .frame(minHeight: 44 * scale)
-                    .background(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 222 / 255, green: 237 / 255, blue: 250 / 255),
-                                Color(red: 93 / 255, green: 180 / 255, blue: 240 / 255)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        ),
-                        in: Capsule()
-                    )
-                    .frame(maxWidth: 362 * scale)
-                    .position(x: origin.x + 201 * scale, y: origin.y + 505 * scale)
+                    Text(cucumberName)
+                        .font(pearFont(size: 20 * scale, relativeTo: .title3, bold: false))
+                        .foregroundStyle(.black)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                        .padding(.horizontal, 30 * scale)
+                        .frame(minHeight: 44 * scale)
+                        .background(Color(red: 234 / 255, green: 238 / 255, blue: 226 / 255), in: Capsule())
+                        .frame(maxWidth: 362 * scale)
+                        .position(x: origin.x + 201 * scale, y: origin.y + 505 * scale)
 
-                targetText(scale: scale)
-                    .position(x: origin.x + 201 * scale, y: origin.y + 621 * scale)
+                    targetText(scale: scale)
+                        .position(x: origin.x + 201 * scale, y: origin.y + 637 * scale)
 
-                Text("제한시간 \(timeLimitSeconds)초")
-                    .font(pearFont(size: 16 * scale, relativeTo: .body, bold: true))
-                    .foregroundStyle(.red)
-                    .shadow(color: .white, radius: 12 * scale)
-                    .position(x: origin.x + 201 * scale, y: origin.y + 727 * scale)
-
-                startButton(scale: scale, origin: origin)
+                    startButton(scale: scale, origin: origin)
+                }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
@@ -99,35 +86,40 @@ struct ARGameIntroView: View {
         ZStack {
             Image("ARGameIntroGlow")
                 .resizable()
-                .scaledToFit()
-                .frame(width: 248 * scale, height: 343 * scale)
-                .opacity(0.55)
-                .blur(radius: 24 * scale)
+                .frame(width: 366.982 * scale, height: 508.575 * scale)
+                .rotationEffect(.degrees(16.56))
+                // Restore Figma's stdDeviation 50, unsupported by Asset Catalog SVG.
+                .blur(radius: 50 * scale)
+                .position(x: origin.x + 201 * scale, y: origin.y + 311.6835 * scale)
 
-            CucumberCharacterImage(imageURL: cucumberImageURL, contentMode: .fill)
-                .frame(width: 212 * scale, height: 338 * scale)
-                .clipped()
+            // The 212.429 × 337.504 crop slot paints this alpha-bounded region.
+            // Normalize all sources first so remote padding cannot change visual size.
+            CucumberCharacterImage(imageURL: cucumberImageURL, contentMode: .fit)
+                .frame(width: 189.331444 * scale, height: 312.508397 * scale)
+                .position(x: origin.x + 193.354493 * scale, y: origin.y + 311.238019 * scale)
         }
-        .rotationEffect(.degrees(0))
-        .position(x: origin.x + 201 * scale, y: origin.y + 309 * scale)
         .accessibilityHidden(true)
     }
 
     private func targetText(scale: CGFloat) -> some View {
-        (Text("\(targetCount)마리")
-            .foregroundStyle(Color(red: 240 / 255, green: 255 / 255, blue: 143 / 255))
-        + Text("를 찾으세요!")
-            .foregroundStyle(.white))
-        .font(pearFont(size: 40 * scale, relativeTo: .largeTitle, bold: true))
-        .lineLimit(1)
-        .minimumScaleFactor(0.65)
-        .accessibilityLabel("\(targetCount)마리를 찾으세요")
+        let highlight = Color(red: 240 / 255, green: 255 / 255, blue: 143 / 255)
+        let timeLimit = Text("\(timeLimitSeconds)초").foregroundStyle(highlight)
+        let target = Text("\(targetCount)마리").foregroundStyle(highlight)
+
+        return Text("\(timeLimit) 안에\n\(target)를 찾으세요!")
+            .foregroundStyle(.white)
+            .font(pearFont(size: 40 * scale, relativeTo: .largeTitle, bold: false))
+            .multilineTextAlignment(.center)
+            .lineSpacing(20 * scale)
+            .lineLimit(2)
+            .minimumScaleFactor(0.6)
+            .accessibilityLabel("\(timeLimitSeconds)초 안에 \(targetCount)마리를 찾으세요")
     }
 
     private func startButton(scale: CGFloat, origin: CGPoint) -> some View {
         Button(action: onStart) {
             Text("시작")
-                .font(pearFont(size: 20 * scale, relativeTo: .title3, bold: true))
+                .font(.custom("Paperlogy-7Bold", fixedSize: 20 * scale))
                 .foregroundStyle(.black)
                 .frame(maxWidth: .infinity, minHeight: max(56 * scale, 50))
                 .background(.white, in: Capsule())
@@ -144,8 +136,64 @@ struct ARGameIntroView: View {
         relativeTo textStyle: Font.TextStyle,
         bold: Bool
     ) -> Font {
-        let font = Font.custom("PearToucan-Regular", size: size, relativeTo: textStyle)
+        let font = dynamicTypeSize.isAccessibilitySize
+            ? Font.custom("PearToucan-Regular", size: size, relativeTo: textStyle)
+            : Font.custom("PearToucan-Regular", fixedSize: size)
         return bold ? font.weight(.bold) : font
+    }
+
+    private var accessibleContent: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                HStack(alignment: .top, spacing: 12) {
+                    Button(action: onBack) {
+                        Image(systemName: "chevron.left").frame(width: 50, height: 50)
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .accessibilityLabel("이전 화면")
+                    titleArtwork
+                        .aspectRatio(140 / 27, contentMode: .fit)
+                        .frame(maxWidth: accessibleTitleWidth)
+                        .accessibilityAddTraits(.isHeader)
+                }
+                CucumberCharacterImage(imageURL: cucumberImageURL, contentMode: .fit)
+                    .frame(height: 260)
+                    .accessibilityHidden(true)
+                Text(cucumberName)
+                    .font(pearFont(size: 20, relativeTo: .title3, bold: false))
+                    .foregroundStyle(.black)
+                    .padding(16)
+                    .background(Color(red: 234 / 255, green: 238 / 255, blue: 226 / 255), in: RoundedRectangle(cornerRadius: 30))
+                Text("\(timeLimitSeconds)초 안에 \(targetCount)마리를 찾으세요!")
+                    .font(pearFont(size: 40, relativeTo: .largeTitle, bold: false))
+                    .lineSpacing(24)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.center)
+                Button(action: onStart) {
+                    Text("시작")
+                        .font(.custom("Paperlogy-7Bold", size: 20, relativeTo: .title3))
+                        .foregroundStyle(.black)
+                        .padding(20)
+                        .frame(maxWidth: .infinity, minHeight: 56)
+                        .background(.white, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("카메라 권한을 확인하고 AR 게임을 시작합니다")
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 20)
+            .padding(.top, 66)
+            .padding(.bottom, 68)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // The original static title outlines preserve Figma Bold without substituting a font.
+    private var titleArtwork: some View {
+        Image("ARGameIntroTitle")
+            .resizable()
+            .accessibilityLabel("오이 수집 게임")
     }
 }
 

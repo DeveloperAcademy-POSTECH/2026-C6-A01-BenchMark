@@ -20,6 +20,7 @@ struct RealStoryRepository: StoryRepository {
         let id: UUID; let userId: UUID; let regionId: String
         let title: String; let body: String; let theme: String; let emotion: String
         let cucumberName: String; let status: String; let createdAt: String
+        let cucumberAsset: String?
     }
     private struct Profile: Decodable { let id: UUID; let nickname: String }
     private struct Region: Decodable { let id: String; let name: String }
@@ -72,7 +73,21 @@ struct RealStoryRepository: StoryRepository {
         return Story(storyID: id.uuidString, donorID: row.userId, donorDisplayName: profiles.first?.nickname ?? "농부",
             title: row.title, content: row.body, publishedAt: date,
             location: StoryLocation(locationID: row.regionId, displayName: regions.first?.name ?? "장소 확인 중"),
-            tags: [row.theme,row.emotion], cucumberID: id.uuidString, cucumberName: row.cucumberName)
+            tags: [row.theme,row.emotion], cucumberID: id.uuidString, cucumberName: row.cucumberName,
+            cucumberImageURL: cucumberImageURL(for: row.cucumberAsset))
+    }
+
+    private func cucumberImageURL(for asset: String?) -> URL? {
+        guard let asset else { return nil }
+        let resourceName: String
+        switch asset {
+        case "OiCats": resourceName = "61272"
+        case "OiGardener": resourceName = "0e35d"
+        case "OiWizard": resourceName = "9ac42"
+        case "OiTraveler": resourceName = "aeb3a"
+        default: return nil
+        }
+        return Bundle.main.url(forResource: resourceName, withExtension: "png")
     }
 
     func fetchPublicStoryCard(storyID: String) async throws -> StoryCard? {

@@ -22,33 +22,25 @@ struct CucumberCharacterImage: View {
         self.isTemplate = isTemplate
     }
 
+    @State private var artwork: UIImage?
+
     var body: some View {
         Group {
-            if let imageURL {
-                AsyncImage(url: imageURL) { phase in
-                    switch phase {
-                    case .success(let image):
-                        styled(image)
-                    case .empty, .failure:
-                        fallbackImage
-                    @unknown default:
-                        fallbackImage
-                    }
-                }
+            if let artwork {
+                Image(uiImage: artwork)
+                    .renderingMode(isTemplate ? .template : .original)
+                    .resizable()
+                    .aspectRatio(contentMode: contentMode)
             } else {
-                fallbackImage
+                Color.clear
             }
         }
-        .aspectRatio(contentMode: contentMode)
-    }
-
-    private var fallbackImage: some View {
-        styled(Image("ARGameIntroCucumber"))
-    }
-
-    private func styled(_ image: Image) -> some View {
-        image
-            .renderingMode(isTemplate ? .template : .original)
-            .resizable()
+        .task(id: imageURL) {
+            artwork = await CucumberArtwork.load(imageURL: nil)
+            guard let imageURL else { return }
+            let image = await CucumberArtwork.load(imageURL: imageURL)
+            guard !Task.isCancelled else { return }
+            artwork = image
+        }
     }
 }
