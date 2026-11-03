@@ -7,9 +7,6 @@ struct OiAccountView: View {
     let remote: OiRemoteStore
     @State private var appleAuthentication = OiAppleAuthentication()
     @State private var nickname = ""
-    @State private var importingEvidence = false
-    @State private var fileError: String?
-    @State private var replacingEvidence: OiEvidence?
     @State private var localDrafts: [OiLocalDraft] = []
     @State private var unreadableDraftCount = 0
     @State private var draftLoadError: String?
@@ -20,7 +17,7 @@ struct OiAccountView: View {
     var body: some View {
         List {
             OiConnectionStatus(remote: remote)
-            if let error = remote.error ?? fileError {
+            if let error = remote.error {
                 Section { Text(error).foregroundStyle(.red).accessibilityIdentifier("oi.account.error"); Button("다시 불러오기") { Task { await remote.refresh() } } }
             }
             if let account = remote.account {
@@ -52,30 +49,10 @@ struct OiAccountView: View {
                     if let warning = remote.localRecoveryWarning { Text(warning).font(.footnote).foregroundStyle(.secondary) }
                 }
                 Section("기부 증빙 · 작성 승인") {
-                    Text("기부 사실을 확인할 자료에서 불필요한 개인정보를 가려 제출해 주세요. 증빙은 공개 이야기나 도감에 표시되지 않습니다.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                    Text("운영자 검토 후 글 작성 권한을 승인합니다. 학교 공식 납입 확인이나 영수증 발급과는 다릅니다.")
-                        .font(.footnote)
-                    Button("증빙 제출 (JPEG·PNG·PDF, 10MB 이하)") { replacingEvidence = nil; importingEvidence = true }
-                        .accessibilityIdentifier("oi.evidence.upload")
-                    ForEach(remote.evidence.filter { $0.userId == account.id }) { request in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(request.status.oiStatusTitle)
-                            if let note = request.reviewNote { Text(note).font(.caption).foregroundStyle(.secondary) }
-                            if ["changes_requested","rejected"].contains(request.status) {
-                                Button("이 신청 보완·재제출") { replacingEvidence = request; importingEvidence = true }
-                            }
-                        }
-                    }
-                    if let operation = remote.evidenceOperation {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("기기 제출 기록: \(evidencePhase(operation.phase))").font(.caption)
-                            if let failure = operation.failure { Text("이전 시도: \(failure)").font(.caption).foregroundStyle(.secondary) }
-                            if ["failed","prepared","uploading","submitting"].contains(operation.phase) {
-                                Button("같은 신청·파일로 이어서 제출") { Task { await remote.retryEvidence() } }
-                            }
-                        }
-                    }
+                    NavigationLink("기부 인증 · 증빙 제출과 진행 확인") {
+                        OiEvidenceView(remote: remote)
+                    }.accessibilityIdentifier("oi.evidence.open")
+                    Text("운영자 검토 후 글 작성 권한을 승인합니다. 학교 공식 납입 확인이나 영수증 발급과는 다릅니다.").font(.footnote)
                 }
                 Section("이 계정의 기기 초안·보관본") {
                     if isLoadingDrafts { ProgressView("기기 초안 확인 중") }
@@ -141,24 +118,6 @@ struct OiAccountView: View {
         .overlay { if remote.isBusy { ProgressView().padding(24).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) } }
         .refreshable { await remote.refresh() }
         .task(id: remote.account?.id) { await loadLocalDrafts() }
-        .fileImporter(isPresented: $importingEvidence, allowedContentTypes: [.jpeg,.png,.pdf]) { result in
-            do {
-                let url = try result.get()
-                let scoped = url.startAccessingSecurityScopedResource()
-                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                let attributes = try url.resourceValues(forKeys: [.fileSizeKey,.contentTypeKey])
-                guard let size = attributes.fileSize, size > 0, size <= 10_485_760,
-                      let type = attributes.contentType,
-                      let mime = type.preferredMIMEType, let ext = type.preferredFilenameExtension,
-                      ["image/jpeg","image/png","application/pdf"].contains(mime) else {
-                    throw OiServiceError.server("JPEG·PNG·PDF 파일을 10MB 이하로 선택해 주세요.")
-                }
-                let data = try Data(contentsOf: url)
-                fileError = nil
-                let request = replacingEvidence
-                Task { await remote.submitEvidence(data: data, contentType: mime, fileExtension: ext, replacing: request) }
-            } catch { fileError = error.localizedDescription }
-        }
     }
 
     private func loadLocalDrafts() async {
@@ -177,6 +136,126 @@ struct OiAccountView: View {
         } catch {
             guard draftLoadID == attempt, remote.account?.id == owner else { return }
             draftLoadError = "기기 초안을 불러오지 못했습니다. 원본은 보관했습니다. \(error.localizedDescription)"
+        }
+    }
+}
+
+private struct OiEvidenceView: View {
+    let remote: OiRemoteStore
+    @State private var fileError: String?
+    @State private var importingEvidence = false
+    @State private var importingOwner: UUID?
+    @State private var replacingEvidence: OiEvidence?
+    private var requests: [OiEvidence] { remote.evidence.filter { $0.userId == remote.account?.id } }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                OiConnectionStatus(remote: remote)
+                if let error = fileError ?? remote.error {
+                    Text(error).font(.footnote).foregroundStyle(.red).accessibilityIdentifier("oi.evidence.error")
+                }
+                Button { attach(nil) } label: {
+                    VStack(spacing: 10) {
+                        Text("+ 파일 첨부하기").font(CampusStyle.semibold(24))
+                        Text("PNG, JPEG, PDF · 10MB 이하").font(CampusStyle.medium(14)).foregroundStyle(.secondary)
+                    }.frame(maxWidth: .infinity, minHeight: 180)
+                        .foregroundStyle(Color(white: 0.35))
+                        .background(CampusStyle.mapSheet, in: RoundedRectangle(cornerRadius: 40))
+                        .overlay { RoundedRectangle(cornerRadius: 40).stroke(Color("OiBorder"), lineWidth: 2) }
+                }.buttonStyle(.plain).accessibilityIdentifier("oi.evidence.upload")
+                Text("파일을 선택하면 운영자에게 검토 요청이 제출됩니다. 불필요한 개인정보는 가려 주세요. 증빙은 공개 이야기나 도감에 표시되지 않습니다.")
+                    .font(CampusStyle.body(14)).foregroundStyle(.secondary)
+                if let operation = remote.evidenceOperation {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("기기 제출 기록: \(evidencePhase(operation.phase))").font(CampusStyle.medium(14))
+                        if let failure = operation.failure { Text("이전 시도: \(failure)").font(.footnote).foregroundStyle(.secondary) }
+                        if ["failed", "prepared", "uploading", "submitting"].contains(operation.phase) {
+                            Button("같은 신청·파일로 이어서 제출") { Task { await remote.retryEvidence() } }
+                                .buttonStyle(.bordered).tint(Color("OiGreen"))
+                        }
+                    }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color("OiSoft"), in: RoundedRectangle(cornerRadius: 20))
+                }
+                HStack {
+                    Text("인증 진척도").font(.custom("Paperlogy-7Bold", size: 24, relativeTo: .title2))
+                    Spacer()
+                    Text("\(requests.count)건").font(CampusStyle.medium(16))
+                        .padding(.horizontal, 16).padding(.vertical, 5)
+                        .foregroundStyle(.white).background(Color("OiGreen"), in: Capsule())
+                }
+                if requests.isEmpty {
+                    Text("제출한 증빙이 없어요. 기부 사실을 확인할 자료를 첨부해 주세요.")
+                        .font(CampusStyle.body(16)).foregroundStyle(.secondary)
+                }
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(requests.enumerated()), id: \.element.id) { index, request in
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                Text("제출 자료 \(index + 1)").font(CampusStyle.body(16))
+                                Spacer(minLength: 0)
+                                Text(request.status.oiStatusTitle).font(CampusStyle.body(14))
+                                    .padding(.horizontal, 16).padding(.vertical, 8)
+                                    .background(statusColor(request.status), in: Capsule())
+                            }
+                            if let note = request.reviewNote { Text(note).font(.footnote).foregroundStyle(.secondary) }
+                            if ["changes_requested", "rejected"].contains(request.status) {
+                                Button("이 신청 보완·재제출") { attach(request) }
+                                    .buttonStyle(.bordered).tint(Color("OiGreen"))
+                            }
+                        }.padding(.vertical, 18).frame(maxWidth: .infinity, alignment: .leading)
+                        Divider()
+                    }
+                }
+                Text("작성 승인은 학교의 공식 납입 확인이나 영수증 발급과 다릅니다.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }.padding(.horizontal, 20).padding(.top, 36).padding(.bottom, 24)
+        }
+        .navigationTitle("기부 인증").navigationBarTitleDisplayMode(.inline)
+        .background(Color(.systemBackground))
+        .disabled(remote.isBusy)
+        .overlay { if remote.isBusy { ProgressView().padding(24).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) } }
+        .refreshable { await remote.refresh() }
+        .fileImporter(isPresented: $importingEvidence, allowedContentTypes: [.jpeg, .png, .pdf]) { result in
+            do {
+                guard let owner = importingOwner, remote.account?.id == owner else {
+                    throw OiServiceError.server("로그인 계정이 바뀌었어요. 이 계정에서 파일을 다시 선택해 주세요.")
+                }
+                let url = try result.get()
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                let attributes = try url.resourceValues(forKeys: [.fileSizeKey, .contentTypeKey])
+                guard let size = attributes.fileSize, size > 0, size <= 10_485_760,
+                      let type = attributes.contentType,
+                      let mime = type.preferredMIMEType, let ext = type.preferredFilenameExtension,
+                      ["image/jpeg", "image/png", "application/pdf"].contains(mime) else {
+                    throw OiServiceError.server("JPEG·PNG·PDF 파일을 10MB 이하로 선택해 주세요.")
+                }
+                let data = try Data(contentsOf: url)
+                fileError = nil
+                let request = replacingEvidence
+                Task {
+                    guard remote.account?.id == owner else { return }
+                    await remote.submitEvidence(data: data, contentType: mime, fileExtension: ext, replacing: request)
+                }
+            } catch { fileError = error.localizedDescription }
+        }
+        .onChange(of: remote.account?.id) { _, _ in
+            importingEvidence = false; importingOwner = nil; replacingEvidence = nil; fileError = nil
+        }
+    }
+
+    private func attach(_ request: OiEvidence?) {
+        guard let owner = remote.account?.id, request == nil || request?.userId == owner else { return }
+        importingOwner = owner; replacingEvidence = request; fileError = nil; importingEvidence = true
+    }
+
+    private func statusColor(_ status: String) -> Color {
+        switch status {
+        case "approved": Color("OiBorder")
+        case "pending": Color(red: 231 / 255, green: 238 / 255, blue: 204 / 255)
+        case "rejected", "changes_requested": Color(red: 1, green: 198 / 255, blue: 151 / 255)
+        default: Color(white: 0.918)
         }
     }
 
