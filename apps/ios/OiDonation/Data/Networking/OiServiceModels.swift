@@ -17,6 +17,7 @@ struct OiSession: Codable {
     let expiresIn: TimeInterval
     var expiresAt: TimeInterval?
     let user: OiAccount
+    var appAccount: OiAccount? = nil
 
     var needsRefresh: Bool { (expiresAt ?? 0) < Date().timeIntervalSince1970 + 60 }
 }
@@ -24,6 +25,12 @@ struct OiSession: Codable {
 protocol OiSessionStorage {
     func read() throws -> OiSession?
     func write(_ session: OiSession?) throws
+}
+
+enum OiServiceFailure {
+    static func isCancellation(_ error: Error) -> Bool {
+        error is CancellationError || (error as? URLError)?.code == .cancelled
+    }
 }
 
 struct OiProfile: Codable, Equatable, Identifiable {
@@ -50,6 +57,7 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
     let status: String
     let revision: Int
     let createdAt: String
+    var storageOwnerId: UUID? = nil
 
     var createdDateLabel: String {
         let parser = ISO8601DateFormatter()
@@ -72,6 +80,7 @@ struct OiEvidence: Codable, Identifiable, Equatable {
     let status: String
     let objectPath: String?
     let reviewNote: String?
+    var storageOwnerId: UUID? = nil
 }
 
 struct OiWritingGrant: Codable, Identifiable, Equatable {
@@ -101,6 +110,10 @@ struct OiMedia: Codable, Identifiable {
 struct OiCapabilities: Decodable {
     let `operator`: Bool
     let coinsEnabled: Bool
+    let accountId: UUID?
+    let accountMergeEnabled: Bool?
+    let accountMemberIds: [UUID]?
+    let accountProviders: [String]?
 }
 
 struct OiStoryDraft: Codable, Equatable {
@@ -147,7 +160,7 @@ struct OiStoryDraft: Codable, Equatable {
 }
 
 enum OiServiceError: LocalizedError {
-    case configuration, signInRequired, invalidDraft, invalidCallback, unavailable, accountChanged
+    case configuration, signInRequired, invalidDraft, invalidCallback, unavailable, accountChanged, authenticationFailed
     case server(String)
     case invalidInput, conflict
     case secureStorage(Int32)
@@ -157,6 +170,7 @@ enum OiServiceError: LocalizedError {
         case .secureStorage(let status): "계정 저장소에 접근할 수 없습니다(코드 \(status)). 앱 서명과 키체인 권한을 확인해 주세요."
         case .configuration: "Supabase 연결 설정이 없습니다. 개발용 공개 키를 설정한 빌드를 사용해 주세요."
         case .signInRequired: "로그인이 필요합니다."
+        case .authenticationFailed: "로그인을 완료하지 못했습니다. 계정과 로그인 설정을 확인한 뒤 다시 시도해 주세요."
         case .invalidDraft: "작성 승인과 모든 입력 항목, 캠퍼스 바깥 공간의 위치를 확인해 주세요."
         case .invalidCallback: "로그인 응답을 확인할 수 없습니다. 다시 로그인해 주세요."
         case .unavailable: "지금은 연결할 수 없습니다. 잠시 후 다시 시도해 주세요."
