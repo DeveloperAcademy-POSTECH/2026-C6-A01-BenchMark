@@ -37,6 +37,35 @@ private actor ControlledStoryRepository: StoryRepository {
     }
 }
 
+@MainActor
+private final class ControlledGameClock {
+    private var sleepers: [CheckedContinuation<Void, Error>] = []
+    private var observer: CheckedContinuation<Void, Never>?
+    private(set) var sleepCount = 0
+    private(set) var now: TimeInterval = 0
+
+    func sleep() async throws {
+        sleepCount += 1
+        try await withCheckedThrowingContinuation { continuation in
+            sleepers.append(continuation)
+            observer?.resume()
+            observer = nil
+        }
+    }
+
+    func waitForSleep() async {
+        if !sleepers.isEmpty { return }
+        await withCheckedContinuation { observer = $0 }
+    }
+
+    func advanceTime(by seconds: TimeInterval) { now += seconds }
+
+    func advance(by seconds: TimeInterval = 1) {
+        advanceTime(by: seconds)
+        sleepers.removeFirst().resume()
+    }
+}
+
 @main
 struct AppClipInvocationChecks {
     @MainActor
@@ -164,20 +193,32 @@ struct AppClipInvocationChecks {
         await cancelled.value
         require(storyModel.state == .welcome && storyModel.story == nil, "cancelled task must not publish content")
 
+        let gameClock = ControlledGameClock()
         let gameModel = ARGameViewModel(
             timeLimitSeconds: 2,
             isARSupported: { true },
-            requestCameraAccess: { true }
+            requestCameraAccess: { true },
+            monotonicNow: { gameClock.now }
         )
-        require(gameModel.state == .intro, "AR game starts at intro")
+        require(gameModel.state == .introBackground, "AR game starts at intro background")
         await gameModel.resolvePermission()
-        require(gameModel.state == .intro, "AR game ignores permission resolution before request")
+        require(gameModel.state == .introBackground, "AR game ignores permission resolution during intro background")
+        gameModel.requestPermission()
+        require(gameModel.state == .introBackground, "AR game ignores permission requests during intro background")
+        gameModel.showIntro()
+        require(gameModel.state == .intro, "AR game shows intro after background transition")
         gameModel.requestPermission()
         require(gameModel.state == .requestingPermission, "AR game requests permission")
         await gameModel.resolvePermission()
-        require(gameModel.state == .starting, "AR game shows starting transition after permission")
-        gameModel.beginPlaying()
-        require(gameModel.state == .playing, "AR game starts after permission")
+        require(gameModel.state == .starting, "AR game enters the shared camera container before animation")
+        gameModel.collectCucumber()
+        gameClock.advanceTime(by: 3)
+        gameModel.updateRemainingTime()
+        await gameModel.runTimer()
+        require(gameModel.collectedCount == 0 && gameModel.remainingSeconds == 2, "starting blocks collection and timer")
+        gameModel.finishStartAnimation()
+        gameModel.finishStartAnimation()
+        require(gameModel.state == .playing, "AR game enables collection after animation")
         gameModel.collectCucumber()
         gameModel.collectCucumber()
         require(gameModel.state == .playing, "AR game continues before target count")
@@ -210,26 +251,124 @@ struct AppClipInvocationChecks {
         gameModel.reset()
         gameModel.requestPermission()
         await gameModel.resolvePermission()
-        gameModel.beginPlaying()
-        gameModel.elapseSecond()
+        gameModel.finishStartAnimation()
+        gameClock.advanceTime(by: 1)
+        gameModel.updateRemainingTime()
         require(gameModel.state == .playing, "AR game continues before timer expires")
-        gameModel.elapseSecond()
+        gameClock.advanceTime(by: 1)
+        gameModel.updateRemainingTime()
         require(gameModel.state == .failure, "AR game reaches failure")
         gameModel.reset()
         require(gameModel.state == .intro, "AR game resets to intro")
 
+        let clock = ControlledGameClock()
+        let timedGame = ARGameViewModel(
+            timeLimitSeconds: 3,
+            isARSupported: { true },
+            requestCameraAccess: { true },
+            sleepOneSecond: { try await clock.sleep() },
+            monotonicNow: { clock.now }
+        )
+        timedGame.showIntro()
+        timedGame.requestPermission()
+        await timedGame.resolvePermission()
+        await timedGame.runTimer()
+        require(clock.sleepCount == 0, "stable container's starting task must not tick")
+        timedGame.finishStartAnimation()
+        let firstTimer = Task { await timedGame.runTimer() }
+        await clock.waitForSleep()
+        await timedGame.runTimer()
+        require(clock.sleepCount == 1, "duplicate timer invocation must not create another loop")
+        clock.advance()
+        await clock.waitForSleep()
+        require(timedGame.remainingSeconds == 2, "playing transition starts exactly one tick")
+        firstTimer.cancel()
+        clock.advance(by: 0)
+        await firstTimer.value
+        require(timedGame.remainingSeconds == 2, "cancellation after sleep must not decrement")
+
+        let staleTimer = Task { await timedGame.runTimer() }
+        await clock.waitForSleep()
+        timedGame.reset()
+        require(timedGame.collectedCount == 0 && timedGame.remainingSeconds == 3, "retry resets round state")
+        timedGame.requestPermission()
+        await timedGame.resolvePermission()
+        timedGame.finishStartAnimation()
+        clock.advance(by: 0)
+        await staleTimer.value
+        require(timedGame.remainingSeconds == 3, "previous round's wakeup must not tick the new round")
+        let retryTimer = Task { await timedGame.runTimer() }
+        await clock.waitForSleep()
+        clock.advance()
+        await clock.waitForSleep()
+        require(timedGame.remainingSeconds == 2, "retry owns one new timer")
+        timedGame.cameraBecameUnavailable()
+        clock.advance()
+        await retryTimer.value
+        require(timedGame.state == .cameraUnavailable && timedGame.remainingSeconds == 2,
+                "camera interruption ends the round without further ticks")
+
+        let delayedClock = ControlledGameClock()
+        let delayedGame = ARGameViewModel(
+            timeLimitSeconds: 5,
+            isARSupported: { true },
+            requestCameraAccess: { true },
+            sleepOneSecond: { try await delayedClock.sleep() },
+            monotonicNow: { delayedClock.now }
+        )
+        delayedGame.showIntro()
+        delayedGame.requestPermission()
+        await delayedGame.resolvePermission()
+        delayedClock.advanceTime(by: 10)
+        delayedGame.finishStartAnimation()
+        let delayedTimer = Task { await delayedGame.runTimer() }
+        await delayedClock.waitForSleep()
+        delayedClock.advance(by: 3)
+        await delayedClock.waitForSleep()
+        require(delayedGame.remainingSeconds == 2, "a delayed wake must account for all elapsed seconds")
+        delayedGame.finishStartAnimation()
+        delayedClock.advance(by: 2)
+        await delayedTimer.value
+        require(delayedGame.state == .failure && delayedGame.remainingSeconds == 0,
+                "duplicate completion cannot extend the original deadline")
+
+        let tapClock = ControlledGameClock()
+        let tapGame = ARGameViewModel(
+            timeLimitSeconds: 2,
+            isARSupported: { true },
+            requestCameraAccess: { true },
+            monotonicNow: { tapClock.now }
+        )
+        tapGame.showIntro()
+        tapGame.requestPermission()
+        await tapGame.resolvePermission()
+        tapGame.finishStartAnimation()
+        tapGame.collectCucumber()
+        tapGame.collectCucumber()
+        tapClock.advanceTime(by: 2)
+        tapGame.collectCucumber()
+        require(tapGame.state == .failure && tapGame.collectedCount == 2 && tapGame.remainingSeconds == 0,
+                "an input at the deadline must fail before the next timer wake and cannot win")
+
+        var cameraAllowed = false
         let deniedGameModel = ARGameViewModel(
             isARSupported: { true },
-            requestCameraAccess: { false }
+            requestCameraAccess: { cameraAllowed }
         )
+        deniedGameModel.showIntro()
         deniedGameModel.requestPermission()
         await deniedGameModel.resolvePermission()
         require(deniedGameModel.state == .permissionDenied, "AR game handles denied camera permission")
+        cameraAllowed = true
+        deniedGameModel.retryPermission()
+        await deniedGameModel.resolvePermission()
+        require(deniedGameModel.state == .starting, "settings return rechecks permission without losing the experience")
 
         let unavailableGameModel = ARGameViewModel(
             isARSupported: { false },
             requestCameraAccess: { true }
         )
+        unavailableGameModel.showIntro()
         unavailableGameModel.requestPermission()
         await unavailableGameModel.resolvePermission()
         require(unavailableGameModel.state == .unavailable, "AR game handles unavailable AR")
