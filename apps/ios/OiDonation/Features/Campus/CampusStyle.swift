@@ -39,16 +39,17 @@ struct CampusDonorBadge: View {
 struct CampusTags: View {
     let story: CampusStory
     var compact = false
-    private var background: Color {
-        [Color(white: 0.81), Color(red: 0.63, green: 0.88, blue: 1), Color(red: 1, green: 0.72, blue: 0.47)][story.palette % 3]
+    var size: CGFloat? = nil
+    private var color: Color {
+        [Color(white: 0.60), Color(red: 21 / 255, green: 117 / 255, blue: 167 / 255),
+         Color(red: 231 / 255, green: 125 / 255, blue: 45 / 255)][story.palette % 3]
     }
     var body: some View {
         HStack(spacing: compact ? 4 : 6) {
             ForEach(story.tags, id: \.self) { tag in
-                Text(tag).font(CampusStyle.body(compact ? 12 : 16))
-                    .foregroundStyle(.black.opacity(0.85))
-                    .padding(.horizontal, compact ? 10 : 14).padding(.vertical, compact ? 4 : 6)
-                    .background(background, in: Capsule())
+                Text("#" + tag.trimmingCharacters(in: CharacterSet(charactersIn: "# ")))
+                    .font(CampusStyle.body(size ?? (compact ? 12 : 15)))
+                    .tracking(compact ? 0.24 : 0.3).foregroundStyle(color)
             }
         }.fixedSize(horizontal: true, vertical: false)
     }
@@ -93,10 +94,10 @@ struct CampusCollectButton: View {
     var body: some View {
         Button { store.collect(story) } label: {
             Text(story.isExample ? "예시 카드" : store.collected.contains(story.id) ? "수집 완료" : "수집하기")
-                .font(.system(size: 16, weight: .semibold)).frame(maxWidth: .infinity, minHeight: 46)
+                .font(CampusStyle.semibold(16)).frame(maxWidth: .infinity, minHeight: 46)
                 .foregroundStyle(.white).background(fill, in: RoundedRectangle(cornerRadius: 20))
         }
-        .disabled(story.isExample || store.isExample)
+        .disabled(story.isExample || store.isExample || store.collected.contains(story.id))
         .buttonStyle(.plain).sensoryFeedback(.success, trigger: store.collected.contains(story.id))
         .accessibilityIdentifier("campus.collect")
     }

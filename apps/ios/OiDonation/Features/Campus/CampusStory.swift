@@ -50,6 +50,7 @@ final class CampusStoryStore {
     let isExample: Bool
     private(set) var stories: [CampusStory]
     var collectAction: ((CampusStory) -> Void)?
+    var createStoryAction: (() -> Void)?
     var mediaURL: ((String) async throws -> URL)?
     private(set) var collected: Set<String>
 

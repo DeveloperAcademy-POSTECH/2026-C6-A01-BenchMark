@@ -28,6 +28,7 @@ struct HomeView: View {
     @State private var searchMode: CampusSearchMode?
     @State private var pendingStoryID: String?
     @State private var showingRequests = false
+    @State private var listIsAtTop = true
 
     var body: some View {
         GeometryReader { geometry in
@@ -51,7 +52,7 @@ struct HomeView: View {
                         if let remote, remote.isRefreshing || remote.loadError != nil || remote.syncWarning != nil || remote.needsReauthentication {
                             OiConnectionStatus(remote: remote).padding(10).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 20)
                         }
-                        homeActions.padding(.leading, 28).padding(.trailing, 20).padding(.bottom, 0)
+                        homeActions.padding(.leading, 22).padding(.trailing, 20).padding(.bottom, 0)
                     }
                 }
                 if let remote, let error = remote.error {
@@ -192,23 +193,38 @@ struct HomeView: View {
 
     private var homeActions: some View {
         HStack(alignment: .bottom) {
-            Button(action: onOpenProfile) {
-                VStack(spacing: 7) {
-                    Image("OiFarmer").resizable().scaledToFill().frame(width: 100, height: 100, alignment: .top)
-                        .background(Color(red: 0.96, green: 1, blue: 0.84)).clipShape(Circle())
-                        .overlay(Circle().stroke(CampusStyle.green, lineWidth: 2))
-                    Text(myDemo.nickname).font(CampusStyle.medium(14)).tracking(0.28).frame(width: 104, height: 25)
-                        .background(.white, in: Capsule()).shadow(color: CampusStyle.mapAction.opacity(0.4), radius: 7, y: 3)
-                }
-            }.buttonStyle(.plain).accessibilityLabel("\(myDemo.nickname)의 MY 작업실").accessibilityIdentifier("campus.profile")
-                .disabled(store.isExample)
+            VStack(alignment: .leading, spacing: 8) {
+                Button(action: onOpenProfile) {
+                    HStack(spacing: -12) {
+                        MYFarmerArtwork(ownerID: remote?.account?.id)
+                            .frame(width: 38, height: 38).background(CampusStyle.secondaryAction, in: Circle())
+                            .clipShape(Circle()).overlay(Circle().stroke(CampusStyle.green, lineWidth: 1.5))
+                            .zIndex(1)
+                        Text(myDemo.nickname).font(CampusStyle.medium(14)).tracking(0.28)
+                            .lineLimit(1).padding(.leading, 24).padding(.trailing, 15).padding(.vertical, 2)
+                            .background(.white, in: Capsule())
+                    }.shadow(color: CampusStyle.mapAction.opacity(0.4), radius: 7, y: 3)
+                        .frame(minHeight: 44)
+                }.buttonStyle(.plain).accessibilityLabel("\(myDemo.nickname)의 농부 프로필")
+                    .accessibilityIdentifier("campus.profile")
+                Button(action: onOpenProfile) {
+                    Image("CampusMyHouse").resizable().scaledToFit().padding(10)
+                        .frame(width: 100, height: 100)
+                        .background(Color(red: 1, green: 0.97, blue: 0.85), in: Circle())
+                        .overlay(Circle().stroke(Color(red: 0.64, green: 0.48, blue: 0.23), lineWidth: 2))
+                        .shadow(color: CampusStyle.mapAction.opacity(0.4), radius: 7, y: 3)
+                }.buttonStyle(.plain).accessibilityLabel("MY 작업실 열기").accessibilityIdentifier("campus.workshop")
+            }.disabled(store.isExample)
             Spacer()
             VStack(spacing: 10) {
                 mapAction("envelope", label: "카드 요청", id: "campus.requests") { showingRequests = true }
                 mapAction("magnifyingglass", label: "오이 검색", id: "campus.search",
                     background: "CampusMapSearchBackground") { showingSearchChoice = true }
-                mapAction("plus.capsule", label: "오이 심기 · 작성 승인과 내 이야기", id: "placement.begin",
-                    rotation: .degrees(90)) { onCreateStory?() }
+                Button { onCreateStory?() } label: {
+                    Image("CampusAddOi").renderingMode(.original).frame(width: 60, height: 60)
+                        .contentShape(Circle())
+                }.buttonStyle(.plain).accessibilityLabel("오이 심기 · 작성 승인과 내 이야기")
+                    .accessibilityIdentifier("placement.begin")
                     .disabled(store.isExample).opacity(store.isExample ? 0.45 : 1)
             }
         }
@@ -285,7 +301,7 @@ struct HomeView: View {
             } else {
                 Button { showingSchools = true } label: {
                     HStack(spacing: 5) {
-                        Image(systemName: "chevron.backward").font(.system(size: 20))
+                        Image("CampusSchoolIcon").renderingMode(.original).frame(width: 18, height: 18)
                         Text("POSTECH").font(CampusStyle.semibold(18))
                     }.frame(width: 154, height: 42)
                 }
@@ -371,6 +387,9 @@ struct HomeView: View {
                         }
                     }.padding(.bottom, 12)
                 }.scrollIndicators(.hidden)
+                    .onScrollGeometryChange(for: Bool.self) { geometry in
+                        geometry.contentOffset.y + geometry.contentInsets.top <= 1
+                    } action: { _, isAtTop in listIsAtTop = isAtTop }
             }
             .padding(.horizontal, 20).padding(.top, 20).frame(height: height)
             .background {
@@ -379,6 +398,13 @@ struct HomeView: View {
                     .padding(.bottom, -bottomInset)
                     .shadow(color: .black.opacity(0.25), radius: 20)
             }
+            .simultaneousGesture(DragGesture(minimumDistance: 30).onEnded { gesture in
+                guard abs(gesture.translation.height) > abs(gesture.translation.width) else { return }
+                withAnimation(.snappy) {
+                    if gesture.translation.height < -50 { expanded = true }
+                    else if gesture.translation.height > 50 && listIsAtTop { expanded = false }
+                }
+            })
         }
     }
 }
