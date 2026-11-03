@@ -14,6 +14,7 @@ enum CampusStyle {
     static let coral = Color(red: 0.784, green: 0.376, blue: 0.365)
     static let gold = Color(red: 0.831, green: 0.714, blue: 0.345)
     static let action = LinearGradient(colors: [coral, gold], startPoint: .leading, endPoint: .trailing)
+    static func characterTitle(_ size: CGFloat) -> Font { .custom("PearToucan-Bold", size: size, relativeTo: .headline) }
     static func heading(_ size: CGFloat) -> Font { .custom("Paperlogy-9Black", size: size, relativeTo: .title) }
     static func body(_ size: CGFloat) -> Font { .custom("Paperlogy-4Regular", size: size, relativeTo: .body) }
     static func hand(_ size: CGFloat) -> Font { .custom("GriunOMIRI-Regular", size: size, relativeTo: .body) }
@@ -65,21 +66,21 @@ struct CampusStoryRow: View {
                     .background(Color(white: 0.94), in: RoundedRectangle(cornerRadius: 16))
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 4) {
-                        Text(story.title).font(CampusStyle.heading(24)).lineLimit(1).minimumScaleFactor(0.6)
+                        Text(story.title).font(CampusStyle.characterTitle(20)).lineLimit(1).minimumScaleFactor(0.6)
                         Spacer(minLength: 0)
                         CampusTags(story: story, compact: true)
                     }
-                    VStack(alignment: .leading, spacing: 5) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text("| " + story.donor)
                         Text("| " + story.location)
-                    }.font(CampusStyle.body(14)).lineLimit(1).minimumScaleFactor(0.75)
+                    }.font(CampusStyle.body(14)).lineSpacing(7).lineLimit(1).minimumScaleFactor(0.75)
                 }
             }
             .foregroundStyle(.black).padding(12).frame(maxWidth: .infinity, alignment: .leading)
             .background(.white, in: RoundedRectangle(cornerRadius: 28))
             .overlay(RoundedRectangle(cornerRadius: 28).stroke(outlined ? CampusStyle.secondaryAction : .clear, lineWidth: 1))
             if showsDate {
-                Text(story.date).font(CampusStyle.body(10)).foregroundStyle(.secondary).padding(.trailing, 20)
+                Text(story.date).font(CampusStyle.body(10)).foregroundStyle(Color(white: 152/255)).padding(.trailing, 20)
             }
         }.contentShape(Rectangle())
     }
@@ -91,10 +92,11 @@ struct CampusCollectButton: View {
     var fill: Color = CampusStyle.green
     var body: some View {
         Button { store.collect(story) } label: {
-            Text(store.collected.contains(story.id) ? "수집 완료" : "수집하기")
+            Text(story.isExample ? "예시 카드" : store.collected.contains(story.id) ? "수집 완료" : "수집하기")
                 .font(.system(size: 16, weight: .semibold)).frame(maxWidth: .infinity, minHeight: 46)
                 .foregroundStyle(.white).background(fill, in: RoundedRectangle(cornerRadius: 20))
         }
+        .disabled(story.isExample || store.isExample)
         .buttonStyle(.plain).sensoryFeedback(.success, trigger: store.collected.contains(story.id))
         .accessibilityIdentifier("campus.collect")
     }

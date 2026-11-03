@@ -21,10 +21,13 @@ struct CampusSummaryView: View {
                             summary.frame(maxWidth: .infinity)
                         }
                         NavigationLink(value: CampusDestination.story(story.id)) {
-                            MYCardArtwork(card: MYCard(id: story.id, title: story.title, image: story.image,
-                                school: .postech, order: story.order, body: story.body, donor: story.donor, date: story.date))
+                            CampusStoryCardArtwork(story: story)
                                 .frame(width: min(240, geometry.size.width * 0.60), height: 330)
                         }.buttonStyle(.plain).accessibilityLabel("오이 카드와 이야기 자세히 보기")
+                        if story.isExample {
+                            Text("디자인 예시로, 실제 기부·수집 기록에 포함되지 않아요.")
+                                .font(.caption).padding(10).background(.regularMaterial, in: Capsule())
+                        }
                         if !story.remoteMediaPaths.isEmpty {
                             ScrollView(.horizontal) {
                                 HStack {
@@ -52,14 +55,15 @@ struct CampusSummaryView: View {
             if let region = CampusRegion.campus.first(where: { $0.id == story.regionID }) { scene.focusBackdrop(region) }
         }
         .onAppear { isOnScreen = true; scene.setVisible(scenePhase == .active) }
-        .onDisappear { isOnScreen = false; scene.setVisible(false) }
+        .onDisappear { isOnScreen = false; scene.suspendForARCamera() }
         .onChange(of: scenePhase) { _, phase in scene.setVisible(isOnScreen && phase == .active) }
     }
 
     private var summary: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 16) {
-                Text(story.title).font(CampusStyle.heading(28)).lineLimit(1).minimumScaleFactor(0.6)
+                if story.isExample { CampusExampleBadge() }
+                Text(story.title).font(CampusStyle.characterTitle(28)).lineLimit(1).minimumScaleFactor(0.6)
                 CampusTags(story: story)
                 VStack(alignment: .leading, spacing: 6) {
                     Text("| " + story.donor)

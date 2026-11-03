@@ -12,13 +12,16 @@ struct CampusStoryDetailView: View {
         GeometryReader { geometry in
           ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Image(story.portraitImage).resizable().scaledToFill()
+                Image(story.example?.heroImage ?? story.portraitImage).resizable()
+                    .aspectRatio(contentMode: story.example?.heroImage == nil ? .fit : .fill)
                     .frame(width: geometry.size.width, height: 275).clipped()
                     .background(CampusStyle.background(story.palette))
+                    .allowsHitTesting(false)
                 VStack(alignment: .leading, spacing: 30) {
                     heading
                     storyBlock
                     characterAndCard
+                    if let images = story.example?.galleryImages, !images.isEmpty { exampleGallery(images) }
                     if !story.remoteMediaPaths.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             sectionTitle("갤러리")
@@ -33,7 +36,7 @@ struct CampusStoryDetailView: View {
                     location
                     related
                     donor
-                    Text("작성·공개는 운영자 검토 기준이며 학교 공식 납입 확인과 다릅니다. 로그인 후 수집 기록이 계정에 저장됩니다.")
+                    Text(story.isExample ? "디자인을 확인하기 위한 예시입니다. 실제 기부·수집 기록에 포함되지 않아요." : "작성·공개는 운영자 검토 기준이며 학교 공식 납입 확인과 다릅니다. 로그인 후 수집 기록이 계정에 저장됩니다.")
                         .font(.caption).foregroundStyle(.secondary)
                 }.frame(width: max(0, geometry.size.width - 40), alignment: .leading)
                     .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 25)
@@ -49,7 +52,7 @@ struct CampusStoryDetailView: View {
                 Button { donationInfo = true } label: {
                     Text("이어서 기부하기").font(CampusStyle.body(12)).frame(maxWidth: .infinity, minHeight: 46)
                         .foregroundStyle(.black).background(CampusStyle.secondaryAction, in: RoundedRectangle(cornerRadius: 20))
-                }.buttonStyle(.plain)
+                }.buttonStyle(.plain).disabled(story.isExample)
                 CampusCollectButton(story: story, store: store)
             }.padding(.horizontal, 15).padding(.top, 10).padding(.bottom, 6)
                 .background {
@@ -69,8 +72,9 @@ struct CampusStoryDetailView: View {
 
     private var heading: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if story.isExample { CampusExampleBadge() }
             HStack(spacing: 6) {
-                Text(story.title).font(CampusStyle.heading(36)).lineLimit(1).minimumScaleFactor(0.7)
+                Text(story.title).font(CampusStyle.characterTitle(32)).lineLimit(1).minimumScaleFactor(0.7)
                 Spacer(minLength: 1)
                 CampusTags(story: story)
             }
@@ -86,9 +90,14 @@ struct CampusStoryDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle("기부자 스토리")
             VStack(alignment: .leading, spacing: 14) {
-                Text(story.excerpt).font(CampusStyle.body(18)).lineSpacing(3)
-                VStack(spacing: 2) { Divider(); Divider() }
-                Text(story.body).font(CampusStyle.body(14)).lineSpacing(5).fixedSize(horizontal: false, vertical: true)
+                if !story.excerpt.isEmpty {
+                    Text(story.excerpt).font(CampusStyle.body(16)).lineSpacing(3)
+                }
+                if story.body.isEmpty {
+                    Text("아직 작성된 이야기가 없어요.").font(CampusStyle.body(14)).foregroundStyle(.secondary)
+                } else {
+                    Text(story.body).font(CampusStyle.body(14)).lineSpacing(5).fixedSize(horizontal: false, vertical: true)
+                }
             }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
                 .background(CampusStyle.listBackground, in: RoundedRectangle(cornerRadius: 20))
         }
@@ -98,10 +107,13 @@ struct CampusStoryDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionTitle("오이 & 카드")
             HStack(spacing: 20) {
-                Image(story.portraitImage).resizable().scaledToFill().frame(width: 147, height: 220).clipped()
-                MYCardArtwork(card: MYCard(id: story.id, title: story.title, image: story.image,
-                    school: .postech, order: story.order, body: story.body, donor: story.donor, date: story.date))
-                    .frame(maxWidth: .infinity).frame(height: 220)
+                Image(story.portraitImage).resizable().scaledToFit().frame(maxWidth: .infinity).frame(height: 220)
+                Button {
+                    if let image = story.example?.cardImage { selectedImage = .init(name: image, title: story.title + " 예시 카드") }
+                } label: {
+                    CampusStoryCardArtwork(story: story).frame(maxWidth: .infinity).frame(height: 220)
+                }.buttonStyle(.plain).disabled(story.example?.cardImage == nil)
+                    .accessibilityLabel("오이 카드 확대 보기")
             }.frame(maxWidth: .infinity)
         }
     }
@@ -114,21 +126,62 @@ struct CampusStoryDetailView: View {
                     Marker(story.title, coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude))
                 }.frame(height: 245).clipShape(RoundedRectangle(cornerRadius: 20)).allowsHitTesting(false)
                     .accessibilityLabel("저장한 위치: \(story.location)")
+            } else if story.isExample {
+                GeometryReader { geometry in
+                    Image("OiStoryLocation").resizable()
+                        .frame(width: geometry.size.width * 387 / 362, height: geometry.size.width * 662 / 362)
+                        .offset(x: -geometry.size.width * 25 / 362, y: -geometry.size.width * 314.5 / 362)
+                    Image(systemName: "mappin.circle.fill").font(.system(size: 30)).foregroundStyle(.red)
+                        .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                }.frame(height: 245).clipped().clipShape(RoundedRectangle(cornerRadius: 20))
+                    .allowsHitTesting(false)
+                    .accessibilityLabel("예시 장소: \(story.location)")
+                Text(story.location).font(.caption).foregroundStyle(.secondary)
             } else {
                 Text("등록된 위치가 없어요.").foregroundStyle(.secondary)
             }
         }
     }
     private var related: some View {
-        let items = Array(store.stories(in: story.regionID, sortedBy: .latest).filter { $0.id != story.id }.prefix(3))
+        let items = story.example.map { example in example.relatedIDs.compactMap { store.story($0) } }
+            ?? Array(store.stories(in: story.regionID, sortedBy: .latest).filter { $0.id != story.id }.prefix(3))
         return VStack(spacing: 8) {
-            HStack { sectionTitle("이어진 기부"); Spacer(); Text("\(min(items.count, 3))개").font(.headline).foregroundStyle(.white).padding(.horizontal, 16).padding(.vertical, 5).background(CampusStyle.sectionGreen, in: Capsule()) }
+          if !items.isEmpty {
+            HStack { sectionTitle(story.isExample ? "이어진 기부 · 예시" : "같은 장소의 이야기"); Spacer(); Text("\(items.count)개").font(.headline).foregroundStyle(.white).padding(.horizontal, 16).padding(.vertical, 5).background(CampusStyle.sectionGreen, in: Capsule()) }
             ForEach(Array(items.prefix(showingAllRelated ? items.count : 2))) { next in
                 NavigationLink(value: CampusDestination.summary(next.id)) { CampusStoryRow(story: next) }.buttonStyle(.plain)
             }
-            Button(showingAllRelated ? "접기" : "더보기") { withAnimation { showingAllRelated.toggle() } }
+            if items.count > 2 { Button(showingAllRelated ? "접기" : "더보기") { withAnimation { showingAllRelated.toggle() } }
                 .font(.system(size: 14, weight: .bold)).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 36)
-                .background(Color(.systemGray6), in: Capsule())
+                .background(Color(.systemGray6), in: Capsule()) }
+          }
+        }
+    }
+
+    private func exampleGallery(_ images: [String]) -> some View {
+        // The Figma collage has 2 / 2 / 2 / 3 / 2 photographs per row.
+        let rows = [[0, 1], [2, 3], [4, 5], [6, 7, 8], [9, 10]]
+        let weights: [[CGFloat]] = [[163, 195], [213, 145], [1, 1], [68, 215, 68], [1, 1]]
+        let heights: [CGFloat] = [109, 120, 101, 121, 101]
+        return VStack(alignment: .leading, spacing: 12) {
+            sectionTitle("갤러리")
+            ForEach(rows.indices, id: \.self) { row in
+                GeometryReader { geometry in
+                    let available = max(0, geometry.size.width - CGFloat(rows[row].count - 1) * 8)
+                    HStack(spacing: 8) {
+                        ForEach(Array(rows[row].enumerated()), id: \.element) { column, index in
+                            if images.indices.contains(index) {
+                                Button { selectedImage = .init(name: images[index], title: "6냥이의 추억 \(index + 1)") } label: {
+                                    Image(images[index]).resizable().scaledToFill()
+                                        .frame(width: available * weights[row][column] / weights[row].reduce(0, +), height: heights[row])
+                                        .clipped().clipShape(RoundedRectangle(cornerRadius: 10))
+                                        .contentShape(RoundedRectangle(cornerRadius: 10))
+                                }.buttonStyle(.plain).accessibilityLabel("갤러리 사진 \(index + 1) 확대 보기")
+                            }
+                        }
+                    }
+                }.frame(height: heights[row])
+            }
         }
     }
     private var donor: some View {
@@ -147,7 +200,7 @@ struct CampusStoryDetailView: View {
                         Image("OiFarmerBackdrop").resizable().scaledToFill()
                             .frame(width: g.size.width, height: g.size.height * 2.374)
                             .offset(y: -g.size.height * 1.374)
-                    }.clipped()
+                    }.clipped().allowsHitTesting(false)
                 }.clipShape(RoundedRectangle(cornerRadius: 20))
         }
     }

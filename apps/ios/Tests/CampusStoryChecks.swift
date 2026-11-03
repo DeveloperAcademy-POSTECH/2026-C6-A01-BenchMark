@@ -37,6 +37,20 @@ struct CampusStoryChecks {
         let popular = store.stories(in: "pond", sortedBy: .popular)
         precondition(zip(popular, popular.dropFirst()).allSatisfy { $0.popularity >= $1.popularity })
 
+        let library = CampusStory(id: "library-0", regionID: "library", title: "Library", image: "OiCats",
+                                  tags: [], donor: "Test", location: "Library", date: "", order: 3, popularity: 4, palette: 0)
+        store.synchronize(stories: records + [library], collected: [])
+        let viewport: Set<String> = [first.id, library.id]
+        precondition(store.stories(matching: viewport, sortedBy: .latest).map(\.id) == [first.id, library.id],
+                     "A visible viewport may include stories from more than the nearest region")
+        precondition(store.stories(in: "pond", sortedBy: .latest).count == records.count)
+        precondition(store.stories(matching: [], sortedBy: .latest).isEmpty,
+                     "An empty visible area must not fall back to all stories")
+        precondition(store.stories(matching: viewport, sortedBy: .oldest).map(\.id) == [library.id, first.id])
+        store.synchronize(stories: records, collected: [])
+        precondition(store.stories(matching: viewport, sortedBy: .latest).map(\.id) == [first.id],
+                     "Removed server records must disappear even when the viewport result IDs are retained")
+
         store.collect(first)
         precondition(store.collected.isEmpty, "Missing transport cannot report a successful collection")
         var requested: String?
@@ -47,6 +61,29 @@ struct CampusStoryChecks {
         precondition(store.collected == [first.id])
         let reopened = CampusStoryStore(defaults: defaults)
         precondition(reopened.collected.isEmpty, "No account data restored from an unrelated local fixture cache")
-        print("PASS: live story projection, ordering and server-confirmed collection")
+
+        let examples = CampusStoryExamples.stories
+        precondition(examples.count == 3 && Set(examples.map(\.id)).count == 3)
+        precondition(examples.allSatisfy { $0.isExample && UUID(uuidString: $0.id) == nil && $0.remoteMediaPaths.isEmpty && $0.latitude == nil })
+        precondition(examples[0].example?.galleryImages.count == 11 && examples[0].example?.cardImage != nil)
+        precondition(!examples[0].body.isEmpty && examples[1].body.isEmpty && examples[2].body.isEmpty,
+                     "Do not invent Figma story bodies when only list metadata exists")
+        let fixtureIDs = Set(examples.map(\.id))
+        precondition(examples.allSatisfy { Set($0.example?.relatedIDs ?? []).isSubset(of: fixtureIDs) })
+        let exampleStore = CampusStoryStore(defaults: defaults, isExample: true)
+        exampleStore.synchronize(stories: examples + records, collected: [first.id, examples[0].id])
+        precondition(exampleStore.stories == examples && exampleStore.collected.isEmpty)
+        var exampleWriteAttempt = false
+        exampleStore.collectAction = { _ in exampleWriteAttempt = true }
+        exampleStore.collect(examples[0])
+        precondition(!exampleWriteAttempt && exampleStore.collected.isEmpty)
+        store.synchronize(stories: records + examples, collected: [])
+        precondition(store.stories == records, "Examples must never mix into the live map or nearby AR")
+        requested = nil
+        store.collect(examples[0])
+        precondition(requested == nil)
+        store.collect(first)
+        precondition(requested == first.id, "Example protection must preserve real collection transport")
+        print("PASS: live story projection, search, collection and isolated Figma examples")
     }
 }

@@ -18,11 +18,14 @@ struct CampusStory: Identifiable, Hashable {
     var remoteMediaPaths: [String] = []
     var latitude: Double? = nil
     var longitude: Double? = nil
+    /// Local design content is never a public donation or a server collection target.
+    var example: CampusStoryExample? = nil
 
     var portraitImage: String { image == "OiCats" ? "OiCatsPortrait" : image }
+    var isExample: Bool { example != nil }
 
-    var excerpt: String { String((remoteBody ?? "").prefix(120)) }
-    var body: String { remoteBody ?? "" }
+    var excerpt: String { example?.introduction ?? String((remoteBody ?? "").prefix(120)) }
+    var body: String { example?.body ?? remoteBody ?? "" }
 
 }
 
@@ -44,18 +47,23 @@ enum CampusStorySort: String, CaseIterable { case latest = "최신순", oldest =
 
 @MainActor @Observable
 final class CampusStoryStore {
+    let isExample: Bool
     private(set) var stories: [CampusStory]
     var collectAction: ((CampusStory) -> Void)?
     var mediaURL: ((String) async throws -> URL)?
     private(set) var collected: Set<String>
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, isExample: Bool = false) {
+        self.isExample = isExample
         defaults.removeObject(forKey: "campus.designExample.collectedIDs.v1")
         stories = []; collected = []
     }
     func story(_ id: String) -> CampusStory? { stories.first { $0.id == id } }
-    func stories(in regionID: String, sortedBy sort: CampusStorySort, distances: [String: Float] = [:]) -> [CampusStory] {
-        stories.filter { $0.regionID == regionID }.sorted { a, b in
+    func stories(in regionID: String? = nil, matching ids: Set<String>? = nil,
+                 sortedBy sort: CampusStorySort, distances: [String: Float] = [:]) -> [CampusStory] {
+        stories.filter { story in
+            (regionID == nil || story.regionID == regionID) && (ids?.contains(story.id) ?? true)
+        }.sorted { a, b in
             switch sort {
             case .latest: return a.order < b.order
             case .oldest: return a.order > b.order
@@ -67,13 +75,14 @@ final class CampusStoryStore {
         }
     }
     func collect(_ story: CampusStory) {
-        guard stories.contains(where: { $0.id == story.id }) else { return }
-        collectAction?(story)
+        guard !isExample, !story.isExample,
+              let stored = stories.first(where: { $0.id == story.id }), !stored.isExample else { return }
+        collectAction?(stored)
     }
 
     func synchronize(stories: [CampusStory], collected: Set<String>) {
-        self.stories = stories
-        self.collected = collected
+        self.stories = stories.filter { $0.isExample == isExample }
+        self.collected = isExample ? [] : collected
     }
 }
 

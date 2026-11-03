@@ -9,6 +9,8 @@ struct RootTabView: View {
     @State private var isCameraCoverActive = false
     @State private var remote = OiRemoteStore()
     @State private var showingAccount = false
+    @State private var showingExamples = false
+    @State private var exampleStore: CampusStoryStore
     @State private var geoPlacement: CampusPlacement?
     @State private var photoCamera = false
     @Environment(\.scenePhase) private var scenePhase
@@ -17,11 +19,22 @@ struct RootTabView: View {
         self.container = container
         _store = State(initialValue: CampusStoryStore())
         _myDemo = State(initialValue: MYLibraryStore())
+        let examples = CampusStoryStore(isExample: true)
+        examples.synchronize(stories: CampusStoryExamples.stories, collected: [])
+        _exampleStore = State(initialValue: examples)
     }
 
     var body: some View {
+        regularContent
+    }
+
+    private var displayedStories: CampusStoryStore { showingExamples ? exampleStore : store }
+
+    @ViewBuilder private var regularContent: some View {
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-story-list-preview") {
+        if ProcessInfo.processInfo.arguments.contains("-campus-map-design-preview") {
+            CampusMapPreviewHost()
+        } else if ProcessInfo.processInfo.arguments.contains("-story-list-preview") {
             OiStoryListPreviewHost(state: storyListPreviewState)
         } else if ProcessInfo.processInfo.arguments.contains("-story-consent-preview") {
             OiStoryConsentPreviewHost()
@@ -50,20 +63,22 @@ struct RootTabView: View {
         NavigationStack(path: $path) {
             HomeView(
                 container: container,
-                store: store,
+                store: displayedStories,
                 myDemo: myDemo,
                 isCameraCoverActive: isCameraCoverActive,
                 onCamera: { photoCamera = false; geoPlacement = nil; path = NavigationPath(); isCameraCoverActive = true; isARPresented = true },
                 onOpenProfile: { path.append(MYDestination.workshop) },
                 onOpenStory: { path.append(CampusDestination.summary($0)) },
-                remote: remote,
-                onAccount: { showingAccount = true }
+                remote: showingExamples ? nil : remote,
+                onAccount: { showingAccount = true },
+                onOpenExamples: showingExamples ? nil : { showingExamples = true },
+                onCloseExamples: showingExamples ? { showingExamples = false } : nil
             )
             .navigationDestination(for: CampusDestination.self) { destination in
                 switch destination {
                 case .summary(let id):
-                    if let story = store.story(id) {
-                        CampusSummaryView(story: story, store: store)
+                    if let story = displayedStories.story(id) {
+                        CampusSummaryView(story: story, store: displayedStories)
                             .toolbar {
                                 if story.latitude != nil && story.longitude != nil {
                                     ToolbarItem(placement: .topBarTrailing) {
@@ -73,7 +88,7 @@ struct RootTabView: View {
                             }
                     }
                 case .story(let id):
-                    if let story = store.story(id) { CampusStoryDetailView(story: story, store: store) }
+                    if let story = displayedStories.story(id) { CampusStoryDetailView(story: story, store: displayedStories) }
                 }
             }
             .navigationDestination(for: PublicLinkParser.Destination.self) { publicDestination($0) }
