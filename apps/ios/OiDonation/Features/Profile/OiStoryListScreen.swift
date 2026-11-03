@@ -10,7 +10,6 @@ struct OiStoryListScreen: View {
     @State private var selectedStoryID: UUID?
     @State private var showingConsent = false
     @State private var showingApprovalNotice = false
-    @State private var showingTicketNotice = false
     #if DEBUG
     @State private var showingPractice = false
     #endif
@@ -18,11 +17,13 @@ struct OiStoryListScreen: View {
     var body: some View {
         OiStoryListView(
             state: state,
+            notices: ["이야기를 누르면 작성 내용과 공개 상태를 확인할 수 있습니다", "운영자 공개 승인 후 지도에서 오이를 볼 수 있습니다"],
+            guidance: "작성 승인을 받은 뒤 오이와 이야기를 심어보세요",
             onRetry: { Task { await remote.refresh(); await loadLocalDrafts() } },
             onAddTicket: { showingAccount = true },
             onSelectStory: selectStory,
             onCreateStory: beginCreatingStory,
-            onUseTicket: { showingTicketNotice = true }
+            onUseTicket: beginCreatingStory
         )
         #if DEBUG
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -60,11 +61,6 @@ struct OiStoryListScreen: View {
             Button("닫기", role: .cancel) {}
         } message: {
             Text("증빙 검토와 이야기 작성 승인을 받은 뒤 오이와 이야기를 만들 수 있어요.")
-        }
-        .alert("티켓 기능은 준비 중이에요", isPresented: $showingTicketNotice) {
-            Button("확인", role: .cancel) {}
-        } message: {
-            Text("티켓 보유량과 사용 규칙이 확정되면 이 버튼에 연결할 예정이에요.")
         }
     }
 

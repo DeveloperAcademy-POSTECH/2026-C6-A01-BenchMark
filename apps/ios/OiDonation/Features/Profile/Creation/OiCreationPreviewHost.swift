@@ -11,6 +11,7 @@ struct OiCreationPreviewHost: View {
     @State private var preparingPhotos = false
     @State private var localError: String?
     @State private var reviewing = false
+    @State private var showingConsentReview = false
     @State private var choosingExit = false
     @Environment(\.dismiss) private var dismiss
     private let assets = [OiAsset(id: "OiCats", kind: "cucumber", name: "기본 세트"), OiAsset(id: "MYBasicCard", kind: "card", name: "기본 카드")]
@@ -26,11 +27,19 @@ struct OiCreationPreviewHost: View {
                 .toolbarColorScheme(isPhotoStep ? .dark : .light, for: .navigationBar)
                 .toolbarBackground(isPhotoStep ? Color(white: 0.14) : Color.white, for: .navigationBar)
                 .toolbarBackground(.visible, for: .navigationBar)
+                .toolbar(!session.completed && (step == .photos || step == .location) ? .visible : .hidden, for: .navigationBar)
                 .environment(\.colorScheme, isPhotoStep ? .dark : .light)
                 .fullScreenCover(item: $locationRequest) { request in
                     OiLocationPicker(latitude: $session.draft.latitude, longitude: $session.draft.longitude, focusPlaceID: request.focusPlaceID)
                 }
                 .sheet(isPresented: $reviewing) { review }
+                .sheet(isPresented: $showingConsentReview) {
+                    NavigationStack {
+                        OiStoryConsentView(clauses: OiStoryConsentClause.figmaDrafts, continueTitle: "체험으로 돌아가기") {
+                            showingConsentReview = false
+                        }
+                    }
+                }
                 .confirmationDialog("체험을 종료할까요?", isPresented: $choosingExit, titleVisibility: .visible) {
                     Button("입력 내용 지우고 종료", role: .destructive) { session.reset(); dismiss() }
                     Button("계속 체험", role: .cancel) {}
@@ -48,22 +57,25 @@ struct OiCreationPreviewHost: View {
                 .foregroundStyle(Color("OiGreen")).background(Color("OiLight"))
             if session.completed { completion }
             else {
-                if !isPhotoStep { OiCreationProgressHeader(step: step.progress).padding(.horizontal, 20).padding(.vertical, 8) }
+                if !isPhotoStep {
+                    OiCreationProgressHeader(step: step.progress, onPrevious: reviewPreviousStep)
+                        .padding(.horizontal, 20).padding(.top, 1).padding(.bottom, 29)
+                }
                 ScrollViewReader { scroll in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 20) {
-                            Color.clear.frame(height: 1).id("practice.top")
                             if let localError { Text(localError).font(.footnote).foregroundStyle(.red) }
                             if preparingPhotos { ProgressView("사진 불러오는 중") }
-                            stepContent
-                        }.padding(20)
+                            stepContent.id("practice.top")
+                            if !isPhotoStep { Button("체험 종료") { choosingExit = true }.font(.footnote) }
+                        }.padding(.horizontal, 20).padding(.bottom, 24)
                     }.scrollDismissesKeyboard(.interactively)
                         .onChange(of: step) { _, _ in scroll.scrollTo("practice.top", anchor: .top) }
                 }
-                OiCreationNextButton(title: step == .card ? "미리보기·검토 요청 체험" : "다음", enabled: canContinue) {
-                    localError = nil
-                    if let next = step.next { step = next } else { reviewing = true }
-                }.accessibilityIdentifier("oi.practice.next").padding(.horizontal, 20).padding(.vertical, 10)
+                if step == .story || step == .location {
+                    OiCreationNextButton(title: "다음", enabled: canContinue, action: advance)
+                        .accessibilityIdentifier("oi.practice.next").padding(.horizontal, 20).padding(.vertical, 10)
+                }
             }
         }.background(isPhotoStep ? Color(white: 0.14) : Color.white)
     }
@@ -75,10 +87,28 @@ struct OiCreationPreviewHost: View {
             }
         }
         ToolbarItem(placement: .topBarTrailing) {
-            Button("체험 종료") {
-                if session.completed { session.reset(); dismiss() } else { choosingExit = true }
-            }.disabled(preparingPhotos)
+            if isPhotoStep {
+                Button("완료", action: advance).disabled(!canContinue).accessibilityIdentifier("oi.practice.next")
+            } else {
+                Button("체험 종료") {
+                    if session.completed { session.reset(); dismiss() } else { choosingExit = true }
+                }.disabled(preparingPhotos)
+            }
         }
+    }
+
+    private func goBack() {
+        if let previous = step.previous { step = previous } else { choosingExit = true }
+    }
+
+    private func reviewPreviousStep() {
+        if step == .story { showingConsentReview = true } else { goBack() }
+    }
+
+    private func advance() {
+        guard canContinue else { return }
+        localError = nil
+        if let next = step.next { step = next } else { reviewing = true }
     }
 
     @ViewBuilder private var stepContent: some View {
@@ -103,9 +133,11 @@ struct OiCreationPreviewHost: View {
                 locationRequest = OiLocationPickerRequest(focusPlaceID: placeID)
             }
         case .cucumber:
-            OiCucumberCustomizationStep(draft: $session.draft, customization: $session.customization, assets: assets)
+            OiCucumberCustomizationStep(draft: $session.draft, customization: $session.customization, assets: assets,
+                canContinue: canContinue, onContinue: advance)
         case .card:
-            OiCardCustomizationStep(draft: $session.draft, customization: $session.customization, assets: assets)
+            OiCardCustomizationStep(draft: $session.draft, customization: $session.customization, assets: assets,
+                canContinue: canContinue, onContinue: advance)
         }
     }
 

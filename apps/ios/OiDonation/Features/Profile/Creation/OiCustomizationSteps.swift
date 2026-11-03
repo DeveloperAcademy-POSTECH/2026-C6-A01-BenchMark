@@ -8,15 +8,25 @@ struct OiCucumberCustomizationStep: View {
     @Binding var draft: OiStoryDraft
     @Binding var customization: OiDraftCustomization
     let assets: [OiAsset]
+    var canContinue = true
+    var onContinue: (() -> Void)?
     @State private var tab: OiOutfitTab = .set
     var body: some View {
-        VStack(spacing: 22) {
+        VStack(spacing: 18) {
             HStack {
                 TextField("오이 이름 입력", text: $draft.cucumberName).accessibilityIdentifier("oi.draft.cucumberName")
                 Image(systemName: "pencil").accessibilityHidden(true)
-            }.font(CampusStyle.body(20)).foregroundStyle(Color("OiGreen"))
-                .padding(14).background(Color("OiLight"), in: Capsule()).padding(.horizontal, 32)
-            OiCreationCharacterImage(asset: draft.cucumberAsset).frame(height: 250)
+            }.font(.custom("Paperlogy-3Light", size: 18, relativeTo: .body)).foregroundStyle(Color("OiGreen"))
+                .padding(.horizontal, 20).padding(.vertical, 10)
+                .background(Color("OiSoft"), in: Capsule()).frame(maxWidth: 225)
+            ZStack(alignment: .bottomTrailing) {
+                OiCreationCharacterImage(asset: draft.cucumberAsset).frame(height: 250).frame(maxWidth: .infinity)
+                if let onContinue {
+                    OiCreationDoneButton(enabled: canContinue, action: onContinue)
+                        .accessibilityIdentifier("oi.creation.next")
+                        .accessibilityHint("카드 꾸미기 단계로 이동합니다")
+                }
+            }.padding(.bottom, 16)
             tabs
             if tab == .set {
                 OiCreationAssetPicker(assets: assets.filter { $0.kind == "cucumber" }, selection: $draft.cucumberAsset)
@@ -34,10 +44,9 @@ struct OiCucumberCustomizationStep: View {
     }
     private var tabs: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 ForEach(OiOutfitTab.allCases, id: \.self) { item in
-                    Button(item.rawValue) { tab = item }
-                        .buttonStyle(.bordered).tint(tab == item ? Color("OiGreen") : .gray)
+                    OiCustomizationTabButton(title: item.rawValue, selected: tab == item) { tab = item }
                         .accessibilityAddTraits(tab == item ? .isSelected : [])
                 }
             }
@@ -53,15 +62,23 @@ struct OiCardCustomizationStep: View {
     @Binding var draft: OiStoryDraft
     @Binding var customization: OiDraftCustomization
     let assets: [OiAsset]
+    var canContinue = true
+    var onContinue: (() -> Void)?
     @State private var tab: OiCardTab = .background
     var body: some View {
         VStack(spacing: 22) {
-            OiDraftCardPreview(draft: draft, customization: customization).frame(height: 280)
+            ZStack(alignment: .bottomTrailing) {
+                OiDraftCardPreview(draft: draft, customization: customization).frame(height: 283).frame(maxWidth: .infinity)
+                if let onContinue {
+                    OiCreationDoneButton(enabled: canContinue, action: onContinue)
+                        .accessibilityIdentifier("oi.creation.next")
+                        .accessibilityHint("공개 검토를 요청하기 전에 내용을 확인합니다")
+                }
+            }.padding(.bottom, 12)
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                HStack(spacing: 10) {
                     ForEach(OiCardTab.allCases, id: \.self) { item in
-                        Button(item.rawValue) { tab = item }.buttonStyle(.bordered)
-                            .tint(tab == item ? Color("OiGreen") : .gray)
+                        OiCustomizationTabButton(title: item.rawValue, selected: tab == item) { tab = item }
                             .accessibilityAddTraits(tab == item ? .isSelected : [])
                     }
                 }
@@ -79,7 +96,7 @@ struct OiCardCustomizationStep: View {
                 Toggle("카드에 오이 표시", isOn: $customization.showsCharacter).tint(Color("OiGreen"))
             case .set:
                 Text("공개 카드 프리셋").font(.headline)
-                OiCreationAssetPicker(assets: assets.filter { $0.kind == "card" }, selection: $draft.cardAsset)
+                OiCreationAssetPicker(assets: assets.filter { $0.kind == "card" }, selection: $draft.cardAsset, draft: draft)
             case .size, .pattern, .border:
                 OiEmptyCustomizationGrid(title: "\(tab.rawValue) 옵션 준비 중")
             }
@@ -89,6 +106,20 @@ struct OiCardCustomizationStep: View {
     }
     private func color(_ key: WritableKeyPath<OiDraftCustomization, UInt32>) -> Binding<Color> {
         Binding(get: { Color(oiRGB: customization[keyPath: key]) }, set: { customization[keyPath: key] = $0.oiRGB })
+    }
+}
+
+private struct OiCustomizationTabButton: View {
+    let title: String
+    let selected: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Text(title).font(CampusStyle.medium(18)).tracking(0.36)
+                .padding(.horizontal, 20).frame(minWidth: 72, minHeight: 44)
+                .foregroundStyle(selected ? Color("OiDark") : .primary)
+                .background(selected ? Color("OiBorder") : Color(white: 0.953), in: RoundedRectangle(cornerRadius: 10))
+        }.buttonStyle(.plain)
     }
 }
 
@@ -131,16 +162,17 @@ private struct OiEmptyCustomizationGrid: View {
     var body: some View {
         VStack(spacing: 12) {
             Text(title).font(.subheadline).foregroundStyle(.secondary)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
-                ForEach(0..<8) { _ in RoundedRectangle(cornerRadius: 10).fill(Color(.systemGray5)).frame(height: 66).accessibilityHidden(true) }
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 8) {
+                ForEach(0..<12) { _ in Rectangle().fill(Color(white: 0.851)).frame(height: 90).accessibilityHidden(true) }
             }
-        }.padding(16).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+        }.padding(16).background(Color(white: 0.937))
     }
 }
 
 private struct OiCreationAssetPicker: View {
     let assets: [OiAsset]
     @Binding var selection: String
+    var draft: OiStoryDraft?
     var body: some View {
         if assets.isEmpty {
             Text("선택 가능한 프리셋을 불러오는 중이에요. 연결을 확인해 주세요.").font(.footnote).foregroundStyle(.secondary)
@@ -150,7 +182,11 @@ private struct OiCreationAssetPicker: View {
                     Button { selection = asset.id } label: {
                         VStack(spacing: 6) {
                             if asset.kind == "cucumber" { OiCreationCharacterImage(asset: asset.id).frame(height: 76) }
-                            else { Image(systemName: "rectangle.portrait.fill").font(.system(size: 48)).frame(height: 76) }
+                            else if let draft {
+                                MYCardArtwork(card: MYCard(id: draft.id.uuidString, title: draft.cucumberName,
+                                    image: draft.cucumberAsset, school: .postech, order: 0, body: draft.body,
+                                    donor: "", date: "", appearance: asset.id)).frame(height: 100)
+                            }
                             Text(asset.name).font(.caption).lineLimit(2)
                             if selection == asset.id { Image(systemName: "checkmark.circle.fill") }
                         }.frame(maxWidth: .infinity).padding(10)
