@@ -143,6 +143,11 @@ test("operator analyzes only the referenced private pending evidence without mut
   assert.ok(calls.every(({ url, init }) => !url.includes("oi_mutate") && (!init.method || init.method === "POST")));
 });
 
+test("merged evidence retains its original Storage prefix while canonical ownership changes", async () => {
+  const { handler } = fixture({ row: { user_id: "10000000-0000-4000-8000-000000000002", storage_owner_id: actor } });
+  assert.equal((await handler(request())).status, 200);
+});
+
 for (const [name, overrides, status, code] of [
   ["expired session", { authStatus: 401 }, 401, "authentication_failed"],
   ["non-operator", { operator: false }, 403, "operator_required"],

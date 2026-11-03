@@ -15,7 +15,24 @@ final class ARVideoRecorder: NSObject, RPScreenRecorderDelegate {
     private var screenSize = CGSize.zero
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var stopAfterStart = false
+    private var recordingOriginal: URL?
     private let exporter = ARVideoExporter()
+    private let recovery = ARVideoRecoveryStore()
+
+    override init() {
+        super.init()
+        do {
+            if let original = try recovery.pendingRecordings().first {
+                result = ARVideoResult(url: original, kind: .recoveryOriginal)
+            }
+        } catch {
+            errorMessage = "보관된 녹화 원본을 확인하지 못했습니다. 카메라를 다시 열어 주세요."
+        }
+    }
+
+    func discardRecovery(_ original: URL) throws {
+        try recovery.discard(original)
+    }
 
     func start(view: UIView) async {
         guard !busy, !Task.isCancelled else { return }
@@ -48,6 +65,13 @@ final class ARVideoRecorder: NSObject, RPScreenRecorderDelegate {
             return
         }
         guard !Task.isCancelled, !stopAfterStart else { state = .idle; return }
+        do {
+            recordingOriginal = try recovery.recordingURL()
+        } catch {
+            errorMessage = "녹화 원본을 보관할 저장 공간을 준비하지 못했습니다. 여유 공간을 확인해 주세요."
+            state = .idle
+            return
+        }
         ARRecordingOrientation.lock(to: window)
         recorder.isMicrophoneEnabled = true
         recorder.delegate = self
@@ -67,6 +91,7 @@ final class ARVideoRecorder: NSObject, RPScreenRecorderDelegate {
                 await stop()
             }
         } catch {
+            recordingOriginal = nil
             ARRecordingOrientation.unlock()
             recorder.isMicrophoneEnabled = false
             if !Task.isCancelled, !stopAfterStart {
@@ -79,6 +104,10 @@ final class ARVideoRecorder: NSObject, RPScreenRecorderDelegate {
     func stop() async {
         if state == .preparing { stopAfterStart = true; return }
         guard state == .recording else { return }
+        guard let original = recordingOriginal else {
+            errorMessage = "녹화 원본의 저장 위치를 확인하지 못했습니다. 다시 종료해 주세요."
+            return
+        }
         state = .finishing
         backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Finish AR video") { [weak self] in
             Task { @MainActor in self?.exporter.cancel() }
@@ -88,19 +117,28 @@ final class ARVideoRecorder: NSObject, RPScreenRecorderDelegate {
             RPScreenRecorder.shared().isMicrophoneEnabled = false
             state = .idle
             startedAt = nil
+            recordingOriginal = nil
             if backgroundTask != .invalid {
                 UIApplication.shared.endBackgroundTask(backgroundTask)
                 backgroundTask = .invalid
             }
         }
-        let raw = FileManager.default.temporaryDirectory.appending(path: "오이기부-\(UUID().uuidString).mov")
-        defer { try? FileManager.default.removeItem(at: raw) }
         do {
-            try await RPScreenRecorder.shared().stopRecording(withOutput: raw)
-            let output = try await exporter.exportCameraArea(from: raw, crop: crop)
+            try await RPScreenRecorder.shared().stopRecording(withOutput: original)
+            let output = try await recovery.export(original) { original in
+                try await exporter.exportCameraArea(from: original, crop: crop)
+            }
             result = ARVideoResult(url: output)
         } catch {
-            errorMessage = "영상 저장 실패: \(error.localizedDescription)"
+            do {
+                if try recovery.pendingRecordings().contains(original) {
+                    result = ARVideoResult(url: original, kind: .recoveryOriginal)
+                } else {
+                    errorMessage = "영상 저장 실패: \(error.localizedDescription)"
+                }
+            } catch {
+                errorMessage = "영상 저장과 복구 원본 확인에 실패했습니다. 카메라를 다시 열어 보관된 원본을 확인해 주세요."
+            }
         }
     }
 
@@ -108,6 +146,7 @@ final class ARVideoRecorder: NSObject, RPScreenRecorderDelegate {
                         didStopRecordingWith previewViewController: RPPreviewViewController?, error: Error?) {
         guard state == .recording else { return }
         state = .idle
+        recordingOriginal = nil
         startedAt = nil
         ARRecordingOrientation.unlock()
         screenRecorder.isMicrophoneEnabled = false

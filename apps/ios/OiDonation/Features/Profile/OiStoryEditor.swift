@@ -12,6 +12,9 @@ struct OiStoryEditor: View {
     @State private var uploadedPhotos: Set<UUID> = []
     @State private var localVersion = 0
     @State private var restored = false
+    @State private var isRestoring = false
+    @State private var restorationError: String?
+    @State private var restorationAttempt = 0
     @State private var submitted = false
     @State private var selectingLocation = false
     @State private var photo: PhotosPickerItem?
@@ -36,6 +39,19 @@ struct OiStoryEditor: View {
 
     var body: some View {
         Form {
+            if !restored {
+                Section("기기 초안 복원") {
+                    if isRestoring { ProgressView("기기 초안을 확인하고 있어요") }
+                    if let restorationError {
+                        Text("초안을 복원하지 못했습니다. 원본을 덮어쓰지 않고 보관했습니다. \(restorationError)")
+                            .font(.footnote).foregroundStyle(.red).accessibilityIdentifier("oi.draft.restoreError")
+                        Button("초안 복원 다시 시도") { restorationAttempt += 1 }
+                            .disabled(isRestoring).accessibilityIdentifier("oi.draft.restoreRetry")
+                    }
+                    Button("원본 보관하고 나가기") { dismiss() }.accessibilityIdentifier("oi.draft.preserveAndExit")
+                }
+            }
+            Group {
             OiConnectionStatus(remote: remote)
             if let error = localError ?? remote.error { Text(error).foregroundStyle(.red) }
             Text(saveLabel).font(.caption).accessibilityIdentifier("oi.draft.saveState")
@@ -113,13 +129,16 @@ struct OiStoryEditor: View {
             Section {
                 Text("내부 검증용입니다. 최종 약관·증빙 운영 정책과 개별 꾸미기 자산은 아직 미정이며, 코인 기능은 사용하지 않습니다.").font(.footnote).foregroundStyle(.secondary)
             }
+            }.disabled(!restored)
         }
-        .disabled(remote.isBusy || preparingPhoto || publishing || !restored)
+        .disabled(remote.isBusy || preparingPhoto || publishing)
         .navigationTitle("이야기와 오이 만들기").navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden()
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button("뒤로") { choosingExit = true }.disabled(remote.isBusy || preparingPhoto || publishing)
+                Button("뒤로") {
+                    if restored { choosingExit = true } else { dismiss() }
+                }.disabled(remote.isBusy || preparingPhoto || publishing)
             }
         }
         .interactiveDismissDisabled()
@@ -169,17 +188,7 @@ struct OiStoryEditor: View {
                     .interactiveDismissDisabled(publishing)
             }
         }
-        .task {
-            guard owner == nil, let accountID = remote.account?.id else { return }
-            owner = accountID
-            do {
-                if let record = try await remote.localDraft(id: draft.id, owner: accountID) {
-                    draft = record.draft; photos = record.photos; uploadedPhotos = Set(record.uploadedPhotos)
-                    localVersion = record.version; submitted = record.submitted
-                }
-                restored = true; saveLabel = "이 계정의 기기 초안 자동 저장"
-            } catch { localError = error.localizedDescription }
-        }
+        .task(id: restorationAttempt) { await restoreDraft() }
         .onChange(of: draft) { _, _ in scheduleSave() }
         .onChange(of: photos) { _, _ in scheduleSave() }
         .onChange(of: uploadedPhotos) { _, _ in scheduleSave() }
@@ -202,6 +211,31 @@ struct OiStoryEditor: View {
                 guard remote.account?.id == owner else { throw OiServiceError.accountChanged }
                 photos.append(id); localVersion += 1; _ = await persist()
             } catch { localError = error.localizedDescription }
+        }
+    }
+
+    private func restoreDraft() async {
+        guard !restored else { return }
+        guard let accountID = remote.account?.id else {
+            restorationError = OiServiceError.signInRequired.localizedDescription; return
+        }
+        guard owner == nil || owner == accountID else {
+            restorationError = OiServiceError.accountChanged.localizedDescription; return
+        }
+        owner = accountID; isRestoring = true; restorationError = nil
+        defer { if !Task.isCancelled { isRestoring = false } }
+        do {
+            let record = try await remote.localDraft(id: draft.id, owner: accountID)
+            try Task.checkCancellation()
+            guard remote.account?.id == accountID else { throw OiServiceError.accountChanged }
+            if let record {
+                draft = record.draft; photos = record.photos; uploadedPhotos = Set(record.uploadedPhotos)
+                localVersion = record.version; submitted = record.submitted
+            }
+            restored = true; localError = nil; saveLabel = "이 계정의 기기 초안 자동 저장"
+        } catch is CancellationError {
+        } catch {
+            restorationError = error.localizedDescription; saveLabel = "기기 초안 복원 미완료"
         }
     }
 
