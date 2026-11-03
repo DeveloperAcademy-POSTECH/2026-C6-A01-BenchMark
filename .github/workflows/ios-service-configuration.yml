@@ -1,0 +1,19 @@
+name: iOS service configuration
+on:
+  push:
+    branches: [develop]
+    paths: ['scripts/configure-ios-service.py', 'scripts/test_configure_ios_service.py', '.github/workflows/ios-service-configuration.yml']
+  pull_request:
+    paths: ['scripts/configure-ios-service.py', 'scripts/test_configure_ios_service.py', '.github/workflows/ios-service-configuration.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 scripts/test_configure_ios_service.py
