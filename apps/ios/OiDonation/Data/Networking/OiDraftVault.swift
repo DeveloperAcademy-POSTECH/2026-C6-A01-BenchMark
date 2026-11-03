@@ -8,6 +8,9 @@ struct OiLocalDraft: Codable, Identifiable, Equatable {
     var uploadedPhotos: [UUID] = []
     var version = 0
     var submitted = false
+    var creationStep: String?
+    var customization: OiDraftCustomization?
+    var removedMediaPaths: [String]?
     var id: UUID { draft.id }
 }
 
@@ -99,4 +102,14 @@ actor OiDraftVault {
         try write(JSONEncoder().encode(operation), to: ownerDirectory(owner).appending(path: "evidence-\(operation.uploadID.uuidString).json"))
         try write(JSONEncoder().encode(operation), to: ownerDirectory(owner).appending(path: "evidence.json"))
     }
+}
+
+/// Local preview settings only. Not sent to the story API until the shared asset contract exists.
+struct OiDraftCustomization: Codable, Equatable {
+    enum Fill: String, Codable, CaseIterable { case solid, gradient }
+    var fill: Fill = .solid
+    var firstColor: UInt32 = 0xD3DBC4
+    var secondColor: UInt32 = 0xF1F4EC
+    var showsCharacter = true
+    var garmentColors: [String: UInt32] = [:]
 }

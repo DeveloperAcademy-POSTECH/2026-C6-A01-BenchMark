@@ -335,6 +335,26 @@ final class OiRemoteStore {
         } catch { if started == generation { noteAuthenticationFailure(error); self.error = error.localizedDescription }; return nil }
     }
 
+    func setStoryMedia(_ paths: [String], story: OiLiveStory) async -> OiLiveStory? {
+        guard !isBusy, let api else { return nil }
+        let started = generation
+        isBusy = true; error = nil
+        defer { isBusy = false }
+        do {
+            let updated = try await api.mutate("attach_media", payload: ["id": story.id.uuidString,
+                "revision": story.revision, "paths": paths], token: token(), as: OiLiveStory.self)
+            guard started == generation else { throw OiServiceError.accountChanged }
+            committedMediaPaths[story.id] = paths
+            applyReceipt(updated, action: "attach_media", payload: [:])
+            await refreshAfterCommit()
+            guard started == generation else { return nil }
+            return updated
+        } catch {
+            if started == generation { noteAuthenticationFailure(error); self.error = error.localizedDescription }
+            return nil
+        }
+    }
+
     func mediaPaths(storyID: UUID) -> [String] {
         committedMediaPaths[storyID] ?? media.filter { $0.storyId == storyID }.sorted { $0.position < $1.position }.map(\.objectPath)
     }

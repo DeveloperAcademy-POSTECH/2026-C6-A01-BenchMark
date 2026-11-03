@@ -9,6 +9,7 @@ struct RootTabView: View {
     @State private var isCameraCoverActive = false
     @State private var remote = OiRemoteStore()
     @State private var showingAccount = false
+    @State private var showingStoryList = false
     @State private var showingExamples = false
     @State private var exampleStore: CampusStoryStore
     @State private var geoPlacement: CampusPlacement?
@@ -32,7 +33,9 @@ struct RootTabView: View {
 
     @ViewBuilder private var regularContent: some View {
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-campus-map-design-preview") {
+        if ProcessInfo.processInfo.arguments.contains("-story-creation-preview") {
+            OiCreationPreviewHost()
+        } else if ProcessInfo.processInfo.arguments.contains("-campus-map-design-preview") {
             CampusMapPreviewHost()
         } else if ProcessInfo.processInfo.arguments.contains("-story-list-preview") {
             OiStoryListPreviewHost(state: storyListPreviewState)
@@ -71,9 +74,13 @@ struct RootTabView: View {
                 onOpenStory: { path.append(CampusDestination.summary($0)) },
                 remote: showingExamples ? nil : remote,
                 onAccount: { showingAccount = true },
+                onCreateStory: { showingStoryList = true },
                 onOpenExamples: showingExamples ? nil : { showingExamples = true },
                 onCloseExamples: showingExamples ? { showingExamples = false } : nil
             )
+            .navigationDestination(isPresented: $showingStoryList) {
+                OiStoryListScreen(remote: remote).id(remote.account?.id)
+            }
             .navigationDestination(for: CampusDestination.self) { destination in
                 switch destination {
                 case .summary(let id):

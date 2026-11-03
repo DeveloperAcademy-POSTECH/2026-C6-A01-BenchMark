@@ -11,6 +11,7 @@ struct HomeView: View {
     let onOpenStory: (String) -> Void
     var remote: OiRemoteStore? = nil
     var onAccount: (() -> Void)? = nil
+    var onCreateStory: (() -> Void)? = nil
     var onOpenExamples: (() -> Void)? = nil
     var onCloseExamples: (() -> Void)? = nil
     @Environment(\.scenePhase) private var scenePhase
@@ -206,7 +207,7 @@ struct HomeView: View {
                 mapAction("magnifyingglass", label: "오이 검색", id: "campus.search",
                     background: "CampusMapSearchBackground") { showingSearchChoice = true }
                 mapAction("plus.capsule", label: "오이 심기 · 작성 승인과 내 이야기", id: "placement.begin",
-                    rotation: .degrees(90)) { onAccount?() }
+                    rotation: .degrees(90)) { onCreateStory?() }
                     .disabled(store.isExample).opacity(store.isExample ? 0.45 : 1)
             }
         }

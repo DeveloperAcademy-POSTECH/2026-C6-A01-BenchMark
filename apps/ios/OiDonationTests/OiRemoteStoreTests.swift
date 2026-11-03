@@ -278,6 +278,26 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertNotNil(store.syncWarning)
     }
 
+    @MainActor func testRemovedPhotoStaysRemovedAfterRefreshFailureAndReviewSubmission() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { clean(session, directory: directory) }
+        await store.start()
+        guard let saved = await store.save(draft()),
+              let first = await store.uploadStoryImage(Data([1,2,3]), photoID: UUID(), story: saved),
+              let second = await store.uploadStoryImage(Data([4,5,6]), photoID: UUID(), story: first) else {
+            XCTFail("Photo setup failed"); return
+        }
+        let retained = Array(store.mediaPaths(storyID: saved.id).suffix(1))
+        backend.configure { $0.failReads = true }
+        guard let edited = await store.setStoryMedia(retained, story: second) else { XCTFail("Remove failed"); return }
+        XCTAssertEqual(store.mediaPaths(storyID: saved.id), retained)
+        XCTAssertEqual(backend.snapshot().paths, retained)
+        let receipt = await store.submitStory(edited)
+        XCTAssertEqual(receipt?.status, "pending")
+        XCTAssertFalse(OiCreationAccess.canEdit(status: receipt?.status, submitted: false))
+        XCTAssertTrue(store.stories.isEmpty, "Review request must not publish the story")
+    }
+
     @MainActor func testInvalidRefreshRequiresReauthenticationNotEmptySuccess() async throws {
         let (store,backend,_,session,directory) = try context(expired: true)
         defer { clean(session, directory: directory) }
@@ -366,3 +386,68 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(receipt?.revision, 3)
     }
 }
+
+#if DEBUG
+@MainActor
+final class OiCreationPracticeTests: XCTestCase {
+    func testPracticeReviewDoesNotCreateAnApprovedProductionDraft() throws {
+        let session = OiCreationPracticeSession()
+        XCTAssertFalse(session.completePractice())
+        session.fillExampleText()
+        XCTAssertFalse(session.canReview, "The user must choose a real map location first")
+        session.draft.latitude = 36.012
+        session.draft.longitude = 129.323
+        XCTAssertTrue(session.completePractice())
+        XCTAssertTrue(session.completed)
+        XCTAssertNil(session.draft.grantId)
+        XCTAssertFalse(session.draft.valid)
+        XCTAssertThrowsError(try session.draft.payload(), "Practice must not fabricate approval for production writes")
+    }
+
+    func testPracticePhotoEditsAndResetAreDisposable() throws {
+        let session = OiCreationPracticeSession()
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let source = UIGraphicsImageRenderer(size: CGSize(width: 320, height: 160), format: format).image { context in
+            UIColor.green.setFill(); context.fill(CGRect(x: 0, y: 0, width: 320, height: 160))
+        }
+        let original = try XCTUnwrap(source.pngData())
+        try session.addPhoto(original)
+        let firstID = try XCTUnwrap(session.photos.first?.id)
+        try session.editPhoto(firstID, operation: .rotateLeft)
+        let rotated = try XCTUnwrap(UIImage(data: XCTUnwrap(session.photos.first?.data))?.cgImage)
+        XCTAssertEqual(rotated.width, 160); XCTAssertEqual(rotated.height, 320)
+        let rotatedID = try XCTUnwrap(session.photos.first?.id)
+        XCTAssertNotEqual(firstID, rotatedID)
+        try session.editPhoto(rotatedID, operation: .squareCrop)
+        let cropped = try XCTUnwrap(UIImage(data: XCTUnwrap(session.photos.first?.data))?.cgImage)
+        XCTAssertEqual(cropped.width, 160); XCTAssertEqual(cropped.height, 160)
+        session.removePhoto(try XCTUnwrap(session.photos.first?.id))
+        XCTAssertTrue(session.photos.isEmpty)
+        try session.addPhoto(original)
+        session.fillExampleText(); session.draft.latitude = 36.012; session.draft.longitude = 129.323
+        session.customization.fill = .gradient
+        XCTAssertTrue(session.completePractice())
+        session.reset()
+        XCTAssertTrue(session.photos.isEmpty)
+        XCTAssertTrue(session.draft.title.isEmpty)
+        XCTAssertNil(session.draft.latitude)
+        XCTAssertFalse(session.completed)
+        XCTAssertEqual(session.customization, OiDraftCustomization())
+        XCTAssertEqual(UIImage(data: original)?.cgImage?.width, 320, "The original source is unchanged")
+    }
+
+    func testPhotoImportBoundsAndInvalidInput() throws {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let source = UIGraphicsImageRenderer(size: CGSize(width: 3000, height: 1500), format: format).image { context in
+            UIColor.blue.setFill(); context.fill(CGRect(x: 0, y: 0, width: 3000, height: 1500))
+        }
+        let processed = try OiPhotoProcessor.prepare(XCTUnwrap(source.pngData()))
+        let image = try XCTUnwrap(UIImage(data: processed)?.cgImage)
+        XCTAssertEqual(image.width, 2048); XCTAssertEqual(image.height, 1024)
+        let session = OiCreationPracticeSession()
+        XCTAssertThrowsError(try session.addPhoto(Data("not an image".utf8)))
+        XCTAssertTrue(session.photos.isEmpty)
+        XCTAssertThrowsError(try OiPhotoProcessor.prepare(Data(repeating: 0, count: 40_000_001)))
+    }
+}
+#endif

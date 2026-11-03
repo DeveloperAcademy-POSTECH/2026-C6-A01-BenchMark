@@ -290,6 +290,13 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         showOverview()
     }
 
+    func focusPlaceForPlacement(_ id: String) {
+        guard editingPlacement, let data, let place = data.pois.first(where: { $0.id == id }) else { return }
+        target = data.world(place.p); radius = 32; pitch = 1.25
+        placementMessage = "\(place.name) 주변의 건물 밖 바닥을 선택해 주세요."
+        updateCamera()
+    }
+
     func setDraft(_ placement: CampusPlacement) {
         guard let data else { return }
         let point = data.world(latitude: placement.latitude, longitude: placement.longitude)

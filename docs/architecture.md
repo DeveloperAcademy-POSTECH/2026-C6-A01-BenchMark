@@ -287,3 +287,14 @@ MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하
 `campus-data.json`의 선택적 `buildingLabelGroups`는 검토한 건물 ID들을 공통 구역명에 연결한다. 원본 건물명이 있으면 우선 사용하고, 빈 이름만 이 메타데이터로 보완한다. RIST 실험동 8개에는 공통 이름을 사용하며 개별 동 번호를 추측하지 않는다. 표시용 구역에는 오이 수 버튼을 만들지 않고 서버의 지역 ID·스토리 분류를 변경하지 않는다. 구역 중심이 화면 밖에 있으면 보이는 구성 건물의 지붕 위치에서 이름표 후보를 찾고, 가장자리와 기존 마커와의 충돌을 피한다. 메타데이터가 없는 기존 지도도 디코딩된다.
 
 검증: `sh apps/ios/Tests/run-campus-label-checks.sh`로 90개 지붕 좌표·오목한 건물·단계 전환·표시 크기·충돌 제외를 검사한다. Debug 실행 인자 `-campus-map-label-check`는 실제 투영과 핀치 핸들러를 통해 전체→확대→회전→렌더러 재생성→축소를 검사한다. 상세 검증 범위는 [복원 기록](local-work-restoration.md)을 따른다.
+
+
+### 2026-11-03 + 버튼 이야기 생성 흐름
+
+`RootTabView`가 지도 + 버튼에서 `OiStoryListScreen`을 push한다. 팀원의 `OiStoryListView`·`OiStoryConsentView`·승인 검사를 재사용하고, `OiStoryEditor`의 기존 초안·사진 업로드·revision 기반 저장·검토 요청에 단계별 화면을 연결한다. 사진/위치/커스텀 화면은 `Features/Profile/Creation`에 둔다. `OiCreationStep`은 단계 순서와 입력 검증, `OiCreationAccess`는 서버 상태에 따른 편집 가능 여부를 담당한다.
+
+`OiLocalDraft`의 선택적 `creationStep`·`customization`·`removedMediaPaths`는 구버전 초안을 그대로 읽을 수 있게 추가한다. `OiDraftCustomization`은 로컬 미리보기 전용이며 `OiStoryDraft.payload()`나 공유 DB를 확장하지 않는다. 업로드 사진 순서를 유지하고 기기 사본과 서버 경로를 중복 표시하지 않는다. 기존 `attach_media` RPC로 사진 연결을 변경하며, 변경 직후 목록 동기화가 실패해도 응답의 revision과 경로를 보존한다.
+
+위치 선택은 기존 `CampusExploreScene`과 `CampusPlacementTools`를 재사용한다. 건물 검색은 카메라만 이동시키고 좌표를 자동 확정하지 않는다. 사용자가 바닥을 선택하고 확인하면 좌표를 초안에 전달한다. 선택 화면이 닫힐 때 숨은 RealityKit 렌더러를 해제한다. 구현 경계와 검증 절차는 [이야기 생성 흐름](story-creation-flow.md)을 따른다.
+
+증빙 없는 개발용 체험은 `#if DEBUG`의 `OiCreationPreviewHost`·`OiCreationPracticeSession`으로 분리한다. 실제 단계 UI와 사진 변환만 공유하며 원격 저장소·계정·승인·영속 저장을 의존하지 않는다. 사진은 메모리에 보관하고 종료 시 초기화한다. 최종 버튼은 로컬 완료 상태만 전환하며 `OiStoryDraft`에 가짜 grant를 넣지 않는다. 지도 검색 모달은 `OiLocationPickerRequest` item으로 전달해 화면 열림과 검색 대상이 함께 갱신되도록 한다.
