@@ -4,6 +4,7 @@ import SwiftUI
 
 struct OiConnectionStatus: View {
     let remote: OiRemoteStore
+    @State private var appleAuthentication = OiAppleAuthentication()
 
     var body: some View {
         if remote.isRefreshing || remote.syncWarning != nil || remote.loadError != nil || remote.needsReauthentication {
@@ -16,7 +17,9 @@ struct OiConnectionStatus: View {
                 Button("다시 불러오기") { Task { await remote.refresh() } }.disabled(remote.isBusy || remote.isRefreshing)
             }
             if remote.needsReauthentication {
-                Button("Google 계정 다시 인증") { Task { await remote.signIn() } }.disabled(remote.isBusy).accessibilityIdentifier("oi.auth.retry")
+                Button("Google로 다시 인증") { Task { await remote.signIn() } }.disabled(remote.isBusy).accessibilityIdentifier("oi.auth.retry")
+                OiAppleSignInButton { Task { await remote.signIn(using: appleAuthentication) } }
+                    .frame(minHeight: 44).disabled(remote.isBusy)
             }
         }
         }

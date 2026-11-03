@@ -59,7 +59,8 @@ struct HomeView: View {
                 if let remote, let error = remote.error {
                     VStack(spacing: 8) {
                         Text(error).font(.footnote)
-                        Button("연결 확인") { onAccount?() }
+                        Button("확인") { remote.error = nil }
+                            .accessibilityLabel("안내 닫기")
                     }.padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
                 }
                 if scene.isLoading { ProgressView("POSTECH 캠퍼스 불러오는 중").padding(22).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20)) }
