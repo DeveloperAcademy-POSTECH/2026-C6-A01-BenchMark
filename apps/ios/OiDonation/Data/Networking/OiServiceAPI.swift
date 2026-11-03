@@ -2,8 +2,14 @@
 
 import Foundation
 
+@MainActor
+protocol OiAuthenticating {
+    func signIn(api: OiServiceAPI) async throws -> OiSession
+}
+
 struct OiServiceAPI {
     static let projectHost = "kfzfzarslqdqmrazohej.supabase.co"
+    static let authenticationCallback = "kr.ac.postech.benchmark://auth/callback"
     private let key: String
     private let transport: APIClient
     private let decoder: JSONDecoder
@@ -86,6 +92,13 @@ struct OiServiceAPI {
         return story
     }
 
+    /// Nearby AR must never include an owner's drafts or hidden stories.
+    func publishedStories() async throws -> [OiLiveStory] {
+        let records = try await rows("oi_stories", query: "status=eq.published&order=id.asc", as: OiLiveStory.self)
+        try Task.checkCancellation()
+        return records.filter { $0.status == "published" }
+    }
+
     func collectionMetrics(token: String?) async throws -> [OiCollectionMetric] {
         var values: [OiCollectionMetric] = []
         var offset = 0
@@ -108,6 +121,7 @@ struct OiServiceAPI {
         let data: Data
         do { data = try await request("auth/v1/token?grant_type=\(grant)", method: "POST", body: JSONSerialization.data(withJSONObject: payload)) }
         catch OiServiceError.invalidInput where grant == "refresh_token" { throw OiServiceError.signInRequired }
+        catch OiServiceError.invalidInput where grant == "pkce" || grant == "id_token" { throw OiServiceError.authenticationFailed }
         var session = try decoder.decode(OiSession.self, from: data)
         session.expiresAt = Date().timeIntervalSince1970 + session.expiresIn
         return session

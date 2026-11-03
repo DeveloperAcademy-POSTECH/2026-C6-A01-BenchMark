@@ -9,18 +9,35 @@ struct RootTabView: View {
     @State private var isCameraCoverActive = false
     @State private var remote = OiRemoteStore()
     @State private var showingAccount = false
+    @State private var showingStoryList = false
+    @State private var showingExamples = false
+    @State private var exampleStore: CampusStoryStore
     @State private var geoPlacement: CampusPlacement?
+    @State private var photoCamera = false
     @Environment(\.scenePhase) private var scenePhase
 
     init(container: AppContainer = .pilot) {
         self.container = container
         _store = State(initialValue: CampusStoryStore())
         _myDemo = State(initialValue: MYLibraryStore())
+        let examples = CampusStoryStore(isExample: true)
+        examples.synchronize(stories: CampusStoryExamples.stories, collected: [])
+        _exampleStore = State(initialValue: examples)
     }
 
     var body: some View {
+        regularContent
+    }
+
+    private var displayedStories: CampusStoryStore { showingExamples ? exampleStore : store }
+
+    @ViewBuilder private var regularContent: some View {
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-story-list-preview") {
+        if ProcessInfo.processInfo.arguments.contains("-story-creation-preview") {
+            OiCreationPreviewHost()
+        } else if ProcessInfo.processInfo.arguments.contains("-campus-map-design-preview") {
+            CampusMapPreviewHost()
+        } else if ProcessInfo.processInfo.arguments.contains("-story-list-preview") {
             OiStoryListPreviewHost(state: storyListPreviewState)
         } else if ProcessInfo.processInfo.arguments.contains("-story-consent-preview") {
             OiStoryConsentPreviewHost()
@@ -49,20 +66,26 @@ struct RootTabView: View {
         NavigationStack(path: $path) {
             HomeView(
                 container: container,
-                store: store,
+                store: displayedStories,
                 myDemo: myDemo,
                 isCameraCoverActive: isCameraCoverActive,
-                onCamera: { geoPlacement = nil; path = NavigationPath(); isCameraCoverActive = true; isARPresented = true },
+                onCamera: { photoCamera = false; geoPlacement = nil; path = NavigationPath(); isCameraCoverActive = true; isARPresented = true },
                 onOpenProfile: { path.append(MYDestination.workshop) },
                 onOpenStory: { path.append(CampusDestination.summary($0)) },
-                remote: remote,
-                onAccount: { showingAccount = true }
+                remote: showingExamples ? nil : remote,
+                onAccount: { showingAccount = true },
+                onCreateStory: { showingStoryList = true },
+                onOpenExamples: showingExamples ? nil : { showingExamples = true },
+                onCloseExamples: showingExamples ? { showingExamples = false } : nil
             )
+            .navigationDestination(isPresented: $showingStoryList) {
+                OiStoryListScreen(remote: remote).id(remote.account?.id)
+            }
             .navigationDestination(for: CampusDestination.self) { destination in
                 switch destination {
                 case .summary(let id):
-                    if let story = store.story(id) {
-                        CampusSummaryView(story: story, store: store)
+                    if let story = displayedStories.story(id) {
+                        CampusSummaryView(story: story, store: displayedStories)
                             .toolbar {
                                 if story.latitude != nil && story.longitude != nil {
                                     ToolbarItem(placement: .topBarTrailing) {
@@ -72,7 +95,7 @@ struct RootTabView: View {
                             }
                     }
                 case .story(let id):
-                    if let story = store.story(id) { CampusStoryDetailView(story: story, store: store) }
+                    if let story = displayedStories.story(id) { CampusStoryDetailView(story: story, store: displayedStories) }
                 }
             }
             .navigationDestination(for: PublicLinkParser.Destination.self) { publicDestination($0) }
@@ -105,7 +128,10 @@ struct RootTabView: View {
         }) {
             if let geoPlacement {
                 CampusGeoARScreen(placement: geoPlacement, stories: store, remote: remote)
-            } else { ARView() }
+            } else if photoCamera { ARView() }
+            else {
+                CampusNearbyARScreen(stories: store, remote: remote) { photoCamera = true }
+            }
         }
         .onOpenURL { handlePublicLink($0) }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
@@ -122,15 +148,7 @@ struct RootTabView: View {
 
     private func synchronizeRemote() {
         let mapped = remote.stories.enumerated().map { index, item in
-            var story = CampusStory(id: item.id.uuidString, regionID: item.regionId, title: item.cucumberName,
-                image: item.cucumberAsset, tags: [item.theme,item.emotion],
-                donor: remote.profiles.first(where: { $0.id == item.userId })?.nickname ?? "작성자 정보 확인 중",
-                location: remote.regions.first(where: { $0.id == item.regionId })?.name ?? "POSTECH",
-                date: item.createdDateLabel, order: index, popularity: remote.collectionCounts[item.id] ?? 0, palette: 0)
-            story.remoteBody = item.body
-            story.remoteMediaPaths = remote.mediaPaths(storyID: item.id)
-            story.latitude = item.latitude; story.longitude = item.longitude
-            return story
+            remote.campusStory(item, order: index)
         }
         store.synchronize(stories: mapped, collected: Set(remote.collections.map { $0.storyId.uuidString }))
         let cards = remote.collections.enumerated().compactMap { index, collection -> MYCard? in

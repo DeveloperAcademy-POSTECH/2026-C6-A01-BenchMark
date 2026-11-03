@@ -17,19 +17,47 @@ struct ARGameFlowView: View {
     private var story: Story { experience.story }
 
     @State private var collectionStore = StoryCollectionStore()
+    @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isReturningFromSettings = false
 
     @State private var viewModel = ARGameViewModel(
         isARSupported: {
             ARWorldTrackingConfiguration.isSupported
         },
         requestCameraAccess: {
-            await AVCaptureDevice.requestAccess(for: .video)
+            switch AVCaptureDevice.authorizationStatus(for: .video) {
+            case .authorized:
+                true
+            case .notDetermined:
+                await AVCaptureDevice.requestAccess(for: .video)
+            case .denied, .restricted:
+                false
+            @unknown default:
+                false
+            }
         }
     )
 
     var body: some View {
         Group {
             switch viewModel.state {
+            case .introBackground:
+                Image("ARGameIntroBackground")
+                    .resizable()
+                    .scaledToFill()
+                    .ignoresSafeArea()
+                    .accessibilityHidden(true)
+                    .task {
+                        do {
+                            try await Task.sleep(for: .milliseconds(300))
+                        } catch {
+                            return
+                        }
+                        guard !Task.isCancelled else { return }
+                        viewModel.showIntro()
+                    }
             case .intro:
                 ARGameIntroView(
                     cucumberName: story.cucumberName,
@@ -45,35 +73,35 @@ struct ARGameFlowView: View {
                     .task {
                         await viewModel.resolvePermission()
                     }
-            case .starting:
-                ZStack {
-                    Color.black.opacity(0.95)
-                        .ignoresSafeArea()
-                    Text("시작!")
-                        .font(.custom("KIMWILDgag-BOLD", size: 60, relativeTo: .largeTitle))
-                        .foregroundStyle(.white)
-                }
-                .task {
-                    try? await Task.sleep(for: .milliseconds(700))
-                    viewModel.beginPlaying()
-                }
-            case .playing:
+            case .starting, .playing:
                 ARGamePlayingView(
                     viewModel: viewModel,
-                    cucumberImageURL: story.cucumberImageURL,
-                    onBack: onBack
+                    cucumberImageURL: story.cucumberImageURL
                 )
             case .permissionDenied:
-                statePanel(
-                    title: "카메라 권한이 필요해요",
-                    message: "설정에서 오이기부의 카메라 접근을 허용해 주세요.",
-                    buttonTitle: "돌아가기",
-                    action: onBack
-                )
+                VStack(spacing: 16) {
+                    statePanel(
+                        title: "카메라 권한이 필요해요",
+                        message: "설정에서 오이기부의 카메라 접근을 허용해 주세요.",
+                        buttonTitle: "돌아가기",
+                        action: onBack
+                    )
+                    Button("설정 열기") {
+                        guard let settings = URL(string: UIApplication.openSettingsURLString) else { return }
+                        isReturningFromSettings = true
+                        openURL(settings) { accepted in
+                            if !accepted { isReturningFromSettings = false }
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
             case .success:
                 ARGameSuccessView {
-                    viewModel.showStoryCard()
+                    withAnimation(reduceMotion ? nil : .timingCurve(0, 0, 0.58, 1, duration: 0.3)) {
+                        viewModel.showStoryCard()
+                    }
                 }
+                .transition(.opacity)
             case .storyCard:
                 AppClipStoryCardView(
                     experience: experience,
@@ -82,8 +110,12 @@ struct ARGameFlowView: View {
                         collectionStore.collect(experience.storyCard)
                         onRequestFullApp()
                     },
-                    onCancel: { viewModel.reset() }
+                    onCancel: {
+                        collectionStore.remove(storyID: story.storyID)
+                        viewModel.reset()
+                    }
                 )
+                .transition(.opacity)
             case .failure:
                 ARGameFailureView {
                     viewModel.reset()
@@ -95,7 +127,19 @@ struct ARGameFlowView: View {
                     buttonTitle: "돌아가기",
                     action: onBack
                 )
+            case .cameraUnavailable:
+                statePanel(
+                    title: "카메라가 중단되었어요",
+                    message: "주변을 비추며 다시 시작해 주세요.",
+                    buttonTitle: "다시 시작",
+                    action: viewModel.reset
+                )
             }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, isReturningFromSettings else { return }
+            isReturningFromSettings = false
+            viewModel.retryPermission()
         }
     }
 

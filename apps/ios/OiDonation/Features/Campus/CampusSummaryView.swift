@@ -12,10 +12,40 @@ struct CampusSummaryView: View {
             ZStack {
                 CampusMapSurface(scene: scene).ignoresSafeArea().allowsHitTesting(false)
                 if scene.isLoading { ProgressView().frame(maxHeight: .infinity, alignment: .top) }
-                VStack(spacing: 12) {
-                    hero.frame(maxHeight: .infinity)
-                    summary.frame(height: min(380, max(340, geometry.size.height * 0.52)))
-                }.padding(.horizontal, 11).padding(.bottom, 0)
+                ScrollView {
+                    VStack(spacing: 34) {
+                        HStack(alignment: .center, spacing: -14) {
+                            Image(story.portraitImage).resizable().scaledToFit().scaleEffect(1.18)
+                                .frame(width: max(100, (geometry.size.width - 40) * 0.46), height: 307)
+                                .accessibilityHidden(true)
+                            summary.frame(maxWidth: .infinity)
+                        }
+                        NavigationLink(value: CampusDestination.story(story.id)) {
+                            CampusStoryCardArtwork(story: story)
+                                .frame(width: min(240, geometry.size.width * 0.60), height: 330)
+                        }.buttonStyle(.plain).accessibilityLabel("오이 카드와 이야기 자세히 보기")
+                        if story.isExample {
+                            Text("디자인 예시로, 실제 기부·수집 기록에 포함되지 않아요.")
+                                .font(.caption).padding(10).background(.regularMaterial, in: Capsule())
+                        }
+                        if !story.remoteMediaPaths.isEmpty {
+                            ScrollView(.horizontal) {
+                                HStack {
+                                    ForEach(story.remoteMediaPaths, id: \.self) { path in
+                                        OiStoryMediaImage(path: path) { path in
+                                            guard let resolver = store.mediaURL else { throw OiServiceError.unavailable }
+                                            return try await resolver(path)
+                                        }.frame(width: 200, height: 160).clipped()
+                                    }
+                                }
+                            }.scrollIndicators(.hidden)
+                        }
+
+
+                    }
+                    .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 30)
+                    .frame(maxWidth: .infinity)
+                }.scrollIndicators(.hidden)
             }
         }
         .toolbar(.visible, for: .navigationBar).toolbarBackground(.hidden, for: .navigationBar)
@@ -25,56 +55,33 @@ struct CampusSummaryView: View {
             if let region = CampusRegion.campus.first(where: { $0.id == story.regionID }) { scene.focusBackdrop(region) }
         }
         .onAppear { isOnScreen = true; scene.setVisible(scenePhase == .active) }
-        .onDisappear { isOnScreen = false; scene.setVisible(false) }
+        .onDisappear { isOnScreen = false; scene.suspendForARCamera() }
         .onChange(of: scenePhase) { _, phase in scene.setVisible(isOnScreen && phase == .active) }
     }
 
-    private var hero: some View {
-        GeometryReader { geometry in
-            HStack(spacing: -30) {
-                Image(story.image).resizable().scaledToFit()
-                    .frame(width: geometry.size.width * 0.75, height: geometry.size.height)
-                    .shadow(color: .black.opacity(0.18), radius: 12, y: 16)
-
-            }.frame(width: geometry.size.width, height: geometry.size.height)
-        }
-    }
-
     private var summary: some View {
-        VStack(spacing: 10) {
-            Capsule().fill(Color(.systemGray4)).frame(width: 52, height: 5).padding(.top, 5)
-            HStack(spacing: 5) {
-                Text(story.title).font(CampusStyle.heading(30)).lineLimit(1).minimumScaleFactor(0.65)
-                CampusDonorBadge(size: 14)
-                Spacer(minLength: 2)
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 16) {
+                if story.isExample { CampusExampleBadge() }
+                Text(story.title).font(CampusStyle.characterTitle(28)).lineLimit(1).minimumScaleFactor(0.6)
                 CampusTags(story: story)
-            }.padding(.horizontal, 19)
-            Text("\(story.donor)  |  \(story.location)  |  \(story.date)")
-                .font(CampusStyle.hand(10)).lineLimit(1).minimumScaleFactor(0.7).padding(.horizontal, 19)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Text("“ \(story.excerpt)”").font(CampusStyle.hand(18)).lineSpacing(3)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 19)
-            ScrollView(.horizontal) {
-                HStack(spacing: 6) {
-                    ForEach(story.remoteMediaPaths, id: \.self) { path in
-                        OiStoryMediaImage(path: path) { path in
-                            guard let resolver = store.mediaURL else { throw OiServiceError.unavailable }
-                            return try await resolver(path)
-                        }.frame(width: 260, height: 146).clipShape(RoundedRectangle(cornerRadius: 20))
-                    }
-                    if story.remoteMediaPaths.isEmpty { Text("첨부된 사진이 없어요").font(.subheadline).frame(width: 320, height: 146).background(CampusStyle.background(story.palette), in: RoundedRectangle(cornerRadius: 20)) }
-                }.padding(.horizontal, 10)
-            }.scrollIndicators(.hidden)
-            Spacer(minLength: 0)
-            HStack(spacing: 7) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("| " + story.donor)
+                    Text("| " + story.location)
+                    Text("| " + story.date)
+                }.font(CampusStyle.body(11)).fixedSize(horizontal: false, vertical: true)
+            }
+            VStack(spacing: 16) {
                 NavigationLink(value: CampusDestination.story(story.id)) {
-                    Text("자세히보기").font(CampusStyle.body(11)).foregroundStyle(.black).frame(width: 106, height: 46)
-                        .background(CampusStyle.action.opacity(0.4), in: RoundedRectangle(cornerRadius: 20))
+                    Text("자세히보기").font(CampusStyle.body(16)).foregroundStyle(.black)
+                        .frame(maxWidth: .infinity, minHeight: 43)
+                        .background(CampusStyle.secondaryAction, in: RoundedRectangle(cornerRadius: 20))
                 }.buttonStyle(.plain).accessibilityIdentifier("campus.details")
-                CampusCollectButton(story: story, store: store)
-            }.padding(.horizontal, 10).padding(.bottom, 10)
-        }
-        .foregroundStyle(.black).background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 30))
+                    .shadow(color: CampusStyle.green.opacity(0.35), radius: 4, y: 2)
+                CampusCollectButton(story: story, store: store, fill: CampusStyle.summaryAction)
+                    .shadow(color: CampusStyle.summaryAction.opacity(0.35), radius: 4, y: 2)
+            }
+        }.padding(20).foregroundStyle(.black)
+            .background(.white, in: RoundedRectangle(cornerRadius: 30))
     }
 }

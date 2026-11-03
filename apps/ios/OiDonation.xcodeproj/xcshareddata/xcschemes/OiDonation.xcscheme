@@ -17,6 +17,7 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "8736DA6830777C9800D0CFC9"
                BuildableName = "OiDonation.app"
+               BlueprintName = "OiDonation"
                ReferencedContainer = "container:OiDonation.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -46,6 +47,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "8736DA6830777C9800D0CFC9"
             BuildableName = "OiDonation.app"
+            BlueprintName = "OiDonation"
             ReferencedContainer = "container:OiDonation.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -62,6 +64,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "8736DA6830777C9800D0CFC9"
             BuildableName = "OiDonation.app"
+            BlueprintName = "OiDonation"
             ReferencedContainer = "container:OiDonation.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

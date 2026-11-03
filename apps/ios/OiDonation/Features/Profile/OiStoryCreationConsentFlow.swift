@@ -2,6 +2,7 @@ import SwiftUI
 
 struct OiStoryCreationConsentFlow: View {
     let remote: OiRemoteStore
+    var onFinish: (() -> Void)?
 
     @State private var showingEditor = false
     @State private var showingApprovalNotice = false
@@ -12,7 +13,7 @@ struct OiStoryCreationConsentFlow: View {
             onContinue: continueToEditor
         )
         .navigationDestination(isPresented: $showingEditor) {
-            OiStoryEditor(remote: remote)
+            OiStoryEditor(remote: remote, onFinish: onFinish)
         }
         .alert("작성 승인이 필요해요", isPresented: $showingApprovalNotice) {
             Button("확인", role: .cancel) {}

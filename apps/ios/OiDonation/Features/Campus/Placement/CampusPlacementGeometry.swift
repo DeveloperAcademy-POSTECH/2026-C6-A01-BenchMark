@@ -1,12 +1,11 @@
-// Created by 이돈혁
-
 import Foundation
 import simd
 
 /// Display exaggeration never changes the stored coordinate or the physical AR height.
 enum CampusPlacementGeometry {
-    static func mapScale(heightMeters: Double, unitsPerMeter: Double, editing: Bool) -> Float {
-        Float(heightMeters * unitsPerMeter * (editing ? 1 : 20))
+    /// All map symbols use the former 1m baseline, independent of the saved AR height.
+    static func mapScale(unitsPerMeter: Double, editing: Bool) -> Float {
+        Float(unitsPerMeter * (editing ? 1 : 20))
     }
 
     /// Screen-right / screen-up on the ground plane, including a rotated map camera.

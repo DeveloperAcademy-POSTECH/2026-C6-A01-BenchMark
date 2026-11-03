@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C10911020000000000000005 /* OiCats PNG in Resources */ = {isa = PBXBuildFile; fileRef = C10911020000000000000001 /* OiCats PNG */; };
+		C10911020000000000000006 /* OiGardener PNG in Resources */ = {isa = PBXBuildFile; fileRef = C10911020000000000000002 /* OiGardener PNG */; };
+		C10911020000000000000007 /* OiWizard PNG in Resources */ = {isa = PBXBuildFile; fileRef = C10911020000000000000003 /* OiWizard PNG */; };
+		C10911020000000000000008 /* OiTraveler PNG in Resources */ = {isa = PBXBuildFile; fileRef = C10911020000000000000004 /* OiTraveler PNG */; };
 		B10000000000000000000009 /* OiRemoteStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008; };
 		87169571307CB1D00090D456 /* OiDonationClip.app in Embed App Clips */ = {isa = PBXBuildFile; fileRef = 87169565307CB1CF0090D456 /* OiDonationClip.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		C02610260000000000000001 /* OiDonation.icon in Resources */ = {isa = PBXBuildFile; fileRef = C02610260000000000000002 /* OiDonation.icon */; };
@@ -44,6 +48,10 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		C10911020000000000000001 /* OiCats PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiCats PNG"; path = OiDonation/Assets.xcassets/OiCats.imageset/61272.png; sourceTree = SOURCE_ROOT; };
+		C10911020000000000000002 /* OiGardener PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiGardener PNG"; path = OiDonation/Assets.xcassets/OiGardener.imageset/0e35d.png; sourceTree = SOURCE_ROOT; };
+		C10911020000000000000003 /* OiWizard PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiWizard PNG"; path = OiDonation/Assets.xcassets/OiWizard.imageset/9ac42.png; sourceTree = SOURCE_ROOT; };
+		C10911020000000000000004 /* OiTraveler PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiTraveler PNG"; path = OiDonation/Assets.xcassets/OiTraveler.imageset/aeb3a.png; sourceTree = SOURCE_ROOT; };
 		B10000000000000000000007 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = OiDonationTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B10000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiRemoteStoreTests.swift; sourceTree = SOURCE_ROOT; };
 		87169565307CB1CF0090D456 /* OiDonationClip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OiDonationClip.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -74,10 +82,10 @@
 				Domain/Repositories/StoryRepository.swift,
 				Domain/Routing/AppClipLink.swift,
 				Domain/Routing/PublicLinkParser.swift,
-				"Resources/Fonts/Griun_OMIRI-Rg.ttf",
-				"Resources/Fonts/KIM-WILDgag-Bold.ttf",
-				Resources/Fonts/Mona12TextKR.ttf,
+				"Resources/Fonts/Paperlogy-2ExtraLight.ttf",
+				"Resources/Fonts/Paperlogy-4Regular.ttf",
 				"Resources/Fonts/Paperlogy-6SemiBold.ttf",
+				"Resources/Fonts/Paperlogy-7Bold.ttf",
 				"Resources/Fonts/PearToucan-Regular.ttf",
 			);
 			target = 87169564307CB1CF0090D456 /* OiDonationClip */;
@@ -123,12 +131,24 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		C10911020000000000000009 /* App Clip Character Resources */ = {
+			isa = PBXGroup;
+			children = (
+				C10911020000000000000001 /* OiCats PNG */,
+				C10911020000000000000002 /* OiGardener PNG */,
+				C10911020000000000000003 /* OiWizard PNG */,
+				C10911020000000000000004 /* OiTraveler PNG */,
+			);
+			name = "App Clip Character Resources";
+			sourceTree = "<group>";
+		};
 		8736DA6030777C9800D0CFC9 = {
 			isa = PBXGroup;
 			children = (
 				B10000000000000000000008,
 				8736DA6B30777C9800D0CFC9 /* OiDonation */,
 				87169566307CB1CF0090D456 /* OiDonationClip */,
+				C10911020000000000000009 /* App Clip Character Resources */,
 				8736DA6A30777C9800D0CFC9 /* Products */,
 				C02610260000000000000002 /* OiDonation.icon */,
 			);
@@ -251,6 +271,10 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C10911020000000000000005 /* OiCats PNG in Resources */,
+				C10911020000000000000006 /* OiGardener PNG in Resources */,
+				C10911020000000000000007 /* OiWizard PNG in Resources */,
+				C10911020000000000000008 /* OiTraveler PNG in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

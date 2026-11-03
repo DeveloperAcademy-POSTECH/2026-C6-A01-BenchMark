@@ -38,11 +38,14 @@ import simd
         let movedNorth = map.coordinate(point + north)
         precondition(movedNorth.latitude > ll.latitude)
         precondition(abs(record.distance(latitude: movedNorth.latitude, longitude: movedNorth.longitude) - 1) < 0.01)
-        for height in [0.4, 1, 2] {
-            let precise = CampusPlacementGeometry.mapScale(heightMeters: height, unitsPerMeter: map.unitsPerMeter, editing: true)
-            precondition(abs(precise / scale - Float(height)) < 0.0001, "Editing uses the physical AR height")
-            let browse = CampusPlacementGeometry.mapScale(heightMeters: height, unitsPerMeter: map.unitsPerMeter, editing: false)
-            precondition(abs(browse / precise - 20) < 0.0001)
+        let precise = CampusPlacementGeometry.mapScale(unitsPerMeter: map.unitsPerMeter, editing: true)
+        precondition(abs(precise / scale - 1) < 0.0001, "Map editing uses a constant one-metre reference")
+        let browse = CampusPlacementGeometry.mapScale(unitsPerMeter: map.unitsPerMeter, editing: false)
+        precondition(abs(browse / precise - 20) < 0.0001, "Browsing keeps its legibility multiplier")
+        for height in [0.4, 1, 1.5, 2] {
+            let placement = try CampusPlacement(storyID: "size-check", latitude: ll.latitude,
+                longitude: ll.longitude, heightMeters: height).validated()
+            precondition(placement.heightMeters == height, "Map display must not rewrite AR height")
         }
         let safeNudge = map.graph.values.compactMap { node -> (SIMD3<Float>, SIMD3<Float>)? in
             let start = map.world(node.p)
