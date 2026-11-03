@@ -10,6 +10,7 @@ struct RootTabView: View {
     @State private var remote = OiRemoteStore()
     @State private var showingAccount = false
     @State private var geoPlacement: CampusPlacement?
+    @State private var photoCamera = false
     @Environment(\.scenePhase) private var scenePhase
 
     init(container: AppContainer = .pilot) {
@@ -52,7 +53,7 @@ struct RootTabView: View {
                 store: store,
                 myDemo: myDemo,
                 isCameraCoverActive: isCameraCoverActive,
-                onCamera: { geoPlacement = nil; path = NavigationPath(); isCameraCoverActive = true; isARPresented = true },
+                onCamera: { photoCamera = false; geoPlacement = nil; path = NavigationPath(); isCameraCoverActive = true; isARPresented = true },
                 onOpenProfile: { path.append(MYDestination.workshop) },
                 onOpenStory: { path.append(CampusDestination.summary($0)) },
                 remote: remote,
@@ -105,7 +106,10 @@ struct RootTabView: View {
         }) {
             if let geoPlacement {
                 CampusGeoARScreen(placement: geoPlacement, stories: store, remote: remote)
-            } else { ARView() }
+            } else if photoCamera { ARView() }
+            else {
+                CampusNearbyARScreen(stories: store, remote: remote) { photoCamera = true }
+            }
         }
         .onOpenURL { handlePublicLink($0) }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
@@ -122,15 +126,7 @@ struct RootTabView: View {
 
     private func synchronizeRemote() {
         let mapped = remote.stories.enumerated().map { index, item in
-            var story = CampusStory(id: item.id.uuidString, regionID: item.regionId, title: item.cucumberName,
-                image: item.cucumberAsset, tags: [item.theme,item.emotion],
-                donor: remote.profiles.first(where: { $0.id == item.userId })?.nickname ?? "작성자 정보 확인 중",
-                location: remote.regions.first(where: { $0.id == item.regionId })?.name ?? "POSTECH",
-                date: item.createdDateLabel, order: index, popularity: remote.collectionCounts[item.id] ?? 0, palette: 0)
-            story.remoteBody = item.body
-            story.remoteMediaPaths = remote.mediaPaths(storyID: item.id)
-            story.latitude = item.latitude; story.longitude = item.longitude
-            return story
+            remote.campusStory(item, order: index)
         }
         store.synchronize(stories: mapped, collected: Set(remote.collections.map { $0.storyId.uuidString }))
         let cards = remote.collections.enumerated().compactMap { index, collection -> MYCard? in

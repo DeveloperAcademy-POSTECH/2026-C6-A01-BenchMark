@@ -133,6 +133,23 @@ final class OiRemoteStore {
         return try await api.publishedStory(id)
     }
 
+    func publishedStories() async throws -> [OiLiveStory] {
+        guard let api else { throw OiServiceError.configuration }
+        return try await api.publishedStories()
+    }
+
+    func campusStory(_ item: OiLiveStory, order: Int = 0) -> CampusStory {
+        var story = CampusStory(id: item.id.uuidString, regionID: item.regionId, title: item.cucumberName,
+            image: item.cucumberAsset, tags: [item.theme, item.emotion],
+            donor: profiles.first { $0.id == item.userId }?.nickname ?? "작성자 정보 확인 중",
+            location: regions.first { $0.id == item.regionId }?.name ?? "POSTECH",
+            date: item.createdDateLabel, order: order, popularity: collectionCounts[item.id] ?? 0, palette: 0)
+        story.remoteBody = item.body
+        story.remoteMediaPaths = mediaPaths(storyID: item.id)
+        story.latitude = item.latitude; story.longitude = item.longitude
+        return story
+    }
+
     private func load() async throws {
         guard let api else { throw OiServiceError.configuration }
         let started = generation

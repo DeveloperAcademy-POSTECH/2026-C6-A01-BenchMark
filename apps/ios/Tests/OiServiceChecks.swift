@@ -74,6 +74,22 @@ struct OiServiceChecks {
             do { _ = try await api.publishedStory(publicID); preconditionFailure("Non-public or mismatched AR story accepted") }
             catch OiServiceError.unavailable {}
         }
+        OiURLProtocol.handler = { request in
+            precondition(request.value(forHTTPHeaderField: "Authorization") == nil, "Nearby query must not use owner privileges")
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            precondition(query.contains { $0.name == "status" && $0.value == "eq.published" })
+            precondition(query.contains { $0.name == "order" && $0.value == "id.asc" })
+            return (200, publicData)
+        }
+        let nearby = try await api.publishedStories()
+        precondition(nearby.map(\.id) == [publicID])
+        let hiddenData = try publicFixture(status: "hidden", id: publicID)
+        OiURLProtocol.handler = { _ in (200, hiddenData) }
+        let hiddenNearby = try await api.publishedStories()
+        precondition(hiddenNearby.isEmpty)
+        OiURLProtocol.handler = { _ in (503, Data()) }
+        do { _ = try await api.publishedStories(); preconditionFailure("Network failure must not return cached nearby objects") }
+        catch OiServiceError.unavailable { }
         print("PASS: AR public-role lookup, stable story identity, hidden/deleted/mismatched story rejection")
 
         OiURLProtocol.handler = { request in
