@@ -298,3 +298,5 @@ MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하
 위치 선택은 기존 `CampusExploreScene`과 `CampusPlacementTools`를 재사용한다. 건물 검색은 카메라만 이동시키고 좌표를 자동 확정하지 않는다. 사용자가 바닥을 선택하고 확인하면 좌표를 초안에 전달한다. 선택 화면이 닫힐 때 숨은 RealityKit 렌더러를 해제한다. 구현 경계와 검증 절차는 [이야기 생성 흐름](story-creation-flow.md)을 따른다.
 
 증빙 없는 개발용 체험은 `#if DEBUG`의 `OiCreationPreviewHost`·`OiCreationPracticeSession`으로 분리한다. 실제 단계 UI와 사진 변환만 공유하며 원격 저장소·계정·승인·영속 저장을 의존하지 않는다. 사진은 메모리에 보관하고 종료 시 초기화한다. 최종 버튼은 로컬 완료 상태만 전환하며 `OiStoryDraft`에 가짜 grant를 넣지 않는다. 지도 검색 모달은 `OiLocationPickerRequest` item으로 전달해 화면 열림과 검색 대상이 함께 갱신되도록 한다.
+
+사진 자르기는 공통 `OiPhotoCropEditor`의 고정 사진과 자유 비율 선택 격자로 구성한다. `OiPhotoCropGeometry`가 모서리·가장자리 크기 변경 및 선택 영역 이동을 이미지 경계 안으로 제한한다. 이미지의 aspect-fit 프레임을 기준으로 선택 영역을 정규화하여 `OiPhotoProcessor`에서 픽셀 크롭한다. 편집 화면은 선택만 소유하며 적용 전에는 초안 사진을 쓰지 않는다. 실제 편집기와 체험은 사진 읽기·편집 콜백으로 기존 저장 경계를 유지한다.

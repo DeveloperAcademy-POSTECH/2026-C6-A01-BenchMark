@@ -418,7 +418,7 @@ final class OiCreationPracticeTests: XCTestCase {
         XCTAssertEqual(rotated.width, 160); XCTAssertEqual(rotated.height, 320)
         let rotatedID = try XCTUnwrap(session.photos.first?.id)
         XCTAssertNotEqual(firstID, rotatedID)
-        try session.editPhoto(rotatedID, operation: .squareCrop)
+        try session.editPhoto(rotatedID, operation: .crop(CGRect(x: 0, y: 0.25, width: 1, height: 0.5)))
         let cropped = try XCTUnwrap(UIImage(data: XCTUnwrap(session.photos.first?.data))?.cgImage)
         XCTAssertEqual(cropped.width, 160); XCTAssertEqual(cropped.height, 160)
         session.removePhoto(try XCTUnwrap(session.photos.first?.id))
@@ -451,3 +451,115 @@ final class OiCreationPracticeTests: XCTestCase {
     }
 }
 #endif
+
+@MainActor
+final class OiPhotoCropTests: XCTestCase {
+    func testFreeAspectGridMatchesSavedPixelsWithoutMovingPhoto() throws {
+        let source = quadrantImage()
+        let view = OiPhotoCropViewport(image: source)
+        view.frame = CGRect(x: 0, y: 0, width: 448, height: 400)
+        view.layoutIfNeeded()
+        let fixedImageRect = view.imageRect
+        XCTAssertEqual(fixedImageRect, CGRect(x: 24, y: 100, width: 400, height: 200))
+        view.adjustSelection(handle: .topLeft, translation: CGPoint(x: 250, y: 100))
+        view.adjustSelection(handle: .right, translation: CGPoint(x: -50, y: 0))
+        view.adjustSelection(handle: .bottom, translation: CGPoint(x: 0, y: -40))
+        let rect = try XCTUnwrap(view.normalizedCropRect)
+        XCTAssertEqual(view.imageRect, fixedImageRect, "Resizing the grid never changes the photo's size or position")
+        XCTAssertEqual(rect.minX, 0.625, accuracy: 0.0001)
+        XCTAssertEqual(rect.minY, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(rect.width, 0.25, accuracy: 0.0001)
+        XCTAssertEqual(rect.height, 0.3, accuracy: 0.0001)
+        let data = try OiPhotoProcessor.edit(XCTUnwrap(source.pngData()), operation: .crop(rect))
+        let result = try XCTUnwrap(UIImage(data: data)?.cgImage)
+        XCTAssertEqual(result.width, 200); XCTAssertEqual(result.height, 120)
+        let color = try centerPixel(result)
+        XCTAssertGreaterThan(color[0], 220); XCTAssertGreaterThan(color[1], 220); XCTAssertLessThan(color[2], 30)
+        XCTAssertEqual(source.cgImage?.width, 800)
+    }
+
+    func testPortraitMoveResizeAndResetKeepSelectionInsideFixedImage() throws {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 400, height: 800), format: format).image { _ in }
+        let view = OiPhotoCropViewport(image: image)
+        view.frame = CGRect(x: 0, y: 0, width: 248, height: 448); view.layoutIfNeeded()
+        XCTAssertEqual(view.normalizedCropRect, CGRect(x: 0, y: 0, width: 1, height: 1))
+        view.adjustSelection(handle: .topLeft, translation: CGPoint(x: 50, y: 100))
+        view.adjustSelection(handle: .bottom, translation: CGPoint(x: 0, y: -100))
+        view.adjustSelection(handle: .move, translation: CGPoint(x: 1000, y: 1000))
+        let beforeResize = try XCTUnwrap(view.normalizedCropRect)
+        XCTAssertEqual(beforeResize.minX, 0.25, accuracy: 0.0001)
+        XCTAssertEqual(beforeResize.minY, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(beforeResize.width, 0.75, accuracy: 0.0001)
+        XCTAssertEqual(beforeResize.height, 0.5, accuracy: 0.0001)
+        view.frame.size = CGSize(width: 448, height: 848); view.layoutIfNeeded()
+        XCTAssertEqual(view.normalizedCropRect, beforeResize)
+        // A layout change can make the chosen region smaller than a touch target.
+        view.frame.size = CGSize(width: 80, height: 80); view.layoutIfNeeded()
+        view.adjustSelection(handle: .left, translation: CGPoint(x: 1000, y: 0))
+        let smallRect = try XCTUnwrap(view.normalizedCropRect)
+        XCTAssertGreaterThanOrEqual(smallRect.minX, 0); XCTAssertLessThanOrEqual(smallRect.maxX, 1)
+        view.resetCrop()
+        XCTAssertEqual(view.normalizedCropRect, CGRect(x: 0, y: 0, width: 1, height: 1))
+    }
+
+    func testEveryEdgeAndCornerResizesIndependentlyAndCannotCross() {
+        let bounds = CGRect(x: 20, y: 30, width: 300, height: 220)
+        let original = CGRect(x: 50, y: 80, width: 120, height: 100)
+        let cases: [(OiPhotoCropGeometry.Handle, CGRect)] = [
+            (.topLeft, CGRect(x: 60, y: 95, width: 110, height: 85)),
+            (.top, CGRect(x: 50, y: 95, width: 120, height: 85)),
+            (.topRight, CGRect(x: 50, y: 95, width: 130, height: 85)),
+            (.right, CGRect(x: 50, y: 80, width: 130, height: 100)),
+            (.bottomRight, CGRect(x: 50, y: 80, width: 130, height: 115)),
+            (.bottom, CGRect(x: 50, y: 80, width: 120, height: 115)),
+            (.bottomLeft, CGRect(x: 60, y: 80, width: 110, height: 115)),
+            (.left, CGRect(x: 60, y: 80, width: 110, height: 100))
+        ]
+        for (handle, expected) in cases {
+            XCTAssertEqual(OiPhotoCropGeometry.adjusted(original, handle: handle, translation: CGPoint(x: 10, y: 15), inside: bounds), expected)
+            for translation in [CGPoint(x: -1000, y: -1000), CGPoint(x: 1000, y: 1000)] {
+                let rect = OiPhotoCropGeometry.adjusted(original, handle: handle, translation: translation, inside: bounds)
+                XCTAssertGreaterThanOrEqual(rect.width, 44); XCTAssertGreaterThanOrEqual(rect.height, 44)
+                XCTAssertTrue(bounds.contains(rect))
+            }
+        }
+        let moved = OiPhotoCropGeometry.adjusted(original, handle: .move, translation: CGPoint(x: -1000, y: -1000), inside: bounds)
+        XCTAssertEqual(moved, CGRect(x: 20, y: 30, width: 120, height: 100))
+    }
+
+    func testInvalidCropFailsAndRotatedPhotoCanBeCropped() throws {
+        let original = try XCTUnwrap(quadrantImage().pngData())
+        for rect in [CGRect.zero, CGRect(x: -0.1, y: 0, width: 0.5, height: 0.5),
+                     CGRect(x: 0.8, y: 0, width: 0.5, height: 0.5),
+                     CGRect(x: CGFloat.nan, y: 0, width: 0.5, height: 0.5)] {
+            XCTAssertThrowsError(try OiPhotoProcessor.edit(original, operation: .crop(rect)))
+        }
+        let rotated = try OiPhotoProcessor.edit(original, operation: .rotateLeft)
+        let cropped = try OiPhotoProcessor.edit(rotated, operation: .crop(CGRect(x: 0, y: 0, width: 0.5, height: 0.25)))
+        let result = try XCTUnwrap(UIImage(data: cropped)?.cgImage)
+        XCTAssertEqual(result.width, 200); XCTAssertEqual(result.height, 200)
+        let color = try centerPixel(result)
+        XCTAssertLessThan(color[0], 30); XCTAssertGreaterThan(color[1], 220); XCTAssertLessThan(color[2], 30)
+    }
+
+    private func quadrantImage() -> UIImage {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        return UIGraphicsImageRenderer(size: CGSize(width: 800, height: 400), format: format).image { ctx in
+            UIColor.red.setFill(); ctx.fill(CGRect(x: 0, y: 0, width: 400, height: 200))
+            UIColor.green.setFill(); ctx.fill(CGRect(x: 400, y: 0, width: 400, height: 200))
+            UIColor.blue.setFill(); ctx.fill(CGRect(x: 0, y: 200, width: 400, height: 200))
+            UIColor.yellow.setFill(); ctx.fill(CGRect(x: 400, y: 200, width: 400, height: 200))
+        }
+    }
+
+    private func centerPixel(_ image: CGImage) throws -> [UInt8] {
+        var rgba = [UInt8](repeating: 0, count: 4)
+        try rgba.withUnsafeMutableBytes { bytes in
+            let ctx = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8,
+                bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            ctx.draw(image, in: CGRect(x: -image.width / 2, y: -image.height / 2, width: image.width, height: image.height))
+        }
+        return rgba
+    }
+}

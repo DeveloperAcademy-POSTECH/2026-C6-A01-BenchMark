@@ -227,7 +227,10 @@ struct OiStoryEditor: View {
         case .photos:
             OiStoryPhotoStep(items: editingPhotos,
                 uploadedPhotos: uploadedPhotos, selections: $photoSelections,
-                edit: { id, edit in Task { await editPhoto(id, operation: edit) } }, remove: removePhoto, photo: reviewPhoto)
+                loadPhoto: { id in
+                    guard let owner, remote.account?.id == owner else { throw OiServiceError.accountChanged }
+                    return try await remote.localPhoto(id: id, owner: owner)
+                }, edit: { id, edit in Task { await editPhoto(id, operation: edit) } }, remove: removePhoto, photo: reviewPhoto)
         case .location:
             OiStoryLocationStep(draft: $draft, regions: remote.regions.filter { $0.schoolId == "postech" }) { placeID in
                 locationRequest = OiLocationPickerRequest(focusPlaceID: placeID)

@@ -88,7 +88,10 @@ struct OiCreationPreviewHost: View {
             OiStoryWritingStep(draft: $session.draft, grants: [])
         case .photos:
             OiStoryPhotoStep(items: session.photos.map { .local($0.id) }, uploadedPhotos: [], selections: $photoSelections,
-                edit: { id, operation in
+                loadPhoto: { id in
+                    guard let data = session.photos.first(where: { $0.id == id })?.data else { throw OiServiceError.invalidInput }
+                    return data
+                }, edit: { id, operation in
                     do { try session.editPhoto(id, operation: operation); localError = nil }
                     catch { localError = "사진을 편집하지 못했어요. 다른 사진으로 다시 시도해 주세요." }
                 }, remove: { item in

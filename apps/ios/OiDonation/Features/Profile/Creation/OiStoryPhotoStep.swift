@@ -5,17 +5,29 @@ struct OiStoryPhotoStep<Photo: View>: View {
     let items: [OiEditingPhoto]
     let uploadedPhotos: Set<UUID>
     @Binding var selections: [PhotosPickerItem]
+    let loadPhoto: (UUID) async throws -> Data
     let edit: (UUID, OiPhotoEdit) -> Void
     let remove: (OiEditingPhoto) -> Void
     let photo: (OiEditingPhoto) -> Photo
     @State private var selected: OiEditingPhoto?
+    @State private var cropPhotoID: UUID?
+    @State private var cropRequest: CropRequest?
+    @State private var cropError: String?
+    @State private var editedIndex: Int?
+    private struct CropRequest: Identifiable {
+        let id: UUID
+        let image: UIImage
+    }
     private var current: OiEditingPhoto? { selected.flatMap { items.contains($0) ? $0 : nil } ?? items.first }
     var body: some View {
         VStack(spacing: 22) {
             if let current {
                 photo(current).frame(maxWidth: .infinity).frame(height: 310)
                 HStack(spacing: 14) {
-                    editButton("가운데 자르기", symbol: "crop", operation: .squareCrop)
+                    Button {
+                        if case .local(let id) = current { cropPhotoID = id }
+                    } label: { toolLabel("자르기", symbol: "crop") }
+                        .buttonStyle(.plain).disabled(!canEdit).accessibilityIdentifier("oi.photos.crop")
                     editButton("회전", symbol: "rotate.left", operation: .rotateLeft)
                     Button { remove(current); selected = nil } label: { toolLabel("삭제", symbol: "trash") }
                         .buttonStyle(.plain)
@@ -48,13 +60,43 @@ struct OiStoryPhotoStep<Photo: View>: View {
                 }.padding(4)
             }
         }
+        .disabled(cropPhotoID != nil)
+        .overlay { if cropPhotoID != nil { ProgressView("사진 준비 중") } }
+        .task(id: cropPhotoID) {
+            guard let id = cropPhotoID else { return }
+            defer { cropPhotoID = nil }
+            do {
+                let data = try await loadPhoto(id)
+                try Task.checkCancellation()
+                guard items.contains(.local(id)), let image = UIImage(data: data) else { throw OiServiceError.invalidInput }
+                cropRequest = CropRequest(id: id, image: image)
+            } catch is CancellationError { }
+            catch { cropError = "사진을 열지 못했어요. 다시 시도해 주세요." }
+        }
+        .fullScreenCover(item: $cropRequest) { request in
+            OiPhotoCropEditor(image: request.image) { rect in
+                editedIndex = items.firstIndex(of: .local(request.id))
+                edit(request.id, .crop(rect))
+            }
+        }
+        .alert("사진 자르기", isPresented: Binding(get: { cropError != nil }, set: { if !$0 { cropError = nil } })) {
+            Button("확인") { cropError = nil }
+        } message: { Text(cropError ?? "") }
+        .onChange(of: items) { _, newItems in
+            if let index = editedIndex, newItems.indices.contains(index) { selected = newItems[index] }
+            editedIndex = nil
+        }
     }
     private var canEdit: Bool {
         if case .local(let id) = current { return !uploadedPhotos.contains(id) }
         return false
     }
     private func editButton(_ title: String, symbol: String, operation: OiPhotoEdit) -> some View {
-        Button { if case .local(let id) = current { edit(id, operation) } } label: {
+        Button {
+            if case .local(let id) = current {
+                editedIndex = items.firstIndex(of: .local(id)); edit(id, operation)
+            }
+        } label: {
             toolLabel(title, symbol: symbol)
         }.buttonStyle(.plain).disabled(!canEdit)
     }
@@ -68,4 +110,4 @@ struct OiStoryPhotoStep<Photo: View>: View {
     }
 }
 
-enum OiPhotoEdit { case rotateLeft, squareCrop }
+enum OiPhotoEdit { case rotateLeft, crop(CGRect) }
