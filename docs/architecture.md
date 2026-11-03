@@ -313,3 +313,9 @@ MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하
 Apple 인증은 AuthenticationServices·무작위 nonce·ID token 교환을 사용한다. MY의 로그인 방법 추가와 기존 계정 통합은 공통 화면에서 같은 인증 proof를 보관하며, 이미 가입된 계정임이 확인돼도 그 proof를 통합 미리보기로 전달한다. 현재 로그인은 최종 서버 영수증 확인 전까지 교체하지 않는다.
 
 기존 두 Auth 사용자의 identity를 삭제·재할당하지 않고, 검증된 로그인 주체를 대표 앱 계정에 매핑한다. `OiSession.user.id`는 실제 인증 주체이고 `appAccount.id`는 데이터 소유자다. RLS·mutation은 매 요청 DB의 대표 계정을 사용하고 기존 Storage 경로는 `storage_owner_id`로 보존한다. 두 최근 OAuth 세션·일회성 challenge·명시적 동의·계정 잠금으로 트랜잭션을 보호한다. 통합에 참여하지 않은 기존 세션은 재인증 전 비공개 접근이 차단된다. 상세 계약과 적용 순서는 [계정 통합 문서](account-merge.md)를 따른다. 이 설계 기록만으로 실제 서버에 마이그레이션이나 Apple 설정이 적용되지는 않는다.
+
+## Figma 화면 정합과 본 앱 수집 게임 공유 — 2026-11-03 / #132
+
+사용자가 지정한 Figma `2339:2109` 페이지를 기준으로 본 앱의 수집 버튼을 기존 게임으로 연결했다. `ARCollectionGameView`가 카메라·라운드·타이머를 공유하고, `CampusCollectionGameHost`는 승리 이후의 명시적 서버 저장과 계정 소유·수집 영수증을 확인한다. Clip wrapper는 기존 App Group 보관을 유지한다. 게임·카드 자산은 공유 카탈로그와 target membership으로 재사용하며 본 앱 배포 타깃은 올리지 않는다.
+
+`OiStoryCardArtwork`는 실제 이야기로 카드 외형을 합성한다. 서버가 완성 카드 URL을 제공하면 우선 사용하며, 없을 때 다른 기부자의 예시 PNG를 대신 사용하지 않는다. 농부의 두 2D 프리셋 선택은 `MYFarmerAppearanceStore`의 계정별 기기 설정이고 서버 프로필·공개 오이·기부 정책을 확장하지 않는다. 팀원의 #133 소유 세 파일과 정책·자산 미확정 항목, 검증 경계는 [Figma 정합 문서](../apps/ios/docs/figma-alignment-132.md)를 따른다.
