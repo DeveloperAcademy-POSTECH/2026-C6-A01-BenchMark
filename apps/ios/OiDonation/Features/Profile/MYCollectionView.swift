@@ -74,14 +74,16 @@ struct MYCollectionView: View {
         }
         .navigationTitle(school?.rawValue ?? "도감")
         .toolbar { ToolbarItem(placement: .principal) {
-            Text(school?.rawValue ?? "도감").font(.custom("Paperlogy-6SemiBold", size: 30, relativeTo: .title))
+            Text(school?.rawValue ?? "도감").font(.custom("Paperlogy-7Bold", size: 30, relativeTo: .title))
                 .foregroundStyle(Color(red: 117 / 255, green: 75 / 255, blue: 0))
         } }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarRole(.navigationStack)
-        .safeAreaInset(edge: .bottom) { collectionFilters }
+        .safeAreaInset(edge: .bottom) {
+            if school == nil { collectionFilters }
+        }
         .task { await collectedLibrary.load() }
         .refreshable { await collectedLibrary.load() }
         .sheet(item: $selectedCard, onDismiss: {
@@ -217,7 +219,7 @@ struct MYCollectionView: View {
 
     private var countBadge: some View {
         Text(showsFolders ? "\(schools.count)학교" : "\(cards.count)개")
-            .font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
+            .font(.custom("Paperlogy-5Medium", size: 16, relativeTo: .body)).foregroundStyle(.white)
             .padding(.horizontal, 16).padding(.vertical, 5).background(CampusStyle.green, in: Capsule())
             .accessibilityIdentifier("my.collection.count")
     }
@@ -269,7 +271,7 @@ struct MYCollectionView: View {
                 } label: {
                     VStack(spacing: 6) {
                         Image(systemName: option.symbol).font(.system(size: 20, weight: .bold))
-                        Text(option.rawValue).font(.custom("Pretendard-Bold", size: 12, relativeTo: .caption))
+                        Text(option.rawValue).font(.custom("Paperlogy-5Medium", size: 12, relativeTo: .caption))
                     }
                     .frame(maxWidth: .infinity, minHeight: 64)
                     .foregroundStyle(filter == option ? CampusStyle.green : Color(.darkGray))
@@ -283,23 +285,71 @@ struct MYCollectionView: View {
     }
 
     private func cardOverlay(_ card: MYCard) -> some View {
-        VStack(spacing: 15) {
-            MYCardArtwork(card: card).accessibilityLabel("\(card.title), \(card.school.rawValue)의 카드")
-            HStack(spacing: 7) {
-                Button { detailCard = card; selectedCard = nil } label: {
-                    Text("자세히 보기").font(.custom("Paperlogy-6SemiBold", size: 20, relativeTo: .headline))
-                        .frame(maxWidth: .infinity, minHeight: 44).background(.white, in: Capsule())
-                }.buttonStyle(.plain).accessibilityIdentifier("my.card.details")
-                Button { demo.toggleFavorite(card) } label: {
-                    Image(systemName: "pin.fill").font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(demo.favorites.contains(card.id) ? CampusStyle.green : .black)
-                        .frame(width: 49, height: 44).background(.white, in: Capsule())
-                }.buttonStyle(.plain).accessibilityLabel("카드 고정 \(demo.favorites.contains(card.id) ? "해제" : "추가")")
-                    .accessibilityIdentifier("my.favorite.\(card.id)")
-            }.foregroundStyle(.black)
-            Button("닫기") { selectedCard = nil }.frame(minHeight: 44)
-        }.padding(20).presentationDetents([.large]).presentationDragIndicator(.visible)
-            .presentationBackground(.ultraThinMaterial)
+        GeometryReader { geometry in
+            let availableWidth = max(0, geometry.size.width - 32)
+            let cardWidth = min(362, availableWidth)
+            let cardHeight = cardWidth * 502 / 362
+            let referenceScale = cardWidth / 362
+            let pinWidth = max(44, 49 * referenceScale)
+
+            ScrollView {
+                VStack(spacing: 15) {
+                    HStack {
+                        Spacer()
+                        Button { selectedCard = nil } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 17, weight: .semibold))
+                        }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.circle)
+                        .accessibilityLabel("카드 확대 닫기")
+                        .accessibilityIdentifier("my.card.close")
+                    }
+                    .frame(width: cardWidth)
+
+                    MYCardArtwork(card: card)
+                        .frame(width: cardWidth, height: cardHeight)
+                        .shadow(color: .black.opacity(0.25), radius: 3.5, x: 3, y: 6)
+                        .accessibilityLabel("\(card.title), \(card.school.rawValue)의 카드")
+
+                    HStack(spacing: 7) {
+                        Button { detailCard = card; selectedCard = nil } label: {
+                            Text("자세히 보기")
+                                .font(.custom("Paperlogy-5Medium", size: 20, relativeTo: .headline))
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .padding(.horizontal, 10)
+                                .background(.white, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("확대 화면을 닫고 카드 이야기를 엽니다")
+                        .accessibilityIdentifier("my.card.details")
+
+                        Button { demo.toggleFavorite(card) } label: {
+                            Image(systemName: "pin.fill")
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundStyle(demo.favorites.contains(card.id) ? CampusStyle.green : .black)
+                                .frame(width: pinWidth)
+                                .frame(minHeight: 44)
+                                .background(.white, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("카드 고정 \(demo.favorites.contains(card.id) ? "해제" : "추가")")
+                        .accessibilityAddTraits(demo.favorites.contains(card.id) ? .isSelected : [])
+                        .accessibilityIdentifier("my.favorite.\(card.id)")
+                    }
+                    .frame(width: cardWidth)
+                    .foregroundStyle(.black)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+            .scrollIndicators(.hidden)
+            .background(Color.black.opacity(0.88).ignoresSafeArea())
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.hidden)
+        .presentationBackground(.clear)
     }
 
     private func collectedCardOverlay(_ item: CollectedStoryLibraryItem) -> some View {
@@ -348,8 +398,8 @@ private struct MYSchoolFolder: View {
                 Image("MYFolderFront").resizable().frame(width: 187 * scale, height: 201.3 * scale)
                     .offset(x: -8 * scale, y: 30.7 * scale)
                 HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text("\(cards.count)").font(.custom("PearToucan-Regular", size: 50 * scale, relativeTo: .title))
-                    Text("card").font(.system(size: 24 * scale))
+                    Text("\(cards.count)").font(.custom("PearToucan-Bold", size: 50 * scale, relativeTo: .title))
+                    Text("card").font(.custom("Paperlogy-4Regular", size: 25 * scale, relativeTo: .title2))
                 }.foregroundStyle(Color(red: 0.41, green: 0.31, blue: 0.13))
                     .position(x: 72 * scale, y: 198 * scale)
             }.frame(width: geometry.size.width, height: 228 * scale)
