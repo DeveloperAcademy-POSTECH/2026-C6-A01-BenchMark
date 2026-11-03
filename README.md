@@ -8,6 +8,18 @@
 
 웹은 기존 Sites 배포 소스에 맞춰 `apps/web`(돗자리 파일럿), `apps/oi-web`(오이기부), `apps/team-web`(팀 소개)로 관리한다. 앱별 잠금 파일로 의존성을 설치하며 Railway 배포 설정은 사용하지 않는다. 실제 원본 데이터 대조·운영 전환·서비스 종료 여부는 위 전환 기록을 확인한다.
 
+## iOS 실행 전 Supabase 설정
+
+최신 코드를 받은 뒤 기존 `52gibu` 프로젝트에 접근 가능한 Supabase CLI 인증으로 한 번 실행합니다.
+
+```sh
+python3 scripts/configure-ios-service.py --from-cli --http-check
+```
+
+본 앱과 App Clip의 Git 제외 `Service.local.plist`를 생성하고 실제 공개 API 연결을 검사합니다. 이후 Xcode에서 `OiDonation`을 빌드합니다. 두 타깃은 빌드 시작 시 각 설정을 검증하며, 누락되거나 잘못된 설정이면 준비 명령을 안내하고 중단합니다. 빌드 중에는 키 조회나 서버 호출을 하지 않습니다.
+
+CI에서는 기존 프로젝트의 공개 클라이언트 키를 `OI_SUPABASE_PUBLISHABLE_KEY` 환경변수로 주입하고 `python3 scripts/configure-ios-service.py`를 빌드 전에 실행합니다. 키 값·프로파일·개인 서명 설정은 커밋하지 않습니다. 자세한 내용은 [Supabase 연동 문서](docs/supabase-flow.md#로컬-실행-설정)를 참고합니다.
+
 # 깃 전략
 
 ### 태그 컨벤션
