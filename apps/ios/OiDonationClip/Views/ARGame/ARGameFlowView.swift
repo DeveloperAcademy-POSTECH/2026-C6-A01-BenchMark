@@ -14,9 +14,39 @@ struct ARGameFlowView: View {
     let onBack: () -> Void
     let onRequestFullApp: () -> Void
 
-    private var story: Story { experience.story }
-
     @State private var collectionStore = StoryCollectionStore()
+
+    var body: some View {
+        ARCollectionGameView(
+            cucumberName: experience.story.cucumberName,
+            cucumberImageURL: experience.story.cucumberImageURL,
+            onBack: onBack
+        ) { retry in
+            AppClipStoryCardView(
+                experience: experience,
+                isCollected: collectionStore.contains(storyID: experience.story.storyID),
+                onCollect: {
+                    collectionStore.collect(experience.storyCard)
+                    onRequestFullApp()
+                },
+                onCancel: {
+                    collectionStore.remove(storyID: experience.story.storyID)
+                    retry()
+                }
+            )
+        }
+    }
+}
+
+/// The camera, timer and round lifecycle are shared by the full app and App Clip.
+/// Each caller owns the explicit post-win save action and its persistence contract.
+struct ARCollectionGameView<SuccessContent: View>: View {
+    let cucumberName: String
+    var cucumberImageURL: URL? = nil
+    var cucumberAssetName: String? = nil
+    let onBack: () -> Void
+    @ViewBuilder let successContent: (@escaping () -> Void) -> SuccessContent
+
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -60,8 +90,9 @@ struct ARGameFlowView: View {
                     }
             case .intro:
                 ARGameIntroView(
-                    cucumberName: story.cucumberName,
-                    cucumberImageURL: story.cucumberImageURL,
+                    cucumberName: cucumberName,
+                    cucumberImageURL: cucumberImageURL,
+                    cucumberAssetName: cucumberAssetName,
                     targetCount: 3,
                     timeLimitSeconds: 30,
                     onBack: onBack
@@ -76,7 +107,8 @@ struct ARGameFlowView: View {
             case .starting, .playing:
                 ARGamePlayingView(
                     viewModel: viewModel,
-                    cucumberImageURL: story.cucumberImageURL
+                    cucumberImageURL: cucumberImageURL,
+                    cucumberAssetName: cucumberAssetName
                 )
             case .permissionDenied:
                 VStack(spacing: 16) {
@@ -103,18 +135,7 @@ struct ARGameFlowView: View {
                 }
                 .transition(.opacity)
             case .storyCard:
-                AppClipStoryCardView(
-                    experience: experience,
-                    isCollected: collectionStore.contains(storyID: story.storyID),
-                    onCollect: {
-                        collectionStore.collect(experience.storyCard)
-                        onRequestFullApp()
-                    },
-                    onCancel: {
-                        collectionStore.remove(storyID: story.storyID)
-                        viewModel.reset()
-                    }
-                )
+                successContent(viewModel.reset)
                 .transition(.opacity)
             case .failure:
                 ARGameFailureView {
@@ -134,6 +155,18 @@ struct ARGameFlowView: View {
                     buttonTitle: "다시 시작",
                     action: viewModel.reset
                 )
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if viewModel.state != .intro && viewModel.state != .introBackground && viewModel.state != .storyCard {
+                Button(action: onBack) {
+                    Image(systemName: "xmark").frame(width: 44, height: 44)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .accessibilityLabel("수집 게임 닫기")
+                .padding(.leading, 20)
+                .padding(.top, 8)
             }
         }
         .onChange(of: scenePhase) { _, phase in

@@ -7,6 +7,7 @@ struct ARGameHUD: View {
     let collectedCount: Int
     let targetCount: Int
     let cucumberImageURL: URL?
+    var cucumberAssetName: String? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -46,7 +47,7 @@ struct ARGameHUD: View {
                 ForEach(0..<targetCount, id: \.self) { index in
                     ZStack {
                         if index < collectedCount {
-                            CucumberCharacterImage(imageURL: cucumberImageURL, contentMode: .fit)
+                            CucumberCharacterImage(imageURL: cucumberImageURL, contentMode: .fit, assetName: cucumberAssetName)
                                 .transition(.opacity)
                         }
                     }

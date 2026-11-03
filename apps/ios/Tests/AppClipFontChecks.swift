@@ -7,6 +7,8 @@ import Foundation
 struct AppClipFontChecks {
     private static let requiredFonts: [(file: String, postScriptName: String)] = [
         ("PearToucan-Regular", "PearToucan-Regular"),
+        ("PearToucan-Light", "PearToucan-Light"),
+        ("PearToucan-Bold", "PearToucan-Bold"),
         ("Paperlogy-2ExtraLight", "Paperlogy-2ExtraLight"),
         ("Paperlogy-4Regular", "Paperlogy-4Regular"),
         ("Paperlogy-6SemiBold", "Paperlogy-6SemiBold"),

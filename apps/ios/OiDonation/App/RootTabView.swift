@@ -14,6 +14,9 @@ struct RootTabView: View {
     @State private var exampleStore: CampusStoryStore
     @State private var geoPlacement: CampusPlacement?
     @State private var photoCamera = false
+    @State private var collectionStory: CampusStory?
+    @State private var collectionReturnsToAR = false
+    @State private var pendingStoryList = false
     @Environment(\.scenePhase) private var scenePhase
 
     init(container: AppContainer = .pilot) {
@@ -107,7 +110,17 @@ struct RootTabView: View {
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
             store.collectAction = { story in
-                Task { await remote.perform("collect", payload: ["id": story.id]) }
+                guard collectionStory == nil else { return }
+                collectionReturnsToAR = isARPresented
+                collectionStory = story
+                isCameraCoverActive = true
+                isARPresented = true
+            }
+            store.createStoryAction = {
+                if isARPresented {
+                    pendingStoryList = true
+                    isARPresented = false
+                } else { showingStoryList = true }
             }
             store.mediaURL = { path in try await remote.mediaURL(bucket: "oi-story-media", path: path) }
             myDemo.campusStore = store
@@ -125,8 +138,15 @@ struct RootTabView: View {
         .fullScreenCover(isPresented: $isARPresented, onDismiss: {
             // Restore the map only after the camera's dismissal has finished.
             isCameraCoverActive = false
+            collectionStory = nil
+            if pendingStoryList { pendingStoryList = false; showingStoryList = true }
         }) {
-            if let geoPlacement {
+            if let collectionStory {
+                CampusCollectionGameHost(story: collectionStory, remote: remote, store: store) {
+                    if collectionReturnsToAR { self.collectionStory = nil }
+                    else { isARPresented = false }
+                }.id(remote.account?.id)
+            } else if let geoPlacement {
                 CampusGeoARScreen(placement: geoPlacement, stories: store, remote: remote)
             } else if photoCamera { ARView() }
             else {
@@ -167,6 +187,7 @@ struct RootTabView: View {
     private func handlePublicLink(_ url: URL) {
         if AppClipLink.matches(url) {
             path = NavigationPath()
+            pendingStoryList = false
             isARPresented = false
             return
         }

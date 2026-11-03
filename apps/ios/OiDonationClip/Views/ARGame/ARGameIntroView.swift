@@ -12,6 +12,7 @@ struct ARGameIntroView: View {
     @ScaledMetric(relativeTo: .title2) private var accessibleTitleWidth = 140
     let cucumberName: String
     let cucumberImageURL: URL?
+    var cucumberAssetName: String? = nil
     let targetCount: Int
     let timeLimitSeconds: Int
     let onBack: () -> Void
@@ -94,7 +95,7 @@ struct ARGameIntroView: View {
 
             // The 212.429 × 337.504 crop slot paints this alpha-bounded region.
             // Normalize all sources first so remote padding cannot change visual size.
-            CucumberCharacterImage(imageURL: cucumberImageURL, contentMode: .fit)
+            CucumberCharacterImage(imageURL: cucumberImageURL, contentMode: .fit, assetName: cucumberAssetName)
                 .frame(width: 189.331444 * scale, height: 312.508397 * scale)
                 .position(x: origin.x + 193.354493 * scale, y: origin.y + 311.238019 * scale)
         }
@@ -157,7 +158,7 @@ struct ARGameIntroView: View {
                         .frame(maxWidth: accessibleTitleWidth)
                         .accessibilityAddTraits(.isHeader)
                 }
-                CucumberCharacterImage(imageURL: cucumberImageURL, contentMode: .fit)
+                CucumberCharacterImage(imageURL: cucumberImageURL, contentMode: .fit, assetName: cucumberAssetName)
                     .frame(height: 260)
                     .accessibilityHidden(true)
                 Text(cucumberName)
