@@ -8,6 +8,7 @@ struct OiStoryListScreen: View {
     @State private var showingSettings = false
     @State private var localError: String?
     @State private var unreadableDraftCount = 0
+    @State private var pendingDiscardCount = 0
     @State private var loadedDraftOwner: UUID?
     @State private var draftLoadAttempt = UUID()
 
@@ -38,10 +39,16 @@ struct OiStoryListScreen: View {
             showingApprovalNotice = false
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if let owner = remote.account?.id, loadedDraftOwner == owner, unreadableDraftCount > 0 {
+            if let owner = remote.account?.id, loadedDraftOwner == owner, unreadableDraftCount > 0 || pendingDiscardCount > 0 {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("기기 초안 \(unreadableDraftCount)개를 읽지 못했어요. 원본은 기기에 보관했습니다.")
-                        .font(.footnote).accessibilityIdentifier("oi.drafts.recoveryWarning")
+                    if unreadableDraftCount > 0 {
+                        Text("기기 초안 \(unreadableDraftCount)개를 읽지 못했어요. 원본은 기기에 보관했습니다.")
+                            .font(.footnote).accessibilityIdentifier("oi.drafts.recoveryWarning")
+                    }
+                    if pendingDiscardCount > 0 {
+                        Text("삭제한 초안 \(pendingDiscardCount)개의 첨부 파일 정리가 남아 있어요.")
+                            .font(.footnote).accessibilityIdentifier("oi.drafts.pendingDiscard")
+                    }
                     Button("다시 확인") { Task { await loadLocalDrafts() } }
                         .frame(minHeight: 44).accessibilityIdentifier("oi.drafts.retry")
                 }
@@ -94,6 +101,7 @@ struct OiStoryListScreen: View {
             loadedDraftOwner = nil
             localDrafts = []
             unreadableDraftCount = 0
+            pendingDiscardCount = 0
             localError = nil
             return
         }
@@ -103,12 +111,14 @@ struct OiStoryListScreen: View {
             loadedDraftOwner = owner
             localDrafts = listing.drafts
             unreadableDraftCount = listing.unreadableFiles.count
+            pendingDiscardCount = listing.pendingDiscardCount
             localError = nil
         } catch {
             guard !Task.isCancelled, draftLoadAttempt == attempt, remote.account?.id == owner else { return }
             if loadedDraftOwner != owner {
                 localDrafts = []
                 unreadableDraftCount = 0
+                pendingDiscardCount = 0
             }
             loadedDraftOwner = owner
             localError = error.localizedDescription

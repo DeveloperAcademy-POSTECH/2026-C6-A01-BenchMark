@@ -90,7 +90,10 @@ final class OiWardrobeScene {
             previewTexture = texture; photoPreviewError = nil
             if let node = photoNodes[editingSlot] { OiWardrobeAsset.applyPhoto(texture, to: node) }
         } catch is CancellationError { }
-        catch { photoPreviewError = "사진 미리보기를 만들지 못했어요. 사진을 다시 선택해 주세요." }
+        catch {
+            guard version == previewVersion, !Task.isCancelled else { return }
+            photoPreviewError = "사진 미리보기를 만들지 못했어요. 다시 시도해 주세요."
+        }
     }
 
     func orbit(_ dx: Float) { yaw -= dx * 0.01; updateCamera() }

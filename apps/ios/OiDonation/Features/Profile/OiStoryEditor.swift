@@ -16,12 +16,15 @@ struct OiStoryEditor: View {
     @State private var isRestoring = false
     @State private var restorationError: String?
     @State private var restorationAttempt = 0
+    @State private var isDiscarding = false
+    @State private var discardCleanupError: String?
     @State private var submitted = false
     @State private var locationRequest: OiLocationPickerRequest?
     @State private var photoSelections: [PhotosPickerItem] = []
     @State private var step: OiCreationStep = .story
     @State private var customization = OiDraftCustomization()
     @State private var removedMediaPaths: [String] = []
+    @State private var removedPhotoIDs: Set<UUID> = []
     @State private var saving = false
     @State private var localError: String?
     @State private var saveLabel = "기기 저장 준비 중"
@@ -30,6 +33,8 @@ struct OiStoryEditor: View {
     @State private var showingPreview = false
     @State private var showingConsentReview = false
     @State private var choosingExit = false
+    @State private var serverRevisionToReplace: Int?
+    @State private var replacingServerDraft = false
     @State private var pendingSave: Task<Void, Never>?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -129,13 +134,13 @@ struct OiStoryEditor: View {
         .toolbarBackground(step == .photos ? Color(white: 0.14) : Color(.systemBackground), for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar(usesNavigationBar ? .visible : .hidden, for: .navigationBar)
-        .disabled(remote.isBusy || preparingPhoto || publishing || saving)
+        .disabled(remote.isBusy || preparingPhoto || publishing || saving || replacingServerDraft || isDiscarding)
         .navigationTitle(submitted ? "접수 완료" : step.title).navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden()
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button(action: goBack) { Image(systemName: "chevron.left") }
-                .accessibilityLabel("이전 단계").disabled(remote.isBusy || preparingPhoto || publishing || saving)
+                .accessibilityLabel("이전 단계").disabled(remote.isBusy || preparingPhoto || publishing || saving || isDiscarding)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 if restored && !submitted && step == .photos {
@@ -143,7 +148,7 @@ struct OiStoryEditor: View {
                         .accessibilityIdentifier("oi.creation.next")
                 } else if !submitted {
                     Button("나가기") { if restored { choosingExit = true } else { dismiss() } }
-                        .disabled(remote.isBusy || preparingPhoto || publishing || saving)
+                        .disabled(remote.isBusy || preparingPhoto || publishing || saving || isDiscarding)
                 }
             }
         }
@@ -151,16 +156,21 @@ struct OiStoryEditor: View {
         .confirmationDialog("현재 입력을 어떻게 할까요?", isPresented: $choosingExit, titleVisibility: .visible) {
             Button("기기에 보관하고 나가기") { Task { if await persist() { dismiss() } } }
             Button("기기 보관본·미저장 수정 버리기", role: .destructive) {
-                Task {
-                    guard let owner else { return }
-                    restored = false
-                    await pendingSave?.value
-                    do { try await remote.discardLocalDraft(id: draft.id, owner: owner); dismiss() }
-                    catch { restored = true; localError = error.localizedDescription }
-                }
+                Task { await discardDraft() }
             }
             Button("계속 작성", role: .cancel) {}
         } message: { Text("버리기는 이 기기의 초안과 사진 복사본만 삭제합니다. 서버에 저장된 이야기는 삭제하지 않습니다.") }
+        .alert("서버 버전으로 바꿀까요?", isPresented: Binding(
+            get: { serverRevisionToReplace != nil },
+            set: { if !$0 { serverRevisionToReplace = nil } }
+        ), presenting: serverRevisionToReplace) { revision in
+            Button("계속 편집", role: .cancel) {}
+            Button("서버 버전으로 바꾸기", role: .destructive) {
+                Task { await replaceWithServerDraft(revision: revision) }
+            }
+        } message: { _ in
+            Text("이 기기의 제목, 본문, 위치와 공개 프리셋 수정이 서버 버전으로 바뀝니다. 추가한 사진과 로컬 꾸미기는 보관합니다.")
+        }
         .fullScreenCover(item: $locationRequest) { request in
             OiLocationPicker(latitude: $draft.latitude, longitude: $draft.longitude, focusPlaceID: request.focusPlaceID)
         }
@@ -194,20 +204,49 @@ struct OiStoryEditor: View {
 
     private var restorationStatus: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("기기 초안 복원").font(.headline)
-            if isRestoring { ProgressView().accessibilityLabel("기기 초안을 확인하고 있어요") }
-            if let restorationError {
-                Text("초안을 복원하지 못했습니다. 원본을 덮어쓰지 않고 보관했습니다. \(restorationError)")
-                    .font(.footnote).foregroundStyle(.red).accessibilityIdentifier("oi.draft.restoreError")
-                Button("초안 복원 다시 시도") { restorationAttempt += 1 }
-                    .disabled(isRestoring).accessibilityIdentifier("oi.draft.restoreRetry")
+            if isDiscarding || discardCleanupError != nil {
+                Text("기기 초안 정리").font(.headline)
+                if isDiscarding {
+                    ProgressView().accessibilityLabel("기기 초안을 정리하고 있어요")
+                } else if let discardCleanupError {
+                    Text(discardCleanupError).font(.footnote).foregroundStyle(.red)
+                    Button("첨부 파일 정리 다시 시도") { Task { await discardDraft() } }
+                    Button("나가기") { dismiss() }
+                }
+            } else {
+                Text("기기 초안 복원").font(.headline)
+                if isRestoring { ProgressView().accessibilityLabel("기기 초안을 확인하고 있어요") }
+                if let restorationError {
+                    Text("초안을 복원하지 못했습니다. 원본을 덮어쓰지 않고 보관했습니다. \(restorationError)")
+                        .font(.footnote).foregroundStyle(.red).accessibilityIdentifier("oi.draft.restoreError")
+                    Button("초안 복원 다시 시도") { restorationAttempt += 1 }
+                        .disabled(isRestoring).accessibilityIdentifier("oi.draft.restoreRetry")
+                }
+                Button("원본 보관하고 나가기") { dismiss() }.accessibilityIdentifier("oi.draft.preserveAndExit")
             }
-            Button("원본 보관하고 나가기") { dismiss() }.accessibilityIdentifier("oi.draft.preserveAndExit")
         }.padding(20).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    private func discardDraft() async {
+        guard let owner, !isDiscarding else { return }
+        isDiscarding = true
+        defer { isDiscarding = false }
+        let wasRestored = restored
+        restored = false
+        await pendingSave?.value
+        do {
+            try await remote.discardLocalDraft(id: draft.id, owner: owner)
+            dismiss()
+        } catch let error as OiDraftDiscardCleanupError {
+            discardCleanupError = error.localizedDescription
+        } catch {
+            if wasRestored { restored = true; localError = error.localizedDescription }
+            else { discardCleanupError = error.localizedDescription }
+        }
+    }
+
     private func restoreDraft() async {
-        guard !restored else { return }
+        guard !restored, !isDiscarding, discardCleanupError == nil else { return }
         guard let accountID = remote.account?.id else {
             restorationError = OiServiceError.signInRequired.localizedDescription; return
         }
@@ -226,12 +265,15 @@ struct OiStoryEditor: View {
                 step = record.creationStep.flatMap(OiCreationStep.init(rawValue:)) ?? .story
                 customization = record.customization ?? OiDraftCustomization()
                 removedMediaPaths = record.removedMediaPaths ?? []
+                removedPhotoIDs = record.removedPhotoIDs ?? []
             }
             if let server = remote.ownStories.first(where: { $0.id == draft.id }) {
                 submitted = !OiCreationAccess.canEdit(status: server.status, submitted: submitted)
             }
             if draft.grantId == nil { draft.grantId = availableGrants.first?.id }
             restored = true; localError = nil; saveLabel = "이 계정의 기기 초안 자동 저장"
+        } catch let error as OiDraftDiscardCleanupError {
+            discardCleanupError = error.localizedDescription
         } catch is CancellationError {
         } catch {
             restorationError = error.localizedDescription; saveLabel = "기기 초안 복원 미완료"
@@ -269,20 +311,25 @@ struct OiStoryEditor: View {
             }
     }
 
-    @ViewBuilder private func reviewPhoto(_ photo: OiEditingPhoto) -> some View {
+    @ViewBuilder private func reviewPhoto(_ photo: OiEditingPhoto, allowsRetry: Bool = true) -> some View {
         switch photo {
         case .local(let id):
             if let owner { OiLocalPhoto(remote: remote, owner: owner, id: id) }
         case .uploaded(let path):
-            OiStoryMediaImage(path: path) { try await remote.mediaURL(bucket: "oi-story-media", path: $0) }
+            OiStoryMediaImage(path: path, allowsRetry: allowsRetry) { try await remote.mediaURL(bucket: "oi-story-media", path: $0) }
         }
     }
 
     private var availableGrants: [OiWritingGrant] { remote.grants.filter { $0.revokedAt == nil } }
     private var hasApproval: Bool { availableGrants.contains { $0.id == draft.grantId } }
     private var canContinue: Bool { hasApproval && step.canContinue(draft: draft) }
+    private var serverMediaPaths: [String] { remote.mediaPaths(storyID: draft.id) }
+    private var attachedPhotoIDs: Set<UUID> {
+        uploadedPhotos.union(serverMediaPaths.compactMap(OiEditingPhoto.localPhotoID(for:)))
+    }
     private var editingPhotos: [OiEditingPhoto] {
-        OiEditingPhoto.ordered(local: photos, remote: remote.mediaPaths(storyID: draft.id), removed: removedMediaPaths)
+        OiEditingPhoto.ordered(local: photos, remote: serverMediaPaths,
+            removed: removedMediaPaths, removedPhotoIDs: removedPhotoIDs)
     }
     private var publicCard: MYCard {
         MYCard(id: draft.id.uuidString, title: draft.cucumberName, image: draft.cucumberAsset, school: .postech, order: 0,
@@ -294,15 +341,46 @@ struct OiStoryEditor: View {
         OiConnectionStatus(remote: remote)
         if let error = localError ?? remote.error { Text(error).font(.footnote).foregroundStyle(.red) }
         if !hasApproval { Text("유효한 작성 승인이 필요해요. 계정에서 승인 상태를 확인해 주세요.").font(.footnote).foregroundStyle(.orange) }
-        if let saved = remote.ownStories.first(where: { $0.id == draft.id }), saved.revision != draft.revision {
+        if let saved = remote.ownStories.first(where: { $0.id == draft.id }),
+           saved.revision != draft.revision, !OiCreationAccess.canRebase(draft, to: saved) {
             VStack(alignment: .leading) {
-                Text("서버 초안이 변경됐어요. 현재 입력은 기기에 보관합니다.").font(.footnote)
+                Text("서버에서 이야기가 변경됐어요. 서버 버전을 적용하기 전까지 현재 입력은 바뀌지 않아요.").font(.footnote)
                 Button("서버 초안 다시 불러오기") {
-                    draft = OiStoryDraft(story: saved)
-                    submitted = !OiCreationAccess.canEdit(status: saved.status, submitted: false)
+                    serverRevisionToReplace = saved.revision
                 }
             }
         }
+    }
+
+    private func replaceWithServerDraft(revision: Int) async {
+        guard let owner, remote.account?.id == owner, restored,
+              !replacingServerDraft, !saving, !publishing, !preparingPhoto else { return }
+        replacingServerDraft = true
+        defer { replacingServerDraft = false }
+        await pendingSave?.value
+        guard remote.account?.id == owner,
+              let latest = remote.ownStories.first(where: { $0.id == draft.id }), latest.revision == revision else {
+            localError = "서버에서 이야기가 다시 변경됐어요. 최신 내용을 확인해 주세요."
+            return
+        }
+        var replacement = record()
+        replacement.version += 1
+        replacement.draft = OiStoryDraft(story: latest)
+        replacement.submitted = !OiCreationAccess.canEdit(status: latest.status, submitted: false)
+        do {
+            try await remote.saveLocalDraft(replacement, owner: owner)
+            guard try await remote.localDraft(id: replacement.id, owner: owner) == replacement else {
+                throw OiServiceError.conflict
+            }
+        } catch {
+            localError = "서버 버전을 기기에 저장했는지 확인하지 못했어요. 현재 편집 내용을 유지합니다. \(error.localizedDescription)"
+            return
+        }
+        draft = replacement.draft
+        submitted = replacement.submitted
+        localVersion = replacement.version
+        saveLabel = "기기에 저장됨"
+        localError = nil
     }
 
     @ViewBuilder private var stepContent: some View {
@@ -310,11 +388,12 @@ struct OiStoryEditor: View {
         case .story: OiStoryWritingStep(draft: $draft, grants: availableGrants)
         case .photos:
             OiStoryPhotoStep(items: editingPhotos,
-                uploadedPhotos: uploadedPhotos, selections: $photoSelections,
+                uploadedPhotos: attachedPhotoIDs, selections: $photoSelections,
                 loadPhoto: { id in
                     guard let owner, remote.account?.id == owner else { throw OiServiceError.accountChanged }
                     return try await remote.localPhoto(id: id, owner: owner)
-                }, edit: { id, edit in Task { await editPhoto(id, operation: edit) } }, remove: removePhoto, photo: reviewPhoto)
+                }, edit: { id, edit in Task { await editPhoto(id, operation: edit) } }, remove: removePhoto,
+                photo: { reviewPhoto($0) }, thumbnail: { reviewPhoto($0, allowsRetry: false) })
         case .location:
             OiStoryLocationStep(draft: $draft, regions: remote.regions.filter { $0.schoolId == "postech" }) { placeID in
                 locationRequest = OiLocationPickerRequest(focusPlaceID: placeID)
@@ -373,9 +452,8 @@ struct OiStoryEditor: View {
     private func removePhoto(_ item: OiEditingPhoto) {
         switch item {
         case .local(let id):
-            if uploadedPhotos.contains(id) {
-                removedMediaPaths += remote.mediaPaths(storyID: draft.id).filter { $0.contains(id.uuidString.lowercased()) }
-            }
+            // The server might already have attached this UUID even if its receipt was lost.
+            removedPhotoIDs.insert(id)
             photos.removeAll { $0 == id }; uploadedPhotos.remove(id)
         case .uploaded(let path): removedMediaPaths.append(path)
         }
@@ -383,7 +461,7 @@ struct OiStoryEditor: View {
     }
 
     private func editPhoto(_ id: UUID, operation: OiPhotoEdit) async {
-        guard let owner, !uploadedPhotos.contains(id), !preparingPhoto, !saving, !publishing else { return }
+        guard let owner, !attachedPhotoIDs.contains(id), !preparingPhoto, !saving, !publishing else { return }
         preparingPhoto = true
         defer { preparingPhoto = false }
         do {
@@ -391,17 +469,18 @@ struct OiStoryEditor: View {
             let jpeg = try OiPhotoProcessor.edit(data, operation: operation)
             let newID = UUID()
             try await remote.saveLocalPhoto(jpeg, id: newID, owner: owner)
-            guard remote.account?.id == owner, let index = photos.firstIndex(of: id) else { throw OiServiceError.accountChanged }
+            guard remote.account?.id == owner else { throw OiServiceError.accountChanged }
+            guard !attachedPhotoIDs.contains(id), let index = photos.firstIndex(of: id) else { throw OiServiceError.conflict }
             photos[index] = newID; localVersion += 1; _ = await persist()
         } catch { localError = error.localizedDescription }
     }
 
     private func record() -> OiLocalDraft {
-        OiLocalDraft(draft: draft, photos: photos, uploadedPhotos: Array(uploadedPhotos), version: localVersion, submitted: submitted, creationStep: step.rawValue, customization: customization, removedMediaPaths: removedMediaPaths)
+        OiLocalDraft(draft: draft, photos: photos, uploadedPhotos: Array(uploadedPhotos), version: localVersion, submitted: submitted, creationStep: step.rawValue, customization: customization, removedMediaPaths: removedMediaPaths, removedPhotoIDs: removedPhotoIDs)
     }
 
     private func scheduleSave() {
-        guard restored, let owner else { return }
+        guard restored, !replacingServerDraft, let owner else { return }
         localVersion += 1
         let snapshot = record()
         let previous = pendingSave
@@ -425,10 +504,16 @@ struct OiStoryEditor: View {
         guard !saving, hasApproval, OiCreationStep.allCases.allSatisfy({ $0.canContinue(draft: draft) }) else { return nil }
         saving = true
         defer { saving = false }
+        if let latest = remote.ownStories.first(where: { $0.id == draft.id }), latest.revision != draft.revision,
+           OiCreationAccess.canRebase(draft, to: latest) {
+            draft.revision = latest.revision
+            localVersion += 1
+        }
         guard let owner, await persist(), var current = await remote.save(draft) else { return nil }
         draft = OiStoryDraft(story: current); localVersion += 1
         guard await persist() else { return nil }
-        for id in photos where !uploadedPhotos.contains(id) {
+        let alreadyAttached = attachedPhotoIDs
+        for id in photos where !alreadyAttached.contains(id) && !removedPhotoIDs.contains(id) {
             do {
                 let data = try await remote.localPhoto(id: id, owner: owner)
                 guard let updated = await remote.uploadStoryImage(data, photoID: id, story: current) else { return nil }
@@ -436,10 +521,12 @@ struct OiStoryEditor: View {
                 guard await persist() else { return nil }
             } catch { localError = error.localizedDescription; return nil }
         }
-        if !removedMediaPaths.isEmpty {
-            let paths = remote.mediaPaths(storyID: draft.id).filter { !removedMediaPaths.contains($0) }
-            guard let updated = await remote.setStoryMedia(paths, story: current) else { return nil }
-            current = updated; draft.revision = updated.revision; removedMediaPaths = []; localVersion += 1
+        if !removedMediaPaths.isEmpty || !removedPhotoIDs.isEmpty {
+            guard let updated = await remote.removeStoryMedia(
+                paths: Set(removedMediaPaths), photoIDs: removedPhotoIDs, story: current
+            ) else { return nil }
+            current = updated; draft.revision = updated.revision
+            removedMediaPaths = []; removedPhotoIDs = []; localVersion += 1
             guard await persist() else { return nil }
         }
         return current
@@ -475,25 +562,58 @@ struct OiLocalPhoto: View {
 
 struct OiStoryMediaImage: View {
     let path: String
+    var allowsRetry = true
     let loadURL: (String) async throws -> URL
-    @State private var url: URL?
-    @State private var error: String?
+    @State private var retryCount = 0
+    @State private var resolution: Resolution?
+
+    private struct Request: Hashable {
+        let path: String
+        let attempt: Int
+    }
+
+    private enum Resolution {
+        case success(Request, URL)
+        case failure(Request, String)
+    }
 
     var body: some View {
+        let request = Request(path: path, attempt: retryCount)
         Group {
-            if let url {
+            if case .success(let resolved, let url) = resolution, resolved == request {
                 AsyncImage(url: url) { phase in
-                    if let image = phase.image { image.resizable().scaledToFit() }
-                    else if phase.error != nil { Text("사진을 불러오지 못했어요.").font(.caption) }
-                    else { ProgressView() }
+                    if let image = phase.image {
+                        image.resizable().scaledToFit().accessibilityLabel("이야기에 첨부된 사진")
+                    } else if phase.error != nil { failure("사진을 불러오지 못했어요.") }
+                    else { ProgressView().accessibilityLabel("사진 불러오는 중") }
                 }
-            } else if let error { Text(error).font(.caption).foregroundStyle(.secondary) }
-            else { ProgressView() }
+                .id(request)
+            } else if case .failure(let resolved, let message) = resolution, resolved == request {
+                failure(message)
+            } else { ProgressView().accessibilityLabel("사진 불러오는 중") }
         }
-        .accessibilityLabel("이야기에 첨부된 사진")
-        .task(id: path) {
-            do { url = try await loadURL(path); error = nil }
-            catch { self.error = error.localizedDescription }
+        .task(id: request) {
+            do {
+                let url = try await loadURL(request.path)
+                try Task.checkCancellation()
+                resolution = .success(request, url)
+            } catch {
+                guard !Task.isCancelled else { return }
+                resolution = .failure(request, error.localizedDescription)
+            }
+        }
+    }
+
+    private func failure(_ message: String) -> some View {
+        VStack(spacing: 4) {
+            Text(message).font(.caption).foregroundStyle(.secondary)
+            if allowsRetry {
+                Button { retryCount += 1 } label: {
+                    Text("사진 다시 불러오기").font(.caption).frame(minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("oi.story.media.retry")
+            }
         }
     }
 }

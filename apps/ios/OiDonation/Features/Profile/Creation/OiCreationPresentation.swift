@@ -40,6 +40,13 @@ enum OiCreationAccess {
         if let status { return status == "draft" }
         return !submitted
     }
+
+    static func canRebase(_ draft: OiStoryDraft, to story: OiLiveStory) -> Bool {
+        guard story.status == "draft" else { return false }
+        var serverDraft = OiStoryDraft(story: story)
+        serverDraft.revision = draft.revision
+        return serverDraft == draft
+    }
 }
 
 /// Keeps the displayed order equal to the server's attachment order, then appends new local photos.
@@ -47,10 +54,21 @@ enum OiEditingPhoto: Hashable, Identifiable {
     case local(UUID), uploaded(String)
     var id: String { switch self { case .local(let id): id.uuidString; case .uploaded(let path): path } }
 
-    static func ordered(local: [UUID], remote: [String], removed: [String]) -> [Self] {
+    nonisolated static func localPhotoID(for path: String) -> UUID? {
+        guard let filename = path.split(separator: "/").last, filename.lowercased().hasSuffix(".jpg") else { return nil }
+        return UUID(uuidString: String(filename.dropLast(4)))
+    }
+
+    static func ordered(local: [UUID], remote: [String], removed: [String], removedPhotoIDs: Set<UUID> = []) -> [Self] {
+        let local = local.filter { !removedPhotoIDs.contains($0) }
+        let localIDs = Set(local)
+        let removedPaths = Set(removed)
         var represented = Set<UUID>()
-        let existing: [Self] = remote.filter { !removed.contains($0) }.map { path in
-            if let id = local.first(where: { path.hasSuffix("/\($0.uuidString.lowercased()).jpg") }) {
+        let existing: [Self] = remote.compactMap { path in
+            guard !removedPaths.contains(path) else { return nil }
+            if let id = localPhotoID(for: path) {
+                guard !removedPhotoIDs.contains(id) else { return nil }
+                if !localIDs.contains(id) { return .uploaded(path) }
                 represented.insert(id)
                 return .local(id)
             }

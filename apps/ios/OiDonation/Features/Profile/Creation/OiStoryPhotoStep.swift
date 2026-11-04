@@ -9,6 +9,7 @@ struct OiStoryPhotoStep<Photo: View>: View {
     let edit: (UUID, OiPhotoEdit) -> Void
     let remove: (OiEditingPhoto) -> Void
     let photo: (OiEditingPhoto) -> Photo
+    var thumbnail: ((OiEditingPhoto) -> Photo)? = nil
     @State private var selected: OiEditingPhoto?
     @State private var cropPhotoID: UUID?
     @State private var cropRequest: CropRequest?
@@ -53,7 +54,7 @@ struct OiStoryPhotoStep<Photo: View>: View {
                     ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                         Button { selected = item } label: {
                             VStack(spacing: 10) {
-                                photo(item).frame(width: 60, height: 75).clipped()
+                                (thumbnail?(item) ?? photo(item)).frame(width: 60, height: 75).clipped()
                                     .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
                                     .clipShape(RoundedRectangle(cornerRadius: 10))
                                     .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(current == item ? .white : .clear, lineWidth: 3) }

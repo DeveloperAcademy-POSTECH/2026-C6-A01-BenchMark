@@ -230,6 +230,20 @@ struct OiServiceChecks {
         let removedPath = "owner/story/\(removedPhoto.uuidString.lowercased()).jpg"
         let ordered = OiEditingPhoto.ordered(local: [localA, localB], remote: [oldPath, localPath, removedPath], removed: [removedPath])
         precondition(ordered == [.uploaded(oldPath), .local(localA), .local(localB)])
+        let lateReceipt = OiEditingPhoto.ordered(local: [localA, removedPhoto],
+            remote: [oldPath, localPath, removedPath], removed: [], removedPhotoIDs: [removedPhoto])
+        precondition(lateReceipt == [.uploaded(oldPath), .local(localA)],
+                     "A locally deleted photo must not return after a lost upload receipt or a late refresh")
+        let currentServerDraft = OiLiveStory(id: draft.id, userId: UUID(), grantId: draft.grantId!,
+            regionId: draft.regionId, title: draft.title, body: draft.body, theme: draft.theme, emotion: draft.emotion,
+            cucumberName: draft.cucumberName, cucumberAsset: draft.cucumberAsset, cardAsset: draft.cardAsset,
+            latitude: draft.latitude!, longitude: draft.longitude!, status: "draft", revision: 4, createdAt: "")
+        precondition(OiCreationAccess.canRebase(draft, to: currentServerDraft),
+                     "A revision bump with identical content can be reconciled without overwriting the local draft")
+        var localEdit = draft
+        localEdit.body += " with a new paragraph"
+        precondition(!OiCreationAccess.canRebase(localEdit, to: currentServerDraft),
+                     "A distinct local edit must never be silently rebased over a changed server draft")
         print("PASS: creation validation, server review lock, and stable deduplicated photo ordering")
         let payload = try draft.payload()
         precondition(payload["revision"] as? Int == 0 && payload["cucumber_asset"] as? String == "OiCats")
@@ -240,7 +254,8 @@ struct OiServiceChecks {
         var record = OiLocalDraft(draft: draft, photos: [photoID], version: 2)
         let legacyJSON = try JSONEncoder().encode(record)
         let legacy = try JSONDecoder().decode(OiLocalDraft.self, from: legacyJSON)
-        precondition(legacy.creationStep == nil && legacy.customization == nil && legacy.removedMediaPaths == nil)
+        precondition(legacy.creationStep == nil && legacy.customization == nil &&
+                     legacy.removedMediaPaths == nil && legacy.removedPhotoIDs == nil)
         record.creationStep = OiCreationStep.card.rawValue
         record.customization = OiDraftCustomization(fill: .gradient, firstColor: 0xABCDEF, secondColor: 0x123456,
                                                    showsCharacter: false, garmentColors: ["모자":0x445566])
@@ -310,6 +325,7 @@ struct OiServiceChecks {
         print("PASS: complete costume persistence, unsupported ID fallback and individual-look restoration")
         record.customization?.wardrobe = look
         record.removedMediaPaths = [oldPath]
+        record.removedPhotoIDs = [removedPhoto]
         try await vault.saveAttachment(Data([1,2,3]), owner: owner, id: photoID)
         try await vault.save(record, owner: owner)
         record.version = 1; record.draft.title = "Stale edit"
@@ -320,6 +336,7 @@ struct OiServiceChecks {
         precondition(recovered?.creationStep == "card" && recovered?.customization?.fill == .gradient)
         precondition(recovered?.customization?.firstColor == 0xABCDEF && recovered?.customization?.garmentColors["모자"] == 0x445566)
         precondition(recovered?.customization?.showsCharacter == false && recovered?.removedMediaPaths == [oldPath])
+        precondition(recovered?.removedPhotoIDs == [removedPhoto], "Removal intent must survive reopening after a lost receipt")
         precondition(recovered?.customization?.wardrobe == look, "Garments and all three colors must survive reopening the account draft")
         precondition(recovered?.customization?.wardrobe?.artwork == look.artwork)
         precondition(recovered?.customization?.wardrobe?.fabrics == look.fabrics)
