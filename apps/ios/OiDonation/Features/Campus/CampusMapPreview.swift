@@ -7,11 +7,31 @@ struct CampusMapPreviewHost: View {
     @State private var library = MYLibraryStore()
     @State private var path = NavigationPath()
 
+    init() {
+        let arguments = ProcessInfo.processInfo.arguments
+        let example = arguments.contains("-campus-summary-preview") || arguments.contains("-campus-story-preview")
+        _store = State(initialValue: CampusStoryStore(isExample: example))
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
-            HomeView(container: .pilot, store: store, myDemo: library, isCameraCoverActive: false,
-                     onCamera: {}, onOpenProfile: { path.append(MYDestination.workshop) },
-                     onOpenStory: { path.append(CampusDestination.summary($0)) })
+            Group {
+                if store.isExample {
+                    if let first = store.stories.first {
+                        if ProcessInfo.processInfo.arguments.contains("-campus-story-preview") {
+                            CampusStoryDetailView(story: first, store: store)
+                        } else {
+                            CampusSummaryView(story: first, store: store)
+                        }
+                    } else {
+                        ProgressView("디자인 예시 준비 중")
+                    }
+                } else {
+                    HomeView(container: .pilot, store: store, myDemo: library, isCameraCoverActive: false,
+                             onCamera: {}, onOpenProfile: { path.append(MYDestination.workshop) },
+                             onOpenStory: { path.append(CampusDestination.summary($0)) })
+                }
+            }
                 .navigationDestination(for: CampusDestination.self) { destination in
                     switch destination {
                     case .summary(let id):
@@ -23,6 +43,10 @@ struct CampusMapPreviewHost: View {
         }
         .tint(.black).preferredColorScheme(.light)
         .task {
+            if store.isExample {
+                store.synchronize(stories: CampusStoryExamples.stories, collected: [])
+                return
+            }
             let counts = [10, 14, 4, 26, 4, 6]
             let fixtures = CampusRegion.campus.enumerated().flatMap { regionIndex, region in
                 (0..<counts[regionIndex]).map { index in

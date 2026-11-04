@@ -4,8 +4,8 @@ import MapKit
 struct CampusStoryDetailView: View {
     let story: CampusStory
     let store: CampusStoryStore
-    @State private var donationInfo = false
     @State private var selectedImage: CampusImageSelection?
+    @State private var showingCard = false
     @State private var showingAllRelated = false
 
     var body: some View {
@@ -17,25 +17,15 @@ struct CampusStoryDetailView: View {
                     .frame(width: geometry.size.width, height: 275).clipped()
                     .background(CampusStyle.background(story.palette))
                     .allowsHitTesting(false)
-                VStack(alignment: .leading, spacing: 30) {
+                VStack(alignment: .leading, spacing: 50) {
                     heading
+                    donor
                     storyBlock
                     characterAndCard
                     if let images = story.example?.galleryImages, !images.isEmpty { exampleGallery(images) }
-                    if !story.remoteMediaPaths.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            sectionTitle("갤러리")
-                            ForEach(story.remoteMediaPaths, id: \.self) { path in
-                                OiStoryMediaImage(path: path) { path in
-                                    guard let resolver = store.mediaURL else { throw OiServiceError.unavailable }
-                                    return try await resolver(path)
-                                }.frame(minHeight: 120, maxHeight: 360)
-                            }
-                        }
-                    }
+                    if !story.remoteMediaPaths.isEmpty { remoteGallery }
                     location
                     related
-                    donor
                     Text(story.isExample ? "디자인을 확인하기 위한 예시입니다. 실제 기부·수집 기록에 포함되지 않아요." : "작성·공개는 운영자 검토 기준이며 학교 공식 납입 확인과 다릅니다. 로그인 후 수집 기록이 계정에 저장됩니다.")
                         .font(.caption).foregroundStyle(.secondary)
                 }.frame(width: max(0, geometry.size.width - 40), alignment: .leading)
@@ -49,10 +39,11 @@ struct CampusStoryDetailView: View {
         .navigationBarTitleDisplayMode(.inline).toolbarRole(.editor)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             HStack(spacing: 8) {
-                Button { donationInfo = true } label: {
-                    Text("이어서 기부하기").font(CampusStyle.body(12)).frame(maxWidth: .infinity, minHeight: 46)
+                Button { store.createStoryAction?() } label: {
+                    Text("이어서 기부하기").font(CampusStyle.medium(16)).frame(maxWidth: .infinity, minHeight: 46)
                         .foregroundStyle(.black).background(CampusStyle.secondaryAction, in: RoundedRectangle(cornerRadius: 20))
-                }.buttonStyle(.plain).disabled(story.isExample)
+                }.buttonStyle(.plain).disabled(story.isExample || store.createStoryAction == nil)
+                    .accessibilityIdentifier("campus.story.continue")
                 CampusCollectButton(story: story, store: store)
             }.padding(.horizontal, 15).padding(.top, 10).padding(.bottom, 6)
                 .background {
@@ -60,13 +51,16 @@ struct CampusStoryDetailView: View {
                         .fill(.regularMaterial).ignoresSafeArea(edges: .bottom)
                 }
         }
-        .sheet(isPresented: $donationInfo) { HomeInformationSheet(destination: .donation) }
-        .sheet(item: $selectedImage) { image in
-            NavigationStack {
-                Image(image.name).resizable().scaledToFit().padding(12)
-                    .navigationTitle(image.title).navigationBarTitleDisplayMode(.inline)
-                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("닫기") { selectedImage = nil } } }
+        .fullScreenCover(item: $selectedImage) { image in
+            CampusArtworkOverlay(title: image.title) {
+                if let name = image.name { Image(name).resizable().scaledToFit() }
+                else if let path = image.remotePath {
+                    OiStoryMediaImage(path: path, loadURL: mediaURL).aspectRatio(contentMode: .fit)
+                }
             }
+        }
+        .fullScreenCover(isPresented: $showingCard) {
+            CampusArtworkOverlay(title: story.title + " 카드") { CampusStoryCardArtwork(story: story) }
         }
     }
 
@@ -74,32 +68,32 @@ struct CampusStoryDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             if story.isExample { CampusExampleBadge() }
             HStack(spacing: 6) {
-                Text(story.title).font(CampusStyle.characterTitle(32)).lineLimit(1).minimumScaleFactor(0.7)
+                Text(story.title).font(CampusStyle.characterTitle(35)).tracking(1.4).lineLimit(1).minimumScaleFactor(0.7)
                 Spacer(minLength: 1)
-                CampusTags(story: story)
+                CampusTags(story: story, size: 18)
             }
             VStack(alignment: .leading, spacing: 3) {
-                Text("기부자 | \(story.donor)")
                 Text("위치 | \(story.location)")
                 Text("날짜 | \(story.date)")
-            }.font(CampusStyle.body(15))
+            }.font(.custom("Paperlogy-3Light", size: 15, relativeTo: .body)).tracking(0.3)
         }
     }
 
     private var storyBlock: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             sectionTitle("기부자 스토리")
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 24) {
                 if !story.excerpt.isEmpty {
                     Text(story.excerpt).font(CampusStyle.body(16)).lineSpacing(3)
                 }
                 if story.body.isEmpty {
                     Text("아직 작성된 이야기가 없어요.").font(CampusStyle.body(14)).foregroundStyle(.secondary)
                 } else {
-                    Text(story.body).font(CampusStyle.body(14)).lineSpacing(5).fixedSize(horizontal: false, vertical: true)
+                    Text(story.body).font(.custom("Paperlogy-3Light", size: 14, relativeTo: .body))
+                        .tracking(0.28).lineSpacing(5).fixedSize(horizontal: false, vertical: true)
                 }
-            }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
-                .background(CampusStyle.listBackground, in: RoundedRectangle(cornerRadius: 20))
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(20)
+                .background(Color(white: 236 / 255), in: RoundedRectangle(cornerRadius: 20))
         }
     }
 
@@ -108,13 +102,33 @@ struct CampusStoryDetailView: View {
             sectionTitle("오이 & 카드")
             HStack(spacing: 20) {
                 Image(story.portraitImage).resizable().scaledToFit().frame(maxWidth: .infinity).frame(height: 220)
-                Button {
-                    if let image = story.example?.cardImage { selectedImage = .init(name: image, title: story.title + " 예시 카드") }
-                } label: {
+                Button { showingCard = true } label: {
                     CampusStoryCardArtwork(story: story).frame(maxWidth: .infinity).frame(height: 220)
-                }.buttonStyle(.plain).disabled(story.example?.cardImage == nil)
+                }.buttonStyle(.plain)
                     .accessibilityLabel("오이 카드 확대 보기")
             }.frame(maxWidth: .infinity)
+        }
+    }
+
+    private func mediaURL(_ path: String) async throws -> URL {
+        guard let resolver = store.mediaURL else { throw OiServiceError.unavailable }
+        return try await resolver(path)
+    }
+
+    private var remoteGallery: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            sectionTitle("갤러리")
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                ForEach(Array(story.remoteMediaPaths.enumerated()), id: \.element) { index, path in
+                    Button {
+                        selectedImage = .init(name: nil, title: "\(story.title) 사진 \(index + 1)", remotePath: path)
+                    } label: {
+                        OiStoryMediaImage(path: path, loadURL: mediaURL)
+                            .frame(height: index.isMultiple(of: 3) ? 121 : 109)
+                            .clipped().clipShape(RoundedRectangle(cornerRadius: 10))
+                    }.buttonStyle(.plain).accessibilityLabel("갤러리 사진 \(index + 1) 확대 보기")
+                }
+            }
         }
     }
 
@@ -187,31 +201,30 @@ struct CampusStoryDetailView: View {
     private var donor: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionTitle("기부자 소개")
-            HStack(spacing: 15) {
-                Image("OiFarmer").resizable().scaledToFit().frame(width: 120, height: 160)
-                VStack(alignment: .leading, spacing: 15) {
-                    donorField("닉네임", story.donor)
-                    donorField("이야기 장소", story.location)
+            HStack(spacing: 14) {
+                Image("OiFarmer").resizable().scaledToFill().frame(width: 50, height: 50)
+                    .background(CampusStyle.secondaryAction, in: Circle()).clipShape(Circle())
+                    .overlay(Circle().stroke(CampusStyle.green, lineWidth: 1.5)).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(story.isExample ? "디자인 예시 작성자" : "이야기를 남긴 농부")
+                        .font(CampusStyle.body(12)).foregroundStyle(.secondary)
+                    Text(story.donor).font(CampusStyle.semibold(22)).tracking(0.44)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
-            }.padding(14).frame(maxWidth: .infinity).frame(minHeight: 199)
-                .background {
-                    GeometryReader { g in
-                        Image("OiFarmerBackdrop").resizable().scaledToFill()
-                            .frame(width: g.size.width, height: g.size.height * 2.374)
-                            .offset(y: -g.size.height * 1.374)
-                    }.clipped().allowsHitTesting(false)
-                }.clipShape(RoundedRectangle(cornerRadius: 20))
+            }.padding(.horizontal, 16).padding(.vertical, 14).frame(maxWidth: .infinity)
+                .background(Color(red: 241 / 255, green: 244 / 255, blue: 236 / 255),
+                            in: RoundedRectangle(cornerRadius: 20))
         }
     }
-    private func donorField(_ label: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) { Text(label).font(.system(size: 14, weight: .heavy)); Text(value).font(.system(size: 15)) }
+    private func sectionTitle(_ text: String) -> some View {
+        Text(text).font(.custom("Paperlogy-7Bold", size: 26, relativeTo: .title2)).foregroundStyle(CampusStyle.sectionGreen)
     }
-    private func sectionTitle(_ text: String) -> some View { Text(text).font(.system(size: 24, weight: .bold)).foregroundStyle(CampusStyle.sectionGreen) }
 }
 
 private struct CampusImageSelection: Identifiable {
-    var id: String { name }
-    let name: String
+    var id: String { name ?? remotePath ?? title }
+    let name: String?
     let title: String
+    var remotePath: String? = nil
 }

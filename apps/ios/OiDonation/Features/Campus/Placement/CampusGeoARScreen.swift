@@ -118,7 +118,7 @@ struct CampusGeoARScreen: View {
     }
 }
 
-private struct CampusGeoSurface: UIViewRepresentable {
+struct CampusGeoSurface: UIViewRepresentable {
     let controller: CampusGeoARController
     func makeUIView(context: Context) -> RealityKit.ARView { controller.makeView() }
     func updateUIView(_ view: RealityKit.ARView, context: Context) { }

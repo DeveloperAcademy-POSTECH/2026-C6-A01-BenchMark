@@ -16,8 +16,8 @@ struct CampusStoryCardArtwork: View {
             Image(image).resizable().scaledToFit()
                 .accessibilityLabel("\(story.title) 예시 카드")
         } else {
-            MYCardArtwork(card: MYCard(id: story.id, title: story.title, image: story.image,
-                school: .postech, order: story.order, body: story.body, donor: story.donor, date: story.date))
+            OiStoryCardArtwork(name: story.title, introduction: story.excerpt, donor: story.donor,
+                               date: story.date, tags: story.tags, assetName: story.image)
         }
     }
 }

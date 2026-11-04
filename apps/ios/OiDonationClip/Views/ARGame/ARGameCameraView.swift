@@ -16,10 +16,11 @@ import UIKit
 @MainActor
 @Observable
 final class ARGameCameraController: NSObject, ARSessionDelegate {
-    let view = ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
+    let view = RealityKit.ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
 
     private let targetCount: Int
     private let cucumberImageURL: URL?
+    private let cucumberAssetName: String?
     private let onCollect: () -> Void
     private let onUnavailable: () -> Void
     private(set) var isReady = false
@@ -38,11 +39,13 @@ final class ARGameCameraController: NSObject, ARSessionDelegate {
     init(
         targetCount: Int,
         cucumberImageURL: URL?,
+        cucumberAssetName: String? = nil,
         onUnavailable: @escaping () -> Void,
         onCollect: @escaping () -> Void
     ) {
         self.targetCount = targetCount
         self.cucumberImageURL = cucumberImageURL
+        self.cucumberAssetName = cucumberAssetName
         self.onCollect = onCollect
         self.onUnavailable = onUnavailable
         super.init()
@@ -89,14 +92,22 @@ final class ARGameCameraController: NSObject, ARSessionDelegate {
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
         guard isRunning, !didPlaceCollectibles, view.bounds.width > 0, view.bounds.height > 0 else { return }
         guard case .normal = frame.camera.trackingState else { return }
-        guard let viewRotationAngle = session.viewRotationAngle else { return }
         latestCameraTransform = frame.camera.transform
-        latestProjection = frame.camera.projectionMatrix(
-            viewRotationAngle: viewRotationAngle,
-            viewportSize: view.bounds.size,
-            zNear: 0.01,
-            zFar: 100
-        )
+        if #available(iOS 27.0, *) {
+            guard let viewRotationAngle = session.viewRotationAngle else { return }
+            latestProjection = frame.camera.projectionMatrix(
+                viewRotationAngle: viewRotationAngle,
+                viewportSize: view.bounds.size,
+                zNear: 0.01,
+                zFar: 100
+            )
+        } else {
+            // The full app still supports iOS 26.2. ARView owns rotation on iOS 27.
+            let orientation = view.window?.windowScene?.effectiveGeometry.interfaceOrientation ?? .portrait
+            latestProjection = frame.camera.projectionMatrix(
+                for: orientation, viewportSize: view.bounds.size, zNear: 0.01, zFar: 100
+            )
+        }
         placeCollectiblesIfReady()
     }
 
@@ -113,7 +124,7 @@ final class ARGameCameraController: NSObject, ARSessionDelegate {
             }
         }
         guard isRunning, !Task.isCancelled else { return }
-        if let image = await CucumberArtwork.load(imageURL: cucumberImageURL),
+        if let image = await CucumberArtwork.load(imageURL: cucumberImageURL, assetName: cucumberAssetName),
            let cgImage = image.cgImage {
             guard isRunning, !Task.isCancelled else { return }
             characterAspect = Float(cgImage.width) / Float(cgImage.height)
@@ -228,17 +239,17 @@ struct ARGameCameraView: UIViewRepresentable {
 
     func makeCoordinator() -> ARGameCameraController { controller }
 
-    func makeUIView(context: Context) -> ARView {
+    func makeUIView(context: Context) -> RealityKit.ARView {
         controller.isCollecting = isCollecting
         controller.start()
         return controller.view
     }
 
-    func updateUIView(_ uiView: ARView, context: Context) {
+    func updateUIView(_ uiView: RealityKit.ARView, context: Context) {
         controller.isCollecting = isCollecting
     }
 
-    static func dismantleUIView(_ uiView: ARView, coordinator: ARGameCameraController) {
+    static func dismantleUIView(_ uiView: RealityKit.ARView, coordinator: ARGameCameraController) {
         coordinator.stop()
     }
 }

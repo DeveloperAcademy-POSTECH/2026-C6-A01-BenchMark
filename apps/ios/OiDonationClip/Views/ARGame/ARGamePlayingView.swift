@@ -6,6 +6,7 @@ import SwiftUI
 struct ARGamePlayingView: View {
     let viewModel: ARGameViewModel
     let cucumberImageURL: URL?
+    var cucumberAssetName: String? = nil
 
     @Environment(\.scenePhase) private var scenePhase
     @State private var cameraController: ARGameCameraController?
@@ -22,7 +23,8 @@ struct ARGamePlayingView: View {
                     remainingSeconds: viewModel.remainingSeconds,
                     collectedCount: viewModel.collectedCount,
                     targetCount: viewModel.targetCount,
-                    cucumberImageURL: cucumberImageURL
+                    cucumberImageURL: cucumberImageURL,
+                    cucumberAssetName: cucumberAssetName
                 )
 
                 if viewModel.state == .starting {
@@ -45,6 +47,7 @@ struct ARGamePlayingView: View {
             cameraController = ARGameCameraController(
                 targetCount: viewModel.targetCount,
                 cucumberImageURL: cucumberImageURL,
+                cucumberAssetName: cucumberAssetName,
                 onUnavailable: { [weak model] in model?.cameraBecameUnavailable() },
                 onCollect: { [weak model] in model?.collectCucumber() }
             )

@@ -10,32 +10,42 @@ struct OiStoryListScreen: View {
     @State private var selectedStoryID: UUID?
     @State private var showingConsent = false
     @State private var showingApprovalNotice = false
-    @State private var showingTicketNotice = false
     #if DEBUG
     @State private var showingPractice = false
+    @State private var showingWardrobe = false
     #endif
 
     var body: some View {
         OiStoryListView(
             state: state,
+            notices: ["이야기를 누르면 작성 내용과 공개 상태를 확인할 수 있습니다", "운영자 공개 승인 후 지도에서 오이를 볼 수 있습니다"],
+            guidance: "작성 승인을 받은 뒤 오이와 이야기를 심어보세요",
             onRetry: { Task { await remote.refresh(); await loadLocalDrafts() } },
             onAddTicket: { showingAccount = true },
             onSelectStory: selectStory,
             onCreateStory: beginCreatingStory,
-            onUseTicket: { showingTicketNotice = true }
+            onUseTicket: beginCreatingStory
         )
         #if DEBUG
         .safeAreaInset(edge: .top, spacing: 0) {
-            Button { showingPractice = true } label: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Label("증빙 없이 작성 체험", systemImage: "play.circle.fill").font(.subheadline.bold())
-                    Text("개발용 · 로그인 없이 체험 · 서버 전송 없음").font(.caption)
-                }.frame(maxWidth: .infinity, alignment: .leading).padding(14)
-                    .foregroundStyle(Color("OiGreen")).background(Color("OiLight"), in: RoundedRectangle(cornerRadius: 16))
-                    .padding(.horizontal, 20).padding(.vertical, 8)
-            }.buttonStyle(.plain).accessibilityIdentifier("oi.practice.open")
+            VStack(spacing: 0) {
+                Button { showingPractice = true } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("작성 흐름 체험", systemImage: "play.circle.fill").font(.subheadline.bold())
+                        Text("개발용 · 로그인 없이 체험 · 서버 전송 없음").font(.caption)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(14)
+                        .foregroundStyle(Color("OiGreen")).background(Color("OiLight"), in: RoundedRectangle(cornerRadius: 16))
+                        .padding(.horizontal, 20).padding(.vertical, 8)
+                }.buttonStyle(.plain).accessibilityIdentifier("oi.practice.open")
+                Button { showingWardrobe = true } label: {
+                    Label("오이 옷장 바로 체험", systemImage: "tshirt")
+                        .font(.subheadline.bold()).frame(maxWidth: .infinity, minHeight: 44)
+                        .foregroundStyle(Color("OiDark"))
+                }.buttonStyle(.plain).accessibilityIdentifier("oi.wardrobe.open")
+            }
         }
         .fullScreenCover(isPresented: $showingPractice) { OiCreationPreviewHost() }
+        .fullScreenCover(isPresented: $showingWardrobe) { OiWardrobePreviewHost(allowsDismiss: true) }
         #endif
         .task(id: remote.account?.id) { await loadLocalDrafts() }
         .onChange(of: remote.revision) { _, _ in Task { await loadLocalDrafts() } }
@@ -59,12 +69,7 @@ struct OiStoryListScreen: View {
             Button("승인 상태 확인") { showingAccount = true }
             Button("닫기", role: .cancel) {}
         } message: {
-            Text("증빙 검토와 이야기 작성 승인을 받은 뒤 오이와 이야기를 만들 수 있어요.")
-        }
-        .alert("티켓 기능은 준비 중이에요", isPresented: $showingTicketNotice) {
-            Button("확인", role: .cancel) {}
-        } message: {
-            Text("티켓 보유량과 사용 규칙이 확정되면 이 버튼에 연결할 예정이에요.")
+            Text("작성 승인을 받은 계정에서 오이와 이야기를 만들 수 있어요.")
         }
     }
 

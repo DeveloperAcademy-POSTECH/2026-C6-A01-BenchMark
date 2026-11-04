@@ -9,6 +9,7 @@ struct OiStoryListView: View {
     var minimumVisibleSlotCount = 4
     var ticketCountText: String?
     var notices: [String] = []
+    var guidance: String?
     var onRetry: () -> Void = {}
     var onAddTicket: (() -> Void)?
     var onSelectStory: ((UUID) -> Void)?
@@ -78,6 +79,12 @@ struct OiStoryListView: View {
     private var storySlots: some View {
         ScrollView {
             VStack(spacing: 0) {
+                if let guidance {
+                    Text(guidance).font(CampusStyle.semibold(15)).tracking(0.3)
+                        .foregroundStyle(Color("OiGreen"))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 20).padding(.top, 18)
+                }
                 LazyVStack(spacing: 10) {
                     ForEach(state.slots(minimumVisibleCount: minimumVisibleSlotCount)) { slot in
                         if let item = slot.item {
@@ -216,7 +223,7 @@ struct OiStoryListView: View {
 
     private func storyTitle(_ title: String) -> some View {
         Text(title)
-            .font(.custom("PearToucan-Regular", size: 20, relativeTo: .title3))
+            .font(.custom("PearToucan-Bold", size: 20, relativeTo: .title3))
             .tracking(0.8)
             .lineSpacing(usesAccessibilityLayout ? titleLineSpacing : 0)
             .lineLimit(usesAccessibilityLayout ? nil : 1)
@@ -241,14 +248,12 @@ struct OiStoryListView: View {
     @ViewBuilder
     private func tagLabels(_ tags: [String]) -> some View {
         ForEach(Array(tags.prefix(2).enumerated()), id: \.offset) { _, tag in
-            Text(tag)
+            Text("#" + tag)
                 .font(.custom("Paperlogy-4Regular", size: 12, relativeTo: .caption))
                 .tracking(0.24)
-                .foregroundStyle(Color(red: 46 / 255, green: 79 / 255, blue: 22 / 255))
+                .foregroundStyle(Color(red: 136 / 255, green: 173 / 255, blue: 55 / 255))
                 .lineLimit(1)
-                .padding(.horizontal, 10)
                 .frame(minHeight: 22)
-                .background(Color(red: 197 / 255, green: 224 / 255, blue: 124 / 255), in: Capsule())
         }
     }
 
@@ -323,7 +328,7 @@ struct OiStoryListView: View {
     private var useTicketFooterButton: some View {
         optionalButton(action: onUseTicket) {
             footerButtonLabel(
-                title: "티켓 사용하기",
+                title: "오이 심기",
                 icon: "StoryTicketIcon",
                 iconSize: CGSize(width: 30, height: 30),
                 foreground: ticketColor,

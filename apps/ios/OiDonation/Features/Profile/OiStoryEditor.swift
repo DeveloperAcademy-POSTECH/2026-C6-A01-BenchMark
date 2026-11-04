@@ -28,6 +28,7 @@ struct OiStoryEditor: View {
     @State private var preparingPhoto = false
     @State private var publishing = false
     @State private var showingPreview = false
+    @State private var showingConsentReview = false
     @State private var choosingExit = false
     @State private var pendingSave: Task<Void, Never>?
     @Environment(\.dismiss) private var dismiss
@@ -84,20 +85,27 @@ struct OiStoryEditor: View {
             } else if submitted {
                 completion
             } else {
-                if step != .photos { OiCreationProgressHeader(step: step.progress).padding(.horizontal, 20).padding(.vertical, 8) }
+                if step != .photos {
+                    OiCreationProgressHeader(step: step.progress, onPrevious: reviewPreviousStep)
+                        .padding(.horizontal, 20).padding(.top, 1).padding(.bottom, 29)
+                }
                 ScrollViewReader { scroll in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 20) {
-                            Color.clear.frame(height: 1).id("creation.top")
                             editorStatus
-                            stepContent
+                            stepContent.id("creation.top")
+                            Text(saveLabel).font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("oi.draft.saveState")
+                            if step != .photos {
+                                Button("기기에 보관하거나 나가기") { choosingExit = true }.font(.footnote)
+                            }
                         }.padding(.horizontal, 20).padding(.bottom, 24)
                     }.scrollDismissesKeyboard(.interactively)
                         .onChange(of: step) { _, _ in scroll.scrollTo("creation.top", anchor: .top) }
                 }
-                OiCreationNextButton(title: step == .card ? "미리보기·검토 요청" : "다음", enabled: canContinue) {
-                    if let next = step.next { step = next } else { showingPreview = true }
-                }.accessibilityIdentifier("oi.creation.next").padding(.horizontal, 20).padding(.vertical, 10)
+                if step == .story || step == .location {
+                    OiCreationNextButton(title: "다음", enabled: canContinue, action: advance)
+                        .accessibilityIdentifier("oi.creation.next").padding(.horizontal, 20).padding(.vertical, 10)
+                }
             }
         }
         .background(step == .photos ? Color(white: 0.14) : Color(.systemBackground))
@@ -106,21 +114,23 @@ struct OiStoryEditor: View {
         .toolbarColorScheme(step == .photos ? .dark : .light, for: .navigationBar)
         .toolbarBackground(step == .photos ? Color(white: 0.14) : Color(.systemBackground), for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .toolbar(usesNavigationBar ? .visible : .hidden, for: .navigationBar)
         .disabled(remote.isBusy || preparingPhoto || publishing || saving)
         .navigationTitle(submitted ? "접수 완료" : step.title).navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden()
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    if !restored { dismiss() }
-                    else if submitted { finish() }
-                    else if let previous = step.previous { step = previous }
-                    else { choosingExit = true }
-                } label: { Image(systemName: "chevron.left") }
+                Button(action: goBack) { Image(systemName: "chevron.left") }
                 .accessibilityLabel("이전 단계").disabled(remote.isBusy || preparingPhoto || publishing || saving)
             }
             ToolbarItem(placement: .topBarTrailing) {
-                if !submitted { Button("나가기") { if restored { choosingExit = true } else { dismiss() } }.disabled(remote.isBusy || preparingPhoto || publishing || saving) }
+                if restored && !submitted && step == .photos {
+                    Button("완료", action: advance).disabled(!canContinue)
+                        .accessibilityIdentifier("oi.creation.next")
+                } else if !submitted {
+                    Button("나가기") { if restored { choosingExit = true } else { dismiss() } }
+                        .disabled(remote.isBusy || preparingPhoto || publishing || saving)
+                }
             }
         }
         .interactiveDismissDisabled()
@@ -141,6 +151,31 @@ struct OiStoryEditor: View {
             OiLocationPicker(latitude: $draft.latitude, longitude: $draft.longitude, focusPlaceID: request.focusPlaceID)
         }
         .sheet(isPresented: $showingPreview) { reviewSheet }
+        .sheet(isPresented: $showingConsentReview) {
+            NavigationStack {
+                OiStoryConsentView(clauses: OiStoryConsentClause.figmaDrafts, continueTitle: "작성으로 돌아가기") {
+                    showingConsentReview = false
+                }
+            }
+        }
+    }
+
+    private var usesNavigationBar: Bool { !restored || (!submitted && (step == .photos || step == .location)) }
+
+    private func reviewPreviousStep() {
+        if step == .story { showingConsentReview = true } else { goBack() }
+    }
+
+    private func goBack() {
+        if !restored { dismiss() }
+        else if submitted { finish() }
+        else if let previous = step.previous { step = previous }
+        else { choosingExit = true }
+    }
+
+    private func advance() {
+        guard canContinue else { return }
+        if let next = step.next { step = next } else { showingPreview = true }
     }
 
     private var restorationStatus: some View {
@@ -237,13 +272,13 @@ struct OiStoryEditor: View {
     }
     private var publicCard: MYCard {
         MYCard(id: draft.id.uuidString, title: draft.cucumberName, image: draft.cucumberAsset, school: .postech, order: 0,
-               body: draft.body, donor: remote.profile?.nickname ?? "농부", date: "", appearance: draft.cardAsset)
+               body: draft.body, donor: remote.profile?.nickname ?? "농부",
+               date: remote.ownStories.first(where: { $0.id == draft.id })?.createdDateLabel ?? "", appearance: draft.cardAsset)
     }
 
     @ViewBuilder private var editorStatus: some View {
         OiConnectionStatus(remote: remote)
         if let error = localError ?? remote.error { Text(error).font(.footnote).foregroundStyle(.red) }
-        Text(saveLabel).font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("oi.draft.saveState")
         if !hasApproval { Text("유효한 작성 승인이 필요해요. 계정에서 승인 상태를 확인해 주세요.").font(.footnote).foregroundStyle(.orange) }
         if let saved = remote.ownStories.first(where: { $0.id == draft.id }), saved.revision != draft.revision {
             VStack(alignment: .leading) {
@@ -270,9 +305,12 @@ struct OiStoryEditor: View {
             OiStoryLocationStep(draft: $draft, regions: remote.regions.filter { $0.schoolId == "postech" }) { placeID in
                 locationRequest = OiLocationPickerRequest(focusPlaceID: placeID)
             }
-        case .cucumber: OiCucumberCustomizationStep(draft: $draft, customization: $customization, assets: remote.assets)
+        case .cucumber:
+            OiCucumberCustomizationStep(draft: $draft, customization: $customization, assets: remote.assets,
+                canContinue: canContinue, onContinue: advance)
         case .card:
-            OiCardCustomizationStep(draft: $draft, customization: $customization, assets: remote.assets)
+            OiCardCustomizationStep(draft: $draft, customization: $customization, assets: remote.assets,
+                canContinue: canContinue, onContinue: advance)
             Button("초안 저장·사진 업로드") { Task { _ = await saveCurrent() } }
                 .disabled(!draft.valid || !hasApproval).accessibilityIdentifier("oi.story.save")
         }
@@ -280,15 +318,38 @@ struct OiStoryEditor: View {
 
     private var completion: some View {
         ScrollView {
-            VStack(spacing: 22) {
-                MYCardArtwork(card: publicCard).frame(height: 360)
-                Text(draft.cucumberName).font(CampusStyle.semibold(28))
-                Text("이야기 검토 요청이 접수됐어요").font(.headline)
-                Text("운영자가 공개 승인하면 캠퍼스 지도와 현장 AR에서 볼 수 있어요.")
-                    .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                OiCreationNextButton(title: "이야기 목록으로 돌아가기", action: finish)
-            }.padding(24)
+            VStack(spacing: 34) {
+                MYCardArtwork(card: publicCard).frame(maxWidth: 320).frame(height: 444)
+                    .shadow(color: .black.opacity(0.25), radius: 7, x: 3, y: 6)
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(draft.cucumberName).font(CampusStyle.characterTitle(28)).tracking(1.12)
+                    Text([draft.emotion, draft.theme].filter { !$0.isEmpty }.map { "#" + $0 }.joined(separator: " "))
+                        .font(CampusStyle.body(16)).foregroundStyle(Color("OiGreen"))
+                    VStack(alignment: .leading, spacing: 6) {
+                        completionMetadata("작성자", value: remote.profile?.nickname ?? "농부")
+                        completionMetadata("위치", value: completionLocation)
+                        if !publicCard.date.isEmpty { completionMetadata("날짜", value: publicCard.date) }
+                    }
+                    Text("이야기 검토 요청이 접수됐어요").font(CampusStyle.semibold(16))
+                    Text("운영자가 공개 승인하면 캠퍼스 지도와 현장 AR에서 볼 수 있어요.")
+                        .font(CampusStyle.body(14)).foregroundStyle(.secondary)
+                    OiCreationNextButton(title: "이야기 목록으로 돌아가기", action: finish)
+                }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 30))
+                    .shadow(color: Color("OiDark").opacity(0.4), radius: 5)
+            }.padding(.horizontal, 20).padding(.top, 42).padding(.bottom, 24)
         }.background(Color("OiLight"))
+    }
+
+    private var completionLocation: String {
+        guard let region = remote.regions.first(where: { $0.id == draft.regionId }) else { return "선택한 캠퍼스 위치" }
+        let school = remote.schools.first(where: { $0.id == region.schoolId })?.name
+        return [school, region.name].compactMap { $0 }.joined(separator: " ")
+    }
+
+    private func completionMetadata(_ title: String, value: String) -> some View {
+        Text("\(title) | \(value)").font(.custom("Paperlogy-2ExtraLight", size: 15, relativeTo: .subheadline))
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private func finish() {

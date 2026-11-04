@@ -5,17 +5,27 @@ import UIKit
 
 @MainActor
 enum CucumberArtwork {
-    private static let cache: NSCache<NSURL, UIImage> = {
-        let cache = NSCache<NSURL, UIImage>()
+    private static let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
         cache.totalCostLimit = 24 * 1024 * 1024
         cache.countLimit = 12
         return cache
     }()
     private static let fallback = UIImage(named: "ARGameIntroCucumber").flatMap(normalized)
 
-    static func load(imageURL: URL?) async -> UIImage? {
-        guard let imageURL else { return fallback }
-        if let cached = cache.object(forKey: imageURL as NSURL) { return cached }
+    static func load(imageURL: URL?, assetName: String? = nil) async -> UIImage? {
+        let localArtwork: UIImage?
+        if let assetName {
+            let key = "asset:\(assetName)" as NSString
+            if let cached = cache.object(forKey: key) { localArtwork = cached }
+            else if let image = UIImage(named: assetName).flatMap(normalized) {
+                cache.setObject(image, forKey: key, cost: Int(image.size.width * image.size.height) * 4)
+                localArtwork = image
+            } else { localArtwork = nil }
+        } else { localArtwork = fallback }
+        guard let imageURL else { return localArtwork }
+        let cacheKey = "url:\(imageURL.absoluteString)" as NSString
+        if let cached = cache.object(forKey: cacheKey) { return cached }
         var request = URLRequest(url: imageURL)
         request.timeoutInterval = 10
         do {
@@ -24,7 +34,7 @@ enum CucumberArtwork {
                 data = try Data(contentsOf: imageURL)
             } else {
                 let (download, response) = try await URLSession.shared.data(for: request)
-                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return fallback }
+                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return localArtwork }
                 data = download
             }
             try Task.checkCancellation()
@@ -34,12 +44,12 @@ enum CucumberArtwork {
                     kCGImageSourceCreateThumbnailWithTransform: true,
                     kCGImageSourceThumbnailMaxPixelSize: 2048
                   ] as CFDictionary),
-                  let image = normalized(UIImage(cgImage: thumbnail)) else { return fallback }
-            cache.setObject(image, forKey: imageURL as NSURL, cost: Int(image.size.width * image.size.height) * 4)
+                  let image = normalized(UIImage(cgImage: thumbnail)) else { return localArtwork }
+            cache.setObject(image, forKey: cacheKey, cost: Int(image.size.width * image.size.height) * 4)
             return image
         } catch {
             // Keep the established local artwork fallback for unavailable remote images.
-            return Task.isCancelled ? nil : fallback
+            return Task.isCancelled ? nil : localArtwork
         }
     }
 
