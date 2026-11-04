@@ -413,6 +413,12 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         try await withCardRequestSession { api, token in try await api.cardRequests(token: token) }
     }
 
+    func sendCardRequest(storyID: UUID, requestID: UUID) async throws -> OiCardRequest.Status {
+        try await withCardRequestSession { api, token in
+            try await api.sendCardRequest(storyID: storyID, requestID: requestID, token: token)
+        }
+    }
+
     func resolveCardRequest(_ id: UUID, accept: Bool) async throws {
         _ = try await withCardRequestSession { api, token in
             try await api.resolveCardRequest(id, accept: accept, token: token)

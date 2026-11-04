@@ -282,6 +282,61 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testCampusSummaryShowsActionForVerifiedLocation() async throws {
+        let fixture = try isolatedDefaults()
+        let previousHandler = OiStoreURLProtocol.handle
+        let backend = OiTestBackend()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let directory = FileManager.default.temporaryDirectory.appending(path: "CampusCardLocation-\(UUID())")
+        defer {
+            fixture.defaults.removePersistentDomain(forName: fixture.name)
+            withExtendedLifetime(backend) {}
+            session.invalidateAndCancel()
+            OiStoreURLProtocol.handle = previousHandler
+            if FileManager.default.fileExists(atPath: directory.path) {
+                XCTAssertNoThrow(try FileManager.default.removeItem(at: directory))
+            }
+        }
+        var draft = Self.draft
+        draft.grantId = OiTestBackend.grant
+        draft.latitude = 36.01261057021347
+        draft.longitude = 129.3197268697784
+        var published = try draft.payload()
+        published["user_id"] = OiTestBackend.owner.uuidString
+        published["status"] = "published"
+        published["created_at"] = "2026-10-28T00:00:00Z"
+        backend.configure { $0.story = published }
+        backend.install()
+        let vault = OiMemorySession()
+        try vault.write(nil)
+        let remote = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: vault)
+        await remote.start()
+        let story = remote.campusStory(try XCTUnwrap(remote.stories.first))
+        let store = CampusStoryStore(defaults: fixture.defaults)
+        store.synchronize(stories: [story], collected: [])
+        let reference = try XCTUnwrap(variants.first)
+        let states: [(String, CampusCardProximity?)] = [
+            ("pohang-collect", .near),
+            ("outside-pohang-request", .away),
+            ("unknown-location-request", nil)
+        ]
+        for (name, proximity) in states {
+            let summary = NavigationStack { CampusSummaryView(story: story, store: store) }
+                .environment(remote)
+                .environment(\.campusCardProximity) { _ in
+                    guard let proximity else { throw CampusCardLocationError.permissionDenied }
+                    return proximity
+                }
+                .environment(\.scenePhase, .active)
+            try await capture(summary, name: name, variant: reference,
+                defaults: fixture.defaults, delay: .seconds(2), attach: true)
+        }
+        XCTAssertTrue(backend.snapshot().cardSendPayloads.isEmpty, "Checking the location must not send a request")
+    }
+
     func testFarmCapturesWithOfflineOwnedStory() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }

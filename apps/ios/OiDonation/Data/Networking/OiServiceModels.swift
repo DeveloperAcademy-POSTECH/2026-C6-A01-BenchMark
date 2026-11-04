@@ -85,6 +85,12 @@ struct OiCardRequest: Decodable, Identifiable, Equatable {
     let status: Status
 }
 
+struct OiCardRequestReceipt: Decodable {
+    let id: UUID
+    let storyId: UUID
+    let status: OiCardRequest.Status
+}
+
 struct OiEvidence: Codable, Identifiable, Equatable {
     let id: UUID
     let userId: UUID

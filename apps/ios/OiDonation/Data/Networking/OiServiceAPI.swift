@@ -219,6 +219,15 @@ struct OiServiceAPI {
         } catch URLError.timedOut { throw OiEvidenceAnalysisError.timeout }
     }
 
+    func sendCardRequest(storyID: UUID, requestID: UUID, token: String) async throws -> OiCardRequest.Status {
+        let receipt = try await cardRequestRPC("oi_request_card",
+            payload: ["p_story_id": storyID.uuidString, "p_request_id": requestID.uuidString],
+            token: token, as: OiCardRequestReceipt.self)
+        // An existing pending request for this story may have a different ID.
+        guard receipt.storyId == storyID else { throw OiServiceError.unavailable }
+        return receipt.status
+    }
+
     func resolveCardRequest(_ id: UUID, accept: Bool, token: String) async throws -> OiCardRequest {
         let response = try await cardRequestRPC(Self.resolveCardRequestRPC,
             payload: ["p_request_id": id.uuidString, "p_decision": accept ? "accept" : "reject"],
