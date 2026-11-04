@@ -5,6 +5,8 @@ struct CampusSummaryView: View {
     let store: CampusStoryStore
     @State private var scene = CampusExploreScene()
     @State private var isOnScreen = false
+    @State private var showingCard = false
+    @State private var mapLoadAttempt = 0
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -20,10 +22,11 @@ struct CampusSummaryView: View {
                                 .accessibilityHidden(true)
                             summary.frame(maxWidth: .infinity)
                         }
-                        NavigationLink(value: CampusDestination.story(story.id)) {
+                        Button { showingCard = true } label: {
                             CampusStoryCardArtwork(story: story)
-                                .frame(width: min(240, geometry.size.width * 0.60), height: 330)
-                        }.buttonStyle(.plain).accessibilityLabel("오이 카드와 이야기 자세히 보기")
+                                .frame(width: min(240, geometry.size.width * 0.60))
+                        }.buttonStyle(.plain).accessibilityLabel("오이 카드 확대 보기")
+                            .accessibilityIdentifier("campus.summary.card")
                         if story.isExample {
                             Text("디자인 예시로, 실제 기부·수집 기록에 포함되지 않아요.")
                                 .font(.caption).padding(10).background(.regularMaterial, in: Capsule())
@@ -41,7 +44,6 @@ struct CampusSummaryView: View {
                             }.scrollIndicators(.hidden)
                         }
 
-
                     }
                     .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 30)
                     .frame(maxWidth: .infinity)
@@ -50,7 +52,22 @@ struct CampusSummaryView: View {
         }
         .toolbar(.visible, for: .navigationBar).toolbarBackground(.hidden, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline).toolbarRole(.editor)
-        .task {
+        .fullScreenCover(isPresented: $showingCard) {
+            CampusArtworkOverlay(title: story.title + " 카드") {
+                CampusStoryCardArtwork(story: story)
+            }
+        }
+        .overlay(alignment: .top) {
+            if let error = scene.error {
+                VStack(spacing: 8) {
+                    Text(error).font(.footnote)
+                    Button("지도 다시 불러오기") { mapLoadAttempt += 1 }
+                        .buttonStyle(.bordered).disabled(scene.isLoading)
+                }.padding(12).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .padding(.horizontal, 20)
+            }
+        }
+        .task(id: mapLoadAttempt) {
             await scene.load()
             if let region = CampusRegion.campus.first(where: { $0.id == story.regionID }) { scene.focusBackdrop(region) }
         }
@@ -63,8 +80,11 @@ struct CampusSummaryView: View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 16) {
                 if story.isExample { CampusExampleBadge() }
-                Text(story.title).font(CampusStyle.characterTitle(28)).lineLimit(1).minimumScaleFactor(0.6)
-                CampusTags(story: story)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(story.title).font(CampusStyle.characterTitle(28)).tracking(1.12)
+                        .lineLimit(1).minimumScaleFactor(0.6)
+                    CampusTags(story: story)
+                }
                 VStack(alignment: .leading, spacing: 6) {
                     Text("| " + story.donor)
                     Text("| " + story.location)
@@ -73,7 +93,7 @@ struct CampusSummaryView: View {
             }
             VStack(spacing: 16) {
                 NavigationLink(value: CampusDestination.story(story.id)) {
-                    Text("자세히보기").font(CampusStyle.body(16)).foregroundStyle(.black)
+                    Text("스토리 보기").font(CampusStyle.body(16)).foregroundStyle(.black)
                         .frame(maxWidth: .infinity, minHeight: 43)
                         .background(CampusStyle.secondaryAction, in: RoundedRectangle(cornerRadius: 20))
                 }.buttonStyle(.plain).accessibilityIdentifier("campus.details")

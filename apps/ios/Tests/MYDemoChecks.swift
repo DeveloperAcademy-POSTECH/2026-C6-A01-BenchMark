@@ -89,14 +89,14 @@ struct MYDemoChecks {
         precondition(listItem.tags == ["행복함", "우정"])
         precondition(listItem.cucumberName == "테스트오이")
 
-        precondition(OiStoryConsentClause.figmaDrafts.count == 3)
+        precondition(OiStoryConsentClause.figmaDrafts.map(\.id) == [.storyWriting, .moderation])
         var consent = OiStoryConsentState()
         precondition(!consent.allRequiredClausesAreAgreed)
-        for id in OiStoryConsentClause.ID.allCases {
-            consent.setAgreed(true, to: id)
-        }
+        consent.setAgreed(true, to: .storyWriting)
+        precondition(!consent.allRequiredClausesAreAgreed)
+        consent.setAgreed(true, to: .moderation)
         precondition(consent.allRequiredClausesAreAgreed)
-        consent.setAgreed(false, to: .donationEvidence)
+        consent.setAgreed(false, to: .moderation)
         precondition(!consent.allRequiredClausesAreAgreed)
 
         let suite = "MYDemoChecks.\(UUID().uuidString)"

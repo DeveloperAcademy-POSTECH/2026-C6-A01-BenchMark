@@ -12,6 +12,8 @@ struct ARGameIntroView: View {
     @ScaledMetric(relativeTo: .title2) private var accessibleTitleWidth = 140
     let cucumberName: String
     let cucumberImageURL: URL?
+    var cucumberAssetName: String? = nil
+    var showsControls = true
     let targetCount: Int
     let timeLimitSeconds: Int
     let onBack: () -> Void
@@ -33,41 +35,50 @@ struct ARGameIntroView: View {
                     .clipped()
                     .accessibilityHidden(true)
 
-                Color.black.opacity(0.4)
+                Color.black.opacity(showsControls ? 0.4 : 0)
                     .accessibilityHidden(true)
 
-                if dynamicTypeSize.isAccessibilitySize {
-                    accessibleContent
-                } else {
-                    backButton(scale: scale, origin: origin)
-
-                    titleArtwork
-                        .frame(width: 140 * scale, height: 27 * scale)
-                        .position(x: origin.x + 200 * scale, y: origin.y + 91 * scale)
-                        .accessibilityAddTraits(.isHeader)
-
-                    cucumberArtwork(scale: scale, origin: origin)
-
-                    Text(cucumberName)
-                        .font(pearFont(size: 20 * scale, relativeTo: .title3, bold: false))
-                        .foregroundStyle(.black)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
-                        .padding(.horizontal, 30 * scale)
-                        .frame(minHeight: 44 * scale)
-                        .background(Color(red: 234 / 255, green: 238 / 255, blue: 226 / 255), in: Capsule())
-                        .frame(maxWidth: 362 * scale)
-                        .position(x: origin.x + 201 * scale, y: origin.y + 505 * scale)
-
-                    targetText(scale: scale)
-                        .position(x: origin.x + 201 * scale, y: origin.y + 637 * scale)
-
-                    startButton(scale: scale, origin: origin)
+                if showsControls {
+                    Group {
+                        if dynamicTypeSize.isAccessibilitySize {
+                            accessibleContent
+                        } else {
+                            standardContent(scale: scale, origin: origin)
+                        }
+                    }
+                    .transition(.opacity)
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .ignoresSafeArea()
+    }
+
+    @ViewBuilder private func standardContent(scale: CGFloat, origin: CGPoint) -> some View {
+        backButton(scale: scale, origin: origin)
+
+        titleArtwork
+            .frame(width: 140 * scale, height: 27 * scale)
+            .position(x: origin.x + 200 * scale, y: origin.y + 91 * scale)
+            .accessibilityAddTraits(.isHeader)
+
+        cucumberArtwork(scale: scale, origin: origin)
+
+        Text(cucumberName)
+            .font(pearFont(size: 20 * scale, relativeTo: .title3, bold: false))
+            .foregroundStyle(.black)
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+            .padding(.horizontal, 30 * scale)
+            .frame(minHeight: 44 * scale)
+            .background(Color(red: 234 / 255, green: 238 / 255, blue: 226 / 255), in: Capsule())
+            .frame(maxWidth: 362 * scale)
+            .position(x: origin.x + 201 * scale, y: origin.y + 505 * scale)
+
+        targetText(scale: scale)
+            .position(x: origin.x + 201 * scale, y: origin.y + 637 * scale)
+
+        startButton(scale: scale, origin: origin)
     }
 
     private func backButton(scale: CGFloat, origin: CGPoint) -> some View {
@@ -94,7 +105,7 @@ struct ARGameIntroView: View {
 
             // The 212.429 × 337.504 crop slot paints this alpha-bounded region.
             // Normalize all sources first so remote padding cannot change visual size.
-            CucumberCharacterImage(imageURL: cucumberImageURL, contentMode: .fit)
+            CucumberCharacterImage(imageURL: cucumberImageURL, contentMode: .fit, assetName: cucumberAssetName)
                 .frame(width: 189.331444 * scale, height: 312.508397 * scale)
                 .position(x: origin.x + 193.354493 * scale, y: origin.y + 311.238019 * scale)
         }
@@ -157,7 +168,7 @@ struct ARGameIntroView: View {
                         .frame(maxWidth: accessibleTitleWidth)
                         .accessibilityAddTraits(.isHeader)
                 }
-                CucumberCharacterImage(imageURL: cucumberImageURL, contentMode: .fit)
+                CucumberCharacterImage(imageURL: cucumberImageURL, contentMode: .fit, assetName: cucumberAssetName)
                     .frame(height: 260)
                     .accessibilityHidden(true)
                 Text(cucumberName)

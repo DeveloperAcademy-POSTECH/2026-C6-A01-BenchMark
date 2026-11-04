@@ -12,6 +12,7 @@
 		C10911020000000000000007 /* OiWizard PNG in Resources */ = {isa = PBXBuildFile; fileRef = C10911020000000000000003 /* OiWizard PNG */; };
 		C10911020000000000000008 /* OiTraveler PNG in Resources */ = {isa = PBXBuildFile; fileRef = C10911020000000000000004 /* OiTraveler PNG */; };
 		B10000000000000000000009 /* OiRemoteStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008; };
+		C13211030000000000000011 /* OiFigmaFidelityVisualTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13211030000000000000010; };
 		87169571307CB1D00090D456 /* OiDonationClip.app in Embed App Clips */ = {isa = PBXBuildFile; fileRef = 87169565307CB1CF0090D456 /* OiDonationClip.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		C02610260000000000000001 /* OiDonation.icon in Resources */ = {isa = PBXBuildFile; fileRef = C02610260000000000000002 /* OiDonation.icon */; };
 /* End PBXBuildFile section */
@@ -54,6 +55,7 @@
 		C10911020000000000000004 /* OiTraveler PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiTraveler PNG"; path = OiDonation/Assets.xcassets/OiTraveler.imageset/aeb3a.png; sourceTree = SOURCE_ROOT; };
 		B10000000000000000000007 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = OiDonationTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B10000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiRemoteStoreTests.swift; sourceTree = SOURCE_ROOT; };
+		C13211030000000000000010 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiFigmaFidelityVisualTests.swift; sourceTree = SOURCE_ROOT; };
 		87169565307CB1CF0090D456 /* OiDonationClip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OiDonationClip.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8736DA6930777C9800D0CFC9 /* OiDonation.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OiDonation.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C02610260000000000000002 /* OiDonation.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = OiDonation.icon; path = "../../design/app-icon/OiDonation.icon"; sourceTree = SOURCE_ROOT; };
@@ -87,8 +89,33 @@
 				"Resources/Fonts/Paperlogy-6SemiBold.ttf",
 				"Resources/Fonts/Paperlogy-7Bold.ttf",
 				"Resources/Fonts/PearToucan-Regular.ttf",
+				"Resources/Fonts/PearToucan-Light.ttf",
+				"Resources/Fonts/PearToucan-Bold.ttf",
+				"Resources/ARCollectionAssets.xcassets",
+				"Resources/OiStoryCardAssets.xcassets",
+				"Shared/Components/ARCollectionResultView.swift",
+				"Shared/Components/OiStoryCardArtwork.swift",
 			);
 			target = 87169564307CB1CF0090D456 /* OiDonationClip */;
+		};
+		C13211030000000000000001 /* Shared collection game in main app */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Models/AppClipExperience.swift,
+				Views/StoryCard/AppClipStoryCardView.swift,
+				Views/ARGame/ARGameCameraView.swift,
+				Views/ARGame/ARGameFailureView.swift,
+				Views/ARGame/ARGameFlowView.swift,
+				Views/ARGame/ARGameHUD.swift,
+				Views/ARGame/ARGameIntroView.swift,
+				Views/ARGame/ARGamePlayingView.swift,
+				Views/ARGame/ARGameStartOverlay.swift,
+				Views/ARGame/ARGameSuccessView.swift,
+				Views/ARGame/ARGameViewModel.swift,
+				Views/ARGame/CucumberArtwork.swift,
+				Views/ARGame/CucumberCharacterImage.swift,
+			);
+			target = 8736DA6830777C9800D0CFC9 /* OiDonation */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -97,6 +124,7 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				87169575307CB1D00090D456 /* Exceptions for "OiDonationClip" folder in "OiDonationClip" target */,
+				C13211030000000000000001 /* Shared collection game in main app */,
 			);
 			path = OiDonationClip;
 			sourceTree = "<group>";
@@ -146,6 +174,7 @@
 			isa = PBXGroup;
 			children = (
 				B10000000000000000000008,
+				C13211030000000000000010,
 				8736DA6B30777C9800D0CFC9 /* OiDonation */,
 				87169566307CB1CF0090D456 /* OiDonationClip */,
 				C10911020000000000000009 /* App Clip Character Resources */,
@@ -296,7 +325,7 @@
 			);
 			inputPaths = (
 				"$(SRCROOT)/../../scripts/configure-ios-service.py",
-				"$(SRCROOT)/$(TARGET_NAME)",
+				"$(SRCROOT)/$(TARGET_NAME)/Service.local.plist",
 			);
 			name = "Validate Supabase Configuration";
 			outputPaths = (
@@ -314,7 +343,7 @@
 			);
 			inputPaths = (
 				"$(SRCROOT)/../../scripts/configure-ios-service.py",
-				"$(SRCROOT)/$(TARGET_NAME)",
+				"$(SRCROOT)/$(TARGET_NAME)/Service.local.plist",
 			);
 			name = "Validate Supabase Configuration";
 			outputPaths = (
@@ -327,7 +356,7 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		B10000000000000000000004 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (B10000000000000000000009,); runOnlyForDeploymentPostprocessing = 0; };
+		B10000000000000000000004 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (B10000000000000000000009,C13211030000000000000011,); runOnlyForDeploymentPostprocessing = 0; };
 		87169561307CB1CF0090D456 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;

@@ -32,13 +32,19 @@ private final class ARGameVisualScene: UIResponder, UIWindowSceneDelegate {
         do {
             let output = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-            for name in ["PearToucan-Regular", "Paperlogy-7Bold", "Paperlogy-4Regular", "Paperlogy-6SemiBold", "Paperlogy-2ExtraLight"] {
-                if let url = Bundle.main.url(forResource: name, withExtension: "ttf") {
-                    CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+            let fontNames = ["PearToucan-Regular", "PearToucan-Bold", "PearToucan-Light", "Paperlogy-7Bold",
+                             "Paperlogy-4Regular", "Paperlogy-6SemiBold", "Paperlogy-2ExtraLight"]
+            for name in fontNames {
+                guard let url = Bundle.main.url(forResource: name, withExtension: "ttf") else {
+                    preconditionFailure("Missing packaged font: \(name)")
                 }
+                CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
             }
-            for name in ["PearToucan-Regular", "Paperlogy-7Bold", "Paperlogy-4Regular", "Paperlogy-6SemiBold", "Paperlogy-2ExtraLight"] {
+            for name in fontNames {
                 precondition(UIFont(name: name, size: 20)?.fontName == name, "Packaged font must resolve without fallback: \(name)")
+            }
+            for name in ["OiStoryCardFrame", "OiStoryCardHeader", "OiStoryCardTexture", "OiStoryCardCats", "OiStoryCardMark"] {
+                precondition(UIImage(named: name) != nil, "Generated story cards need the packaged design asset: \(name)")
             }
             checkNormalization()
             try await AppClipPublicStoryChecks.run()
@@ -95,7 +101,14 @@ private final class ARGameVisualScene: UIResponder, UIWindowSceneDelegate {
                 }
                 try await snapshot(storyCard(hasImage: false).preferredColorScheme(scheme), size: sizes[0].1,
                                    output: output.appendingPathComponent("story-card-no-image-\(suffix).png"), delay: 0.3)
+                try checkStoryCardSnapshot(output.appendingPathComponent("story-card-no-image-\(suffix).png"))
             }
+            try await snapshot(storyCard(hasImage: false, hasCharacter: false).preferredColorScheme(.light),
+                               size: sizes[0].1, output: output.appendingPathComponent("story-card-no-character.png"), delay: 0.3)
+            try checkGeneratedCardCharacter(
+                output.appendingPathComponent("story-card-no-image-light.png"),
+                placeholder: output.appendingPathComponent("story-card-no-character.png")
+            )
             try await snapshot(storyCard(hasImage: false, imageURL: URL(fileURLWithPath: "/missing-card-image.png")),
                                size: sizes[0].1, output: output.appendingPathComponent("story-card-file-error.png"), delay: 0.3)
             try await snapshot(storyCard(hasImage: true).environment(\.dynamicTypeSize, .accessibility5)
@@ -118,11 +131,15 @@ private final class ARGameVisualScene: UIResponder, UIWindowSceneDelegate {
                         targetCount: 3, timeLimitSeconds: 30, onBack: {}, onStart: {})
     }
 
-    private func storyCard(hasImage: Bool, imageURL: URL? = nil) -> some View {
+    private func storyCard(hasImage: Bool, imageURL: URL? = nil, hasCharacter: Bool = true) -> some View {
+        guard let cucumberImageURL = Bundle.main.url(forResource: "61272", withExtension: "png") else {
+            preconditionFailure("Missing actual packaged story character fixture")
+        }
         let story = Story(storyID: "visual-story", donorID: UUID(), donorDisplayName: "20학번 디벨로퍼학과 신예은",
                           title: "화성갈끄니까오이", content: "검증용 이야기", publishedAt: Date(timeIntervalSince1970: 1_792_724_400),
                           location: StoryLocation(locationID: "visual-location", displayName: "포항공과대학교 지곡회관 옆 연못길"),
-                          tags: ["기대감", "미래"], cucumberID: "visual-cucumber", cucumberName: "화성오이")
+                          tags: ["기대감", "미래"], cucumberID: "visual-cucumber", cucumberName: "화성오이",
+                          cucumberImageURL: hasCharacter ? cucumberImageURL : nil)
         let card = StoryCard(cardID: "visual-card", storyID: story.storyID,
                              imageURL: imageURL ?? (hasImage ? Bundle.main.url(forResource: "AppClipStoryCardPreview", withExtension: "png") : nil))
         return AppClipStoryCardView(experience: AppClipExperience(story: story, storyCard: card),
@@ -183,6 +200,36 @@ private final class ARGameVisualScene: UIResponder, UIWindowSceneDelegate {
         precondition(repeated?.size == trimmed?.size, "Normalization must be idempotent")
         let empty = UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10), format: format).image { _ in }
         precondition(CucumberArtwork.normalized(empty) == nil, "Empty artwork must not become an invisible collectible")
+    }
+
+    private func checkGeneratedCardCharacter(_ url: URL, placeholder: URL) throws {
+        func pixels(at url: URL) throws -> [UInt8] {
+            guard let image = UIImage(data: try Data(contentsOf: url))?.cgImage,
+                  image.width == 402, image.height == 874,
+                  let context = CGContext(data: nil, width: image.width, height: image.height,
+                                          bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue),
+                  let bytes = context.data else { preconditionFailure("Missing generated card capture") }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return Array(UnsafeBufferPointer(start: bytes.bindMemory(to: UInt8.self, capacity: image.width * image.height * 4),
+                                             count: image.width * image.height * 4))
+        }
+        let artworkPixels = try pixels(at: url)
+        let placeholderPixels = try pixels(at: placeholder)
+        var changedPixels = 0
+        // Exclude the summary and compare only the printed card's character region.
+        for y in 150..<520 {
+            for x in 65..<337 {
+                let index = (y * 402 + x) * 4
+                let difference = (0..<3).reduce(0) {
+                    $0 + abs(Int(artworkPixels[index + $1]) - Int(placeholderPixels[index + $1]))
+                }
+                if difference > 60 { changedPixels += 1 }
+            }
+        }
+        precondition(changedPixels > 5_000,
+                     "A card without a full-card URL must render the story's character, not the missing-character placeholder")
     }
 
     private func checkFailureSnapshot(_ url: URL, size: CGSize) throws {
