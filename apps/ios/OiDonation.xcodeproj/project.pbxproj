@@ -325,7 +325,7 @@
 			);
 			inputPaths = (
 				"$(SRCROOT)/../../scripts/configure-ios-service.py",
-				"$(SRCROOT)/$(TARGET_NAME)",
+				"$(SRCROOT)/$(TARGET_NAME)/Service.local.plist",
 			);
 			name = "Validate Supabase Configuration";
 			outputPaths = (
@@ -343,7 +343,7 @@
 			);
 			inputPaths = (
 				"$(SRCROOT)/../../scripts/configure-ios-service.py",
-				"$(SRCROOT)/$(TARGET_NAME)",
+				"$(SRCROOT)/$(TARGET_NAME)/Service.local.plist",
 			);
 			name = "Validate Supabase Configuration";
 			outputPaths = (
