@@ -11,6 +11,10 @@
 - 응답에는 `review_type: school_affiliation`, `prompt_version`, `analyzed_at`, `model`, `assessment`와 고정된 `human_review_required: true`, `authenticity_verified: false`, `affiliation_verified: false`가 포함된다.
 - `assessment`의 스키마와 공급자 오류 처리는 [기부 증빙 분석](evidence-ai-analysis.md)을 따른다. `inconclusive`는 소속 근거 누락·모호함·판독 불가 등을 뜻한다. `no_obvious_signs`도 소속 확인으로 해석하지 않는다.
 
+## iOS 테스트
+
+Debug 빌드에서 운영자 계정으로 로그인한 뒤 **계정 → 운영자 → 학교 인증 테스트**를 연다. 외부 전송 안내를 확인하고 가상 에브리타임 화면이나 식별 정보를 제거한 학생증 사본을 한 장씩 선택한다. 결과는 화면에서 판정, 판독 한계, 운영자 확인 항목으로 표시한다. 앱에서 실제 호출을 테스트하려면 연결된 Supabase 프로젝트에 함수가 배포되고 활성화되어 있어야 한다.
+
 ## 설정 및 운영 경계
 
 기본 비활성화 상태다. 배포 및 운영 정책 합의 후 서버 환경의 `OI_SCHOOL_EVIDENCE_AI_ENABLED=true`로 켤 수 있다. `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `OPENAI_API_KEY`, 선택적 `OPENAI_EVIDENCE_MODEL`은 기부 분석과 같은 방식으로 사용한다. 플랫폼 JWT 검증을 유지하며 함수에서도 세션과 `oi_capabilities().operator`를 확인한다. 분석 후 운영자 권한을 다시 확인한다.

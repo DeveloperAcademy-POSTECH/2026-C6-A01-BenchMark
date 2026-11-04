@@ -532,6 +532,21 @@ final class OiRemoteStore {
         guard account?.id == owner else { throw OiServiceError.accountChanged }; return data
     }
 
+    #if DEBUG
+    func reviewSchoolEvidence(_ data: Data, contentType: String) async throws -> OiSchoolEvidenceReview {
+        guard let api else { throw OiServiceError.configuration }
+        guard isOperator else { throw OiServiceError.server("운영자만 학교 인증을 테스트할 수 있어요.") }
+        let started = generation
+        let accessToken = try await token()
+        try Task.checkCancellation()
+        guard started == generation, isOperator else { throw OiServiceError.accountChanged }
+        let review = try await api.reviewSchoolEvidence(data, contentType: contentType, token: accessToken)
+        try Task.checkCancellation()
+        guard started == generation, isOperator else { throw OiServiceError.accountChanged }
+        return review
+    }
+    #endif
+
     func mediaURL(bucket: String, path: String) async throws -> URL {
         guard let api else { throw OiServiceError.configuration }
         let started = generation

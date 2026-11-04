@@ -117,7 +117,13 @@ struct OiAccountView: View {
                     Text("피클코인 구매·적립·사용은 비활성화돼 있어요.").font(.footnote).foregroundStyle(.secondary)
                 }
                 if remote.isOperator {
-                    Section("운영자") { NavigationLink("증빙·이야기 검토") { OiOperatorView(remote: remote) } }
+                    Section("운영자") {
+                        NavigationLink("증빙·이야기 검토") { OiOperatorView(remote: remote) }
+                        #if DEBUG
+                        NavigationLink("학교 인증 테스트") { OiSchoolEvidenceTestView(remote: remote) }
+                            .accessibilityIdentifier("oi.schoolEvidence.test")
+                        #endif
+                    }
                 }
             } else {
                 Section {
