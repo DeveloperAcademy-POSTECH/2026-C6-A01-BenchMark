@@ -1,7 +1,6 @@
 // Created by 이돈혁
 
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct OiAccountView: View {
     let remote: OiRemoteStore
@@ -13,6 +12,8 @@ struct OiAccountView: View {
     @State private var isLoadingDrafts = false
     @State private var draftLoadID = UUID()
     @State private var displayedDraftOwner: UUID?
+
+    private var hasWritingGrant: Bool { remote.grants.contains { $0.revokedAt == nil } }
 
     var body: some View {
         List {
@@ -46,13 +47,17 @@ struct OiAccountView: View {
                     } else if !remote.isAccountMergeAvailable {
                         Text("계정 통합은 서버 설정이 완료된 후 사용할 수 있습니다.").font(.footnote).foregroundStyle(.secondary)
                     }
-                    if let warning = remote.localRecoveryWarning { Text(warning).font(.footnote).foregroundStyle(.secondary) }
+                    if remote.localRecoveryWarning != nil {
+                        Text("일부 기기 기록을 복원하지 못했어요. 원본은 기기에 보관했습니다.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
                 }
-                Section("기부 증빙 · 작성 승인") {
-                    NavigationLink("기부 인증 · 증빙 제출과 진행 확인") {
-                        OiEvidenceView(remote: remote)
-                    }.accessibilityIdentifier("oi.evidence.open")
-                    Text("운영자 검토 후 글 작성 권한을 승인합니다. 학교 공식 납입 확인이나 영수증 발급과는 다릅니다.").font(.footnote)
+                Section("이야기 작성 승인") {
+                    if remote.hasLoadedRemote {
+                        Text(hasWritingGrant ? "작성 승인 기록이 있어요." : "아직 작성 승인이 없어요.")
+                    } else {
+                        Text(remote.isRefreshing ? "작성 승인 상태를 확인 중이에요." : "작성 승인 상태를 확인할 수 없어요.")
+                    }
                 }
                 Section("이 계정의 기기 초안·보관본") {
                     if isLoadingDrafts { ProgressView("기기 초안 확인 중") }
@@ -79,11 +84,11 @@ struct OiAccountView: View {
                         OiStoryListScreen(remote: remote)
                     }
                     .accessibilityIdentifier("oi.story.list")
-                    if remote.grants.contains(where: { $0.revokedAt == nil }) {
+                    if hasWritingGrant {
                         NavigationLink("오이 만들기") { OiStoryCreationConsentFlow(remote: remote) }
                             .accessibilityIdentifier("oi.story.create")
                     } else {
-                        Text("증빙 검토와 작성 승인이 필요해요.").foregroundStyle(.secondary)
+                        Text("이야기를 만들려면 작성 승인이 필요해요.").foregroundStyle(.secondary)
                     }
                     if remote.ownStories.isEmpty { Text("등록한 이야기가 없어요.").foregroundStyle(.secondary) }
                     ForEach(remote.ownStories) { story in
@@ -94,7 +99,7 @@ struct OiAccountView: View {
                     Text("피클코인 구매·적립·사용은 비활성화돼 있어요.").font(.footnote).foregroundStyle(.secondary)
                 }
                 if remote.isOperator {
-                    Section("운영자") { NavigationLink("증빙·이야기 검토") { OiOperatorView(remote: remote) } }
+                    Section("운영자") { NavigationLink("이야기 공개 검토") { OiOperatorView(remote: remote) } }
                 }
             } else {
                 Section {
@@ -140,136 +145,6 @@ struct OiAccountView: View {
     }
 }
 
-private struct OiEvidenceView: View {
-    let remote: OiRemoteStore
-    @State private var fileError: String?
-    @State private var importingEvidence = false
-    @State private var importingOwner: UUID?
-    @State private var replacingEvidence: OiEvidence?
-    private var requests: [OiEvidence] { remote.evidence.filter { $0.userId == remote.account?.id } }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                OiConnectionStatus(remote: remote)
-                if let error = fileError ?? remote.error {
-                    Text(error).font(.footnote).foregroundStyle(.red).accessibilityIdentifier("oi.evidence.error")
-                }
-                Button { attach(nil) } label: {
-                    VStack(spacing: 10) {
-                        Text("+ 파일 첨부하기").font(CampusStyle.semibold(24))
-                        Text("PNG, JPEG, PDF · 10MB 이하").font(CampusStyle.medium(14)).foregroundStyle(.secondary)
-                    }.frame(maxWidth: .infinity, minHeight: 180)
-                        .foregroundStyle(Color(white: 0.35))
-                        .background(CampusStyle.mapSheet, in: RoundedRectangle(cornerRadius: 40))
-                        .overlay { RoundedRectangle(cornerRadius: 40).stroke(Color("OiBorder"), lineWidth: 2) }
-                }.buttonStyle(.plain).accessibilityIdentifier("oi.evidence.upload")
-                Text("파일을 선택하면 운영자에게 검토 요청이 제출됩니다. 불필요한 개인정보는 가려 주세요. 증빙은 공개 이야기나 도감에 표시되지 않습니다.")
-                    .font(CampusStyle.body(14)).foregroundStyle(.secondary)
-                if let operation = remote.evidenceOperation {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("기기 제출 기록: \(evidencePhase(operation.phase))").font(CampusStyle.medium(14))
-                        if let failure = operation.failure { Text("이전 시도: \(failure)").font(.footnote).foregroundStyle(.secondary) }
-                        if ["failed", "prepared", "uploading", "submitting"].contains(operation.phase) {
-                            Button("같은 신청·파일로 이어서 제출") { Task { await remote.retryEvidence() } }
-                                .buttonStyle(.bordered).tint(Color("OiGreen"))
-                        }
-                    }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color("OiSoft"), in: RoundedRectangle(cornerRadius: 20))
-                }
-                HStack {
-                    Text("인증 진척도").font(.custom("Paperlogy-7Bold", size: 24, relativeTo: .title2))
-                    Spacer()
-                    Text("\(requests.count)건").font(CampusStyle.medium(16))
-                        .padding(.horizontal, 16).padding(.vertical, 5)
-                        .foregroundStyle(.white).background(Color("OiGreen"), in: Capsule())
-                }
-                if requests.isEmpty {
-                    Text("제출한 증빙이 없어요. 기부 사실을 확인할 자료를 첨부해 주세요.")
-                        .font(CampusStyle.body(16)).foregroundStyle(.secondary)
-                }
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(requests.enumerated()), id: \.element.id) { index, request in
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                                Text("제출 자료 \(index + 1)").font(CampusStyle.body(16))
-                                Spacer(minLength: 0)
-                                Text(request.status.oiStatusTitle).font(CampusStyle.body(14))
-                                    .padding(.horizontal, 16).padding(.vertical, 8)
-                                    .background(statusColor(request.status), in: Capsule())
-                            }
-                            if let note = request.reviewNote { Text(note).font(.footnote).foregroundStyle(.secondary) }
-                            if ["changes_requested", "rejected"].contains(request.status) {
-                                Button("이 신청 보완·재제출") { attach(request) }
-                                    .buttonStyle(.bordered).tint(Color("OiGreen"))
-                            }
-                        }.padding(.vertical, 18).frame(maxWidth: .infinity, alignment: .leading)
-                        Divider()
-                    }
-                }
-                Text("작성 승인은 학교의 공식 납입 확인이나 영수증 발급과 다릅니다.")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }.padding(.horizontal, 20).padding(.top, 36).padding(.bottom, 24)
-        }
-        .navigationTitle("기부 인증").navigationBarTitleDisplayMode(.inline)
-        .background(Color(.systemBackground))
-        .disabled(remote.isBusy)
-        .overlay { if remote.isBusy { ProgressView().padding(24).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) } }
-        .refreshable { await remote.refresh() }
-        .fileImporter(isPresented: $importingEvidence, allowedContentTypes: [.jpeg, .png, .pdf]) { result in
-            do {
-                guard let owner = importingOwner, remote.account?.id == owner else {
-                    throw OiServiceError.server("로그인 계정이 바뀌었어요. 이 계정에서 파일을 다시 선택해 주세요.")
-                }
-                let url = try result.get()
-                let scoped = url.startAccessingSecurityScopedResource()
-                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                let attributes = try url.resourceValues(forKeys: [.fileSizeKey, .contentTypeKey])
-                guard let size = attributes.fileSize, size > 0, size <= 10_485_760,
-                      let type = attributes.contentType,
-                      let mime = type.preferredMIMEType, let ext = type.preferredFilenameExtension,
-                      ["image/jpeg", "image/png", "application/pdf"].contains(mime) else {
-                    throw OiServiceError.server("JPEG·PNG·PDF 파일을 10MB 이하로 선택해 주세요.")
-                }
-                let data = try Data(contentsOf: url)
-                fileError = nil
-                let request = replacingEvidence
-                Task {
-                    guard remote.account?.id == owner else { return }
-                    await remote.submitEvidence(data: data, contentType: mime, fileExtension: ext, replacing: request)
-                }
-            } catch { fileError = error.localizedDescription }
-        }
-        .onChange(of: remote.account?.id) { _, _ in
-            importingEvidence = false; importingOwner = nil; replacingEvidence = nil; fileError = nil
-        }
-    }
-
-    private func attach(_ request: OiEvidence?) {
-        guard let owner = remote.account?.id, request == nil || request?.userId == owner else { return }
-        importingOwner = owner; replacingEvidence = request; fileError = nil; importingEvidence = true
-    }
-
-    private func statusColor(_ status: String) -> Color {
-        switch status {
-        case "approved": Color("OiBorder")
-        case "pending": Color(red: 231 / 255, green: 238 / 255, blue: 204 / 255)
-        case "rejected", "changes_requested": Color(red: 1, green: 198 / 255, blue: 151 / 255)
-        default: Color(white: 0.918)
-        }
-    }
-
-    private func evidencePhase(_ phase: String) -> String {
-        switch phase {
-        case "prepared": "파일을 기기에 보관했어요"
-        case "uploading": remote.isBusy ? "파일 업로드 중" : "업로드 중단 가능 · 이어서 제출 필요"
-        case "submitting": remote.isBusy ? "서버 제출 확인 중" : "제출 응답 확인 필요 · 같은 신청으로 재시도"
-        case "failed": "제출 미확인 · 파일과 신청 ID 보관 중"
-        default: phase.oiStatusTitle
-        }
-    }
-}
-
 struct OiStoryManagement: View {
     let remote: OiRemoteStore
     let storyID: UUID
@@ -302,31 +177,10 @@ struct OiStoryManagement: View {
 
 private struct OiOperatorView: View {
     let remote: OiRemoteStore
-    @State private var approvedCounts: [UUID: String] = [:]
-    @State private var reviewNotes: [UUID: String] = [:]
 
     var body: some View {
         List {
             if let error = remote.error { Text(error).foregroundStyle(.red) }
-            Section("증빙 검토") {
-                ForEach(remote.evidence.filter { $0.status == "pending" || $0.status == "approved" }) { request in
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(request.userId.uuidString).font(.caption).textSelection(.enabled)
-                        Text(request.status.oiStatusTitle)
-                        if let path = request.objectPath { OiEvidenceLink(remote: remote, path: path) }
-                        TextField("검토 메모", text: Binding(get: { reviewNotes[request.id] ?? "" }, set: { reviewNotes[request.id] = $0 }))
-                        if request.status == "pending" {
-                            TextField("승인할 글 수량 (운영자 결정)", text: Binding(get: { approvedCounts[request.id] ?? "" }, set: { approvedCounts[request.id] = $0 })).keyboardType(.numberPad)
-                            Button("작성 승인") { review(request, status: "approved") }
-                                .disabled((Int(approvedCounts[request.id] ?? "") ?? 0) < 1)
-                            Button("보완 요청") { review(request, status: "changes_requested") }
-                            Button("반려") { review(request, status: "rejected") }
-                        } else {
-                            Button("작성 승인 취소", role: .destructive) { review(request, status: "revoked") }
-                        }
-                    }.padding(.vertical, 8)
-                }
-            }
             Section("이야기 공개 검토") {
                 ForEach(remote.reviewStories) { story in
                     VStack(alignment: .leading, spacing: 10) {
@@ -345,28 +199,5 @@ private struct OiOperatorView: View {
                 }
             }
         }.navigationTitle("운영자 검토").disabled(remote.isBusy).refreshable { await remote.refresh() }
-    }
-
-    private func review(_ request: OiEvidence, status: String) {
-        var payload: [String: Any] = ["id":request.id.uuidString,"status":status,"review_note":reviewNotes[request.id] ?? ""]
-        if let count = Int(approvedCounts[request.id] ?? "") { payload["story_limit"] = count }
-        Task { await remote.perform("review_evidence", payload: payload) }
-    }
-}
-
-private struct OiEvidenceLink: View {
-    let remote: OiRemoteStore
-    let path: String
-    @State private var url: URL?
-    @State private var error: String?
-
-    var body: some View {
-        VStack(alignment: .leading) {
-            if let url { Link("비공개 증빙 보기 (5분 유효)", destination: url) }
-            Button(url == nil ? "증빙 보기 링크 발급" : "만료된 증빙 링크 다시 발급") {
-                Task { do { url = try await remote.mediaURL(bucket: "oi-evidence", path: path); error = nil } catch { self.error = error.localizedDescription } }
-            }
-            if let error { Text(error).font(.caption).foregroundStyle(.red) }
-        }
     }
 }

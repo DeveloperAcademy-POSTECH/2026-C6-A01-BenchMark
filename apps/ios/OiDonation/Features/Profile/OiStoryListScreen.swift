@@ -29,7 +29,7 @@ struct OiStoryListScreen: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             Button { showingPractice = true } label: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Label("증빙 없이 작성 체험", systemImage: "play.circle.fill").font(.subheadline.bold())
+                    Label("작성 흐름 체험", systemImage: "play.circle.fill").font(.subheadline.bold())
                     Text("개발용 · 로그인 없이 체험 · 서버 전송 없음").font(.caption)
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(14)
                     .foregroundStyle(Color("OiGreen")).background(Color("OiLight"), in: RoundedRectangle(cornerRadius: 16))
@@ -60,7 +60,7 @@ struct OiStoryListScreen: View {
             Button("승인 상태 확인") { showingAccount = true }
             Button("닫기", role: .cancel) {}
         } message: {
-            Text("증빙 검토와 이야기 작성 승인을 받은 뒤 오이와 이야기를 만들 수 있어요.")
+            Text("작성 승인을 받은 계정에서 오이와 이야기를 만들 수 있어요.")
         }
     }
 

@@ -15,7 +15,7 @@ struct MYSettingsView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     @State private var settingsError = false
-    @State private var permissions: [MYPermissionStatus] = []
+    @State private var permissionValues: [MYPermission: String] = [:]
 
     private var schoolName: String {
         guard let id = remote?.profile?.schoolId else { return "학교를 선택해 주세요" }
@@ -40,15 +40,17 @@ struct MYSettingsView: View {
                     }.accessibilityIdentifier("my.settings.school")
                 }
                 section("권한허용") {
-                    VStack(spacing: 4) {
-                        ForEach(permissions) { permission in
+                    VStack(spacing: 0) {
+                        ForEach(MYPermission.allCases, id: \.self) { permission in
+                            let value = permissionValues[permission] ?? "확인 중"
                             Button { openAppSettings() } label: {
                                 ViewThatFits(in: .horizontal) {
-                                    HStack(spacing: 12) { permissionTitle(permission); Spacer(minLength: 8); permissionValue(permission) }
-                                    VStack(alignment: .leading, spacing: 8) { permissionTitle(permission); permissionValue(permission) }
-                                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                                    .padding(.horizontal, 20).padding(.vertical, 6)
-                            }.accessibilityLabel("\(permission.title), \(permission.value), iPhone 설정에서 변경")
+                                    HStack(spacing: 12) { permissionTitle(permission.title); Spacer(minLength: 8); permissionValue(value) }
+                                    VStack(alignment: .leading, spacing: 8) { permissionTitle(permission.title); permissionValue(value) }
+                                }.padding(.horizontal, 20)
+                                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                    .contentShape(Rectangle())
+                            }.accessibilityLabel("\(permission.title), \(value), iPhone 설정에서 변경")
                         }
                     }
                     Text("권한은 iPhone 설정에서 변경할 수 있어요.")
@@ -109,28 +111,18 @@ struct MYSettingsView: View {
             .contentShape(RoundedRectangle(cornerRadius: 15))
     }
 
-    private func permissionTitle(_ permission: MYPermissionStatus) -> some View {
-        Text(permission.title).font(.custom("Paperlogy-3Light", size: 20, relativeTo: .body)).foregroundStyle(.black)
+    private func permissionTitle(_ title: String) -> some View {
+        Text(title).font(.custom("Paperlogy-3Light", size: 20, relativeTo: .body)).foregroundStyle(.black)
     }
 
-    private func permissionValue(_ permission: MYPermissionStatus) -> some View {
+    private func permissionValue(_ value: String) -> some View {
         HStack(spacing: 6) {
-            Text(permission.value).font(CampusStyle.body(14))
+            Text(value).font(CampusStyle.body(14))
             Image(systemName: "chevron.right").font(.caption)
         }.foregroundStyle(CampusStyle.sectionGreen)
     }
 
     @MainActor private func refreshPermissions() async {
-        let notification = await UNUserNotificationCenter.current().notificationSettings()
-        guard !Task.isCancelled else { return }
-        let notifications: String
-        switch notification.authorizationStatus {
-        case .authorized: notifications = "허용됨"
-        case .provisional, .ephemeral: notifications = "일부 허용"
-        case .denied: notifications = "허용 안 함"
-        case .notDetermined: notifications = "요청 전"
-        @unknown default: notifications = "확인 필요"
-        }
         let location: String
         switch CLLocationManager().authorizationStatus {
         case .authorizedAlways: location = "항상 허용"
@@ -154,8 +146,19 @@ struct MYSettingsView: View {
         case .notDetermined: photos = "요청 전"
         @unknown default: photos = "확인 필요"
         }
-        permissions = [MYPermissionStatus(title: "알림", value: notifications), MYPermissionStatus(title: "위치 정보", value: location),
-                       MYPermissionStatus(title: "카메라 접근", value: camera), MYPermissionStatus(title: "사진 접근", value: photos)]
+        permissionValues[.location] = location
+        permissionValues[.camera] = camera
+        permissionValues[.photos] = photos
+
+        let notification = await UNUserNotificationCenter.current().notificationSettings()
+        guard !Task.isCancelled else { return }
+        switch notification.authorizationStatus {
+        case .authorized: permissionValues[.notifications] = "허용됨"
+        case .provisional, .ephemeral: permissionValues[.notifications] = "일부 허용"
+        case .denied: permissionValues[.notifications] = "허용 안 함"
+        case .notDetermined: permissionValues[.notifications] = "요청 전"
+        @unknown default: permissionValues[.notifications] = "확인 필요"
+        }
     }
 
     @ViewBuilder private var account: some View {
@@ -169,10 +172,17 @@ struct MYSettingsView: View {
     }
 }
 
-private struct MYPermissionStatus: Identifiable {
-    let title: String
-    let value: String
-    var id: String { title }
+private enum MYPermission: CaseIterable, Hashable {
+    case notifications, location, camera, photos
+
+    var title: String {
+        switch self {
+        case .notifications: "알림"
+        case .location: "위치 정보"
+        case .camera: "카메라 접근"
+        case .photos: "사진 접근"
+        }
+    }
 }
 
 private struct MYSchoolSettings: View {

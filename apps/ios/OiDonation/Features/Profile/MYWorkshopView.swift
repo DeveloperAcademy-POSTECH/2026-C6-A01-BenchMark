@@ -18,7 +18,8 @@ struct MYWorkshopView: View {
                 Image("MYRoom").resizable().scaledToFill()
                     .frame(width: geometry.size.width, height: geometry.size.height).clipped()
                 Group {
-                    artwork("MYRug", rect: CGRect(x: -1, y: 722, width: 359, height: 122), scale: scale, origin: origin)
+                    Image("MYRug").resizable().frame(width: 359 * scale, height: 122 * scale)
+                        .position(x: origin.x + 178.5 * scale, y: origin.y + 783 * scale)
                     artwork("MYSofaShadow", rect: CGRect(x: -60, y: 646, width: 290, height: 72), scale: scale, origin: origin)
                     Image("MYSofa").resizable().scaledToFit().frame(width: 286 * scale, height: 237 * scale)
                         .rotationEffect(.degrees(-2.22))
@@ -32,15 +33,15 @@ struct MYWorkshopView: View {
                 }.buttonStyle(.plain).accessibilityLabel("오이 도감").accessibilityIdentifier("my.collection")
                 NavigationLink { MYSettingsView(container: container, store: store, demo: demo, onCamera: onCamera, remote: remote) } label: {
                     ZStack {
-                        artwork("MYSettingsBoard", rect: CGRect(x: 281, y: 432.5, width: 92, height: 192), scale: scale, origin: origin)
-                        artwork("MYRake", rect: CGRect(x: 292.7, y: 441.3, width: 68, height: 173), scale: scale, origin: origin)
+                        artwork("MYSettingsBoard", rect: CGRect(x: 272.94, y: 432.5, width: 91.76, height: 191.2), scale: scale, origin: origin)
+                        artwork("MYRake", rect: CGRect(x: 284.69, y: 441.27, width: 68, height: 172.7), scale: scale, origin: origin)
                         Text("설\n정").font(.custom("PearToucan-Regular", size: 20, relativeTo: .body)).dynamicTypeSize(.medium).lineSpacing(0)
                             .foregroundStyle(Color(red: 0.47, green: 0.25, blue: 0.08))
-                            .position(x: origin.x + 352 * scale, y: origin.y + 463 * scale)
+                            .position(x: origin.x + 344 * scale, y: origin.y + 463 * scale)
                     }
                 }.buttonStyle(.plain).accessibilityLabel("설정과 기존 메뉴").accessibilityIdentifier("my.settings")
-                artwork("MYFarmerShadow", rect: CGRect(x: 82, y: 737, width: 244, height: 70), scale: scale, origin: origin)
-                    .accessibilityHidden(true)
+                artwork("MYFarmerShadow", rect: CGRect(x: 54.8, y: 745.1, width: 244, height: 70), scale: scale, origin: origin)
+                    .opacity(0.3).accessibilityHidden(true)
                 NavigationLink {
                     MYFarmerCustomizationView(ownerID: remote?.account?.id)
                         .id(remote?.account?.id)

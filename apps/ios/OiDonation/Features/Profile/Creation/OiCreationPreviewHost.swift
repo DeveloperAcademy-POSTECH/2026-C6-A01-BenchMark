@@ -175,7 +175,7 @@ struct OiCreationPreviewHost: View {
             VStack(spacing: 24) {
                 OiDraftCardPreview(draft: session.draft, customization: session.customization).frame(height: 320)
                 Label("검토 요청 체험을 마쳤어요", systemImage: "checkmark.circle.fill").font(.headline)
-                Text("실제 요청은 접수되지 않았어요.\n실제 공개에는 증빙 검토·작성 승인과 운영자의 이야기 승인이 필요해요.")
+                Text("실제 요청은 접수되지 않았어요.\n실제 공개에는 작성 승인과 운영자의 공개 승인이 필요해요.")
                     .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 OiCreationNextButton(title: "이야기 목록으로 돌아가기") { session.reset(); dismiss() }
                 Button("처음부터 다시 체험") { session.reset(); step = .story; localError = nil }

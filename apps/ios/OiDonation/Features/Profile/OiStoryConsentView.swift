@@ -133,7 +133,7 @@ struct OiStoryConsentView: View {
         .accessibilityHint(
             consentState.allRequiredClausesAreAgreed
                 ? "이야기 작성의 다음 단계로 이동합니다"
-                : "필수 안내 세 항목에 모두 동의하면 사용할 수 있습니다"
+                : "필수 안내에 모두 동의하면 사용할 수 있습니다"
         )
     }
 

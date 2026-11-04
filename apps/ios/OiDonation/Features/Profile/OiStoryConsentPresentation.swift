@@ -3,7 +3,6 @@ import Foundation
 struct OiStoryConsentClause: Identifiable, Equatable, Sendable {
     enum ID: String, CaseIterable, Identifiable, Sendable {
         case storyWriting
-        case donationEvidence
         case moderation
 
         var id: String { rawValue }
@@ -55,19 +54,10 @@ extension OiStoryConsentClause {
             agreementText: "위 안내를 확인했으며, 이야기 작성 규정에 동의합니다"
         ),
         Self(
-            id: .donationEvidence,
-            title: "[필수] 기부 인증 규정",
-            paragraphs: [
-                Paragraph(id: "evidence", heading: "1. 기부 인증 자료를 명확하게 제출해 주세요.", body: "기부처, 기부일, 금액 등 인증에 필요한 정보가 확인되어야 합니다. 자료가 불명확하거나 작성한 내용과 다른 경우 추가 자료 제출 또는 재인증을 요청할 수 있으며, 확인이 완료될 때까지 인증이 보류될 수 있습니다. 인증에 불필요한 개인정보는 가려 주세요."),
-                Paragraph(id: "types", heading: "2. 제출 가능한 인증 자료", body: "■ 선택 항목\n기부인증서, 기부금영수증, 기부확인문자, 기부확인서, 기부입금내역")
-            ],
-            agreementText: "위 안내를 확인했으며, 기부 인증 규정에 동의합니다"
-        ),
-        Self(
             id: .moderation,
             title: "[필수] 운영정책 위반 시 게시물 조치 규정",
             paragraphs: [
-                Paragraph(id: "moderation", heading: "1. 개인정보 수집 및 이용 목적", body: "위 안내를 위반하거나 개인정보 노출 등으로 피해가 우려되는 게시물을 운영진이 노출을 제한하거나 삭제할 수 있습니다. 필요한 경우 수정 또는 재인증을 요청할 수 있으며, 조치에 대한 문의는 고객센터를 통해 접수할 수 있습니다.")
+                Paragraph(id: "moderation", heading: "1. 개인정보 수집 및 이용 목적", body: "위 안내를 위반하거나 개인정보 노출 등으로 피해가 우려되는 게시물을 운영진이 노출을 제한하거나 삭제할 수 있습니다. 필요한 경우 게시물 수정을 요청할 수 있으며, 조치에 대한 문의는 고객센터를 통해 접수할 수 있습니다.")
             ],
             agreementText: "위 안내를 확인했으며, 조치 규정에 동의합니다"
         )

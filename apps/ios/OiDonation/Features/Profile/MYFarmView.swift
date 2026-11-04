@@ -6,11 +6,14 @@ struct MYFarmView: View {
     var remote: OiRemoteStore? = nil
     var nickname = "농부"
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private let farmGround = Color(red: 193 / 255, green: 215 / 255, blue: 72 / 255)
 
     var body: some View {
         if let remote {
+            let isEmptyFarm = remote.hasLoadedRemote && remote.account != nil && remote.ownStories.isEmpty
+            let hasPlots = remote.hasLoadedRemote && remote.account != nil && !remote.ownStories.isEmpty
             ScrollView {
-                OiConnectionStatus(remote: remote).padding(.horizontal, 20).padding(.top, 10)
+                OiConnectionStatus(remote: remote).padding(.horizontal, 20)
                 if !remote.hasLoadedRemote {
                     if remote.loadError == nil { ProgressView("내 농장을 불러오는 중") }
                 } else if remote.account == nil {
@@ -28,15 +31,30 @@ struct MYFarmView: View {
                 }
             }
             .background(alignment: .top) {
-                if !remote.hasLoadedRemote || remote.account == nil || !remote.ownStories.isEmpty {
-                    Image("MYFarmBackground").resizable().scaledToFit()
-                        .ignoresSafeArea(edges: .top).accessibilityHidden(true)
+                Image("MYFarmBackground").resizable().scaledToFit()
+                    .opacity(isEmptyFarm ? 0.3 : 1)
+                    .ignoresSafeArea(edges: .top).accessibilityHidden(true)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if hasPlots {
+                    Text("* 내가 등록한 오이를 확인해보세요!")
+                        .font(.custom("PearToucan-Regular", size: 20, relativeTo: .body))
+                        .foregroundStyle(CampusStyle.sectionGreen)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 28).padding(.vertical, 4)
+                        .background(farmGround.ignoresSafeArea(edges: .bottom))
                 }
             }
-            .background(remote.hasLoadedRemote && remote.account != nil && remote.ownStories.isEmpty ? Color.white : Color(red: 193 / 255, green: 215 / 255, blue: 72 / 255))
-            .navigationTitle("내 농장")
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { farmTitle } }.navigationBarTitleDisplayMode(.inline)
-            .toolbar(.visible, for: .navigationBar)
+            .background(farmGround.ignoresSafeArea())
+            .navigationTitle(hasPlots || isEmptyFarm ? "" : "내 농장")
+            .toolbar {
+                if hasPlots {
+                    ToolbarItem(placement: .topBarTrailing) { farmTitle }
+                        .sharedBackgroundVisibility(.hidden)
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.visible, for: .navigationBar).toolbarBackground(.hidden, for: .navigationBar)
         } else {
             ContentUnavailableView("계정 연결이 필요해요", systemImage: "person", description: Text("로그인 후 내 농장을 확인해 주세요."))
         }
@@ -46,7 +64,7 @@ struct MYFarmView: View {
         Text("\(remote?.profile?.nickname ?? nickname)의 밭")
             .font(.custom("PearToucan-Regular", size: 35, relativeTo: .title))
             .foregroundStyle(Color(red: 126 / 255, green: 88 / 255, blue: 48 / 255))
-            .lineLimit(1).minimumScaleFactor(0.6).accessibilityElement(children: .combine)
+            .lineLimit(1).minimumScaleFactor(0.6).accessibilityAddTraits(.isHeader)
     }
 
     private func farmPlots(_ remote: OiRemoteStore) -> some View {
@@ -59,49 +77,64 @@ struct MYFarmView: View {
                     MYFarmPlotLayout {
                         farmCucumber(stories[index], remote: remote)
                         if index + 1 < stories.count {
-                            farmCucumber(stories[index + 1], remote: remote)
+                            farmCucumber(stories[index + 1], remote: remote, foregroundPlot: true)
                         }
                     }
                 }
             }
-            Text("* 내가 등록한 오이를 확인해보세요!")
-                .font(.custom("PearToucan-Regular", size: 20, relativeTo: .body))
-                .foregroundStyle(CampusStyle.sectionGreen).frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 28).padding(.bottom, 16)
         }.padding(.top, dynamicTypeSize.isAccessibilitySize ? 140 : 182)
+            .padding(.bottom, 16)
     }
 
-    private func farmCucumber(_ story: OiLiveStory, remote: OiRemoteStore) -> some View {
+    private func farmCucumber(_ story: OiLiveStory, remote: OiRemoteStore, foregroundPlot: Bool = false) -> some View {
         NavigationLink { OiStoryManagement(remote: remote, storyID: story.id) } label: {
             VStack(spacing: 8) {
-                Image(story.cucumberAsset).resizable().scaledToFit()
-                    .aspectRatio(155.0 / 243.0, contentMode: .fit)
-                    .background(alignment: .bottom) {
-                        Ellipse().fill(.black.opacity(0.28)).frame(height: 18).blur(radius: 10).padding(.horizontal, 12)
-                    }.accessibilityHidden(true)
+                farmPortrait(story.cucumberAsset, foregroundPlot: foregroundPlot)
                 VStack(spacing: 4) {
                     Text(story.cucumberName).font(CampusStyle.medium(16))
                     Text(story.status.oiStatusTitle).font(CampusStyle.body(12))
                 }.foregroundStyle(CampusStyle.sectionGreen)
                     .padding(.horizontal, 10).padding(.vertical, 6)
                     .background(.white.opacity(0.85), in: RoundedRectangle(cornerRadius: 12))
-            }
+            }.contentShape(Rectangle())
         }.buttonStyle(.plain)
             .accessibilityLabel("\(story.cucumberName), \(story.status.oiStatusTitle), 내 이야기 관리")
             .accessibilityIdentifier("my.farm.story.\(story.id.uuidString)")
     }
 
+    private func farmPortrait(_ asset: String, foregroundPlot: Bool) -> some View {
+        Color.clear.aspectRatio(155.0 / 243.0, contentMode: .fit)
+            .overlay {
+                GeometryReader { geometry in
+                    let scale = geometry.size.width / (foregroundPlot ? 188 : 155)
+                    ZStack {
+                        Image(foregroundPlot ? "MYFarmShadowTwo" : "MYFarmShadowOne").resizable()
+                            .frame(width: (foregroundPlot ? 206 : 177) * scale,
+                                   height: (foregroundPlot ? 78 : 63) * scale)
+                            .position(x: (foregroundPlot ? 94 : 80.5) * scale,
+                                      y: (foregroundPlot ? 270 : 231.5) * scale)
+                        // Most service presets use a square transparent canvas. Size their artwork by the plot height.
+                        Image(asset).resizable().scaledToFit()
+                            .frame(width: max(geometry.size.width, geometry.size.height), height: geometry.size.height)
+                            .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                    }
+                }
+            }.accessibilityHidden(true)
+    }
+
     private var emptyFarm: some View {
         VStack(alignment: .leading, spacing: 30) {
-            Image("MYEmptyCucumber").resizable().scaledToFit().frame(height: 277)
+            Image("MYEmptyCucumber").resizable().scaledToFit()
+                .shadow(color: .black.opacity(0.4), radius: 15).frame(height: 277)
                 .frame(maxWidth: .infinity).accessibilityHidden(true)
             Text("아직 기부한 오이가 없어요")
-                .font(.custom("Paperlogy-6SemiBold", size: 30, relativeTo: .title))
+                .font(.custom("Paperlogy-7Bold", size: 30, relativeTo: .title))
+                .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
-            Text("1. 안내된 정식 기부처의 절차를 따라 기부해요.\n2. 기부 증빙을 제출하고 운영자 검토를 기다려요.\n3. 글 작성 승인 후 나만의 오이와 이야기를 만들어요.")
-                .font(.custom("Paperlogy-4Regular", size: 18, relativeTo: .body)).lineSpacing(5)
-            Text("최소 기부금과 성장·보상 정책은 아직 정해지지 않았어요. 작성 승인은 학교의 공식 납입 확인·영수증 발급과 별개예요.")
-                .font(.custom("Paperlogy-4Regular", size: 14, relativeTo: .footnote))
+            Text("안내된 정식 기부처의 절차를 따라 기부해요.\n작성 승인을 받은 계정에서 나만의 오이와 이야기를 만들 수 있어요.")
+                .font(.custom("Paperlogy-3Light", size: 18, relativeTo: .body)).lineSpacing(5)
+            Text("최소 기부금과 성장·보상 정책은 아직 정해지지 않았어요.")
+                .font(.custom("Paperlogy-3Light", size: 14, relativeTo: .footnote))
             NavigationLink {
                 if let remote { OiStoryListScreen(remote: remote) }
                 else {
@@ -114,8 +147,11 @@ struct MYFarmView: View {
 
     private var emptyAction: some View {
         Text("기부하고 오이만들기").font(.custom("Paperlogy-6SemiBold", size: 25, relativeTo: .title2))
-            .padding(.horizontal, 20).padding(.vertical, 15).frame(maxWidth: .infinity)
+            .multilineTextAlignment(.center).foregroundStyle(.black)
+            .padding(.horizontal, 20).padding(.vertical, 15)
+            .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : 284, minHeight: 68)
             .background(.white, in: Capsule()).shadow(color: .black.opacity(0.2), radius: 5)
+            .frame(maxWidth: .infinity)
     }
 
 }
