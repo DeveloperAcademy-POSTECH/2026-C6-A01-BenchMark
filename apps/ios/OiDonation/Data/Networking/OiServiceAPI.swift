@@ -71,7 +71,6 @@ struct OiServiceAPI {
         }
     }
 
-    #if DEBUG
     func reviewSchoolEvidence(_ data: Data, contentType: String, token: String) async throws -> OiSchoolEvidenceReview {
         let response: Data
         do {
@@ -87,7 +86,6 @@ struct OiServiceAPI {
         }
         return review
     }
-    #endif
 
     func rows<Value: Decodable & Identifiable>(_ table: String, query: String = "", token: String? = nil, as type: Value.Type) async throws -> [Value] {
         var values: [Value] = []

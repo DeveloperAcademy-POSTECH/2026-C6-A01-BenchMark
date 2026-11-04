@@ -24,9 +24,9 @@ export function createSchoolHandler(config: Configuration, fetcher: typeof fetch
     const signal = AbortSignal.any([AbortSignal.timeout(60_000), request.signal]);
     let locked = false;
     try {
-      const call = async (path: string, init: RequestInit = {}) => {
+      const call = async (path: string) => {
         const response = await fetcher(new URL(path, config.supabaseUrl), {
-          ...init, signal, redirect: "error",
+          signal, redirect: "error",
           headers: { apikey: config.supabaseKey, Authorization: authorization, "Content-Type": "application/json" },
         });
         if (!response.ok) {
@@ -36,15 +36,15 @@ export function createSchoolHandler(config: Configuration, fetcher: typeof fetch
         }
         return JSON.parse(new TextDecoder().decode(await readBounded(response, 32 * 1024, signal)));
       };
-      const user = await call("/auth/v1/user");
-      if (typeof user?.id !== "string" || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(user.id)) {
-        throw new AnalysisError(401, "authentication_failed");
-      }
-      const requireOperator = async () => {
-        const capabilities = await call("/rest/v1/rpc/oi_capabilities", { method: "POST", body: "{}" });
-        if (capabilities?.operator !== true) throw new AnalysisError(403, "operator_required");
+      const requireUser = async (): Promise<string> => {
+        const user = await call("/auth/v1/user");
+        if (typeof user?.id !== "string" || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(user.id)
+          || user.is_anonymous === true) {
+          throw new AnalysisError(401, "authentication_failed");
+        }
+        return user.id;
       };
-      await requireOperator();
+      const userId = await requireUser();
       const contentType = request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() ?? "";
       if (!["image/jpeg", "image/png", "application/pdf"].includes(contentType)) {
         throw new AnalysisError(415, "unsupported_document");
@@ -52,12 +52,12 @@ export function createSchoolHandler(config: Configuration, fetcher: typeof fetch
       if (active >= 3) throw new AnalysisError(429, "analysis_busy");
       const now = Date.now();
       for (const [actor, entry] of attempts) if (entry.expires <= now) attempts.delete(actor);
-      const entry = attempts.get(user.id) ?? { count: 0, expires: now + 60_000 };
-      if (entry.count >= 5 || (!attempts.has(user.id) && attempts.size >= 1000)) {
+      const entry = attempts.get(userId) ?? { count: 0, expires: now + 60_000 };
+      if (entry.count >= 5 || (!attempts.has(userId) && attempts.size >= 1000)) {
         throw new AnalysisError(429, "analysis_rate_limited");
       }
       entry.count += 1;
-      attempts.set(user.id, entry);
+      attempts.set(userId, entry);
       active += 1;
       locked = true;
 
@@ -69,7 +69,7 @@ export function createSchoolHandler(config: Configuration, fetcher: typeof fetch
         bytes, contentType, apiKey: config.openaiKey, model: config.model,
         signal, fetcher, review: "school_affiliation",
       });
-      await requireOperator();
+      if (await requireUser() !== userId) throw new AnalysisError(401, "authentication_failed");
       signal.throwIfAborted();
       return json({
         review_type: "school_affiliation",
@@ -79,7 +79,7 @@ export function createSchoolHandler(config: Configuration, fetcher: typeof fetch
         human_review_required: true,
         authenticity_verified: false,
         affiliation_verified: false,
-        notice: "AI 참고 분석입니다. 학교 소속이나 발급 사실을 확인하지 않으며 운영자 검토가 필요합니다.",
+        notice: "AI 참고 분석입니다. 학교 소속과 발급 사실은 별도 확인이 필요합니다.",
         assessment,
       });
     } catch (error) {

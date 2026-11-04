@@ -1,63 +1,14 @@
 //
-//  OiSchoolEvidenceTestView.swift
+//  OiSchoolEvidenceView.swift
 //  OiDonation
 //
 //  Created by 이돈혁 on 2026-11-04.
 //
 
-#if DEBUG
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct OiSchoolEvidenceReview: Decodable {
-    struct Assessment: Decodable {
-        enum Verdict: String, Decodable {
-            case suspicious
-            case noObviousSigns = "no_obvious_signs"
-            case inconclusive
-
-            var title: String {
-                switch self {
-                case .suspicious: "의심 징후 있음"
-                case .noObviousSigns: "뚜렷한 징후 없음"
-                case .inconclusive: "판단 보류"
-                }
-            }
-        }
-
-        enum Readability: String, Decodable {
-            case readable, limited, unreadable
-
-            var title: String {
-                switch self {
-                case .readable: "판독 가능"
-                case .limited: "일부 판독 가능"
-                case .unreadable: "판독 불가"
-                }
-            }
-        }
-
-        struct Finding: Decodable {
-            let location: String
-            let observation: String
-        }
-
-        let verdict: Verdict
-        let readability: Readability
-        let findings: [Finding]
-        let limitations: [String]
-        let manualChecks: [String]
-    }
-
-    let reviewType: String
-    let humanReviewRequired: Bool
-    let affiliationVerified: Bool
-    let authenticityVerified: Bool
-    let notice: String
-    let assessment: Assessment
-}
-
-struct OiSchoolEvidenceTestView: View {
+struct OiSchoolEvidenceView: View {
     let remote: OiRemoteStore
 
     private struct Selection: Identifiable {
@@ -74,13 +25,13 @@ struct OiSchoolEvidenceTestView: View {
 
     var body: some View {
         List {
-            if remote.isOperator {
-                Section("테스트 자료") {
+            if remote.account != nil {
+                Section("학교 소속 증빙") {
                     Text("학교명과 소속 표기만 남긴 학생증 사본 또는 가상 에브리타임 화면을 사용해 주세요. 이름·학번·사진·바코드·QR은 복원할 수 없게 제거해 주세요.")
                         .font(.footnote)
                     Toggle("개인정보를 제거했고 선택한 파일의 OpenAI 전송에 동의합니다", isOn: $acknowledged)
                         .disabled(selection != nil)
-                    Button("테스트 파일 선택") { importing = true }
+                    Button("증빙 파일 선택") { importing = true }
                         .disabled(!acknowledged || selection != nil)
                         .accessibilityIdentifier("oi.schoolEvidence.select")
                     Text("JPEG·PNG·PDF, 최대 10MB")
@@ -106,20 +57,20 @@ struct OiSchoolEvidenceTestView: View {
                             Text(limitation)
                         }
                     }
-                    Section("운영자 확인 항목") {
+                    Section("추가 확인 항목") {
                         ForEach(Array(review.assessment.manualChecks.enumerated()), id: \.offset) { _, check in
                             Text(check)
                         }
                     }
                 }
             } else {
-                Text("운영자 계정으로 로그인해 주세요.")
+                Text("로그인해 주세요.")
             }
         }
-        .navigationTitle("학교 인증 테스트")
+        .navigationTitle("학교 인증")
         .navigationBarTitleDisplayMode(.inline)
         .fileImporter(isPresented: $importing, allowedContentTypes: [.jpeg, .png, .pdf]) { result in
-            guard acknowledged, remote.isOperator, let owner = remote.account?.id else { return }
+            guard acknowledged, let owner = remote.account?.id else { return }
             review = nil
             error = nil
             do {
@@ -134,7 +85,6 @@ struct OiSchoolEvidenceTestView: View {
             await analyze(selection)
         }
         .onChange(of: remote.account?.id) { clear() }
-        .onChange(of: remote.isOperator) { clear() }
         .onDisappear { clear() }
     }
 
@@ -183,4 +133,23 @@ struct OiSchoolEvidenceTestView: View {
         return (data, mime)
     }
 }
-#endif
+
+private extension OiSchoolEvidenceReview.Assessment.Verdict {
+    var title: String {
+        switch self {
+        case .suspicious: "의심 징후 있음"
+        case .noObviousSigns: "뚜렷한 징후 없음"
+        case .inconclusive: "판단 보류"
+        }
+    }
+}
+
+private extension OiSchoolEvidenceReview.Assessment.Readability {
+    var title: String {
+        switch self {
+        case .readable: "판독 가능"
+        case .limited: "일부 판독 가능"
+        case .unreadable: "판독 불가"
+        }
+    }
+}

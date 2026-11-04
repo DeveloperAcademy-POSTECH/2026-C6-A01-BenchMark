@@ -31,6 +31,8 @@ struct OiAccountView: View {
                         .onAppear { nickname = remote.profile?.nickname ?? "농부" }
                     Button("닉네임 저장") { Task { await remote.updateProfile(nickname: nickname) } }
                         .disabled(nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || nickname.count > 30)
+                    NavigationLink("학교 인증") { OiSchoolEvidenceView(remote: remote) }
+                        .accessibilityIdentifier("oi.schoolEvidence.open")
                     Button("로그아웃", role: .destructive) { Task { await remote.signOut() } }
                 }
                 Section("로그인 방법과 계정") {
@@ -117,13 +119,7 @@ struct OiAccountView: View {
                     Text("피클코인 구매·적립·사용은 비활성화돼 있어요.").font(.footnote).foregroundStyle(.secondary)
                 }
                 if remote.isOperator {
-                    Section("운영자") {
-                        NavigationLink("증빙·이야기 검토") { OiOperatorView(remote: remote) }
-                        #if DEBUG
-                        NavigationLink("학교 인증 테스트") { OiSchoolEvidenceTestView(remote: remote) }
-                            .accessibilityIdentifier("oi.schoolEvidence.test")
-                        #endif
-                    }
+                    Section("운영자") { NavigationLink("증빙·이야기 검토") { OiOperatorView(remote: remote) } }
                 }
             } else {
                 Section {

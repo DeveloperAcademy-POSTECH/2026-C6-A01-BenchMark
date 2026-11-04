@@ -10,7 +10,7 @@ const assessment = {
   limitations: ["소속 항목을 판독할 수 없습니다."],
   manual_checks: ["발급처와 소속 유효 기간을 확인하세요."],
 };
-const request = ({ token = "operator-jwt", body = pdf, type = "application/pdf", length } = {}) =>
+const request = ({ token = "user-jwt", body = pdf, type = "application/pdf", length } = {}) =>
   new Request("https://edge.example/analyze-school-evidence", {
     method: "POST",
     headers: {
@@ -21,7 +21,7 @@ const request = ({ token = "operator-jwt", body = pdf, type = "application/pdf",
     body,
   });
 
-function fixture({ enabled = true, capability = () => true, invalidSession = false, output = assessment } = {}) {
+function fixture({ enabled = true, validSession = () => true, anonymous = false, output = assessment } = {}) {
   const calls = [];
   let checks = 0;
   const handler = createSchoolHandler({
@@ -30,15 +30,12 @@ function fixture({ enabled = true, capability = () => true, invalidSession = fal
     const target = String(url);
     calls.push(target);
     if (target.startsWith("https://db.example/")) {
-      assert.equal(init.headers.Authorization, "Bearer operator-jwt");
+      assert.equal(init.headers.Authorization, "Bearer user-jwt");
       assert.equal(init.headers.apikey, "publishable");
     }
     if (target === "https://db.example/auth/v1/user") {
-      return invalidSession ? new Response(null, { status: 401 })
-        : Response.json({ id: "12345678-1234-1234-1234-123456789abc" });
-    }
-    if (target === "https://db.example/rest/v1/rpc/oi_capabilities") {
-      return Response.json({ operator: capability(++checks) });
+      return !validSession(++checks) ? new Response(null, { status: 401 })
+        : Response.json({ id: "12345678-1234-1234-1234-123456789abc", is_anonymous: anonymous });
     }
     assert.equal(target, "https://api.openai.com/v1/responses");
     const payload = JSON.parse(init.body);
@@ -59,7 +56,7 @@ function fixture({ enabled = true, capability = () => true, invalidSession = fal
   return { handler, calls };
 }
 
-test("school review is separate from approval and rechecks operator access", async () => {
+test("ordinary users can review evidence with session checks before and after analysis", async () => {
   const { handler, calls } = fixture();
   const response = await handler(request());
   assert.equal(response.status, 200);
@@ -71,15 +68,15 @@ test("school review is separate from approval and rechecks operator access", asy
   assert.equal(result.authenticity_verified, false);
   assert.deepEqual(result.assessment, assessment);
   assert.deepEqual(calls.map((url) => new URL(url).pathname), [
-    "/auth/v1/user", "/rest/v1/rpc/oi_capabilities", "/v1/responses", "/rest/v1/rpc/oi_capabilities",
+    "/auth/v1/user", "/v1/responses", "/auth/v1/user",
   ]);
 });
 
 for (const [name, options, input, status, code] of [
   ["disabled function", { enabled: false }, {}, 503, "analysis_not_configured"],
   ["missing session", {}, { token: "" }, 401, "authentication_required"],
-  ["invalid session", { invalidSession: true }, {}, 401, "authentication_failed"],
-  ["non-operator", { capability: () => false }, {}, 403, "operator_required"],
+  ["invalid session", { validSession: () => false }, {}, 401, "authentication_failed"],
+  ["anonymous session", { anonymous: true }, {}, 401, "authentication_failed"],
   ["client supplied URL", {}, { type: "application/json", body: '{"url":"https://example.com"}' }, 415, "unsupported_document"],
   ["invalid signature", {}, { body: "not a PDF" }, 415, "unsupported_document"],
   ["oversized document", {}, { length: 10 * 1024 * 1024 + 1 }, 413, "payload_too_large"],
@@ -93,11 +90,11 @@ for (const [name, options, input, status, code] of [
   });
 }
 
-test("operator revocation during analysis withholds the result", async () => {
-  const { handler } = fixture({ capability: (check) => check === 1 });
+test("invalidated session during analysis withholds the result", async () => {
+  const { handler } = fixture({ validSession: (check) => check === 1 });
   const response = await handler(request());
-  assert.equal(response.status, 403);
-  assert.deepEqual(await response.json(), { error: "operator_required" });
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), { error: "authentication_failed" });
 });
 
 test("a provider-generated approval field is rejected", async () => {

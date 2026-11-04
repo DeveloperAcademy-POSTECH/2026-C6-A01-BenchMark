@@ -159,6 +159,38 @@ struct OiStoryDraft: Codable, Equatable {
     }
 }
 
+struct OiSchoolEvidenceReview: Decodable {
+    struct Assessment: Decodable {
+        enum Verdict: String, Decodable {
+            case suspicious
+            case noObviousSigns = "no_obvious_signs"
+            case inconclusive
+        }
+
+        enum Readability: String, Decodable {
+            case readable, limited, unreadable
+        }
+
+        struct Finding: Decodable {
+            let location: String
+            let observation: String
+        }
+
+        let verdict: Verdict
+        let readability: Readability
+        let findings: [Finding]
+        let limitations: [String]
+        let manualChecks: [String]
+    }
+
+    let reviewType: String
+    let humanReviewRequired: Bool
+    let affiliationVerified: Bool
+    let authenticityVerified: Bool
+    let notice: String
+    let assessment: Assessment
+}
+
 enum OiServiceError: LocalizedError {
     case configuration, signInRequired, invalidDraft, invalidCallback, unavailable, accountChanged, authenticationFailed
     case server(String)
