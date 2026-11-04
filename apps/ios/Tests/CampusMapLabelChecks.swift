@@ -69,5 +69,165 @@ import simd
         precondition(placements == ["landmark": first, "area": alternate], "Names avoid markers, controls, other names and clipped edges")
         precondition(Layout.placements(items, viewport: .zero, obstacles: []).isEmpty)
         print("Campus map labels: PASS (\(labels.count) named roofs, concave anchors, zoom hysteresis, footprint visibility, collision layout)")
+
+        let groundedMap = try CampusMapData.load(from: url)
+        // Exercise the six shipped overview POIs using the bundled map and height field.
+        let sites = ["97", "72", "88", "75", "7", "53"].map { id in
+            let place = groundedMap.pois.first { $0.id == id }!
+            return CampusRegionClustering.Site(id: id, anchor: groundedMap.world(place.p))
+        }
+        checkProjection(sites)
+        checkClustering(sites)
+        checkTiltClustering()
+    }
+
+    private static func checkProjection(_ sites: [CampusRegionClustering.Site]) {
+        let viewport = CGRect(x: 10, y: 20, width: 400, height: 800)
+        let center = CGPoint(x: viewport.midX, y: viewport.midY)
+        let map = CampusMapProjection(eye: .zero, yaw: 0, pitch: 0, verticalFOV: 90, viewport: viewport)
+        precondition(abs(map.focalLength - 400) < 0.01)
+        precondition(close(map.point(SIMD3(0, 0, -10)), to: center), "The view axis must land at the viewport center")
+        precondition(close(map.point(SIMD3(2, 1, -10)), to: CGPoint(x: 290, y: 380)), "Projection must preserve perspective and UIKit's downward y axis")
+        precondition(map.point(SIMD3(0, 0, 10)) == nil, "An anchor behind the camera must not be mirrored")
+        precondition(map.point(.zero) == nil, "An anchor in the camera plane must not be projected")
+        precondition(map.point(SIMD3(.nan, 0, -10)) == nil)
+        let rotated = CampusMapProjection(eye: .zero, yaw: .pi / 2, pitch: 0, verticalFOV: 90, viewport: viewport)
+        precondition(close(rotated.point(SIMD3(-10, 0, 0)), to: center), "The orbit yaw must rotate the projection with the map")
+
+        for site in sites {
+            let anchor = site.anchor
+            let pitch: Float = 1.02
+            let eye = anchor + SIMD3(0, sin(pitch), cos(pitch)) * 120
+            let centered = CampusMapProjection(eye: eye, yaw: 0, pitch: pitch, verticalFOV: 42, viewport: viewport)
+            precondition(close(centered.point(anchor), to: center), "POI \(site.id) must project at its own ground location")
+            let offset = SIMD3<Float>(12, 0, 0)
+            let panned = CampusMapProjection(eye: eye + offset, yaw: 0, pitch: pitch, verticalFOV: 42, viewport: viewport)
+            let expected = CGPoint(x: center.x - 12 * centered.focalLength / 120, y: center.y)
+            precondition(close(panned.point(anchor), to: expected), "The marker must move with its fixed map location during a pan")
+        }
+
+        let opacity = CampusMapProjection.panelOpacity
+        precondition(opacity(0.35) == 1 && opacity(1.4) == 0)
+        let tilt = (0...100).map { opacity(0.84 + Float($0) * 0.0022) }
+        precondition(tilt[50] > 0 && tilt[50] < 1, "The two shapes must overlap during the tilt transition")
+        precondition(zip(tilt, tilt.dropFirst()).allSatisfy { previous, next in
+            previous >= next && previous - next < 0.02
+        }, "The shape mix must change continuously with camera tilt")
+        print("Campus map projection: PASS (\(sites.count) real POI anchors, pan, yaw, camera clipping, tilt crossfade)")
+    }
+
+    private static func close(_ point: CGPoint?, to expected: CGPoint, tolerance: CGFloat = 0.01) -> Bool {
+        guard let point else { return false }
+        return abs(point.x - expected.x) < tolerance && abs(point.y - expected.y) < tolerance
+    }
+
+    private static func checkClustering(_ campusSites: [CampusRegionClustering.Site]) {
+        typealias Cluster = CampusRegionClustering
+        let sites: [Cluster.Site] = [
+            .init(id: "a", anchor: SIMD3(0, 0, 0)),
+            .init(id: "b", anchor: SIMD3(10, 4, 0))
+        ]
+        let counts = ["a": 2, "b": 3]
+        let clustering = Cluster(sites: sites)
+        let focalLength: CGFloat = 950
+        func markers(_ radius: Float, reduceMotion: Bool = false) -> [Cluster.Marker] {
+            clustering.markers(radius: radius, focalLength: focalLength, reduceMotion: reduceMotion)
+        }
+        let wide = markers(200).filter(\.isInteractive)
+        precondition(wide.count == 1 && wide[0].node.siteIDs == ["a", "b"])
+        precondition(wide[0].node.siteIDs.map { counts[$0]! }.reduce(0, +) == 5, "The merged marker must carry both counts")
+        precondition(wide[0].anchor == SIMD3(5, 2, 0), "A merged marker must have a stable world anchor")
+        let closeUp = markers(20).filter(\.isInteractive)
+        for site in sites {
+            let marker = closeUp.first { $0.node.siteIDs == [site.id] }
+            precondition(marker?.anchor == site.anchor, "Split markers must return to their exact original anchors")
+        }
+        let targetRadius = clustering.expandedRadius(for: wide[0].node, focalLength: focalLength)
+        precondition(markers(targetRadius).filter(\.isInteractive).count == 2, "Zooming into a merged marker must expose its children")
+
+        let radii = (40...400).map { Float($0) / 2 }
+        let frames = radii.map { markers($0) }
+        let reversedFrames = radii.reversed().map { markers($0) }
+        var sawTransition = false
+        for (forward, backward) in zip(frames, reversedFrames.reversed()) {
+            let ordered = forward.sorted { $0.node.id < $1.node.id }
+            let reversed = backward.sorted { $0.node.id < $1.node.id }
+            precondition(ordered.count == reversed.count)
+            for (a, b) in zip(ordered, reversed) {
+                precondition(a.node.id == b.node.id && a.anchor == b.anchor && a.opacity == b.opacity
+                    && a.isInteractive == b.isInteractive, "A pinch must retrace exactly the same marker positions and opacity when reversed")
+            }
+            let active = forward.filter(\.isInteractive).flatMap { $0.node.siteIDs }.sorted()
+            precondition(active == ["a", "b"], "Hit testing must represent each region once throughout the transition")
+            if forward.contains(where: { $0.node.siteIDs.count > 1 && $0.opacity > 0 && $0.opacity < 1 }),
+               let child = forward.first(where: { $0.node.siteIDs == ["a"] && $0.opacity > 0 && $0.opacity < 1 }) {
+                precondition(child.anchor.x > 0 && child.anchor.x < 5, "Children must travel from the cluster to their geographic sites")
+                sawTransition = true
+            }
+        }
+        precondition(sawTransition, "The split must have intermediate visible positions")
+        for (first, next) in zip(frames, frames.dropFirst()) {
+            let nextByID = Dictionary(uniqueKeysWithValues: next.map { ($0.node.id, $0) })
+            for marker in first {
+                guard let match = nextByID[marker.node.id], marker.opacity > 0, match.opacity > 0 else { continue }
+                precondition(simd_distance(marker.anchor, match.anchor) < 0.5 && abs(marker.opacity - match.opacity) < 0.05,
+                    "Small zoom changes must not snap the anchor or opacity")
+            }
+        }
+        for radius in radii {
+            let visible = markers(radius, reduceMotion: true).filter { $0.opacity > 0 }
+            precondition(visible.allSatisfy { $0.anchor == $0.node.anchor && $0.opacity == 1 }, "Reduce Motion must skip marker travel and fades")
+            precondition(visible.flatMap { $0.node.siteIDs }.sorted() == ["a", "b"])
+        }
+
+        let campus = Cluster(sites: campusSites)
+        let reordered = Cluster(sites: Array(campusSites.reversed()))
+        let campusRadii: [Float] = [20, 70, 140, 305, 600]
+        for radius in campusRadii {
+            let active = campus.markers(radius: radius, focalLength: focalLength, reduceMotion: false).filter(\.isInteractive)
+            precondition(active.flatMap { $0.node.siteIDs }.sorted() == campusSites.map(\.id).sorted())
+            precondition(Set(active.map { $0.node.id }) == Set(reordered.markers(radius: radius, focalLength: focalLength,
+                reduceMotion: false).filter(\.isInteractive).map { $0.node.id }), "The campus layout must have stable identities independent of input order")
+            if radius == 20 { precondition(active.count == campusSites.count) }
+            if radius == 600 { precondition(active.count < campusSites.count, "Zooming out must consolidate nearby campus regions") }
+        }
+        precondition(Cluster(sites: []).markers(radius: 305, focalLength: focalLength, reduceMotion: false).isEmpty)
+        print("Campus map clustering: PASS (sum, \(campusSites.count) real POIs, pinch reversal, continuity, Reduce Motion, hit testing)")
+    }
+
+    private static func checkTiltClustering() {
+        let clustering = CampusRegionClustering(sites: [
+            .init(id: "far", anchor: SIMD3(0, 0, -10)),
+            .init(id: "near", anchor: SIMD3(0, 0, 10))
+        ])
+        let radius: Float = 120
+        let viewport = CGRect(x: 0, y: 0, width: 400, height: 800)
+        func projection(pitch: Float, pan: Float = 0) -> CampusMapProjection {
+            let eye = SIMD3(pan, sin(pitch) * radius, cos(pitch) * radius)
+            return CampusMapProjection(eye: eye, yaw: 0, pitch: pitch, verticalFOV: 42, viewport: viewport)
+        }
+        func active(in view: CampusMapProjection, at distance: Float) -> [CampusRegionClustering.Marker] {
+            clustering.markers(radius: distance, focalLength: view.focalLength, reduceMotion: false,
+                separation: view.planeSeparation).filter(\.isInteractive)
+        }
+
+        let shallow = projection(pitch: 0.35)
+        let merged = active(in: shallow, at: radius)
+        precondition(merged.count == 1 && merged[0].node.siteIDs == ["far", "near"],
+            "Depth-aligned places must cluster when foreshortened by a shallow camera")
+        let overhead = projection(pitch: 1.4)
+        precondition(Set(active(in: overhead, at: radius).map { $0.node.siteIDs }) == Set([["far"], ["near"]]),
+            "The same places must separate at an overhead pitch without changing zoom")
+
+        let panned = projection(pitch: 0.35, pan: 15)
+        let pannedMarkers = active(in: panned, at: radius)
+        precondition(pannedMarkers.map { $0.node.id } == merged.map { $0.node.id } && pannedMarkers[0].anchor == merged[0].anchor,
+            "Panning must preserve cluster membership and its geographic anchor")
+        precondition(panned.point(merged[0].anchor)!.x < shallow.point(merged[0].anchor)!.x,
+            "The same anchor must move across the screen with the map during a pan")
+        let expanded = clustering.expandedRadius(for: merged[0].node, focalLength: shallow.focalLength,
+            separation: shallow.planeSeparation)
+        precondition(active(in: shallow, at: expanded).count == 2, "Cluster tap zoom must respect the same shallow projection")
+        print("Campus map tilt clustering: PASS (3D foreshortening, overhead separation, pan-stable grouping, tap zoom)")
     }
 }
