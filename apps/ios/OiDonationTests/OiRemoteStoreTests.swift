@@ -42,6 +42,17 @@ final class OiTestBackend {
         var evidenceReviewCount = 0
         var evidenceRPCMissing = false
         var holdEvidenceRead = false
+        var history: [[String: Any]] = []
+        var failHistoryReads = false
+        var holdHistoryRead = false
+        var revokeOnDocumentRead = false
+        var analysisStatus = 200
+        var analysisError = "analysis_unavailable"
+        var analysisResult: [String: Any] = [:]
+        var analysisBodies: [[String: Any]] = []
+        var holdAnalysis = false
+        var changeEvidenceAfterAnalysis = false
+        var revokeAfterAnalysis = false
         var failRefreshToken = false
         var failLogout = false
         var logoutScopes: [String?] = []
@@ -68,7 +79,7 @@ final class OiTestBackend {
     func snapshot() -> State { lock.lock(); defer { lock.unlock() }; return state }
     func releaseHeldRead() {
         let value = snapshot().held
-        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false; $0.holdReviewResponse = false; $0.holdEvidenceRead = false }
+        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false; $0.holdReviewResponse = false; $0.holdEvidenceRead = false; $0.holdHistoryRead = false; $0.holdAnalysis = false }
         value?.0.respond(200, value?.1 ?? Data())
     }
     func install() { OiStoreURLProtocol.handle = { [weak self] request, client in self?.receive(request, client: client) } }
@@ -119,6 +130,14 @@ final class OiTestBackend {
         else if path.contains("/object/authenticated/") {
             let key = path.replacingOccurrences(of: "/storage/v1/object/authenticated/", with: "")
             bytes = state.uploads[key]; if bytes == nil { status = 404 }
+            if state.revokeOnDocumentRead { state.isOperator = false }
+        } else if path == "/functions/v1/analyze-evidence" {
+            state.analysisBodies.append(body)
+            status = state.analysisStatus
+            if status == 200 { result = state.analysisResult }
+            else { result = ["error": state.analysisError] }
+            if state.changeEvidenceAfterAnalysis { state.evidence?["submitted_at"] = "2026-11-04T03:00:00Z" }
+            if state.revokeAfterAnalysis { state.isOperator = false }
         } else if path.contains("/storage/v1/object/") {
             let key = path.replacingOccurrences(of: "/storage/v1/object/", with: "")
             if state.uploads[key] != nil { status = 409 }
@@ -225,6 +244,17 @@ final class OiTestBackend {
             result = state.paths.enumerated().map { position, path in
                 ["id":UUID().uuidString,"story_id":state.story?["id"] ?? "","object_path":path,"position":position]
             }
+        } else if path.hasSuffix("/oi_evidence_history") {
+            if state.failHistoryReads { status = 503 }
+            else {
+                let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems ?? []
+                func value(_ name: String) -> String? { query.first { $0.name == name }?.value }
+                let filtered = state.history.filter { row in
+                    (value("id") == nil || value("id") == "eq.\(row["id"] as? String ?? "")") &&
+                    (value("request_id") == nil || value("request_id") == "eq.\(row["request_id"] as? String ?? "")")
+                }.sorted { ($0["recorded_at"] as? String ?? "", $0["id"] as? String ?? "") > ($1["recorded_at"] as? String ?? "", $1["id"] as? String ?? "") }
+                result = Array(filtered.dropFirst(Int(value("offset") ?? "0") ?? 0).prefix(Int(value("limit") ?? "200") ?? 200))
+            }
         } else if path.hasSuffix("/oi_evidence_requests"), let evidence = state.evidence {
             if state.failReads { status = 503 }
             else {
@@ -251,6 +281,8 @@ final class OiTestBackend {
             || (path.hasSuffix("/rpc/oi_mutate") && body["p_action"] as? String == "review_story" && state.holdReviewResponse)
             || (path.hasSuffix("/rpc/oi_review_evidence") && state.holdReviewResponse)
             || (path.hasSuffix("/oi_evidence_requests") && state.holdEvidenceRead)
+            || (path.hasSuffix("/oi_evidence_history") && state.holdHistoryRead)
+            || (path == "/functions/v1/analyze-evidence" && state.holdAnalysis)
             || (path.hasSuffix("/rpc/oi_capabilities") && state.holdPostMergeRead && state.mergeConfirmCount > 0) {
             state.held = (client,data)
             let notify = state.didHold
@@ -290,6 +322,223 @@ final class OiControlledAuthentication: OiAuthenticating {
 }
 
 final class OiRemoteStoreTests: XCTestCase {
+    private func historyFixture() -> [String: Any] {
+        ["id": UUID().uuidString, "request_id": OiTestBackend.grant.uuidString,
+         "status": "changes_requested", "object_path": "\(OiTestBackend.owner.uuidString.lowercased())/\(OiTestBackend.grant.uuidString.lowercased())/previous.png",
+         "review_note": "가상 증빙을 보완해 주세요", "reviewer_id": OiTestBackend.other.uuidString,
+         "recorded_at": "2026-11-04T00:00:00Z"]
+    }
+
+    private func analysisFixture(verdict: String = "inconclusive") -> [String: Any] {
+        ["evidence_id": OiTestBackend.grant.uuidString.lowercased(), "submitted_at": "2026-11-04T01:00:00.000Z",
+         "sha256": String(repeating: "a", count: 64), "analyzed_at": "2026-11-04T02:00:00Z",
+         "model": "synthetic-model", "prompt_version": "evidence-visual-review-v1",
+         "human_review_required": true, "authenticity_verified": false,
+         "notice": "AI 참고 자료이며 원본 진위·실제 납입 확인을 보증하지 않습니다.",
+         "assessment": ["verdict": verdict, "readability": verdict == "inconclusive" ? "limited" : "readable",
+                        "findings": verdict == "suspicious" ? [["category": "visual_edit", "location": "가상 금액 영역", "observation": "가상 문자의 경계가 다름"]] : [],
+                        "limitations": ["가상 자료만 분석한 결과입니다."], "manual_checks": ["원본과 기부 내역을 직접 확인하세요."]]]
+    }
+
+    @MainActor func testOperatorEvidenceHistoryPaginationFiltersAndFailures() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        var rows = (0..<205).map { _ in historyFixture() }
+        var unrelated = historyFixture(); unrelated["request_id"] = UUID().uuidString; rows.append(unrelated)
+        backend.configure { $0.isOperator = true; $0.history = rows }
+        await store.start()
+        let model = OiOperatorEvidenceHistoryModel()
+        await model.load(OiTestBackend.grant, using: store)
+        XCTAssertEqual(model.rows.count, 205); XCTAssertTrue(model.hasLoaded)
+        XCTAssertTrue(model.rows.allSatisfy { $0.requestId == OiTestBackend.grant })
+        XCTAssertEqual(model.rows.first?.status, "changes_requested")
+        backend.configure { $0.history = [] }
+        await model.load(OiTestBackend.grant, using: store)
+        XCTAssertTrue(model.hasLoaded); XCTAssertTrue(model.rows.isEmpty)
+        backend.configure { $0.failHistoryReads = true }
+        await model.load(OiTestBackend.grant, using: store)
+        XCTAssertFalse(model.hasLoaded); XCTAssertNotNil(model.error)
+        backend.configure { $0.failHistoryReads = false; $0.isOperator = false }
+        await model.load(OiTestBackend.grant, using: store)
+        XCTAssertTrue(model.rows.isEmpty); XCTAssertNotNil(model.error)
+    }
+
+    @MainActor func testOperatorEvidenceHistoryOpensArchivedOriginalAndRechecksRights() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        let history = historyFixture()
+        let path = try XCTUnwrap(history["object_path"] as? String)
+        let bytes = Data([0xff, 0xd8, 0xff, 0x00])
+        backend.configure {
+            $0.isOperator = true; $0.evidence = evidenceFixture(); $0.history = [history]
+            $0.uploads["oi-evidence/\(path)"] = bytes
+        }
+        await store.start()
+        let entries = try await store.operatorEvidenceHistory(OiTestBackend.grant)
+        let entry = try XCTUnwrap(entries.first)
+        let document = try await store.operatorEvidenceHistoryDocument(entry)
+        XCTAssertEqual(document.data, bytes, "Archived path, rather than current submission, must be opened")
+        backend.configure { $0.history[0]["object_path"] = "changed.png" }
+        do { _ = try await store.operatorEvidenceHistoryDocument(entry); XCTFail("Changed history must be rejected") }
+        catch OiServiceError.conflict {}
+        backend.configure { $0.history = [history]; $0.revokeOnDocumentRead = true }
+        do { _ = try await store.operatorEvidenceHistoryDocument(entry); XCTFail("Rights must be rechecked before return") }
+        catch OiOperatorStoryError.accessDenied {}
+    }
+
+    @MainActor func testOperatorEvidenceAnalysisUsesIDOnlyAndNeverApproves() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
+        await store.start()
+        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
+        XCTAssertTrue(backend.snapshot().analysisBodies.isEmpty)
+        let model = OiOperatorEvidenceAnalysisModel()
+        for verdict in ["suspicious", "no_obvious_signs", "inconclusive"] {
+            backend.configure { $0.analysisResult = analysisFixture(verdict: verdict) }
+            await model.analyze(row, using: store)
+            XCTAssertEqual(model.result?.assessment.verdict.rawValue, verdict)
+            XCTAssertNil(model.error)
+        }
+        let bodies = backend.snapshot().analysisBodies
+        XCTAssertEqual(bodies.count, 3)
+        XCTAssertTrue(bodies.allSatisfy { Set($0.keys) == ["evidence_id"] && $0["evidence_id"] as? String == row.id.uuidString.lowercased() })
+        XCTAssertEqual(backend.snapshot().evidence?["status"] as? String, "pending")
+        XCTAssertEqual(backend.snapshot().evidenceReviewCount, 0)
+        XCTAssertEqual(backend.snapshot().reviewCount, 0)
+        backend.configure { $0.evidence?["submitted_at"] = "2026-11-04T03:00:00Z" }
+        await model.revalidate(row, using: store)
+        XCTAssertNil(model.result); XCTAssertNotNil(model.error)
+    }
+
+    @MainActor func testOperatorEvidenceAnalysisErrorsAreDistinctAndDoNotRetry() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
+        await store.start()
+        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
+        let model = OiOperatorEvidenceAnalysisModel()
+        for (status, code, expected) in [(404, "NOT_FOUND", "배포"), (503, "analysis_not_configured", "설정"),
+                                         (429, "analysis_busy", "한도"), (504, "analysis_timeout", "초과"),
+                                         (422, "analysis_refused", "자료"), (502, "invalid_analysis_response", "완료하지 못"),
+                                         (409, "evidence_changed", "새로고침")] {
+            backend.configure { $0.analysisStatus = status; $0.analysisError = code }
+            let count = backend.snapshot().analysisBodies.count
+            await model.analyze(row, using: store)
+            XCTAssertNil(model.result); XCTAssertTrue(model.error?.contains(expected) == true, model.error ?? "No error")
+            XCTAssertEqual(backend.snapshot().analysisBodies.count, count + 1)
+        }
+    }
+
+    @MainActor func testOperatorEvidenceAnalysisRejectsStaleAndRevokedResults() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture(); $0.analysisResult = analysisFixture() }
+        await store.start()
+        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
+        let model = OiOperatorEvidenceAnalysisModel()
+        backend.configure { $0.changeEvidenceAfterAnalysis = true }
+        await model.analyze(row, using: store)
+        XCTAssertNil(model.result); XCTAssertNotNil(model.error)
+        backend.configure { $0.changeEvidenceAfterAnalysis = false; $0.evidence = evidenceFixture(); $0.revokeAfterAnalysis = true }
+        await model.analyze(row, using: store)
+        XCTAssertNil(model.result); XCTAssertFalse(store.isOperator)
+        XCTAssertEqual(backend.snapshot().evidenceReviewCount, 0)
+    }
+
+    @MainActor func testOperatorEvidenceAnalysisRejectsUnsafeOrMalformedContract() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
+        await store.start()
+        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
+        let model = OiOperatorEvidenceAnalysisModel()
+        for key in ["authenticity_verified", "human_review_required", "evidence_id", "sha256", "assessment"] {
+            var fixture = analysisFixture()
+            switch key {
+            case "authenticity_verified": fixture[key] = true
+            case "human_review_required": fixture[key] = false
+            case "evidence_id": fixture[key] = UUID().uuidString
+            default: fixture[key] = "invalid"
+            }
+            backend.configure { $0.analysisResult = fixture }
+            await model.analyze(row, using: store)
+            XCTAssertNil(model.result); XCTAssertNotNil(model.error)
+        }
+    }
+
+    @MainActor func testOperatorEvidenceAnalysisDuplicateInvalidationAndAccountChange() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture(); $0.analysisResult = analysisFixture() }
+        await store.start()
+        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
+        let model = OiOperatorEvidenceAnalysisModel()
+        let held = expectation(description: "analysis pending")
+        backend.configure { $0.holdAnalysis = true; $0.didHold = { held.fulfill() } }
+        let first = Task { await model.analyze(row, using: store) }
+        await fulfillment(of: [held], timeout: 5)
+        await model.analyze(row, using: store)
+        XCTAssertEqual(backend.snapshot().analysisBodies.count, 1)
+        model.invalidate()
+        await store.signOut()
+        backend.releaseHeldRead()
+        await first.value
+        XCTAssertNil(model.result); XCTAssertNil(model.error); XCTAssertFalse(model.isLoading)
+    }
+
+    @MainActor func testOperatorEvidenceAnalysisCancellationDoesNotCreateVerdict() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture(); $0.analysisResult = analysisFixture() }
+        await store.start()
+        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
+        let model = OiOperatorEvidenceAnalysisModel()
+        let held = expectation(description: "cancelable analysis")
+        backend.configure { $0.holdAnalysis = true; $0.didHold = { held.fulfill() } }
+        let request = Task { await model.analyze(row, using: store) }
+        await fulfillment(of: [held], timeout: 5)
+        request.cancel()
+        await request.value
+        backend.releaseHeldRead()
+        XCTAssertNil(model.result); XCTAssertNil(model.error); XCTAssertFalse(model.isLoading)
+        XCTAssertEqual(backend.snapshot().analysisBodies.count, 1)
+    }
+
+    @MainActor func testOperatorEvidenceSupplementScreenLayouts() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture(); $0.history = [historyFixture()] }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        for name in ["history", "history-empty", "history-error", "analysis-suspicious", "analysis-no_obvious_signs", "analysis-inconclusive", "analysis-accessibility"] {
+            backend.configure { $0.history = name == "history-empty" ? [] : [historyFixture()]; $0.failHistoryReads = name == "history-error" }
+            let view: AnyView
+            if name.hasPrefix("history") { view = AnyView(NavigationStack { OiOperatorEvidenceHistoryView(remote: store, evidenceID: OiTestBackend.grant) }) }
+            else {
+                let verdict = name == "analysis-accessibility" ? "suspicious" : String(name.dropFirst("analysis-".count))
+                let result = try decoder.decode(OiEvidenceAnalysis.self, from: JSONSerialization.data(withJSONObject: analysisFixture(verdict: verdict)))
+                view = AnyView(NavigationStack { List { Section("AI 참고 분석") { OiEvidenceAnalysisResultView(result: result) } }.navigationTitle("증빙 검토 상세") })
+            }
+            let window = UIWindow(windowScene: scene)
+            let controller = UIHostingController(rootView: view.environment(\.scenePhase, .active)
+                .environment(\.locale, Locale(identifier: "ko_KR"))
+                .environment(\.dynamicTypeSize, name.hasSuffix("accessibility") ? .accessibility5 : .large)
+                .preferredColorScheme(.light))
+            window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+            window.rootViewController = controller; window.makeKeyAndVisible()
+            try await Task.sleep(for: .milliseconds(400))
+            controller.view.layoutIfNeeded()
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+            }
+            let attachment = XCTAttachment(image: image); attachment.name = "operator-supplement-\(name)"; attachment.lifetime = .keepAlways; add(attachment)
+            window.isHidden = true; window.rootViewController = nil
+        }
+        XCTAssertTrue(backend.snapshot().analysisBodies.isEmpty, "Rendering never automatically calls AI")
+    }
+
     private func evidenceFixture(status: String = "pending") -> [String: Any] {
         ["id": OiTestBackend.grant.uuidString, "user_id": OiTestBackend.owner.uuidString,
          "storage_owner_id": OiTestBackend.owner.uuidString, "status": status,

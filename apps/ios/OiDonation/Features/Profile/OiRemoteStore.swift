@@ -4,7 +4,7 @@ import Foundation
 import Observation
 
 @MainActor @Observable
-final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing {
+final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, OiOperatorEvidenceHistoryServing, OiOperatorEvidenceAnalysisServing {
     private(set) var schools: [OiSchool] = []
     private(set) var regions: [OiRegion] = []
     private(set) var assets: [OiAsset] = []
@@ -316,6 +316,51 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing {
         } catch {
             if started == generation { noteAuthenticationFailure(error) }
             throw error
+        }
+    }
+
+    func operatorEvidenceHistory(_ id: UUID) async throws -> [OiEvidenceHistory] {
+        try await withOperatorSession { api, token in
+            try await api.rows("oi_evidence_history", query: "request_id=eq.\(id.uuidString)&order=recorded_at.desc,id.desc",
+                               token: token, as: OiEvidenceHistory.self).filter { $0.requestId == id }
+        }
+    }
+
+    func validateOperatorEvidence(_ snapshot: OiEvidence) async throws {
+        guard try await operatorEvidence(snapshot.id).evidence == snapshot else { throw OiServiceError.conflict }
+    }
+
+    func operatorEvidenceAnalysis(_ snapshot: OiEvidence) async throws -> OiEvidenceAnalysis {
+        let started = generation
+        guard snapshot.status == "pending" else { throw OiServiceError.conflict }
+        try await validateOperatorEvidence(snapshot)
+        let result = try await withOperatorSession { api, token in try await api.analyzeEvidence(snapshot, token: token) }
+        try await validateOperatorEvidence(snapshot)
+        guard generation == started else { throw OiServiceError.accountChanged }
+        return result
+    }
+
+    func operatorEvidenceHistoryDocument(_ snapshot: OiEvidenceHistory) async throws -> OiEvidenceDocument {
+        try await withOperatorSession { api, token in
+            func currentHistory() async throws -> OiEvidenceHistory {
+                let rows = try await api.rows("oi_evidence_history", query: "id=eq.\(snapshot.id.uuidString)&request_id=eq.\(snapshot.requestId.uuidString)",
+                                              token: token, as: OiEvidenceHistory.self)
+                guard rows.count == 1, let row = rows.first, row == snapshot else { throw OiServiceError.conflict }
+                return row
+            }
+            _ = try await currentHistory()
+            let requests = try await api.rows("oi_evidence_requests", query: "id=eq.\(snapshot.requestId.uuidString)", token: token, as: OiEvidence.self)
+            guard requests.count == 1, let request = requests.first, request.id == snapshot.requestId else { throw OiEvidenceReviewError.missing }
+            let parts = snapshot.objectPath.split(separator: "/", omittingEmptySubsequences: false)
+            guard parts.count == 3, UUID(uuidString: String(parts[0])) == (request.storageOwnerId ?? request.userId),
+                  UUID(uuidString: String(parts[1])) == request.id, !parts[2].isEmpty,
+                  ![".", ".."].contains(String(parts[2])),
+                  !snapshot.objectPath.contains(where: { "%?#\\".contains($0) || $0.asciiValue.map { $0 < 32 } == true })
+            else { throw OiEvidenceReviewError.invalidDocument }
+            let document = try await api.evidenceDocument(path: snapshot.objectPath, token: token)
+            _ = try await currentHistory()
+            guard try await api.capabilities(token: token).operator else { throw OiOperatorStoryError.accessDenied }
+            return document
         }
     }
 

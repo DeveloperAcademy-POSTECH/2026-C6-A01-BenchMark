@@ -94,6 +94,13 @@ struct OiOperatorEvidenceDetailView: View {
                     Text(viewed == row ? "현재 제출 원본을 확인했어요." : "원본을 열고 내용을 확인한 후 검토해 주세요.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
+                Section {
+                    NavigationLink("증빙 상태 변경 이력") {
+                        OiOperatorEvidenceHistoryView(remote: remote, evidenceID: row.id)
+                    }
+                }
+                OiOperatorEvidenceAnalysisSection(remote: remote, snapshot: row,
+                                                  blocked: model.isProcessing || model.requiresReload)
                 if ["pending", "approved"].contains(row.status) {
                     Section("증빙 검토") {
                         if row.status == "pending" {
@@ -138,7 +145,7 @@ struct OiOperatorEvidenceDetailView: View {
         .task(id: evidenceID) { await load() }
         .refreshable { await load() }
         .sheet(item: $original) { row in
-            OiEvidenceOriginalView(remote: remote, snapshot: row) { viewed = row }
+            OiEvidenceOriginalView(remote: remote, source: .submission(row)) { viewed = row }
         }
         .confirmationDialog("검토 결과를 저장할까요?", isPresented: $showingConfirmation, titleVisibility: .visible) {
             if let review = confirmation {
@@ -177,9 +184,13 @@ struct OiOperatorEvidenceDetailView: View {
     }
 }
 
-private struct OiEvidenceOriginalView: View {
+enum OiEvidenceOriginalSource {
+    case submission(OiEvidence), history(OiEvidenceHistory)
+}
+
+struct OiEvidenceOriginalView: View {
     let remote: OiRemoteStore
-    let snapshot: OiEvidence
+    let source: OiEvidenceOriginalSource
     let onViewed: () -> Void
     @State private var document: OiEvidenceDocument?
     @State private var error: String?
@@ -205,7 +216,9 @@ private struct OiEvidenceOriginalView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("닫기") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("원본 확인 완료") { onViewed(); dismiss() }.disabled(document == nil || phase != .active)
+                    if case .submission = source {
+                        Button("원본 확인 완료") { onViewed(); dismiss() }.disabled(document == nil || phase != .active)
+                    }
                 }
             }
         }
@@ -214,7 +227,11 @@ private struct OiEvidenceOriginalView: View {
             document = nil; error = nil; loading = true
             defer { loading = false }
             do {
-                let result = try await remote.operatorEvidenceDocument(snapshot)
+                let result: OiEvidenceDocument
+                switch source {
+                case .submission(let snapshot): result = try await remote.operatorEvidenceDocument(snapshot)
+                case .history(let snapshot): result = try await remote.operatorEvidenceHistoryDocument(snapshot)
+                }
                 try Task.checkCancellation()
                 guard phase == .active, owner == remote.account?.id, remote.isOperator, !remote.needsReauthentication else { return }
                 // Validate that the renderer can actually open the bytes before enabling confirmation.

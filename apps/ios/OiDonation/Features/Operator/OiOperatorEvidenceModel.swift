@@ -78,7 +78,7 @@ struct OiEvidenceReviewResult { let evidence: OiEvidence; let warning: String? }
 extension OiEvidence {
     var submittedDateLabel: String { Self.dateLabel(submittedAt) }
     var reviewedDateLabel: String { Self.dateLabel(reviewedAt) }
-    private static func dateLabel(_ value: String?) -> String {
+    static func dateLabel(_ value: String?) -> String {
         guard let value else { return "정보 없음" }
         let parser = ISO8601DateFormatter()
         parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
