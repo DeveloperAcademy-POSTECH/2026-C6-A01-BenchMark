@@ -37,16 +37,17 @@ struct OiSchoolEvidenceView: View {
     @State private var capturedPhoto: Data?
     @State private var cameraDenied = false
     @State private var selection: Selection?
-    @State private var review: OiSchoolEvidenceReview?
+    @State private var review: OiSavedSchoolEvidenceReview?
+    @State private var historyError: String?
     @State private var error: String?
 
     var body: some View {
         List {
             if remote.account != nil {
                 Section("학교 소속 증빙") {
-                    Text("학교명과 소속 표기가 보이는 증빙을 준비해 주세요. 사진을 고르거나 촬영하기 전에 이름·학번·얼굴 사진·바코드·QR을 가려 주세요.")
+                    Text("학생증 앞면, 재학증명서, 학교나 소속이 표시된 앱 프로필을 제출할 수 있어요. 학교명과 소속 표기는 남기고, 결제 카드번호·보안코드 등 소속 확인에 필요 없는 정보는 가려 주세요.")
                         .font(.footnote)
-                    Toggle("개인정보를 제거했고 선택한 파일의 OpenAI 전송에 동의합니다", isOn: $acknowledged)
+                    Toggle("선택한 증빙을 분석을 위해 OpenAI로 전송하는 데 동의합니다", isOn: $acknowledged)
                         .disabled(selection != nil)
                     Group {
                         Button("사진 보관함에서 선택", systemImage: "photo.on.rectangle") {
@@ -66,28 +67,24 @@ struct OiSchoolEvidenceView: View {
                         .foregroundStyle(.secondary)
                     if selection != nil { ProgressView("학교 증빙 분석 중") }
                     if let error { Text(error).foregroundStyle(.red) }
+                    if let historyError { Text(historyError).font(.footnote).foregroundStyle(.secondary) }
                 }
                 if let review {
-                    Section("AI 검토 결과") {
-                        Text(review.assessment.verdict.title).font(.headline)
-                        Text(review.assessment.readability.title)
-                        Text(review.notice).font(.footnote).foregroundStyle(.secondary)
-                        ForEach(Array(review.assessment.findings.enumerated()), id: \.offset) { _, finding in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(finding.location).font(.subheadline.bold())
-                                Text(finding.observation)
-                            }
+                    Section("최근 증빙 판정") {
+                        Text(review.summary.title)
+                            .font(.headline)
+                            .accessibilityIdentifier("oi.schoolEvidence.outcome")
+                        Text(review.summary.detail)
+                        Text(review.summary.nextStep).font(.subheadline)
+                        Label("제출자 본인 일치 미확인", systemImage: "person.crop.circle.badge.questionmark")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        if let reference = review.summary.reference, reference.url.scheme == "https" {
+                            Link(reference.title, destination: reference.url)
                         }
-                    }
-                    Section("판독 한계") {
-                        ForEach(Array(review.assessment.limitations.enumerated()), id: \.offset) { _, limitation in
-                            Text(limitation)
-                        }
-                    }
-                    Section("추가 확인 항목") {
-                        ForEach(Array(review.assessment.manualChecks.enumerated()), id: \.offset) { _, check in
-                            Text(check)
-                        }
+                        Text(review.reviewedAt, format: .dateTime.year().month().day().hour().minute())
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
             } else {
@@ -140,6 +137,10 @@ struct OiSchoolEvidenceView: View {
             await analyze(selection)
         }
         .onChange(of: remote.account?.id) { clear() }
+        .task(id: remote.account?.id) {
+            guard let owner = remote.account?.id else { return }
+            await loadReview(owner: owner)
+        }
     }
 
     private func openPicker(_ present: () -> Void) {
@@ -169,7 +170,6 @@ struct OiSchoolEvidenceView: View {
         guard acknowledged, selection == nil, let owner = pickerOwner, owner == remote.account?.id else { return }
         pickerOwner = nil
         acknowledged = false
-        review = nil
         error = nil
         selection = Selection(source: source, owner: owner)
     }
@@ -185,6 +185,7 @@ struct OiSchoolEvidenceView: View {
         cameraDenied = false
         selection = nil
         review = nil
+        historyError = nil
         error = nil
         acknowledged = false
     }
@@ -213,11 +214,33 @@ struct OiSchoolEvidenceView: View {
             guard selection?.id == input.id, remote.account?.id == input.owner else { return }
             let result = try await remote.reviewSchoolEvidence(data, contentType: mime)
             guard !Task.isCancelled, selection?.id == input.id else { return }
-            review = result
+            guard let summary = result.summary else {
+                throw OiServiceError.server("최신 증빙 판정을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.")
+            }
+            let saved = OiSavedSchoolEvidenceReview(summary: summary, reviewedAt: .now)
+            review = saved
+            historyError = nil
+            do {
+                try await remote.saveSchoolEvidenceReview(saved, owner: input.owner)
+            } catch {
+                guard !Task.isCancelled, remote.account?.id == input.owner else { return }
+                historyError = "이번 판정을 기기에 저장하지 못했어요."
+            }
         } catch {
             guard !Task.isCancelled, selection?.id == input.id else { return }
             self.error = (error as? OiServiceError)?.localizedDescription
                 ?? "파일이나 분석 응답을 읽지 못했어요. 파일 형식과 네트워크를 확인한 뒤 다시 시도해 주세요."
+        }
+    }
+
+    private func loadReview(owner: UUID) async {
+        do {
+            let saved = try await remote.localSchoolEvidenceReview(owner: owner)
+            guard !Task.isCancelled, remote.account?.id == owner, review == nil else { return }
+            review = saved
+        } catch {
+            guard !Task.isCancelled, remote.account?.id == owner, review == nil else { return }
+            historyError = "기기에 저장된 판정을 읽지 못했어요."
         }
     }
 
@@ -280,26 +303,6 @@ private struct SchoolEvidenceCamera: UIViewControllerRepresentable {
                 return
             }
             complete(.success(jpeg))
-        }
-    }
-}
-
-private extension OiSchoolEvidenceReview.Assessment.Verdict {
-    var title: String {
-        switch self {
-        case .suspicious: "의심 징후 있음"
-        case .noObviousSigns: "뚜렷한 징후 없음"
-        case .inconclusive: "판단 보류"
-        }
-    }
-}
-
-private extension OiSchoolEvidenceReview.Assessment.Readability {
-    var title: String {
-        switch self {
-        case .readable: "판독 가능"
-        case .limited: "일부 판독 가능"
-        case .unreadable: "판독 불가"
         }
     }
 }

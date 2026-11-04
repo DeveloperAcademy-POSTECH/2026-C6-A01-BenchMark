@@ -160,35 +160,29 @@ struct OiStoryDraft: Codable, Equatable {
 }
 
 struct OiSchoolEvidenceReview: Decodable {
-    struct Assessment: Decodable {
-        enum Verdict: String, Decodable {
-            case suspicious
-            case noObviousSigns = "no_obvious_signs"
-            case inconclusive
+    struct Summary: Codable {
+        struct Reference: Codable {
+            let title: String
+            let url: URL
         }
 
-        enum Readability: String, Decodable {
-            case readable, limited, unreadable
-        }
-
-        struct Finding: Decodable {
-            let location: String
-            let observation: String
-        }
-
-        let verdict: Verdict
-        let readability: Readability
-        let findings: [Finding]
-        let limitations: [String]
-        let manualChecks: [String]
+        let outcome: String
+        let title: String
+        let detail: String
+        let nextStep: String
+        let reference: Reference?
     }
 
     let reviewType: String
     let humanReviewRequired: Bool
     let affiliationVerified: Bool
     let authenticityVerified: Bool
-    let notice: String
-    let assessment: Assessment
+    let summary: Summary?
+}
+
+struct OiSavedSchoolEvidenceReview: Codable {
+    let summary: OiSchoolEvidenceReview.Summary
+    let reviewedAt: Date
 }
 
 enum OiServiceError: LocalizedError {

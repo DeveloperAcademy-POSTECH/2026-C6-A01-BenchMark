@@ -532,6 +532,18 @@ final class OiRemoteStore {
         guard account?.id == owner else { throw OiServiceError.accountChanged }; return data
     }
 
+    func localSchoolEvidenceReview(owner: UUID) async throws -> OiSavedSchoolEvidenceReview? {
+        guard account?.id == owner else { throw OiServiceError.accountChanged }
+        let review = try await drafts.schoolEvidenceReview(owner: owner)
+        guard account?.id == owner else { throw OiServiceError.accountChanged }
+        return review
+    }
+
+    func saveSchoolEvidenceReview(_ review: OiSavedSchoolEvidenceReview, owner: UUID) async throws {
+        guard account?.id == owner else { throw OiServiceError.accountChanged }
+        try await drafts.saveSchoolEvidenceReview(review, owner: owner)
+    }
+
     func reviewSchoolEvidence(_ data: Data, contentType: String) async throws -> OiSchoolEvidenceReview {
         guard let api else { throw OiServiceError.configuration }
         guard account != nil else { throw OiServiceError.signInRequired }
