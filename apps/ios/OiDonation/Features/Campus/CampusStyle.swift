@@ -60,28 +60,28 @@ struct CampusStoryRow: View {
     var showsDate = true
     var outlined = false
     var body: some View {
-        VStack(alignment: .trailing, spacing: 5) {
+        VStack(alignment: .trailing, spacing: 4) {
             HStack(spacing: 12) {
                 Image(story.portraitImage).resizable().scaledToFit().padding(4)
                     .frame(width: 86, height: 86)
                     .background(Color(white: 0.94), in: RoundedRectangle(cornerRadius: 16))
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 4) {
-                        Text(story.title).font(CampusStyle.characterTitle(20)).lineLimit(1).minimumScaleFactor(0.6)
-                        Spacer(minLength: 0)
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(story.title).font(CampusStyle.characterTitle(20)).tracking(0.8)
+                            .lineLimit(1).minimumScaleFactor(0.6).layoutPriority(1)
                         CampusTags(story: story, compact: true)
                     }
                     VStack(alignment: .leading, spacing: 2) {
                         Text("| " + story.donor)
                         Text("| " + story.location)
-                    }.font(CampusStyle.body(14)).lineSpacing(7).lineLimit(1).minimumScaleFactor(0.75)
+                    }.font(CampusStyle.body(14)).tracking(0.28).lineLimit(1).minimumScaleFactor(0.75)
                 }
             }
             .foregroundStyle(.black).padding(12).frame(maxWidth: .infinity, alignment: .leading)
             .background(.white, in: RoundedRectangle(cornerRadius: 28))
             .overlay(RoundedRectangle(cornerRadius: 28).stroke(outlined ? CampusStyle.secondaryAction : .clear, lineWidth: 1))
             if showsDate {
-                Text(story.date).font(CampusStyle.body(10)).foregroundStyle(Color(white: 152/255)).padding(.trailing, 20)
+                Text(story.date).font(CampusStyle.body(11)).foregroundStyle(Color(white: 152/255)).padding(.trailing, 20)
             }
         }.contentShape(Rectangle())
     }

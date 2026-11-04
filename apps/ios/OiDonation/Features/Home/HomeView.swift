@@ -15,6 +15,7 @@ struct HomeView: View {
     var onOpenExamples: (() -> Void)? = nil
     var onCloseExamples: (() -> Void)? = nil
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var scene = CampusExploreScene()
     @State private var region: CampusRegion?
     @State private var sort = CampusStorySort.latest
@@ -35,21 +36,10 @@ struct HomeView: View {
             ZStack {
                 CampusMapSurface(scene: scene).ignoresSafeArea().accessibilityHidden(expanded)
                 VStack {
-                    mapHeader.padding(.horizontal, 20).padding(.top, 4)
-                    if region == nil, let onOpenExamples {
-                        Button(action: onOpenExamples) {
-                            Label("예시 오이 둘러보기", systemImage: "leaf")
-                                .font(CampusStyle.body(13)).padding(.horizontal, 14).frame(height: 36)
-                                .background(.white.opacity(0.9), in: Capsule())
-                        }.buttonStyle(.plain).accessibilityIdentifier("campus.examples.open")
-                            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20)
-                    }
-                    if region == nil && scene.hasMovedFromOverview {
-                        searchAreaButton.padding(.top, 10)
-                    }
+                    mapHeader.padding(.horizontal, 20).padding(.top, region == nil ? 9 : 4)
                     Spacer()
                     if region == nil {
-                        if let remote, remote.isRefreshing || remote.loadError != nil || remote.syncWarning != nil || remote.needsReauthentication {
+                        if let remote, (remote.isRefreshing && !remote.hasLoadedRemote) || remote.loadError != nil || remote.syncWarning != nil || remote.needsReauthentication {
                             OiConnectionStatus(remote: remote).padding(10).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 20)
                         }
                         homeActions.padding(.leading, 22).padding(.trailing, 20).padding(.bottom, 0)
@@ -128,7 +118,22 @@ struct HomeView: View {
                 await scene.preparePlacements(); scene.checkPrecisePlacement()
             }
             if ProcessInfo.processInfo.arguments.contains("-campus-schools-preview") { showingSchools = true }
-            if ProcessInfo.processInfo.arguments.contains("-campus-region-preview"), let first = CampusRegion.campus.first { scene.onRegion?(first) }
+            if ProcessInfo.processInfo.arguments.contains("-campus-region-preview"), let first = CampusRegion.campus.first {
+                scene.onRegion?(first)
+                if ProcessInfo.processInfo.arguments.contains("-campus-expanded-preview") { expanded = true }
+                if ProcessInfo.processInfo.arguments.contains("-campus-list-motion-preview") {
+                    do {
+                        try await Task.sleep(for: .seconds(2))
+                        setListExpanded(true)
+                        try await Task.sleep(for: .seconds(2))
+                        setListExpanded(false)
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                        assertionFailure("Unexpected preview clock failure: \(error)")
+                    }
+                }
+            }
             #endif
         }
         .onAppear { isOnScreen = true; scene.setVisible(!isCameraCoverActive && scenePhase == .active) }
@@ -208,11 +213,20 @@ struct HomeView: View {
                 }.buttonStyle(.plain).accessibilityLabel("\(myDemo.nickname)의 농부 프로필")
                     .accessibilityIdentifier("campus.profile")
                 Button(action: onOpenProfile) {
-                    Image("CampusMyHouse").resizable().scaledToFit().padding(10)
+                    Circle()
+                        .fill(Color(red: 1, green: 247 / 255, blue: 219 / 255))
                         .frame(width: 100, height: 100)
-                        .background(Color(red: 1, green: 0.97, blue: 0.85), in: Circle())
-                        .overlay(Circle().stroke(Color(red: 0.64, green: 0.48, blue: 0.23), lineWidth: 2))
-                        .shadow(color: CampusStyle.mapAction.opacity(0.4), radius: 7, y: 3)
+                        .overlay {
+                            Image("CampusMyHouse").resizable().scaledToFit()
+                                .frame(width: 80, height: 80).offset(y: -3)
+                        }
+                        .clipShape(Circle())
+                        .overlay {
+                            Circle().strokeBorder(Color(red: 128 / 255, green: 99 / 255, blue: 33 / 255), lineWidth: 2)
+                                .frame(width: 104, height: 104)
+                        }
+                        .shadow(color: Color(red: 120 / 255, green: 77 / 255, blue: 25 / 255), radius: 7.5)
+                        .contentShape(Circle())
                 }.buttonStyle(.plain).accessibilityLabel("MY 작업실 열기").accessibilityIdentifier("campus.workshop")
             }.disabled(store.isExample)
             Spacer()
@@ -272,13 +286,6 @@ struct HomeView: View {
         onOpenStory(id)
     }
 
-    private var connectionLabel: String {
-        #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-campus-map-design-preview") { return "디자인 예시" }
-        #endif
-        return "연결 확인 필요"
-    }
-
     private var mapHeader: some View {
         HStack(alignment: .top) {
             if region != nil {
@@ -292,31 +299,37 @@ struct HomeView: View {
                 .buttonStyle(.plain).glassEffect(.regular.interactive(), in: Circle())
                 .accessibilityLabel("캠퍼스 전체 지도").accessibilityIdentifier("campus.overview")
                 Spacer()
-                if !expanded { searchAreaButton }
-                Spacer()
                 if let onCloseExamples {
                     Button("예시 닫기", action: onCloseExamples)
                         .font(.caption).buttonStyle(.glass).accessibilityIdentifier("campus.examples.close")
                 } else { Color.clear.frame(width: 50, height: 1) }
             } else {
                 Button { showingSchools = true } label: {
-                    HStack(spacing: 5) {
-                        Image("CampusSchoolIcon").renderingMode(.original).frame(width: 18, height: 18)
-                        Text("POSTECH").font(CampusStyle.semibold(18))
-                    }.frame(width: 154, height: 42)
+                    HStack(spacing: 8) {
+                        Image("CampusSchoolIcon").renderingMode(.original).frame(width: 16, height: 16)
+                        Text("POSTECH 농장").font(CampusStyle.semibold(18)).lineLimit(1).minimumScaleFactor(0.7)
+                    }.frame(width: 195, height: 42)
                 }
                 .buttonStyle(.plain).glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 20))
                 .accessibilityLabel("캠퍼스 선택").accessibilityIdentifier("campus.school")
+                .contextMenu {
+                    if let onAccount {
+                        Button(remote?.account == nil ? "로그인" : "계정", systemImage: "person.crop.circle", action: onAccount)
+                    }
+                    if let onOpenExamples {
+                        Button("예시 오이 둘러보기", systemImage: "leaf", action: onOpenExamples)
+                    }
+                }
                 Spacer()
-                if let remote {
-                    Button(action: { onAccount?() }) { Text(remote.account == nil ? "로그인" : "계정") }
-                        .buttonStyle(.glass).accessibilityIdentifier("oi.account")
-                } else if let onCloseExamples {
+                if let onCloseExamples {
                     Button("예시 닫기", action: onCloseExamples)
                         .buttonStyle(.glass).accessibilityIdentifier("campus.examples.close")
-                } else {
-                    Text(connectionLabel).font(.caption2).padding(7).background(.thinMaterial, in: Capsule())
                 }
+            }
+        }
+        .overlay(alignment: .top) {
+            if region != nil && !expanded {
+                searchAreaButton.alignmentGuide(.top) { ($0.height - 34) / 2 }.transition(.opacity)
             }
         }
     }
@@ -326,7 +339,7 @@ struct HomeView: View {
             HStack(spacing: 5) {
                 Image(systemName: "arrow.clockwise").font(.system(size: 13))
                 Text("이 지역 재검색").font(CampusStyle.body(15))
-            }.padding(.horizontal, 14).frame(height: 34)
+            }.padding(.horizontal, 16).frame(height: 34)
                 .background(.white.opacity(0.7), in: Capsule())
                 .frame(minHeight: 44)
                 .contentShape(Capsule())
@@ -338,8 +351,8 @@ struct HomeView: View {
                                   matching: searchResults, sortedBy: sort, distances: distances)
         // Figma: sheet starts at y=516 (collapsed) or y=130 (expanded) in an 874pt screen.
         let height = regionPanelHeight(availableHeight)
-        return VStack(spacing: 14) {
-            Button { withAnimation(.snappy) { expanded.toggle() } } label: {
+        return VStack(spacing: 9.5) {
+            Button { setListExpanded(!expanded) } label: {
                 HStack(spacing: 8) {
                     Image(systemName: expanded ? "xmark" : "list.star").font(.system(size: 16))
                     Text(expanded ? "목록닫기" : "목록보기").font(CampusStyle.body(16))
@@ -365,8 +378,9 @@ struct HomeView: View {
                         Button("인기순") { sort = .popular }
                     } label: {
                         Text("\(items.count)개").font(CampusStyle.medium(16)).tracking(0.32)
-                            .foregroundStyle(Color(red: 247/255, green: 1, blue: 234/255))
-                            .padding(.horizontal, 16).frame(height: 29).background(CampusStyle.green, in: Capsule())
+                            .foregroundStyle(Color(red: 112 / 255, green: 140 / 255, blue: 64 / 255))
+                            .padding(.horizontal, 16).frame(minWidth: 68).frame(height: 29)
+                            .background(CampusStyle.secondaryAction, in: Capsule())
                             .frame(minHeight: 44).contentShape(Capsule())
                     }.accessibilityLabel("오이 \(items.count)개, 다른 정렬")
                 }.padding(.vertical, -7.5)
@@ -400,11 +414,17 @@ struct HomeView: View {
             }
             .simultaneousGesture(DragGesture(minimumDistance: 30).onEnded { gesture in
                 guard abs(gesture.translation.height) > abs(gesture.translation.width) else { return }
-                withAnimation(.snappy) {
-                    if gesture.translation.height < -50 { expanded = true }
-                    else if gesture.translation.height > 50 && listIsAtTop { expanded = false }
-                }
+                if gesture.translation.height < -50 { setListExpanded(true) }
+                else if gesture.translation.height > 50 && listIsAtTop { setListExpanded(false) }
             })
         }
     }
+
+    private func setListExpanded(_ value: Bool) {
+        guard expanded != value else { return }
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.4)) {
+            expanded = value
+        }
+    }
+
 }
