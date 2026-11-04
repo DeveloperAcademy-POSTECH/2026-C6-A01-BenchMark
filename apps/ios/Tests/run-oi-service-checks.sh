@@ -7,6 +7,7 @@ xcrun swiftc -parse-as-library \
   "$IOS_ROOT/OiDonation/Data/Networking/APIClient.swift" \
   "$IOS_ROOT/OiDonation/Data/Networking/OiServiceModels.swift" \
   "$IOS_ROOT/OiDonation/Data/Networking/OiDraftVault.swift" \
+  "$IOS_ROOT/OiDonation/Data/Networking/OiWardrobeFieldTrial.swift" \
   "$IOS_ROOT/OiDonation/Data/Networking/OiServiceAPI.swift" \
   "$IOS_ROOT/OiDonation/Features/Profile/Creation/OiCreationPresentation.swift" \
   "$IOS_ROOT/Tests/OiServiceChecks.swift" -o "$CHECK_DIR/checks"

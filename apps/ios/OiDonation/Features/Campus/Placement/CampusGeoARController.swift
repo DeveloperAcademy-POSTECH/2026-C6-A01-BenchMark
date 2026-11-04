@@ -19,6 +19,7 @@ import Observation
     @ObservationIgnored private var geoAnchor: ARGeoAnchor?
     @ObservationIgnored private var location: CampusGeoLocation?
     private var placement: CampusPlacement?
+    private var isWardrobeTest = false
     private var active = false
     private var localized = false
     private var interrupted = false
@@ -36,9 +37,9 @@ import Observation
         return result
     }
 
-    func start(_ placement: CampusPlacement, location: CampusGeoLocation) async {
+    func start(_ placement: CampusPlacement, location: CampusGeoLocation, wardrobe: OiWardrobeLook? = nil) async {
         stop()
-        self.placement = placement; self.location = location
+        self.placement = placement; self.location = location; isWardrobeTest = wardrobe != nil
         mode = .preparing; message = "카메라 권한과 모델을 확인하고 있어요."
         guard ARWorldTrackingConfiguration.isSupported else {
             message = "현장 AR은 ARKit을 지원하는 실제 iPhone에서 사용할 수 있어요."; return
@@ -49,10 +50,12 @@ import Observation
         guard token == generation, !Task.isCancelled else { return }
         guard allowed else { message = "설정에서 카메라 권한을 허용한 뒤 다시 시도해 주세요."; return }
         do {
-            let entity = try await CampusOiAsset.load()
+            let entity: Entity
+            if let wardrobe { entity = try await OiWardrobeAsset.loadForPlacement(wardrobe) }
+            else { entity = try await CampusOiAsset.load() }
             guard token == generation, !Task.isCancelled else { return }
             entity.name = "campus-geo-oi"
-            entity.scale = SIMD3(repeating: Float(placement.heightMeters))
+            entity.scale = SIMD3(repeating: wardrobe == nil ? Float(placement.heightMeters) : 1)
             entity.orientation = CampusOiAsset.heading(placement.headingDegrees)
             character = entity
         } catch {
@@ -127,7 +130,7 @@ import Observation
         guard let character, let view else { return }
         character.removeFromParent(); anchor.addChild(character)
         view.scene.addAnchor(anchor); self.anchor = anchor; placed = true
-        message = "오이를 누르면 연결된 이야기가 열려요. 실제 발 위치와 주변을 확인해 주세요."
+        message = isWardrobeTest ? "150cm 커스텀 오이 · 발 위치와 옷 디자인을 확인해 주세요." : "오이를 누르면 연결된 이야기가 열려요. 실제 발 위치와 주변을 확인해 주세요."
     }
     private func update(_ frame: ARFrame) {
         guard active, !interrupted, !failed, frame.timestamp - lastFrameCheck > 0.5 else { return }
@@ -140,7 +143,7 @@ import Observation
             message = !positionReady ? "목표 25m 안에서 GPS 오차가 15m 이하인 최신 위치를 기다리고 있어요." : "주변을 천천히 비춰 카메라 추적과 위치 보정을 안정시켜 주세요."
             return
         }
-        if placed { message = "오이를 눌러 이야기 보기 · \(mode.rawValue)"; return }
+        if placed { message = isWardrobeTest ? "150cm 커스텀 오이 · \(mode.rawValue)" : "오이를 눌러 이야기 보기 · \(mode.rawValue)"; return }
         guard let view, let placement else { return }
         if mode == .geographic {
             // No altitude: let ARKit resolve ground level, never use the approximate mesh elevation.

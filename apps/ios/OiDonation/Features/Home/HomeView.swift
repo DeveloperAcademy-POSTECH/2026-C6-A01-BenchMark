@@ -30,6 +30,7 @@ struct HomeView: View {
     @State private var pendingStoryID: String?
     @State private var showingRequests = false
     @State private var listIsAtTop = true
+    @State private var showingWardrobeTest = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -80,6 +81,7 @@ struct HomeView: View {
             case .school(let school): MYCollectionView(demo: myDemo, school: school, storyRepository: container.storyRepository, remote: remote)
             }
         }
+        .navigationDestination(isPresented: $showingWardrobeTest) { OiWardrobeFieldTestScreen() }
         .sheet(isPresented: $showingSchools) {
             CampusSchoolSearchView {
                 showingSchools = false; region = nil; expanded = false; searchResults = nil
@@ -319,6 +321,9 @@ struct HomeView: View {
                     if let onOpenExamples {
                         Button("예시 오이 둘러보기", systemImage: "leaf", action: onOpenExamples)
                     }
+                    Button("내 오이 현장 테스트", systemImage: "mappin.and.ellipse") {
+                        showingWardrobeTest = true
+                    }.accessibilityIdentifier("campus.wardrobeTest.open")
                 }
                 Spacer()
                 if let onCloseExamples {

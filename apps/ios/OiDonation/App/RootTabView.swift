@@ -36,7 +36,11 @@ struct RootTabView: View {
 
     @ViewBuilder private var regularContent: some View {
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-story-creation-preview") {
+        if ProcessInfo.processInfo.arguments.contains("-wardrobe-field-check") {
+            NavigationStack { OiWardrobeFieldTestScreen(initialLook: OiWardrobeFieldChecks.previewLook) }
+        } else if ProcessInfo.processInfo.arguments.contains("-wardrobe-preview") {
+            OiWardrobePreviewHost()
+        } else if ProcessInfo.processInfo.arguments.contains("-story-creation-preview") {
             OiCreationPreviewHost()
         } else if ProcessInfo.processInfo.arguments.contains("-campus-map-design-preview") {
             CampusMapPreviewHost()
