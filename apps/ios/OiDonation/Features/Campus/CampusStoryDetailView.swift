@@ -67,10 +67,16 @@ struct CampusStoryDetailView: View {
     private var heading: some View {
         VStack(alignment: .leading, spacing: 12) {
             if story.isExample { CampusExampleBadge() }
-            HStack(spacing: 6) {
-                Text(story.title).font(CampusStyle.characterTitle(35)).tracking(1.4).lineLimit(1).minimumScaleFactor(0.7)
-                Spacer(minLength: 1)
-                CampusTags(story: story, size: 18)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    storyTitle.fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 1)
+                    CampusTags(story: story, size: 18).fixedSize(horizontal: true, vertical: false)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    storyTitle
+                    CampusTags(story: story, size: 18)
+                }
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text("위치 | \(story.location)")
@@ -79,12 +85,18 @@ struct CampusStoryDetailView: View {
         }
     }
 
+    private var storyTitle: some View {
+        Text(story.title).font(CampusStyle.characterTitle(35)).tracking(1.4)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityAddTraits(.isHeader)
+    }
+
     private var storyBlock: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionTitle("기부자 스토리")
             VStack(alignment: .leading, spacing: 24) {
-                if !story.excerpt.isEmpty {
-                    Text(story.excerpt).font(CampusStyle.body(16)).lineSpacing(3)
+                if let introduction = story.example?.introduction, !introduction.isEmpty {
+                    Text(introduction).font(CampusStyle.body(16)).lineSpacing(3)
                 }
                 if story.body.isEmpty {
                     Text("아직 작성된 이야기가 없어요.").font(CampusStyle.body(14)).foregroundStyle(.secondary)

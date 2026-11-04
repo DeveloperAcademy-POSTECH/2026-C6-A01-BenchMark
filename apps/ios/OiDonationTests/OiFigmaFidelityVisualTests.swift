@@ -29,6 +29,32 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         ]
     }
 
+    func testMYHouseArtworkDoesNotRevealImageMatte() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let variant = Variant(name: "124x124", size: CGSize(width: 124, height: 124), dynamicTypeSize: .large)
+        for isPressed in [false, true] {
+            let artwork = CampusMyHouseButtonStyle().makeBody(label: CampusMyHouseButtonArtwork(), isPressed: isPressed)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(red: 0.74, green: 0.82, blue: 0.66))
+            let png = try await capture(artwork, name: isPressed ? "my-house-pressed" : "my-house-idle",
+                                        variant: variant, defaults: fixture.defaults, includesSafeArea: false)
+            let bitmap = try renderedBitmap(png, size: variant.size)
+            let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: 124 * 124 * 4)
+            for y in [40, 82] {
+                // Both samples are inside the circle, on opposite sides of the PNG's left edge.
+                let outside = (y * 124 + 21) * 4
+                let inside = (y * 124 + 23) * 4
+                XCTAssertGreaterThan(Int(pixels[outside]) - Int(pixels[0]), 30,
+                                     "The sampled edge must be within the cream button, not the page background")
+                for channel in 0..<3 {
+                    XCTAssertLessThanOrEqual(abs(Int(pixels[outside + channel]) - Int(pixels[inside + channel])), 8,
+                                             "The source image matte must blend through its edge (pressed: \(isPressed))")
+                }
+            }
+        }
+    }
+
     func testStoryWritingCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
@@ -189,8 +215,10 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(MYFarmerAppearanceStore.read(ownerID: nil, defaults: restoredDefaults), .classic)
     }
 
+    @discardableResult
     private func capture<V: View>(_ view: V, name: String, variant: Variant, defaults: UserDefaults,
-                                 delay: Duration = .milliseconds(180)) async throws {
+                                 includesSafeArea: Bool = true,
+                                 delay: Duration = .milliseconds(180)) async throws -> Data {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first, "The isolated simulator test host must have a window scene")
@@ -202,6 +230,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             .environment(\.dynamicTypeSize, variant.dynamicTypeSize)
             .environment(\.colorScheme, .light)
             .defaultAppStorage(defaults))
+        if !includesSafeArea { host.safeAreaRegions = [] }
         window.frame = CGRect(origin: .zero, size: variant.size)
         window.overrideUserInterfaceStyle = .light
         window.rootViewController = root
@@ -252,6 +281,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         try png.write(to: output, options: .atomic)
         XCTAssertEqual(try Data(contentsOf: output).count, png.count, "The saved capture must contain the rendered PNG")
         print("Figma132 capture: \(output.path)")
+        return png
     }
 
     private func releaseCampusRenderers(in view: UIView) {
@@ -263,6 +293,20 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     }
 
     private func assertNonemptyRender(_ data: Data, size: CGSize) throws {
+        let context = try renderedBitmap(data, size: size)
+        let bytes = try XCTUnwrap(context.data).bindMemory(to: UInt8.self, capacity: context.width * context.height * 4)
+        var colors = Set<UInt32>()
+        for y in stride(from: 0, to: context.height, by: 8) {
+            for x in stride(from: 0, to: context.width, by: 8) {
+                let offset = (y * context.width + x) * 4
+                colors.insert(UInt32(bytes[offset]) << 24 | UInt32(bytes[offset + 1]) << 16
+                    | UInt32(bytes[offset + 2]) << 8 | UInt32(bytes[offset + 3]))
+            }
+        }
+        XCTAssertGreaterThan(colors.count, 8, "A blank or uniform host is not a valid capture of these views")
+    }
+
+    private func renderedBitmap(_ data: Data, size: CGSize) throws -> CGContext {
         let image = try XCTUnwrap(UIImage(data: data)?.cgImage)
         XCTAssertEqual(image.width, Int(size.width))
         XCTAssertEqual(image.height, Int(size.height))
@@ -270,16 +314,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
         context.draw(image, in: CGRect(origin: .zero, size: size))
-        let bytes = try XCTUnwrap(context.data).bindMemory(to: UInt8.self, capacity: image.width * image.height * 4)
-        var colors = Set<UInt32>()
-        for y in stride(from: 0, to: image.height, by: 8) {
-            for x in stride(from: 0, to: image.width, by: 8) {
-                let offset = (y * image.width + x) * 4
-                colors.insert(UInt32(bytes[offset]) << 24 | UInt32(bytes[offset + 1]) << 16
-                    | UInt32(bytes[offset + 2]) << 8 | UInt32(bytes[offset + 3]))
-            }
-        }
-        XCTAssertGreaterThan(colors.count, 8, "A blank or uniform host is not a valid capture of these views")
+        return context
     }
 
     private func isolatedDefaults() throws -> (name: String, defaults: UserDefaults) {

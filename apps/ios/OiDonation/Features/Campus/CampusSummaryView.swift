@@ -8,6 +8,7 @@ struct CampusSummaryView: View {
     @State private var showingCard = false
     @State private var mapLoadAttempt = 0
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         GeometryReader { geometry in
@@ -16,9 +17,12 @@ struct CampusSummaryView: View {
                 if scene.isLoading { ProgressView().frame(maxHeight: .infinity, alignment: .top) }
                 ScrollView {
                     VStack(spacing: 34) {
-                        HStack(alignment: .center, spacing: -14) {
+                        let expanded = dynamicTypeSize.isAccessibilitySize
+                        let summaryLayout = expanded ? AnyLayout(VStackLayout(spacing: 12))
+                            : AnyLayout(HStackLayout(alignment: .center, spacing: -14))
+                        summaryLayout {
                             Image(story.portraitImage).resizable().scaledToFit().scaleEffect(1.18)
-                                .frame(width: max(100, (geometry.size.width - 40) * 0.46), height: 307)
+                                .frame(width: max(100, (geometry.size.width - 40) * 0.46), height: expanded ? 190 : 307)
                                 .accessibilityHidden(true)
                             summary.frame(maxWidth: .infinity)
                         }
@@ -82,7 +86,8 @@ struct CampusSummaryView: View {
                 if story.isExample { CampusExampleBadge() }
                 VStack(alignment: .leading, spacing: 5) {
                     Text(story.title).font(CampusStyle.characterTitle(28)).tracking(1.12)
-                        .lineLimit(1).minimumScaleFactor(0.6)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.isHeader)
                     CampusTags(story: story)
                 }
                 VStack(alignment: .leading, spacing: 6) {
@@ -98,7 +103,7 @@ struct CampusSummaryView: View {
                         .background(CampusStyle.secondaryAction, in: RoundedRectangle(cornerRadius: 20))
                 }.buttonStyle(.plain).accessibilityIdentifier("campus.details")
                     .shadow(color: CampusStyle.green.opacity(0.35), radius: 4, y: 2)
-                CampusCollectButton(story: story, store: store, fill: CampusStyle.summaryAction)
+                CampusCollectButton(story: story, store: store)
                     .shadow(color: CampusStyle.summaryAction.opacity(0.35), radius: 4, y: 2)
             }
         }.padding(20).foregroundStyle(.black)
