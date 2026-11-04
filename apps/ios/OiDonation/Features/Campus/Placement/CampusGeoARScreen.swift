@@ -112,9 +112,15 @@ struct CampusGeoARScreen: View {
                                 // Keep related stories in this sheet without starting a second 3D renderer over AR.
                                 switch destination {
                                 case .summary(let id), .story(let id):
-                                    if let related = stories.story(id) { CampusStoryDetailView(story: related, store: stories) }
+                                    if let related = stories.story(id) {
+                                        CampusStoryDetailView(story: related, store: stories)
+                                    } else {
+                                        ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc")
+                                    }
                                 }
                             }
+                    } else {
+                        ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc")
                     }
                 }
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("AR로 돌아가기") { showingStory = false } } }

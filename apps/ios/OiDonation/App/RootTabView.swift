@@ -46,9 +46,15 @@ struct RootTabView: View {
                                     }
                                 }
                             }
+                    } else {
+                        ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc")
                     }
                 case .story(let id):
-                    if let story = store.story(id) { CampusStoryDetailView(story: story, store: store) }
+                    if let story = store.story(id) {
+                        CampusStoryDetailView(story: story, store: store)
+                    } else {
+                        ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc")
+                    }
                 }
             }
             .navigationDestination(for: PublicLinkParser.Destination.self) { publicDestination($0) }

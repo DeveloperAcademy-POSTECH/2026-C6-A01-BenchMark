@@ -28,6 +28,7 @@ struct CampusSearchView: View {
     let mode: CampusSearchMode
     let entries: [CampusSearchEntry]
     let isExample: Bool
+    var remote: OiRemoteStore? = nil
     let onSelect: (CampusSearchEntry) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var query = CampusSearchQuery()
@@ -63,15 +64,23 @@ struct CampusSearchView: View {
                             .accessibilityIdentifier("campus.search.query")
                     }
                     LazyVStack(spacing: 14) {
-                        ForEach(results) { entry in
-                            Button { focused = false; onSelect(entry) } label: {
-                                CampusStoryRow(story: entry.story, showsDate: false, outlined: true)
-                            }.buttonStyle(.plain).accessibilityIdentifier("campus.search.result.\(entry.id)")
-                        }
-                        if results.isEmpty && hasSearched {
-                            ContentUnavailableView.search(text: mode == .donor ? "입력한 조건" : query.text)
-                        } else if entries.isEmpty {
-                            ContentUnavailableView("아직 공개된 오이가 없어요", systemImage: "leaf", description: Text("캠퍼스에 이야기가 올라오면 이곳에서 찾을 수 있어요."))
+                        if let remote, !remote.hasLoadedRemote {
+                            if remote.isRefreshing || remote.isBusy || remote.loadError == nil {
+                                ProgressView().accessibilityLabel("이야기 불러오는 중")
+                            } else {
+                                OiConnectionStatus(remote: remote, showsInitialProgress: false)
+                            }
+                        } else {
+                            ForEach(results) { entry in
+                                Button { focused = false; onSelect(entry) } label: {
+                                    CampusStoryRow(story: entry.story, showsDate: false, outlined: true)
+                                }.buttonStyle(.plain).accessibilityIdentifier("campus.search.result.\(entry.id)")
+                            }
+                            if results.isEmpty && hasSearched {
+                                ContentUnavailableView.search(text: mode == .donor ? "입력한 조건" : query.text)
+                            } else if entries.isEmpty {
+                                ContentUnavailableView("아직 공개된 오이가 없어요", systemImage: "leaf", description: Text("캠퍼스에 이야기가 올라오면 이곳에서 찾을 수 있어요."))
+                            }
                         }
                     }
                     if isExample {

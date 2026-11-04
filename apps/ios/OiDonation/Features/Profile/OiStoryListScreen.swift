@@ -26,8 +26,7 @@ struct OiStoryListScreen: View {
             guidance: "작성 승인을 받은 뒤 오이와 이야기를 심어보세요",
             onRetry: { Task { await remote.refresh(); await loadLocalDrafts() } },
             onSelectStory: selectStory,
-            onCreateStory: beginCreatingStory,
-            onUseTicket: beginCreatingStory
+            onCreateStory: beginCreatingStory
         )
         .task(id: DraftLoadKey(owner: remote.account?.id, revision: remote.revision)) {
             await loadLocalDrafts()

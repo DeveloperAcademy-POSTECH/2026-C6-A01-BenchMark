@@ -299,12 +299,12 @@ struct OiStoryListView: View {
             if usesAccessibilityLayout {
                 VStack(spacing: 12) {
                     createStoryFooterButton
-                    useTicketFooterButton
+                    if onUseTicket != nil { useTicketFooterButton }
                 }
             } else {
                 HStack(spacing: 20) {
                     createStoryFooterButton
-                    useTicketFooterButton
+                    if onUseTicket != nil { useTicketFooterButton }
                 }
             }
         }

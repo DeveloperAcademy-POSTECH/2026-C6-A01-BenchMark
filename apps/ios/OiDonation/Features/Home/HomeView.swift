@@ -99,7 +99,7 @@ struct HomeView: View {
             // Push only after the search cover has gone, so it cannot cover the destination.
             if let id = pendingStoryID { pendingStoryID = nil; openStory(id) }
         }) { mode in
-            CampusSearchView(mode: mode, entries: searchEntries, isExample: store.isExample) {
+            CampusSearchView(mode: mode, entries: searchEntries, isExample: store.isExample, remote: remote) {
                 pendingStoryID = $0.id; searchMode = nil
             }
         }

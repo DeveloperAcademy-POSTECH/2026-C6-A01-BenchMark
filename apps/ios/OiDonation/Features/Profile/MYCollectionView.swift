@@ -55,14 +55,16 @@ struct MYCollectionView: View {
                     collectedSection
                 }
                 if let remote, !remote.hasLoadedRemote {
-                    if remote.loadError == nil || remote.isRefreshing { ProgressView().accessibilityLabel("도감을 불러오는 중") }
+                    if !isLoadingCollectedSection && (remote.loadError == nil || remote.isRefreshing) {
+                        ProgressView().accessibilityLabel("도감을 불러오는 중")
+                    }
                 } else if showsFolders && !schools.isEmpty {
                     schoolFolders
-                } else if cards.isEmpty {
-                    ContentUnavailableView(pinnedOnly ? "즐겨찾는 오이가 없어요" : "아직 수집한 카드가 없어요", systemImage: pinnedOnly ? "pin" : "leaf", description: Text(pinnedOnly ? "카드 확대 화면의 핀을 눌러 이 화면에 모아보세요." : "로그인 후 캠퍼스의 공개 오이 이야기를 수집해 보세요."))
-                        .padding(.top, 60)
-                } else {
+                } else if !cards.isEmpty {
                     cardGrid
+                } else if !shouldShowCollectedSection {
+                    ContentUnavailableView(pinnedOnly ? "즐겨찾는 오이가 없어요" : "아직 수집한 카드가 없어요", systemImage: pinnedOnly ? "pin" : "leaf", description: Text(emptyCollectionGuidance))
+                        .padding(.top, 60)
                 }
             }.scrollIndicators(.hidden)
         }
@@ -101,8 +103,19 @@ struct MYCollectionView: View {
         }
     }
 
+    private var emptyCollectionGuidance: String {
+        if pinnedOnly { return "카드 확대 화면의 핀을 눌러 이 화면에 모아보세요." }
+        if remote?.account == nil { return "로그인 후 캠퍼스의 공개 오이 이야기를 수집해 보세요." }
+        return "캠퍼스의 공개 오이 이야기를 수집해 보세요."
+    }
+
     private var shouldShowCollectedSection: Bool {
         school == nil && filter == .all && !pinnedOnly && !collectedLibrary.records.isEmpty
+    }
+
+    private var isLoadingCollectedSection: Bool {
+        shouldShowCollectedSection && (collectedLibrary.isLoading ||
+            (collectedLibrary.items.isEmpty && collectedLibrary.unavailableRecords.isEmpty))
     }
 
     private var collectedSection: some View {
@@ -111,9 +124,10 @@ struct MYCollectionView: View {
                 Text("App Clip에서 수집한 카드")
                     .font(.custom("Paperlogy-8ExtraBold", size: 19, relativeTo: .headline))
                 Spacer()
-                if collectedLibrary.isLoading {
+                if isLoadingCollectedSection {
                     ProgressView()
                         .controlSize(.small)
+                        .accessibilityLabel("App Clip 카드 불러오는 중")
                 }
             }
 
