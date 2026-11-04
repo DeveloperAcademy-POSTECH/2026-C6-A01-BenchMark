@@ -4,7 +4,7 @@ import Foundation
 import Observation
 
 @MainActor @Observable
-final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, OiOperatorEvidenceHistoryServing, OiOperatorEvidenceAnalysisServing {
+final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, OiOperatorEvidenceHistoryServing, OiOperatorEvidenceAnalysisServing, OiOperatorAuditServing {
     private(set) var schools: [OiSchool] = []
     private(set) var regions: [OiRegion] = []
     private(set) var assets: [OiAsset] = []
@@ -324,6 +324,10 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
             try await api.rows("oi_evidence_history", query: "request_id=eq.\(id.uuidString)&order=recorded_at.desc,id.desc",
                                token: token, as: OiEvidenceHistory.self).filter { $0.requestId == id }
         }
+    }
+
+    func operatorAudit(_ query: OiAuditQuery, after cursor: OiAuditCursor?) async throws -> OiAuditPage {
+        try await withOperatorSession { api, token in try await api.operatorAudit(query, after: cursor, token: token) }
     }
 
     func validateOperatorEvidence(_ snapshot: OiEvidence) async throws {

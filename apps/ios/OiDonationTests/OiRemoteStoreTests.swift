@@ -53,6 +53,10 @@ final class OiTestBackend {
         var holdAnalysis = false
         var changeEvidenceAfterAnalysis = false
         var revokeAfterAnalysis = false
+        var auditRecords: [[String: Any]] = []
+        var auditBodies: [[String: Any]] = []
+        var auditStatus = 200
+        var holdAuditRead = false
         var failRefreshToken = false
         var failLogout = false
         var logoutScopes: [String?] = []
@@ -79,7 +83,7 @@ final class OiTestBackend {
     func snapshot() -> State { lock.lock(); defer { lock.unlock() }; return state }
     func releaseHeldRead() {
         let value = snapshot().held
-        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false; $0.holdReviewResponse = false; $0.holdEvidenceRead = false; $0.holdHistoryRead = false; $0.holdAnalysis = false }
+        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false; $0.holdReviewResponse = false; $0.holdEvidenceRead = false; $0.holdHistoryRead = false; $0.holdAnalysis = false; $0.holdAuditRead = false }
         value?.0.respond(200, value?.1 ?? Data())
     }
     func install() { OiStoreURLProtocol.handle = { [weak self] request, client in self?.receive(request, client: client) } }
@@ -209,6 +213,39 @@ final class OiTestBackend {
                 result = state.evidence ?? [:]
                 if state.loseEvidenceResponse { status = 503; state.loseEvidenceResponse = false }
             } else { result = ["id":payload["id"] ?? ""] }
+        } else if path.hasSuffix("/rpc/oi_operator_audit") {
+            state.auditBodies.append(body); status = state.auditStatus
+            if !state.isOperator { status = 403 }
+            let parser = ISO8601DateFormatter()
+            func date(_ value: String?) -> Date? {
+                guard let value else { return nil }
+                parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                if let date = parser.date(from: value) { return date }
+                parser.formatOptions = [.withInternetDateTime]
+                return parser.date(from: value)
+            }
+            let from = date(body["p_from"] as? String) ?? .distantPast
+            let until = date(body["p_until"] as? String) ?? .distantFuture
+            let cursorAt = date(body["p_cursor_at"] as? String)
+            let cursorID = Int64(body["p_cursor_id"] as? String ?? "") ?? .max
+            let category = body["p_category"] as? String ?? "all"
+            let limit = body["p_limit"] as? Int ?? 50
+            let matches = state.auditRecords.filter { row in
+                guard let created = date(row["created_at"] as? String) else { return false }
+                let id = Int64(row["id"] as? String ?? "") ?? 0
+                let action = row["action"] as? String ?? ""
+                let categoryMatches = category == "all" || category == "evidence" && action.hasPrefix("review_evidence:") ||
+                    category == "stories" && action == "review_story" || category == "accounts" && action == "merge_accounts"
+                let before = cursorAt.map { created < $0 || created == $0 && id < cursorID } ?? true
+                return created >= from && created < until && categoryMatches && before
+            }.sorted {
+                (date($0["created_at"] as? String) ?? .distantPast, Int64($0["id"] as? String ?? "") ?? 0) >
+                (date($1["created_at"] as? String) ?? .distantPast, Int64($1["id"] as? String ?? "") ?? 0)
+            }
+            let page = Array(matches.prefix(limit))
+            var cursor: Any = NSNull()
+            if matches.count > limit, let last = page.last { cursor = ["id": last["id"] ?? "", "created_at": last["created_at"] ?? ""] }
+            result = ["records": page, "next_cursor": cursor]
         } else if path.hasSuffix("/rpc/oi_capabilities") {
             if state.failCapabilities { status = 503 }
             var capabilities: [String:Any] = ["operator":state.isOperator,"coins_enabled":false]
@@ -283,6 +320,7 @@ final class OiTestBackend {
             || (path.hasSuffix("/oi_evidence_requests") && state.holdEvidenceRead)
             || (path.hasSuffix("/oi_evidence_history") && state.holdHistoryRead)
             || (path == "/functions/v1/analyze-evidence" && state.holdAnalysis)
+            || (path.hasSuffix("/rpc/oi_operator_audit") && state.holdAuditRead)
             || (path.hasSuffix("/rpc/oi_capabilities") && state.holdPostMergeRead && state.mergeConfirmCount > 0) {
             state.held = (client,data)
             let notify = state.didHold
@@ -322,6 +360,161 @@ final class OiControlledAuthentication: OiAuthenticating {
 }
 
 final class OiRemoteStoreTests: XCTestCase {
+    private func auditFixture(_ id: Int) -> [String: Any] {
+        ["id": String(9_007_199_254_740_990 + id), "actor_id": OiTestBackend.owner.uuidString,
+         "action": id % 2 == 0 ? "review_evidence:approved" : "review_story",
+         "target_id": OiTestBackend.grant.uuidString, "created_at": "2026-11-04T00:00:00Z"]
+    }
+    @MainActor private func auditQuery(_ category: OiAuditCategory = .all) throws -> OiAuditQuery {
+        let parser = ISO8601DateFormatter()
+        return try OiAuditQuery(from: XCTUnwrap(parser.date(from: "2026-11-03T00:00:00Z")),
+                               until: XCTUnwrap(parser.date(from: "2026-11-05T00:00:00Z")), category: category)
+    }
+
+    @MainActor func testOperatorAuditPagesKeepCursorAndApplyCategory() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.auditRecords = (1...52).map(auditFixture) }
+        await store.start()
+        let model = OiOperatorAuditModel()
+        await model.reload(try auditQuery(), using: store)
+        XCTAssertEqual(model.records.count, 50); XCTAssertNotNil(model.nextCursor)
+        XCTAssertEqual(model.records.first?.id, "9007199254741042")
+        XCTAssertEqual(backend.snapshot().auditBodies.count, 1, "Do not automatically fetch every page")
+        backend.configure { $0.auditRecords.append(auditFixture(53)) }
+        await model.loadMore(using: store)
+        XCTAssertEqual(model.records.count, 52); XCTAssertNil(model.nextCursor)
+        XCTAssertEqual(Set(model.records.map(\.id)).count, 52)
+        let body = try XCTUnwrap(backend.snapshot().auditBodies.last)
+        XCTAssertEqual(body["p_limit"] as? Int, 50)
+        XCTAssertNotNil(body["p_cursor_at"]); XCTAssertNotNil(body["p_cursor_id"] as? String)
+        await model.reload(try auditQuery(.evidence), using: store)
+        XCTAssertEqual(model.records.count, 26)
+        XCTAssertTrue(model.records.allSatisfy { $0.action == "review_evidence:approved" })
+        XCTAssertNil(backend.snapshot().auditBodies.last?["p_cursor_id"])
+        XCTAssertNil(model.error)
+    }
+
+    @MainActor func testOperatorAuditPageFailureRetryMissingRPCAndRights() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.auditRecords = (1...52).map(auditFixture) }
+        await store.start()
+        let model = OiOperatorAuditModel()
+        await model.reload(try auditQuery(), using: store)
+        backend.configure { $0.auditStatus = 503 }
+        await model.loadMore(using: store)
+        XCTAssertEqual(model.records.count, 50); XCTAssertNotNil(model.nextCursor); XCTAssertNotNil(model.error)
+        backend.configure { $0.auditStatus = 200 }
+        await model.loadMore(using: store)
+        XCTAssertEqual(model.records.count, 52); XCTAssertNil(model.error)
+        backend.configure { $0.auditStatus = 404 }
+        await model.reload(try auditQuery(), using: store)
+        XCTAssertTrue(model.records.isEmpty); XCTAssertTrue(model.error?.contains("배포") == true)
+        backend.configure { $0.auditStatus = 200; $0.isOperator = false }
+        let count = backend.snapshot().auditBodies.count
+        await model.reload(try auditQuery(), using: store)
+        XCTAssertTrue(model.records.isEmpty); XCTAssertFalse(model.hasLoaded)
+        XCTAssertEqual(backend.snapshot().auditBodies.count, count)
+    }
+
+    @MainActor func testOperatorAuditOldAccountResponseIsDiscarded() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.auditRecords = [auditFixture(1)] }
+        await store.start()
+        let model = OiOperatorAuditModel()
+        let query = try auditQuery()
+        let held = expectation(description: "audit pending")
+        backend.configure { $0.holdAuditRead = true; $0.didHold = { held.fulfill() } }
+        let read = Task { await model.reload(query, using: store) }
+        await fulfillment(of: [held], timeout: 5)
+        model.invalidate()
+        await store.signOut()
+        backend.releaseHeldRead()
+        await read.value
+        XCTAssertTrue(model.records.isEmpty); XCTAssertFalse(model.hasLoaded); XCTAssertNil(model.error)
+    }
+
+    @MainActor func testOperatorAuditDuplicatePageLoadIsBlocked() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.auditRecords = (1...52).map(auditFixture) }
+        await store.start()
+        let model = OiOperatorAuditModel()
+        await model.reload(try auditQuery(), using: store)
+        let held = expectation(description: "next audit page pending")
+        backend.configure { $0.holdAuditRead = true; $0.didHold = { held.fulfill() } }
+        let first = Task { await model.loadMore(using: store) }
+        await fulfillment(of: [held], timeout: 5)
+        await model.loadMore(using: store)
+        XCTAssertEqual(backend.snapshot().auditBodies.count, 2)
+        backend.releaseHeldRead()
+        await first.value
+        XCTAssertEqual(model.records.count, 52)
+    }
+
+    @MainActor func testOperatorAuditNewQueryRejectsPreviousQueryResponse() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.auditRecords = [auditFixture(2)] }
+        await store.start()
+        let model = OiOperatorAuditModel()
+        let query = try auditQuery()
+        let held = expectation(description: "old audit query pending")
+        backend.configure { $0.holdAuditRead = true; $0.didHold = { held.fulfill() } }
+        let old = Task { await model.reload(query, using: store) }
+        await fulfillment(of: [held], timeout: 5)
+        backend.configure { $0.holdAuditRead = false; $0.auditRecords = [auditFixture(3)] }
+        await model.reload(try auditQuery(.stories), using: store)
+        backend.releaseHeldRead()
+        await old.value
+        XCTAssertEqual(model.query?.category, .stories)
+        XCTAssertEqual(model.records.map(\.action), ["review_story"])
+    }
+
+    @MainActor func testOperatorAuditRejectsInvalidRangesAndPagesWithoutInventingDecision() throws {
+        let query = try auditQuery()
+        XCTAssertThrowsError(try OiAuditQuery(from: query.from, until: query.from, category: .all))
+        XCTAssertThrowsError(try OiAuditQuery(from: query.from, until: query.from.addingTimeInterval(32 * 86400), category: .all))
+        XCTAssertNoThrow(try OiAuditQuery(from: query.from, until: query.from.addingTimeInterval(31 * 86400), category: .all))
+        let record = OiAuditRecord(id: "9007199254741042", actorId: OiTestBackend.owner, action: "review_story",
+                                   targetId: OiTestBackend.grant, createdAt: "2026-11-04T00:00:00Z")
+        XCTAssertEqual(record.title, "이야기 공개 상태 검토")
+        XCTAssertNoThrow(try OiAuditPage(records: [record], nextCursor: nil).validate(query: query, after: nil))
+        XCTAssertThrowsError(try OiAuditPage(records: [record, record], nextCursor: nil).validate(query: query, after: nil))
+        let cursor = OiAuditCursor(createdAt: record.createdAt, id: record.id)
+        XCTAssertThrowsError(try OiAuditPage(records: [record], nextCursor: cursor).validate(query: query, after: nil))
+        let unknown = OiAuditRecord(id: "1", actorId: OiTestBackend.owner, action: "future_action", targetId: OiTestBackend.grant, createdAt: record.createdAt)
+        XCTAssertEqual(unknown.title, "기타 처리 (future_action)")
+        XCTAssertEqual(unknown.targetLabel, "대상 ID")
+    }
+
+    @MainActor func testOperatorAuditScreenLayouts() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        for name in ["records", "empty", "error", "accessibility"] {
+            backend.configure { $0.auditRecords = name == "empty" ? [] : [auditFixture(1), auditFixture(2)]; $0.auditStatus = name == "error" ? 404 : 200 }
+            let window = UIWindow(windowScene: scene)
+            let controller = UIHostingController(rootView: NavigationStack { OiOperatorAuditView(remote: store) }
+                .environment(\.scenePhase, .active).environment(\.locale, Locale(identifier: "ko_KR"))
+                .environment(\.dynamicTypeSize, name == "accessibility" ? .accessibility5 : .large)
+                .preferredColorScheme(.light))
+            window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+            window.rootViewController = controller; window.makeKeyAndVisible()
+            try await Task.sleep(for: .milliseconds(400))
+            controller.view.layoutIfNeeded()
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+            }
+            let attachment = XCTAttachment(image: image); attachment.name = "operator-audit-\(name)"; attachment.lifetime = .keepAlways; add(attachment)
+            window.isHidden = true; window.rootViewController = nil
+        }
+    }
+
     private func historyFixture() -> [String: Any] {
         ["id": UUID().uuidString, "request_id": OiTestBackend.grant.uuidString,
          "status": "changes_requested", "object_path": "\(OiTestBackend.owner.uuidString.lowercased())/\(OiTestBackend.grant.uuidString.lowercased())/previous.png",

@@ -65,6 +65,7 @@ struct OiServiceAPI {
             case 403: throw OiServiceError.server("권한이 없거나 작성 승인이 만료됐습니다. 검토 상태를 확인해 주세요.")
             case 404 where path == "rest/v1/rpc/\(Self.resolveCardRequestRPC)": throw OiServiceError.conflict
             case 404 where path == "rest/v1/rpc/oi_review_evidence": throw OiEvidenceReviewError.serverNotReady
+            case 404 where path == "rest/v1/rpc/oi_operator_audit": throw OiAuditError.notDeployed
             case 409: throw OiServiceError.conflict
             case 400, 422: throw OiServiceError.invalidInput
             case 429: throw OiServiceError.server("요청이 많습니다. 잠시 후 다시 시도해 주세요.")
@@ -112,6 +113,22 @@ struct OiServiceAPI {
             if page.count < 200 { return values }
             offset += page.count
         }
+    }
+
+    func operatorAudit(_ query: OiAuditQuery, after cursor: OiAuditCursor?, token: String) async throws -> OiAuditPage {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var payload: [String: Any] = ["p_from": formatter.string(from: query.from),
+            "p_until": formatter.string(from: query.until), "p_category": query.category.rawValue,
+            "p_limit": OiAuditQuery.pageSize]
+        if let cursor { payload["p_cursor_at"] = cursor.createdAt; payload["p_cursor_id"] = cursor.id }
+        let data = try await request("rest/v1/rpc/oi_operator_audit", method: "POST", token: token,
+                                     body: JSONSerialization.data(withJSONObject: payload))
+        let page: OiAuditPage
+        do { page = try decoder.decode(OiAuditPage.self, from: data) }
+        catch { throw OiAuditError.invalidPage }
+        try page.validate(query: query, after: cursor)
+        return page
     }
 
     func mutate<Value: Decodable>(_ action: String, payload: [String: Any], token: String, as type: Value.Type) async throws -> Value {

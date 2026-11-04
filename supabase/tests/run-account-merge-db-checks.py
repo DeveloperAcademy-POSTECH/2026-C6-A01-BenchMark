@@ -62,6 +62,7 @@ grant execute on function auth.jwt() to anon,authenticated;
         run(connection + ['-f', 'supabase/tests/account-merge.sql'])
         run(connection + ['-f', 'supabase/tests/oi-card-requests.sql'])
         run(connection + ['-f', 'supabase/tests/oi-operator-evidence.sql'])
+        run(connection + ['-f', 'supabase/tests/oi-operator-audit.sql'])
         print('PASS: migrations, existing SQL regression, data union, preservation, consent, operator exclusion, rollback, RLS and old-session cutover')
 
         users = ['90000000-0000-4000-8000-000000000001', '90000000-0000-4000-8000-000000000002']
@@ -117,6 +118,7 @@ grant execute on function auth.jwt() to anon,authenticated;
         run(remote_connection + ['-f', 'supabase/tests/account-merge-campus-compat.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-card-requests.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-operator-evidence.sql'])
+        run(remote_connection + ['-f', 'supabase/tests/oi-operator-audit.sql'])
         print('PASS: deployed save_campus_story, height_meters and heading_degrees behavior survives canonical ownership patch')
         # Unknown owning function edits must stop the migration before any schema change commits.
         run(connection + ['-c', 'create database unknown_drift'])

@@ -39,7 +39,7 @@ struct OiOperatorHomeView: View {
                 if canAccess {
                     if section == .stories { OiOperatorStoriesView(remote: remote) }
                     else if section == .evidence { OiOperatorEvidenceListView(remote: remote) }
-                    else { OiOperatorPendingView(section: section) }
+                    else { OiOperatorAuditView(remote: remote) }
                 } else { accessStatus }
             }
         }
@@ -131,19 +131,5 @@ enum OiOperatorSection: String, Hashable {
     }
     var symbol: String {
         switch self { case .stories: "text.book.closed"; case .evidence: "doc.text.magnifyingglass"; case .audit: "clock.arrow.circlepath" }
-    }
-}
-
-private struct OiOperatorPendingView: View {
-    let section: OiOperatorSection
-    var body: some View {
-        ContentUnavailableView {
-            Label(section.title, systemImage: section.symbol)
-        } description: {
-            Text("이 관리 기능은 준비 중이에요. 현재 처리할 수 있는 목록은 제공하지 않습니다.")
-        }
-        .navigationTitle(section.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .accessibilityIdentifier("operator.pending.\(section.rawValue)")
     }
 }
