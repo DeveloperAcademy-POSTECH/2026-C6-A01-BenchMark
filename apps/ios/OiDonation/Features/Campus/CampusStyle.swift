@@ -102,18 +102,3 @@ struct CampusStoryRow: View {
         Text(story.title).font(CampusStyle.characterTitle(20)).tracking(0.8)
     }
 }
-
-struct CampusCollectButton: View {
-    let story: CampusStory
-    let store: CampusStoryStore
-    var body: some View {
-        Button { store.collect(story) } label: {
-            Text(story.isExample ? "예시 카드" : store.collected.contains(story.id) ? "수집 완료" : "수집하기")
-                .font(CampusStyle.semibold(16)).frame(maxWidth: .infinity, minHeight: 46)
-                .foregroundStyle(.white).background(CampusStyle.summaryAction, in: RoundedRectangle(cornerRadius: 20))
-        }
-        .disabled(story.isExample || store.isExample || store.collected.contains(story.id))
-        .buttonStyle(.plain).sensoryFeedback(.success, trigger: store.collected.contains(story.id))
-        .accessibilityIdentifier("campus.collect")
-    }
-}
