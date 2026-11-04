@@ -41,6 +41,8 @@ struct OiCardRequestInboxView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @ScaledMetric(relativeTo: .body) private var emptyParagraphSpacing = 31.5
     @State private var confirmation: Confirmation?
     @State private var didAttemptLoad = false
 
@@ -54,6 +56,51 @@ struct OiCardRequestInboxView: View {
     private static let acceptGreen = Color(red: 105 / 255, green: 175 / 255, blue: 88 / 255)
 
     var body: some View {
+        GeometryReader { viewport in
+            inboxScrollView(minimumHeight: viewport.size.height)
+        }
+        .accessibilityIdentifier("oi.cardRequests.inbox")
+        .refreshable { await onReload() }
+        .task {
+            await onReload()
+            if !Task.isCancelled { didAttemptLoad = true }
+        }
+        .background {
+            Rectangle()
+                .fill(.regularMaterial)
+                .overlay {
+                    (colorScheme == .dark ? Self.darkGreen : CampusStyle.mapSheet)
+                        .opacity(0.7)
+                }
+                .ignoresSafeArea()
+        }
+        .presentationCornerRadius(35)
+        .presentationBackground(.clear)
+        .presentationDragIndicator(.visible)
+        .presentationContentInteraction(.scrolls)
+        .alert(
+            confirmation?.decision == .reject ? "카드 요청을 거절할까요?" : "카드 요청을 수락할까요?",
+            isPresented: Binding(
+                get: { confirmation != nil },
+                set: { if !$0 { confirmation = nil } }
+            ),
+            presenting: confirmation
+        ) { selection in
+            Button("취소", role: .cancel) {}
+            Button(selection.decision.label, role: selection.decision == .reject ? .destructive : nil) {
+                Task { await onDecision(selection.request.id, selection.decision) }
+            }
+        } message: { selection in
+            Text("\(selection.request.requesterName) 님이 ‘\(selection.request.storyTitle)’ 카드를 요청했어요.")
+        }
+    }
+
+    private var showsEmptyState: Bool {
+        didAttemptLoad && !isLoading && requests.isEmpty && pendingRequestID == nil
+            && loadError == nil && actionError == nil && onRetryDecision == nil
+    }
+
+    private func inboxScrollView(minimumHeight: CGFloat) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 header
@@ -79,12 +126,8 @@ struct OiCardRequestInboxView: View {
                     if isLoading || (!didAttemptLoad && loadError == nil) {
                         ProgressView().accessibilityLabel("카드 요청을 불러오는 중이에요")
                             .frame(maxWidth: .infinity, minHeight: 150)
-                    } else if loadError == nil {
-                        ContentUnavailableView(
-                            "받은 카드 요청이 없어요",
-                            systemImage: "envelope",
-                            description: Text("새 카드 요청이 오면 여기에 표시돼요.")
-                        )
+                    } else if showsEmptyState {
+                        emptyState
                     }
                 } else {
                     LazyVStack(spacing: 26) {
@@ -93,43 +136,29 @@ struct OiCardRequestInboxView: View {
                 }
             }
             .padding(20)
+            .frame(minHeight: showsEmptyState ? minimumHeight : 0, alignment: .top)
         }
-        .accessibilityIdentifier("oi.cardRequests.inbox")
-        .refreshable { await onReload() }
-        .task {
-            await onReload()
-            if !Task.isCancelled { didAttemptLoad = true }
-        }
-        .background {
-            Rectangle()
-                .fill(.regularMaterial)
-                .overlay {
-                    (colorScheme == .dark
-                        ? Self.darkGreen
-                        : Color(red: 234 / 255, green: 238 / 255, blue: 226 / 255))
-                        .opacity(0.7)
-                }
-                .ignoresSafeArea()
-        }
-        .presentationCornerRadius(35)
-        .presentationBackground(.clear)
-        .presentationDragIndicator(.visible)
-        .presentationContentInteraction(.scrolls)
-        .alert(
-            confirmation?.decision == .reject ? "카드 요청을 거절할까요?" : "카드 요청을 수락할까요?",
-            isPresented: Binding(
-                get: { confirmation != nil },
-                set: { if !$0 { confirmation = nil } }
-            ),
-            presenting: confirmation
-        ) { selection in
-            Button("취소", role: .cancel) {}
-            Button(selection.decision.label, role: selection.decision == .reject ? .destructive : nil) {
-                Task { await onDecision(selection.request.id, selection.decision) }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            VStack(spacing: emptyParagraphSpacing) {
+                Text("아직 받은 요청이 없습니다")
+                Text("동문들과 친구들의 오이를 살펴보고\n카드를 요청해보세요!")
             }
-        } message: { selection in
-            Text("\(selection.request.requesterName) 님이 ‘\(selection.request.storyTitle)’ 카드를 요청했어요.")
+            .font(CampusStyle.medium(21))
+            .tracking(0.42)
+            .lineHeight(.exact(points: emptyParagraphSpacing))
+            .foregroundStyle(colorScheme == .dark || colorSchemeContrast == .increased
+                ? Color.primary : Color("OiGreen"))
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("oi.cardRequests.empty")
+            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity)
     }
 
     private var header: some View {
