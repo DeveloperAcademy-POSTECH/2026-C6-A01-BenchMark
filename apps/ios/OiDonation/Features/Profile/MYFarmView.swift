@@ -13,16 +13,16 @@ struct MYFarmView: View {
             let isEmptyFarm = remote.hasLoadedRemote && remote.account != nil && remote.ownStories.isEmpty
             let hasPlots = remote.hasLoadedRemote && remote.account != nil && !remote.ownStories.isEmpty
             ScrollView {
-                OiConnectionStatus(remote: remote).padding(.horizontal, 20)
+                OiConnectionStatus(remote: remote, showsInitialProgress: false).padding(.horizontal, 20)
                 if !remote.hasLoadedRemote {
-                    if remote.loadError == nil { ProgressView("내 농장을 불러오는 중") }
+                    if remote.loadError == nil || remote.isRefreshing { ProgressView().accessibilityLabel("내 농장을 불러오는 중") }
                 } else if remote.account == nil {
                     ContentUnavailableView {
                         Label("로그인이 필요해요", systemImage: "person")
                     } description: {
                         Text("로그인하면 내가 등록한 오이와 이야기를 볼 수 있어요.")
                     } actions: {
-                        NavigationLink("로그인하기") { OiAccountView(remote: remote) }
+                        NavigationLink("로그인하기") { MYSettingsView(remote: remote) }
                     }.padding(.top, 170)
                 } else if remote.ownStories.isEmpty {
                     emptyFarm
@@ -133,8 +133,6 @@ struct MYFarmView: View {
                 .frame(maxWidth: .infinity)
             Text("안내된 정식 기부처의 절차를 따라 기부해요.\n작성 승인을 받은 계정에서 나만의 오이와 이야기를 만들 수 있어요.")
                 .font(.custom("Paperlogy-3Light", size: 18, relativeTo: .body)).lineSpacing(5)
-            Text("최소 기부금과 성장·보상 정책은 아직 정해지지 않았어요.")
-                .font(.custom("Paperlogy-3Light", size: 14, relativeTo: .footnote))
             NavigationLink {
                 if let remote { OiStoryListScreen(remote: remote) }
                 else {

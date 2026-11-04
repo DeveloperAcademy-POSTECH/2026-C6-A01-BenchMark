@@ -74,6 +74,17 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
     }
 }
 
+struct OiCardRequest: Decodable, Identifiable, Equatable {
+    enum Status: String, Decodable { case pending, accepted, rejected }
+
+    let id: UUID
+    let storyTitle: String
+    let requesterName: String
+    let requesterSchoolName: String?
+    let createdAt: Date
+    let status: Status
+}
+
 struct OiEvidence: Codable, Identifiable, Equatable {
     let id: UUID
     let userId: UUID

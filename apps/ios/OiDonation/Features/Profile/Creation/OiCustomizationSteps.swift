@@ -1,7 +1,10 @@
 import SwiftUI
 import UIKit
 
-private enum OiCardTab: String, CaseIterable { case size = "크기", background = "배경", pattern = "패턴", border = "테두리", set = "세트" }
+private enum OiCardTab: String, CaseIterable {
+    case background = "배경"
+    case set = "세트"
+}
 
 struct OiCardCustomizationStep: View {
     @Binding var draft: OiStoryDraft
@@ -42,8 +45,6 @@ struct OiCardCustomizationStep: View {
             case .set:
                 Text("공개 카드 프리셋").font(.headline)
                 OiCreationAssetPicker(assets: assets.filter { $0.kind == "card" }, selection: $draft.cardAsset, draft: draft)
-            case .size, .pattern, .border:
-                OiEmptyCustomizationGrid(title: "\(tab.rawValue) 옵션 준비 중")
             }
             Text("색상·그라데이션은 이 기기의 미리보기예요. 공개 카드에는 ‘세트’에서 선택한 프리셋이 적용돼요.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -99,20 +100,8 @@ struct OiCreationCharacterImage: View {
         if UIImage(named: asset) != nil {
             Image(asset == "OiCats" ? "OiCatsPortrait" : asset).resizable().scaledToFit().accessibilityLabel("선택한 오이")
         } else {
-            ContentUnavailableView("오이 미리보기 준비 중", systemImage: "leaf")
+            ContentUnavailableView("오이 미리보기를 불러올 수 없어요", systemImage: "leaf")
         }
-    }
-}
-
-private struct OiEmptyCustomizationGrid: View {
-    let title: String
-    var body: some View {
-        VStack(spacing: 12) {
-            Text(title).font(.subheadline).foregroundStyle(.secondary)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 8) {
-                ForEach(0..<12) { _ in Rectangle().fill(Color(white: 0.851)).frame(height: 90).accessibilityHidden(true) }
-            }
-        }.padding(16).background(Color(white: 0.937))
     }
 }
 
@@ -122,7 +111,7 @@ private struct OiCreationAssetPicker: View {
     var draft: OiStoryDraft?
     var body: some View {
         if assets.isEmpty {
-            Text("선택 가능한 프리셋을 불러오는 중이에요. 연결을 확인해 주세요.").font(.footnote).foregroundStyle(.secondary)
+            Text("선택할 수 있는 카드 세트가 없어요.").font(.footnote).foregroundStyle(.secondary)
         } else {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 92))], spacing: 10) {
                 ForEach(assets) { asset in

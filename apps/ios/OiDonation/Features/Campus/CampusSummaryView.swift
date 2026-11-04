@@ -3,6 +3,7 @@ import SwiftUI
 struct CampusSummaryView: View {
     let story: CampusStory
     let store: CampusStoryStore
+    var isCameraCoverActive = false
     @State private var scene = CampusExploreScene()
     @State private var isOnScreen = false
     @State private var showingCard = false
@@ -75,9 +76,15 @@ struct CampusSummaryView: View {
             await scene.load()
             if let region = CampusRegion.campus.first(where: { $0.id == story.regionID }) { scene.focusBackdrop(region) }
         }
-        .onAppear { isOnScreen = true; scene.setVisible(scenePhase == .active) }
+        .onAppear { isOnScreen = true; scene.setVisible(!isCameraCoverActive && scenePhase == .active) }
         .onDisappear { isOnScreen = false; scene.suspendForARCamera() }
-        .onChange(of: scenePhase) { _, phase in scene.setVisible(isOnScreen && phase == .active) }
+        .onChange(of: scenePhase) { _, phase in
+            scene.setVisible(isOnScreen && !isCameraCoverActive && phase == .active)
+        }
+        .onChange(of: isCameraCoverActive) { _, active in
+            if active { scene.suspendForARCamera() }
+            else { scene.setVisible(isOnScreen && scenePhase == .active) }
+        }
     }
 
     private var summary: some View {

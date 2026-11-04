@@ -77,7 +77,7 @@ struct OiAccountMergeView: View {
             }
             if let action {
                 Section {
-                    ProgressView(action == .confirm && addingMethod ? "로그인 방법 추가 결과 확인 중" : action.description)
+                    ProgressView().accessibilityLabel(Text(action == .confirm && addingMethod ? "로그인 방법 추가 결과 확인 중" : action.description))
                     Button("작업 취소") { cancelAction() }
                 }
             }

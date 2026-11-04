@@ -31,7 +31,7 @@ struct ARGamePlayingView: View {
                     if cameraController?.isReady == true {
                         ARGameStartOverlay(onFinished: viewModel.finishStartAnimation)
                     } else {
-                        ProgressView("카메라를 준비하고 있어요")
+                        ProgressView()
                             .tint(.white)
                             .foregroundStyle(.white)
                             .accessibilityLabel("카메라를 준비하고 있어요")

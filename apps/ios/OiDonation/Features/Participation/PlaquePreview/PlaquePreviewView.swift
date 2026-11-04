@@ -33,7 +33,7 @@ struct PlaquePreviewView: View {
                 Button("위치 조정", systemImage: "viewfinder") { activeSheet = .placement }
                     .disabled(model.photo == nil || model.isImporting)
             }.font(.subheadline)
-            if model.isImporting || loadingPhoto { ProgressView("사진 불러오는 중…") }
+            if model.isImporting || loadingPhoto { ProgressView().accessibilityLabel("사진 불러오는 중…") }
             if let error = model.photoError { Text(error).font(.caption).foregroundStyle(.red) }
             VStack(alignment: .leading, spacing: 8) {
                 Text("명패 확대 보기").font(.headline)
@@ -45,7 +45,9 @@ struct PlaquePreviewView: View {
                 } else {
                     RoundedRectangle(cornerRadius: 14).fill(Color("OiSoft"))
                         .aspectRatio(170.0 / 55, contentMode: .fit)
-                        .overlay { Text(model.errorMessage == nil ? "명패 준비 중…" : "문구를 확인해 주세요").font(.caption) }
+                        .overlay {
+                            if model.errorMessage != nil { Text("문구를 확인해 주세요").font(.caption) }
+                        }
                 }
                 Text("170 × 55mm 디자인 후보 · 실제 제작 규격은 미정")
                     .font(.caption2).foregroundStyle(.secondary)

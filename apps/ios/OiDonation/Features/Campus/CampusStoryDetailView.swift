@@ -135,7 +135,7 @@ struct CampusStoryDetailView: View {
                     Button {
                         selectedImage = .init(name: nil, title: "\(story.title) 사진 \(index + 1)", remotePath: path)
                     } label: {
-                        OiStoryMediaImage(path: path, loadURL: mediaURL)
+                        OiStoryMediaImage(path: path, allowsRetry: false, loadURL: mediaURL)
                             .frame(height: index.isMultiple(of: 3) ? 121 : 109)
                             .clipped().clipShape(RoundedRectangle(cornerRadius: 10))
                     }.buttonStyle(.plain).accessibilityLabel("갤러리 사진 \(index + 1) 확대 보기")

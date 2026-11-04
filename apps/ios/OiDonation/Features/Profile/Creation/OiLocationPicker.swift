@@ -25,7 +25,7 @@ struct OiLocationPicker: View {
                             Text(error).foregroundStyle(.red)
                             Button("다시 시도") { Task { await prepare() } }
                         } else if scene.isLoading || scene.placementLoading {
-                            ProgressView("캠퍼스 지도 준비 중")
+                            ProgressView().accessibilityLabel("캠퍼스 지도 준비 중")
                         }
                         Text(scene.placementMessage).font(.footnote)
                         CampusPlacementTools(scene: scene)

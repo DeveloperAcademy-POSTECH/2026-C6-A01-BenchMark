@@ -110,8 +110,6 @@ struct MYFarmerCustomizationView: View {
                 }
                 Text(ownerID == nil ? "로그인하면 이 기기에 농부 모습을 저장할 수 있어요." : "선택한 모습은 이 기기의 내 작업실과 지도에 적용돼요.")
                     .font(CampusStyle.body(14)).foregroundStyle(.secondary)
-                Text("개별 옷·포즈 변경과 3D 캐릭터 꾸미기는 준비 중이에요.")
-                    .font(CampusStyle.body(14)).foregroundStyle(.secondary)
             }.padding(20)
         }
         .background(Color.white).navigationTitle("농부 꾸미기").navigationBarTitleDisplayMode(.inline)

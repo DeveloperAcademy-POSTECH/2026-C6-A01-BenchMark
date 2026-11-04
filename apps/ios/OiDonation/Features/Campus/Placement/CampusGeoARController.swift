@@ -9,7 +9,7 @@ import Observation
 @MainActor @Observable final class CampusGeoARController: NSObject, ARSessionDelegate {
     enum Mode: String { case preparing = "AR 준비 중", geographic = "지리 추적", gps = "GPS 근사 배치", manual = "직접 바닥 보정" }
     private(set) var mode = Mode.preparing
-    private(set) var message = "카메라 권한과 모델을 확인하고 있어요."
+    private(set) var message: String?
     private(set) var canChangeMode = false
     private(set) var placed = false
     var onStory: (() -> Void)?
@@ -40,7 +40,7 @@ import Observation
     func start(_ placement: CampusPlacement, location: CampusGeoLocation, wardrobe: OiWardrobeLook? = nil) async {
         stop()
         self.placement = placement; self.location = location; isWardrobeTest = wardrobe != nil
-        mode = .preparing; message = "카메라 권한과 모델을 확인하고 있어요."
+        mode = .preparing; message = nil
         guard ARWorldTrackingConfiguration.isSupported else {
             message = "현장 AR은 ARKit을 지원하는 실제 iPhone에서 사용할 수 있어요."; return
         }
@@ -66,7 +66,6 @@ import Observation
         active = true; canChangeMode = true
         location.start()
         guard ARGeoTrackingConfiguration.isSupported else { startApproximate(); return }
-        message = "이 위치의 지리 추적 지원을 확인하고 있어요. 오래 걸리면 GPS 근사 배치를 선택해 주세요."
         ARGeoTrackingConfiguration.checkAvailability(at: .init(latitude: placement.latitude, longitude: placement.longitude)) { [weak self] available, _ in
             Task { @MainActor in
                 guard let self, self.active, self.generation == token else { return }

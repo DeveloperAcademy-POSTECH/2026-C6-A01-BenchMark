@@ -45,7 +45,9 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
                 }
-            case .loading: ProgressView(viewModel.state.description)
+            case .loading:
+                ProgressView()
+                    .accessibilityLabel(viewModel.state.description)
             case .ready:
                 if let experience = viewModel.experience {
                     ARGameFlowView(

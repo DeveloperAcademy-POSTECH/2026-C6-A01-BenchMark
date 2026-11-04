@@ -10,6 +10,7 @@ protocol OiAuthenticating {
 struct OiServiceAPI {
     static let projectHost = "kfzfzarslqdqmrazohej.supabase.co"
     static let authenticationCallback = "kr.ac.postech.benchmark://auth/callback"
+    private static let resolveCardRequestRPC = "oi_resolve_card_request"
     private let key: String
     private let transport: APIClient
     private let decoder: JSONDecoder
@@ -62,6 +63,7 @@ struct OiServiceAPI {
             switch status {
             case 401: throw OiServiceError.signInRequired
             case 403: throw OiServiceError.server("권한이 없거나 작성 승인이 만료됐습니다. 검토 상태를 확인해 주세요.")
+            case 404 where path == "rest/v1/rpc/\(Self.resolveCardRequestRPC)": throw OiServiceError.conflict
             case 409: throw OiServiceError.conflict
             case 400, 422: throw OiServiceError.invalidInput
             case 429: throw OiServiceError.server("요청이 많습니다. 잠시 후 다시 시도해 주세요.")
@@ -117,6 +119,39 @@ struct OiServiceAPI {
         return try decoder.decode(Value.self, from: data)
     }
 
+    func cardRequests(token: String) async throws -> [OiCardRequest] {
+        try await cardRequestRPC("oi_card_requests", payload: [:], token: token, as: [OiCardRequest].self)
+    }
+
+    func resolveCardRequest(_ id: UUID, accept: Bool, token: String) async throws -> OiCardRequest {
+        let response = try await cardRequestRPC(Self.resolveCardRequestRPC,
+            payload: ["p_request_id": id.uuidString, "p_decision": accept ? "accept" : "reject"],
+            token: token, as: OiCardRequest.self)
+        guard response.id == id, response.status == (accept ? .accepted : .rejected) else {
+            throw OiServiceError.unavailable
+        }
+        return response
+    }
+
+    private func cardRequestRPC<Value: Decodable>(_ function: String, payload: [String: String],
+                                                   token: String, as type: Value.Type) async throws -> Value {
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let data = try await request("rest/v1/rpc/\(function)", method: "POST", token: token, body: body)
+        let requestDecoder = JSONDecoder()
+        requestDecoder.keyDecodingStrategy = .convertFromSnakeCase
+        requestDecoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let value = try container.decode(String.self)
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = iso.date(from: value) { return date }
+            iso.formatOptions = [.withInternetDateTime]
+            if let date = iso.date(from: value) { return date }
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid request timestamp")
+        }
+        return try requestDecoder.decode(Value.self, from: data)
+    }
+
     func session(grant: String, payload: [String: String]) async throws -> OiSession {
         let data: Data
         do { data = try await request("auth/v1/token?grant_type=\(grant)", method: "POST", body: JSONSerialization.data(withJSONObject: payload)) }
@@ -125,6 +160,10 @@ struct OiServiceAPI {
         var session = try decoder.decode(OiSession.self, from: data)
         session.expiresAt = Date().timeIntervalSince1970 + session.expiresIn
         return session
+    }
+
+    func signOutCurrentSession(token: String) async throws {
+        _ = try await request("auth/v1/logout?scope=local", method: "POST", token: token)
     }
 
     func upload(bucket: String, path: String, data: Data, contentType: String, token: String) async throws {
@@ -142,8 +181,12 @@ struct OiServiceAPI {
         }
     }
 
-    func updateProfile(owner: UUID, nickname: String, schoolID: String? = nil, token: String) async throws -> OiProfile {
-        let body = try JSONSerialization.data(withJSONObject: ["nickname": nickname, "school_id": schoolID as Any? ?? NSNull()])
+    func updateProfile(owner: UUID, nickname: String?, schoolID: String?, token: String) async throws -> OiProfile {
+        var patch: [String: String] = [:]
+        if let nickname { patch["nickname"] = nickname }
+        if let schoolID { patch["school_id"] = schoolID }
+        guard !patch.isEmpty else { throw OiServiceError.invalidInput }
+        let body = try JSONSerialization.data(withJSONObject: patch)
         let data = try await request("rest/v1/oi_profiles?id=eq.\(owner.uuidString)", method: "PATCH", token: token,
             body: body, prefer: "return=representation")
         let profiles = try decoder.decode([OiProfile].self, from: data)

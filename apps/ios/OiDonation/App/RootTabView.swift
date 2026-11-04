@@ -8,12 +8,8 @@ struct RootTabView: View {
     @State private var isARPresented = false
     @State private var isCameraCoverActive = false
     @State private var remote = OiRemoteStore()
-    @State private var showingAccount = false
     @State private var showingStoryList = false
-    @State private var showingExamples = false
-    @State private var exampleStore: CampusStoryStore
     @State private var geoPlacement: CampusPlacement?
-    @State private var photoCamera = false
     @State private var collectionStory: CampusStory?
     @State private var collectionReturnsToAR = false
     @State private var pendingStoryList = false
@@ -21,78 +17,28 @@ struct RootTabView: View {
 
     init(container: AppContainer = .pilot) {
         self.container = container
-        _store = State(initialValue: CampusStoryStore())
-        _myDemo = State(initialValue: MYLibraryStore())
-        let examples = CampusStoryStore(isExample: true)
-        examples.synchronize(stories: CampusStoryExamples.stories, collected: [])
-        _exampleStore = State(initialValue: examples)
     }
 
     var body: some View {
-        regularContent
-    }
-
-    private var displayedStories: CampusStoryStore { showingExamples ? exampleStore : store }
-
-    @ViewBuilder private var regularContent: some View {
-        #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-wardrobe-field-check") {
-            NavigationStack { OiWardrobeFieldTestScreen(initialLook: OiWardrobeFieldChecks.previewLook) }
-        } else if ProcessInfo.processInfo.arguments.contains("-wardrobe-preview") {
-            OiWardrobePreviewHost()
-        } else if ProcessInfo.processInfo.arguments.contains("-story-creation-preview") {
-            OiCreationPreviewHost()
-        } else if ProcessInfo.processInfo.arguments.contains("-campus-map-design-preview") {
-            CampusMapPreviewHost()
-        } else if ProcessInfo.processInfo.arguments.contains("-story-list-preview") {
-            OiStoryListPreviewHost(state: storyListPreviewState)
-        } else if ProcessInfo.processInfo.arguments.contains("-story-consent-preview") {
-            OiStoryConsentPreviewHost()
-        } else {
-            appContent
-        }
-        #else
-        appContent
-        #endif
-    }
-
-    #if DEBUG
-    private var storyListPreviewState: OiStoryListState {
-        let arguments = ProcessInfo.processInfo.arguments
-        if arguments.contains("-story-list-preview-loading") { return .loading }
-        if arguments.contains("-story-list-preview-empty") { return .empty }
-        if arguments.contains("-story-list-preview-error") {
-            return .failure("네트워크 연결을 확인한 뒤 다시 시도해 주세요.")
-        }
-        if arguments.contains("-story-list-preview-long") { return .layoutStressPreview }
-        return .preview
-    }
-    #endif
-
-    private var appContent: some View {
         NavigationStack(path: $path) {
             HomeView(
                 container: container,
-                store: displayedStories,
+                store: store,
                 myDemo: myDemo,
                 isCameraCoverActive: isCameraCoverActive,
-                onCamera: { photoCamera = false; geoPlacement = nil; path = NavigationPath(); isCameraCoverActive = true; isARPresented = true },
                 onOpenProfile: { path.append(MYDestination.workshop) },
                 onOpenStory: { path.append(CampusDestination.summary($0)) },
-                remote: showingExamples ? nil : remote,
-                onAccount: { showingAccount = true },
-                onCreateStory: { showingStoryList = true },
-                onOpenExamples: showingExamples ? nil : { showingExamples = true },
-                onCloseExamples: showingExamples ? { showingExamples = false } : nil
+                remote: remote,
+                onCreateStory: { showingStoryList = true }
             )
             .navigationDestination(isPresented: $showingStoryList) {
-                OiStoryListScreen(remote: remote).id(remote.account?.id)
+                OiStoryListScreen(remote: remote)
             }
             .navigationDestination(for: CampusDestination.self) { destination in
                 switch destination {
                 case .summary(let id):
-                    if let story = displayedStories.story(id) {
-                        CampusSummaryView(story: story, store: displayedStories)
+                    if let story = store.story(id) {
+                        CampusSummaryView(story: story, store: store, isCameraCoverActive: isCameraCoverActive)
                             .toolbar {
                                 if story.latitude != nil && story.longitude != nil {
                                     ToolbarItem(placement: .topBarTrailing) {
@@ -100,17 +46,22 @@ struct RootTabView: View {
                                     }
                                 }
                             }
+                    } else {
+                        ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc")
                     }
                 case .story(let id):
-                    if let story = displayedStories.story(id) { CampusStoryDetailView(story: story, store: displayedStories) }
+                    if let story = store.story(id) {
+                        CampusStoryDetailView(story: story, store: store)
+                    } else {
+                        ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc")
+                    }
                 }
             }
             .navigationDestination(for: PublicLinkParser.Destination.self) { publicDestination($0) }
         }
         .tint(.black)
-        .sheet(isPresented: $showingAccount) { NavigationStack { OiAccountView(remote: remote) }.id(remote.account?.id) }
         .onChange(of: remote.revision) { _, _ in synchronizeRemote() }
-        .onChange(of: remote.account?.id) { _, _ in path = NavigationPath(); myDemo.resetFilters() }
+        .onChange(of: remote.account?.id) { _, _ in myDemo.resetFilters() }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
             store.collectAction = { story in
@@ -143,18 +94,16 @@ struct RootTabView: View {
             // Restore the map only after the camera's dismissal has finished.
             isCameraCoverActive = false
             collectionStory = nil
+            geoPlacement = nil
             if pendingStoryList { pendingStoryList = false; showingStoryList = true }
         }) {
             if let collectionStory {
                 CampusCollectionGameHost(story: collectionStory, remote: remote, store: store) {
                     if collectionReturnsToAR { self.collectionStory = nil }
                     else { isARPresented = false }
-                }.id(remote.account?.id)
+                }
             } else if let geoPlacement {
                 CampusGeoARScreen(placement: geoPlacement, stories: store, remote: remote)
-            } else if photoCamera { ARView() }
-            else {
-                CampusNearbyARScreen(stories: store, remote: remote) { photoCamera = true }
             }
         }
         .onOpenURL { handlePublicLink($0) }
@@ -206,52 +155,5 @@ struct RootTabView: View {
         PublicDestinationView(destination: destination, benches: container.benchRepository, stories: container.storyRepository)
     }
 }
-
-#if DEBUG
-private struct OiStoryConsentPreviewHost: View {
-    var body: some View {
-        NavigationStack {
-            OiStoryConsentView(clauses: OiStoryConsentClause.figmaDrafts)
-        }
-    }
-}
-
-private struct OiStoryListPreviewHost: View {
-    let state: OiStoryListState
-    @State private var notice: PreviewNotice?
-
-    var body: some View {
-        NavigationStack {
-            OiStoryListView(
-                state: state,
-                ticketCountText: "3pc",
-                notices: OiStoryListView.figmaPreviewNotices,
-                onRetry: { show("다시 시도", "실제 앱에서는 서버의 이야기 목록을 다시 불러옵니다.") },
-                onAddTicket: { show("티켓 추가", "티켓 추가 정책이 확정되면 실제 흐름에 연결됩니다.") },
-                onSelectStory: { _ in show("이야기 선택", "실제 앱에서는 기존 이야기 관리 화면으로 이동합니다.") },
-                onCreateStory: { show("오이 만들기", "실제 앱에서는 작성 승인을 확인한 뒤 이야기 에디터로 이동합니다.") },
-                onUseTicket: { show("티켓 사용", "티켓 사용 정책이 확정되면 실제 흐름에 연결됩니다.") }
-            )
-        }
-        .alert(item: $notice) { notice in
-            Alert(
-                title: Text(notice.title),
-                message: Text(notice.message),
-                dismissButton: .default(Text("확인"))
-            )
-        }
-    }
-
-    private func show(_ title: String, _ message: String) {
-        notice = PreviewNotice(title: title, message: message)
-    }
-}
-
-private struct PreviewNotice: Identifiable {
-    let id = UUID()
-    let title: String
-    let message: String
-}
-#endif
 
 #Preview { RootTabView(container: .preview) }

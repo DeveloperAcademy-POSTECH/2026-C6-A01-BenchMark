@@ -72,11 +72,14 @@ struct ARCollectionResultView<Artwork: View>: View {
             actionsLayout {
                 Button(action: onCollect) {
                     HStack(spacing: 5) {
-                        if isSaving { ProgressView().tint(.white) }
-                        else if isCollected { Image(systemName: "checkmark") }
-                        Text(isSaving ? "저장 중" : isCollected ? collectedTitle : collectTitle)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: usesExpandedLayout)
+                        if isSaving {
+                            ProgressView().tint(.white).accessibilityHidden(true)
+                        } else {
+                            if isCollected { Image(systemName: "checkmark") }
+                            Text(isCollected ? collectedTitle : collectTitle)
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: usesExpandedLayout)
+                        }
                     }
                     .font(.custom("Paperlogy-6SemiBold", size: 14, relativeTo: .callout))
                     .foregroundStyle(.white)
@@ -89,6 +92,8 @@ struct ARCollectionResultView<Artwork: View>: View {
                 .buttonStyle(.plain)
                 .frame(maxWidth: usesExpandedLayout ? .infinity : 239)
                 .disabled(!canCollect || isSaving)
+                .accessibilityLabel(isCollected ? collectedTitle : collectTitle)
+                .accessibilityValue(isSaving ? "저장 중" : "")
                 .accessibilityIdentifier("\(accessibilityPrefix).collect")
                 Button(action: onCancel) {
                     Text(cancelTitle)

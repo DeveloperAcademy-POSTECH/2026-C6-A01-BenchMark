@@ -297,9 +297,9 @@ MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하
 
 위치 선택은 기존 `CampusExploreScene`과 `CampusPlacementTools`를 재사용한다. 건물 검색은 카메라만 이동시키고 좌표를 자동 확정하지 않는다. 사용자가 바닥을 선택하고 확인하면 좌표를 초안에 전달한다. 선택 화면이 닫힐 때 숨은 RealityKit 렌더러를 해제한다. 구현 경계와 검증 절차는 [이야기 생성 흐름](story-creation-flow.md)을 따른다.
 
-증빙 없는 개발용 체험은 `#if DEBUG`의 `OiCreationPreviewHost`·`OiCreationPracticeSession`으로 분리한다. 실제 단계 UI와 사진 변환만 공유하며 원격 저장소·계정·승인·영속 저장을 의존하지 않는다. 사진은 메모리에 보관하고 종료 시 초기화한다. 최종 버튼은 로컬 완료 상태만 전환하며 `OiStoryDraft`에 가짜 grant를 넣지 않는다. 지도 검색 모달은 `OiLocationPickerRequest` item으로 전달해 화면 열림과 검색 대상이 함께 갱신되도록 한다.
+개발용 작성 체험은 #141에서 제거했다. 지도 검색 모달은 `OiLocationPickerRequest` item으로 전달해 화면 열림과 검색 대상이 함께 갱신되도록 한다.
 
-사진 자르기는 공통 `OiPhotoCropEditor`의 고정 사진과 자유 비율 선택 격자로 구성한다. `OiPhotoCropGeometry`가 모서리·가장자리 크기 변경 및 선택 영역 이동을 이미지 경계 안으로 제한한다. 이미지의 aspect-fit 프레임을 기준으로 선택 영역을 정규화하여 `OiPhotoProcessor`에서 픽셀 크롭한다. 편집 화면은 선택만 소유하며 적용 전에는 초안 사진을 쓰지 않는다. 실제 편집기와 체험은 사진 읽기·편집 콜백으로 기존 저장 경계를 유지한다.
+사진 자르기는 공통 `OiPhotoCropEditor`의 고정 사진과 자유 비율 선택 격자로 구성한다. `OiPhotoCropGeometry`가 모서리·가장자리 크기 변경 및 선택 영역 이동을 이미지 경계 안으로 제한한다. 이미지의 aspect-fit 프레임을 기준으로 선택 영역을 정규화하여 `OiPhotoProcessor`에서 픽셀 크롭한다. 편집 화면은 선택만 소유하며 적용 전에는 초안 사진을 쓰지 않는다. 실제 편집기는 사진 읽기·편집 콜백으로 기존 저장 경계를 유지한다.
 ## App Clip 수집 AR 카메라 생명주기 — 2026-11-02 / #109 브랜치
 
 사용자가 요청한 시작·실패 애니메이션 보완 범위에서 `.starting`과 `.playing`이 같은 컨테이너의 AR 컨트롤러·ARView·ARSession을 공유한다. 카메라 추적·텍스처·배치 준비 후 overlay를 표시하고, 조립·유지·페이드가 끝나야 수집과 단일 타이머를 활성화한다. 화면 이탈 때만 세션을 중지하고 anchor·비동기 작업을 해제한다. 실패는 고정 배경 위 원본 글자 세 조각의 transform을 단일 시간축으로 보간한다. 세부 Figma 값, 이미지 정규화, 접근성 대응과 실기기 서명 검증의 미완료 항목은 [검증 문서](../apps/ios/docs/app-clip-ar-collection.md)에 기록한다. 서버 수집 계약·권한·기부 정책은 변경하지 않는다.
@@ -334,6 +334,8 @@ Apple 인증은 AuthenticationServices·무작위 nonce·ID token 교환을 사�
 
 ## 커스텀 오이 현장 테스트 — 2026-11-04
 
+당시 현장 테스트 경로의 설계 기록이다. #141 이후 제품 앱에서 이 경로는 호출되지 않는다.
+
 `OiWardrobeAsset`이 옷장·카드·로컬 지도·현장 AR의 의상/색상/데님/사진 조립을 공유한다. 배치용 로더는 원본 메시를 수정하지 않고 전체 높이 1.5m·발바닥 원점으로 정렬한다. `CampusExploreScene.preparePlacements(wardrobe:)`와 `CampusGeoARController.start(..., wardrobe:)`는 로컬 경로에서만 외형을 전달받는다. 공개 AR의 서버 재조회·기존 프리셋·승인 경계는 유지한다.
 
 `OiWardrobeFieldTrialRepository`는 기기 전체 테스트 한 개의 외형·사진·위경도·방위를 원자적으로 저장한다. iOS 파일 보호·백업 제외, 12MiB 제한, 손상 파일 보존, 명시적 교체/삭제를 적용한다. 계정별 작성 초안과 독립적이며 로그아웃 뒤에도 홈에서 열 수 있다. 공개 API에 전달하지 않는다.
@@ -345,3 +347,9 @@ Apple 인증은 AuthenticationServices·무작위 nonce·ID token 교환을 사�
 사용자 요청으로 #132의 HomeView·작성 단계와 기존 #136 옷장 및 미커밋 현장 테스트를 합친다. HomeView는 #132의 헤더·목록 펼침/스크롤·최초 로딩/오류 표시를 유지하고 학교 버튼의 contextMenu에 기기 현장 테스트를 연결한다. `OiCucumberCustomizationStep` 정의는 `Wardrobe/OiWardrobePicker.swift` 한 곳에 두며 `canContinue/onContinue`를 받아 실제 작성과 개발용 체험의 카드 단계 이동을 공유한다. RootTabView의 수집 게임 라우팅과 기존 디버그 진입을 함께 보존한다. 지도 전체의 숨은 렌더러를 해제하고 복원하는 경로도 유지한다.
 
 커스텀 의상 공유 API는 추가하지 않는다. 계정별 작성 초안과 기기 전체 테스트 사본은 각각 기존 저장 책임을 유지한다. 최신 Figma의 원본 예시 카드·캐릭터는 공개 스토리와 분리한다. [Figma 통합 기록](../apps/ios/docs/figma-alignment-132.md#2026-11-04-기존-로컬-작업-통합)을 참고한다.
+
+## iOS 제품 진입점과 카드 요청 — 2026-11-04 / #141
+
+MY 설정이 실제 Apple·Google 인증, 로그아웃, 닉네임, 학교, 기기 권한을 담당한다. 지도와 농장의 이야기 목록은 작성 승인, 계정별 초안 및 이야기 관리에 연결한다. 지도와 App Clip의 일반 실행은 실제 공개 이야기 및 수집 흐름을 사용한다. 사진 테스트 소스와 카드 시각 테스트 fixture는 `apps/ios/Tests`에서만 사용한다.
+
+카드 요청은 공개 이야기 소유자의 받은 목록과 수락·거절 상태를 제공한다. DB가 로그인 계정과 이야기 소유권을 검사하고 상태를 기록한다. 수락·거절은 실제 도감 수집·즐겨찾기·이야기 공개 상태·작성 승인을 바꾸지 않는다. 요청 생성 API는 제공한다. iOS 발송 UI와 자동 만료는 제공하지 않는다. 제거된 호출부와 운영 확인 항목은 [제품 앱 정리 기록](../apps/ios/docs/product-app-cleanup.md)을 따른다.

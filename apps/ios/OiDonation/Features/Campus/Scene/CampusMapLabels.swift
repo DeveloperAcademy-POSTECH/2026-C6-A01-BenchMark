@@ -111,11 +111,6 @@ import RealityKit
         }
     }
 
-    #if DEBUG
-    var visibleAreaCount: Int { areas.filter { !$0.label.isHidden }.count }
-    var visibleBuildingCount: Int { buildings.filter { !$0.label.isHidden }.count }
-    func isVisible(_ id: String) -> Bool { (areas + buildings).contains { $0.id == id && !$0.label.isHidden } }
-    #endif
 }
 
 @MainActor private final class CampusMapNameLabel: UILabel {

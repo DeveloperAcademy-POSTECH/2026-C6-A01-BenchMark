@@ -33,6 +33,8 @@ final class OiTestBackend {
         var schoolID: String?
         var failReads = false
         var failRefreshToken = false
+        var failLogout = false
+        var logoutScopes: [String?] = []
         var loseEvidenceResponse = false
         var holdOwnerRead = false
         var holdPostMergeRead = false
@@ -91,7 +93,14 @@ final class OiTestBackend {
                           "user":["id":Self.owner.uuidString]]
             } else { status = state.failRefreshToken ? 400 : 500 }
         }
-        else if path == "/auth/v1/logout" { result = [:] }
+        else if path == "/auth/v1/logout" {
+            let scope = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?
+                .queryItems?.first(where: { $0.name == "scope" })?.value
+            state.logoutScopes.append(scope)
+            status = state.failLogout ? 503 : 204
+            bytes = Data()
+        }
+        else if path.hasSuffix("/rpc/oi_resolve_card_request") || path.hasSuffix("/rpc/oi_card_requests") { status = 404 }
         else if path == "/functions/v1/account-merge", body["action"] as? String == "confirm" {
             state.mergeConfirmCount += 1
             state.canonicalAccountID = rawOwner
@@ -156,7 +165,7 @@ final class OiTestBackend {
         else if path.hasSuffix("/oi_profiles") {
             if request.httpMethod == "PATCH" {
                 state.nickname = body["nickname"] as? String ?? state.nickname
-                state.schoolID = body["school_id"] as? String
+                if let school = body["school_id"] { state.schoolID = school as? String }
             }
             result = [["id":owner.uuidString,"nickname":owner == Self.owner ? state.nickname : "Owner B","farmer_asset":"OiFarmer", "school_id":state.schoolID as Any? ?? NSNull()]]
         } else if path.hasSuffix("/oi_story_media") {
@@ -230,6 +239,70 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(backend.snapshot().nickname, "Saved name")
     }
 
+    @MainActor func testProfileEditsDoNotOverwriteFieldsChangedOnAnotherDevice() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        XCTAssertNil(store.profile?.schoolId)
+
+        backend.configure { $0.schoolID = "postech" }
+        await store.updateProfile(nickname: "Name on this device")
+        XCTAssertEqual(store.profile?.nickname, "Name on this device")
+        XCTAssertEqual(backend.snapshot().schoolID, "postech")
+
+        backend.configure { $0.nickname = "Name on another device"; $0.schoolID = nil }
+        await store.updateProfile(schoolID: "postech")
+        XCTAssertEqual(backend.snapshot().nickname, "Name on another device")
+        XCTAssertEqual(store.profile?.schoolId, "postech")
+    }
+
+    @MainActor func testSignOutOnlyRevokesCurrentSessionAndClearsDeviceCredentials() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        XCTAssertNotNil(store.account)
+
+        await store.signOut()
+
+        XCTAssertEqual(backend.snapshot().logoutScopes, ["local"])
+        XCTAssertNil(try vault.read())
+        XCTAssertNil(store.account)
+        XCTAssertNil(store.syncWarning)
+    }
+
+    @MainActor func testFailedServerSignOutWarningSurvivesSuccessfulPublicRefresh() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        backend.configure { $0.failLogout = true }
+
+        await store.signOut()
+
+        let warning = try XCTUnwrap(store.syncWarning)
+        XCTAssertNil(try vault.read())
+        XCTAssertNil(store.account)
+        XCTAssertTrue(store.hasLoadedRemote)
+        XCTAssertNil(store.loadError)
+        await store.refresh()
+        XCTAssertEqual(store.syncWarning, warning)
+    }
+
+    @MainActor func testCardResolutionNotFoundIsConflictWithoutChangingOtherNotFoundErrors() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+
+        do {
+            try await store.resolveCardRequest(UUID(), accept: true)
+            XCTFail("A withdrawn request cannot be resolved")
+        } catch OiServiceError.conflict { }
+
+        do {
+            _ = try await store.cardRequests()
+            XCTFail("A missing list endpoint cannot be read")
+        } catch OiServiceError.unavailable { }
+    }
+
     @MainActor func testPublicRepositoryLoadsActualStoryAndRejectsHidden() async throws {
         let (store,backend,_,session,directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
@@ -261,7 +334,7 @@ final class OiRemoteStoreTests: XCTestCase {
                 let name = "oi-\(editor ? "editor" : "account")-\(width)"
                 let root = AnyView(NavigationStack {
                     if editor { OiStoryEditor(remote: store, localID: local.id) }
-                    else { OiAccountView(remote: store) }
+                    else { MYSettingsView(remote: store) }
                 }.preferredColorScheme(.light))
                 let controller = UIHostingController(rootView: root)
                 let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
@@ -350,6 +423,30 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(receipt?.status, "pending")
         XCTAssertFalse(OiCreationAccess.canEdit(status: receipt?.status, submitted: false))
         XCTAssertTrue(store.stories.isEmpty, "Review request must not publish the story")
+    }
+
+    @MainActor func testMediaRemovalKeepsAttachmentsMissingFromLocalCache() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let receipt = await store.save(draft())
+        let story = try XCTUnwrap(receipt)
+        let removedID = UUID()
+        let directoryPath = "\(story.userId.uuidString)/\(story.id.uuidString)"
+        let removedByID = "\(directoryPath)/\(removedID.uuidString).jpg"
+        let removedByPath = "\(directoryPath)/another-photo.jpg"
+        let retained = ["\(directoryPath)/newer-device-photo.jpg", "\(directoryPath)/\(removedID.uuidString)-copy.jpg"]
+        backend.configure { state in
+            state.paths = [removedByID, retained[0], removedByPath, retained[1]]
+            state.failReads = true
+        }
+        XCTAssertTrue(store.mediaPaths(storyID: story.id).isEmpty)
+
+        let updated = await store.removeStoryMedia(paths: [removedByPath], photoIDs: [removedID], story: story)
+
+        XCTAssertNotNil(updated)
+        XCTAssertEqual(backend.snapshot().paths, retained)
+        XCTAssertEqual(store.mediaPaths(storyID: story.id), retained)
     }
 
     @MainActor func testInvalidRefreshRequiresReauthenticationNotEmptySuccess() async throws {
@@ -441,55 +538,8 @@ final class OiRemoteStoreTests: XCTestCase {
     }
 }
 
-#if DEBUG
 @MainActor
-final class OiCreationPracticeTests: XCTestCase {
-    func testPracticeReviewDoesNotCreateAnApprovedProductionDraft() throws {
-        let session = OiCreationPracticeSession()
-        XCTAssertFalse(session.completePractice())
-        session.fillExampleText()
-        XCTAssertFalse(session.canReview, "The user must choose a real map location first")
-        session.draft.latitude = 36.012
-        session.draft.longitude = 129.323
-        XCTAssertTrue(session.completePractice())
-        XCTAssertTrue(session.completed)
-        XCTAssertNil(session.draft.grantId)
-        XCTAssertFalse(session.draft.valid)
-        XCTAssertThrowsError(try session.draft.payload(), "Practice must not fabricate approval for production writes")
-    }
-
-    func testPracticePhotoEditsAndResetAreDisposable() throws {
-        let session = OiCreationPracticeSession()
-        let format = UIGraphicsImageRendererFormat(); format.scale = 1
-        let source = UIGraphicsImageRenderer(size: CGSize(width: 320, height: 160), format: format).image { context in
-            UIColor.green.setFill(); context.fill(CGRect(x: 0, y: 0, width: 320, height: 160))
-        }
-        let original = try XCTUnwrap(source.pngData())
-        try session.addPhoto(original)
-        let firstID = try XCTUnwrap(session.photos.first?.id)
-        try session.editPhoto(firstID, operation: .rotateLeft)
-        let rotated = try XCTUnwrap(UIImage(data: XCTUnwrap(session.photos.first?.data))?.cgImage)
-        XCTAssertEqual(rotated.width, 160); XCTAssertEqual(rotated.height, 320)
-        let rotatedID = try XCTUnwrap(session.photos.first?.id)
-        XCTAssertNotEqual(firstID, rotatedID)
-        try session.editPhoto(rotatedID, operation: .crop(CGRect(x: 0, y: 0.25, width: 1, height: 0.5)))
-        let cropped = try XCTUnwrap(UIImage(data: XCTUnwrap(session.photos.first?.data))?.cgImage)
-        XCTAssertEqual(cropped.width, 160); XCTAssertEqual(cropped.height, 160)
-        session.removePhoto(try XCTUnwrap(session.photos.first?.id))
-        XCTAssertTrue(session.photos.isEmpty)
-        try session.addPhoto(original)
-        session.fillExampleText(); session.draft.latitude = 36.012; session.draft.longitude = 129.323
-        session.customization.fill = .gradient
-        XCTAssertTrue(session.completePractice())
-        session.reset()
-        XCTAssertTrue(session.photos.isEmpty)
-        XCTAssertTrue(session.draft.title.isEmpty)
-        XCTAssertNil(session.draft.latitude)
-        XCTAssertFalse(session.completed)
-        XCTAssertEqual(session.customization, OiDraftCustomization())
-        XCTAssertEqual(UIImage(data: original)?.cgImage?.width, 320, "The original source is unchanged")
-    }
-
+final class OiPhotoImportTests: XCTestCase {
     func testPhotoImportBoundsAndInvalidInput() throws {
         let format = UIGraphicsImageRendererFormat(); format.scale = 1
         let source = UIGraphicsImageRenderer(size: CGSize(width: 3000, height: 1500), format: format).image { context in
@@ -498,13 +548,10 @@ final class OiCreationPracticeTests: XCTestCase {
         let processed = try OiPhotoProcessor.prepare(XCTUnwrap(source.pngData()))
         let image = try XCTUnwrap(UIImage(data: processed)?.cgImage)
         XCTAssertEqual(image.width, 2048); XCTAssertEqual(image.height, 1024)
-        let session = OiCreationPracticeSession()
-        XCTAssertThrowsError(try session.addPhoto(Data("not an image".utf8)))
-        XCTAssertTrue(session.photos.isEmpty)
+        XCTAssertThrowsError(try OiPhotoProcessor.prepare(Data("not an image".utf8)))
         XCTAssertThrowsError(try OiPhotoProcessor.prepare(Data(repeating: 0, count: 40_000_001)))
     }
 }
-#endif
 
 @MainActor
 final class OiPhotoCropTests: XCTestCase {
@@ -886,7 +933,7 @@ extension OiRemoteStoreTests {
         defer { previousKeyWindow?.makeKey() }
         for width in [375.0, 402.0, 440.0] {
             let screens: [(String, AnyView)] = [
-                ("account", AnyView(NavigationStack { OiAccountView(remote: store) })),
+                ("account", AnyView(NavigationStack { MYSettingsView(remote: store) })),
                 ("add-method", AnyView(NavigationStack { OiAccountMergeView(remote: store, mode: .addLoginMethod) })),
                 ("merge-existing", AnyView(NavigationStack { OiAccountMergeView(remote: store) })),
             ]
