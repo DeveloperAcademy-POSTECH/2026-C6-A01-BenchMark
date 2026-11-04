@@ -51,6 +51,7 @@ struct ARCollectionGameView<SuccessContent: View>: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isReturningFromSettings = false
+    @State private var introTransitionDuration: Double? = 0.4
 
     @State private var viewModel = ARGameViewModel(
         isARSupported: {
@@ -71,34 +72,34 @@ struct ARCollectionGameView<SuccessContent: View>: View {
     )
 
     var body: some View {
-        Group {
+        ZStack {
+            if usesDarkStage {
+                Color.black.ignoresSafeArea().transition(.identity)
+            }
             switch viewModel.state {
-            case .introBackground:
-                Image("ARGameIntroBackground")
-                    .resizable()
-                    .scaledToFill()
-                    .ignoresSafeArea()
-                    .accessibilityHidden(true)
-                    .task {
-                        do {
-                            try await Task.sleep(for: .milliseconds(300))
-                        } catch {
-                            return
-                        }
-                        guard !Task.isCancelled else { return }
-                        viewModel.showIntro()
-                    }
-            case .intro:
+            case .introBackground, .intro:
                 ARGameIntroView(
                     cucumberName: cucumberName,
                     cucumberImageURL: cucumberImageURL,
                     cucumberAssetName: cucumberAssetName,
+                    showsControls: viewModel.state == .intro,
                     targetCount: 3,
                     timeLimitSeconds: 30,
                     onBack: onBack
                 ) {
                     viewModel.requestPermission()
                 }
+                .task(id: viewModel.state) {
+                    guard viewModel.state == .introBackground else { return }
+                    do {
+                        try await Task.sleep(for: .milliseconds(300))
+                    } catch {
+                        return
+                    }
+                    guard !Task.isCancelled else { return }
+                    viewModel.showIntro()
+                }
+                .transition(.opacity)
             case .requestingPermission:
                 ProgressView("카메라 권한을 확인하고 있어요")
                     .task {
@@ -110,6 +111,8 @@ struct ARCollectionGameView<SuccessContent: View>: View {
                     cucumberImageURL: cucumberImageURL,
                     cucumberAssetName: cucumberAssetName
                 )
+                // The incoming stage fades in, but removing it tears down the camera immediately.
+                .transition(.asymmetric(insertion: .opacity, removal: .identity))
             case .permissionDenied:
                 VStack(spacing: 16) {
                     statePanel(
@@ -128,19 +131,17 @@ struct ARCollectionGameView<SuccessContent: View>: View {
                     .buttonStyle(.borderedProminent)
                 }
             case .success:
-                ARGameSuccessView {
-                    withAnimation(reduceMotion ? nil : .timingCurve(0, 0, 0.58, 1, duration: 0.3)) {
-                        viewModel.showStoryCard()
-                    }
-                }
-                .transition(.opacity)
+                ARGameSuccessView(onFinished: viewModel.showStoryCard)
+                    .transition(.opacity)
             case .storyCard:
-                successContent(viewModel.reset)
-                .transition(.opacity)
+                successContent { resetRound() }
+                    .transition(.opacity)
             case .failure:
                 ARGameFailureView {
-                    viewModel.reset()
+                    guard viewModel.state == .failure else { return }
+                    resetRound(introDuration: 0.2)
                 }
+                .transition(.opacity)
             case .unavailable:
                 statePanel(
                     title: "AR을 사용할 수 없어요",
@@ -153,10 +154,11 @@ struct ARCollectionGameView<SuccessContent: View>: View {
                     title: "카메라가 중단되었어요",
                     message: "주변을 비추며 다시 시작해 주세요.",
                     buttonTitle: "다시 시작",
-                    action: viewModel.reset
+                    action: { resetRound() }
                 )
             }
         }
+        .animation(stageAnimation, value: viewModel.state)
         .overlay(alignment: .topLeading) {
             if viewModel.state != .intro && viewModel.state != .introBackground && viewModel.state != .storyCard {
                 Button(action: onBack) {
@@ -174,6 +176,32 @@ struct ARCollectionGameView<SuccessContent: View>: View {
             isReturningFromSettings = false
             viewModel.retryPermission()
         }
+    }
+
+    private var usesDarkStage: Bool {
+        switch viewModel.state {
+        case .starting, .playing, .success, .failure: true
+        default: false
+        }
+    }
+
+    private var stageAnimation: Animation? {
+        guard !reduceMotion else { return nil }
+        // Figma prototype reactions in the collection AR section (2876:8317).
+        let duration: Double?
+        switch viewModel.state {
+        case .intro: duration = introTransitionDuration
+        case .starting, .failure: duration = 0.2
+        case .success: duration = 0.1
+        case .storyCard: duration = 0.3
+        default: duration = nil
+        }
+        return duration.map { .timingCurve(0, 0, 0.58, 1, duration: $0) }
+    }
+
+    private func resetRound(introDuration: Double? = nil) {
+        introTransitionDuration = introDuration
+        viewModel.reset()
     }
 
     private func statePanel(
