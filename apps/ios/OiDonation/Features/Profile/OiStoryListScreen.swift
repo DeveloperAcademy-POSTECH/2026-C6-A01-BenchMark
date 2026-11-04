@@ -13,6 +13,7 @@ struct OiStoryListScreen: View {
     @State private var showingTicketNotice = false
     #if DEBUG
     @State private var showingPractice = false
+    @State private var showingWardrobe = false
     #endif
 
     var body: some View {
@@ -26,16 +27,24 @@ struct OiStoryListScreen: View {
         )
         #if DEBUG
         .safeAreaInset(edge: .top, spacing: 0) {
-            Button { showingPractice = true } label: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Label("증빙 없이 작성 체험", systemImage: "play.circle.fill").font(.subheadline.bold())
-                    Text("개발용 · 로그인 없이 체험 · 서버 전송 없음").font(.caption)
-                }.frame(maxWidth: .infinity, alignment: .leading).padding(14)
-                    .foregroundStyle(Color("OiGreen")).background(Color("OiLight"), in: RoundedRectangle(cornerRadius: 16))
-                    .padding(.horizontal, 20).padding(.vertical, 8)
-            }.buttonStyle(.plain).accessibilityIdentifier("oi.practice.open")
+            VStack(spacing: 0) {
+                Button { showingPractice = true } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("증빙 없이 작성 체험", systemImage: "play.circle.fill").font(.subheadline.bold())
+                        Text("개발용 · 로그인 없이 체험 · 서버 전송 없음").font(.caption)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(14)
+                        .foregroundStyle(Color("OiGreen")).background(Color("OiLight"), in: RoundedRectangle(cornerRadius: 16))
+                        .padding(.horizontal, 20).padding(.vertical, 8)
+                }.buttonStyle(.plain).accessibilityIdentifier("oi.practice.open")
+                Button { showingWardrobe = true } label: {
+                    Label("오이 옷장 바로 체험", systemImage: "tshirt")
+                        .font(.subheadline.bold()).frame(maxWidth: .infinity, minHeight: 44)
+                        .foregroundStyle(Color("OiDark"))
+                }.buttonStyle(.plain).accessibilityIdentifier("oi.wardrobe.open")
+            }
         }
         .fullScreenCover(isPresented: $showingPractice) { OiCreationPreviewHost() }
+        .fullScreenCover(isPresented: $showingWardrobe) { OiWardrobePreviewHost(allowsDismiss: true) }
         #endif
         .task(id: remote.account?.id) { await loadLocalDrafts() }
         .onChange(of: remote.revision) { _, _ in Task { await loadLocalDrafts() } }

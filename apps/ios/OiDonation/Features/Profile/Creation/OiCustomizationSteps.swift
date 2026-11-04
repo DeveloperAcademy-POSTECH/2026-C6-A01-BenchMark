@@ -1,53 +1,7 @@
 import SwiftUI
 import UIKit
 
-private enum OiOutfitTab: String, CaseIterable { case pose = "포즈", top = "상의", bottom = "하의", hat = "모자", set = "세트" }
 private enum OiCardTab: String, CaseIterable { case size = "크기", background = "배경", pattern = "패턴", border = "테두리", set = "세트" }
-
-struct OiCucumberCustomizationStep: View {
-    @Binding var draft: OiStoryDraft
-    @Binding var customization: OiDraftCustomization
-    let assets: [OiAsset]
-    @State private var tab: OiOutfitTab = .set
-    var body: some View {
-        VStack(spacing: 22) {
-            HStack {
-                TextField("오이 이름 입력", text: $draft.cucumberName).accessibilityIdentifier("oi.draft.cucumberName")
-                Image(systemName: "pencil").accessibilityHidden(true)
-            }.font(CampusStyle.body(20)).foregroundStyle(Color("OiGreen"))
-                .padding(14).background(Color("OiLight"), in: Capsule()).padding(.horizontal, 32)
-            OiCreationCharacterImage(asset: draft.cucumberAsset).frame(height: 250)
-            tabs
-            if tab == .set {
-                OiCreationAssetPicker(assets: assets.filter { $0.kind == "cucumber" }, selection: $draft.cucumberAsset)
-            } else {
-                OiEmptyCustomizationGrid(title: "\(tab.rawValue) 아이템 준비 중")
-                if tab == .top || tab == .bottom || tab == .hat {
-                    ColorPicker("\(tab.rawValue) 색상 미리 선택", selection: colorBinding, supportsOpacity: false)
-                    Text("색상 선택은 기기에 보관돼요. 옷이 준비되면 캐릭터에 적용할 수 있어요.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            Text("현재는 준비된 오이 세트를 선택할 수 있어요. 개별 의상·포즈는 추후 추가돼요.")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-    }
-    private var tabs: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(OiOutfitTab.allCases, id: \.self) { item in
-                    Button(item.rawValue) { tab = item }
-                        .buttonStyle(.bordered).tint(tab == item ? Color("OiGreen") : .gray)
-                        .accessibilityAddTraits(tab == item ? .isSelected : [])
-                }
-            }
-        }
-    }
-    private var colorBinding: Binding<Color> {
-        Binding(get: { Color(oiRGB: customization.garmentColors[tab.rawValue] ?? 0x708C40) },
-                set: { customization.garmentColors[tab.rawValue] = $0.oiRGB })
-    }
-}
 
 struct OiCardCustomizationStep: View {
     @Binding var draft: OiStoryDraft
@@ -100,7 +54,9 @@ struct OiDraftCardPreview: View {
             Text(draft.cucumberName.isEmpty ? "나의 오이" : draft.cucumberName).font(CampusStyle.semibold(18)).lineLimit(1)
                 .padding(6).background(.regularMaterial, in: Capsule())
             if customization.showsCharacter {
-                OiCreationCharacterImage(asset: draft.cucumberAsset).frame(maxHeight: .infinity)
+                if let look = customization.wardrobe {
+                    OiWardrobePreview(look: look, controls: false).frame(maxHeight: .infinity)
+                } else { OiCreationCharacterImage(asset: draft.cucumberAsset).frame(maxHeight: .infinity) }
             } else { Spacer(minLength: 50) }
             VStack(alignment: .leading, spacing: 4) {
                 Text(draft.title.isEmpty ? "오래 남는 나의 이야기" : draft.title).font(.headline).lineLimit(2)

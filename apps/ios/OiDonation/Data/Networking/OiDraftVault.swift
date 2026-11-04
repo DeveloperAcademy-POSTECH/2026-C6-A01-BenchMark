@@ -194,4 +194,153 @@ struct OiDraftCustomization: Codable, Equatable {
     var secondColor: UInt32 = 0xF1F4EC
     var showsCharacter = true
     var garmentColors: [String: UInt32] = [:]
+    /// Nil preserves the existing preset for older drafts. A look is local until the shared asset API exists.
+    var wardrobe: OiWardrobeLook?
+}
+
+enum OiDenim: String, CaseIterable, Codable, Identifiable {
+    case lightBlue = "01-light-blue", classicBlue = "02-classic-blue", deepIndigo = "03-deep-indigo"
+    case washedBlack = "04-washed-black", softGray = "05-soft-gray", ecru = "06-ecru"
+    var id: String { rawValue }
+    var resource: String { "oi-denim-" + rawValue }
+    var title: String {
+        switch self {
+        case .lightBlue: "연청"; case .classicBlue: "중청"; case .deepIndigo: "진청"
+        case .washedBlack: "흑청"; case .softGray: "그레이"; case .ecru: "에크루"
+        }
+    }
+}
+
+/// Stable item IDs; the renderer resolves a tested, source-matched assembly from these choices.
+struct OiWardrobeLook: Codable, Equatable {
+    enum Top: String, Codable, CaseIterable {
+        case tshirt, hoodie, cardigan, postech
+        var title: String {
+            switch self { case .tshirt: "흰 반팔 티"; case .hoodie: "흰 후드티"; case .cardigan: "흰 가디건"; case .postech: "포스텍 과잠" }
+        }
+    }
+    enum Bottom: String, Codable, CaseIterable {
+        case long, shorts
+        var title: String { self == .long ? "흰 긴바지" : "흰 반바지" }
+    }
+    enum Costume: String, Codable, CaseIterable, Identifiable {
+        case dinosaur, raincoat, bee, cat
+        var id: String { rawValue }
+        var title: String {
+            switch self { case .dinosaur: "공룡 잠옷"; case .raincoat: "노란 우비"; case .bee: "꿀벌 의상"; case .cat: "고양이 잠옷" }
+        }
+        var modelName: String { "wardrobe-costume-" + rawValue }
+        var thumbnailName: String { "oi-costume-" + rawValue }
+    }
+    var costume: Costume?
+    var top: Top = .tshirt
+    var bottom: Bottom = .long
+    var topColor: UInt32 = 0xFFFFFF
+    var bottomColor: UInt32 = 0xFFFFFF
+    var shoeColor: UInt32 = 0xFFFFFF
+    var artwork = OiWardrobeArtwork()
+    var fabrics: [String: OiDenim] = [:]
+
+    var modelName: String { costume?.modelName ?? "wardrobe-\(top.rawValue)-\(bottom.rawValue)" }
+    var bodySource: String { costume?.rawValue ?? (top == .tshirt ? (bottom == .shorts ? "shorts" : "base") : top.rawValue) }
+    var title: String { costume?.title ?? "\(top.title) · \(bottom.title) · 흰 운동화" }
+
+    init() {}
+    private enum CodingKeys: String, CodingKey { case top, bottom, topColor, bottomColor, shoeColor, artwork, fabrics, costume }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        costume = try? values.decode(Costume.self, forKey: .costume)
+        top = (try? values.decode(Top.self, forKey: .top)) ?? .tshirt
+        bottom = (try? values.decode(Bottom.self, forKey: .bottom)) ?? .long
+        topColor = ((try? values.decode(UInt32.self, forKey: .topColor)) ?? 0xFFFFFF) & 0xFFFFFF
+        bottomColor = ((try? values.decode(UInt32.self, forKey: .bottomColor)) ?? 0xFFFFFF) & 0xFFFFFF
+        shoeColor = ((try? values.decode(UInt32.self, forKey: .shoeColor)) ?? 0xFFFFFF) & 0xFFFFFF
+        let savedFabrics = (try? values.decode([String: String].self, forKey: .fabrics)) ?? [:]
+        fabrics = savedFabrics.filter { OiWardrobeArtwork.itemIDs.contains($0.key) }.compactMapValues(OiDenim.init(rawValue:))
+        artwork = try values.decodeIfPresent(OiWardrobeArtwork.self, forKey: .artwork) ?? OiWardrobeArtwork()
+    }
+}
+
+
+/// Normalized front/back placement; Foundation-only so local-draft recovery can be tested off-device.
+enum OiPhotoSide: String, CaseIterable, Codable, Identifiable {
+    case front, back
+    var id: String { rawValue }
+    var title: String { self == .front ? "앞면" : "뒷면" }
+}
+enum OiPhotoSlot: String, CaseIterable, Identifiable {
+    case top, bottom
+    var id: String { rawValue }
+    var role: String { self == .top ? "Top" : "Bottom" }
+    func itemID(in look: OiWardrobeLook) -> String { rawValue + "-" + (self == .top ? look.top.rawValue : look.bottom.rawValue) }
+    func title(in look: OiWardrobeLook) -> String { self == .top ? look.top.title : look.bottom.title }
+    func color(in look: OiWardrobeLook) -> UInt32 { self == .top ? look.topColor : look.bottomColor }
+    func supports(_ look: OiWardrobeLook) -> Bool { look.costume == nil && (self != .top || look.top != .postech) }
+    func fabric(in look: OiWardrobeLook) -> OiDenim? { look.fabrics[itemID(in: look)] }
+    func resource(in look: OiWardrobeLook) -> String { "photo-" + look.modelName + "-" + rawValue }
+}
+struct OiPhotoPlacement: Codable, Equatable {
+    var x = 0.5, y = 0.5, width = 0.55, rotation = 0.0
+    var isValid: Bool {
+        x.isFinite && y.isFinite && width.isFinite && rotation.isFinite &&
+        (0...1).contains(x) && (0...1).contains(y) && (0.03...1.5).contains(width) && (-180...180).contains(rotation)
+    }
+}
+struct OiPhotoLayer: Codable, Equatable, Identifiable {
+    var id = UUID().uuidString
+    var source: String
+    var side: OiPhotoSide = .front
+    var placement = OiPhotoPlacement()
+    var isValid: Bool { UUID(uuidString: id) != nil && placement.isValid && source.count == 64 && source.allSatisfy { "0123456789abcdef".contains($0) } }
+}
+struct OiPhotoDesign: Codable, Equatable {
+    static let maximumLayers = 8
+    var version = UUID().uuidString
+    var layers: [OiPhotoLayer] = []
+    var isValid: Bool {
+        UUID(uuidString: version) != nil && layers.count <= Self.maximumLayers &&
+        Set(layers.map(\.id)).count == layers.count && layers.allSatisfy(\.isValid)
+    }
+}
+/// Self-contained, deduplicated compressed photos live inside the account's protected draft.
+/// No shared photo folder: deleting/adopting a draft cannot remove another user's artwork.
+struct OiWardrobeArtwork: Codable, Equatable {
+    static let maximumBytes = 8 * 1024 * 1024
+    static let maximumSourceBytes = 1024 * 1024
+    static let itemIDs: Set<String> = ["top-tshirt", "top-hoodie", "top-cardigan", "bottom-long", "bottom-shorts"]
+    var designs: [String: OiPhotoDesign] = [:]
+    var sources: [String: Data] = [:]
+    var byteCount: Int { sources.values.reduce(0) { $0 + $1.count } }
+    var isValid: Bool {
+        let used = Set(designs.values.flatMap(\.layers).map(\.source))
+        return Set(designs.keys).isSubset(of: Self.itemIDs) && designs.values.allSatisfy(\.isValid) &&
+            Set(sources.keys) == used && byteCount <= Self.maximumBytes &&
+            sources.values.allSatisfy { !$0.isEmpty && $0.count <= Self.maximumSourceBytes }
+    }
+    init() {}
+    private enum CodingKeys: String, CodingKey { case designs, sources }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        designs = try values.decode([String: OiPhotoDesign].self, forKey: .designs)
+        sources = try values.decode([String: Data].self, forKey: .sources)
+        guard isValid else { throw DecodingError.dataCorruptedError(forKey: .designs, in: values, debugDescription: "Invalid local wardrobe artwork") }
+    }
+    mutating func set(_ design: OiPhotoDesign?, sources newSources: [String: Data] = [:], for item: String) throws {
+        var next = self
+        if let design, !design.layers.isEmpty { next.designs[item] = design } else { next.designs[item] = nil }
+        next.sources.merge(newSources) { _, new in new }
+        let used = Set(next.designs.values.flatMap(\.layers).map(\.source))
+        next.sources = next.sources.filter { used.contains($0.key) }
+        guard Self.itemIDs.contains(item), next.isValid else { throw OiPhotoDataError.limit }
+        self = next
+    }
+}
+enum OiPhotoDataError: LocalizedError {
+    case limit, unreadable
+    var errorDescription: String? {
+        switch self {
+        case .limit: "사진 용량이 너무 커요. 다른 사진을 선택하거나 사용하지 않는 디자인을 지워 주세요."
+        case .unreadable: "사진을 불러오지 못했어요. 다른 사진으로 다시 시도해 주세요."
+        }
+    }
 }
