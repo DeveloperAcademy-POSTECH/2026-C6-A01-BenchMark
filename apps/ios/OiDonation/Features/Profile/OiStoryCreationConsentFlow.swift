@@ -23,7 +23,7 @@ struct OiStoryCreationConsentFlow: View {
     }
 
     private func continueToEditor() {
-        if remote.grants.contains(where: { $0.revokedAt == nil }) {
+        if remote.canStartStory {
             showingEditor = true
         } else {
             showingApprovalNotice = true

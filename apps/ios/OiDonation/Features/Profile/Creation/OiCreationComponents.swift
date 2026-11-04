@@ -121,6 +121,7 @@ struct OiCreationSection<Content: View>: View {
 struct OiStoryWritingStep: View {
     @Binding var draft: OiStoryDraft
     let grants: [OiWritingGrant]
+    var canChangeGrant = false
     static let themes = ["가족", "우정", "사랑", "성장", "도전", "꿈", "배움", "경쟁", "협력", "갈등", "화해", "일탈", "나눔", "응원", "성취", "기타"]
     static let emotions = ["행복함", "즐거움", "뿌듯함", "고마움", "편안함", "설렘", "따뜻함", "짜릿함", "놀라움", "신남", "벅참", "그리움", "후련함", "부끄러움", "후회", "긴장감", "슬픔", "화남", "아쉬움", "기타"]
     var body: some View {
@@ -139,11 +140,11 @@ struct OiStoryWritingStep: View {
                     .lineLimit(7...16).accessibilityIdentifier("oi.draft.body").padding(20)
                     .background(CampusStyle.mapSheet, in: RoundedRectangle(cornerRadius: 20))
             }
-            if grants.count > 1 {
+            if !grants.isEmpty && canChangeGrant {
                 Picker("사용할 작성 승인", selection: $draft.grantId) {
-                    Text("승인 선택").tag(Optional<UUID>.none)
+                    Text("승인 미선택").tag(Optional<UUID>.none)
                     ForEach(grants) { Text("승인 \($0.id.uuidString.prefix(8)) · 최대 \($0.storyLimit)개").tag(Optional($0.id)) }
-                }.disabled(draft.revision > 0)
+                }
             }
         }.font(.custom("Paperlogy-4Regular", size: 16, relativeTo: .body))
     }

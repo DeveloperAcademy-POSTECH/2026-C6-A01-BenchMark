@@ -207,6 +207,22 @@ struct OiServiceChecks {
         draft.theme = "감사"; draft.emotion = "기쁨"; draft.cucumberName = "Test"
         draft.latitude = 36.01261057021347; draft.longitude = 129.3197268697784
         precondition(draft.valid)
+        var temporaryDraft = draft
+        temporaryDraft.grantId = nil
+        precondition(temporaryDraft.valid)
+        let temporaryPayload = try temporaryDraft.payload()
+        precondition(temporaryPayload["grant_id"] is NSNull)
+        let grant = OiWritingGrant(id: draft.grantId!, storyLimit: 1, revokedAt: nil)
+        precondition(OiWritingAccess.canWrite(grantID: nil, grants: [], unapprovedDraftsEnabled: true))
+        precondition(!OiWritingAccess.canWrite(grantID: nil, grants: [], unapprovedDraftsEnabled: false))
+        precondition(OiWritingAccess.canWrite(grantID: grant.id, grants: [grant], unapprovedDraftsEnabled: false))
+        precondition(!OiWritingAccess.canWrite(grantID: grant.id, grants: [], unapprovedDraftsEnabled: true))
+        let revoked = OiWritingGrant(id: grant.id, storyLimit: 1, revokedAt: "2026-11-04")
+        precondition(!OiWritingAccess.canWrite(grantID: grant.id, grants: [revoked], unapprovedDraftsEnabled: true))
+        let capabilityDecoder = JSONDecoder()
+        capabilityDecoder.keyDecodingStrategy = .convertFromSnakeCase
+        let oldCapabilities = try capabilityDecoder.decode(OiCapabilities.self, from: Data("{\"operator\":false,\"coins_enabled\":false}".utf8))
+        precondition(oldCapabilities.unapprovedDraftsEnabled != true)
         precondition(OiCreationStep.allCases.allSatisfy { $0.canContinue(draft: draft) })
         precondition(OiCreationStep.story.previous == nil && OiCreationStep.card.next == nil)
         var invalid = draft; invalid.title = String(repeating: "가", count: 101)

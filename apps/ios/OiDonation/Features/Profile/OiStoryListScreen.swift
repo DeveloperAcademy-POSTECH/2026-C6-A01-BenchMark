@@ -24,7 +24,9 @@ struct OiStoryListScreen: View {
         OiStoryListView(
             state: state,
             notices: ["이야기를 누르면 작성 내용과 공개 상태를 확인할 수 있습니다", "운영자 공개 승인 후 지도에서 오이를 볼 수 있습니다"],
-            guidance: "작성 승인을 받은 뒤 오이와 이야기를 심어보세요",
+            guidance: remote.unapprovedDraftsEnabled
+                ? "임시 작성 모드 · 승인 없이 초안을 저장할 수 있어요"
+                : "작성 승인을 받은 뒤 오이와 이야기를 심어보세요",
             onRetry: { Task { await remote.refresh(); await loadLocalDrafts() } },
             onSelectStory: selectStory,
             onCreateStory: beginCreatingStory
@@ -136,7 +138,7 @@ struct OiStoryListScreen: View {
 
     private func beginCreatingStory() {
         guard remote.account != nil, !remote.needsReauthentication else { showingSettings = true; return }
-        if remote.grants.contains(where: { $0.revokedAt == nil }) {
+        if remote.canStartStory {
             showingConsent = true
         } else {
             showingApprovalNotice = true

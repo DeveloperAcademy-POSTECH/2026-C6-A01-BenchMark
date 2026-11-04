@@ -131,7 +131,7 @@ struct MYFarmView: View {
                 .font(.custom("Paperlogy-7Bold", size: 30, relativeTo: .title))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
-            Text("안내된 정식 기부처의 절차를 따라 기부해요.\n작성 승인을 받은 계정에서 나만의 오이와 이야기를 만들 수 있어요.")
+            Text("안내된 정식 기부처의 절차를 따라 기부해요.\n작성 승인 또는 임시 작성 모드에서 나만의 오이와 이야기를 만들 수 있어요.")
                 .font(.custom("Paperlogy-3Light", size: 18, relativeTo: .body)).lineSpacing(5)
             NavigationLink {
                 if let remote { OiStoryListScreen(remote: remote) }

@@ -17,6 +17,17 @@ final class OiRemoteStore {
     private(set) var media: [OiMedia] = []
     private(set) var evidence: [OiEvidence] = []
     private(set) var grants: [OiWritingGrant] = []
+    private(set) var unapprovedDraftsEnabled = false
+
+    var canStartStory: Bool {
+        account != nil && !needsReauthentication &&
+            (unapprovedDraftsEnabled || grants.contains { $0.revokedAt == nil })
+    }
+
+    func canWriteStory(grantID: UUID?) -> Bool {
+        account != nil && !needsReauthentication && OiWritingAccess.canWrite(
+            grantID: grantID, grants: grants, unapprovedDraftsEnabled: unapprovedDraftsEnabled)
+    }
     private(set) var collections: [OiOwnedStory] = []
     private(set) var favorites: Set<UUID> = []
     private(set) var collectionCounts: [UUID: Int] = [:]
@@ -200,6 +211,7 @@ final class OiRemoteStore {
         generation = UUID(); loadSequence += 1; refreshTask?.cancel(); refreshTask = nil
         profile = nil; ownStories = []; reviewStories = []; profiles = []; media = []; evidence = []; grants = []
         stories = []; collections = []; favorites = []; collectionCounts = [:]; evidenceOperation = nil; committedMediaPaths = [:]
+        unapprovedDraftsEnabled = false
         isOperator = false; hasLoadedRemote = false; needsReauthentication = false; isRefreshing = false
         isAccountMergeAvailable = false; accountMemberIDs = []; accountProviders = []; localRecoveryWarning = nil
         localSignOutWarning = nil; loadError = nil; syncWarning = nil; error = nil; revision += 1
@@ -344,6 +356,7 @@ final class OiRemoteStore {
         profile = fetchedProfiles.first { $0.id == account?.id }
         profiles = fetchedProfiles; media = fetchedMedia; evidence = requests; grants = permissions; committedMediaPaths = [:]
         collections = collected; favorites = Set(starred.map(\.storyId)); isOperator = capabilities?.operator == true
+        unapprovedDraftsEnabled = capabilities?.unapprovedDraftsEnabled == true
         isAccountMergeAvailable = capabilities?.accountMergeEnabled == true; accountMemberIDs = members
         accountProviders = capabilities?.accountProviders ?? []
         evidenceOperation = recoveredOperation; localRecoveryWarning = recoveryWarning
@@ -412,12 +425,14 @@ final class OiRemoteStore {
     }
 
     func save(_ draft: OiStoryDraft) async -> OiLiveStory? {
+        guard canWriteStory(grantID: draft.grantId) else { error = OiServiceError.writingApprovalRequired.localizedDescription; return nil }
         do { return await change("save_story", payload: try draft.payload(), as: OiLiveStory.self) }
         catch { self.error = error.localizedDescription; return nil }
     }
 
     func submitStory(_ story: OiLiveStory) async -> OiLiveStory? {
-        await change("submit_story", payload: ["id":story.id.uuidString,"revision":story.revision], as: OiLiveStory.self)
+        guard canWriteStory(grantID: story.grantId) else { error = OiServiceError.writingApprovalRequired.localizedDescription; return nil }
+        return await change("submit_story", payload: ["id":story.id.uuidString,"revision":story.revision], as: OiLiveStory.self)
     }
 
     func updateProfile(nickname: String? = nil, schoolID: String? = nil) async {

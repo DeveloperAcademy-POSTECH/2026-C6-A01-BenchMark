@@ -61,6 +61,7 @@ grant execute on function auth.jwt() to anon,authenticated;
         run(connection + ['-f', 'supabase/tests/oi-flow.sql'])
         run(connection + ['-f', 'supabase/tests/account-merge.sql'])
         run(connection + ['-f', 'supabase/tests/oi-card-requests.sql'])
+        run(connection + ['-f', 'supabase/tests/oi-unapproved-drafts.sql'])
         print('PASS: migrations, existing SQL regression, data union, preservation, consent, operator exclusion, rollback, RLS and old-session cutover')
 
         users = ['90000000-0000-4000-8000-000000000001', '90000000-0000-4000-8000-000000000002']
@@ -115,6 +116,7 @@ grant execute on function auth.jwt() to anon,authenticated;
         run(remote_connection + ['-f', 'supabase/tests/account-merge.sql'])
         run(remote_connection + ['-f', 'supabase/tests/account-merge-campus-compat.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-card-requests.sql'])
+        run(remote_connection + ['-f', 'supabase/tests/oi-unapproved-drafts.sql'])
         print('PASS: deployed save_campus_story, height_meters and heading_degrees behavior survives canonical ownership patch')
         # Unknown owning function edits must stop the migration before any schema change commits.
         run(connection + ['-c', 'create database unknown_drift'])
@@ -131,6 +133,22 @@ grant execute on function auth.jwt() to anon,authenticated;
         absent = subprocess.run(drift_connection + ['-qAtc', "select to_regclass('benchmark_private.oi_account_members') is null;"], capture_output=True, text=True, check=True).stdout.strip()
         assert absent == 't'
         print('PASS: unknown owning RPC drift rejects and rolls back the entire migration')
+        # The temporary-writing migration must also reject unknown deployed RPC changes.
+        run(connection + ['-c', 'create database temporary_writing_drift'])
+        writing_connection = connection.copy()
+        writing_connection[writing_connection.index('-d') + 1] = 'temporary_writing_drift'
+        run(writing_connection, input=bootstrap, text=True)
+        run(writing_connection, input=extra, text=True)
+        writing_migration = next(path for path in migrations if path.name.endswith('_oi_temporary_story_drafts.sql'))
+        for migration in migrations:
+            if migration == writing_migration: break
+            run(writing_connection + ['-f', str(migration)])
+        run(writing_connection, input="create or replace function benchmark_private.oi_mutate(action text,payload jsonb) returns jsonb language plpgsql as $$ begin return '{}'::jsonb; end; $$;", text=True)
+        rejected = subprocess.run(writing_connection + ['-f', str(writing_migration)], capture_output=True, text=True, timeout=20)
+        assert rejected.returncode != 0 and 'drift requires review before temporary writing' in rejected.stderr
+        intact = subprocess.run(writing_connection + ['-qAtc', "select to_regclass('benchmark_private.oi_story_creation_settings') is null and (select attnotnull from pg_attribute where attrelid='public.oi_stories'::regclass and attname='grant_id');"], capture_output=True, text=True, check=True).stdout.strip()
+        assert intact == 't'
+        print('PASS: temporary draft mode ON/OFF, private media retention, approval quota/revocation, and unknown RPC rollback')
         succeeded = True
 finally:
     # pg_ctl can time out after starting the server, so inspect the task-owned PID file as well.
