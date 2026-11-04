@@ -38,7 +38,7 @@ struct RootTabView: View {
                 switch destination {
                 case .summary(let id):
                     if let story = store.story(id) {
-                        CampusSummaryView(story: story, store: store)
+                        CampusSummaryView(story: story, store: store, isCameraCoverActive: isCameraCoverActive)
                             .toolbar {
                                 if story.latitude != nil && story.longitude != nil {
                                     ToolbarItem(placement: .topBarTrailing) {

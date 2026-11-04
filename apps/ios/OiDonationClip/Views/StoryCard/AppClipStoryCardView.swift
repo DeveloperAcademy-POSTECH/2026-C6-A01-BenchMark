@@ -11,6 +11,8 @@ import UIKit
 struct AppClipStoryCardView: View {
     let experience: AppClipExperience
     let isCollected: Bool
+    var cancelTitle = "삭제"
+    var notice: String? = nil
     let onCollect: () -> Void
     let onCancel: () -> Void
 
@@ -26,8 +28,9 @@ struct AppClipStoryCardView: View {
             isCollected: isCollected,
             collectTitle: "이 기기에 보관하기",
             collectedTitle: "이 기기에 보관됨",
-            cancelTitle: "삭제",
+            cancelTitle: cancelTitle,
             accessibilityPrefix: "appclip.storyCard",
+            notice: notice,
             onCollect: onCollect,
             onCancel: onCancel
         ) {

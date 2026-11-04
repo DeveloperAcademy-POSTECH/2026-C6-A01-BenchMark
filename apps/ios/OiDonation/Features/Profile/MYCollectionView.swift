@@ -50,6 +50,12 @@ struct MYCollectionView: View {
         VStack(spacing: 12) {
             sortBar
             if let remote { OiConnectionStatus(remote: remote, showsInitialProgress: false) }
+            if let error = collectedLibrary.persistenceError {
+                Label(error, systemImage: "exclamationmark.circle")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("my.appClip.storageError")
+            }
             ScrollView {
                 if shouldShowCollectedSection {
                     collectedSection
@@ -62,7 +68,7 @@ struct MYCollectionView: View {
                     schoolFolders
                 } else if !cards.isEmpty {
                     cardGrid
-                } else if !shouldShowCollectedSection {
+                } else if !shouldShowCollectedSection && collectedLibrary.persistenceError == nil {
                     ContentUnavailableView(pinnedOnly ? "즐겨찾는 오이가 없어요" : "아직 수집한 카드가 없어요", systemImage: pinnedOnly ? "pin" : "leaf", description: Text(emptyCollectionGuidance))
                         .padding(.top, 60)
                 }
@@ -358,12 +364,19 @@ struct MYCollectionView: View {
                                 .background(.white, in: Capsule())
                         }
                         .buttonStyle(.plain)
+                        .disabled(remote?.isBusy == true || remote?.needsReauthentication == true)
                         .accessibilityLabel("카드 고정 \(demo.favorites.contains(card.id) ? "해제" : "추가")")
                         .accessibilityAddTraits(demo.favorites.contains(card.id) ? .isSelected : [])
                         .accessibilityIdentifier("my.favorite.\(card.id)")
                     }
                     .frame(width: cardWidth)
                     .foregroundStyle(.black)
+                    if let remote {
+                        if remote.needsReauthentication { OiConnectionStatus(remote: remote) }
+                        if let error = remote.error {
+                            Text(error).font(.footnote).foregroundStyle(.white).frame(width: cardWidth)
+                        }
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 16)
@@ -386,15 +399,20 @@ struct MYCollectionView: View {
                     .font(.body)
                 if let remote {
                     Button("내 계정 도감에 저장") {
+                        guard let owner = remote.account?.id else { return }
                         Task {
+                            guard remote.account?.id == owner, !remote.needsReauthentication, !remote.isBusy else { return }
                             await remote.perform("collect", payload: ["id": item.story.id])
-                            if remote.collections.contains(where: { $0.storyId.uuidString.caseInsensitiveCompare(item.story.id) == .orderedSame }) {
-                                collectedLibrary.removeImported(storyID: item.story.id)
+                            if remote.account?.id == owner,
+                               remote.collections.contains(where: { $0.storyId.uuidString.caseInsensitiveCompare(item.story.id) == .orderedSame }),
+                               collectedLibrary.removeImported(storyID: item.story.id) {
                                 selectedCollectedCard = nil
                             }
                         }
-                    }.disabled(remote.account == nil || remote.isBusy)
+                    }.disabled(remote.account == nil || remote.isBusy || remote.needsReauthentication)
+                    if remote.needsReauthentication { OiConnectionStatus(remote: remote) }
                     if let error = remote.error { Text(error).foregroundStyle(.red) }
+                    if let error = collectedLibrary.persistenceError { Text(error).foregroundStyle(.red) }
                 }
                 Text("수집일 \(item.record.collectedAt.formatted(date: .abbreviated, time: .omitted))")
                     .font(.caption)

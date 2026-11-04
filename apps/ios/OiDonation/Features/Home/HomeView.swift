@@ -119,8 +119,7 @@ struct HomeView: View {
             if active {
                 scene.suspendForARCamera()
             } else {
-                isOnScreen = true
-                scene.setVisible(scenePhase == .active)
+                scene.setVisible(isOnScreen && scenePhase == .active)
             }
         }
         .onChange(of: store.stories) { _, _ in

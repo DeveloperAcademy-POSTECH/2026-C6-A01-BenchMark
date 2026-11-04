@@ -14,6 +14,7 @@ struct CampusGeoARScreen: View {
     @State private var controller = CampusGeoARController()
     @State private var location = CampusGeoLocation()
     @State private var showingStory = false
+    @State private var isVisible = false
     @State private var restartID = UUID()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -31,7 +32,7 @@ struct CampusGeoARScreen: View {
                 HStack {
                     Text("현장 AR").font(.headline)
                     Spacer()
-                    Button("닫기", systemImage: "xmark") { controller.stop(); dismiss() }
+                    Button("닫기", systemImage: "xmark") { stopScreen(); dismiss() }
                 }
                 VStack(alignment: .leading, spacing: 6) {
                     if controller.mode != .preparing { Text(controller.mode.rawValue).font(.headline) }
@@ -73,32 +74,45 @@ struct CampusGeoARScreen: View {
             }
             .foregroundStyle(.white)
         }
-        .task(id: restartID) {
-            guard scenePhase == .active, !showingStory else { return }
-            controller.onStory = { showingStory = true }
+        .task(id: restartID) { [request = restartID] in
+            guard isCurrent(request) else { return }
+            controller.stop()
+            controller.onStory = {
+                guard isCurrent(request) else { return }
+                showingStory = true
+            }
             sharedError = nil
             do {
-                livePlacement = try await currentPlacement()
-                try Task.checkCancellation()
-                await controller.start(target, location: location)
+                let current = try await currentPlacement()
+                guard isCurrent(request) else { return }
+                livePlacement = current
+                await controller.start(current, location: location)
                 // Refresh publication and coordinates while AR is visible. Hidden/deleted stories stop rendering.
-                while !Task.isCancelled {
+                while isCurrent(request) {
                     try await Task.sleep(for: .seconds(30))
+                    guard isCurrent(request) else { return }
                     let updated = try await currentPlacement()
+                    guard isCurrent(request) else { return }
                     if updated != target {
                         livePlacement = updated
                         await controller.start(updated, location: location)
                     }
                 }
-            } catch is CancellationError { }
-            catch { controller.stop(); sharedError = error.localizedDescription }
+            } catch {
+                guard isCurrent(request), !OiServiceFailure.isCancellation(error) else { return }
+                controller.stop()
+                sharedError = error.localizedDescription
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             restartID = UUID() // Cancel in-flight server reads as well as the AR session.
             if phase != .active { controller.stop() }
         }
-        .onAppear { if !showingStory { restartID = UUID() } }
-        .onDisappear { controller.stop() }
+        .onAppear {
+            isVisible = true
+            if !showingStory { restartID = UUID() }
+        }
+        .onDisappear { stopScreen() }
         .onChange(of: showingStory) { _, showing in
             restartID = UUID()
             if showing { controller.stop() }
@@ -126,6 +140,15 @@ struct CampusGeoARScreen: View {
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("AR로 돌아가기") { showingStory = false } } }
             }
         }
+    }
+
+    private func isCurrent(_ request: UUID) -> Bool {
+        !Task.isCancelled && isVisible && request == restartID && scenePhase == .active && !showingStory
+    }
+
+    private func stopScreen() {
+        isVisible = false
+        controller.stop()
     }
 }
 

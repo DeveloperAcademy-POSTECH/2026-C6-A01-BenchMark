@@ -28,7 +28,25 @@ struct CampusMapData: Decodable {
     let graph:[String:Node]
     static func load() throws -> Self {
         guard let url=Bundle.main.url(forResource:"campus-data",withExtension:"json") else {throw CocoaError(.fileNoSuchFile)}
-        var data=try JSONDecoder().decode(Self.self,from:Data(contentsOf:url));if data.enu {data.surface=try CampusHeightField(directory:url.deletingLastPathComponent())};return data
+        return try load(from: url)
+    }
+    static func load(from url: URL) throws -> Self {
+        var data = try JSONDecoder().decode(Self.self, from: Data(contentsOf: url))
+        // The map and placement code index coordinate arrays directly.
+        func validPoint(_ point: [Double]) -> Bool {
+            point.count >= 2 && point.prefix(3).allSatisfy { Float($0).isFinite }
+        }
+        guard data.origin.count >= 2, (-180...180).contains(data.origin[0]),
+              abs(data.origin[1]) < 90,
+              Float(data.unitsPerMeter) > 0, Float(data.unitsPerMeter).isFinite,
+              data.pois.allSatisfy({ validPoint($0.p) }),
+              data.graph.values.allSatisfy({ validPoint($0.p) }),
+              data.bounds.allSatisfy({ $0.allSatisfy(validPoint) }),
+              data.buildings.allSatisfy({ $0.p.allSatisfy(validPoint) }) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        if data.enu { data.surface = try CampusHeightField(directory: url.deletingLastPathComponent()) }
+        return data
     }
     func grounded(_ p:SIMD3<Float>)->SIMD3<Float>{var q=p;q.y=surface?.height(x:p.x,z:p.z) ?? p.y;return q}
     func world(_ p:[Double])->SIMD3<Float>{grounded(SIMD3(Float(p[0]),p.count>2 ? Float(p[2]):0.15,Float(-p[1])))}

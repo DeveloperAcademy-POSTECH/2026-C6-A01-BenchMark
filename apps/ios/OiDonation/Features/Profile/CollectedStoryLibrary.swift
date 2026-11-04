@@ -27,10 +27,14 @@ final class CollectedStoryLibrary {
         self.collectionStore = collectionStore
     }
 
-    func removeImported(storyID: String) {
-        collectionStore.remove(storyID: storyID)
+    var persistenceError: String? { collectionStore.persistenceError }
+
+    @discardableResult
+    func removeImported(storyID: String) -> Bool {
+        guard collectionStore.remove(storyID: storyID) else { return false }
         items.removeAll { $0.id == storyID }
         unavailableRecords.removeAll { $0.storyID == storyID }
+        return true
     }
 
     func load() async {
@@ -42,6 +46,7 @@ final class CollectedStoryLibrary {
         var unavailable: [CollectedStoryCard] = []
 
         for record in records {
+            guard !Task.isCancelled else { return }
             do {
                 async let story = repository.fetchPublicStory(storyID: record.storyID)
                 async let storyCard = repository.fetchPublicStoryCard(storyID: record.storyID)
@@ -52,6 +57,7 @@ final class CollectedStoryLibrary {
                     continue
                 }
 
+                try Task.checkCancellation()
                 loadedItems.append(
                     CollectedStoryLibraryItem(
                         record: record,
@@ -60,11 +66,15 @@ final class CollectedStoryLibrary {
                     )
                 )
             } catch {
+                guard !Task.isCancelled, !OiServiceFailure.isCancellation(error) else { return }
                 unavailable.append(record)
             }
         }
 
-        items = loadedItems
-        unavailableRecords = unavailable
+        guard !Task.isCancelled else { return }
+        // The user can import a card while its preview is being refreshed.
+        let remainingIDs = Set(records.map(\.storyID))
+        items = loadedItems.filter { remainingIDs.contains($0.id) }
+        unavailableRecords = unavailable.filter { remainingIDs.contains($0.storyID) }
     }
 }
