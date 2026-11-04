@@ -35,6 +35,9 @@ final class OiTestBackend {
         var failRefreshToken = false
         var failLogout = false
         var logoutScopes: [String?] = []
+        var cardSendResponse: [String: String] = [:]
+        var cardSendPayloads: [[String: String]] = []
+        var holdCardSend = false
         var loseEvidenceResponse = false
         var holdOwnerRead = false
         var holdPostMergeRead = false
@@ -58,7 +61,7 @@ final class OiTestBackend {
     func snapshot() -> State { lock.lock(); defer { lock.unlock() }; return state }
     func releaseHeldRead() {
         let value = snapshot().held
-        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false }
+        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false; $0.holdCardSend = false }
         value?.0.respond(200, value?.1 ?? Data())
     }
     func install() { OiStoreURLProtocol.handle = { [weak self] request, client in self?.receive(request, client: client) } }
@@ -99,6 +102,11 @@ final class OiTestBackend {
             state.logoutScopes.append(scope)
             status = state.failLogout ? 503 : 204
             bytes = Data()
+        }
+        else if path.hasSuffix("/rpc/oi_request_card") {
+            state.cardSendPayloads.append(body.compactMapValues { $0 as? String })
+            status = request.httpMethod == "POST" && request.value(forHTTPHeaderField: "Authorization") != nil ? 200 : 401
+            result = state.cardSendResponse
         }
         else if path.hasSuffix("/rpc/oi_resolve_card_request") || path.hasSuffix("/rpc/oi_card_requests") { status = 404 }
         else if path == "/functions/v1/account-merge", body["action"] as? String == "confirm" {
@@ -182,7 +190,8 @@ final class OiTestBackend {
         }
         let data = bytes ?? ((try? JSONSerialization.data(withJSONObject: result)) ?? Data())
         if (path.hasSuffix("/oi_stories") && owner == Self.owner && state.holdOwnerRead)
-            || (path.hasSuffix("/rpc/oi_capabilities") && state.holdPostMergeRead && state.mergeConfirmCount > 0) {
+            || (path.hasSuffix("/rpc/oi_capabilities") && state.holdPostMergeRead && state.mergeConfirmCount > 0)
+            || (path.hasSuffix("/rpc/oi_request_card") && state.holdCardSend) {
             state.held = (client,data)
             let notify = state.didHold
             lock.unlock(); notify?(); return
@@ -301,6 +310,69 @@ final class OiRemoteStoreTests: XCTestCase {
             _ = try await store.cardRequests()
             XCTFail("A missing list endpoint cannot be read")
         } catch OiServiceError.unavailable { }
+    }
+
+    @MainActor func testCardSendAcceptsAnExistingRequestForTheSameStory() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let storyID = UUID(), requestID = UUID(), existingID = UUID()
+        backend.configure {
+            $0.cardSendResponse = ["id": existingID.uuidString, "story_id": storyID.uuidString, "status": "pending"]
+        }
+        let pending = try await store.sendCardRequest(storyID: storyID, requestID: requestID)
+        XCTAssertEqual(pending, .pending)
+        let retried = try await store.sendCardRequest(storyID: storyID, requestID: requestID)
+        XCTAssertEqual(retried, .pending)
+
+        backend.configure { $0.cardSendResponse["status"] = "accepted" }
+        let resolved = try await store.sendCardRequest(storyID: storyID, requestID: existingID)
+        XCTAssertEqual(resolved, .accepted)
+        let payload = ["p_story_id": storyID.uuidString, "p_request_id": requestID.uuidString]
+        let original = ["p_story_id": storyID.uuidString, "p_request_id": existingID.uuidString]
+        XCTAssertEqual(backend.snapshot().cardSendPayloads, [payload, payload, original])
+        XCTAssertTrue(store.collections.isEmpty)
+    }
+
+    @MainActor func testCardSendRejectsAReceiptForAnotherStory() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let storyID = UUID(), requestID = UUID()
+        backend.configure {
+            $0.cardSendResponse = ["id": requestID.uuidString, "story_id": UUID().uuidString, "status": "pending"]
+        }
+        do {
+            _ = try await store.sendCardRequest(storyID: storyID, requestID: requestID)
+            XCTFail("A different story cannot acknowledge this request")
+        } catch OiServiceError.unavailable { }
+    }
+
+    @MainActor func testCardSendDiscardsReceiptAfterSignOutAndRequiresAuthentication() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let storyID = UUID(), requestID = UUID()
+        let held = expectation(description: "Card request is in flight")
+        backend.configure {
+            $0.cardSendResponse = ["id": requestID.uuidString, "story_id": storyID.uuidString, "status": "pending"]
+            $0.holdCardSend = true
+            $0.didHold = { held.fulfill() }
+        }
+        let send = Task { try await store.sendCardRequest(storyID: storyID, requestID: requestID) }
+        await fulfillment(of: [held], timeout: 5)
+        await store.signOut()
+        backend.releaseHeldRead()
+
+        do {
+            _ = try await send.value
+            XCTFail("The previous session's result must not be reported")
+        } catch OiServiceError.accountChanged { }
+        do {
+            _ = try await store.sendCardRequest(storyID: storyID, requestID: requestID)
+            XCTFail("Signed-out clients cannot submit requests")
+        } catch OiServiceError.signInRequired { }
+        XCTAssertEqual(backend.snapshot().cardSendPayloads.count, 1)
     }
 
     @MainActor func testPublicRepositoryLoadsActualStoryAndRejectsHidden() async throws {

@@ -110,6 +110,7 @@ struct RootTabView: View {
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL { handlePublicLink(url) }
         }
+        .environment(remote)
     }
 
     private func openGeoStory(_ story: CampusStory) {
