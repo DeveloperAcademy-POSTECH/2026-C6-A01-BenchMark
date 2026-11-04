@@ -36,8 +36,10 @@ struct OiOperatorHomeView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("닫기") { dismiss() } }
             }
             .navigationDestination(for: OiOperatorSection.self) { section in
-                if canAccess { OiOperatorPendingView(section: section) }
-                else { accessStatus }
+                if canAccess {
+                    if section == .stories { OiOperatorStoriesView(remote: remote) }
+                    else { OiOperatorPendingView(section: section) }
+                } else { accessStatus }
             }
         }
         .tint(CampusStyle.sectionGreen)

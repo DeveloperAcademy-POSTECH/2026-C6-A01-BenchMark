@@ -34,6 +34,11 @@ final class OiTestBackend {
         var failReads = false
         var isOperator = false
         var failCapabilities = false
+        var reviewCount = 0
+        var failAfterReview = false
+        var loseReviewResponse = false
+        var holdReviewResponse = false
+        var ignoreStoryStatusFilter = false
         var failRefreshToken = false
         var failLogout = false
         var logoutScopes: [String?] = []
@@ -60,7 +65,7 @@ final class OiTestBackend {
     func snapshot() -> State { lock.lock(); defer { lock.unlock() }; return state }
     func releaseHeldRead() {
         let value = snapshot().held
-        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false }
+        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false; $0.holdReviewResponse = false }
         value?.0.respond(200, value?.1 ?? Data())
     }
     func install() { OiStoreURLProtocol.handle = { [weak self] request, client in self?.receive(request, client: client) } }
@@ -136,6 +141,20 @@ final class OiTestBackend {
                 let nextRevision = (state.story?["revision"] as? Int ?? 0)+1
                 state.story?["revision"] = nextRevision
                 result = state.story ?? [:]
+            } else if action == "review_story" {
+                state.reviewCount += 1
+                let wanted = payload["status"] as? String ?? ""
+                if !state.isOperator { status = 403 }
+                else if state.story?["revision"] as? Int != payload["revision"] as? Int { status = 409 }
+                else if !["published", "hidden"].contains(wanted) { status = 400 }
+                else {
+                    state.story?["status"] = wanted
+                    let nextRevision = (state.story?["revision"] as? Int ?? 0) + 1
+                    state.story?["revision"] = nextRevision
+                    result = state.story ?? [:]
+                    if state.failAfterReview { state.failReads = true }
+                    if state.loseReviewResponse { status = 503; state.loseReviewResponse = false }
+                }
             } else if action == "start_evidence" {
                 let id = payload["id"] as? String ?? ""
                 state.requestIDs.insert(id)
@@ -161,7 +180,15 @@ final class OiTestBackend {
         else if path.hasSuffix("/rpc/oi_collection_metrics") { result = [] }
         else if path.hasSuffix("/oi_stories") {
             if state.failReads { status = 503 }
-            else if let story = state.story, story["user_id"] as? String == owner.uuidString { result = [story] }
+            else if let story = state.story, state.isOperator || story["user_id"] as? String == owner.uuidString {
+                let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems ?? []
+                let id = query.first { $0.name == "id" }?.value
+                let filter = query.first { $0.name == "status" }?.value
+                let matchesID = id == nil || id == "eq.\(story["id"] as? String ?? "")"
+                let matchesState = state.ignoreStoryStatusFilter || filter == nil || filter == "eq.\(story["status"] as? String ?? "")" ||
+                    (filter == "in.(pending,published,hidden)" && ["pending", "published", "hidden"].contains(story["status"] as? String ?? ""))
+                if matchesID && matchesState { result = [story] }
+            }
         } else if path.hasSuffix("/oi_schools") { result = [["id":"postech","name":"POSTECH"]] }
         else if path.hasSuffix("/oi_regions") { result = [["id":"pond","school_id":"postech","name":"Pond"]] }
         else if path.hasSuffix("/oi_assets") { result = [["id":"OiCats","kind":"cucumber","name":"Cats"]] }
@@ -185,6 +212,7 @@ final class OiTestBackend {
         }
         let data = bytes ?? ((try? JSONSerialization.data(withJSONObject: result)) ?? Data())
         if (path.hasSuffix("/oi_stories") && owner == Self.owner && state.holdOwnerRead)
+            || (path.hasSuffix("/rpc/oi_mutate") && body["p_action"] as? String == "review_story" && state.holdReviewResponse)
             || (path.hasSuffix("/rpc/oi_capabilities") && state.holdPostMergeRead && state.mergeConfirmCount > 0) {
             state.held = (client,data)
             let notify = state.didHold
@@ -224,6 +252,227 @@ final class OiControlledAuthentication: OiAuthenticating {
 }
 
 final class OiRemoteStoreTests: XCTestCase {
+    @MainActor func testOperatorStoryReadCannotReturnPreviousAccountsData() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let held = expectation(description: "operator list pending")
+        backend.configure { $0.holdOwnerRead = true; $0.didHold = { held.fulfill() } }
+        let read = Task { try await store.operatorStories() }
+        await fulfillment(of: [held], timeout: 5)
+        backend.configure { $0.holdOwnerRead = false }
+        await store.signOut()
+        backend.releaseHeldRead()
+        do { _ = try await read.value; XCTFail("Old account response must not be returned") }
+        catch OiServiceError.accountChanged { }
+    }
+
+    @MainActor func testOperatorStoryScreenLayouts() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let savedResult = await store.save(draft(title: "후배에게 전하고 싶은 작은 응원"))
+        let saved = try XCTUnwrap(savedResult)
+        let pendingResult = await store.submitStory(saved)
+        let pending = try XCTUnwrap(pendingResult)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        for name in ["list", "detail", "list-empty", "list-failed", "detail-accessibility"] {
+            backend.configure {
+                $0.failReads = name == "list-failed"
+                $0.story?["status"] = name == "list-empty" ? "published" : "pending"
+            }
+            let view: AnyView
+            if name.hasPrefix("detail") {
+                view = AnyView(NavigationStack { OiOperatorStoryDetailView(remote: store, storyID: pending.id) })
+            } else { view = AnyView(NavigationStack { OiOperatorStoriesView(remote: store) }) }
+            let window = UIWindow(windowScene: scene)
+            let controller = UIHostingController(rootView: view
+                .environment(\.scenePhase, .active)
+                .environment(\.locale, Locale(identifier: "ko_KR"))
+                .environment(\.dynamicTypeSize, name.hasSuffix("accessibility") ? .accessibility5 : .large)
+                .preferredColorScheme(.light))
+            window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+            window.rootViewController = controller
+            window.makeKeyAndVisible()
+            try await Task.sleep(for: .milliseconds(500))
+            controller.view.layoutIfNeeded()
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "operator-story-\(name)-402x874"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+    }
+
+    @MainActor func testOperatorStoryReviewLoadsAndMovesBetweenFilters() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let draftResult = await store.save(draft(title: "공개 검토할 이야기"))
+        let draft = try XCTUnwrap(draftResult)
+        let pendingResult = await store.submitStory(draft)
+        let pending = try XCTUnwrap(pendingResult)
+        let list = OiOperatorStoriesModel()
+        await list.load(using: store)
+        XCTAssertEqual(list.filtered.map(\.id), [pending.id])
+        let detail = OiOperatorStoryModel()
+        await detail.load(pending.id, using: store)
+        XCTAssertEqual(detail.detail?.story.id, pending.id)
+        XCTAssertTrue(detail.detail?.media.isEmpty == true)
+
+        let publishResult = await detail.review(pending, publish: true, using: store)
+        let published = try XCTUnwrap(publishResult)
+        list.apply(published)
+        XCTAssertTrue(list.filtered.isEmpty)
+        list.filter = .published
+        XCTAssertEqual(list.filtered.map(\.id), [pending.id])
+        XCTAssertEqual(detail.detail?.story.status, "published")
+        XCTAssertNotNil(detail.notice)
+        XCTAssertTrue(store.stories.contains { $0.id == pending.id })
+
+        let hideResult = await detail.review(published, publish: false, using: store)
+        let hidden = try XCTUnwrap(hideResult)
+        list.apply(hidden)
+        XCTAssertTrue(list.filtered.isEmpty)
+        list.filter = .hidden
+        XCTAssertEqual(list.filtered.map(\.id), [pending.id])
+        XCTAssertFalse(store.stories.contains { $0.id == pending.id })
+        XCTAssertEqual(backend.snapshot().reviewCount, 2)
+    }
+
+    @MainActor func testOperatorStoryConflictRequiresFreshConfirmation() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let savedResult = await store.save(draft(title: "변경 전 이야기"))
+        let saved = try XCTUnwrap(savedResult)
+        let pendingResult = await store.submitStory(saved)
+        let pending = try XCTUnwrap(pendingResult)
+        let model = OiOperatorStoryModel()
+        await model.load(pending.id, using: store)
+        backend.configure { $0.story?["revision"] = pending.revision + 1; $0.story?["body"] = "다른 운영자가 확인할 새 내용" }
+        let conflicted = await model.review(pending, publish: true, using: store)
+        XCTAssertNil(conflicted)
+        XCTAssertTrue(model.requiresReload)
+        XCTAssertFalse(model.canReview)
+        XCTAssertNotNil(model.error)
+        let blocked = await model.review(pending, publish: true, using: store)
+        XCTAssertNil(blocked)
+        XCTAssertEqual(backend.snapshot().reviewCount, 1)
+        await model.load(pending.id, using: store)
+        let latest = try XCTUnwrap(model.detail?.story)
+        XCTAssertEqual(latest.body, "다른 운영자가 확인할 새 내용")
+        let stale = await model.review(pending, publish: true, using: store)
+        XCTAssertNil(stale, "Old confirmation must not submit a newer revision")
+        XCTAssertEqual(backend.snapshot().reviewCount, 1)
+        await model.load(pending.id, using: store)
+        let confirmed = await model.review(latest, publish: true, using: store)
+        XCTAssertNotNil(confirmed)
+    }
+
+    @MainActor func testOperatorStoryLostResponseRequiresReadBeforeAnotherDecision() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let savedResult = await store.save(draft(title: "응답 유실 시험"))
+        let saved = try XCTUnwrap(savedResult)
+        let pendingResult = await store.submitStory(saved)
+        let pending = try XCTUnwrap(pendingResult)
+        let model = OiOperatorStoryModel()
+        await model.load(pending.id, using: store)
+        backend.configure { $0.loseReviewResponse = true }
+        let lost = await model.review(pending, publish: true, using: store)
+        XCTAssertNil(lost)
+        XCTAssertNil(model.notice)
+        XCTAssertTrue(model.requiresReload)
+        let duplicate = await model.review(pending, publish: true, using: store)
+        XCTAssertNil(duplicate)
+        XCTAssertEqual(backend.snapshot().reviewCount, 1)
+        await model.load(pending.id, using: store)
+        XCTAssertEqual(model.detail?.story.status, "published")
+        XCTAssertTrue(model.canReview)
+    }
+
+    @MainActor func testOperatorStoryConfirmedReceiptSurvivesListRefreshFailure() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let savedResult = await store.save(draft(title: "저장 후 동기화 실패 시험"))
+        let saved = try XCTUnwrap(savedResult)
+        let pendingResult = await store.submitStory(saved)
+        let pending = try XCTUnwrap(pendingResult)
+        let model = OiOperatorStoryModel()
+        await model.load(pending.id, using: store)
+        backend.configure { $0.failAfterReview = true }
+        let receipt = await model.review(pending, publish: true, using: store)
+        XCTAssertEqual(receipt?.status, "published")
+        XCTAssertEqual(model.detail?.story.status, "published")
+        XCTAssertNotNil(model.notice)
+        XCTAssertNotNil(model.warning)
+        XCTAssertTrue(model.requiresReload)
+        XCTAssertEqual(backend.snapshot().reviewCount, 1)
+    }
+
+    @MainActor func testOperatorStoryRejectsRevokedRightsAndMissingStory() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let savedResult = await store.save(draft(title: "권한 철회 시험"))
+        let saved = try XCTUnwrap(savedResult)
+        let pendingResult = await store.submitStory(saved)
+        let pending = try XCTUnwrap(pendingResult)
+        let model = OiOperatorStoryModel()
+        await model.load(UUID(), using: store)
+        XCTAssertNil(model.detail)
+        XCTAssertNotNil(model.error)
+        await model.load(pending.id, using: store)
+        backend.configure { $0.isOperator = false }
+        let denied = await model.review(pending, publish: true, using: store)
+        XCTAssertNil(denied)
+        XCTAssertNil(model.detail)
+        XCTAssertFalse(store.isOperator)
+        XCTAssertEqual(backend.snapshot().reviewCount, 0)
+        let list = OiOperatorStoriesModel()
+        await list.load(using: store)
+        XCTAssertFalse(list.hasLoaded)
+        XCTAssertTrue(list.stories.isEmpty)
+    }
+
+    @MainActor func testOperatorStoryRejectsDuplicateDecisionWhileRequestPending() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let savedResult = await store.save(draft(title: "중복 처리 시험"))
+        let saved = try XCTUnwrap(savedResult)
+        let pendingResult = await store.submitStory(saved)
+        let pending = try XCTUnwrap(pendingResult)
+        let model = OiOperatorStoryModel()
+        await model.load(pending.id, using: store)
+        let held = expectation(description: "decision awaiting response")
+        backend.configure { $0.holdReviewResponse = true; $0.didHold = { held.fulfill() } }
+        let first = Task { await model.review(pending, publish: true, using: store) }
+        await fulfillment(of: [held], timeout: 5)
+        XCTAssertTrue(model.isProcessing)
+        let duplicate = await model.review(pending, publish: true, using: store)
+        XCTAssertNil(duplicate)
+        XCTAssertEqual(backend.snapshot().reviewCount, 1)
+        backend.releaseHeldRead()
+        let confirmed = await first.value
+        XCTAssertNotNil(confirmed)
+    }
+
     @MainActor func testOperatorHomeLayouts() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
@@ -400,7 +649,8 @@ final class OiRemoteStoreTests: XCTestCase {
         let card = try await repository.fetchPublicStoryCard(storyID: saved.id.uuidString)
         XCTAssertEqual(card?.storyID, story?.id)
         XCTAssertNil(card?.imageURL, "No fabricated card image URL")
-        backend.configure { $0.story?["status"] = "hidden" }
+        // Simulate a malformed server response despite the public status filter.
+        backend.configure { $0.story?["status"] = "hidden"; $0.ignoreStoryStatusFilter = true }
         do { _ = try await repository.fetchPublicStory(storyID: saved.id.uuidString); XCTFail("Hidden story rendered") }
         catch {}
     }

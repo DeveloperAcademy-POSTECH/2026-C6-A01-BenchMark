@@ -4,7 +4,7 @@ import Foundation
 import Observation
 
 @MainActor @Observable
-final class OiRemoteStore {
+final class OiRemoteStore: OiOperatorStoryServing {
     private(set) var schools: [OiSchool] = []
     private(set) var regions: [OiRegion] = []
     private(set) var assets: [OiAsset] = []
@@ -224,6 +224,73 @@ final class OiRemoteStore {
             isOperator = capabilities.operator
             if !isOperator { reviewStories = [] }
             return isOperator
+        } catch {
+            if started == generation { noteAuthenticationFailure(error) }
+            throw error
+        }
+    }
+
+    private func withOperatorSession<Value>(
+        _ operation: (OiServiceAPI, String) async throws -> Value
+    ) async throws -> Value {
+        let started = generation
+        guard try await verifyOperatorAccess() else { throw OiOperatorStoryError.accessDenied }
+        guard let api else { throw OiServiceError.configuration }
+        let accessToken = try await token()
+        guard started == generation else { throw OiServiceError.accountChanged }
+        do {
+            let result = try await operation(api, accessToken)
+            try Task.checkCancellation()
+            guard started == generation else { throw OiServiceError.accountChanged }
+            return result
+        } catch {
+            if started == generation { noteAuthenticationFailure(error) }
+            throw error
+        }
+    }
+
+    func operatorStories() async throws -> [OiLiveStory] {
+        try await withOperatorSession { api, token in
+            try await api.rows("oi_stories", query: "status=in.(pending,published,hidden)&order=created_at.desc,id.desc",
+                               token: token, as: OiLiveStory.self)
+        }
+    }
+
+    func operatorStory(_ id: UUID) async throws -> OiOperatorStoryDetail {
+        try await withOperatorSession { api, token in
+            let stories = try await api.rows("oi_stories", query: "id=eq.\(id.uuidString)&status=in.(pending,published,hidden)",
+                                            token: token, as: OiLiveStory.self)
+            guard stories.count == 1, let story = stories.first, story.id == id else { throw OiOperatorStoryError.storyUnavailable }
+            let media = try await api.rows("oi_story_media", query: "story_id=eq.\(id.uuidString)&order=position.asc,id.asc",
+                                          token: token, as: OiMedia.self)
+            return OiOperatorStoryDetail(story: story, media: media)
+        }
+    }
+
+    func reviewOperatorStory(_ story: OiLiveStory, publish: Bool) async throws -> OiOperatorStoryReviewResult {
+        guard !isBusy else { throw OiOperatorStoryError.busy }
+        guard ["pending", "published", "hidden"].contains(story.status),
+              story.status != (publish ? "published" : "hidden") else { throw OiServiceError.invalidInput }
+        let started = generation
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            guard try await verifyOperatorAccess() else { throw OiOperatorStoryError.accessDenied }
+            guard let api else { throw OiServiceError.configuration }
+            let accessToken = try await token()
+            try Task.checkCancellation()
+            guard started == generation else { throw OiServiceError.accountChanged }
+            let wanted = publish ? "published" : "hidden"
+            let receipt = try await api.mutate("review_story", payload: ["id": story.id.uuidString,
+                "revision": story.revision, "status": wanted], token: accessToken, as: OiLiveStory.self)
+            guard started == generation else { throw OiServiceError.accountChanged }
+            guard receipt.id == story.id, receipt.status == wanted, receipt.revision > story.revision else {
+                throw OiOperatorStoryError.unconfirmedResult
+            }
+            applyReceipt(receipt, action: "review_story", payload: [:])
+            await refreshAfterCommit()
+            guard started == generation else { throw OiServiceError.accountChanged }
+            return OiOperatorStoryReviewResult(story: receipt, warning: syncWarning)
         } catch {
             if started == generation { noteAuthenticationFailure(error) }
             throw error
