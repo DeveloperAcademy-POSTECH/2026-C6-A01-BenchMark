@@ -190,6 +190,61 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testEmptyCollectionCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let collectionStore = StoryCollectionStore(defaults: fixture.defaults)
+        XCTAssertTrue(collectionStore.cards.isEmpty)
+        XCTAssertNil(collectionStore.persistenceError)
+        XCTAssertNotNil(UIImage(named: "MYEmptyCollection"))
+
+        for filter in [MYCollectionFilter.all, .schools] {
+            let library = MYLibraryStore()
+            library.collectionFilter = filter
+            let name = filter == .all ? "my-collection-empty" : "my-collection-schools-empty"
+            for variant in variants {
+                let collection = NavigationStack {
+                    MYCollectionView(demo: library, storyRepository: UnconnectedPilotRepository(),
+                        collectionStore: collectionStore)
+                }
+                try await capture(collection, name: name, variant: variant, defaults: fixture.defaults, attach: true)
+            }
+        }
+    }
+
+    func testCampusSearchEmptyResultCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        XCTAssertNotNil(UIImage(named: "CampusSearchNoResults"))
+
+        for mode in CampusSearchMode.allCases {
+            let query = CampusSearchQuery(text: "없는 오이", name: "없는 농부")
+            for variant in variants {
+                let result = CampusSearchView(mode: mode, entries: [], isExample: false, initialQuery: query,
+                    onSelect: { _ in XCTFail("Empty search must offer no selection") })
+                try await capture(result, name: "campus-search-\(mode.rawValue)-no-matches", variant: variant,
+                    defaults: fixture.defaults, attach: true)
+            }
+        }
+    }
+
+    func testLocationSearchEmptyResultCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let query = "location-fixture-no-match"
+        let places = try CampusMapData.load().pois
+        XCTAssertFalse(places.isEmpty)
+        XCTAssertFalse(places.contains { $0.name.localizedCaseInsensitiveContains(query) })
+
+        for variant in variants {
+            let location = CreationCapturePage(step: OiCreationStep.location.progress) {
+                OiStoryLocationStep(draft: .constant(Self.draft), regions: [], initialQuery: query, choose: { _ in })
+            }
+            try await capture(location, name: "location-search-no-matches", variant: variant,
+                defaults: fixture.defaults, attach: true)
+        }
+    }
+
     func testMYSettingsCapturesWithOfflineAccounts() async throws {
         let fixture = try isolatedDefaults()
         let previousHandler = OiStoreURLProtocol.handle
