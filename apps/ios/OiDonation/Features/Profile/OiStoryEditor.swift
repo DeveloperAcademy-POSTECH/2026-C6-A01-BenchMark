@@ -195,7 +195,7 @@ struct OiStoryEditor: View {
     private var restorationStatus: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("기기 초안 복원").font(.headline)
-            if isRestoring { ProgressView("기기 초안을 확인하고 있어요") }
+            if isRestoring { ProgressView().accessibilityLabel("기기 초안을 확인하고 있어요") }
             if let restorationError {
                 Text("초안을 복원하지 못했습니다. 원본을 덮어쓰지 않고 보관했습니다. \(restorationError)")
                     .font(.footnote).foregroundStyle(.red).accessibilityIdentifier("oi.draft.restoreError")

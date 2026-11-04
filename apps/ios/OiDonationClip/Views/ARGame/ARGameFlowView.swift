@@ -101,7 +101,8 @@ struct ARCollectionGameView<SuccessContent: View>: View {
                 }
                 .transition(.opacity)
             case .requestingPermission:
-                ProgressView("카메라 권한을 확인하고 있어요")
+                ProgressView()
+                    .accessibilityLabel("카메라 권한을 확인하고 있어요")
                     .task {
                         await viewModel.resolvePermission()
                     }

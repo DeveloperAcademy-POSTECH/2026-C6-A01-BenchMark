@@ -26,6 +26,11 @@ struct HomeView: View {
     @State private var showingRequests = false
     @State private var listIsAtTop = true
 
+    private var isLoadingStories: Bool {
+        guard let remote else { return false }
+        return remote.isRefreshing && !remote.hasLoadedRemote
+    }
+
     var body: some View {
         GeometryReader { geometry in
             ZStack {
@@ -34,8 +39,9 @@ struct HomeView: View {
                     mapHeader.padding(.horizontal, 20).padding(.top, region == nil ? 9 : 4)
                     Spacer()
                     if region == nil {
-                        if let remote, (remote.isRefreshing && !remote.hasLoadedRemote) || remote.loadError != nil || remote.syncWarning != nil || remote.needsReauthentication {
-                            OiConnectionStatus(remote: remote).padding(10).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 20)
+                        if let remote, remote.loadError != nil || remote.syncWarning != nil || remote.needsReauthentication {
+                            OiConnectionStatus(remote: remote, showsInitialProgress: false)
+                                .padding(10).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 20)
                         }
                         homeActions.padding(.leading, 22).padding(.trailing, 20).padding(.bottom, 0)
                     }
@@ -47,7 +53,10 @@ struct HomeView: View {
                             .accessibilityLabel("안내 닫기")
                     }.padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
                 }
-                if scene.isLoading { ProgressView("POSTECH 캠퍼스 불러오는 중").padding(22).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20)) }
+                if scene.error == nil && (scene.isLoading || (region == nil && isLoadingStories)) {
+                    ProgressView()
+                        .accessibilityLabel(scene.isLoading ? "캠퍼스 지도 불러오는 중" : "이야기 불러오는 중")
+                }
                 if let error = scene.error {
                     ContentUnavailableView { Label("지도를 불러올 수 없어요", systemImage: "map") } description: { Text(error) } actions: {
                         Button("다시 시도") { Task { await scene.load() } }

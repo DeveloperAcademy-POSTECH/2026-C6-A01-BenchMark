@@ -49,13 +49,13 @@ struct MYCollectionView: View {
     var body: some View {
         VStack(spacing: 12) {
             sortBar
-            if let remote { OiConnectionStatus(remote: remote) }
+            if let remote { OiConnectionStatus(remote: remote, showsInitialProgress: false) }
             ScrollView {
                 if shouldShowCollectedSection {
                     collectedSection
                 }
                 if let remote, !remote.hasLoadedRemote {
-                    if remote.loadError == nil { ProgressView("도감을 불러오는 중") }
+                    if remote.loadError == nil || remote.isRefreshing { ProgressView().accessibilityLabel("도감을 불러오는 중") }
                 } else if showsFolders && !schools.isEmpty {
                     schoolFolders
                 } else if cards.isEmpty {

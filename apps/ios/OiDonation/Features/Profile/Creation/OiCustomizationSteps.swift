@@ -111,7 +111,7 @@ private struct OiCreationAssetPicker: View {
     var draft: OiStoryDraft?
     var body: some View {
         if assets.isEmpty {
-            Text("선택 가능한 프리셋을 불러오는 중이에요. 연결을 확인해 주세요.").font(.footnote).foregroundStyle(.secondary)
+            Text("선택할 수 있는 카드 세트가 없어요.").font(.footnote).foregroundStyle(.secondary)
         } else {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 92))], spacing: 10) {
                 ForEach(assets) { asset in

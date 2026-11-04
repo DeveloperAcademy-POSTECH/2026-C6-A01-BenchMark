@@ -13,9 +13,9 @@ struct MYFarmView: View {
             let isEmptyFarm = remote.hasLoadedRemote && remote.account != nil && remote.ownStories.isEmpty
             let hasPlots = remote.hasLoadedRemote && remote.account != nil && !remote.ownStories.isEmpty
             ScrollView {
-                OiConnectionStatus(remote: remote).padding(.horizontal, 20)
+                OiConnectionStatus(remote: remote, showsInitialProgress: false).padding(.horizontal, 20)
                 if !remote.hasLoadedRemote {
-                    if remote.loadError == nil { ProgressView("내 농장을 불러오는 중") }
+                    if remote.loadError == nil || remote.isRefreshing { ProgressView().accessibilityLabel("내 농장을 불러오는 중") }
                 } else if remote.account == nil {
                     ContentUnavailableView {
                         Label("로그인이 필요해요", systemImage: "person")

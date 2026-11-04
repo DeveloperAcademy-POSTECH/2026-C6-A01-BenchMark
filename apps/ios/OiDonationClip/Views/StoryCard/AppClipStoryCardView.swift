@@ -66,7 +66,8 @@ private struct StoryCardImage: View {
                     AsyncImage(url: url, transaction: Transaction(animation: reduceMotion ? nil : .easeInOut(duration: 0.2))) { phase in
                         switch phase {
                         case .empty:
-                            ProgressView("카드를 불러오는 중이에요")
+                            ProgressView()
+                                .accessibilityLabel("카드를 불러오는 중이에요")
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         case .success(let image):
                             image

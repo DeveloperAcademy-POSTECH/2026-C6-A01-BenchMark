@@ -14,7 +14,7 @@ struct OiSignInView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            OiConnectionStatus(remote: remote)
+            OiConnectionStatus(remote: remote, showsInitialProgress: !remote.isBusy)
 
             if let error = remote.error, error != remote.loadError {
                 Text(error).font(.footnote).foregroundStyle(.secondary)
@@ -35,7 +35,7 @@ struct OiSignInView: View {
                     .frame(height: 44)
                     .disabled(!remote.isConfigured || remote.isBusy)
             }
-            if remote.isBusy { ProgressView("처리 중") }
+            if remote.isBusy { ProgressView().accessibilityLabel("처리 중") }
         }
     }
 }

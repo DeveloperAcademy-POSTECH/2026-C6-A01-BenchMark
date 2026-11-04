@@ -46,9 +46,12 @@ struct MYSettingsView: View {
                     }
                 }
                 section("권한허용") {
+                    if permissionValues.count < MYPermission.allCases.count {
+                        ProgressView().accessibilityLabel("기기 권한 확인 중")
+                    }
                     VStack(spacing: 0) {
                         ForEach(MYPermission.allCases, id: \.self) { permission in
-                            let value = permissionValues[permission] ?? "확인 중"
+                            let value = permissionValues[permission]
                             Button { openAppSettings() } label: {
                                 ViewThatFits(in: .horizontal) {
                                     HStack(spacing: 12) { permissionTitle(permission.title); Spacer(minLength: 8); permissionValue(value) }
@@ -56,7 +59,9 @@ struct MYSettingsView: View {
                                 }.padding(.horizontal, 20)
                                     .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                                     .contentShape(Rectangle())
-                            }.accessibilityLabel("\(permission.title), \(value), iPhone 설정에서 변경")
+                            }.accessibilityLabel(permission.title)
+                                .accessibilityValue(value ?? "")
+                                .accessibilityHint("iPhone 설정에서 변경")
                         }
                     }
                     Text("권한은 iPhone 설정에서 변경할 수 있어요.")
@@ -192,9 +197,9 @@ struct MYSettingsView: View {
         Text(title).font(.custom("Paperlogy-3Light", size: 20, relativeTo: .body)).foregroundStyle(.black)
     }
 
-    private func permissionValue(_ value: String) -> some View {
+    private func permissionValue(_ value: String?) -> some View {
         HStack(spacing: 6) {
-            Text(value).font(CampusStyle.body(14))
+            if let value { Text(value).font(CampusStyle.body(14)) }
             Image(systemName: "chevron.right").font(.caption)
         }.foregroundStyle(CampusStyle.sectionGreen)
     }

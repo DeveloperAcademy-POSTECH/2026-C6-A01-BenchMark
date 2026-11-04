@@ -67,7 +67,7 @@ struct OiCardRequestInboxView: View {
                 }
                 if requests.isEmpty {
                     if isLoading || (!didAttemptLoad && loadError == nil) {
-                        ProgressView("카드 요청을 불러오는 중이에요")
+                        ProgressView().accessibilityLabel("카드 요청을 불러오는 중이에요")
                             .frame(maxWidth: .infinity, minHeight: 150)
                     } else if loadError == nil {
                         ContentUnavailableView(
@@ -187,7 +187,7 @@ struct OiCardRequestInboxView: View {
             .accessibilityElement(children: .combine)
 
             if pendingRequestID == request.id {
-                ProgressView("요청을 처리하는 중이에요")
+                ProgressView().accessibilityLabel("요청을 처리하는 중이에요")
                     .frame(maxWidth: .infinity, minHeight: 44)
             } else {
                 let layout = dynamicTypeSize.isAccessibilitySize

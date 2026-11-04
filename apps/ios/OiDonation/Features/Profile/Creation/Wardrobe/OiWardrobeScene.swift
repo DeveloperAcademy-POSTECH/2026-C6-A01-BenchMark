@@ -159,7 +159,7 @@ struct OiWardrobePreview: View {
                 if scenePhase == .active {
                     OiWardrobeSurface(scene: scene, look: look)
                 }
-                if scene.loading { ProgressView("옷 입는 중").font(.caption).padding(12).background(.regularMaterial, in: Capsule()) }
+                if scene.loading { ProgressView().accessibilityLabel("옷 입는 중") }
                 if let error = scene.error {
                     VStack { Text(error).font(.caption); Button("다시 시도") { scene.update(look, retry: true) } }
                         .padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))

@@ -41,9 +41,14 @@ struct ParticipationView: View {
                     Section { Text(error).foregroundStyle(.red) }
                 }
                 Section {
-                    Button(viewModel.isSubmitting ? "신청 중…" : "참여 신청") {
+                    Button {
                         Task { await viewModel.submit() }
+                    } label: {
+                        if viewModel.isSubmitting { ProgressView().accessibilityHidden(true) }
+                        else { Text("참여 신청") }
                     }
+                    .accessibilityLabel("참여 신청")
+                    .accessibilityValue(viewModel.isSubmitting ? "신청 중" : "")
                     .disabled(viewModel.isSubmitting || viewModel.benches.isEmpty)
                 }
                 officialGuidance

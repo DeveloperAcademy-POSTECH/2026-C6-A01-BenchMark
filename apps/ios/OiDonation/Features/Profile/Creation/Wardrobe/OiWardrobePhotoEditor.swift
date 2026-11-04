@@ -68,7 +68,7 @@ struct OiWardrobePhotoEditor: View {
                             if let message = error ?? scene.error ?? scene.photoPreviewError {
                                 Text(message).font(.caption).foregroundStyle(.red).accessibilityIdentifier("photo-editor-error")
                             }
-                            if importInProgress { ProgressView("사진을 불러오는 중…") }
+                            if importInProgress { ProgressView().accessibilityLabel("사진을 불러오는 중…") }
                             Picker("편집할 면", selection: $side) {
                                 ForEach(OiPhotoSide.allCases) { Text($0.title).tag($0) }
                             }.pickerStyle(.segmented).accessibilityIdentifier("photo-side")
@@ -95,9 +95,14 @@ struct OiWardrobePhotoEditor: View {
                     Button("취소") { dismiss() }.disabled(saving).accessibilityIdentifier("photo-cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(saving ? "저장 중…" : "적용") { save() }.bold()
-                        .disabled(importInProgress || saving || restoreFailed || scene.loading || scene.error != nil || scene.photoPreviewError != nil)
-                        .accessibilityIdentifier("photo-apply")
+                    Button(action: save) {
+                        if saving { ProgressView().accessibilityHidden(true) }
+                        else { Text("적용").bold() }
+                    }
+                    .accessibilityLabel("적용")
+                    .accessibilityValue(saving ? "저장 중" : "")
+                    .disabled(importInProgress || saving || restoreFailed || scene.loading || scene.error != nil || scene.photoPreviewError != nil)
+                    .accessibilityIdentifier("photo-apply")
                 }
             }
         }

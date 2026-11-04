@@ -94,7 +94,7 @@ struct NFCWriteView: View {
             EmptyView()
         case .working(let message):
             VStack(alignment: .leading, spacing: 12) {
-                ProgressView(message)
+                ProgressView().accessibilityLabel(Text(message))
                 Button("기록 취소") { writer.cancel() }.frame(minHeight: 44)
             }
         case .succeeded(let url):

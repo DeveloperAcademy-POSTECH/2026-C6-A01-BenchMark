@@ -34,15 +34,19 @@ struct CampusGeoARScreen: View {
                     Button("닫기", systemImage: "xmark") { controller.stop(); dismiss() }
                 }
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(controller.mode.rawValue).font(.headline)
-                    Text(sharedError ?? controller.message).font(.subheadline)
+                    if controller.mode != .preparing { Text(controller.mode.rawValue).font(.headline) }
+                    if let message = sharedError ?? controller.message {
+                        Text(message).font(.subheadline)
+                    } else if controller.mode == .preparing {
+                        ProgressView().tint(.white).accessibilityLabel("현장 AR 준비 중")
+                    }
                     TimelineView(.periodic(from: .now, by: 1)) { _ in
                         if let fix = location.location {
                             if fix.horizontalAccuracy >= 0 {
                                 Text("목표까지 약 \(target.distance(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude), specifier: "%.0f")m · GPS 불확실성 반경 \(fix.horizontalAccuracy, specifier: "%.0f")m")
                                 Text(location.isReady(for: target) ? "근접 조건 충족 · 정확한 배치 보장 아님" : "위치 재확인 중")
                             } else { Text("유효한 GPS 위치를 기다리고 있어요.") }
-                        } else { Text(location.message) }
+                        } else if controller.canChangeMode, let message = location.message { Text(message) }
                     }.font(.caption)
                     Text("GPS 모드는 나침반과 주변 바닥 높이로 근사 배치합니다. 경사·계단에서는 높이가 다를 수 있고, 직접 바닥 보정은 이 세션에만 적용됩니다.")
                         .font(.caption2).foregroundStyle(.secondary)
@@ -51,6 +55,7 @@ struct CampusGeoARScreen: View {
                 VStack(spacing: 10) {
                     HStack {
                         Button("GPS 근사 배치") { controller.startApproximate() }
+                            .accessibilityHint("지리 추적을 기다리지 않고 GPS 위치로 배치합니다.")
                         Button("직접 바닥 보정") { controller.startApproximate(manual: true) }
                     }.disabled(!controller.canChangeMode)
                     HStack {

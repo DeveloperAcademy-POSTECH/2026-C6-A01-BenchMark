@@ -20,7 +20,7 @@ struct OiStoryListView: View {
         Group {
             switch state {
             case .loading:
-                ProgressView("이야기를 불러오는 중이에요")
+                ProgressView().accessibilityLabel("이야기를 불러오는 중이에요")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .failure(let message):
                 ContentUnavailableView {

@@ -67,7 +67,7 @@ struct OiStoryPhotoStep<Photo: View>: View {
             }
         }
         .disabled(cropPhotoID != nil)
-        .overlay { if cropPhotoID != nil { ProgressView("사진 준비 중") } }
+        .overlay { if cropPhotoID != nil { ProgressView().accessibilityLabel("사진 준비 중") } }
         .task(id: cropPhotoID) {
             guard let id = cropPhotoID else { return }
             defer { cropPhotoID = nil }

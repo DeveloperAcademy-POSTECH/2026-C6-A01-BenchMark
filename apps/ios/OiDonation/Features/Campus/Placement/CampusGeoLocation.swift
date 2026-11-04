@@ -5,7 +5,7 @@ import Observation
 
 @MainActor @Observable final class CampusGeoLocation: NSObject, CLLocationManagerDelegate {
     private(set) var location: CLLocation?
-    private(set) var message = "위치 권한을 확인하고 있어요."
+    private(set) var message: String?
     @ObservationIgnored private let manager = CLLocationManager()
     private var active = false
 
@@ -18,7 +18,9 @@ import Observation
     func start() {
         active = true
         switch manager.authorizationStatus {
-        case .notDetermined: manager.requestWhenInUseAuthorization()
+        case .notDetermined:
+            message = nil
+            manager.requestWhenInUseAuthorization()
         case .authorizedAlways, .authorizedWhenInUse:
             manager.startUpdatingLocation()
             message = manager.accuracyAuthorization == .fullAccuracy
