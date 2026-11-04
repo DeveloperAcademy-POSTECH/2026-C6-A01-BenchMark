@@ -106,7 +106,11 @@ struct MYCollectionView: View {
     }
 
     private var collectedSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let cardWidth: CGFloat = dynamicTypeSize.isAccessibilitySize ? 180 : 112
+        let cardHeight = cardWidth * 156 / 112
+        let cardShape = RoundedRectangle(cornerRadius: 10)
+
+        return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("App Clip에서 수집한 카드")
                     .font(.custom("Paperlogy-8ExtraBold", size: 19, relativeTo: .headline))
@@ -122,28 +126,35 @@ struct MYCollectionView: View {
                     ForEach(collectedLibrary.items) { item in
                         Button { selectedCollectedCard = item } label: {
                             VStack(alignment: .leading, spacing: 6) {
-                                VStack { Text(item.story.cucumberName).font(.headline); Text(item.story.content).font(.caption).lineLimit(5) }.padding(10).frame(width: 112, height: 156).background(CampusStyle.lightGreen.opacity(0.3), in: RoundedRectangle(cornerRadius: 10))
+                                VStack {
+                                    Text(item.story.cucumberName).font(.headline).lineLimit(2)
+                                    Text(item.story.content).font(.caption).lineLimit(5)
+                                }
+                                .padding(10)
+                                .frame(width: cardWidth, height: cardHeight)
+                                .background(CampusStyle.lightGreen.opacity(0.3), in: cardShape)
+                                .clipShape(cardShape)
                                 Text(item.story.cucumberName)
                                     .font(.custom("Paperlogy-8ExtraBold", size: 15, relativeTo: .caption))
                                     .foregroundStyle(.black)
                                     .lineLimit(2)
                             }
-                            .frame(width: 112, alignment: .leading)
+                            .frame(width: cardWidth, alignment: .leading)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("\(item.story.cucumberName) 수집 카드")
                     }
 
-                    ForEach(collectedLibrary.unavailableRecords) { record in
-                        VStack(alignment: .leading, spacing: 6) {
-                            ContentUnavailableView("연결 대기", systemImage: "arrow.triangle.2.circlepath")
-                                .frame(width: 112, height: 156)
-                                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
-                            Text("스토리 \(record.storyID)")
-                                .font(.caption)
-                                .lineLimit(2)
+                    ForEach(collectedLibrary.unavailableRecords) { _ in
+                        VStack(spacing: 8) {
+                            Image(systemName: "arrow.triangle.2.circlepath").font(.title3)
+                            Text("연결 대기").font(.caption).multilineTextAlignment(.center)
                         }
-                        .frame(width: 112, alignment: .leading)
+                        .foregroundStyle(.secondary)
+                        .padding(10)
+                        .frame(width: cardWidth, height: cardHeight)
+                        .background(Color(.secondarySystemBackground), in: cardShape)
+                        .accessibilityElement(children: .ignore)
                         .accessibilityLabel("서버 연결을 기다리는 수집 카드")
                     }
                 }
