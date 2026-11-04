@@ -224,7 +224,7 @@ struct MYSettingsView: View {
                         Task {
                             guard remote.account?.id == owner, editingSchoolOwner == owner, remote.hasLoadedRemote,
                                   !remote.needsReauthentication, !remote.isBusy else { return }
-                            await remote.updateProfile(nickname: remote.profile?.nickname ?? "농부", schoolID: school.id)
+                            await remote.updateProfile(schoolID: school.id)
                             guard remote.account?.id == owner, remote.profile?.schoolId == school.id,
                                   remote.error == nil else { return }
                             editingSchoolOwner = nil

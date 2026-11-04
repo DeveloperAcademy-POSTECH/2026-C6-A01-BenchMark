@@ -163,6 +163,12 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 try await capture(inbox, name: state.name, variant: variant, defaults: fixture.defaults, attach: true)
             }
         }
+        let reference = try XCTUnwrap(variants.first)
+        let unconfirmed = OiCardRequestInboxView(requests: [], isLoading: false, loadError: nil,
+            pendingRequestID: nil, actionError: "처리 결과를 확인하지 못했어요. 같은 응답을 다시 확인해 주세요.",
+            onReload: {}, onDecision: { _, _ in }, onRetryDecision: {})
+        try await capture(unconfirmed, name: "card-requests-unconfirmed-decision",
+            variant: reference, defaults: fixture.defaults, attach: true)
     }
 
     func testMYScreenCapturesWithoutRemoteStore() async throws {

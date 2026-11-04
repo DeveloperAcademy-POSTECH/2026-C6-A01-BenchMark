@@ -41,6 +41,7 @@ final class OiRemoteStore {
     private var refreshTask: Task<OiSession, Error>?
     private var generation = UUID()
     private var loadSequence = 0
+    private var localSignOutWarning: String?
     private var committedMediaPaths: [UUID:[String]] = [:]
     private let authentication: any OiAuthenticating
     private let drafts: OiDraftVault
@@ -119,9 +120,14 @@ final class OiRemoteStore {
         catch { self.error = "로그아웃 정보를 지우지 못했습니다. 다시 시도해 주세요."; return }
         resetAccountState(); session = nil; account = nil
         do {
-            if let oldToken, let api { _ = try await api.request("auth/v1/logout", method: "POST", token: oldToken) }
-        } catch { syncWarning = "이 기기는 로그아웃했지만 서버 세션 정리는 확인하지 못했습니다. \(error.localizedDescription)" }
-        do { try await load() } catch { loadError = error.localizedDescription }
+            if let oldToken, let api { try await api.signOutCurrentSession(token: oldToken) }
+        } catch {
+            localSignOutWarning = "이 기기는 로그아웃했지만 서버 세션 정리는 확인하지 못했습니다."
+            syncWarning = localSignOutWarning
+        }
+        do { try await load() }
+        catch where OiServiceFailure.isCancellation(error) { }
+        catch { loadError = error.localizedDescription }
     }
 
     func authenticateAdditional(using provider: any OiAuthenticating) async throws -> OiSession {
@@ -196,7 +202,7 @@ final class OiRemoteStore {
         stories = []; collections = []; favorites = []; collectionCounts = [:]; evidenceOperation = nil; committedMediaPaths = [:]
         isOperator = false; hasLoadedRemote = false; needsReauthentication = false; isRefreshing = false
         isAccountMergeAvailable = false; accountMemberIDs = []; accountProviders = []; localRecoveryWarning = nil
-        loadError = nil; syncWarning = nil; error = nil; revision += 1
+        localSignOutWarning = nil; loadError = nil; syncWarning = nil; error = nil; revision += 1
     }
 
     private func noteAuthenticationFailure(_ error: Error) {
@@ -336,7 +342,7 @@ final class OiRemoteStore {
         accountProviders = capabilities?.accountProviders ?? []
         evidenceOperation = recoveredOperation; localRecoveryWarning = recoveryWarning
         collectionCounts = metrics.reduce(into: [:]) { $0[$1.storyId] = $1.collectionCount }
-        hasLoadedRemote = true; needsReauthentication = false; loadError = nil; syncWarning = nil; revision += 1
+        hasLoadedRemote = true; needsReauthentication = false; loadError = nil; syncWarning = localSignOutWarning; revision += 1
     }
 
     private func refreshAfterCommit() async {
@@ -408,21 +414,22 @@ final class OiRemoteStore {
         await change("submit_story", payload: ["id":story.id.uuidString,"revision":story.revision], as: OiLiveStory.self)
     }
 
-    func updateProfile(nickname: String, schoolID: String? = nil) async {
-        guard !isBusy, let account, let api else { error = OiServiceError.signInRequired.localizedDescription; return }
+    func updateProfile(nickname: String? = nil, schoolID: String? = nil) async {
+        guard !isBusy, !needsReauthentication, let account, let api else { error = OiServiceError.signInRequired.localizedDescription; return }
         let owner = account.id
         let started = generation
-        let cleaned = nickname.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleaned.isEmpty, cleaned.count <= 30,
+        let cleaned = nickname?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard cleaned != nil || schoolID != nil,
+              cleaned.map({ !$0.isEmpty && $0.count <= 30 }) ?? true,
               schoolID == nil || schools.contains(where: { $0.id == schoolID }) else {
             error = OiServiceError.invalidInput.localizedDescription; return
         }
         isBusy = true; error = nil
         defer { isBusy = false }
         do {
-            let saved = try await api.updateProfile(owner: owner, nickname: cleaned,
-                schoolID: schoolID ?? profile?.schoolId, token: token())
+            let saved = try await api.updateProfile(owner: owner, nickname: cleaned, schoolID: schoolID, token: token())
             guard started == generation, self.account?.id == owner else { return }
+            loadSequence += 1
             profile = saved; revision += 1; await refreshAfterCommit()
         } catch { if started == generation { noteAuthenticationFailure(error); self.error = error.localizedDescription } }
     }
@@ -520,6 +527,45 @@ final class OiRemoteStore {
         }
     }
 
+    func removeStoryMedia(paths removedPaths: Set<String>, photoIDs removedPhotoIDs: Set<UUID>, story: OiLiveStory) async -> OiLiveStory? {
+        guard !isBusy, !needsReauthentication, let api, account?.id == story.userId else { return nil }
+        let started = generation
+        isBusy = true; error = nil
+        defer { isBusy = false }
+        do {
+            let accessToken = try await token()
+            let current = try await api.rows("oi_story_media", query: "story_id=eq.\(story.id.uuidString)&order=position.asc,id.asc",
+                token: accessToken, as: OiMedia.self).map(\.objectPath)
+            try Task.checkCancellation()
+            guard started == generation else { throw OiServiceError.accountChanged }
+            let retained = current.filter { path in
+                if removedPaths.contains(path) { return false }
+                guard let leaf = path.split(separator: "/").last, leaf.lowercased().hasSuffix(".jpg"),
+                      let id = UUID(uuidString: String(leaf.dropLast(4))) else { return true }
+                return !removedPhotoIDs.contains(id)
+            }
+            if current == retained {
+                // The server already reflects the removal. Replace a stale cached list.
+                loadSequence += 1
+                committedMediaPaths[story.id] = retained
+                revision += 1
+                return story
+            }
+            let updated = try await api.mutate("attach_media", payload: ["id": story.id.uuidString,
+                "revision": story.revision, "paths": retained], token: accessToken, as: OiLiveStory.self)
+            guard started == generation else { throw OiServiceError.accountChanged }
+            committedMediaPaths[story.id] = retained
+            applyReceipt(updated, action: "attach_media", payload: [:])
+            await refreshAfterCommit()
+            return started == generation ? updated : nil
+        } catch {
+            if started == generation, !OiServiceFailure.isCancellation(error) {
+                noteAuthenticationFailure(error); self.error = error.localizedDescription
+            }
+            return nil
+        }
+    }
+
     func mediaPaths(storyID: UUID) -> [String] {
         committedMediaPaths[storyID] ?? media.filter { $0.storyId == storyID }.sorted { $0.position < $1.position }.map(\.objectPath)
     }
@@ -531,7 +577,7 @@ final class OiRemoteStore {
     }
 
     func localDraftListing() async throws -> OiDraftListing {
-        guard let owner = account?.id else { return OiDraftListing(drafts: [], unreadableFiles: []) }
+        guard let owner = account?.id else { return OiDraftListing(drafts: [], unreadableFiles: [], pendingDiscardCount: 0) }
         let listing = try await drafts.listing(owner: owner)
         guard owner == account?.id else { throw OiServiceError.accountChanged }
         return listing

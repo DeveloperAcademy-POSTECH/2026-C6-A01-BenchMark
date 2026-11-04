@@ -36,6 +36,7 @@ struct OiCardRequestInboxView: View {
     let actionError: String?
     let onReload: () async -> Void
     let onDecision: (UUID, OiCardRequestDecision) async -> Void
+    var onRetryDecision: (() async -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -62,10 +63,19 @@ struct OiCardRequestInboxView: View {
                         .foregroundStyle(.primary)
                         .accessibilityIdentifier("oi.cardRequests.decisionError")
                 }
+                if let onRetryDecision {
+                    Button("처리 결과 다시 확인") { Task { await onRetryDecision() } }
+                        .buttonStyle(.bordered)
+                        .disabled(isLoading || pendingRequestID != nil)
+                        .accessibilityIdentifier("oi.cardRequests.retryDecision")
+                }
+                if let pendingRequestID, !requests.contains(where: { $0.id == pendingRequestID }) {
+                    ProgressView().accessibilityLabel("요청을 처리하는 중이에요")
+                }
                 if let loadError {
                     loadFailure(loadError)
                 }
-                if requests.isEmpty {
+                if requests.isEmpty && pendingRequestID == nil {
                     if isLoading || (!didAttemptLoad && loadError == nil) {
                         ProgressView().accessibilityLabel("카드 요청을 불러오는 중이에요")
                             .frame(maxWidth: .infinity, minHeight: 150)
@@ -197,7 +207,7 @@ struct OiCardRequestInboxView: View {
                     decisionButton(.reject, for: request, fill: Self.rejectGreen)
                     decisionButton(.accept, for: request, fill: Self.acceptGreen)
                 }
-                .disabled(pendingRequestID != nil || isLoading || loadError != nil)
+                .disabled(pendingRequestID != nil || isLoading || loadError != nil || onRetryDecision != nil)
             }
         }
     }

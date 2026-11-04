@@ -16,6 +16,7 @@ struct CampusCardRequestSheet: View {
     @State private var pendingRequestID: UUID?
     @State private var loadError: String?
     @State private var actionError: String?
+    @State private var unconfirmedDecision: (id: UUID, decision: OiCardRequestDecision)?
 
     var body: some View {
         if remote.account == nil || remote.needsReauthentication {
@@ -42,7 +43,8 @@ struct CampusCardRequestSheet: View {
                 pendingRequestID: pendingRequestID,
                 actionError: actionError,
                 onReload: reload,
-                onDecision: resolve
+                onDecision: resolve,
+                onRetryDecision: retryAction
             )
             .interactiveDismissDisabled(pendingRequestID != nil)
         }
@@ -62,25 +64,32 @@ struct CampusCardRequestSheet: View {
                     portraitURL: nil, createdAt: $0.createdAt)
             }
         } catch {
-            guard !Task.isCancelled, !OiServiceFailure.isCancellation(error), remote.account?.id == owner else { return }
+            guard !Task.isCancelled, remote.account?.id == owner else { return }
             loadError = "연결 상태를 확인한 뒤 다시 시도해 주세요."
         }
     }
 
     private func resolve(_ id: UUID, _ decision: OiCardRequestDecision) async {
-        guard !isLoading, pendingRequestID == nil, requests.contains(where: { $0.id == id }),
+        guard !isLoading, pendingRequestID == nil, !remote.needsReauthentication,
               let owner = remote.account?.id else { return }
+        if let unconfirmedDecision {
+            guard unconfirmedDecision.id == id, unconfirmedDecision.decision == decision else { return }
+        } else {
+            guard requests.contains(where: { $0.id == id }) else { return }
+        }
+        unconfirmedDecision = nil
         pendingRequestID = id
         actionError = nil
         do {
             try await remote.resolveCardRequest(id, accept: decision == .accept)
             if remote.account?.id == owner { requests.removeAll { $0.id == id } }
         } catch {
-            if !Task.isCancelled, !OiServiceFailure.isCancellation(error), remote.account?.id == owner {
+            if !Task.isCancelled, remote.account?.id == owner {
                 if case OiServiceError.conflict = error {
                     actionError = "이미 처리됐거나 더 이상 응답할 수 없는 요청이에요."
                 } else {
-                    actionError = "응답을 확인하지 못했어요. 목록을 확인한 뒤 다시 시도해 주세요."
+                    unconfirmedDecision = (id, decision)
+                    actionError = "처리 결과를 확인하지 못했어요. 같은 응답을 다시 확인해 주세요."
                 }
             }
         }
@@ -88,5 +97,17 @@ struct CampusCardRequestSheet: View {
         if !Task.isCancelled, remote.account?.id == owner, !remote.needsReauthentication {
             await reload()
         }
+    }
+
+    private func retryDecision() async {
+        guard let unconfirmedDecision else { return }
+        // The server accepts a replay of the same decision, including after the
+        // request stops appearing in the pending inbox.
+        await resolve(unconfirmedDecision.id, unconfirmedDecision.decision)
+    }
+
+    private var retryAction: (() async -> Void)? {
+        guard unconfirmedDecision != nil else { return nil }
+        return { await retryDecision() }
     }
 }
