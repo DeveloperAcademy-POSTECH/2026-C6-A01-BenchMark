@@ -42,6 +42,40 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testPopulatedPhotoAndLocationCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let campusPhoto = try XCTUnwrap(UIImage(named: "DonationCampus"))
+        let secondPhoto = try XCTUnwrap(UIImage(named: "CampusSchoolMap"))
+        let firstID = UUID()
+        let secondID = UUID()
+        let photoBytes = [firstID: try XCTUnwrap(campusPhoto.pngData()), secondID: try XCTUnwrap(secondPhoto.pngData())]
+        let items: [OiEditingPhoto] = [.local(firstID), .local(secondID)]
+        var locatedDraft = Self.draft
+        locatedDraft.latitude = 36.01261057021347
+        locatedDraft.longitude = 129.3197268697784
+        let regions = [OiRegion(id: "pond", schoolId: "postech", name: "지곡회관 · 연못")]
+        for variant in variants where variant.name == "402x874" || variant.dynamicTypeSize == .accessibility5 {
+            for anchor: UnitPoint in [.top, .bottom] {
+                let photo = CreationCapturePage(step: OiCreationStep.photos.progress, anchor: anchor) {
+                    OiStoryPhotoStep(items: items, uploadedPhotos: [], selections: .constant([]),
+                        loadPhoto: { id in
+                            guard let data = photoBytes[id] else { throw OiServiceError.invalidInput }
+                            return data
+                        }, edit: { _, _ in }, remove: { _ in }, photo: { item in
+                            Image(uiImage: item == .local(firstID) ? campusPhoto : secondPhoto).resizable().scaledToFit()
+                        })
+                }
+                try await capture(photo, name: anchor == .top ? "photo-populated" : "photo-populated-bottom",
+                    variant: variant, defaults: fixture.defaults, attach: true)
+            }
+            let location = CreationCapturePage(step: OiCreationStep.location.progress) {
+                OiStoryLocationStep(draft: .constant(locatedDraft), regions: regions, choose: { _ in })
+            }
+            try await capture(location, name: "location-selected", variant: variant, defaults: fixture.defaults, attach: true)
+        }
+    }
+
     func testCustomizationCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
@@ -122,6 +156,71 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             }
             try await capture(settings, name: "my-settings", variant: variant, defaults: fixture.defaults)
         }
+    }
+
+    func testMYSettingsCapturesWithOfflineAccounts() async throws {
+        let fixture = try isolatedDefaults()
+        let previousHandler = OiStoreURLProtocol.handle
+        let backend = OiTestBackend()
+        backend.configure { profile in
+            profile.nickname = "검증용 농부"
+            profile.schoolID = "postech"
+        }
+        backend.install()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MYSettings-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            fixture.defaults.removePersistentDomain(forName: fixture.name)
+            withExtendedLifetime(backend) {}
+            session.invalidateAndCancel()
+            OiStoreURLProtocol.handle = previousHandler
+            if FileManager.default.fileExists(atPath: directory.path) {
+                XCTAssertNoThrow(try FileManager.default.removeItem(at: directory))
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+        }
+
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let signedIn = OiRemoteStore(api: api,
+            drafts: OiDraftVault(directory: directory.appendingPathComponent("signed-in", isDirectory: true)),
+            vault: OiMemorySession())
+        let emptySession = OiMemorySession()
+        try emptySession.write(nil)
+        let signedOut = OiRemoteStore(api: api,
+            drafts: OiDraftVault(directory: directory.appendingPathComponent("signed-out", isDirectory: true)),
+            vault: emptySession)
+        await signedIn.start()
+        await signedOut.start()
+        XCTAssertTrue(signedIn.hasLoadedRemote)
+        XCTAssertEqual(signedIn.profile?.nickname, "검증용 농부")
+        XCTAssertEqual(signedIn.profile?.schoolId, "postech")
+        XCTAssertTrue(signedOut.hasLoadedRemote)
+        XCTAssertTrue(signedOut.isConfigured)
+        XCTAssertNil(signedOut.account)
+
+        for variant in variants {
+            let settings = NavigationStack {
+                MYSettingsView(remote: signedIn).environment(\.scenePhase, .active)
+            }
+            try await capture(settings, name: "my-settings-signed-in", variant: variant,
+                defaults: fixture.defaults, delay: .milliseconds(450), attach: true)
+
+            let signIn = NavigationStack {
+                MYSettingsView(remote: signedOut).defaultScrollAnchor(.bottom).environment(\.scenePhase, .active)
+            }
+            try await capture(signIn, name: "my-settings-signed-out-auth", variant: variant,
+                defaults: fixture.defaults, delay: .milliseconds(450), attach: true)
+        }
+
+        let reference = try XCTUnwrap(variants.first)
+        let account = NavigationStack {
+            MYSettingsView(remote: signedIn).defaultScrollAnchor(.bottom).environment(\.scenePhase, .active)
+        }
+        try await capture(account, name: "my-settings-signed-in-auth", variant: reference,
+            defaults: fixture.defaults, delay: .milliseconds(450), attach: true)
     }
 
     func testCampusDetailAndSummaryCaptures() async throws {

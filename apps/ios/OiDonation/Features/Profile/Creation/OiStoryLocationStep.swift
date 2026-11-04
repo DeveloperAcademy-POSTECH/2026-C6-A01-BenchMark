@@ -7,20 +7,14 @@ struct OiStoryLocationStep: View {
     @State private var query = ""
     @State private var data: CampusMapData?
     @State private var error: String?
+    private let searchBackground = Color(white: 217 / 255).opacity(0.3)
     private var places: [CampusMapData.Place] {
         (data?.pois ?? []).filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }
             .sorted { $0.name < $1.name }
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("POSTECH 캠퍼스에서 오이를 심을 곳을 찾아보세요.").font(.headline)
-            HStack {
-                TextField("건물·장소 검색", text: $query)
-                Image(systemName: "magnifyingglass")
-            }.padding(16).background(Color(.secondarySystemBackground), in: Capsule())
-            Button { choose(nil) } label: { Label("3D 캠퍼스에서 직접 선택", systemImage: "map") }
-                .buttonStyle(.borderedProminent).tint(Color("OiGreen"))
-                .accessibilityIdentifier("oi.location.openMap")
+            searchControls
             if let latitude = draft.latitude, let longitude = draft.longitude {
                 Label("선택한 위치", systemImage: "mappin.circle.fill").foregroundStyle(Color("OiGreen"))
                 Text(String(format: "위도 %.7f · 경도 %.7f", latitude, longitude)).font(.caption.monospacedDigit())
@@ -36,22 +30,64 @@ struct OiStoryLocationStep: View {
             LazyVStack(spacing: 0) {
                 ForEach(places) { place in
                     Button { choose(place.id) } label: {
-                        HStack {
+                        HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 5) {
-                                Text(place.name).font(CampusStyle.medium(16))
-                                Text("포항공과대학교 · 지도에서 위치 지정").font(.caption).foregroundStyle(.secondary)
+                                Text(place.name).font(CampusStyle.medium(16)).tracking(0.32)
+                                    .foregroundStyle(.black)
+                                Text("포항공과대학교 · 지도에서 위치 지정")
+                                    .font(.custom("Paperlogy-4Regular", size: 12, relativeTo: .caption))
+                                    .tracking(0.24).foregroundStyle(Color(white: 121 / 255))
                             }
-                            Spacer()
-                            Image(systemName: "map").foregroundStyle(Color("OiGreen"))
-                        }.padding(.vertical, 14)
+                            Spacer(minLength: 0)
+                            Image(systemName: "map")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(Color(white: 121 / 255))
+                                .frame(width: 45, height: 45)
+                                .background(Color(white: 234 / 255), in: Circle())
+                                .accessibilityHidden(true)
+                        }
+                        .padding(.vertical, 14)
+                        .contentShape(Rectangle())
                     }.buttonStyle(.plain)
-                    Divider()
+                        .accessibilityHint("3D 지도에서 이 장소를 열어요")
+                    Rectangle().fill(Color(white: 244 / 255)).frame(height: 1)
+                        .accessibilityHidden(true)
                 }
                 if places.isEmpty && data != nil { ContentUnavailableView.search(text: query) }
             }
         }.task {
             do { data = try CampusMapData.load() }
             catch { self.error = "캠퍼스 장소 목록을 불러오지 못했어요. 3D 지도에서 다시 시도해 주세요." }
+        }
+    }
+
+    private var searchControls: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 12) {
+                TextField("검색", text: $query)
+                    .font(CampusStyle.medium(18)).tracking(0.36)
+                    .submitLabel(.search)
+                    .accessibilityLabel("건물·장소 검색")
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color(white: 0.5))
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 8)
+            .frame(minHeight: 57)
+            .background(searchBackground, in: Capsule())
+            Button { choose(nil) } label: {
+                Image(systemName: "map")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .frame(width: 57, height: 57)
+                    .background(searchBackground, in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("3D 캠퍼스에서 직접 선택")
+            .accessibilityIdentifier("oi.location.openMap")
         }
     }
 }

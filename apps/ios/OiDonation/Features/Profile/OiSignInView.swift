@@ -9,12 +9,13 @@ import SwiftUI
 
 struct OiSignInView: View {
     let remote: OiRemoteStore
+    var showsProgress = true
 
     @State private var appleAuthentication = OiAppleAuthentication()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            OiConnectionStatus(remote: remote, showsInitialProgress: !remote.isBusy)
+            OiConnectionStatus(remote: remote, showsInitialProgress: showsProgress && !remote.isBusy)
 
             if let error = remote.error, error != remote.loadError {
                 Text(error).font(.footnote).foregroundStyle(.secondary)
@@ -22,8 +23,6 @@ struct OiSignInView: View {
             }
 
             if remote.account == nil && !remote.needsReauthentication {
-                Text("로그인하면 수집한 오이와 즐겨찾기, 내 이야기가 계정에 저장됩니다.")
-                    .font(.footnote).foregroundStyle(.secondary)
                 Button { Task { await remote.signIn() } } label: {
                     Text("Google로 로그인").frame(maxWidth: .infinity, minHeight: 44)
                 }
@@ -35,7 +34,7 @@ struct OiSignInView: View {
                     .frame(height: 44)
                     .disabled(!remote.isConfigured || remote.isBusy)
             }
-            if remote.isBusy { ProgressView().accessibilityLabel("처리 중") }
+            if showsProgress && remote.isBusy { ProgressView().accessibilityLabel("처리 중") }
         }
     }
 }

@@ -133,8 +133,6 @@ struct MYFarmView: View {
                 .frame(maxWidth: .infinity)
             Text("안내된 정식 기부처의 절차를 따라 기부해요.\n작성 승인을 받은 계정에서 나만의 오이와 이야기를 만들 수 있어요.")
                 .font(.custom("Paperlogy-3Light", size: 18, relativeTo: .body)).lineSpacing(5)
-            Text("최소 기부금과 성장·보상 정책은 아직 정해지지 않았어요.")
-                .font(.custom("Paperlogy-3Light", size: 14, relativeTo: .footnote))
             NavigationLink {
                 if let remote { OiStoryListScreen(remote: remote) }
                 else {
