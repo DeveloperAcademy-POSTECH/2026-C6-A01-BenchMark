@@ -3,10 +3,7 @@
 import SwiftUI
 
 struct MYWorkshopView: View {
-    let container: AppContainer
-    let store: CampusStoryStore
     let demo: MYLibraryStore
-    let onCamera: () -> Void
     var remote: OiRemoteStore? = nil
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -31,7 +28,7 @@ struct MYWorkshopView: View {
                 NavigationLink(value: MYDestination.collection) {
                     artwork("MYCollection", rect: CGRect(x: 220, y: 180.5, width: 163, height: 231), scale: scale, origin: origin)
                 }.buttonStyle(.plain).accessibilityLabel("오이 도감").accessibilityIdentifier("my.collection")
-                NavigationLink { MYSettingsView(container: container, store: store, demo: demo, onCamera: onCamera, remote: remote) } label: {
+                NavigationLink { MYSettingsView(demo: demo, remote: remote) } label: {
                     ZStack {
                         artwork("MYSettingsBoard", rect: CGRect(x: 272.94, y: 432.5, width: 91.76, height: 191.2), scale: scale, origin: origin)
                         artwork("MYRake", rect: CGRect(x: 284.69, y: 441.27, width: 68, height: 172.7), scale: scale, origin: origin)
@@ -39,7 +36,7 @@ struct MYWorkshopView: View {
                             .foregroundStyle(Color(red: 0.47, green: 0.25, blue: 0.08))
                             .position(x: origin.x + 344 * scale, y: origin.y + 463 * scale)
                     }
-                }.buttonStyle(.plain).accessibilityLabel("설정과 기존 메뉴").accessibilityIdentifier("my.settings")
+                }.buttonStyle(.plain).accessibilityLabel("설정").accessibilityIdentifier("my.settings")
                 artwork("MYFarmerShadow", rect: CGRect(x: 54.8, y: 745.1, width: 244, height: 70), scale: scale, origin: origin)
                     .opacity(0.3).accessibilityHidden(true)
                 NavigationLink {
@@ -92,11 +89,11 @@ struct MYWorkshopView: View {
 }
 
 #Preview("MY 기준", traits: .fixedLayout(width: 402, height: 874)) {
-    NavigationStack { MYWorkshopView(container: .preview, store: CampusStoryStore(), demo: MYLibraryStore(), onCamera: {}) }
+    NavigationStack { MYWorkshopView(demo: MYLibraryStore()) }
 }
 #Preview("MY 작은 화면", traits: .fixedLayout(width: 375, height: 667)) {
-    NavigationStack { MYWorkshopView(container: .preview, store: CampusStoryStore(), demo: MYLibraryStore(), onCamera: {}) }
+    NavigationStack { MYWorkshopView(demo: MYLibraryStore()) }
 }
 #Preview("MY 큰 화면", traits: .fixedLayout(width: 440, height: 956)) {
-    NavigationStack { MYWorkshopView(container: .preview, store: CampusStoryStore(), demo: MYLibraryStore(), onCamera: {}) }
+    NavigationStack { MYWorkshopView(demo: MYLibraryStore()) }
 }

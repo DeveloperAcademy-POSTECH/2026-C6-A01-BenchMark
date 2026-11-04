@@ -48,10 +48,9 @@ for name in ['61272.png','0e35d.png','9ac42.png','aeb3a.png']:
     matches=list(source.rglob(name))
     assert len(matches)==1, f'Missing bundled cucumber: {name}'
     shutil.copyfile(matches[0],target/name)
-preview=list(source.rglob('AppClipStoryCardPreview.png'))
-assert len(preview)==1, 'Missing packaged preview fixture'
-shutil.copyfile(preview[0],target/preview[0].name)
+assert not any(source.rglob('AppClipStoryCardPreview.png')), 'Test fixture shipped with the App Clip'
 PY_COPY
+cp "$IOS_ROOT/Tests/Fixtures/AppClipStoryCardPreview.png" "$APP_DIR/AppClipStoryCardPreview.png"
 GAME_DIR="$IOS_ROOT/OiDonationClip/Views/ARGame"
 xcrun swiftc -parse-as-library -swift-version 5 -default-isolation MainActor \
   -sdk "$SDK" -target "$(uname -m)-apple-ios27.0-simulator" \

@@ -76,16 +76,4 @@ enum OiPhotoRenderer {
         }
         return draft
     }
-
-    static func sample() -> UIImage {
-        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
-        return UIGraphicsImageRenderer(size: CGSize(width: 600, height: 600), format: format).image { context in
-            UIColor(red: 0.96, green: 0.75, blue: 0.24, alpha: 1).setFill()
-            context.fill(CGRect(x: 0, y: 0, width: 600, height: 600))
-            UIColor(red: 0.13, green: 0.38, blue: 0.23, alpha: 1).setFill()
-            UIBezierPath(ovalIn: CGRect(x: 90, y: 65, width: 420, height: 420)).fill()
-            ("OI!" as NSString).draw(at: CGPoint(x: 160, y: 148), withAttributes: [.font: UIFont.systemFont(ofSize: 150, weight: .black), .foregroundColor: UIColor.white])
-            ("MY CAMPUS" as NSString).draw(at: CGPoint(x: 118, y: 510), withAttributes: [.font: UIFont.systemFont(ofSize: 48, weight: .bold), .foregroundColor: UIColor.black])
-        }
-    }
 }

@@ -203,6 +203,37 @@ final class OiRemoteStore {
         if case OiServiceError.signInRequired = error, account != nil { needsReauthentication = true }
     }
 
+    func cardRequests() async throws -> [OiCardRequest] {
+        try await withCardRequestSession { api, token in try await api.cardRequests(token: token) }
+    }
+
+    func resolveCardRequest(_ id: UUID, accept: Bool) async throws {
+        _ = try await withCardRequestSession { api, token in
+            try await api.resolveCardRequest(id, accept: accept, token: token)
+        }
+    }
+
+    private func withCardRequestSession<Value>(
+        _ operation: (OiServiceAPI, String) async throws -> Value
+    ) async throws -> Value {
+        guard let api else { throw OiServiceError.configuration }
+        guard account != nil, !needsReauthentication else { throw OiServiceError.signInRequired }
+        let started = generation
+        do {
+            let accessToken = try await token()
+            try Task.checkCancellation()
+            guard started == generation else { throw OiServiceError.accountChanged }
+            let result = try await operation(api, accessToken)
+            try Task.checkCancellation()
+            guard started == generation else { throw OiServiceError.accountChanged }
+            return result
+        } catch {
+            guard started == generation else { throw OiServiceError.accountChanged }
+            noteAuthenticationFailure(error)
+            throw error
+        }
+    }
+
     func refresh() async {
         guard !isBusy, !isRefreshing else { return }
         let started = generation

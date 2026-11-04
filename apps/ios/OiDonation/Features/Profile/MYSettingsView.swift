@@ -7,15 +7,22 @@ import Photos
 import UserNotifications
 
 struct MYSettingsView: View {
-    let container: AppContainer
-    let store: CampusStoryStore
-    let demo: MYLibraryStore
-    let onCamera: () -> Void
-    var remote: OiRemoteStore?
+    var demo: MYLibraryStore? = nil
+    let remote: OiRemoteStore?
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     @State private var settingsError = false
     @State private var permissionValues: [MYPermission: String] = [:]
+    @State private var nicknameOwner: UUID?
+    @State private var nicknameInput = ""
+    @State private var nicknameError: String?
+    @FocusState private var nicknameFocused: Bool
+
+    private var nickname: String {
+        if let remote { return remote.profile?.nickname ?? "농부" }
+        return demo?.nickname ?? "농부"
+    }
+    private var cleanedNickname: String { nicknameInput.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     private var schoolName: String {
         guard let id = remote?.profile?.schoolId else { return "학교를 선택해 주세요" }
@@ -25,19 +32,18 @@ struct MYSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 40) {
-                if let remote { OiConnectionStatus(remote: remote) }
                 section("닉네임", detail: "띄어쓰기 포함 30자 이내") {
-                    NavigationLink { account } label: {
-                        editableCard(remote?.profile?.nickname ?? demo.nickname, action: "수정")
-                    }.accessibilityIdentifier("my.settings.nickname")
+                    nicknameRow
                 }
                 section("학적정보") {
-                    NavigationLink {
-                        if let remote { MYSchoolSettings(remote: remote) }
-                        else { ContentUnavailableView("로그인이 필요해요", systemImage: "person") }
-                    } label: {
-                        editableCard(schoolName, prefix: "학교", action: "수정")
-                    }.accessibilityIdentifier("my.settings.school")
+                    if let remote, remote.account != nil, !remote.needsReauthentication {
+                        NavigationLink { MYSchoolSettings(remote: remote) } label: {
+                            editableCard(schoolName, prefix: "학교", action: "수정")
+                        }.accessibilityIdentifier("my.settings.school")
+                    } else {
+                        editableCard(schoolName, prefix: "학교", action: "로그인 후 수정")
+                            .accessibilityIdentifier("my.settings.school")
+                    }
                 }
                 section("권한허용") {
                     VStack(spacing: 0) {
@@ -57,15 +63,25 @@ struct MYSettingsView: View {
                         .font(CampusStyle.body(14)).foregroundStyle(.secondary)
                 }
                 section("로그인 계정") {
-                    NavigationLink { account } label: {
-                        editableCard(remote?.account?.email ?? (remote?.account == nil ? "로그인하기" : "로그인한 계정"), action: "관리")
-                    }.accessibilityIdentifier("my.settings.account")
-                }
-                NavigationLink {
-                    CampusProfileMenu(container: container, store: store, onCamera: onCamera, remote: remote)
-                } label: {
-                    Label("기존 메뉴 · 촬영 · 수집 목록", systemImage: "square.grid.2x2")
-                        .font(CampusStyle.body(16)).frame(minHeight: 44)
+                    if let remote {
+                        if let account = remote.account {
+                            editableCard(account.email ?? "로그인한 계정")
+                                .accessibilityIdentifier("my.settings.account")
+                        }
+                        OiSignInView(remote: remote)
+                        if remote.account != nil {
+                            Button(role: .destructive) {
+                                Task { await remote.signOut() }
+                            } label: {
+                                Text("로그아웃").frame(minHeight: 44)
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(remote.isBusy)
+                            .accessibilityIdentifier("oi.auth.signOut")
+                        }
+                    } else {
+                        editableCard("로그인이 필요해요").accessibilityIdentifier("my.settings.account")
+                    }
                 }
             }.buttonStyle(.plain).padding(.horizontal, 20).padding(.top, 26).padding(.bottom, 30)
         }
@@ -77,9 +93,70 @@ struct MYSettingsView: View {
                 .foregroundStyle(Color(red: 117 / 255, green: 75 / 255, blue: 0))
         } }
         .task(id: scenePhase) { if scenePhase == .active { await refreshPermissions() } }
+        .onChange(of: remote?.account?.id) { _, _ in resetNicknameEditor() }
         .alert("설정을 열 수 없어요", isPresented: $settingsError) {
             Button("확인", role: .cancel) {}
         } message: { Text("iPhone의 설정 앱에서 오이기부의 권한과 위치 접근을 확인해 주세요.") }
+    }
+
+    @ViewBuilder private var nicknameRow: some View {
+        if let remote, let owner = remote.account?.id, !remote.needsReauthentication {
+            if nicknameOwner == owner {
+                VStack(alignment: .leading, spacing: 10) {
+                    TextField("닉네임", text: $nicknameInput)
+                        .font(CampusStyle.semibold(18))
+                        .textInputAutocapitalization(.never)
+                        .submitLabel(.done)
+                        .focused($nicknameFocused)
+                        .onAppear { nicknameFocused = true }
+                        .onSubmit { saveNickname(remote: remote) }
+                        .accessibilityIdentifier("my.settings.nickname.input")
+                    if let nicknameError { Text(nicknameError).font(.footnote).foregroundStyle(.secondary) }
+                    HStack {
+                        Button("취소", role: .cancel, action: resetNicknameEditor)
+                            .buttonStyle(.bordered)
+                        Button("저장") { saveNickname(remote: remote) }
+                            .buttonStyle(.borderedProminent)
+                            .tint(CampusStyle.green)
+                            .disabled(cleanedNickname.isEmpty || cleanedNickname.count > 30)
+                            .accessibilityIdentifier("my.settings.nickname.save")
+                    }
+                }
+                .disabled(remote.isBusy)
+                .padding(.horizontal, 20).padding(.vertical, 18)
+                .background(CampusStyle.mapSheet, in: RoundedRectangle(cornerRadius: 15))
+            } else {
+                Button {
+                    nicknameInput = nickname
+                    nicknameOwner = owner
+                } label: {
+                    editableCard(nickname, action: "수정")
+                }.accessibilityIdentifier("my.settings.nickname")
+            }
+        } else {
+            editableCard(nickname, action: "로그인 후 수정").accessibilityIdentifier("my.settings.nickname")
+        }
+    }
+
+    private func saveNickname(remote: OiRemoteStore) {
+        let value = cleanedNickname
+        guard let owner = nicknameOwner, remote.account?.id == owner, !remote.isBusy,
+              !remote.needsReauthentication, !value.isEmpty, value.count <= 30 else { return }
+        nicknameError = nil
+        Task {
+            guard remote.account?.id == owner, nicknameOwner == owner, !remote.isBusy else { return }
+            await remote.updateProfile(nickname: value)
+            guard remote.account?.id == owner, nicknameOwner == owner else { return }
+            if let error = remote.error { nicknameError = error }
+            else { resetNicknameEditor() }
+        }
+    }
+
+    private func resetNicknameEditor() {
+        nicknameFocused = false
+        nicknameOwner = nil
+        nicknameInput = ""
+        nicknameError = nil
     }
 
     private func section<Content: View>(_ title: String, detail: String? = nil, @ViewBuilder content: () -> Content) -> some View {
@@ -100,11 +177,11 @@ struct MYSettingsView: View {
         if let value { Text(value).font(.custom("Paperlogy-3Light", size: 16, relativeTo: .body)).foregroundStyle(CampusStyle.green) }
     }
 
-    private func editableCard(_ value: String, prefix: String? = nil, action: String) -> some View {
+    private func editableCard(_ value: String, prefix: String? = nil, action: String? = nil) -> some View {
         HStack(spacing: 12) {
             if let prefix { Text(prefix).font(CampusStyle.semibold(18)) }
             Text(value).font(CampusStyle.semibold(18)).frame(maxWidth: .infinity, alignment: .leading)
-            Text(action).font(.system(size: 18, weight: .light)).foregroundStyle(CampusStyle.green)
+            if let action { Text(action).font(.system(size: 18, weight: .light)).foregroundStyle(CampusStyle.green) }
         }.foregroundStyle(CampusStyle.sectionGreen)
             .padding(.horizontal, 20).padding(.vertical, 18).frame(maxWidth: .infinity, minHeight: 60)
             .background(CampusStyle.mapSheet, in: RoundedRectangle(cornerRadius: 15))
@@ -161,11 +238,6 @@ struct MYSettingsView: View {
         }
     }
 
-    @ViewBuilder private var account: some View {
-        if let remote { OiAccountView(remote: remote) }
-        else { ContentUnavailableView("로그인이 필요해요", systemImage: "person") }
-    }
-
     private func openAppSettings() {
         guard let url = URL(string: UIApplication.openSettingsURLString) else { settingsError = true; return }
         openURL(url) { accepted in if !accepted { settingsError = true } }
@@ -189,10 +261,11 @@ private struct MYSchoolSettings: View {
     let remote: OiRemoteStore
     var body: some View {
         List {
-            OiConnectionStatus(remote: remote)
-            if remote.account == nil {
-                NavigationLink("로그인하기") { OiAccountView(remote: remote) }
+            if remote.account == nil || remote.needsReauthentication {
+                ContentUnavailableView("로그인이 필요해요", systemImage: "person",
+                    description: Text("설정의 로그인 계정에서 로그인한 뒤 학교를 선택해 주세요."))
             } else {
+                OiConnectionStatus(remote: remote)
                 ForEach(remote.schools) { school in
                     Button {
                         Task { await remote.updateProfile(nickname: remote.profile?.nickname ?? "농부", schoolID: school.id) }

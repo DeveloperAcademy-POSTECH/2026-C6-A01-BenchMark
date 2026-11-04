@@ -99,60 +99,10 @@ struct CampusSearchView: View {
     }
 }
 
-private enum CampusSchool: String, CaseIterable, Identifiable {
-    case postech, hanyang, chungnam, kaist
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .postech: "POSTECH"
-        case .hanyang: "한양대학교"
-        case .chungnam: "충남대학교"
-        case .kaist: "KAIST"
-        }
-    }
-    var keywords: String {
-        switch self {
-        case .postech: "POSTECH 포스텍 포항공과대학교"
-        case .hanyang: "한양대학교 한양대 Hanyang"
-        case .chungnam: "충남대학교 충남대 Chungnam CNU"
-        case .kaist: "KAIST 카이스트 한국과학기술원"
-        }
-    }
-    var logoImage: String {
-        switch self {
-        case .postech: "CampusSchoolLogo"
-        case .hanyang: "CampusHanyangLogo"
-        case .chungnam: "CampusChungnamLogo"
-        case .kaist: "CampusKAISTLogo"
-        }
-    }
-    // Match the visible school name rather than the complete artwork height:
-    // POSTECH is a wide wordmark; CNU includes a tall seal and English subtitle.
-    var logoHeight: CGFloat {
-        switch self {
-        case .postech: 18
-        case .chungnam: 74
-        case .hanyang, .kaist: 52
-        }
-    }
-    var mapImage: String {
-        switch self {
-        case .postech: "CampusSchoolMap"
-        case .hanyang: "CampusHanyangMap"
-        case .chungnam: "CampusChungnamMap"
-        case .kaist: "CampusKAISTMap"
-        }
-    }
-}
-
 struct CampusSchoolSearchView: View {
     let onSelect: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
-    private var schools: [CampusSchool] {
-        let term = CampusSearchQuery.normalized(query)
-        return CampusSchool.allCases.filter { term.isEmpty || CampusSearchQuery.normalized($0.keywords).contains(term) }
-    }
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -164,78 +114,29 @@ struct CampusSchoolSearchView: View {
                         Image(systemName: "magnifyingglass").foregroundStyle(.gray)
                     }.padding(.horizontal, 22).frame(height: 57)
                         .background(Color(white: 217/255).opacity(0.3), in: Capsule())
-                    ForEach(schools) { school in
-                        if school == .postech {
-                            Button(action: onSelect) { schoolCard(school) }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("POSTECH 포항공과대학교 지도 열기")
-                                .accessibilityIdentifier("campus.school.postech")
-                        } else {
-                            NavigationLink { CampusSchoolMapPreview(school: school) } label: { schoolCard(school) }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("\(school.title) 지도 미리보기")
-                                .accessibilityIdentifier("campus.school.\(school.id)")
-                        }
+                    let term = CampusSearchQuery.normalized(query)
+                    if term.isEmpty || CampusSearchQuery.normalized("POSTECH 포스텍 포항공과대학교").contains(term) {
+                        Button(action: onSelect) { schoolCard }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("POSTECH 포항공과대학교 지도 열기")
+                            .accessibilityIdentifier("campus.school.postech")
+                    } else {
+                        ContentUnavailableView.search(text: query)
                     }
-                    if schools.isEmpty { ContentUnavailableView.search(text: query) }
                 }.padding(20)
             }.background(.white).navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("닫기") { dismiss() }.tint(.gray) } }
-            #if DEBUG
-            .onAppear {
-                let args = ProcessInfo.processInfo.arguments
-                if let index = args.firstIndex(of: "-campus-school-query"), args.indices.contains(index + 1) {
-                    query = args[index + 1]
-                }
-            }
-            #endif
         }
     }
 
-    private func schoolCard(_ school: CampusSchool) -> some View {
+    private var schoolCard: some View {
         VStack(spacing: 10) {
-            Image(school.logoImage).resizable().scaledToFit()
-                .frame(height: school.logoHeight).padding(.horizontal, 38)
-                .accessibilityLabel(school.title)
-            Image(school.mapImage).resizable().scaledToFit().padding(.horizontal, 16)
+            Image("CampusSchoolLogo").resizable().scaledToFit()
+                .frame(height: 18).padding(.horizontal, 38)
                 .accessibilityHidden(true)
-            if school != .postech {
-                Text("지도 미리보기 · 3D 탐색 준비 중").font(.caption).foregroundStyle(.secondary)
-            }
+            Image("CampusSchoolMap").resizable().scaledToFit().padding(.horizontal, 16)
+                .accessibilityHidden(true)
         }.padding(.top, 21).padding(.bottom, 14)
             .frame(maxWidth: .infinity).background(Color(white: 0.95), in: RoundedRectangle(cornerRadius: 20))
-    }
-}
-
-private struct CampusSchoolMapPreview: View {
-    let school: CampusSchool
-    @State private var zoom: CGFloat = 1
-    @GestureState private var magnification: CGFloat = 1
-    private var displayZoom: CGFloat { min(max(zoom * magnification, 1), 4) }
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(school.logoImage).resizable().scaledToFit().frame(height: school.logoHeight)
-                .padding(.horizontal, 38).accessibilityLabel(school.title)
-            GeometryReader { geometry in
-                ScrollView([.horizontal, .vertical]) {
-                    Image(school.mapImage).resizable().scaledToFit()
-                        .frame(width: geometry.size.width * displayZoom, height: geometry.size.height * displayZoom)
-                        .accessibilityLabel("\(school.title) 캠퍼스 일러스트")
-                }
-                .simultaneousGesture(MagnifyGesture()
-                    .updating($magnification) { value, state, _ in state = value.magnification }
-                    .onEnded { value in zoom = min(max(zoom * value.magnification, 1), 4) })
-            }
-            Text("두 손가락으로 확대해 지도를 살펴보세요.").font(.caption).foregroundStyle(.secondary)
-            Text("이 캠퍼스의 3D 탐색과 오이 배치는 준비 중이에요.")
-                .font(.callout).multilineTextAlignment(.center)
-            if school == .kaist {
-                Text("캠퍼스 선택용 AI 일러스트로, 실제 길 안내와 다를 수 있어요.")
-                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            }
-        }.padding(20).background(Color(white: 0.95))
-            .navigationTitle(school.title).navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .primaryAction) { Button("원래 크기") { zoom = 1 } } }
     }
 }

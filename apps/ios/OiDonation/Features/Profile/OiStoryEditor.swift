@@ -45,6 +45,20 @@ struct OiStoryEditor: View {
     }
 
     var body: some View {
+        if let owner, remote.account?.id != owner {
+            ContentUnavailableView {
+                Label("계정이 변경됐어요", systemImage: "person.crop.circle")
+            } description: {
+                Text("초안은 작성한 계정의 기기에 보관돼요.")
+            } actions: {
+                Button("나가기") { dismiss() }.buttonStyle(.borderedProminent)
+            }
+        } else {
+            editorContent
+        }
+    }
+
+    private var editorContent: some View {
         presentedContent
         .task(id: restorationAttempt) { await restoreDraft() }
         .onChange(of: draft) { _, _ in scheduleSave() }

@@ -22,7 +22,7 @@ struct MYFarmView: View {
                     } description: {
                         Text("로그인하면 내가 등록한 오이와 이야기를 볼 수 있어요.")
                     } actions: {
-                        NavigationLink("로그인하기") { OiAccountView(remote: remote) }
+                        NavigationLink("로그인하기") { MYSettingsView(remote: remote) }
                     }.padding(.top, 170)
                 } else if remote.ownStories.isEmpty {
                     emptyFarm

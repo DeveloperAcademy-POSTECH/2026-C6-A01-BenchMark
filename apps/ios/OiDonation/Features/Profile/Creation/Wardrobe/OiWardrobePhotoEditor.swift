@@ -135,21 +135,16 @@ struct OiWardrobePhotoEditor: View {
     }
 
     private var photoControls: some View {
-        HStack(spacing: 10) {
-            Button {
-                guard remaining > 0, !importInProgress, !isPhotoPickerPresented else { return }
-                selection = []
-                pickerSelectionLimit = remaining
-                isPhotoPickerPresented = true
-            } label: {
-                Label("사진 추가 \(draft.layers.count)/8", systemImage: "photo.badge.plus")
-                    .frame(maxWidth: .infinity, minHeight: 44).foregroundStyle(.white)
-            }.buttonStyle(.borderedProminent).disabled(remaining == 0 || importInProgress || restoreFailed).accessibilityIdentifier("photo-import")
-            Button("샘플 추가") {
-                do { add(try OiPhotoRenderer.asset(OiPhotoRenderer.sample())) }
-                catch { self.error = error.localizedDescription }
-            }.font(.caption.bold()).disabled(remaining == 0 || importInProgress || restoreFailed).accessibilityIdentifier("photo-sample")
-        }
+        Button {
+            guard remaining > 0, !importInProgress, !isPhotoPickerPresented else { return }
+            selection = []
+            pickerSelectionLimit = remaining
+            isPhotoPickerPresented = true
+        } label: {
+            Label("사진 추가 \(draft.layers.count)/8", systemImage: "photo.badge.plus")
+                .frame(maxWidth: .infinity, minHeight: 44).foregroundStyle(.white)
+        }.buttonStyle(.borderedProminent).disabled(remaining == 0 || importInProgress || restoreFailed)
+            .accessibilityIdentifier("photo-import")
     }
     private var layerPicker: some View {
         VStack(alignment: .leading, spacing: 8) {

@@ -117,6 +117,39 @@ struct OiServiceAPI {
         return try decoder.decode(Value.self, from: data)
     }
 
+    func cardRequests(token: String) async throws -> [OiCardRequest] {
+        try await cardRequestRPC("oi_card_requests", payload: [:], token: token, as: [OiCardRequest].self)
+    }
+
+    func resolveCardRequest(_ id: UUID, accept: Bool, token: String) async throws -> OiCardRequest {
+        let response = try await cardRequestRPC("oi_resolve_card_request",
+            payload: ["p_request_id": id.uuidString, "p_decision": accept ? "accept" : "reject"],
+            token: token, as: OiCardRequest.self)
+        guard response.id == id, response.status == (accept ? .accepted : .rejected) else {
+            throw OiServiceError.unavailable
+        }
+        return response
+    }
+
+    private func cardRequestRPC<Value: Decodable>(_ function: String, payload: [String: String],
+                                                   token: String, as type: Value.Type) async throws -> Value {
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let data = try await request("rest/v1/rpc/\(function)", method: "POST", token: token, body: body)
+        let requestDecoder = JSONDecoder()
+        requestDecoder.keyDecodingStrategy = .convertFromSnakeCase
+        requestDecoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let value = try container.decode(String.self)
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = iso.date(from: value) { return date }
+            iso.formatOptions = [.withInternetDateTime]
+            if let date = iso.date(from: value) { return date }
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid request timestamp")
+        }
+        return try requestDecoder.decode(Value.self, from: data)
+    }
+
     func session(grant: String, payload: [String: String]) async throws -> OiSession {
         let data: Data
         do { data = try await request("auth/v1/token?grant_type=\(grant)", method: "POST", body: JSONSerialization.data(withJSONObject: payload)) }

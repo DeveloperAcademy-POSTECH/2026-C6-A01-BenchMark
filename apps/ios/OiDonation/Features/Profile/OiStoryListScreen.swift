@@ -5,15 +5,19 @@ struct OiStoryListScreen: View {
 
     @State private var localDrafts: [OiLocalDraft] = []
     @State private var selectedLocalID: UUID?
-    @State private var showingAccount = false
+    @State private var showingSettings = false
     @State private var localError: String?
+    @State private var unreadableDraftCount = 0
+    @State private var loadedDraftOwner: UUID?
+    @State private var draftLoadAttempt = UUID()
+
+    private struct DraftLoadKey: Equatable {
+        let owner: UUID?
+        let revision: Int
+    }
     @State private var selectedStoryID: UUID?
     @State private var showingConsent = false
     @State private var showingApprovalNotice = false
-    #if DEBUG
-    @State private var showingPractice = false
-    @State private var showingWardrobe = false
-    #endif
 
     var body: some View {
         OiStoryListView(
@@ -21,41 +25,33 @@ struct OiStoryListScreen: View {
             notices: ["이야기를 누르면 작성 내용과 공개 상태를 확인할 수 있습니다", "운영자 공개 승인 후 지도에서 오이를 볼 수 있습니다"],
             guidance: "작성 승인을 받은 뒤 오이와 이야기를 심어보세요",
             onRetry: { Task { await remote.refresh(); await loadLocalDrafts() } },
-            onAddTicket: { showingAccount = true },
             onSelectStory: selectStory,
             onCreateStory: beginCreatingStory,
             onUseTicket: beginCreatingStory
         )
-        #if DEBUG
+        .task(id: DraftLoadKey(owner: remote.account?.id, revision: remote.revision)) {
+            await loadLocalDrafts()
+        }
+        .onChange(of: remote.account?.id) { _, _ in
+            selectedLocalID = nil
+            selectedStoryID = nil
+            showingConsent = false
+            showingApprovalNotice = false
+        }
         .safeAreaInset(edge: .top, spacing: 0) {
-            VStack(spacing: 0) {
-                Button { showingPractice = true } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Label("작성 흐름 체험", systemImage: "play.circle.fill").font(.subheadline.bold())
-                        Text("개발용 · 로그인 없이 체험 · 서버 전송 없음").font(.caption)
-                    }.frame(maxWidth: .infinity, alignment: .leading).padding(14)
-                        .foregroundStyle(Color("OiGreen")).background(Color("OiLight"), in: RoundedRectangle(cornerRadius: 16))
-                        .padding(.horizontal, 20).padding(.vertical, 8)
-                }.buttonStyle(.plain).accessibilityIdentifier("oi.practice.open")
-                Button { showingWardrobe = true } label: {
-                    Label("오이 옷장 바로 체험", systemImage: "tshirt")
-                        .font(.subheadline.bold()).frame(maxWidth: .infinity, minHeight: 44)
-                        .foregroundStyle(Color("OiDark"))
-                }.buttonStyle(.plain).accessibilityIdentifier("oi.wardrobe.open")
+            if let owner = remote.account?.id, loadedDraftOwner == owner, unreadableDraftCount > 0 {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("기기 초안 \(unreadableDraftCount)개를 읽지 못했어요. 원본은 기기에 보관했습니다.")
+                        .font(.footnote).accessibilityIdentifier("oi.drafts.recoveryWarning")
+                    Button("다시 확인") { Task { await loadLocalDrafts() } }
+                        .frame(minHeight: 44).accessibilityIdentifier("oi.drafts.retry")
+                }
+                .padding(.horizontal, 20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.regularMaterial)
             }
         }
-        .fullScreenCover(isPresented: $showingPractice) { OiCreationPreviewHost() }
-        .fullScreenCover(isPresented: $showingWardrobe) { OiWardrobePreviewHost(allowsDismiss: true) }
-        #endif
-        .task(id: remote.account?.id) { await loadLocalDrafts() }
-        .onChange(of: remote.revision) { _, _ in Task { await loadLocalDrafts() } }
-        .onAppear { Task { await loadLocalDrafts() } }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(remote.account == nil ? "로그인" : "작성 승인·계정", systemImage: "person.crop.circle") { showingAccount = true }
-            }
-        }
-        .navigationDestination(isPresented: $showingAccount) { OiAccountView(remote: remote) }
+        .navigationDestination(isPresented: $showingSettings) { MYSettingsView(remote: remote) }
         .navigationDestination(item: $selectedLocalID) { id in
             OiStoryEditor(remote: remote, localID: id, onFinish: { selectedLocalID = nil })
         }
@@ -66,7 +62,6 @@ struct OiStoryListScreen: View {
             OiStoryCreationConsentFlow(remote: remote, onFinish: { showingConsent = false })
         }
         .alert("작성 승인이 필요해요", isPresented: $showingApprovalNotice) {
-            Button("승인 상태 확인") { showingAccount = true }
             Button("닫기", role: .cancel) {}
         } message: {
             Text("작성 승인을 받은 계정에서 오이와 이야기를 만들 수 있어요.")
@@ -75,10 +70,10 @@ struct OiStoryListScreen: View {
 
     private var state: OiStoryListState {
         guard remote.account != nil else { return .empty }
-        let drafts = localDrafts.filter { record in
+        let drafts = (loadedDraftOwner == remote.account?.id ? localDrafts : []).filter { record in
             !record.submitted && !remote.ownStories.contains { $0.id == record.id }
         }
-        if let error = localError ?? remote.loadError, remote.ownStories.isEmpty && drafts.isEmpty { return .failure(error) }
+        if let error = (loadedDraftOwner == remote.account?.id ? localError : nil) ?? remote.loadError, remote.ownStories.isEmpty && drafts.isEmpty { return .failure(error) }
         if !remote.hasLoadedRemote && drafts.isEmpty { return .loading }
         let donorName = remote.profile?.nickname.nonEmpty ?? "익명"
         let serverItems = remote.ownStories.map { story in
@@ -94,12 +89,35 @@ struct OiStoryListScreen: View {
     }
 
     private func loadLocalDrafts() async {
-        do { localDrafts = try await remote.localDrafts(); localError = nil }
-        catch { localError = error.localizedDescription }
+        let attempt = UUID()
+        draftLoadAttempt = attempt
+        guard let owner = remote.account?.id else {
+            loadedDraftOwner = nil
+            localDrafts = []
+            unreadableDraftCount = 0
+            localError = nil
+            return
+        }
+        do {
+            let listing = try await remote.localDraftListing()
+            guard !Task.isCancelled, draftLoadAttempt == attempt, remote.account?.id == owner else { return }
+            loadedDraftOwner = owner
+            localDrafts = listing.drafts
+            unreadableDraftCount = listing.unreadableFiles.count
+            localError = nil
+        } catch {
+            guard !Task.isCancelled, draftLoadAttempt == attempt, remote.account?.id == owner else { return }
+            if loadedDraftOwner != owner {
+                localDrafts = []
+                unreadableDraftCount = 0
+            }
+            loadedDraftOwner = owner
+            localError = error.localizedDescription
+        }
     }
 
     private func selectStory(id: UUID) {
-        if localDrafts.contains(where: { $0.id == id && !$0.submitted }),
+        if loadedDraftOwner == remote.account?.id, localDrafts.contains(where: { $0.id == id && !$0.submitted }),
            !remote.ownStories.contains(where: { $0.id == id }) {
             selectedLocalID = id; return
         }
@@ -108,7 +126,7 @@ struct OiStoryListScreen: View {
     }
 
     private func beginCreatingStory() {
-        guard remote.account != nil else { showingAccount = true; return }
+        guard remote.account != nil, !remote.needsReauthentication else { showingSettings = true; return }
         if remote.grants.contains(where: { $0.revokedAt == nil }) {
             showingConsent = true
         } else {

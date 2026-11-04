@@ -50,6 +50,61 @@ struct OiServiceChecks {
         print("PASS: local field trial photo/denim/location relaunch, replacement, invalid-write rejection, damaged-file preservation and deletion")
     }
 
+    private static func requestBody(_ request: URLRequest) throws -> Data {
+        var data = request.httpBody ?? Data()
+        if let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count < 0 { throw OiServiceError.unavailable }
+                if count == 0 { break }
+                data.append(buffer, count: count)
+            }
+        }
+        return data
+    }
+
+    static func checkCardRequests(api: OiServiceAPI) async throws {
+        let id = UUID()
+        let fixture: [String: String] = [
+            "id": id.uuidString, "story_title": "우리가 남긴 이야기", "requester_name": "새싹",
+            "requester_school_name": "POSTECH", "created_at": "2026-11-04T09:00:00.123456+00:00", "status": "pending"
+        ]
+        OiURLProtocol.handler = { request in
+            precondition(request.httpMethod == "POST")
+            precondition(request.value(forHTTPHeaderField: "Authorization") == "Bearer card-request-test")
+            let body = try JSONSerialization.jsonObject(with: requestBody(request)) as? [String: String]
+            switch request.url?.path {
+            case "/rest/v1/rpc/oi_card_requests":
+                precondition(body == [:])
+                return (200, try JSONSerialization.data(withJSONObject: [fixture]))
+            case "/rest/v1/rpc/oi_resolve_card_request":
+                precondition(body == ["p_request_id": id.uuidString, "p_decision": "accept"])
+                return (200, try JSONSerialization.data(withJSONObject: fixture.merging(["status": "accepted"]) { _, updated in updated }))
+            default:
+                preconditionFailure("Unexpected card request endpoint")
+            }
+        }
+        let inbox = try await api.cardRequests(token: "card-request-test")
+        precondition(inbox.count == 1 && inbox.first?.id == id && inbox.first?.status == .pending)
+        precondition(inbox.first?.storyTitle == fixture["story_title"] && inbox.first?.requesterSchoolName == "POSTECH")
+        let receipt = try await api.resolveCardRequest(id, accept: true, token: "card-request-test")
+        precondition(receipt.status == .accepted)
+        OiURLProtocol.handler = { _ in (200, try JSONSerialization.data(withJSONObject: fixture)) }
+        do {
+            _ = try await api.resolveCardRequest(id, accept: false, token: "card-request-test")
+            preconditionFailure("An uncommitted decision must not be shown as saved")
+        } catch OiServiceError.unavailable {}
+        OiURLProtocol.handler = { _ in (401, Data()) }
+        do {
+            _ = try await api.cardRequests(token: "card-request-test")
+            preconditionFailure("An unauthenticated read must not be shown as an empty inbox")
+        } catch OiServiceError.signInRequired {}
+        print("PASS: card request auth, timestamp, RPC payload and verified decision receipt")
+    }
+
     @MainActor static func main() async throws {
         try checkFieldTrial()
         for key in ["", "sb_secret_test", "$(UNSET)", "sb_publishable_bad\nheader"] {
@@ -65,6 +120,7 @@ struct OiServiceChecks {
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel(); OiURLProtocol.handler = nil }
         let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        try await checkCardRequests(api: api)
         OiURLProtocol.handler = { request in
             precondition(request.url?.scheme == "https" && request.url?.host == OiServiceAPI.projectHost)
             precondition(request.value(forHTTPHeaderField: "apikey") == "sb_publishable_testing")
@@ -125,18 +181,7 @@ struct OiServiceChecks {
         OiURLProtocol.handler = { request in
             precondition(request.url?.path == "/rest/v1/rpc/oi_mutate")
             precondition(request.value(forHTTPHeaderField: "Authorization") == "Bearer test-user-token")
-            var data = request.httpBody ?? Data()
-            if let stream = request.httpBodyStream {
-                stream.open()
-                defer { stream.close() }
-                var buffer = [UInt8](repeating: 0, count: 4096)
-                while stream.hasBytesAvailable {
-                    let count = stream.read(&buffer, maxLength: buffer.count)
-                    if count < 0 { throw OiServiceError.unavailable }
-                    if count == 0 { break }
-                    data.append(buffer, count: count)
-                }
-            }
+            let data = try requestBody(request)
             guard let body = try JSONSerialization.jsonObject(with: data) as? [String:Any] else { throw OiServiceError.unavailable }
             precondition(body["p_action"] as? String == "collect")
             return (200, Data("{\"id\":\"b1000000-0000-4000-8000-000000000020\"}".utf8))

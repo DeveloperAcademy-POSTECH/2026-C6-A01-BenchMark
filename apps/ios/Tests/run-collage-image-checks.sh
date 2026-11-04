@@ -37,7 +37,7 @@ xcrun actool "$IOS_ROOT/OiDonation/Assets.xcassets" --compile "$APP_DIR" \
   --platform iphonesimulator --minimum-deployment-target 26.2 --target-device iphone \
   --output-partial-info-plist "$CHECK_DIR/asset-info.plist"
 xcrun swiftc -parse-as-library -sdk "$SDK" -target "$(uname -m)-apple-ios26.2-simulator" \
-  "$IOS_ROOT"/OiDonation/Features/PhotoTest/*.swift \
+  "$IOS_ROOT"/Tests/PhotoTest/*.swift \
   "$IOS_ROOT/OiDonation/Features/AR/Services/ARPhotoLibraryService.swift" \
   "$IOS_ROOT/Tests/CollageImageChecks.swift" -o "$APP_DIR/checks"
 xcrun simctl install "$1" "$APP_DIR"

@@ -77,24 +77,48 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testCardRequestInboxCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let now = Date.now
+        let rows = [
+            OiCardRequestInboxItem(id: UUID(), requesterName: "검증용 농부", storyTitle: "캠퍼스에 남긴 이야기",
+                schoolName: "POSTECH", portraitURL: nil, createdAt: now.addingTimeInterval(-180)),
+            OiCardRequestInboxItem(id: UUID(), requesterName: "검증용 농부", storyTitle: "같은 농부가 요청한 또 다른 카드",
+                schoolName: nil, portraitURL: nil, createdAt: now.addingTimeInterval(-1_620)),
+            OiCardRequestInboxItem(id: UUID(), requesterName: "긴 닉네임의 검증용 농부", storyTitle: "긴 카드 제목을 줄이지 않고 보여주는지 확인하는 이야기",
+                schoolName: nil, portraitURL: nil, createdAt: now.addingTimeInterval(-86_400)),
+            OiCardRequestInboxItem(id: UUID(), requesterName: "검증용 농부", storyTitle: "가장 오래된 카드 요청",
+                schoolName: nil, portraitURL: nil, createdAt: now.addingTimeInterval(-1_468_800))
+        ]
+        let states: [(name: String, rows: [OiCardRequestInboxItem], error: String?)] = [
+            ("card-requests-inbox", rows, nil),
+            ("card-requests-empty", [], nil),
+            ("card-requests-error", [], "연결을 확인한 뒤 다시 시도해 주세요.")
+        ]
+        for variant in variants {
+            for state in states {
+                let inbox = OiCardRequestInboxView(requests: state.rows, isLoading: false, loadError: state.error,
+                    pendingRequestID: nil, actionError: nil, onReload: {}, onDecision: { _, _ in })
+                try await capture(inbox, name: state.name, variant: variant, defaults: fixture.defaults, attach: true)
+            }
+        }
+    }
+
     func testMYScreenCapturesWithoutRemoteStore() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
-        let repository = UnconnectedPilotRepository()
-        let container = AppContainer(homeRepository: repository, benchRepository: repository,
-            participationRepository: repository, storyRepository: repository, approvedLinkHost: nil)
-        let store = CampusStoryStore(defaults: fixture.defaults)
         let library = MYLibraryStore()
         library.synchronize(nickname: "검증용 농부", cards: [], favorites: [])
         for variant in variants {
             let workshop = NavigationStack {
-                MYWorkshopView(container: container, store: store, demo: library, onCamera: {}, remote: nil)
+                MYWorkshopView(demo: library, remote: nil)
             }
             try await capture(workshop, name: "my-workshop", variant: variant, defaults: fixture.defaults)
             let farmer = NavigationStack { MYFarmerCustomizationView(ownerID: nil) }
             try await capture(farmer, name: "my-farmer", variant: variant, defaults: fixture.defaults)
             let settings = NavigationStack {
-                MYSettingsView(container: container, store: store, demo: library, onCamera: {}, remote: nil)
+                MYSettingsView(demo: library, remote: nil)
             }
             try await capture(settings, name: "my-settings", variant: variant, defaults: fixture.defaults)
         }
@@ -190,7 +214,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     }
 
     private func capture<V: View>(_ view: V, name: String, variant: Variant, defaults: UserDefaults,
-                                 delay: Duration = .milliseconds(180)) async throws {
+                                 delay: Duration = .milliseconds(180), attach: Bool = false) async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first, "The isolated simulator test host must have a window scene")
@@ -245,6 +269,12 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
         XCTAssertTrue(rendered, "The attached production view must draw its hierarchy")
         try assertNonemptyRender(png, size: variant.size)
+        if attach {
+            let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            attachment.name = "\(name)-\(variant.name)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
         let directory = try XCTUnwrap(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first)
             .appendingPathComponent("Figma132", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
