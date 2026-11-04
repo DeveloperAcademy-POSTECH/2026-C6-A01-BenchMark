@@ -18,6 +18,7 @@ struct MYSettingsView: View {
     @State private var nicknameOwner: UUID?
     @State private var nicknameInput = ""
     @State private var nicknameError: String?
+    @State private var showingOperator = false
     @FocusState private var nicknameFocused: Bool
 
     private var nickname: String {
@@ -63,6 +64,15 @@ struct MYSettingsView: View {
                         }
                     }
                 }
+                if let remote, remote.account != nil, remote.isOperator, !remote.needsReauthentication {
+                    section("운영자") {
+                        Button { showingOperator = true } label: {
+                            settingsCard(action: "열기") {
+                                Label("운영자 관리", systemImage: "person.badge.shield.checkmark")
+                            }
+                        }.accessibilityIdentifier("my.settings.operator")
+                    }
+                }
                 section("로그인 계정") {
                     if let remote {
                         if let account = remote.account {
@@ -94,6 +104,9 @@ struct MYSettingsView: View {
                 .foregroundStyle(Color(red: 117 / 255, green: 75 / 255, blue: 0))
         } }
         .task(id: scenePhase) { if scenePhase == .active { await refreshPermissions() } }
+        .sheet(isPresented: $showingOperator) {
+            if let remote { OiOperatorHomeView(remote: remote) }
+        }
         .onChange(of: remote?.account?.id) { _, _ in
             resetNicknameEditor()
             editingSchoolOwner = nil

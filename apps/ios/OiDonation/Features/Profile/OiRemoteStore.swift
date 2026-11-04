@@ -209,6 +209,27 @@ final class OiRemoteStore {
         if case OiServiceError.signInRequired = error, account != nil { needsReauthentication = true }
     }
 
+    /// Fresh server-side capability check, independent of a cached profile/list refresh.
+    func verifyOperatorAccess() async throws -> Bool {
+        guard let api else { throw OiServiceError.configuration }
+        guard account != nil, !needsReauthentication else { throw OiServiceError.signInRequired }
+        let started = generation
+        do {
+            let accessToken = try await token()
+            try Task.checkCancellation()
+            guard started == generation else { throw OiServiceError.accountChanged }
+            let capabilities = try await api.capabilities(token: accessToken)
+            try Task.checkCancellation()
+            guard started == generation else { throw OiServiceError.accountChanged }
+            isOperator = capabilities.operator
+            if !isOperator { reviewStories = [] }
+            return isOperator
+        } catch {
+            if started == generation { noteAuthenticationFailure(error) }
+            throw error
+        }
+    }
+
     func cardRequests() async throws -> [OiCardRequest] {
         try await withCardRequestSession { api, token in try await api.cardRequests(token: token) }
     }

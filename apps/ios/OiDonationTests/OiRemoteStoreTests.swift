@@ -32,6 +32,8 @@ final class OiTestBackend {
         var nickname = "Owner A"
         var schoolID: String?
         var failReads = false
+        var isOperator = false
+        var failCapabilities = false
         var failRefreshToken = false
         var failLogout = false
         var logoutScopes: [String?] = []
@@ -147,7 +149,8 @@ final class OiTestBackend {
                 if state.loseEvidenceResponse { status = 503; state.loseEvidenceResponse = false }
             } else { result = ["id":payload["id"] ?? ""] }
         } else if path.hasSuffix("/rpc/oi_capabilities") {
-            var capabilities: [String:Any] = ["operator":false,"coins_enabled":false]
+            if state.failCapabilities { status = 503 }
+            var capabilities: [String:Any] = ["operator":state.isOperator,"coins_enabled":false]
             if let canonical = state.canonicalAccountID {
                 capabilities["account_id"] = canonical.uuidString
                 capabilities["account_merge_enabled"] = true
@@ -221,6 +224,87 @@ final class OiControlledAuthentication: OiAuthenticating {
 }
 
 final class OiRemoteStoreTests: XCTestCase {
+    @MainActor func testOperatorHomeLayouts() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        for (name, allowed, failure, size) in [
+            ("menu", true, false, DynamicTypeSize.large),
+            ("menu-accessibility", true, false, DynamicTypeSize.accessibility5),
+            ("denied", false, false, DynamicTypeSize.large),
+            ("failed", true, true, DynamicTypeSize.large)
+        ] {
+            backend.configure { $0.isOperator = allowed; $0.failCapabilities = failure }
+            let window = UIWindow(windowScene: scene)
+            let controller = UIHostingController(rootView: OiOperatorHomeView(remote: store)
+                .environment(\.scenePhase, .active)
+                .environment(\.locale, Locale(identifier: "ko_KR"))
+                .environment(\.dynamicTypeSize, size))
+            window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+            window.rootViewController = controller
+            window.makeKeyAndVisible()
+            try await Task.sleep(for: .milliseconds(500))
+            controller.view.layoutIfNeeded()
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "operator-\(name)-402x874"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+    }
+
+    @MainActor func testOperatorAccessRechecksServerAndRemovesRevokedAccess() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let access = OiOperatorAccess()
+        await access.check { try await store.verifyOperatorAccess() }
+        XCTAssertEqual(access.state, .allowed)
+        backend.configure { $0.isOperator = false }
+        await access.check { try await store.verifyOperatorAccess() }
+        XCTAssertEqual(access.state, .denied)
+        XCTAssertFalse(store.isOperator)
+        XCTAssertTrue(store.reviewStories.isEmpty)
+    }
+
+    @MainActor func testOperatorAccessFailureClosesCachedAccessAndCanRetry() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let access = OiOperatorAccess()
+        await access.check { try await store.verifyOperatorAccess() }
+        backend.configure { $0.failCapabilities = true }
+        await access.check { try await store.verifyOperatorAccess() }
+        XCTAssertEqual(access.state, .failed)
+        backend.configure { $0.failCapabilities = false }
+        await access.check { try await store.verifyOperatorAccess() }
+        XCTAssertEqual(access.state, .allowed)
+        await store.signOut()
+        await access.check { try await store.verifyOperatorAccess() }
+        XCTAssertNotEqual(access.state, .allowed)
+    }
+
+    @MainActor func testOperatorAccessDiscardsResponseAfterInvalidation() async {
+        let access = OiOperatorAccess()
+        await access.check {
+            access.invalidate()
+            return true
+        }
+        XCTAssertEqual(access.state, .checking)
+        await access.check { throw URLError(.cancelled) }
+        XCTAssertEqual(access.state, .checking)
+        await access.check { false }
+        XCTAssertEqual(access.state, .denied)
+    }
+
     @MainActor func testLiveCatalogAndSchoolPersistAcrossRelaunch() async throws {
         let (store,backend,vault,session,directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
