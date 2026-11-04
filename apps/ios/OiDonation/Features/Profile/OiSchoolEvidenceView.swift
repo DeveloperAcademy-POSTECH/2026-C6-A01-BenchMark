@@ -5,20 +5,37 @@
 //  Created by 이돈혁 on 2026-11-04.
 //
 
+import AVFoundation
+import PhotosUI
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 struct OiSchoolEvidenceView: View {
     let remote: OiRemoteStore
+    @Environment(\.openURL) private var openURL
+
+    private enum Source {
+        case photo(PhotosPickerItem)
+        case camera(Data)
+        case file(URL)
+    }
 
     private struct Selection: Identifiable {
         let id = UUID()
-        let url: URL
+        let source: Source
         let owner: UUID
     }
 
     @State private var acknowledged = false
     @State private var importing = false
+    @State private var pickingPhoto = false
+    @State private var photo: PhotosPickerItem?
+    @State private var pickerOwner: UUID?
+    @State private var requestingCamera = false
+    @State private var showingCamera = false
+    @State private var capturedPhoto: Data?
+    @State private var cameraDenied = false
     @State private var selection: Selection?
     @State private var review: OiSchoolEvidenceReview?
     @State private var error: String?
@@ -27,13 +44,23 @@ struct OiSchoolEvidenceView: View {
         List {
             if remote.account != nil {
                 Section("학교 소속 증빙") {
-                    Text("학교명과 소속 표기만 남긴 학생증 사본 또는 가상 에브리타임 화면을 사용해 주세요. 이름·학번·사진·바코드·QR은 복원할 수 없게 제거해 주세요.")
+                    Text("학교명과 소속 표기가 보이는 증빙을 준비해 주세요. 사진을 고르거나 촬영하기 전에 이름·학번·얼굴 사진·바코드·QR을 가려 주세요.")
                         .font(.footnote)
                     Toggle("개인정보를 제거했고 선택한 파일의 OpenAI 전송에 동의합니다", isOn: $acknowledged)
                         .disabled(selection != nil)
-                    Button("증빙 파일 선택") { importing = true }
-                        .disabled(!acknowledged || selection != nil)
-                        .accessibilityIdentifier("oi.schoolEvidence.select")
+                    Group {
+                        Button("사진 보관함에서 선택", systemImage: "photo.on.rectangle") {
+                            openPicker { pickingPhoto = true }
+                        }
+                        .accessibilityIdentifier("oi.schoolEvidence.photoLibrary")
+                        Button("카메라로 촬영", systemImage: "camera") {
+                            openPicker { requestingCamera = true }
+                        }
+                        Button("파일 앱에서 선택", systemImage: "folder") {
+                            openPicker { importing = true }
+                        }
+                    }
+                    .disabled(!acknowledged || selection != nil || requestingCamera)
                     Text("JPEG·PNG·PDF, 최대 10MB")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -69,26 +96,93 @@ struct OiSchoolEvidenceView: View {
         }
         .navigationTitle("학교 인증")
         .navigationBarTitleDisplayMode(.inline)
+        .photosPicker(isPresented: $pickingPhoto, selection: $photo, matching: .images)
+        .onChange(of: photo) { _, item in
+            guard let item else { return }
+            photo = nil
+            submit(.photo(item))
+        }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.jpeg, .png, .pdf]) { result in
-            guard acknowledged, let owner = remote.account?.id else { return }
-            review = nil
-            error = nil
-            do {
-                selection = Selection(url: try result.get(), owner: owner)
-                acknowledged = false
-            } catch {
-                self.error = "파일을 선택하지 못했어요. 파일 앱에서 다시 선택해 주세요."
+            switch result {
+            case .success(let url): submit(.file(url))
+            case .failure: error = "파일을 선택하지 못했어요. 파일 앱에서 다시 선택해 주세요."
             }
+        }
+        .task(id: requestingCamera) {
+            guard requestingCamera else { return }
+            await openCamera()
+        }
+        .fullScreenCover(isPresented: $showingCamera, onDismiss: {
+            if let capturedPhoto { submit(.camera(capturedPhoto)) }
+            capturedPhoto = nil
+        }) {
+            SchoolEvidenceCamera { result in
+                if let result {
+                    switch result {
+                    case .success(let data): capturedPhoto = data
+                    case .failure: error = "촬영한 사진을 읽지 못했어요. 다시 촬영해 주세요."
+                    }
+                }
+                showingCamera = false
+            }
+            .ignoresSafeArea()
+        }
+        .alert("카메라 접근이 필요해요", isPresented: $cameraDenied) {
+            Button("설정 열기") {
+                if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("설정에서 카메라 접근을 허용하거나 사진 보관함에서 증빙을 선택해 주세요.")
         }
         .task(id: selection?.id) {
             guard let selection else { return }
             await analyze(selection)
         }
         .onChange(of: remote.account?.id) { clear() }
-        .onDisappear { clear() }
+    }
+
+    private func openPicker(_ present: () -> Void) {
+        guard acknowledged, selection == nil, let owner = remote.account?.id else { return }
+        pickerOwner = owner
+        error = nil
+        present()
+    }
+
+    private func openCamera() async {
+        defer { requestingCamera = false }
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            error = "이 기기에서는 카메라를 사용할 수 없어요. 사진 보관함이나 파일 앱에서 선택해 주세요."
+            return
+        }
+        let allowed: Bool
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized: allowed = true
+        case .notDetermined: allowed = await AVCaptureDevice.requestAccess(for: .video)
+        default: allowed = false
+        }
+        guard !Task.isCancelled, let pickerOwner, pickerOwner == remote.account?.id else { return }
+        if allowed { showingCamera = true } else { cameraDenied = true }
+    }
+
+    private func submit(_ source: Source) {
+        guard acknowledged, selection == nil, let owner = pickerOwner, owner == remote.account?.id else { return }
+        pickerOwner = nil
+        acknowledged = false
+        review = nil
+        error = nil
+        selection = Selection(source: source, owner: owner)
     }
 
     private func clear() {
+        pickerOwner = nil
+        photo = nil
+        pickingPhoto = false
+        importing = false
+        requestingCamera = false
+        showingCamera = false
+        capturedPhoto = nil
+        cameraDenied = false
         selection = nil
         review = nil
         error = nil
@@ -98,7 +192,23 @@ struct OiSchoolEvidenceView: View {
     private func analyze(_ input: Selection) async {
         defer { if selection?.id == input.id { selection = nil } }
         do {
-            let (data, mime) = try await Self.readFile(input.url)
+            let (data, mime): (Data, String)
+            switch input.source {
+            case .photo(let item):
+                guard let original = try await item.loadTransferable(type: Data.self) else {
+                    throw OiServiceError.server("사진을 불러오지 못했어요. 사진 보관함에서 다시 선택해 주세요.")
+                }
+                data = try OiPhotoProcessor.prepare(original)
+                mime = "image/jpeg"
+            case .camera(let jpeg):
+                data = try OiPhotoProcessor.prepare(jpeg)
+                mime = "image/jpeg"
+            case .file(let url):
+                (data, mime) = try await Self.readFile(url)
+            }
+            guard !data.isEmpty, data.count <= 10 * 1024 * 1024 else {
+                throw OiServiceError.server("10MB 이하의 증빙을 선택해 주세요.")
+            }
             try Task.checkCancellation()
             guard selection?.id == input.id, remote.account?.id == input.owner else { return }
             let result = try await remote.reviewSchoolEvidence(data, contentType: mime)
@@ -131,6 +241,46 @@ struct OiSchoolEvidenceView: View {
         }
         guard !data.isEmpty else { throw invalidFile }
         return (data, mime)
+    }
+}
+
+private struct SchoolEvidenceCamera: UIViewControllerRepresentable {
+    let complete: (Result<Data, OiServiceError>?) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(complete: complete) }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let complete: (Result<Data, OiServiceError>?) -> Void
+
+        init(complete: @escaping (Result<Data, OiServiceError>?) -> Void) {
+            self.complete = complete
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            complete(nil)
+        }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+        ) {
+            guard let image = info[.originalImage] as? UIImage,
+                  let jpeg = image.jpegData(compressionQuality: 0.9) else {
+                complete(.failure(.invalidInput))
+                return
+            }
+            complete(.success(jpeg))
+        }
     }
 }
 
