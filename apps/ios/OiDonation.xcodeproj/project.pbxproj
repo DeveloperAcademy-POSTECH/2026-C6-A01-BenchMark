@@ -182,6 +182,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 87169576307CB1D00090D456 /* Build configuration list for PBXNativeTarget "OiDonationClip" */;
 			buildPhases = (
+				D02611030000000000000001 /* Validate Supabase Configuration */,
 				87169561307CB1CF0090D456 /* Sources */,
 				87169562307CB1CF0090D456 /* Frameworks */,
 				87169563307CB1CF0090D456 /* Resources */,
@@ -204,6 +205,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 8736DA7430777C9A00D0CFC9 /* Build configuration list for PBXNativeTarget "OiDonation" */;
 			buildPhases = (
+				D02611030000000000000002 /* Validate Supabase Configuration */,
 				8736DA6530777C9800D0CFC9 /* Sources */,
 				8736DA6630777C9800D0CFC9 /* Frameworks */,
 				8736DA6730777C9800D0CFC9 /* Resources */,
@@ -284,6 +286,45 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		D02611030000000000000001 /* Validate Supabase Configuration */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../../scripts/configure-ios-service.py",
+				"$(SRCROOT)/$(TARGET_NAME)",
+			);
+			name = "Validate Supabase Configuration";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/usr/bin/python3 \"$SRCROOT/../../scripts/configure-ios-service.py\" --check \"$SRCROOT/$TARGET_NAME/Service.local.plist\"\n";
+			showEnvVarsInLog = 0;
+		};
+		D02611030000000000000002 /* Validate Supabase Configuration */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../../scripts/configure-ios-service.py",
+				"$(SRCROOT)/$(TARGET_NAME)",
+			);
+			name = "Validate Supabase Configuration";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/usr/bin/python3 \"$SRCROOT/../../scripts/configure-ios-service.py\" --check \"$SRCROOT/$TARGET_NAME/Service.local.plist\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		B10000000000000000000004 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (B10000000000000000000009,); runOnlyForDeploymentPostprocessing = 0; };

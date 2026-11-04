@@ -140,6 +140,16 @@ python3 scripts/configure-ios-service.py --from-cli --http-check
 
 CI는 `OI_SUPABASE_PUBLISHABLE_KEY` 환경변수와 `python3 scripts/configure-ios-service.py`를 사용한다. 두 plist는 각 앱의 파일 시스템 동기화 그룹으로 리소스에 포함된다. 공개 키라도 실제 값은 로그·커밋·PR에 남기지 않는다. 외부 호스트로의 리다이렉트는 기존 APIClient가 차단한다.
 
+2026-11-03 / #121: 본 앱·App Clip의 첫 빌드 단계에서 각 `Service.local.plist`를 검증한다. 파일 누락·손상, 빈 값, 비공개 키, 다른 프로젝트의 legacy anon 키는 실행 시점 대신 빌드 시점에 차단한다. 기존 준비 명령을 오류에 표시하며 키 값은 출력하지 않는다. 빌드 단계는 로컬 파일만 읽고 서버·Keychain에 접근하거나 서명 설정을 변경하지 않는다. 실제 API 연결 확인은 위 `--http-check` 준비 명령으로 수행한다.
+
+```sh
+python3 scripts/test_configure_ios_service.py
+python3 scripts/configure-ios-service.py --check apps/ios/OiDonation/Service.local.plist
+python3 scripts/configure-ios-service.py --check apps/ios/OiDonationClip/Service.local.plist
+```
+
+현대식 `sb_publishable_` 키의 프로젝트 귀속과 유효성은 문자열만으로 판정하지 못하므로 실제 API 검사로 확인한다. 키 회전이나 프로젝트 변경 시 기존 로컬 파일이 다른 값이면 스크립트가 덮어쓰지 않고 중단한다.
+
 ### 실제 서버와 자동 검사
 
 - 실제 프로젝트: `52gibu`, `kfzfzarslqdqmrazohej`, ACTIVE_HEALTHY. 기존 5개 마이그레이션을 확인했다. 공개 이야기·수집은 조회 당시 각각 0건이었으며 가짜 기록을 채우지 않았다.
