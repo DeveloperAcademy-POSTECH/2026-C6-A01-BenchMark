@@ -59,7 +59,7 @@ struct CampusSearchView: View {
                             }.buttonStyle(.plain).disabled(!query.hasDonorFilter).accessibilityIdentifier("campus.search.submit")
                         }
                     } else {
-                        field("검색", text: $query.text, icon: "magnifyingglass")
+                        field(mode == .code ? "코드입력" : "검색", text: $query.text, icon: "magnifyingglass")
                             .accessibilityIdentifier("campus.search.query")
                     }
                     LazyVStack(spacing: 14) {
