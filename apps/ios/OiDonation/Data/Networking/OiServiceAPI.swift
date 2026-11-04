@@ -64,6 +64,7 @@ struct OiServiceAPI {
             case 401: throw OiServiceError.signInRequired
             case 403: throw OiServiceError.server("권한이 없거나 작성 승인이 만료됐습니다. 검토 상태를 확인해 주세요.")
             case 404 where path == "rest/v1/rpc/\(Self.resolveCardRequestRPC)": throw OiServiceError.conflict
+            case 404 where path == "rest/v1/rpc/oi_review_evidence": throw OiEvidenceReviewError.serverNotReady
             case 409: throw OiServiceError.conflict
             case 400, 422: throw OiServiceError.invalidInput
             case 429: throw OiServiceError.server("요청이 많습니다. 잠시 후 다시 시도해 주세요.")
@@ -121,6 +122,42 @@ struct OiServiceAPI {
 
     func cardRequests(token: String) async throws -> [OiCardRequest] {
         try await cardRequestRPC("oi_card_requests", payload: [:], token: token, as: [OiCardRequest].self)
+    }
+
+    func reviewEvidence(_ review: OiEvidenceReview, token: String) async throws -> OiEvidence {
+        let row = review.snapshot
+        var payload: [String: Any] = ["id": row.id.uuidString, "status": review.decision.rawValue,
+            "review_note": review.note, "expected_status": row.status,
+            "expected_object_path": row.objectPath as Any? ?? NSNull(),
+            "expected_submitted_at": row.submittedAt as Any? ?? NSNull(),
+            "expected_reviewed_at": row.reviewedAt as Any? ?? NSNull()]
+        if let limit = review.storyLimit { payload["story_limit"] = limit }
+        let body = try JSONSerialization.data(withJSONObject: ["p_payload": payload])
+        let data = try await request("rest/v1/rpc/oi_review_evidence", method: "POST", token: token, body: body)
+        return try decoder.decode(OiEvidence.self, from: data)
+    }
+
+    /// Original evidence never enters the shared URL cache or a signed-link viewer.
+    func evidenceDocument(path: String, token: String) async throws -> OiEvidenceDocument {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = transport.session.configuration.protocolClasses
+        config.urlCache = nil; config.httpCookieStorage = nil
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let escaped = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
+        guard let url = URL(string: "https://\(Self.projectHost)/storage/v1/object/authenticated/oi-evidence/\(escaped)") else {
+            throw OiEvidenceReviewError.invalidDocument
+        }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
+        request.timeoutInterval = 30
+        request.setValue(key, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        do {
+            let data = try await APIClient(session: session, approvedHost: Self.projectHost).send(request)
+            try Task.checkCancellation()
+            return try OiEvidenceDocument(data: data)
+        } catch APIError.httpStatus(401) { throw OiServiceError.signInRequired }
+        catch APIError.httpStatus(403) { throw OiOperatorStoryError.accessDenied }
     }
 
     func resolveCardRequest(_ id: UUID, accept: Bool, token: String) async throws -> OiCardRequest {

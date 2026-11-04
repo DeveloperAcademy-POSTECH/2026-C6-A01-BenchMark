@@ -39,6 +39,9 @@ final class OiTestBackend {
         var loseReviewResponse = false
         var holdReviewResponse = false
         var ignoreStoryStatusFilter = false
+        var evidenceReviewCount = 0
+        var evidenceRPCMissing = false
+        var holdEvidenceRead = false
         var failRefreshToken = false
         var failLogout = false
         var logoutScopes: [String?] = []
@@ -65,7 +68,7 @@ final class OiTestBackend {
     func snapshot() -> State { lock.lock(); defer { lock.unlock() }; return state }
     func releaseHeldRead() {
         let value = snapshot().held
-        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false; $0.holdReviewResponse = false }
+        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false; $0.holdReviewResponse = false; $0.holdEvidenceRead = false }
         value?.0.respond(200, value?.1 ?? Data())
     }
     func install() { OiStoreURLProtocol.handle = { [weak self] request, client in self?.receive(request, client: client) } }
@@ -120,6 +123,26 @@ final class OiTestBackend {
             let key = path.replacingOccurrences(of: "/storage/v1/object/", with: "")
             if state.uploads[key] != nil { status = 409 }
             else { state.uploads[key] = raw; result = ["Key":key] }
+        } else if path.hasSuffix("/rpc/oi_review_evidence") {
+            let payload = body["p_payload"] as? [String: Any] ?? [:]
+            let wanted = payload["status"] as? String ?? ""
+            state.evidenceReviewCount += 1
+            if state.evidenceRPCMissing { status = 404 }
+            else if !state.isOperator { status = 403 }
+            else if state.evidence?["status"] as? String != payload["expected_status"] as? String ||
+                state.evidence?["object_path"] as? String != payload["expected_object_path"] as? String ||
+                state.evidence?["submitted_at"] as? String != payload["expected_submitted_at"] as? String ||
+                state.evidence?["reviewed_at"] as? String != payload["expected_reviewed_at"] as? String { status = 409 }
+            else {
+                state.evidence?["status"] = wanted
+                state.evidence?["review_note"] = payload["review_note"]
+                state.evidence?["reviewed_at"] = "2026-11-04T02:00:00Z"
+                state.evidence?["reviewer_id"] = owner.uuidString
+                if wanted == "revoked" { state.story?["status"] = "hidden" }
+                result = state.evidence ?? [:]
+                if state.failAfterReview { state.failReads = true }
+                if state.loseReviewResponse { status = 503; state.loseReviewResponse = false }
+            }
         } else if path.hasSuffix("/rpc/oi_mutate") {
             let payload = body["p_payload"] as? [String:Any] ?? [:]
             let action = body["p_action"] as? String ?? ""
@@ -202,17 +225,32 @@ final class OiTestBackend {
             result = state.paths.enumerated().map { position, path in
                 ["id":UUID().uuidString,"story_id":state.story?["id"] ?? "","object_path":path,"position":position]
             }
-        } else if path.hasSuffix("/oi_evidence_requests"), let evidence = state.evidence { result = [evidence] }
+        } else if path.hasSuffix("/oi_evidence_requests"), let evidence = state.evidence {
+            if state.failReads { status = 503 }
+            else {
+                let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems ?? []
+                let id = query.first { $0.name == "id" }?.value
+                if id == nil || id == "eq.\(evidence["id"] as? String ?? "")" { result = [evidence] }
+            }
+        }
         else if path.hasSuffix("/oi_writing_grants") {
             if let url = request.url,
                let owner = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "user_id" })?.value {
                 state.grantOwnerQueries.append(owner)
             }
             result = [["id":Self.grant.uuidString,"story_limit":5]]
+            if let url = request.url,
+               URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains(where: { $0.name == "evidence_id" }) == true {
+                let evidenceStatus = state.evidence?["status"] as? String
+                result = evidenceStatus == "approved" || evidenceStatus == "revoked"
+                    ? [["id":Self.grant.uuidString,"story_limit":3,"revoked_at":evidenceStatus == "revoked" ? "2026-11-04T02:00:00Z" as Any : NSNull()]] : []
+            }
         }
         let data = bytes ?? ((try? JSONSerialization.data(withJSONObject: result)) ?? Data())
         if (path.hasSuffix("/oi_stories") && owner == Self.owner && state.holdOwnerRead)
             || (path.hasSuffix("/rpc/oi_mutate") && body["p_action"] as? String == "review_story" && state.holdReviewResponse)
+            || (path.hasSuffix("/rpc/oi_review_evidence") && state.holdReviewResponse)
+            || (path.hasSuffix("/oi_evidence_requests") && state.holdEvidenceRead)
             || (path.hasSuffix("/rpc/oi_capabilities") && state.holdPostMergeRead && state.mergeConfirmCount > 0) {
             state.held = (client,data)
             let notify = state.didHold
@@ -252,6 +290,195 @@ final class OiControlledAuthentication: OiAuthenticating {
 }
 
 final class OiRemoteStoreTests: XCTestCase {
+    private func evidenceFixture(status: String = "pending") -> [String: Any] {
+        ["id": OiTestBackend.grant.uuidString, "user_id": OiTestBackend.owner.uuidString,
+         "storage_owner_id": OiTestBackend.owner.uuidString, "status": status,
+         "object_path": "\(OiTestBackend.owner.uuidString.lowercased())/\(OiTestBackend.grant.uuidString.lowercased())/synthetic.png",
+         "submitted_at": "2026-11-04T01:00:00Z"]
+    }
+
+    @MainActor func testOperatorEvidenceListDetailAndAllDecisions() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
+        await store.start()
+        let list = OiOperatorEvidenceListModel()
+        await list.load(using: store)
+        XCTAssertEqual(list.filtered.count, 1)
+        let model = OiOperatorEvidenceModel()
+        for decision in OiEvidenceDecision.allCases {
+            backend.configure { $0.evidence = evidenceFixture(status: decision == .revoked ? "approved" : "pending") }
+            await model.load(OiTestBackend.grant, using: store)
+            let snapshot = try XCTUnwrap(model.detail?.evidence)
+            let review = try OiEvidenceReview(snapshot: snapshot, decision: decision, note: "가상 자료 검토 의견", count: "3")
+            let result = await model.review(review, using: store)
+            let receipt = try XCTUnwrap(result)
+            XCTAssertEqual(receipt.status, decision.rawValue)
+            XCTAssertNotNil(model.notice)
+            XCTAssertTrue(model.requiresReload)
+            list.apply(receipt)
+            XCTAssertTrue(list.filtered.isEmpty)
+            list.filter = OiEvidenceFilter(rawValue: decision.rawValue) ?? .all
+            XCTAssertEqual(list.filtered.first?.id, receipt.id)
+            list.filter = .pending
+        }
+        XCTAssertEqual(backend.snapshot().evidenceReviewCount, 4)
+    }
+
+    @MainActor func testOperatorEvidenceValidationAndDocumentFormats() throws {
+        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let row = try decoder.decode(OiEvidence.self, from: JSONSerialization.data(withJSONObject: evidenceFixture()))
+        for count in ["", "0", "-1", "1.5", "999999999999", "１２"] {
+            XCTAssertThrowsError(try OiEvidenceReview(snapshot: row, decision: .approved, note: "", count: count))
+        }
+        XCTAssertNoThrow(try OiEvidenceReview(snapshot: row, decision: .approved, note: "", count: "2"))
+        for decision in [OiEvidenceDecision.changesRequested, .rejected, .revoked] {
+            XCTAssertThrowsError(try OiEvidenceReview(snapshot: row, decision: decision, note: " \n", count: ""))
+        }
+        XCTAssertThrowsError(try OiEvidenceReview(snapshot: row, decision: .approved, note: String(repeating: "a", count: 2001), count: "1"))
+        XCTAssertThrowsError(try OiEvidenceDocument(data: Data("<html>error</html>".utf8)))
+        XCTAssertThrowsError(try OiEvidenceDocument(data: Data(repeating: 0, count: OiEvidenceDocument.maximumBytes + 1)))
+        XCTAssertEqual(try OiEvidenceDocument(data: Data("%PDF-synthetic".utf8)).kind, .pdf)
+    }
+
+    @MainActor func testOperatorEvidencePrivateOriginalAndStaleSnapshot() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        let fixture = evidenceFixture()
+        let path = try XCTUnwrap(fixture["object_path"] as? String)
+        let png = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { context in
+            UIColor.green.setFill(); context.fill(CGRect(x: 0, y: 0, width: 20, height: 20))
+        }.pngData())
+        backend.configure { $0.isOperator = true; $0.evidence = fixture; $0.uploads["oi-evidence/\(path)"] = png }
+        await store.start()
+        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
+        let document = try await store.operatorEvidenceDocument(row)
+        XCTAssertEqual(document.data, png)
+        backend.configure { $0.evidence?["submitted_at"] = "2026-11-04T01:01:00Z" }
+        do { _ = try await store.operatorEvidenceDocument(row); XCTFail("Stale originals must not open") }
+        catch OiServiceError.conflict {}
+        let model = OiOperatorEvidenceModel()
+        await model.load(row.id, using: store)
+        let current = try XCTUnwrap(model.detail?.evidence)
+        backend.configure { $0.evidence?["submitted_at"] = "2026-11-04T01:02:00Z" }
+        let review = try OiEvidenceReview(snapshot: current, decision: .approved, note: "", count: "2")
+        let receipt = await model.review(review, using: store)
+        XCTAssertNil(receipt); XCTAssertTrue(model.requiresReload); XCTAssertNotNil(model.error)
+        XCTAssertEqual(backend.snapshot().evidence?["status"] as? String, "pending")
+    }
+
+    @MainActor func testOperatorEvidenceResponseLossAndMissingRPCNeverReplay() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
+        await store.start()
+        let model = OiOperatorEvidenceModel()
+        for missing in [true, false] {
+            backend.configure { $0.evidence = evidenceFixture(); $0.evidenceRPCMissing = missing; $0.loseReviewResponse = !missing }
+            await model.load(OiTestBackend.grant, using: store)
+            let row = try XCTUnwrap(model.detail?.evidence)
+            let review = try OiEvidenceReview(snapshot: row, decision: .approved, note: "", count: "2")
+            let result = await model.review(review, using: store)
+            XCTAssertNil(result); XCTAssertTrue(model.requiresReload)
+            let count = backend.snapshot().evidenceReviewCount
+            let second = await model.review(review, using: store)
+            XCTAssertNil(second); XCTAssertEqual(backend.snapshot().evidenceReviewCount, count)
+            if missing { XCTAssertTrue(model.error?.contains("아직 준비") == true) }
+            else {
+                await model.load(row.id, using: store)
+                XCTAssertEqual(model.detail?.evidence.status, "approved")
+            }
+        }
+    }
+
+    @MainActor func testOperatorEvidenceReceiptSurvivesRefreshFailureAndRightsAreChecked() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture(status: "approved") }
+        await store.start()
+        let savedResult = await store.save(draft(title: "철회 시 비공개 전환할 가상 이야기"))
+        let saved = try XCTUnwrap(savedResult)
+        let pendingResult = await store.submitStory(saved)
+        let pending = try XCTUnwrap(pendingResult)
+        _ = try await store.reviewOperatorStory(pending, publish: true)
+        XCTAssertFalse(store.stories.isEmpty)
+        let model = OiOperatorEvidenceModel()
+        await model.load(OiTestBackend.grant, using: store)
+        let row = try XCTUnwrap(model.detail?.evidence)
+        let review = try OiEvidenceReview(snapshot: row, decision: .revoked, note: "가상 철회 사유", count: "")
+        backend.configure { $0.failAfterReview = true }
+        let result = await model.review(review, using: store)
+        XCTAssertEqual(result?.status, "revoked"); XCTAssertNotNil(model.warning)
+        XCTAssertEqual(store.evidence.first?.status, "revoked")
+        XCTAssertTrue(store.stories.isEmpty); XCTAssertTrue(store.reviewStories.isEmpty)
+        backend.configure { $0.failReads = false; $0.isOperator = false }
+        do { _ = try await store.operatorEvidenceList(); XCTFail("Permission required") }
+        catch OiOperatorStoryError.accessDenied {}
+    }
+
+    @MainActor func testOperatorEvidenceDuplicateAndPreviousAccountResponse() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
+        await store.start()
+        let model = OiOperatorEvidenceModel()
+        await model.load(OiTestBackend.grant, using: store)
+        let row = try XCTUnwrap(model.detail?.evidence)
+        let review = try OiEvidenceReview(snapshot: row, decision: .approved, note: "", count: "2")
+        let held = expectation(description: "evidence response held")
+        backend.configure { $0.holdReviewResponse = true; $0.didHold = { held.fulfill() } }
+        let first = Task { await model.review(review, using: store) }
+        await fulfillment(of: [held], timeout: 5)
+        let duplicate = await model.review(review, using: store)
+        XCTAssertNil(duplicate); XCTAssertEqual(backend.snapshot().evidenceReviewCount, 1)
+        await store.signOut()
+        XCTAssertNotNil(store.account, "A mutation in progress blocks account changes")
+        backend.releaseHeldRead()
+        let result = await first.value
+        XCTAssertEqual(result?.status, "approved")
+        let readHeld = expectation(description: "evidence read pending")
+        backend.configure { $0.holdEvidenceRead = true; $0.didHold = { readHeld.fulfill() } }
+        let read = Task { try await store.operatorEvidenceList() }
+        await fulfillment(of: [readHeld], timeout: 5)
+        backend.configure { $0.holdEvidenceRead = false }
+        await store.signOut()
+        backend.releaseHeldRead()
+        do { _ = try await read.value; XCTFail("Old account response must not be returned") }
+        catch OiServiceError.accountChanged {}
+    }
+
+    @MainActor func testOperatorEvidenceScreenLayouts() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        for name in ["list", "detail", "detail-accessibility", "approved", "list-failed", "list-empty"] {
+            backend.configure {
+                $0.failReads = name == "list-failed"
+                $0.evidence = evidenceFixture(status: name == "approved" ? "approved" : name == "list-empty" ? "draft" : "pending")
+            }
+            let detail = name.hasPrefix("detail") || name == "approved"
+            let view = detail ? AnyView(NavigationStack { OiOperatorEvidenceDetailView(remote: store, evidenceID: OiTestBackend.grant) })
+                : AnyView(NavigationStack { OiOperatorEvidenceListView(remote: store) })
+            let window = UIWindow(windowScene: scene)
+            let controller = UIHostingController(rootView: view.environment(\.scenePhase, .active)
+                .environment(\.locale, Locale(identifier: "ko_KR"))
+                .environment(\.dynamicTypeSize, name.hasSuffix("accessibility") ? .accessibility5 : .large)
+                .preferredColorScheme(.light))
+            window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+            window.rootViewController = controller; window.makeKeyAndVisible()
+            try await Task.sleep(for: .milliseconds(500))
+            controller.view.layoutIfNeeded()
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+            }
+            let attachment = XCTAttachment(image: image); attachment.name = "operator-evidence-\(name)"
+            attachment.lifetime = .keepAlways; add(attachment)
+            window.isHidden = true; window.rootViewController = nil
+        }
+    }
+
     @MainActor func testOperatorStoryReadCannotReturnPreviousAccountsData() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }

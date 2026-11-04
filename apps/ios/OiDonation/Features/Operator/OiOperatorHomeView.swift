@@ -38,6 +38,7 @@ struct OiOperatorHomeView: View {
             .navigationDestination(for: OiOperatorSection.self) { section in
                 if canAccess {
                     if section == .stories { OiOperatorStoriesView(remote: remote) }
+                    else if section == .evidence { OiOperatorEvidenceListView(remote: remote) }
                     else { OiOperatorPendingView(section: section) }
                 } else { accessStatus }
             }

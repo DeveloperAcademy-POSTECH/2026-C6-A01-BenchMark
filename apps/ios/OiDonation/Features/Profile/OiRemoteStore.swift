@@ -4,7 +4,7 @@ import Foundation
 import Observation
 
 @MainActor @Observable
-final class OiRemoteStore: OiOperatorStoryServing {
+final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing {
     private(set) var schools: [OiSchool] = []
     private(set) var regions: [OiRegion] = []
     private(set) var assets: [OiAsset] = []
@@ -253,6 +253,69 @@ final class OiRemoteStore: OiOperatorStoryServing {
         try await withOperatorSession { api, token in
             try await api.rows("oi_stories", query: "status=in.(pending,published,hidden)&order=created_at.desc,id.desc",
                                token: token, as: OiLiveStory.self)
+        }
+    }
+
+    func operatorEvidenceList() async throws -> [OiEvidence] {
+        try await withOperatorSession { api, token in
+            try await api.rows("oi_evidence_requests", query: "status=in.(pending,approved,changes_requested,rejected,revoked)&order=submitted_at.desc.nullslast,id.desc",
+                               token: token, as: OiEvidence.self).filter { $0.status != "draft" }
+        }
+    }
+
+    func operatorEvidence(_ id: UUID) async throws -> OiOperatorEvidenceDetail {
+        try await withOperatorSession { api, token in
+            let rows = try await api.rows("oi_evidence_requests", query: "id=eq.\(id.uuidString)", token: token, as: OiEvidence.self)
+            guard rows.count == 1, let row = rows.first, row.id == id, row.status != "draft" else { throw OiEvidenceReviewError.missing }
+            let grants = try await api.rows("oi_writing_grants", query: "evidence_id=eq.\(id.uuidString)", token: token, as: OiWritingGrant.self)
+            return OiOperatorEvidenceDetail(evidence: row, grants: grants)
+        }
+    }
+
+    func operatorEvidenceDocument(_ snapshot: OiEvidence) async throws -> OiEvidenceDocument {
+        let started = generation
+        let latest = try await operatorEvidence(snapshot.id)
+        guard latest.evidence == snapshot, let path = snapshot.objectPath else { throw OiServiceError.conflict }
+        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 3, UUID(uuidString: String(parts[0])) == (snapshot.storageOwnerId ?? snapshot.userId),
+              UUID(uuidString: String(parts[1])) == snapshot.id,
+              !parts[2].isEmpty, ![".", ".."].contains(String(parts[2])),
+              !path.contains("%"), !path.contains("?"), !path.contains("#"), !path.contains("\\") else { throw OiEvidenceReviewError.invalidDocument }
+        let document = try await withOperatorSession { api, token in try await api.evidenceDocument(path: path, token: token) }
+        guard try await operatorEvidence(snapshot.id).evidence == snapshot else { throw OiServiceError.conflict }
+        guard generation == started else { throw OiServiceError.accountChanged }
+        return document
+    }
+
+    func reviewOperatorEvidence(_ review: OiEvidenceReview) async throws -> OiEvidenceReviewResult {
+        guard !isBusy else { throw OiOperatorStoryError.busy }
+        let started = generation
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            let (receipt, revokedGrantIDs) = try await withOperatorSession { api, token in
+                let grants = review.decision == .revoked
+                    ? try await api.rows("oi_writing_grants", query: "evidence_id=eq.\(review.snapshot.id.uuidString)", token: token, as: OiWritingGrant.self) : []
+                return (try await api.reviewEvidence(review, token: token), Set(grants.map(\.id)))
+            }
+            guard started == generation else { throw OiServiceError.accountChanged }
+            guard receipt.id == review.snapshot.id, receipt.status == review.decision.rawValue,
+                  receipt.objectPath == review.snapshot.objectPath, receipt.userId == review.snapshot.userId,
+                  receipt.reviewedAt != nil else { throw OiOperatorStoryError.unconfirmedResult }
+            applyReceipt(receipt, action: "review_evidence", payload: [:])
+            if review.decision == .revoked {
+                // Remove affected cached entries even if synchronization fails.
+                stories.removeAll { revokedGrantIDs.contains($0.grantId) }
+                reviewStories.removeAll { revokedGrantIDs.contains($0.grantId) }
+                ownStories.removeAll { revokedGrantIDs.contains($0.grantId) }
+                grants.removeAll { revokedGrantIDs.contains($0.id) }
+            }
+            await refreshAfterCommit()
+            guard started == generation else { throw OiServiceError.accountChanged }
+            return OiEvidenceReviewResult(evidence: receipt, warning: syncWarning)
+        } catch {
+            if started == generation { noteAuthenticationFailure(error) }
+            throw error
         }
     }
 

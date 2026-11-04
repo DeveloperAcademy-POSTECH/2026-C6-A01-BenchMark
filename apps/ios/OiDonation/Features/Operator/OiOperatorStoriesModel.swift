@@ -26,7 +26,7 @@ enum OiOperatorStoryError: LocalizedError {
     case accessDenied, busy, unconfirmedResult, storyUnavailable
     var errorDescription: String? {
         switch self {
-        case .accessDenied: "운영자 권한이 없어 이야기를 확인하거나 처리할 수 없어요."
+        case .accessDenied: "운영자 권한이 없어 내용을 확인하거나 처리할 수 없어요."
         case .busy: "다른 작업을 처리 중이에요. 완료된 뒤 다시 확인해 주세요."
         case .unconfirmedResult: "처리 결과를 확인하지 못했어요. 중복 처리하지 말고 최신 내용을 다시 불러와 주세요."
         case .storyUnavailable: "이야기가 삭제되었거나 더 이상 검토할 수 없는 상태예요. 목록을 새로고침해 주세요."
