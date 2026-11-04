@@ -197,7 +197,7 @@ AI 작업 요청 예시:
 
 사용자 요청으로 전체 iOS 앱의 루트를 3D POSTECH 캠퍼스 홈으로 전환했다. `RootTabView`는 이름을 유지하되 한 `NavigationStack`과 `CampusStoryStore`를 소유하고 `CampusDestination`의 화면 등록을 담당한다. `HomeView`의 지도 마커는 콜백으로 루트의 `NavigationPath`에 요약 ID를 추가하며, 지역 목록과 요약의 자세히보기 링크도 같은 경로를 사용한다. 요약을 별도의 `navigationDestination(item:)` 상태로 띄우지 않는다. 프로필 시트는 독립 스택을 유지하므로 뒤로가기는 해당 진입 경로로 복귀한다. 기존 AR은 홈의 독립 카메라 버튼에서 모달로 열리고, 내 기부·후원·벤치·사진 테스트는 프로필 메뉴로 이동했다. develop의 공개 링크 파서와 App Clip 구현을 유지한다. 원격 App Clip 후속 작업(#79)은 별도 브랜치에서 관리한다.
 
-`Features/Campus/Scene`은 OiCampus의 custom mesh·높이 필드·좌표 변환을 재사용한 RealityKit non-AR 지도다. 카메라 이동과 확대·회전·기울기 조절은 로컬이며, 캐릭터 마커는 Figma 이미지 버튼을 3D 지점에 투영한다. 지도와 마커의 공통 부모에 제스처를 등록하고, 한 손가락 이동·두 손가락 드래그 회전 및 기울기·핀치·비틀기를 변화량으로 합성한다. 지도 제스처끼리만 동시 인식하며 손가락 수 전환 시 드래그 기준을 초기화한다. 외부 서버·GPS 사정거리·3D 캐릭터 자율 이동은 아직 연결하지 않았다. 큰 캠퍼스 자산은 전체 앱에만 포함한다.
+`Features/Campus/Scene`은 OiCampus의 custom mesh·높이 필드·좌표 변환을 재사용한 RealityKit non-AR 지도다. 카메라 이동과 확대·회전·기울기 조절은 로컬이며, 캐릭터 마커는 Figma 이미지 버튼을 3D 지점에 투영한다. 지도와 마커의 공통 부모에 제스처를 등록하고, 한 손가락 이동·두 손가락 드래그 회전 및 기울기·핀치·비틀기를 변화량으로 합성한다. 2026-11-04 사용자 요청으로 비틀기의 부호를 수정했다. 화면 오른쪽 손가락을 아래로, 왼쪽 손가락을 위로 움직이면 지도도 시계 방향으로 회전한다. 지도 제스처끼리만 동시 인식하며 손가락 수 전환 시 드래그 기준을 초기화한다. 외부 서버·GPS 사정거리·3D 캐릭터 자율 이동은 아직 연결하지 않았다. 큰 캠퍼스 자산은 전체 앱에만 포함한다.
 
 예시 스토리는 실제 기부 Repository와 분리된 `CampusStoryStore`에 둔다. 수집은 기기 로컬 UserDefaults로 저장하고, 중복 탭을 무시하며 목록·요약·상세·프로필이 상태를 공유한다. 수집과 실제 기부 확인을 연결하지 않는다. `project.md`의 공식 기부 절차 원칙은 유지한다. 구현 파일·디자인 참조·자산 출처·검증 범위는 [캠퍼스 디자인 문서](../apps/ios/docs/campus-redesign.md)를 따른다.
 
@@ -317,3 +317,35 @@ MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하
 Apple 인증은 AuthenticationServices·무작위 nonce·ID token 교환을 사용한다. MY의 로그인 방법 추가와 기존 계정 통합은 공통 화면에서 같은 인증 proof를 보관하며, 이미 가입된 계정임이 확인돼도 그 proof를 통합 미리보기로 전달한다. 현재 로그인은 최종 서버 영수증 확인 전까지 교체하지 않는다.
 
 기존 두 Auth 사용자의 identity를 삭제·재할당하지 않고, 검증된 로그인 주체를 대표 앱 계정에 매핑한다. `OiSession.user.id`는 실제 인증 주체이고 `appAccount.id`는 데이터 소유자다. RLS·mutation은 매 요청 DB의 대표 계정을 사용하고 기존 Storage 경로는 `storage_owner_id`로 보존한다. 두 최근 OAuth 세션·일회성 challenge·명시적 동의·계정 잠금으로 트랜잭션을 보호한다. 통합에 참여하지 않은 기존 세션은 재인증 전 비공개 접근이 차단된다. 상세 계약과 적용 순서는 [계정 통합 문서](account-merge.md)를 따른다. 이 설계 기록만으로 실제 서버에 마이그레이션이나 Apple 설정이 적용되지는 않는다.
+
+## Figma 화면 정합과 본 앱 수집 게임 공유 — 2026-11-03 / #132
+
+사용자가 지정한 Figma `2339:2109` 페이지를 기준으로 본 앱의 수집 버튼을 기존 게임으로 연결했다. `ARCollectionGameView`가 카메라·라운드·타이머를 공유하고, `CampusCollectionGameHost`는 승리 이후의 명시적 서버 저장과 계정 소유·수집 영수증을 확인한다. Clip wrapper는 기존 App Group 보관을 유지한다. 게임·카드 자산은 공유 카탈로그와 target membership으로 재사용하며 본 앱 배포 타깃은 올리지 않는다.
+
+`OiStoryCardArtwork`는 실제 이야기로 카드 외형을 합성한다. 서버가 완성 카드 URL을 제공하면 우선 사용하며, 없을 때 다른 기부자의 예시 PNG를 대신 사용하지 않는다. 농부의 두 2D 프리셋 선택은 `MYFarmerAppearanceStore`의 계정별 기기 설정이고 서버 프로필·공개 오이·기부 정책을 확장하지 않는다. 팀원의 #133 소유 세 파일과 정책·자산 미확정 항목, 검증 경계는 [Figma 정합 문서](../apps/ios/docs/figma-alignment-132.md)를 따른다.
+## 오이 의상 조합 미리보기 — 2026-11-03
+
+`OiCucumberCustomizationStep`은 `OiWardrobeLook`의 상의·하의 ID를 8개 사전 조합 USDZ로 해석한다. 각 상의와 함께 생성한 몸체를 사용하고, 교차 하의의 허리 경계는 제작 시 보정한다. 런타임에는 몸체를 변형하지 않는다. `OiWardrobeScene`이 모델 하나를 비동기로 교체하고 Top/Bottom/Shoes 머티리얼만 색칠한다. 모델 로딩의 세대 번호로 이전 선택의 지연 완료를 차단한다. 비활성화/이탈 시 로딩과 씬 리소스를 해제한다.
+
+선택은 선택적 `OiDraftCustomization.wardrobe`로 계정별 초안에 보관되며 기존 JSON과 호환된다. `OiStoryDraft.payload`, 공개 승인, 지도/AR 서버 자산 계약은 변경하지 않는다. 자세한 자산 출처와 검증은 [의상 조합](wardrobe-customization.md)을 참고한다.
+
+
+## 오이 의상 사진 편집 연결 — 2026-11-04
+
+`OiWardrobePhotoEditor`는 현재 선택한 흰 상의/하의의 앞뒤 사진 레이어를 편집하고 `OiWardrobeScene`에 아틀라스를 실시간 전달한다. `OiPhotoRenderer`가 축소·압축·해시 중복 제거 및 색상 바탕/사진 합성을 담당한다. 원본 조합과 좌표가 일치하는 사진용 garment USDZ로 해당 역할만 교체하고 원본 역할은 숨긴다. 사진 삭제 시 원래 역할을 복원한다. 편집기는 별도 상태를 사용하여 취소가 초안을 바꾸지 않는다.
+
+`OiWardrobeLook.artwork`에 아이템별 레이어와 중복 제거한 사진 바이트를 포함해 기존 계정별 vault의 저장/복원/병합/삭제 경계를 재사용한다. API 모델과 공개 승인 흐름은 유지한다. 상세 용량·기기 검증·지원 범위는 [의상 사진 편집](wardrobe-customization.md#사진으로-옷-꾸미기--2026-11-04)을 참조한다.
+
+## 커스텀 오이 현장 테스트 — 2026-11-04
+
+`OiWardrobeAsset`이 옷장·카드·로컬 지도·현장 AR의 의상/색상/데님/사진 조립을 공유한다. 배치용 로더는 원본 메시를 수정하지 않고 전체 높이 1.5m·발바닥 원점으로 정렬한다. `CampusExploreScene.preparePlacements(wardrobe:)`와 `CampusGeoARController.start(..., wardrobe:)`는 로컬 경로에서만 외형을 전달받는다. 공개 AR의 서버 재조회·기존 프리셋·승인 경계는 유지한다.
+
+`OiWardrobeFieldTrialRepository`는 기기 전체 테스트 한 개의 외형·사진·위경도·방위를 원자적으로 저장한다. iOS 파일 보호·백업 제외, 12MiB 제한, 손상 파일 보존, 명시적 교체/삭제를 적용한다. 계정별 작성 초안과 독립적이며 로그아웃 뒤에도 홈에서 열 수 있다. 공개 API에 전달하지 않는다.
+
+`OiWardrobeFieldTestScreen`은 위치 선택·미세 이동·방향·저장·홈 재개를 담당한다. `OiWardrobeFieldARScreen`은 공개 스토리 조회 없이 저장 외형으로 기존 지리 추적/GPS/바닥 보정을 사용한다. 변경 후 저장해야 AR 진입이 가능하다. 지도 렌더러를 해제하고 복귀 시 좌표를 복원한다. 바닥 보정은 AR 세션에만 적용하며 캠퍼스 좌표를 다시 쓰지 않는다. 검증과 현장 한계는 [옷장 문서](wardrobe-customization.md#커스텀-오이-현장-테스트--2026-11-04)를 따른다.
+
+## Figma 지도와 로컬 옷장 통합 — 2026-11-04 / PR #134
+
+사용자 요청으로 #132의 HomeView·작성 단계와 기존 #136 옷장 및 미커밋 현장 테스트를 합친다. HomeView는 #132의 헤더·목록 펼침/스크롤·최초 로딩/오류 표시를 유지하고 학교 버튼의 contextMenu에 기기 현장 테스트를 연결한다. `OiCucumberCustomizationStep` 정의는 `Wardrobe/OiWardrobePicker.swift` 한 곳에 두며 `canContinue/onContinue`를 받아 실제 작성과 개발용 체험의 카드 단계 이동을 공유한다. RootTabView의 수집 게임 라우팅과 기존 디버그 진입을 함께 보존한다. 지도 전체의 숨은 렌더러를 해제하고 복원하는 경로도 유지한다.
+
+커스텀 의상 공유 API는 추가하지 않는다. 계정별 작성 초안과 기기 전체 테스트 사본은 각각 기존 저장 책임을 유지한다. 최신 Figma의 원본 예시 카드·캐릭터는 공개 스토리와 분리한다. [Figma 통합 기록](../apps/ios/docs/figma-alignment-132.md#2026-11-04-기존-로컬-작업-통합)을 참고한다.

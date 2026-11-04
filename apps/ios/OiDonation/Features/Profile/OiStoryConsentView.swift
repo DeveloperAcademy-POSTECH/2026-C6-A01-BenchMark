@@ -2,6 +2,7 @@ import SwiftUI
 
 struct OiStoryConsentView: View {
     let clauses: [OiStoryConsentClause]
+    var continueTitle = "오이 커스텀 시작하기"
     var onContinue: () -> Void = {}
 
     @Environment(\.dismiss) private var dismiss
@@ -120,7 +121,7 @@ struct OiStoryConsentView: View {
 
     private var continueButton: some View {
         Button(action: onContinue) {
-            Text("오이 커스텀 시작하기")
+            Text(continueTitle)
                 .font(.custom("Paperlogy-5Medium", size: 17, relativeTo: .body))
                 .tracking(0.34)
                 .foregroundStyle(continueButtonTextColor)
@@ -132,7 +133,7 @@ struct OiStoryConsentView: View {
         .accessibilityHint(
             consentState.allRequiredClausesAreAgreed
                 ? "이야기 작성의 다음 단계로 이동합니다"
-                : "필수 안내 세 항목에 모두 동의하면 사용할 수 있습니다"
+                : "필수 안내에 모두 동의하면 사용할 수 있습니다"
         )
     }
 

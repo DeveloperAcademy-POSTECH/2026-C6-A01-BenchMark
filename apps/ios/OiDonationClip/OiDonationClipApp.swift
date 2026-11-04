@@ -19,6 +19,8 @@ struct OiDonationClipApp: App {
     init() {
         for name in [
             "PearToucan-Regular",
+            "PearToucan-Light",
+            "PearToucan-Bold",
             "Paperlogy-2ExtraLight",
             "Paperlogy-4Regular",
             "Paperlogy-6SemiBold",

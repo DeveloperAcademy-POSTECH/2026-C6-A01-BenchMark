@@ -23,7 +23,7 @@ struct CampusProfileMenu: View {
                 }
                 if let remote {
                     Section("계정과 이야기") {
-                        NavigationLink("로그인·프로필·기부 증빙·내 이야기") { OiAccountView(remote: remote) }
+                        NavigationLink("로그인·프로필·내 이야기") { OiAccountView(remote: remote) }
                     }
                 }
                 Section("수집한 오이") {

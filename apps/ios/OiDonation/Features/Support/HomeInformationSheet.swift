@@ -19,8 +19,8 @@ enum HomeDestination: String, Identifiable {
     }
     var message: String {
         switch self {
-        case .introduction: "오래 남는 이야기 기부. 후배를 응원하거나 기억하고 싶은 순간을 POSTECH의 기존 벤치에 남겨보세요."
-        case .donation, .recurring: "기부는 POSTECH의 공식 절차로 진행합니다. 명패 제공 기준과 벤치 배정은 학교와 협의 후 안내드립니다."
+        case .introduction: "오래 남는 이야기 기부. 소액 기부로 캠퍼스의 장소에 오이와 이야기를 남기고, 다른 이용자가 3D 지도와 현장 AR에서 발견하는 경험입니다."
+        case .donation, .recurring: "기부는 안내된 정식 수납처의 기존 절차로 진행하며, 앱과 벤치마크 팀은 기부금을 직접 받거나 전달하지 않습니다. 이체 내역 등 증빙은 운영자가 수동 검토해 앱의 글 작성 권한을 승인합니다. 글 작성 승인은 수납처의 공식 납입 확인이나 세액공제용 영수증 발급을 대신하지 않습니다."
         case .receipt: "기부금영수증은 POSTECH에서 발급합니다. 공식 발전기금 사이트에서 확인하거나 학교에 문의해 주세요."
         case .benefits: "새로운 이벤트와 기부자 혜택이 준비되면 안내드릴게요."
         case .news: "새로운 오이기부 소식이 준비되면 이곳에서 전해드릴게요."
@@ -37,15 +37,18 @@ struct HomeInformationSheet: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 24) {
-                Text(destination.message).font(.body)
-                if [.donation, .recurring, .receipt].contains(destination) {
-                    Link("POSTECH 공식 기부 사이트", destination: OfficialDonationWebsite.url)
-                        .buttonStyle(.borderedProminent).tint(Color("OiGreen"))
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    Text(destination.message).font(.body)
+                    if [.donation, .recurring, .receipt].contains(destination) {
+                        Link("POSTECH 공식 기부 사이트", destination: OfficialDonationWebsite.url)
+                            .buttonStyle(.borderedProminent).tint(Color("OiGreen"))
+                    }
                 }
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(24)
             }
-            .padding(24).navigationTitle(destination.title).navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(destination.title).navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("닫기") { dismiss() } } }
         }
     }

@@ -65,6 +65,8 @@ xcrun swiftc -parse-as-library -swift-version 5 -default-isolation MainActor \
   "$IOS_ROOT/OiDonation/Domain/Models/StoryCard.swift" \
   "$IOS_ROOT/OiDonationClip/Models/AppClipExperience.swift" \
   "$IOS_ROOT/OiDonationClip/Views/StoryCard/AppClipStoryCardView.swift" \
+  "$IOS_ROOT/OiDonation/Shared/Components/ARCollectionResultView.swift" \
+  "$IOS_ROOT/OiDonation/Shared/Components/OiStoryCardArtwork.swift" \
   "$IOS_ROOT/Tests/ARGameVisualChecks.swift" -o "$APP_DIR/checks"
 xcrun simctl install "$1" "$APP_DIR"
 INSTALLED=1

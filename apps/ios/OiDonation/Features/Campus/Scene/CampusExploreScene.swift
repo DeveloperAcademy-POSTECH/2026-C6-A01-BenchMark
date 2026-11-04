@@ -253,12 +253,13 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         focus(region, stories: []); radius = 38; pitch = 0.9; updateCamera()
     }
 
-    func preparePlacements() async {
+    func preparePlacements(wardrobe: OiWardrobeLook? = nil) async {
         guard !placementReady, !placementLoading else { return }
         placementLoading = true; placementError = nil
         defer { placementLoading = false }
         do {
-            oiTemplate = try await CampusOiAsset.load()
+            if let wardrobe { oiTemplate = try await OiWardrobeAsset.loadForPlacement(wardrobe) }
+            else { oiTemplate = try await CampusOiAsset.load() }
             try Task.checkCancellation()
             root.addChild(placementLayer)
             placementReady = true
@@ -365,6 +366,14 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         guard editingPlacement, let point = draftPoint, let data else { return }
         target = point; pitch = 1.05
         radius = Float(50 * data.unitsPerMeter)
+        updateCamera()
+    }
+
+    func inspectWardrobePlacement() {
+        guard editingPlacement, let point = draftPoint, let data else { return }
+        target = point + SIMD3(0, Float(0.75 * data.unitsPerMeter), 0)
+        yaw = .pi - Float(draftHeading * .pi / 180)
+        pitch = 0.2; radius = Float(4.5 * data.unitsPerMeter)
         updateCamera()
     }
 
@@ -527,8 +536,9 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
     @objc private func rotate(_ gesture: UIRotationGestureRecognizer) {
         guard gesture.state == .began || gesture.state == .changed else { return }
-        // Incremental changes compose with two-finger dragging instead of overwriting its yaw.
-        yaw -= Float(gesture.rotation)
+        // Positive UIKit rotation is clockwise. Increasing the orbit yaw turns
+        // the visible map clockwise too, so it follows the fingers on screen.
+        yaw += Float(gesture.rotation)
         gesture.rotation = 0
         hasMovedFromOverview = true
         updateCamera()
@@ -561,7 +571,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         number.text = String(count)
         number.font = UIFont(name: "PearToucan-Bold", size: 26) ?? .systemFont(ofSize: 26, weight: .bold)
         number.attributedText = NSAttributedString(string: String(count), attributes: [.kern: 1.04])
-        number.textColor = UIColor(red: 101 / 255, green: 126 / 255, blue: 58 / 255, alpha: 1)
+        number.textColor = UIColor(red: 84 / 255, green: 105 / 255, blue: 48 / 255, alpha: 1)
         number.textAlignment = .center
         content.addArrangedSubview(icon); content.addArrangedSubview(number)
         content.axis = .vertical; content.alignment = .center; content.spacing = 4
@@ -581,7 +591,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         panel.isHidden = !enabled
         // Export includes 12 points of shadow around its 81×90 silhouette.
         panel.frame = bounds.insetBy(dx: -height * 12/90, dy: -height * 12/90)
-        backgroundColor = enabled ? .clear : UIColor(red: 241/255, green: 244/255, blue: 236/255, alpha: 1)
+        backgroundColor = enabled ? .clear : UIColor(red: 241/255, green: 244/255, blue: 236/255, alpha: 0.6)
         layer.cornerRadius = enabled ? 0 : diameter / 2
         layer.shadowColor = UIColor(red: 0.28, green: 0.39, blue: 0.15, alpha: 1).cgColor
         layer.shadowOpacity = enabled ? 0 : 0.42
@@ -630,6 +640,31 @@ struct CampusMapSurface: UIViewRepresentable {
 }
 
 extension CampusExploreScene {
+    /// Opt-in local fixture; keeps user files and public records untouched.
+    func checkWardrobePlacement() {
+        guard placementReady, let data,
+              let point = data.graph.values.map({ data.world($0.p) })
+                .filter({ data.placementError(at: $0) == nil })
+                .min(by: { simd_distance($0, target) < simd_distance($1, target) }) else {
+            print("[WardrobeFieldCheck] MAP FAIL no valid ground"); return
+        }
+        let coordinate = data.coordinate(point)
+        let fixture = CampusPlacement(storyID: "local-test-fixture", latitude: coordinate.latitude,
+                                      longitude: coordinate.longitude, heightMeters: 1.5, headingDegrees: 0)
+        setDraft(fixture)
+        let original = draftPoint
+        suspendForARCamera(); setVisible(true)
+        guard let entity = draftEntity, let original else {
+            print("[WardrobeFieldCheck] MAP FAIL missing entity"); return
+        }
+        let bounds = entity.visualBounds(relativeTo: root)
+        let passed = draftPoint == original && entity.position == original &&
+            abs(bounds.extents.y / Float(data.unitsPerMeter) - 1.5) < 0.001 &&
+            abs(bounds.min.y - original.y) < 0.001
+        print("[WardrobeFieldCheck] MAP \(passed ? "PASS" : "FAIL")")
+        showPlacementSurroundings()
+    }
+
     /// Exercise the real projection, pinch and renderer-rebuild paths without writing any data.
     func checkMapLabels() async {
         guard ready else { return }
