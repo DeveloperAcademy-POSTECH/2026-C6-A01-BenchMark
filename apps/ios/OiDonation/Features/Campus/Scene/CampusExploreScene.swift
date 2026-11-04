@@ -527,8 +527,9 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
     @objc private func rotate(_ gesture: UIRotationGestureRecognizer) {
         guard gesture.state == .began || gesture.state == .changed else { return }
-        // Incremental changes compose with two-finger dragging instead of overwriting its yaw.
-        yaw -= Float(gesture.rotation)
+        // Positive UIKit rotation is clockwise. Increasing the orbit yaw turns
+        // the visible map clockwise too, so it follows the fingers on screen.
+        yaw += Float(gesture.rotation)
         gesture.rotation = 0
         hasMovedFromOverview = true
         updateCamera()
