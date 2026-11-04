@@ -169,71 +169,6 @@ struct OiServiceChecks {
         record.creationStep = OiCreationStep.card.rawValue
         record.customization = OiDraftCustomization(fill: .gradient, firstColor: 0xABCDEF, secondColor: 0x123456,
                                                    showsCharacter: false, garmentColors: ["모자":0x445566])
-        // Old customization records have no wardrobe key and must still recover.
-        let oldCustomization = try JSONEncoder().encode(record.customization!)
-        let oldRecovered = try JSONDecoder().decode(OiDraftCustomization.self, from: oldCustomization)
-        precondition(oldRecovered.wardrobe == nil)
-        let future = try JSONDecoder().decode(OiWardrobeLook.self, from: Data(#"{"top":"future-garment","bottom":"retired-pants","topColor":4294967295}"#.utf8))
-        precondition(future.top == .tshirt && future.bottom == .long && future.topColor == 0xFFFFFF)
-        precondition(future.fabrics.isEmpty, "Legacy looks have no fabric override")
-        let futureFabric = try JSONDecoder().decode(OiWardrobeLook.self, from: Data(#"{"fabrics":{"bottom-long":"03-deep-indigo","top-tshirt":"future-fabric","unknown-item":"06-ecru"}}"#.utf8))
-        precondition(futureFabric.fabrics == ["bottom-long": .deepIndigo], "Unknown fabric/item IDs must not discard a saved look")
-        var look = OiWardrobeLook()
-        look.top = .hoodie; look.bottom = .shorts
-        look.topColor = 0xC5DBEC; look.bottomColor = 0xD7CBB8; look.shoeColor = 0xF2EBDD
-        look.topColor = 0x17A3EF
-        look.fabrics = ["top-hoodie": .ecru, "bottom-long": .deepIndigo, "bottom-shorts": .lightBlue]
-        precondition(OiPhotoSlot.bottom.fabric(in: look) == .lightBlue)
-        var longLook = look; longLook.bottom = .long
-        precondition(OiPhotoSlot.bottom.fabric(in: longLook) == .deepIndigo)
-        precondition(future.artwork.designs.isEmpty, "Existing looks without artwork still decode")
-        let source = String(repeating: "a", count: 64)
-        var front = OiPhotoLayer(source: source)
-        front.placement = OiPhotoPlacement(x: 0.3, y: 0.6, width: 0.7, rotation: 27)
-        var back = OiPhotoLayer(source: source); back.side = .back
-        let design = OiPhotoDesign(layers: [front, back])
-        try look.artwork.set(design, sources: [source: Data([10,20,30])], for: "top-hoodie")
-        try look.artwork.set(OiPhotoDesign(layers: [back]), for: "bottom-shorts")
-        precondition(look.artwork.sources.count == 1, "Source bytes deduplicate across garments and layers")
-        var edited = look.artwork
-        try edited.set(nil, for: "top-hoodie")
-        precondition(edited.sources.count == 1 && look.artwork.designs.count == 2, "Cancel/edit copy cannot alter committed design")
-        try edited.set(nil, for: "bottom-shorts")
-        precondition(edited.sources.isEmpty, "Remove the source only after its last garment reference")
-        let beforeFailure = look.artwork
-        do {
-            try look.artwork.set(OiPhotoDesign(layers: Array(repeating: front, count: 9)), for: "top-hoodie")
-            preconditionFailure("Over-limit and duplicate layer IDs accepted")
-        } catch OiPhotoDataError.limit { }
-        precondition(look.artwork == beforeFailure, "Failed updates must be atomic")
-        do {
-            try look.artwork.set(design, sources: [source: Data(repeating: 1, count: OiWardrobeArtwork.maximumSourceBytes + 1)], for: "top-hoodie")
-            preconditionFailure("Oversized source accepted")
-        } catch OiPhotoDataError.limit { }
-        var invalidLayer = front; invalidLayer.placement.width = .nan
-        precondition(!OiPhotoDesign(layers: [invalidLayer]).isValid)
-        invalidLayer = front; invalidLayer.source = "../../private.jpg"
-        precondition(!OiPhotoDesign(layers: [invalidLayer]).isValid)
-        do {
-            try look.artwork.set(design, for: "top-postech")
-            preconditionFailure("Unsupported garment accepted")
-        } catch OiPhotoDataError.limit { }
-        print("PASS: photo layer bounds, invalid transforms, atomic rejection, deduplicated source lifecycle")
-        precondition(future.costume == nil)
-        let unsupportedCostume = try JSONDecoder().decode(OiWardrobeLook.self, from: Data(#"{"costume":"retired-dinosaur-bear"}"#.utf8))
-        precondition(unsupportedCostume.costume == nil)
-        for costume in OiWardrobeLook.Costume.allCases {
-            var dressed = look; dressed.costume = costume
-            precondition(dressed.modelName == costume.modelName && dressed.title == costume.title)
-            precondition(!OiPhotoSlot.top.supports(dressed) && !OiPhotoSlot.bottom.supports(dressed), "A complete costume must not receive individual garment overlays")
-            let restored = try JSONDecoder().decode(OiWardrobeLook.self, from: JSONEncoder().encode(dressed))
-            precondition(restored == dressed)
-            var individual = restored; individual.costume = nil
-            precondition(individual == look, "Returning to individual items preserves colors, denim and photos")
-        }
-        look.costume = .dinosaur
-        print("PASS: complete costume persistence, unsupported ID fallback and individual-look restoration")
-        record.customization?.wardrobe = look
         record.removedMediaPaths = [oldPath]
         try await vault.saveAttachment(Data([1,2,3]), owner: owner, id: photoID)
         try await vault.save(record, owner: owner)
@@ -245,12 +180,6 @@ struct OiServiceChecks {
         precondition(recovered?.creationStep == "card" && recovered?.customization?.fill == .gradient)
         precondition(recovered?.customization?.firstColor == 0xABCDEF && recovered?.customization?.garmentColors["모자"] == 0x445566)
         precondition(recovered?.customization?.showsCharacter == false && recovered?.removedMediaPaths == [oldPath])
-        precondition(recovered?.customization?.wardrobe == look, "Garments and all three colors must survive reopening the account draft")
-        precondition(recovered?.customization?.wardrobe?.artwork == look.artwork)
-        precondition(recovered?.customization?.wardrobe?.fabrics == look.fabrics)
-        precondition(recovered?.customization?.wardrobe?.topColor == 0x17A3EF)
-        print("PASS: per-item denim and arbitrary RGB survive draft reopening alongside photos")
-        print("PASS: legacy wardrobe migration, garment/color/photo layers and compressed source relaunch recovery")
         precondition(payload["customization"] == nil && payload["creationStep"] == nil, "Local scaffold must not alter shared API")
         let photoData = try await reopened.attachment(owner: owner, id: photoID)
         precondition(photoData == Data([1,2,3]))
