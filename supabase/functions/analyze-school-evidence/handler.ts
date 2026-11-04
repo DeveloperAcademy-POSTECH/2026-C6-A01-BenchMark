@@ -1,6 +1,7 @@
 import {
-  AnalysisError, analyzeDocument, DEFAULT_MODEL, MAX_FILE_BYTES, readBounded, SCHOOL_PROMPT_VERSION,
+  AnalysisError, DEFAULT_MODEL, MAX_FILE_BYTES, readBounded,
 } from "../_shared/document-analysis.ts";
+import { analyzeSchoolDocument, SCHOOL_PROMPT_VERSION } from "./school-assessment.ts";
 
 type Configuration = {
   enabled: boolean; supabaseUrl: string; supabaseKey: string; openaiKey: string; model?: string;
@@ -65,9 +66,9 @@ export function createSchoolHandler(config: Configuration, fetcher: typeof fetch
       const bytes = await readBounded(new Response(request.body, {
         headers: length === null ? undefined : { "content-length": length },
       }), MAX_FILE_BYTES, signal);
-      const assessment = await analyzeDocument({
+      const { assessment, summary } = await analyzeSchoolDocument({
         bytes, contentType, apiKey: config.openaiKey, model: config.model,
-        signal, fetcher, review: "school_affiliation",
+        signal, fetcher,
       });
       if (await requireUser() !== userId) throw new AnalysisError(401, "authentication_failed");
       signal.throwIfAborted();
@@ -79,7 +80,9 @@ export function createSchoolHandler(config: Configuration, fetcher: typeof fetch
         human_review_required: true,
         authenticity_verified: false,
         affiliation_verified: false,
-        notice: "AI 참고 분석입니다. 학교 소속과 발급 사실은 별도 확인이 필요합니다.",
+        holder_verified: false,
+        notice: "AI는 자료에 보이는 표기를 분석합니다. 제출자 본인 여부, 현재 소속 및 발급 사실은 별도 확인이 필요합니다.",
+        summary,
         assessment,
       });
     } catch (error) {

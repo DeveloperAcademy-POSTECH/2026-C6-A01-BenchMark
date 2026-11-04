@@ -3,12 +3,13 @@ import test from "node:test";
 import { createSchoolHandler } from "../functions/analyze-school-evidence/handler.ts";
 
 const pdf = "%PDF-1.4\nSynthetic school affiliation fixture";
-const assessment = {
-  verdict: "inconclusive",
-  readability: "limited",
-  findings: [],
-  limitations: ["소속 항목을 판독할 수 없습니다."],
-  manual_checks: ["발급처와 소속 유효 기간을 확인하세요."],
+const outputFixture = {
+  document_kind: "student_card",
+  readability: "readable",
+  school_marking: "visible",
+  affiliation_marking: "visible",
+  reference_match: "none",
+  visual_issues: [],
 };
 const request = ({ token = "user-jwt", body = pdf, type = "application/pdf", length } = {}) =>
   new Request("https://edge.example/analyze-school-evidence", {
@@ -21,7 +22,7 @@ const request = ({ token = "user-jwt", body = pdf, type = "application/pdf", len
     body,
   });
 
-function fixture({ enabled = true, validSession = () => true, anonymous = false, output = assessment } = {}) {
+function fixture({ enabled = true, validSession = () => true, anonymous = false, output = outputFixture } = {}) {
   const calls = [];
   let checks = 0;
   const handler = createSchoolHandler({
@@ -65,8 +66,13 @@ test("ordinary users can review evidence with session checks before and after an
   assert.equal(result.review_type, "school_affiliation");
   assert.equal(result.human_review_required, true);
   assert.equal(result.affiliation_verified, false);
+  assert.equal(result.holder_verified, false);
   assert.equal(result.authenticity_verified, false);
-  assert.deepEqual(result.assessment, assessment);
+  assert.equal(result.summary.outcome, "school_evidence_visible");
+  assert.equal(result.assessment.verdict, "no_obvious_signs");
+  assert.equal(result.assessment.readability, "readable");
+  assert.equal(result.assessment.findings.length, 0);
+  assert.match(result.summary.title, /학교 소속 근거/);
   assert.deepEqual(calls.map((url) => new URL(url).pathname), [
     "/auth/v1/user", "/v1/responses", "/auth/v1/user",
   ]);
@@ -90,6 +96,86 @@ for (const [name, options, input, status, code] of [
   });
 }
 
+for (const { name, signals, outcome, verdict, nextStep } of [
+  {
+    name: "school certificate with visible affiliation",
+    signals: { document_kind: "school_certificate" },
+    outcome: "school_evidence_visible", verdict: "no_obvious_signs", nextStep: /재학증명서/,
+  },
+  {
+    name: "third-party app profile with fully legible school and affiliation",
+    signals: { document_kind: "third_party_profile" },
+    outcome: "school_evidence_visible", verdict: "no_obvious_signs", nextStep: /공식 재학 확인/,
+  },
+  {
+    name: "third-party app profile with missing affiliation",
+    signals: { document_kind: "third_party_profile", affiliation_marking: "missing" },
+    outcome: "school_document_needed", verdict: "inconclusive", nextStep: /계정의 소속 표기/,
+  },
+  {
+    name: "third-party app profile with a concrete visual edit",
+    signals: { document_kind: "third_party_profile", visual_issues: [{ kind: "typography_mismatch", location: "affiliation_marking" }] },
+    outcome: "manual_review_needed", verdict: "suspicious", nextStep: /원본과 비교/,
+  },
+  {
+    name: "payment side of a potentially dual-use card",
+    signals: { document_kind: "payment_card", school_marking: "missing", affiliation_marking: "missing" },
+    outcome: "school_document_needed", verdict: "inconclusive", nextStep: /학생증 표기가 있는 면/,
+  },
+  {
+    name: "card with one missing affiliation marking",
+    signals: { affiliation_marking: "missing" },
+    outcome: "school_document_needed", verdict: "inconclusive", nextStep: /학생증 표기가 있는 면/,
+  },
+  {
+    name: "student card with unreadable affiliation",
+    signals: { readability: "limited", affiliation_marking: "unclear" },
+    outcome: "retake_needed", verdict: "inconclusive", nextStep: /빛 반사/,
+  },
+  {
+    name: "student card with conflicting school markings",
+    signals: { visual_issues: [{ kind: "conflicting_markings", location: "school_marking" }] },
+    outcome: "manual_review_needed", verdict: "suspicious", nextStep: /원본과 비교/,
+  },
+]) {
+  test(`classifies ${name} with a specific Korean next step`, async () => {
+    const { handler } = fixture({ output: { ...outputFixture, ...signals } });
+    const response = await handler(request());
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.summary.outcome, outcome);
+    assert.equal(result.assessment.verdict, verdict);
+    assert.match(result.summary.next_step, nextStep);
+    assert.match(result.summary.detail, /[가-힣]/);
+    assert.equal(result.affiliation_verified, false);
+    assert.equal(result.holder_verified, false);
+    assert.equal(result.authenticity_verified, false);
+  });
+}
+
+test("only a matching student card receives the trusted co-branded reference", async () => {
+  const matching = { ...outputFixture, reference_match: "postech_woori_student_card" };
+  const cardResponse = await fixture({ output: matching }).handler(request());
+  const card = await cardResponse.json();
+  assert.equal(card.summary.reference.url, "https://freshman.postech.ac.kr/freshman/ot/ot_document.do");
+  assert.equal(card.authenticity_verified, false);
+  const profileResponse = await fixture({ output: { ...matching, document_kind: "third_party_profile" } }).handler(request());
+  const profile = await profileResponse.json();
+  assert.equal(profile.summary.reference, undefined);
+  const paymentResponse = await fixture({ output: { ...matching, document_kind: "payment_card" } }).handler(request());
+  const payment = await paymentResponse.json();
+  assert.equal(payment.summary.reference, undefined);
+});
+
+test("unrecognized model output cannot echo personal text", async () => {
+  const { handler } = fixture({
+    output: { ...outputFixture, visual_issues: [{ kind: "typography_mismatch", location: "Synthetic Person 0000000" }] },
+  });
+  const response = await handler(request());
+  assert.equal(response.status, 502);
+  assert.deepEqual(await response.json(), { error: "invalid_analysis_response" });
+});
+
 test("invalidated session during analysis withholds the result", async () => {
   const { handler } = fixture({ validSession: (check) => check === 1 });
   const response = await handler(request());
@@ -98,7 +184,7 @@ test("invalidated session during analysis withholds the result", async () => {
 });
 
 test("a provider-generated approval field is rejected", async () => {
-  const { handler } = fixture({ output: { ...assessment, affiliation_verified: true } });
+  const { handler } = fixture({ output: { ...outputFixture, affiliation_verified: true } });
   const response = await handler(request());
   assert.equal(response.status, 502);
   assert.deepEqual(await response.json(), { error: "invalid_analysis_response" });
