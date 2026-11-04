@@ -41,17 +41,24 @@ struct CampusTags: View {
     var compact = false
     var size: CGFloat? = nil
     private var color: Color {
-        [Color(white: 0.60), Color(red: 21 / 255, green: 117 / 255, blue: 167 / 255),
-         Color(red: 231 / 255, green: 125 / 255, blue: 45 / 255)][story.palette % 3]
+        [Color(white: 0.42), Color(red: 21 / 255, green: 117 / 255, blue: 167 / 255),
+         Color(red: 169 / 255, green: 77 / 255, blue: 23 / 255)][story.palette % 3]
     }
     var body: some View {
-        HStack(spacing: compact ? 4 : 6) {
-            ForEach(story.tags, id: \.self) { tag in
-                Text("#" + tag.trimmingCharacters(in: CharacterSet(charactersIn: "# ")))
-                    .font(CampusStyle.body(size ?? (compact ? 12 : 15)))
-                    .tracking(compact ? 0.24 : 0.3).foregroundStyle(color)
-            }
-        }.fixedSize(horizontal: true, vertical: false)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: compact ? 4 : 6) { labels }
+                .fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: .leading, spacing: 4) { labels }
+        }
+    }
+
+    private var labels: some View {
+        ForEach(Array(story.tags.enumerated()), id: \.offset) { _, tag in
+            Text("#" + tag.trimmingCharacters(in: CharacterSet(charactersIn: "# ")))
+                .font(CampusStyle.body(size ?? (compact ? 12 : 15)))
+                .tracking(compact ? 0.24 : 0.3).foregroundStyle(color)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
@@ -66,10 +73,15 @@ struct CampusStoryRow: View {
                     .frame(width: 86, height: 86)
                     .background(Color(white: 0.94), in: RoundedRectangle(cornerRadius: 16))
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(story.title).font(CampusStyle.characterTitle(20)).tracking(0.8)
-                            .lineLimit(1).minimumScaleFactor(0.6).layoutPriority(1)
-                        CampusTags(story: story, compact: true)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            title
+                            CampusTags(story: story, compact: true)
+                        }.fixedSize(horizontal: true, vertical: false)
+                        VStack(alignment: .leading, spacing: 4) {
+                            title.lineLimit(2)
+                            CampusTags(story: story, compact: true)
+                        }
                     }
                     VStack(alignment: .leading, spacing: 2) {
                         Text("| " + story.donor)
@@ -85,17 +97,20 @@ struct CampusStoryRow: View {
             }
         }.contentShape(Rectangle())
     }
+
+    private var title: some View {
+        Text(story.title).font(CampusStyle.characterTitle(20)).tracking(0.8)
+    }
 }
 
 struct CampusCollectButton: View {
     let story: CampusStory
     let store: CampusStoryStore
-    var fill: Color = CampusStyle.green
     var body: some View {
         Button { store.collect(story) } label: {
             Text(story.isExample ? "예시 카드" : store.collected.contains(story.id) ? "수집 완료" : "수집하기")
                 .font(CampusStyle.semibold(16)).frame(maxWidth: .infinity, minHeight: 46)
-                .foregroundStyle(.white).background(fill, in: RoundedRectangle(cornerRadius: 20))
+                .foregroundStyle(.white).background(CampusStyle.summaryAction, in: RoundedRectangle(cornerRadius: 20))
         }
         .disabled(story.isExample || store.isExample || store.collected.contains(story.id))
         .buttonStyle(.plain).sensoryFeedback(.success, trigger: store.collected.contains(story.id))

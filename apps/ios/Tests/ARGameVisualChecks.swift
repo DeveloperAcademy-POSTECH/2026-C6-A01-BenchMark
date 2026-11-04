@@ -176,6 +176,13 @@ private final class ARGameVisualScene: UIResponder, UIWindowSceneDelegate {
               let bytes = context.data else { preconditionFailure("Missing story card capture") }
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         let pixels = bytes.bindMemory(to: UInt8.self, capacity: image.width * image.height * 4)
+        if url.lastPathComponent.hasPrefix("story-card-no-image-") {
+            // The generated card rounds in from (41, 104), so its extreme corner should show the page.
+            let corner = (105 * image.width + 42) * 4
+            let background = (105 * image.width + 30) * 4
+            precondition((0..<3).allSatisfy { abs(Int(pixels[corner + $0]) - Int(pixels[background + $0])) <= 8 },
+                         "The generated card must not paint a square backing behind its rounded artwork")
+        }
         var colorPixels = 0
         for y in 104..<548 {
             for x in 41..<361 {

@@ -178,21 +178,9 @@ struct HomeView: View {
                 }.buttonStyle(.plain).accessibilityLabel("\(myDemo.nickname)의 농부 프로필")
                     .accessibilityIdentifier("campus.profile")
                 Button(action: onOpenProfile) {
-                    Circle()
-                        .fill(Color(red: 1, green: 247 / 255, blue: 219 / 255))
-                        .frame(width: 100, height: 100)
-                        .overlay {
-                            Image("CampusMyHouse").resizable().scaledToFit()
-                                .frame(width: 80, height: 80).offset(y: -3)
-                        }
-                        .clipShape(Circle())
-                        .overlay {
-                            Circle().strokeBorder(Color(red: 128 / 255, green: 99 / 255, blue: 33 / 255), lineWidth: 2)
-                                .frame(width: 104, height: 104)
-                        }
-                        .shadow(color: Color(red: 120 / 255, green: 77 / 255, blue: 25 / 255), radius: 7.5)
-                        .contentShape(Circle())
-                }.buttonStyle(.plain).accessibilityLabel("MY 작업실 열기").accessibilityIdentifier("campus.workshop")
+                    CampusMyHouseButtonArtwork()
+                }.buttonStyle(CampusMyHouseButtonStyle())
+                    .accessibilityLabel("MY 작업실 열기").accessibilityIdentifier("campus.workshop")
             }.disabled(store.isExample)
             Spacer()
             VStack(spacing: 10) {
@@ -313,8 +301,8 @@ struct HomeView: View {
                         Button { sort = item; distances = scene.distances() } label: {
                             Text(item.rawValue).font(CampusStyle.body(16)).tracking(0.32)
                                 .padding(.horizontal, 12).frame(height: 29)
-                                .foregroundStyle(sort == item ? Color(red: 247/255, green: 1, blue: 233/255) : .black)
-                                .background(sort == item ? CampusStyle.lightGreen : .white, in: Capsule())
+                                .foregroundStyle(sort == item ? .white : .black)
+                                .background(sort == item ? CampusStyle.sectionGreen : .white, in: Capsule())
                                 .frame(minHeight: 44).contentShape(Capsule())
                         }.buttonStyle(.plain).accessibilityAddTraits(sort == item ? .isSelected : [])
                     }
@@ -325,7 +313,7 @@ struct HomeView: View {
                         Button("인기순") { sort = .popular }
                     } label: {
                         Text("\(items.count)개").font(CampusStyle.medium(16)).tracking(0.32)
-                            .foregroundStyle(Color(red: 112 / 255, green: 140 / 255, blue: 64 / 255))
+                            .foregroundStyle(.black)
                             .padding(.horizontal, 16).frame(minWidth: 68).frame(height: 29)
                             .background(CampusStyle.secondaryAction, in: Capsule())
                             .frame(minHeight: 44).contentShape(Capsule())
@@ -374,4 +362,41 @@ struct HomeView: View {
         }
     }
 
+}
+
+struct CampusMyHouseButtonArtwork: View {
+    var body: some View {
+        Circle()
+            .fill(Color(red: 1, green: 247 / 255, blue: 219 / 255))
+            .frame(width: 100, height: 100)
+            .overlay {
+                // The original export has an opaque white matte and a shadow that reaches its edges.
+                Image("CampusMyHouse").resizable().scaledToFit()
+                    .frame(width: 80, height: 80)
+                    .mask { Rectangle().padding(3).blur(radius: 2) }
+                    .offset(y: -3)
+                    .blendMode(.multiply)
+            }
+            .compositingGroup()
+            .clipShape(Circle())
+            .overlay {
+                Circle().strokeBorder(Color(red: 128 / 255, green: 99 / 255, blue: 33 / 255), lineWidth: 2)
+                    .frame(width: 104, height: 104)
+            }
+            .shadow(color: Color(red: 120 / 255, green: 77 / 255, blue: 25 / 255), radius: 7.5)
+            .contentShape(Circle())
+    }
+}
+
+struct CampusMyHouseButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        makeBody(label: configuration.label, isPressed: configuration.isPressed, isEnabled: isEnabled)
+    }
+
+    func makeBody<Label: View>(label: Label, isPressed: Bool, isEnabled: Bool = true) -> some View {
+        let pressedOpacity = isPressed ? 0.8 : 1.0
+        return label.opacity(isEnabled ? pressedOpacity : 0.45)
+    }
 }

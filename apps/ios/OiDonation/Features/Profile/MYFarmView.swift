@@ -139,6 +139,8 @@ struct MYFarmView: View {
                     ContentUnavailableView("로그인이 필요해요", systemImage: "person")
                 }
             } label: { emptyAction }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
         }.foregroundStyle(Color(red: 39 / 255, green: 49 / 255, blue: 22 / 255))
             .padding(.horizontal, 38).padding(.vertical, 24)
     }
@@ -148,8 +150,9 @@ struct MYFarmView: View {
             .multilineTextAlignment(.center).foregroundStyle(.black)
             .padding(.horizontal, 20).padding(.vertical, 15)
             .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : 284, minHeight: 68)
-            .background(.white, in: Capsule()).shadow(color: .black.opacity(0.2), radius: 5)
-            .frame(maxWidth: .infinity)
+            .background(.white, in: Capsule())
+            .contentShape(Capsule())
+            .shadow(color: .black.opacity(0.2), radius: 5)
     }
 
 }
