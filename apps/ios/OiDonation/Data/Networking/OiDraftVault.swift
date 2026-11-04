@@ -225,9 +225,16 @@ struct OiWardrobeLook: Codable, Equatable {
     }
     enum Costume: String, Codable, CaseIterable, Identifiable {
         case dinosaur, raincoat, bee, cat
+        case astronaut, scientist
+        case catBear = "cat-bear", postechSelfie = "postech-selfie"
         var id: String { rawValue }
         var title: String {
-            switch self { case .dinosaur: "공룡 잠옷"; case .raincoat: "노란 우비"; case .bee: "꿀벌 의상"; case .cat: "고양이 잠옷" }
+            switch self {
+            case .dinosaur: "공룡 잠옷"; case .raincoat: "노란 우비"
+            case .bee: "꿀벌 의상"; case .cat: "고양이 잠옷"
+            case .astronaut: "우주복"; case .scientist: "연구원"
+            case .catBear: "곰돌이 고양이"; case .postechSelfie: "과잠 셀카"
+            }
         }
         var modelName: String { "wardrobe-costume-" + rawValue }
         var thumbnailName: String { "oi-costume-" + rawValue }
