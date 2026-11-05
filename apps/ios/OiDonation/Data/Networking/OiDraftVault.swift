@@ -62,6 +62,14 @@ actor OiDraftVault {
         self.directory = directory ?? URL.applicationSupportDirectory.appending(path: "oi-private-drafts", directoryHint: .isDirectory)
     }
 
+    func purgeAccounts(_ owners: Set<UUID>) throws {
+        let files = FileManager.default
+        for owner in owners {
+            let folder = directory.appending(path: owner.uuidString, directoryHint: .isDirectory)
+            if files.fileExists(atPath: folder.path) { try files.removeItem(at: folder) }
+        }
+    }
+
     private func ownerDirectory(_ owner: UUID) throws -> URL {
         let url = directory.appending(path: owner.uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])

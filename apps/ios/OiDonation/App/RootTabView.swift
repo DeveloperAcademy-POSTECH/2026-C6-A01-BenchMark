@@ -1,3 +1,4 @@
+import AuthenticationServices
 import SwiftUI
 
 struct RootTabView: View {
@@ -62,6 +63,10 @@ struct RootTabView: View {
         .tint(.black)
         .onChange(of: remote.revision) { _, _ in synchronizeRemote() }
         .onChange(of: remote.account?.id) { _, _ in myDemo.resetFilters() }
+        .onReceive(NotificationCenter.default.publisher(for: ASAuthorizationAppleIDProvider.credentialRevokedNotification)) { _ in
+            guard remote.accountProviders.contains("apple") else { return }
+            Task { await remote.signOut() }
+        }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
             store.collectAction = { story in
