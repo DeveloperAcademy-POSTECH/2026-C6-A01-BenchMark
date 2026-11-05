@@ -3,6 +3,8 @@ import Foundation
 enum OiCreationStep: String, CaseIterable {
     case consent, story, photos, location, cucumber, card
 
+    static let storyTextLimit = 45
+
     var title: String {
         switch self {
         case .consent: "약관 동의"
@@ -42,7 +44,7 @@ enum OiCreationStep: String, CaseIterable {
         case .consent: true
         case .story:
             [draft.title, draft.body, draft.theme, draft.emotion].allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                && draft.title.count <= 100 && draft.body.count <= 10_000
+                && draft.title.count <= Self.storyTextLimit && draft.body.count <= Self.storyTextLimit
                 && draft.theme.count <= 30 && draft.emotion.count <= 30
         case .photos: true
         case .location:

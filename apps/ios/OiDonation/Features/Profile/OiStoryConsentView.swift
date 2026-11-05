@@ -4,6 +4,7 @@ struct OiStoryConsentView: View {
     let clauses: [OiStoryConsentClause]
     var continueTitle = "오이 커스텀 시작하기"
     var onContinue: () -> Void = {}
+    var onExit: (() -> Void)?
     var showsHeader = true
     var showsContinueButton = true
     var state: Binding<OiStoryConsentState>?
@@ -19,18 +20,23 @@ struct OiStoryConsentView: View {
             if showsHeader { topHeader.padding(.bottom, 20) }
 
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 50) {
-                    ForEach(clauses) { clause in
-                        clauseSection(clause)
+                LazyVStack(alignment: .leading, spacing: 20) {
+
+                    VStack(spacing: 50) {
+                        ForEach(clauses) { clause in
+                            clauseSection(clause)
+                        }
                     }
 
-                    if showsContinueButton { continueButton }
+                    if showsContinueButton { footerActions }
                 }
                 .padding(.horizontal, 20)
-                .padding(.bottom, 16)
+                .padding(.bottom, 34)
+                .padding(.top, 20)
             }
             .scrollIndicators(.hidden)
             .clipped()
+            .ignoresSafeArea(.container, edges: .bottom)
         }
         .navigationTitle("")
         .navigationBarBackButtonHidden(true)
@@ -123,6 +129,26 @@ struct OiStoryConsentView: View {
         }
     }
 
+    private var footerActions: some View {
+        VStack(spacing: 10) {
+            Button {
+                if let onExit { onExit() } else { dismiss() }
+            } label: {
+                Text("나가기")
+                    .font(.custom("Paperlogy-5Medium", size: 16, relativeTo: .body))
+                    .tracking(0.32)
+                    .underline()
+                    .foregroundStyle(Color.primary)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("oi.consent.exit")
+
+            continueButton
+        }
+    }
+
     private var continueButton: some View {
         Button(action: onContinue) {
             Text(continueTitle)
@@ -134,6 +160,7 @@ struct OiStoryConsentView: View {
         }
         .buttonStyle(.plain)
         .disabled(!consentState.allRequiredClausesAreAgreed)
+        .accessibilityIdentifier("oi.creation.next")
         .accessibilityHint(
             consentState.allRequiredClausesAreAgreed
                 ? "이야기 작성의 다음 단계로 이동합니다"

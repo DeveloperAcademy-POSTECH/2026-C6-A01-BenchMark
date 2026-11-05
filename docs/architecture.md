@@ -384,4 +384,6 @@ Figma `4158:9340`에 맞춰 `OiCucumberCustomizationStep`이 하나의 `OiWardro
 
 ## 약관 콘텐츠와 초안 호환 — 2026-11-05
 
+약관 단계는 `OiStoryConsentView`의 스크롤 끝에 나가기와 오이 커스텀 시작하기를 표시한다. 시작하기와 상단 STEP 이동은 세 필수 약관의 동의 여부를 확인한다. `OiStoryEditor`가 기존 단계 이동과 기기 보관·버리기·계속 작성 확인창을 처리한다.
+
 Figma `2935:1210`의 세 약관은 `OiStoryConsentClause.figmaDrafts`에서 순서대로 제공한다. 새 `donationVerification` ID를 기존 계정별 초안의 `agreedConsentClauseIDs`에 저장하며 이전 두 ID는 그대로 읽는다. 새 항목이 없는 초안은 해당 동의를 미선택으로 복원하고, 모든 필수 동의 검사는 세 ID를 기준으로 한다. API/DB나 기부 증빙 제출 경로는 변경하지 않는다. 이번 원문과 저장 경계는 [약관 원문 정합](story-creation-flow.md#약관-원문-정합--2026-11-05--figma-29351210)에 기록한다.

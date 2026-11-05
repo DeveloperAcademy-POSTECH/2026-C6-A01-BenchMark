@@ -59,47 +59,51 @@ struct OiStoryPhotoStep<Photo: View>: View {
                 ContentUnavailableView("이야기에 담을 사진을 골라주세요", systemImage: "photo.on.rectangle.angled", description: Text("선택한 사진은 먼저 이 기기에 보관돼요."))
                     .frame(minHeight: previewHeight).padding(.bottom, 22)
             }
-            Text("\(items.count)장 선택")
+            Text("\(items.count) / 15")
                 .font(.custom("Paperlogy-6SemiBold", size: 12, relativeTo: .caption))
                 .tracking(0.24)
                 .padding(.horizontal, 12).padding(.vertical, 4)
                 .foregroundStyle(.black)
                 .background(Color(red: 241 / 255, green: 244 / 255, blue: 236 / 255).opacity(0.6), in: Capsule())
                 .frame(maxWidth: .infinity, alignment: .leading)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                        Button { selected = item } label: {
-                            VStack(spacing: 10) {
-                                (thumbnail?(item) ?? photo(item)).frame(width: 60, height: 75).clipped()
-                                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                                    .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(current == item ? .white : .clear, lineWidth: 3) }
-                                    .shadow(color: current == item ? .white.opacity(0.6) : .clear, radius: 8)
-                                    .overlay(alignment: .top) {
-                                        if index == 0 {
-                                            Text("대표").font(CampusStyle.medium(10))
-                                                .foregroundStyle(.black).padding(.horizontal, 10).padding(.vertical, 2)
-                                                .background(.white, in: Capsule()).padding(.top, 6)
-                                        }
-                                    }
-                                thumbnailLabel("\(index + 1)")
-                            }
-                        }.buttonStyle(.plain).accessibilityLabel("\(index + 1)번째 사진 선택")
-                            .accessibilityAddTraits(current == item ? .isSelected : [])
+            HStack(alignment: .top, spacing: 10) {
+                PhotosPicker(selection: $selections, matching: .images) {
+                    VStack(spacing: 10) {
+                        Image(systemName: "plus").font(.system(size: 30))
+                            .frame(width: 60, height: 75)
+                            .foregroundStyle(Color("OiDark"))
+                            .background(Color("OiBorder"), in: RoundedRectangle(cornerRadius: 10))
+                            .accessibilityHidden(true)
+                        thumbnailLabel("추가")
                     }
-                    PhotosPicker(selection: $selections, matching: .images) {
-                        VStack(spacing: 10) {
-                            Image(systemName: "plus").font(.system(size: 30))
-                                .frame(width: 60, height: 75)
-                                .foregroundStyle(Color("OiDark"))
-                                .background(Color("OiBorder"), in: RoundedRectangle(cornerRadius: 10))
-                                .accessibilityHidden(true)
-                            thumbnailLabel("추가")
+                }.accessibilityIdentifier("oi.photos.add").buttonStyle(.plain)
+                    .padding(.vertical, 4)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                            Button { selected = item } label: {
+                                VStack(spacing: 10) {
+                                    (thumbnail?(item) ?? photo(item)).frame(width: 60, height: 75).clipped()
+                                        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                        .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(current == item ? .white : .clear, lineWidth: 3) }
+                                        .shadow(color: current == item ? .white.opacity(0.6) : .clear, radius: 8)
+                                        .overlay(alignment: .top) {
+                                            if index == 0 {
+                                                Text("대표").font(CampusStyle.medium(10))
+                                                    .foregroundStyle(.black).padding(.horizontal, 10).padding(.vertical, 2)
+                                                    .background(.white, in: Capsule()).padding(.top, 6)
+                                            }
+                                        }
+                                    thumbnailLabel("\(index + 1)")
+                                }
+                            }.buttonStyle(.plain).accessibilityLabel("\(index + 1)번째 사진 선택")
+                                .accessibilityAddTraits(current == item ? .isSelected : [])
                         }
-                    }.accessibilityIdentifier("oi.photos.add").buttonStyle(.plain)
-                }.padding(.vertical, 4)
-            }.padding(.top, current == nil ? 18 : 14)
+                    }.padding(.vertical, 4)
+                }
+            }
+            .padding(.top, current == nil ? 18 : 14)
         }
         .disabled(cropPhotoID != nil || isEditing)
         .task(id: current) {

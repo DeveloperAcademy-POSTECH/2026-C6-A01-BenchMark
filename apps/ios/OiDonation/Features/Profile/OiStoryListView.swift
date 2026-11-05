@@ -77,34 +77,32 @@ struct OiStoryListView: View {
     }
 
     private var storySlots: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                if let guidance {
-                    Text(guidance).font(CampusStyle.semibold(15)).tracking(0.3)
-                        .foregroundStyle(Color("OiGreen"))
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 20).padding(.top, 18)
-                }
-                LazyVStack(spacing: 10) {
-                    ForEach(state.slots(minimumVisibleCount: minimumVisibleSlotCount)) { slot in
-                        if let item = slot.item {
-                            storySlot(item)
-                        } else {
-                            emptySlot(index: slot.index)
-                        }
+        VStack(spacing: 0) {
+            if let guidance {
+                Text(guidance).font(CampusStyle.semibold(15)).tracking(0.3)
+                    .foregroundStyle(Color("OiGreen"))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 20).padding(.top, 18)
+            }
+            LazyVStack(spacing: 10) {
+                ForEach(state.slots(minimumVisibleCount: minimumVisibleSlotCount)) { slot in
+                    if let item = slot.item {
+                        storySlot(item)
+                    } else {
+                        emptySlot(index: slot.index)
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
-                .padding(.bottom, 10)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, 10)
 
-                if usesAccessibilityLayout {
-                    footer
-                }
+            if usesAccessibilityLayout {
+                footer
             }
         }
-        .scrollIndicators(.hidden)
+
     }
 
     private var seedStatusLabel: some View {
@@ -283,14 +281,14 @@ struct OiStoryListView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
                     }
-                }
+            }
 
             Color.clear
                 .frame(height: 10)
                 .padding(.horizontal, 20)
         }
-            .accessibilityLabel("빈 이야기 슬롯")
-            .accessibilityIdentifier("storyList.empty.\(index)")
+        .accessibilityLabel("빈 이야기 슬롯")
+        .accessibilityIdentifier("storyList.empty.\(index)")
     }
 
     private var footer: some View {
@@ -298,11 +296,13 @@ struct OiStoryListView: View {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(notices.enumerated()), id: \.offset) { _, notice in
                     Text("* \(notice)")
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .font(.custom("Paperlogy-4Regular", size: 14, relativeTo: .subheadline))
-            .tracking(0.28)
+            .font(.custom("Paperlogy-4Regular", size: 13, relativeTo: .subheadline))
+            .tracking(0.26)
             .foregroundStyle(Color(red: 147 / 255, green: 147 / 255, blue: 147 / 255))
             .lineSpacing(1)
 
@@ -418,7 +418,8 @@ struct OiStoryListView: View {
 }
 
 extension OiStoryListView {
-    static let figmaPreviewNotices = [
+    static let listGuidance = "본인이 만든 오이를 씨앗을 통해 농장에 심을 수 있습니다"
+    static let listNotices = [
         "이야기 저장은 4개까지 가능합니다",
         "농장에 심기 전에는 이야기 및 오이를 눌러서 편집할 수 있습니다"
     ]
@@ -429,8 +430,8 @@ extension OiStoryListView {
         OiStoryListView(
             state: .preview,
             seedCount: 3,
-            notices: OiStoryListView.figmaPreviewNotices,
-            guidance: "본인이 만든 오이를 씨앗을 통해 농장에 심을 수 있습니다",
+            notices: OiStoryListView.listNotices,
+            guidance: OiStoryListView.listGuidance,
             onAddSeed: {}, onCreateStory: {}, onUseSeed: {}
         )
     }
@@ -440,9 +441,9 @@ extension OiStoryListView {
     NavigationStack {
         OiStoryListView(
             state: .empty,
-            seedCount: 3,
-            notices: OiStoryListView.figmaPreviewNotices,
-            guidance: "본인이 만든 오이를 씨앗을 통해 농장에 심을 수 있습니다",
+            seedCount: 0,
+            notices: OiStoryListView.listNotices,
+            guidance: OiStoryListView.listGuidance,
             onAddSeed: {}, onCreateStory: {}, onUseSeed: {}
         )
     }

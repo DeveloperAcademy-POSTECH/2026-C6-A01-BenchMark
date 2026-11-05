@@ -5,6 +5,7 @@ struct OiCreationProgressHeader: View {
     let step: Int
     var onPrevious: (() -> Void)?
     var onSelect: ((Int) -> Void)?
+    var canSelectStage: (Int) -> Bool = { _ in true }
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var selectionFeedback = 0
 
@@ -25,7 +26,9 @@ struct OiCreationProgressHeader: View {
     }
 
     private func stageButton(_ number: Int, width: CGFloat) -> some View {
-        Button {
+        let isAllowed = canSelectStage(number)
+        let canNavigate = isAllowed && (onSelect != nil || (number == step - 1 && onPrevious != nil))
+        return Button {
             selectionFeedback += 1
             if let onSelect { onSelect(number) }
             else if number == step - 1 { onPrevious?() }
@@ -54,10 +57,11 @@ struct OiCreationProgressHeader: View {
             .frame(maxWidth: .infinity, minHeight: 70).contentShape(Rectangle())
         }
         .buttonStyle(OiCreationFootprintStyle(selected: number == step))
-        .disabled(onSelect == nil && (number != step - 1 || onPrevious == nil))
+        .disabled(!canNavigate)
+        .opacity(!isAllowed && number != step ? 0.45 : 1)
         .accessibilityLabel("\(number)단계, \(title(number))")
-        .accessibilityValue(number == step ? "현재 단계" : "이동 가능")
-        .accessibilityHint("입력한 내용을 유지하고 이 단계로 이동해요")
+        .accessibilityValue(number == step ? "현재 단계" : canNavigate ? "이동 가능" : "이동 불가")
+        .accessibilityHint(canNavigate ? "입력한 내용을 유지하고 이 단계로 이동해요" : "")
         .accessibilityAddTraits(number == step ? .isSelected : [])
         .accessibilityIdentifier("oi.creation.stage.\(number)")
     }
@@ -215,15 +219,16 @@ struct OiCreationDoneButton: View {
 struct OiCreationSection<Content: View>: View {
     let title: String
     var hint: String = ""
+    var titleSize: CGFloat = 26
     @ViewBuilder let content: Content
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             let headingLayout = dynamicTypeSize.isAccessibilitySize
                 ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
-                : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 10))
+                : AnyLayout(HStackLayout(alignment: .bottom, spacing: 10))
             headingLayout {
-                Text(title).font(.custom("Paperlogy-6SemiBold", size: 26, relativeTo: .title2))
+                Text(title).font(.custom("Paperlogy-6SemiBold", size: titleSize, relativeTo: .title2))
                 if !hint.isEmpty {
                     Text(hint).font(.custom("Paperlogy-3Light", size: 16, relativeTo: .subheadline))
                         .tracking(0.32).foregroundStyle(Color("OiGreen"))
@@ -235,34 +240,26 @@ struct OiCreationSection<Content: View>: View {
 }
 
 struct OiStoryWritingStep: View {
+    enum Field: Hashable { case title, body }
+
     @Binding var draft: OiStoryDraft
     let grants: [OiWritingGrant]
     var canChangeGrant = false
+    let focusedField: FocusState<Field?>.Binding
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private let fieldBackground = Color(white: 244 / 255)
+    private let textLimit = OiCreationStep.storyTextLimit
     static let themes = ["가족", "우정", "사랑", "성장", "도전", "꿈", "배움", "경쟁", "협력", "갈등", "화해", "일탈", "나눔", "응원", "성취", "기타"]
     static let emotions = ["행복함", "즐거움", "뿌듯함", "고마움", "편안함", "설렘", "따뜻함", "짜릿함", "놀라움", "신남", "벅참", "그리움", "후련함", "부끄러움", "후회", "긴장감", "슬픔", "화남", "아쉬움", "기타"]
     var body: some View {
         VStack(alignment: .leading, spacing: 50) {
             OiCreationSection(title: "테마 선택", hint: "(택 1)") { tags(Self.themes, selected: $draft.theme) }
             OiCreationSection(title: "감정 선택", hint: "(택 1)") { tags(Self.emotions, selected: $draft.emotion) }
-            OiCreationSection(title: "제목 입력", hint: "\(draft.title.count) / 100") {
-                HStack(alignment: .firstTextBaseline) {
-                    TextField("입력", text: $draft.title, axis: .vertical)
-                        .accessibilityLabel("이야기 제목")
-                        .accessibilityIdentifier("oi.draft.title")
-                    Image(systemName: "pencil").accessibilityHidden(true)
-                }.padding(20).frame(minHeight: 60)
-                    .background(fieldBackground, in: RoundedRectangle(cornerRadius: 15))
+            OiCreationSection(title: "제목 입력", hint: "(띄어쓰기 포함 \(textLimit)자 이내)") {
+                inputBox($draft.title, field: .title, label: "이야기 제목", identifier: "oi.draft.title")
             }
-            OiCreationSection(title: "이야기 입력", hint: "\(draft.body.count) / 10,000") {
-                HStack(alignment: .firstTextBaseline) {
-                    TextField("입력", text: $draft.body, axis: .vertical)
-                        .lineLimit(1...16).accessibilityLabel("이야기 내용")
-                        .accessibilityIdentifier("oi.draft.body")
-                    Image(systemName: "pencil").accessibilityHidden(true)
-                }.padding(20).frame(minHeight: 60)
-                    .background(fieldBackground, in: RoundedRectangle(cornerRadius: 15))
+            OiCreationSection(title: "이야기 입력", hint: "(띄어쓰기 포함 \(textLimit)자 이내)") {
+                inputBox($draft.body, field: .body, label: "이야기 내용", identifier: "oi.draft.body")
             }
             if !grants.isEmpty && canChangeGrant {
                 Picker("사용할 작성 승인", selection: $draft.grantId) {
@@ -270,26 +267,103 @@ struct OiStoryWritingStep: View {
                     ForEach(grants) { Text("승인 \($0.id.uuidString.prefix(8)) · 최대 \($0.storyLimit)개").tag(Optional($0.id)) }
                 }
             }
-        }.font(.custom("Paperlogy-4Regular", size: 16, relativeTo: .body))
+        }
+        .font(.custom("Paperlogy-4Regular", size: 16, relativeTo: .body))
+        .padding(.top, 20)
     }
+
+    private func limitedText(_ text: Binding<String>) -> Binding<String> {
+        Binding(get: { text.wrappedValue }, set: { newValue in
+            let previousCount = text.wrappedValue.count
+            let newCount = newValue.count
+            // Keep longer drafts intact on restore and let the author shorten them.
+            let isShorteningLongDraft = previousCount > textLimit && newCount < previousCount
+            guard newCount <= textLimit || isShorteningLongDraft else { return }
+            text.wrappedValue = newValue
+        })
+    }
+
+    private func inputBox(_ text: Binding<String>, field: Field, label: String, identifier: String) -> some View {
+        // Measure the bound text so typing, pasting, and restoring use the same layout.
+        // The invisible character gives a trailing line break room for the caret.
+        let editorInset = EdgeInsets(top: 8, leading: 5, bottom: 8, trailing: 5)
+        return HStack(alignment: .center) {
+            Text(verbatim: text.wrappedValue + "\u{200B}")
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(editorInset)
+                .hidden()
+                .accessibilityHidden(true)
+                .overlay(alignment: .topLeading) {
+                    TextEditor(text: limitedText(text))
+                        .scrollContentBackground(.hidden)
+                        .scrollDisabled(true)
+                        .focused(focusedField, equals: field)
+                        .accessibilityLabel(label)
+                        .accessibilityIdentifier(identifier)
+                }
+                .overlay(alignment: .topLeading) {
+                    if text.wrappedValue.isEmpty {
+                        Text("입력").foregroundStyle(Color(uiColor: .placeholderText))
+                            .padding(editorInset)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .font(.custom("Paperlogy-3Light", size: 18, relativeTo: .body))
+                .tracking(0.36)
+            Image(systemName: "pencil")
+                .font(.system(size: 18, weight: .light))
+                .foregroundStyle(Color(white: 106 / 255))
+                .accessibilityHidden(true)
+        }
+        .padding(.leading, 15)
+        .padding(.trailing, 20)
+        .padding(.top, 14)
+        .padding(.bottom, 10)
+        .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+        .background(fieldBackground, in: RoundedRectangle(cornerRadius: 15))
+    }
+
     private func tags(_ values: [String], selected: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            OiCreationTagLayout(maximumColumns: dynamicTypeSize.isAccessibilitySize ? nil : 4) {
-                ForEach(values, id: \.self) { value in
-                    Button { selected.wrappedValue = value } label: {
-                        Text(value).tracking(0.32).lineLimit(1).minimumScaleFactor(0.8)
-                            .padding(.horizontal, value.count >= 3 ? 10 : 20).frame(minHeight: 34)
-                            .foregroundStyle(selected.wrappedValue == value ? Color.white : Color("OiDark"))
-                            .background(selected.wrappedValue == value ? Color("OiGreen") : fieldBackground, in: Capsule())
-                            .overlay(Capsule().strokeBorder(selected.wrappedValue == value ? Color("OiGreen") : Color(white: 234 / 255), lineWidth: 1))
-                            .frame(minHeight: 44).contentShape(Rectangle())
-                    }.buttonStyle(.plain).accessibilityAddTraits(selected.wrappedValue == value ? .isSelected : [])
+            if dynamicTypeSize.isAccessibilitySize {
+                OiCreationTagLayout {
+                    ForEach(values, id: \.self) { tag($0, selected: selected) }
+                }
+            } else {
+                // A 36pt chip inside a 44pt hit area leaves 4pt above and below.
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(stride(from: 0, to: values.count, by: 4)), id: \.self) { start in
+                        HStack(spacing: 10) {
+                            ForEach(values[start..<min(start + 4, values.count)], id: \.self) {
+                                tag($0, selected: selected)
+                            }
+                        }
+                    }
                 }
             }
             if !selected.wrappedValue.isEmpty && !values.contains(selected.wrappedValue) {
                 Text("기존 선택: \(selected.wrappedValue)").font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+
+    private func tag(_ value: String, selected: Binding<String>) -> some View {
+        let isSelected = selected.wrappedValue == value
+        return Button {
+            selected.wrappedValue = value
+        } label: {
+            Text(value)
+                .tracking(0.32).lineLimit(1).minimumScaleFactor(0.8)
+                .padding(.horizontal, 20).frame(minHeight: 36)
+                .foregroundStyle(isSelected ? Color.white : Color("OiDark"))
+                .background(isSelected ? Color("OiGreen") : fieldBackground, in: Capsule())
+                .overlay(Capsule().strokeBorder(isSelected ? Color("OiGreen") : Color(white: 234 / 255), lineWidth: 1))
+                .frame(minHeight: 44).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -309,12 +383,12 @@ struct OiStoryAttachmentSections: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 50) {
-            OiCreationSection(title: "사진 선택", hint: photoCount == 0 ? "" : "(\(photoCount)장 선택)") {
+            OiCreationSection(title: "사진 선택", hint: "(1장 이상, 15장 이내)") {
                 formButton(photoCount == 0 ? "사진 추가하기" : "선택한 사진 보기 · \(photoCount)장",
                            highlighted: false, action: onPhotos)
                     .accessibilityIdentifier("oi.story.editPhotos")
             }
-            OiCreationSection(title: "오이 위치 설정") {
+            OiCreationSection(title: "오이 위치 설정", titleSize: 30) {
                 Map(position: .constant(.region(MKCoordinateRegion(
                     center: coordinate ?? CLLocationCoordinate2D(latitude: 36.0139, longitude: 129.3232),
                     latitudinalMeters: coordinate == nil ? 1_200 : 300,
@@ -353,13 +427,6 @@ struct OiStoryAttachmentSections: View {
 
 /// Wraps intrinsic chip widths while keeping the Figma ten-point horizontal gap.
 private struct OiCreationTagLayout: Layout {
-    var maximumColumns: Int?
-
-    private func itemWidth(in width: CGFloat) -> CGFloat {
-        guard let maximumColumns else { return width }
-        return max(0, (width - CGFloat(maximumColumns - 1) * 10) / CGFloat(maximumColumns))
-    }
-
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width.flatMap { $0.isFinite ? max(0, $0) : nil } ?? 362
         return arrange(subviews, width: width).size
@@ -369,20 +436,19 @@ private struct OiCreationTagLayout: Layout {
         let arrangement = arrange(subviews, width: bounds.width)
         for (index, point) in arrangement.points.enumerated() {
             subviews[index].place(at: CGPoint(x: bounds.minX + point.x, y: bounds.minY + point.y), anchor: .topLeading,
-                                 proposal: ProposedViewSize(width: min(subviews[index].sizeThatFits(.unspecified).width, itemWidth(in: bounds.width)), height: nil))
+                                 proposal: ProposedViewSize(width: min(subviews[index].sizeThatFits(.unspecified).width, bounds.width), height: nil))
         }
     }
 
     private func arrange(_ subviews: Subviews, width: CGFloat) -> (size: CGSize, points: [CGPoint]) {
         var points: [CGPoint] = [], x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
-        var column = 0
         for subview in subviews {
-            let size = subview.sizeThatFits(ProposedViewSize(width: itemWidth(in: width), height: nil))
-            if x > 0 && (x + size.width > width || maximumColumns.map { column >= $0 } == true) {
-                x = 0; y += rowHeight; rowHeight = 0; column = 0
+            let size = subview.sizeThatFits(ProposedViewSize(width: min(subview.sizeThatFits(.unspecified).width, width), height: nil))
+            if x > 0 && x + size.width > width {
+                x = 0; y += rowHeight + 2; rowHeight = 0
             }
             points.append(CGPoint(x: x, y: y))
-            x += size.width + 10; rowHeight = max(rowHeight, size.height); column += 1
+            x += size.width + 10; rowHeight = max(rowHeight, size.height)
         }
         return (CGSize(width: width, height: y + rowHeight), points)
     }

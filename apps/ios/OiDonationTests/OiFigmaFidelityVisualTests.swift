@@ -61,13 +61,22 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         for variant in variants {
             for bottom in [false, true] {
                 let page = CreationCapturePage(step: 2, anchor: bottom ? .bottom : .top) {
-                    VStack(alignment: .leading, spacing: 50) {
-                        OiStoryWritingStep(draft: .constant(Self.draft), grants: [])
-                        OiStoryAttachmentSections(photoCount: 0, latitude: Self.draft.latitude,
-                            longitude: Self.draft.longitude, onPhotos: {}, onLocation: {})
-                    }
+                    StoryWritingCapture(draft: Self.draft)
                 }
                 try await capture(page, name: "writing\(bottom ? "-bottom" : "")", variant: variant, defaults: fixture.defaults)
+            }
+        }
+    }
+
+    private struct StoryWritingCapture: View {
+        let draft: OiStoryDraft
+        @FocusState private var focusedField: OiStoryWritingStep.Field?
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 50) {
+                OiStoryWritingStep(draft: .constant(draft), grants: [], focusedField: $focusedField)
+                OiStoryAttachmentSections(photoCount: 0, latitude: draft.latitude,
+                    longitude: draft.longitude, onPhotos: {}, onLocation: {})
             }
         }
     }
@@ -146,13 +155,13 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         for variant in variants {
             let reference = NavigationStack {
                 OiStoryListView(state: .preview, seedCount: 3,
-                    notices: OiStoryListView.figmaPreviewNotices,
-                    guidance: "본인이 만든 오이를 씨앗을 통해 농장에 심을 수 있습니다",
+                    notices: OiStoryListView.listNotices,
+                    guidance: OiStoryListView.listGuidance,
                     onAddSeed: {}, onCreateStory: {}, onUseSeed: {})
             }
             try await capture(reference, name: "story-list-seed-reference", variant: variant,
                               defaults: fixture.defaults, attach: true)
-            // The actual screen has no seed service: show unknown, never the Figma example balance.
+            // The actual screen displays zero until a seed service is connected.
             let store = OiRemoteStore(vault: OiMemorySession())
             let live = NavigationStack { OiStoryListScreen(remote: store) }
             try await capture(live, name: "story-list-seed-unconnected", variant: variant,
@@ -166,11 +175,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         for variant in variants {
             let page = VStack(spacing: 0) {
                 OiCreationProgressHeader(step: 1).padding(.horizontal, 20)
-                OiStoryConsentView(clauses: OiStoryConsentClause.figmaDrafts,
-                                   showsHeader: false, showsContinueButton: false)
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        OiCreationNavigationBar(onPrevious: {}, onNext: {}, onSaveAndExit: {})
-                    }
+                OiStoryConsentView(clauses: OiStoryConsentClause.figmaDrafts, showsHeader: false)
             }
             try await capture(page, name: "consent-three-clauses", variant: variant,
                               defaults: fixture.defaults, attach: true)

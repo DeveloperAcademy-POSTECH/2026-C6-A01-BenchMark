@@ -28,6 +28,7 @@ struct OiStoryEditor: View {
     }
     @State private var photoSelections: [PhotosPickerItem] = []
     @State private var step: OiCreationStep = .story
+    @FocusState private var focusedStoryField: OiStoryWritingStep.Field?
     @State private var customization = OiDraftCustomization()
     @State private var removedMediaPaths: [String] = []
     @State private var removedPhotoIDs: Set<UUID> = []
@@ -81,7 +82,11 @@ struct OiStoryEditor: View {
         .onChange(of: draft) { _, _ in scheduleSave() }
         .onChange(of: photos) { _, _ in scheduleSave() }
         .onChange(of: uploadedPhotos) { _, _ in scheduleSave() }
-        .onChange(of: step) { _, _ in customizationReady = false; scheduleSave() }
+        .onChange(of: step) { _, _ in
+            focusedStoryField = nil
+            customizationReady = false
+            scheduleSave()
+        }
         .onChange(of: customization) { _, _ in scheduleSave() }
         .onChange(of: consentState) { _, _ in scheduleSave() }
         .onChange(of: removedMediaPaths) { _, _ in scheduleSave() }
@@ -122,16 +127,18 @@ struct OiStoryEditor: View {
                 OiLocationPicker(latitude: $draft.latitude, longitude: $draft.longitude,
                                  onFinish: { navigate(to: .story) })
             } else {
-                OiCreationProgressHeader(step: step.progress, onPrevious: reviewPreviousStep, onSelect: selectProgressStage)
+                OiCreationProgressHeader(step: step.progress, onSelect: selectProgressStage,
+                    canSelectStage: canSelectProgressStage)
                     .padding(.horizontal, 20)
+                    .padding(.bottom, 8)
                     .background(Color(.systemBackground))
                     .environment(\.colorScheme, .light)
-                    .disabled(wardrobePhotoEditing)
-                if step != .story { screenNavigation.disabled(wardrobePhotoEditing) }
+
                 Group {
                     if step == .consent {
                         OiStoryConsentView(clauses: OiStoryConsentClause.figmaDrafts,
-                            showsHeader: false, showsContinueButton: false, state: $consentState)
+                            onContinue: advance, onExit: { choosingExit = true },
+                            showsHeader: false, state: $consentState)
                     } else {
                         ScrollViewReader { scroll in
                             ScrollView { editorScrollContent }
@@ -145,8 +152,8 @@ struct OiStoryEditor: View {
                     }
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    if step == .consent || step == .story || customizationReady {
-                        OiCreationNavigationBar(canContinue: true,
+                    if step != .consent && (step == .story ? focusedStoryField == nil : customizationReady) {
+                        OiCreationNavigationBar(canContinue: canAdvanceCurrentStep,
                             onPrevious: reviewPreviousStep,
                             onNext: advance,
                             onSaveAndExit: { Task { if await persist() { dismiss() } } })
@@ -189,8 +196,8 @@ struct OiStoryEditor: View {
         }
         .interactiveDismissDisabled()
         .confirmationDialog("현재 입력을 어떻게 할까요?", isPresented: $choosingExit, titleVisibility: .visible) {
-            Button("기기에 보관하고 나가기") { Task { if await persist() { dismiss() } } }
-            Button("기기 보관본·미저장 수정 버리기", role: .destructive) {
+            Button("임시저장 후 나가기") { Task { if await persist() { dismiss() } } }
+            Button("저장하지 않고 나가기", role: .destructive) {
                 Task { await discardDraft() }
             }
             Button("계속 작성", role: .cancel) {}
@@ -223,38 +230,6 @@ struct OiStoryEditor: View {
     }
 
     private var usesNavigationBar: Bool { !restored || (!submitted && (step == .photos || step == .location)) }
-
-    private var screenNavigation: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Text(step.title).font(CampusStyle.semibold(15))
-                Spacer()
-                Menu {
-                    ForEach(OiCreationStep.allCases, id: \.self) { destination in
-                        Button(destination.title) { navigate(to: destination) }
-                    }
-                    Divider()
-                    Button("3D 지도에서 위치 선택") {
-                        navigate(to: .location)
-                    }
-                    Button("공개 검토 전 확인") { showingPreview = true }
-                    Button("접수 완료 화면 미리보기") { supplementaryScreen = .completion }
-                    Button("기부 인증 화면 미리보기") { supplementaryScreen = .evidence }
-                    Divider()
-                    Button("이야기 목록으로") { Task { if await persist() { dismiss() } } }
-                } label: {
-                    Label("모든 화면", systemImage: "square.grid.2x2")
-                        .font(CampusStyle.medium(13)).padding(.horizontal, 12).frame(minHeight: 44)
-                        .background(Color("OiLight"), in: Capsule())
-                }
-                .accessibilityIdentifier("oi.creation.screens")
-            }
-        }
-        .foregroundStyle(Color("OiDark"))
-        .padding(.horizontal, 20).padding(.bottom, 12)
-        .background(Color(.systemBackground))
-        .environment(\.colorScheme, .light)
-    }
 
     private func reviewIssue(_ title: String, destination: OiCreationStep) -> some View {
         Button {
@@ -316,11 +291,20 @@ struct OiStoryEditor: View {
         VStack(alignment: .leading, spacing: 20) {
             editorStatus
             stepContent.id("creation.top")
-            Text(saveLabel).font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("oi.draft.saveState")
+            if step != .story {
+                Text(saveLabel).font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("oi.draft.saveState")
+            }
             if step == .cucumber || step == .card, !customizationReady && !wardrobePhotoEditing {
                 Button("기기에 보관하거나 나가기") { choosingExit = true }.font(.footnote)
             }
         }.padding(.horizontal, 20).padding(.bottom, 24)
+            .background {
+                if step == .story && focusedStoryField != nil {
+                    Color.clear.contentShape(Rectangle())
+                        .onTapGesture { focusedStoryField = nil }
+                        .accessibilityHidden(true)
+                }
+            }
     }
 
     private func reviewPreviousStep() {
@@ -328,8 +312,16 @@ struct OiStoryEditor: View {
     }
 
     private func selectProgressStage(_ stage: Int) {
-        guard let destination = OiCreationStep.stage(stage) else { return }
+        guard canSelectProgressStage(stage), let destination = OiCreationStep.stage(stage) else { return }
         navigate(to: destination)
+    }
+
+    private func canSelectProgressStage(_ stage: Int) -> Bool {
+        guard !wardrobePhotoEditing, canLeaveCurrentStep else { return false }
+        if stage <= step.progress { return true }
+        guard canAdvanceCurrentStep else { return false }
+        // A jump from consent must also satisfy the story step it skips.
+        return step != .consent || stage <= OiCreationStep.story.progress || canCompleteStoryStep
     }
 
     private func navigate(to destination: OiCreationStep) {
@@ -350,7 +342,22 @@ struct OiStoryEditor: View {
         else { choosingExit = true }
     }
 
+    private var canLeaveCurrentStep: Bool {
+        step != .consent || consentState.allRequiredClausesAreAgreed
+    }
+
+    private var canAdvanceCurrentStep: Bool {
+        step == .story ? canCompleteStoryStep : canLeaveCurrentStep
+    }
+
+    private var canCompleteStoryStep: Bool {
+        OiCreationStep.story.canContinue(draft: draft)
+            && !editingPhotos.isEmpty
+            && OiCreationStep.location.canContinue(draft: draft)
+    }
+
     private func advance() {
+        guard canAdvanceCurrentStep else { return }
         if let next = step.next { navigate(to: next) } else { showingPreview = true }
     }
 
@@ -451,7 +458,7 @@ struct OiStoryEditor: View {
                             reviewIssue("필수 약관 동의", destination: .consent)
                         }
                         if !OiCreationStep.story.canContinue(draft: draft) {
-                            reviewIssue("테마·감정·제목·이야기를 확인해 주세요", destination: .story)
+                            reviewIssue("테마·감정을 선택하고 제목과 이야기를 각각 \(OiCreationStep.storyTextLimit)자 이내로 입력해 주세요", destination: .story)
                         }
                         if !OiCreationStep.location.canContinue(draft: draft) {
                             reviewIssue("캠퍼스 위치를 선택해 주세요", destination: .location)
@@ -517,10 +524,8 @@ struct OiStoryEditor: View {
                     if draft.grantId == nil && !remote.unapprovedDraftsEnabled { draft.grantId = availableGrants.first?.id }
                 }
             }
-        } else if draft.grantId == nil {
-            Text("임시 작성 모드예요. 기부 승인으로 처리되지 않으며, 지도·AR 공개에는 운영자 검토가 필요해요.")
-                .font(.footnote).foregroundStyle(.secondary)
         }
+
         if let saved = remote.ownStories.first(where: { $0.id == draft.id }),
            saved.revision != draft.revision, !OiCreationAccess.canRebase(draft, to: saved) {
             VStack(alignment: .leading) {
@@ -569,7 +574,8 @@ struct OiStoryEditor: View {
         case .story:
             VStack(alignment: .leading, spacing: 50) {
                 OiStoryWritingStep(draft: $draft, grants: availableGrants,
-                    canChangeGrant: draft.revision == 0 || remote.ownStories.first(where: { $0.id == draft.id })?.grantId == nil)
+                    canChangeGrant: draft.revision == 0 || remote.ownStories.first(where: { $0.id == draft.id })?.grantId == nil,
+                    focusedField: $focusedStoryField)
                 OiStoryAttachmentSections(photoCount: editingPhotos.count,
                     latitude: draft.latitude, longitude: draft.longitude,
                     onPhotos: { navigate(to: .photos) }, onLocation: { navigate(to: .location) })
