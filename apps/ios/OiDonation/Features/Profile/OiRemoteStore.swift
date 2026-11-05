@@ -32,6 +32,8 @@ final class OiRemoteStore {
     private(set) var isConfigured = false
     private(set) var isAccountMergeAvailable = false
     private(set) var isSchoolProfileAvailable = false
+    private(set) var isFarmerOutfitAvailable = false
+    private(set) var farmerOutfit: OiFarmerOutfit?
     private(set) var accountMemberIDs: Set<UUID> = []
     private(set) var accountProviders: [String] = []
     private(set) var localRecoveryWarning: String?
@@ -203,7 +205,7 @@ final class OiRemoteStore {
         stories = []; collections = []; favorites = []; collectionCounts = [:]; evidenceOperation = nil; committedMediaPaths = [:]
         isOperator = false; hasLoadedRemote = false; needsReauthentication = false; isRefreshing = false
         isAccountMergeAvailable = false; accountMemberIDs = []; accountProviders = []; localRecoveryWarning = nil
-        isSchoolProfileAvailable = false
+        isSchoolProfileAvailable = false; isFarmerOutfitAvailable = false; farmerOutfit = nil
         localSignOutWarning = nil; loadError = nil; syncWarning = nil; error = nil; revision += 1
     }
 
@@ -306,6 +308,10 @@ final class OiRemoteStore {
         if capabilities?.schoolProfileEnabled == true, let resolvedOwner, let accessToken {
             ownProfile = try await api.schoolProfile(owner: resolvedOwner, token: accessToken)
         }
+        var fetchedFarmerOutfit: OiFarmerOutfit?
+        if capabilities?.farmerOutfitEnabled == true, let resolvedOwner, let accessToken {
+            fetchedFarmerOutfit = try await api.farmerOutfit(owner: resolvedOwner, token: accessToken)
+        }
         let fetchedMedia = try await api.rows("oi_story_media", query: "order=position.asc,id.asc", token: accessToken, as: OiMedia.self)
         let metrics = try await api.collectionMetrics(token: accessToken)
         var requests: [OiEvidence] = []; var permissions: [OiWritingGrant] = []
@@ -352,6 +358,7 @@ final class OiRemoteStore {
         collections = collected; favorites = Set(starred.map(\.storyId)); isOperator = capabilities?.operator == true
         isAccountMergeAvailable = capabilities?.accountMergeEnabled == true; accountMemberIDs = members
         isSchoolProfileAvailable = capabilities?.schoolProfileEnabled == true
+        isFarmerOutfitAvailable = capabilities?.farmerOutfitEnabled == true; farmerOutfit = fetchedFarmerOutfit
         accountProviders = capabilities?.accountProviders ?? []
         evidenceOperation = recoveredOperation; localRecoveryWarning = recoveryWarning
         collectionCounts = metrics.reduce(into: [:]) { $0[$1.storyId] = $1.collectionCount }
@@ -447,6 +454,37 @@ final class OiRemoteStore {
             loadSequence += 1
             profile = saved; revision += 1; await refreshAfterCommit()
         } catch { if started == generation { noteAuthenticationFailure(error); self.error = error.localizedDescription } }
+    }
+
+    func saveFarmerOutfit(_ outfit: OiFarmerOutfit) async -> Bool {
+        guard !isBusy, !needsReauthentication, let account, let api else {
+            error = OiServiceError.signInRequired.localizedDescription; return false
+        }
+        guard isFarmerOutfitAvailable else {
+            error = "지금은 농부 꾸미기를 저장할 수 없어요. 잠시 후 다시 시도해 주세요."; return false
+        }
+        guard outfit.isValid else { error = OiServiceError.invalidInput.localizedDescription; return false }
+        let owner = account.id
+        let started = generation
+        isBusy = true; error = nil
+        defer { isBusy = false }
+        do {
+            let accessToken = try await token()
+            try Task.checkCancellation()
+            guard started == generation, self.account?.id == owner else { return false }
+            let saved = try await api.saveFarmerOutfit(owner: owner, outfit: outfit, token: accessToken)
+            try Task.checkCancellation()
+            guard started == generation, self.account?.id == owner else { return false }
+            loadSequence += 1
+            farmerOutfit = saved; revision += 1
+            await refreshAfterCommit()
+            return started == generation && self.account?.id == owner
+        } catch {
+            if started == generation, !Task.isCancelled, !OiServiceFailure.isCancellation(error) {
+                noteAuthenticationFailure(error); self.error = error.localizedDescription
+            }
+            return false
+        }
     }
 
     func updateFarmName(_ name: String) async {

@@ -227,6 +227,23 @@ struct OiServiceAPI {
         return profile
     }
 
+    func farmerOutfit(owner: UUID, token: String) async throws -> OiFarmerOutfit? {
+        let data = try await request("rest/v1/rpc/oi_farmer_outfit", method: "POST", token: token, body: Data("{}".utf8))
+        let receipt = try decoder.decode(OiFarmerOutfitReceipt.self, from: data)
+        guard receipt.accountId == owner, receipt.outfit?.isValid ?? true else { throw OiServiceError.unavailable }
+        return receipt.outfit
+    }
+
+    func saveFarmerOutfit(owner: UUID, outfit: OiFarmerOutfit, token: String) async throws -> OiFarmerOutfit {
+        guard outfit.isValid else { throw OiServiceError.invalidInput }
+        let value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(outfit))
+        let body = try JSONSerialization.data(withJSONObject: ["p_outfit": value])
+        let data = try await request("rest/v1/rpc/oi_save_farmer_outfit", method: "POST", token: token, body: body)
+        let receipt = try decoder.decode(OiFarmerOutfitReceipt.self, from: data)
+        guard receipt.accountId == owner, receipt.outfit == outfit else { throw OiServiceError.unavailable }
+        return outfit
+    }
+
     func updateFarmName(owner: UUID, farmName: String, token: String) async throws -> OiProfile {
         let body = try JSONSerialization.data(withJSONObject: ["farm_name": farmName])
         let data = try await request("rest/v1/oi_profiles?id=eq.\(owner.uuidString)", method: "PATCH", token: token,

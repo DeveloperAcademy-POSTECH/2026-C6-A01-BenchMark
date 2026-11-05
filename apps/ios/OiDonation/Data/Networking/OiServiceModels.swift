@@ -127,6 +127,38 @@ struct OiMedia: Codable, Identifiable {
     let position: Int
 }
 
+nonisolated struct OiFarmerOutfit: Codable, Equatable, Sendable {
+    var version = 1
+    var character: String
+    var slots: [String: String]
+
+    var isValid: Bool {
+        guard version == 1, ["kyu", "cumber"].contains(character), slots.count <= 6 else { return false }
+        let allowedSlots: Set<String> = ["top", "bottom", "shoes", "hat", "accessory", "set"]
+        return slots.allSatisfy { key, value in
+            guard allowedSlots.contains(key), let first = value.utf8.first,
+                  (97...122).contains(first) || (48...57).contains(first), value.utf8.count <= 80 else { return false }
+            return value.utf8.allSatisfy { (97...122).contains($0) || (48...57).contains($0) || $0 == 45 }
+        }
+    }
+}
+
+nonisolated struct OiFarmerOutfitReceipt: Decodable, Sendable {
+    let accountId: UUID
+    let outfit: OiFarmerOutfit?
+
+    private enum CodingKeys: String, CodingKey { case accountId, outfit }
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard container.contains(.outfit) else {
+            throw DecodingError.keyNotFound(CodingKeys.outfit, .init(codingPath: decoder.codingPath,
+                debugDescription: "The farmer outfit receipt must contain its nullable outfit field."))
+        }
+        accountId = try container.decode(UUID.self, forKey: .accountId)
+        outfit = try container.decodeIfPresent(OiFarmerOutfit.self, forKey: .outfit)
+    }
+}
+
 struct OiCapabilities: Decodable {
     let `operator`: Bool
     let coinsEnabled: Bool
@@ -135,6 +167,7 @@ struct OiCapabilities: Decodable {
     let accountMemberIds: [UUID]?
     let accountProviders: [String]?
     let schoolProfileEnabled: Bool?
+    let farmerOutfitEnabled: Bool?
 }
 
 struct OiStoryDraft: Codable, Equatable {

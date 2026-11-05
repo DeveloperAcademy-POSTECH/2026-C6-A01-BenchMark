@@ -38,6 +38,16 @@ final class OiTestBackend {
         var holdFarmWrite = false
         var schoolID: String?
         var schoolProfileEnabled = false
+        var farmerOutfitEnabled = false
+        var farmerOutfit: [String: Any]?
+        var otherFarmerOutfit: [String: Any]?
+        var farmerOutfitReads = 0
+        var farmerOutfitWrites = 0
+        var farmerOutfitPayloads: [[String: Any]] = []
+        var failFarmerOutfitWrite = false
+        var mismatchedFarmerOutfitReceipt = false
+        var omitsFarmerOutfitReceiptField = false
+        var holdFarmerOutfitWrite = false
         var schoolMetadataSchoolID: String? = "postech"
         var includesSecondSchool = false
         var admissionYear: Int?
@@ -76,7 +86,7 @@ final class OiTestBackend {
     func snapshot() -> State { lock.lock(); defer { lock.unlock() }; return state }
     func releaseHeldRead() {
         let value = snapshot().held
-        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false; $0.holdCardSend = false; $0.holdFarmWrite = false }
+        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false; $0.holdCardSend = false; $0.holdFarmWrite = false; $0.holdFarmerOutfitWrite = false }
         value?.0.respond(200, value?.1 ?? Data())
     }
     func install() { OiStoreURLProtocol.handle = { [weak self] request, client in self?.receive(request, client: client) } }
@@ -177,8 +187,25 @@ final class OiTestBackend {
                 capabilities["account_member_ids"] = [Self.owner.uuidString,Self.other.uuidString]
             }
             if state.schoolProfileEnabled { capabilities["school_profile_enabled"] = true }
+            if state.farmerOutfitEnabled { capabilities["farmer_outfit_enabled"] = true }
             capabilities["account_providers"] = ["apple"]
             result = capabilities
+        }
+        else if path.hasSuffix("/rpc/oi_farmer_outfit") || path.hasSuffix("/rpc/oi_save_farmer_outfit") {
+            let writing = path.hasSuffix("/rpc/oi_save_farmer_outfit")
+            if writing {
+                state.farmerOutfitWrites += 1
+                state.farmerOutfitPayloads.append(body)
+                if state.failFarmerOutfitWrite { status = 503 }
+                else if owner == Self.owner { state.farmerOutfit = body["p_outfit"] as? [String: Any] }
+                else { state.otherFarmerOutfit = body["p_outfit"] as? [String: Any] }
+            } else { state.farmerOutfitReads += 1 }
+            let receiptOwner = state.mismatchedFarmerOutfitReceipt ? Self.other : owner
+            var receipt: [String: Any] = ["account_id": receiptOwner.uuidString]
+            if !state.omitsFarmerOutfitReceiptField {
+                receipt["outfit"] = (owner == Self.owner ? state.farmerOutfit : state.otherFarmerOutfit) as Any? ?? NSNull()
+            }
+            result = receipt
         }
         else if path.hasSuffix("/rpc/oi_school_profile") || path.hasSuffix("/rpc/oi_update_school_profile") {
             let writing = path.hasSuffix("/rpc/oi_update_school_profile")
@@ -239,7 +266,8 @@ final class OiTestBackend {
         if (path.hasSuffix("/oi_stories") && owner == Self.owner && state.holdOwnerRead)
             || (path.hasSuffix("/rpc/oi_capabilities") && state.holdPostMergeRead && state.mergeConfirmCount > 0)
             || (path.hasSuffix("/rpc/oi_request_card") && state.holdCardSend)
-            || (path.hasSuffix("/oi_profiles") && body["farm_name"] != nil && state.holdFarmWrite) {
+            || (path.hasSuffix("/oi_profiles") && body["farm_name"] != nil && state.holdFarmWrite)
+            || (path.hasSuffix("/rpc/oi_save_farmer_outfit") && state.holdFarmerOutfitWrite) {
             state.held = (client,data)
             let notify = state.didHold
             lock.unlock(); notify?(); return
@@ -498,6 +526,130 @@ final class OiRemoteStoreTests: XCTestCase {
         await store.refresh()
         XCTAssertEqual(store.profile?.farmName, "다른밭")
         XCTAssertEqual(store.profile?.nickname, "Owner B")
+    }
+
+    @MainActor func testFarmerOutfitPersistsAcrossRelaunchAndOtherProfileEdits() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.farmerOutfitEnabled = true; $0.schoolProfileEnabled = true }
+        await store.start()
+        XCTAssertTrue(store.isFarmerOutfitAvailable)
+        XCTAssertNil(store.farmerOutfit)
+        let outfit = OiFarmerOutfit(character: "kyu", slots: ["top": "kyu-3916-2673", "hat": "kyu-hat"])
+        let saved = await store.saveFarmerOutfit(outfit)
+        XCTAssertTrue(saved)
+        XCTAssertEqual(store.farmerOutfit, outfit)
+        XCTAssertEqual(Set(try XCTUnwrap(backend.snapshot().farmerOutfitPayloads.first).keys), ["p_outfit"])
+        await store.updateFarmName("햇살")
+        await store.updateProfile(nickname: "Legacy name")
+        await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2020, department: "Physics")
+        XCTAssertEqual(store.farmerOutfit, outfit)
+        let restored = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: vault)
+        await restored.start()
+        XCTAssertEqual(restored.farmerOutfit, outfit)
+        XCTAssertGreaterThanOrEqual(backend.snapshot().farmerOutfitReads, 2)
+    }
+
+    @MainActor func testLegacyServerDoesNotRequestOrPretendToSaveFarmerOutfit() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        XCTAssertTrue(store.hasLoadedRemote)
+        XCTAssertFalse(store.isFarmerOutfitAvailable)
+        XCTAssertNil(store.farmerOutfit)
+        let saved = await store.saveFarmerOutfit(OiFarmerOutfit(character: "kyu", slots: [:]))
+        XCTAssertFalse(saved)
+        XCTAssertNotNil(store.error)
+        XCTAssertEqual(backend.snapshot().farmerOutfitReads, 0)
+        XCTAssertEqual(backend.snapshot().farmerOutfitWrites, 0)
+    }
+
+    @MainActor func testFarmerOutfitRejectsInvalidSelectionBeforeNetworkWrite() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.farmerOutfitEnabled = true }
+        await store.start()
+        let invalid = [
+            OiFarmerOutfit(version: 2, character: "kyu", slots: [:]),
+            OiFarmerOutfit(character: "unknown", slots: [:]),
+            OiFarmerOutfit(character: "kyu", slots: ["cape": "cape"]),
+            OiFarmerOutfit(character: "kyu", slots: ["hat": "https://example.invalid/asset"]),
+            OiFarmerOutfit(character: "kyu", slots: ["hat": String(repeating: "a", count: 81)])
+        ]
+        for outfit in invalid {
+            let saved = await store.saveFarmerOutfit(outfit)
+            XCTAssertFalse(saved)
+            XCTAssertNotNil(store.error)
+        }
+        XCTAssertEqual(backend.snapshot().farmerOutfitWrites, 0)
+    }
+
+    @MainActor func testFarmerOutfitWriteFailureAndForeignReceiptPreserveLastKnownOutfit() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.farmerOutfitEnabled = true }
+        await store.start()
+        let original = OiFarmerOutfit(character: "cumber", slots: ["set": "legacy-classic"])
+        let initialSaved = await store.saveFarmerOutfit(original)
+        XCTAssertTrue(initialSaved)
+        let changed = OiFarmerOutfit(character: "kyu", slots: ["hat": "kyu-hat"])
+        backend.configure { $0.failFarmerOutfitWrite = true }
+        let failed = await store.saveFarmerOutfit(changed)
+        XCTAssertFalse(failed)
+        XCTAssertEqual(store.farmerOutfit, original)
+        backend.configure { $0.failFarmerOutfitWrite = false; $0.mismatchedFarmerOutfitReceipt = true }
+        let mismatched = await store.saveFarmerOutfit(changed)
+        XCTAssertFalse(mismatched)
+        XCTAssertEqual(store.farmerOutfit, original)
+        XCTAssertNotNil(store.error)
+    }
+
+    @MainActor func testFarmerOutfitMissingReceiptFieldIsNotTreatedAsAnEmptySavedOutfit() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.farmerOutfitEnabled = true; $0.omitsFarmerOutfitReceiptField = true }
+        await store.start()
+        XCTAssertFalse(store.hasLoadedRemote)
+        XCTAssertNotNil(store.loadError)
+        XCTAssertNil(store.farmerOutfit)
+    }
+
+    @MainActor func testFarmerOutfitReceiptSurvivesRefreshFailure() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.farmerOutfitEnabled = true }
+        await store.start()
+        backend.configure { $0.failReads = true }
+        let outfit = OiFarmerOutfit(character: "kyu", slots: ["top": "kyu-top"])
+        let saved = await store.saveFarmerOutfit(outfit)
+        XCTAssertTrue(saved)
+        XCTAssertEqual(store.farmerOutfit, outfit)
+        XCTAssertNotNil(store.syncWarning)
+        XCTAssertNotNil(store.loadError)
+    }
+
+    @MainActor func testLateFarmerOutfitWriteCannotReplaceAnotherAccountOutfit() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure {
+            $0.farmerOutfitEnabled = true
+            $0.otherFarmerOutfit = ["version": 1, "character": "cumber", "slots": ["set": "legacy-classic"]]
+        }
+        await store.start()
+        let held = expectation(description: "Previous account outfit write is held")
+        backend.configure { $0.holdFarmerOutfitWrite = true; $0.didHold = { held.fulfill() } }
+        let write = Task { await store.saveFarmerOutfit(OiFarmerOutfit(character: "kyu", slots: ["top": "kyu-top"])) }
+        await fulfillment(of: [held], timeout: 5)
+        vault.value = OiMemorySession(owner: OiTestBackend.other).value
+        await store.start()
+        backend.releaseHeldRead()
+        let saved = await write.value
+        XCTAssertFalse(saved)
+        XCTAssertEqual(store.account?.id, OiTestBackend.other)
+        XCTAssertNil(store.farmerOutfit)
+        await store.refresh()
+        XCTAssertEqual(store.farmerOutfit, OiFarmerOutfit(character: "cumber", slots: ["set": "legacy-classic"]))
     }
 
     @MainActor func testSignOutOnlyRevokesCurrentSessionAndClearsDeviceCredentials() async throws {
