@@ -281,6 +281,17 @@ nonisolated struct OiFarmerOutfitReceipt: Decodable, Sendable {
     }
 }
 
+struct OiAccountDeletionStatus: Decodable {
+    let accountId: UUID?
+    let memberIds: [UUID]?
+}
+
+struct OiAccountDeletionReceipt: Codable {
+    let deleted: Bool
+    let appleRevocationRequired: Bool
+    let deletedMemberIds: [UUID]
+}
+
 struct OiCapabilities: Decodable {
     let `operator`: Bool
     let coinsEnabled: Bool
