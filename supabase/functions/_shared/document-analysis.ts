@@ -43,7 +43,7 @@ const schema = {
   required: ["verdict", "readability", "findings", "limitations", "manual_checks"],
 };
 
-const instructions = `You assist a human operator reviewing a donation evidence document.
+const donationInstructions = `You assist a human operator reviewing a donation evidence document.
 Report only visible indications of editing or internal inconsistency. You cannot certify authenticity,
 confirm a bank transfer, identify the submitter, or grant writing permission. Do not assign a fraud
 probability. A clean-looking document is not proof of authenticity. Poor quality, redaction, cropping,
@@ -147,10 +147,28 @@ export function parseAssessment(value: unknown): Assessment {
   return value as Assessment;
 }
 
-export async function analyzeDocument(options: {
+export type DocumentAnalysisInput = {
   bytes: Uint8Array; contentType: string; apiKey: string; model?: string;
   signal: AbortSignal; fetcher?: typeof fetch;
-}): Promise<Assessment> {
+};
+
+export function analyzeDocument(options: DocumentAnalysisInput): Promise<Assessment> {
+  return requestDocumentAnalysis(options, {
+    instructions: donationInstructions,
+    prompt: "Review this evidence attachment for visible manipulation indicators.",
+    name: "evidence_review",
+    schema,
+    parse: parseAssessment,
+  });
+}
+
+export async function requestDocumentAnalysis<T>(options: DocumentAnalysisInput, format: {
+  instructions: string;
+  prompt: string;
+  name: string;
+  schema: object;
+  parse: (value: unknown) => T;
+}): Promise<T> {
   const mime = documentType(options.bytes, options.contentType);
   if (!options.apiKey.trim()) throw new AnalysisError(503, "analysis_not_configured");
   const data = `data:${mime};base64,${base64(options.bytes)}`;
@@ -164,11 +182,11 @@ export async function analyzeDocument(options: {
       headers: { Authorization: `Bearer ${options.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: options.model ?? DEFAULT_MODEL, store: false, max_output_tokens: 2400,
-        instructions, input: [{ role: "user", content: [
-          { type: "input_text", text: "Review this evidence attachment for visible manipulation indicators." },
+        instructions: format.instructions, input: [{ role: "user", content: [
+          { type: "input_text", text: format.prompt },
           attachment,
         ] }],
-        text: { format: { type: "json_schema", name: "evidence_review", strict: true, schema } },
+        text: { format: { type: "json_schema", name: format.name, strict: true, schema: format.schema } },
       }),
     });
   } catch {
@@ -194,7 +212,7 @@ export async function analyzeDocument(options: {
     if (texts.length !== 1 || !object(texts[0]) || typeof texts[0].text !== "string") {
       throw new AnalysisError(502, "invalid_analysis_response");
     }
-    return parseAssessment(JSON.parse(texts[0].text));
+    return format.parse(JSON.parse(texts[0].text));
   } catch (error) {
     if (options.signal.aborted) throw new AnalysisError(504, "analysis_timeout");
     if (error instanceof AnalysisError && error.code === "payload_too_large") {

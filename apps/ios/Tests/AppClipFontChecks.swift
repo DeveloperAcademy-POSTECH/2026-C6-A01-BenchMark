@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  AppClipFontChecks.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 11/2/26.
+//
 
 import CoreText
 import Foundation

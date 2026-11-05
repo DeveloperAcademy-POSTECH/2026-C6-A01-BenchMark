@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  OiServiceModels.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 10/28/26.
+//
 
 import Foundation
 
@@ -38,6 +43,29 @@ struct OiProfile: Codable, Equatable, Identifiable {
     var nickname: String
     var schoolId: String?
     let farmerAsset: String
+    var farmName: String? = nil
+    var schoolAdmissionYear: Int? = nil
+    var schoolDepartment: String? = nil
+    // Only information deliberately entered for public donor search. Never inferred from evidence.
+    var publicName: String? = nil
+    var department: String? = nil
+    var admissionYear: String? = nil
+}
+
+struct OiPublicAcademicInfo: Equatable {
+    var name = ""
+    var department = ""
+    var admissionYear = ""
+
+    var cleaned: Self {
+        Self(name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+             department: department.trimmingCharacters(in: .whitespacesAndNewlines),
+             admissionYear: admissionYear.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+    var isValid: Bool {
+        name.count <= 50 && department.count <= 100 &&
+        (admissionYear.isEmpty || admissionYear.range(of: "^[0-9]{2}([0-9]{2})?$", options: .regularExpression) != nil)
+    }
 }
 
 struct OiLiveStory: Codable, Identifiable, Equatable {
@@ -124,6 +152,38 @@ struct OiMedia: Codable, Identifiable {
     let position: Int
 }
 
+nonisolated struct OiFarmerOutfit: Codable, Equatable, Sendable {
+    var version = 1
+    var character: String
+    var slots: [String: String]
+
+    var isValid: Bool {
+        guard version == 1, ["kyu", "cumber"].contains(character), slots.count <= 6 else { return false }
+        let allowedSlots: Set<String> = ["top", "bottom", "shoes", "hat", "accessory", "set"]
+        return slots.allSatisfy { key, value in
+            guard allowedSlots.contains(key), let first = value.utf8.first,
+                  (97...122).contains(first) || (48...57).contains(first), value.utf8.count <= 80 else { return false }
+            return value.utf8.allSatisfy { (97...122).contains($0) || (48...57).contains($0) || $0 == 45 }
+        }
+    }
+}
+
+nonisolated struct OiFarmerOutfitReceipt: Decodable, Sendable {
+    let accountId: UUID
+    let outfit: OiFarmerOutfit?
+
+    private enum CodingKeys: String, CodingKey { case accountId, outfit }
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard container.contains(.outfit) else {
+            throw DecodingError.keyNotFound(CodingKeys.outfit, .init(codingPath: decoder.codingPath,
+                debugDescription: "The farmer outfit receipt must contain its nullable outfit field."))
+        }
+        accountId = try container.decode(UUID.self, forKey: .accountId)
+        outfit = try container.decodeIfPresent(OiFarmerOutfit.self, forKey: .outfit)
+    }
+}
+
 struct OiCapabilities: Decodable {
     let `operator`: Bool
     let coinsEnabled: Bool
@@ -132,6 +192,8 @@ struct OiCapabilities: Decodable {
     let accountMergeEnabled: Bool?
     let accountMemberIds: [UUID]?
     let accountProviders: [String]?
+    let schoolProfileEnabled: Bool?
+    let farmerOutfitEnabled: Bool?
 }
 
 /// Content validation is separate from permission. The server remains authoritative.
@@ -183,6 +245,32 @@ struct OiStoryDraft: Codable, Equatable {
                 "emotion": emotion, "cucumber_name": cucumberName, "cucumber_asset": cucumberAsset,
                 "card_asset": cardAsset, "latitude": latitude, "longitude": longitude]
     }
+}
+
+nonisolated struct OiSchoolEvidenceReview: Decodable, Sendable {
+    nonisolated struct Summary: Codable, Sendable {
+        nonisolated struct Reference: Codable, Sendable {
+            let title: String
+            let url: URL
+        }
+
+        let outcome: String
+        let title: String
+        let detail: String
+        let nextStep: String
+        let reference: Reference?
+    }
+
+    let reviewType: String
+    let humanReviewRequired: Bool
+    let affiliationVerified: Bool
+    let authenticityVerified: Bool
+    let summary: Summary?
+}
+
+nonisolated struct OiSavedSchoolEvidenceReview: Codable, Sendable {
+    let summary: OiSchoolEvidenceReview.Summary
+    let reviewedAt: Date
 }
 
 enum OiServiceError: LocalizedError {
