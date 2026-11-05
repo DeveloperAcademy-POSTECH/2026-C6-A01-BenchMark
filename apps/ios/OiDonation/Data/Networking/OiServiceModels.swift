@@ -130,6 +130,65 @@ struct OiEvidence: Codable, Identifiable, Equatable {
     var createdAt: String? = nil
 }
 
+struct OiDonationEvidenceSummary: Decodable, Equatable {
+    enum Outcome: String, Decodable, CaseIterable {
+        case sufficientEvidence = "sufficient_evidence"
+        case needsMoreEvidence = "needs_more_evidence"
+        case manualReview = "manual_review"
+        case suspectedManipulation = "suspected_manipulation"
+        case duplicateEvidence = "duplicate_evidence"
+        case notDonation = "not_donation"
+
+        var label: String {
+            switch self {
+            case .sufficientEvidence: "증빙 충족"
+            case .needsMoreEvidence: "증빙 보완 필요"
+            case .manualReview: "운영자 추가 확인 필요"
+            case .suspectedManipulation: "수정 흔적 확인 필요"
+            case .duplicateEvidence: "중복 자료 확인 필요"
+            case .notDonation: "기부 완료 근거 부족"
+            }
+        }
+    }
+
+    struct Check: Decodable, Equatable {
+        let kind: String
+        let status: String
+        let detail: String
+    }
+
+    struct SourceReference: Decodable, Equatable, Identifiable {
+        let id: String
+        let url: String
+        let title: String
+        let kind: String
+        let verifiedAt: String
+
+        var safeURL: URL? {
+            guard let components = URLComponents(string: url), components.scheme == "https",
+                  components.user == nil, components.password == nil,
+                  components.port == nil || components.port == 443,
+                  let host = components.host?.lowercased(),
+                  host == "postech.ac.kr" || host.hasSuffix(".postech.ac.kr") else { return nil }
+            return components.url
+        }
+    }
+
+    let outcome: Outcome
+    let sufficientEvidence: Bool
+    let title: String
+    let reasons: [String]
+    let checks: [Check]
+    let sourceReferences: [SourceReference]
+
+    var isConsistent: Bool {
+        sufficientEvidence == (outcome == .sufficientEvidence)
+            && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !reasons.isEmpty
+            && reasons.allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+}
+
 struct OiDonationEvidenceReview: Decodable, Equatable {
     struct Assessment: Decodable, Equatable {
         enum Verdict: String, Decodable { case suspicious, noObviousSigns = "no_obvious_signs", inconclusive }
@@ -161,6 +220,7 @@ struct OiDonationEvidenceReview: Decodable, Equatable {
     let authenticityVerified: Bool
     let notice: String
     let assessment: Assessment
+    var summary: OiDonationEvidenceSummary? = nil
 }
 
 struct OiWritingGrant: Codable, Identifiable, Equatable {

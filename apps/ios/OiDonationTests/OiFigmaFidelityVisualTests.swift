@@ -86,6 +86,45 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testDonationSemanticResultCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let cases: [(name: String, outcome: OiDonationEvidenceSummary.Outcome?, title: String, reason: String)] = [
+            ("sms-sufficient", .sufficientEvidence, "문자에서 기부 완료 근거를 확인했어요", "공식 발신번호와 입금 확인 내용을 함께 대조했어요. 영수증이 없어도 증빙으로 인정할 수 있어요."),
+            ("pledge-insufficient", .needsMoreEvidence, "약정 접수만으로는 입금 완료를 확인하기 어려워요", "현재 자료에는 약정 접수 안내만 있어요. 입금 확인 문자나 이체 완료 내역을 추가해 주세요."),
+            ("manipulation", .suspectedManipulation, "자료의 일부에 추가 확인이 필요해요", "문자 일부의 시각적 불일치를 확인했어요. 개인정보 가림 자체는 조작으로 판단하지 않아요."),
+            ("duplicate", .duplicateEvidence, "다른 신청에 사용된 자료와 중복 근거가 있어요", "자료 재사용 가능성이 있어 운영자 확인이 필요해요. 다른 사용자의 정보는 표시하지 않아요."),
+            ("legacy", nil, "이전 시각적 참고 검사", "")
+        ]
+        for variant in variants {
+            for item in cases {
+                var review = OiDonationEvidenceReview(reviewType: "donation_evidence", evidenceId: UUID(),
+                    submittedAt: "2026-11-05T00:00:00Z", analyzedAt: "2026-11-05T00:01:00Z",
+                    humanReviewRequired: true, authenticityVerified: false,
+                    notice: "증빙 충족 판정은 학교의 공식 납입 확인이나 글 작성 승인이 아니에요.",
+                    assessment: .init(verdict: item.outcome == .suspectedManipulation ? .suspicious : .noObviousSigns,
+                        readability: .readable, findings: [], limitations: ["제출 자료의 원본 진위와 제출자 본인 여부는 별도 확인이 필요해요."],
+                        manualChecks: ["운영자 검토 후 최종 작성 승인 상태를 확인해 주세요."]))
+                if let outcome = item.outcome {
+                    review.summary = .init(outcome: outcome, sufficientEvidence: outcome == .sufficientEvidence,
+                        title: item.title, reasons: [item.reason], checks: [
+                            .init(kind: "sender", status: "matched", detail: "실제 발신번호를 공식 기부 문의 번호와 대조했어요."),
+                            .init(kind: "duplicate", status: outcome == .duplicateEvidence ? "duplicate" : "clear",
+                                detail: outcome == .duplicateEvidence ? "다른 신청에서 동일한 자료의 사용 기록을 확인했어요." : "현재 확인 가능한 범위에서 다른 신청과의 중복 근거가 없어요.")
+                        ], sourceReferences: [
+                            .init(id: "postech-giving", url: "https://vision.postech.ac.kr/web/?sub=contract&top=participation",
+                                title: "POSTECH 발전기금 공식 안내", kind: "official", verifiedAt: "2026-11-05")
+                        ])
+                }
+                let screen = ScrollView {
+                    OiDonationEvidenceResult(review: review).padding(20)
+                }.background(Color.white).foregroundStyle(.black)
+                try await capture(screen, name: "donation-semantic-" + item.name,
+                    variant: variant, defaults: fixture.defaults, attach: true)
+            }
+        }
+    }
+
     func testMYHouseArtworkDoesNotRevealImageMatte() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }

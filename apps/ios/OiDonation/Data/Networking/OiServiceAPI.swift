@@ -89,7 +89,11 @@ struct OiServiceAPI {
         let review = try decoder.decode(OiDonationEvidenceReview.self, from: response)
         guard review.reviewType == "donation_evidence", review.evidenceId == evidence.id,
               review.submittedAt == evidence.submittedAt, review.humanReviewRequired,
-              !review.authenticityVerified else { throw OiServiceError.conflict }
+              !review.authenticityVerified, review.summary?.isConsistent ?? true else { throw OiServiceError.conflict }
+        if review.summary?.sufficientEvidence == true {
+            guard review.assessment.verdict == .noObviousSigns, review.assessment.readability == .readable,
+                  review.assessment.findings.isEmpty else { throw OiServiceError.conflict }
+        }
         return review
     }
 

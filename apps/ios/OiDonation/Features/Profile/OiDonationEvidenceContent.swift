@@ -85,7 +85,7 @@ struct OiDonationEvidenceContent: View {
                         }
                     }
                 }
-                if let review { reviewContent(review) }
+                if let review { OiDonationEvidenceResult(review: review) }
                 Text("AI 검사는 참고 결과예요. 글 작성 승인은 운영자 검토 후 부여되며, 학교의 공식 납입 확인이나 영수증 발급과는 달라요.")
                     .font(CampusStyle.body(13)).foregroundStyle(.secondary)
             }
@@ -141,23 +141,6 @@ struct OiDonationEvidenceContent: View {
         }
     }
 
-    private func reviewContent(_ review: OiDonationEvidenceReview) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("AI 참고 검사 결과").font(CampusStyle.semibold(20)).accessibilityAddTraits(.isHeader)
-            Text(review.assessment.title).font(CampusStyle.medium(18))
-            ForEach(Array(review.assessment.findings.enumerated()), id: \.offset) { _, finding in
-                Text("\(finding.location): \(finding.observation)")
-            }
-            ForEach(Array(review.assessment.limitations.enumerated()), id: \.offset) { _, text in Text(text) }
-            Text("추가 확인 사항").font(CampusStyle.semibold(16))
-            ForEach(Array(review.assessment.manualChecks.enumerated()), id: \.offset) { _, text in Text(text) }
-            Text(review.notice).foregroundStyle(.secondary)
-        }.font(CampusStyle.body(14)).fixedSize(horizontal: false, vertical: true)
-            .padding(20).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(white: 0.96), in: RoundedRectangle(cornerRadius: 20))
-            .accessibilityIdentifier("donation.evidence.aiResult")
-    }
-
     static func statusTitle(_ status: String) -> String {
         switch status {
         case "draft": "접수 준비"
@@ -181,6 +164,109 @@ struct OiDonationEvidenceContent: View {
         formatter.timeZone = TimeZone(identifier: "Asia/Seoul")
         formatter.dateFormat = "yyyy년 M월 d일 EEEE HH:mm"
         return formatter.string(from: date)
+    }
+}
+
+struct OiDonationEvidenceResult: View {
+    let review: OiDonationEvidenceReview
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("기부 증빙 검사 결과").font(CampusStyle.semibold(20)).accessibilityAddTraits(.isHeader)
+            if let summary = review.summary {
+                summaryContent(summary)
+            } else {
+                Text("시각적 참고 검사").font(CampusStyle.medium(18))
+                Text("이전 검사 결과에는 발신번호·기부 완료·중복 여부를 종합한 증빙 판정이 없어요.")
+                    .foregroundStyle(.secondary)
+            }
+            Text("자료의 시각적 상태").font(CampusStyle.semibold(16))
+            Text(review.assessment.title)
+            ForEach(Array(review.assessment.findings.enumerated()), id: \.offset) { _, finding in
+                Text("\(finding.location): \(finding.observation)")
+            }
+            ForEach(Array(review.assessment.limitations.enumerated()), id: \.offset) { _, text in Text(text) }
+            Text("추가 확인 사항").font(CampusStyle.semibold(16))
+            ForEach(Array(review.assessment.manualChecks.enumerated()), id: \.offset) { _, text in Text(text) }
+            Text(review.notice).foregroundStyle(.secondary)
+        }.font(CampusStyle.body(14)).fixedSize(horizontal: false, vertical: true)
+            .padding(20).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(white: 0.96), in: RoundedRectangle(cornerRadius: 20))
+            .accessibilityIdentifier("donation.evidence.aiResult")
+    }
+
+    private func summaryContent(_ summary: OiDonationEvidenceSummary) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(summary.outcome.label).font(CampusStyle.semibold(24))
+                .foregroundStyle(summary.sufficientEvidence ? CampusStyle.green : Color.primary)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("donation.evidence.decision.\(summary.outcome.rawValue)")
+            Text(summary.title).font(CampusStyle.medium(18))
+            ForEach(Array(summary.reasons.enumerated()), id: \.offset) { _, reason in Text(reason) }
+            if summary.sufficientEvidence {
+                Text("문자도 기부 완료 근거가 충분하면 증빙으로 인정해요. 글 작성은 운영자의 최종 승인 후 가능해요.")
+                    .font(CampusStyle.medium(14))
+            }
+            if !summary.checks.isEmpty {
+                Text("판정 근거").font(CampusStyle.semibold(16))
+                ForEach(Array(summary.checks.enumerated()), id: \.offset) { _, check in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(Self.checkTitle(check.kind)).font(CampusStyle.medium(14))
+                        Text(check.detail)
+                    }.accessibilityElement(children: .combine)
+                }
+            }
+            if !summary.sourceReferences.isEmpty {
+                Text("대조한 출처").font(CampusStyle.semibold(16))
+                ForEach(Array(summary.sourceReferences.enumerated()), id: \.offset) { _, source in
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let url = source.safeURL {
+                            Link(source.title, destination: url)
+                                .frame(minHeight: 44, alignment: .leading)
+                        } else {
+                            Text(source.title)
+                        }
+                        Text("\(Self.sourceKind(source.kind)) · 확인일: \(Self.sourceDate(source.verifiedAt))").font(CampusStyle.body(12))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    private static func checkTitle(_ kind: String) -> String {
+        switch kind {
+        case "sender", "sender_phone": "실제 발신번호"
+        case "completion", "payment_status": "기부 완료 내용"
+        case "institution", "recipient": "기부처"
+        case "duplicate", "duplicates": "중복 자료"
+        case "visual", "manipulation": "수정 흔적"
+        case "source", "official_source": "공식 안내 대조"
+        case "case_reference", "references", "donor_reports": "기부 사례 대조"
+        case "chronology", "date": "날짜와 순서"
+        case "ownership": "제출자 확인"
+        default: "확인 항목"
+        }
+    }
+
+    private static func sourceDate(_ value: String) -> String {
+        let date = String(value.prefix(10))
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .gmt
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        return formatter.date(from: date) == nil ? "확인 필요" : date
+    }
+
+    private static func sourceKind(_ value: String) -> String {
+        switch value {
+        case "official", "official_source": "공식 안내"
+        case "confirmed_case", "verified_case": "확인된 사례"
+        case "public_report", "donor_report", "report": "참고 후기"
+        default: "참고 자료"
+        }
     }
 }
 
