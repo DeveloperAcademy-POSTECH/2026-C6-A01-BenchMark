@@ -383,10 +383,14 @@ struct OiStoryAttachmentSections: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 50) {
-            OiCreationSection(title: "사진 선택", hint: "(1장 이상, 15장 이내)") {
+            OiCreationSection(title: "사진 선택", hint: "(1장 이상, \(OiCreationStep.storyPhotoLimit)장 이내)") {
                 formButton(photoCount == 0 ? "사진 추가하기" : "선택한 사진 보기 · \(photoCount)장",
                            highlighted: false, action: onPhotos)
                     .accessibilityIdentifier("oi.story.editPhotos")
+                if photoCount > OiCreationStep.storyPhotoLimit {
+                    Text("계속하려면 사진을 \(OiCreationStep.storyPhotoLimit)장 이하로 줄여 주세요.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
             }
             OiCreationSection(title: "오이 위치 설정", titleSize: 30) {
                 Map(position: .constant(.region(MKCoordinateRegion(

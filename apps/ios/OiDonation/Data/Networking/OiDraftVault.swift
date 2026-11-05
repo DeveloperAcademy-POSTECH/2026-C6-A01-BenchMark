@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  OiDraftVault.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 10/28/26.
+//
 
 import Foundation
 
@@ -55,6 +60,14 @@ actor OiDraftVault {
 
     init(directory: URL? = nil) {
         self.directory = directory ?? URL.applicationSupportDirectory.appending(path: "oi-private-drafts", directoryHint: .isDirectory)
+    }
+
+    func purgeAccounts(_ owners: Set<UUID>) throws {
+        let files = FileManager.default
+        for owner in owners {
+            let folder = directory.appending(path: owner.uuidString, directoryHint: .isDirectory)
+            if files.fileExists(atPath: folder.path) { try files.removeItem(at: folder) }
+        }
     }
 
     private func ownerDirectory(_ owner: UUID) throws -> URL {
@@ -213,6 +226,17 @@ actor OiDraftVault {
 
     private func discardMarker(in folder: URL, id: UUID) -> URL {
         folder.appending(path: "discarded-draft-\(id.uuidString).json")
+    }
+
+    func schoolEvidenceReview(owner: UUID) throws -> OiSavedSchoolEvidenceReview? {
+        let url = try ownerDirectory(owner).appending(path: "school-evidence-review.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try JSONDecoder().decode(OiSavedSchoolEvidenceReview.self, from: Data(contentsOf: url))
+    }
+
+    func saveSchoolEvidenceReview(_ review: OiSavedSchoolEvidenceReview, owner: UUID) throws {
+        let url = try ownerDirectory(owner).appending(path: "school-evidence-review.json")
+        try write(JSONEncoder().encode(review), to: url)
     }
 
     func evidence(owner: UUID) throws -> OiEvidenceOperation? {

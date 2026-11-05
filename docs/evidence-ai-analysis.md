@@ -90,3 +90,7 @@ Needs confirmation:
 - 버튼 위치, 웹 CORS 허용 origin, 결과 보관 여부, 운영 배포와 전역 사용량 제한.
 
 공식 근거: [OpenAI 이미지 입력](https://developers.openai.com/api/docs/guides/images-vision), [파일 입력](https://developers.openai.com/api/docs/guides/file-inputs), [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs), [GPT-4.1](https://developers.openai.com/api/docs/models/gpt-4.1), [Supabase 인증](https://supabase.com/docs/guides/functions/auth).
+
+## 2026-11-05 제출자 즉시 검사 (#161)
+
+사용자 요청으로 `analyze-donation-evidence`를 추가한다. 기존 `analyze-evidence`의 운영자 전용 권한은 유지하고, 새 경로는 인증된 제출자 본인의 `pending` 자료만 허용한다. 두 경로는 동일한 `analyzeDocument`·프롬프트·판정 규격을 사용한다. 새 경로는 실제 납입/진위를 확인하거나 작성 권한을 부여하지 않는다. iOS가 비공개 접수 후 호출하며, 결과는 앱의 현재 화면에 표시한다. 원격 배포와 검증 상태는 [기부 인증 구현 기록](../apps/ios/docs/donation-verification-161.md)을 따른다.

@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  CucumberArtwork.swift
+//  OiDonationClip
+//
+//  Created by 이돈혁 on 11/2/26.
+//
 
 import ImageIO
 import UIKit

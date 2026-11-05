@@ -11,6 +11,13 @@ struct APIClient {
     }
 
     func send(_ request: URLRequest) async throws -> Data {
+        let (data, http) = try await response(request)
+        guard (200..<300).contains(http.statusCode) else { throw APIError.httpStatus(http.statusCode) }
+        return data
+    }
+
+    /// Exposes status/body to endpoint-specific error decoders after host validation.
+    func response(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         guard let url = request.url, url.scheme == "https",
               url.host?.lowercased() == approvedHost.lowercased(),
               url.user == nil, url.password == nil else { throw APIError.untrustedEndpoint }
@@ -19,8 +26,7 @@ struct APIClient {
         // Reject unexpected redirects before exposing data to repositories.
         guard http.url?.host?.lowercased() == approvedHost.lowercased(),
               http.url?.scheme == "https" else { throw APIError.untrustedEndpoint }
-        guard (200..<300).contains(http.statusCode) else { throw APIError.httpStatus(http.statusCode) }
-        return data
+        return (data, http)
     }
 }
 

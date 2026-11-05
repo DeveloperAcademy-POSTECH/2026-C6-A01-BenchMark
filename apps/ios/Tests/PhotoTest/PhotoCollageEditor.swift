@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  PhotoCollageEditor.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 10/21/26.
+//
 
 import PhotosUI
 import SwiftUI

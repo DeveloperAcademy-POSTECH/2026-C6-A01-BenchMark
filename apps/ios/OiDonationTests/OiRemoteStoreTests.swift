@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  OiRemoteStoreTests.swift
+//  OiDonationTests
+//
+//  Created by 이돈혁 on 10/28/26.
+//
 
 import XCTest
 import RealityKit
@@ -33,11 +38,61 @@ final class OiTestBackend {
         var unapprovedDraftsEnabled: Bool?
         var hasWritingGrant = true
         var nickname = "Owner A"
+        var farmName: String? = "오이"
+        var otherFarmName = "다른밭"
+        var profilePatchBodies: [[String: Any]] = []
+        var failFarmWrite = false
+        var mismatchedFarmReceipt = false
+        var holdFarmWrite = false
         var publicName = ""
         var department = ""
         var admissionYear = ""
         var schoolID: String?
+        var schoolProfileEnabled = false
+        var farmerOutfitEnabled = false
+        var farmerOutfit: [String: Any]?
+        var otherFarmerOutfit: [String: Any]?
+        var farmerOutfitReads = 0
+        var farmerOutfitWrites = 0
+        var farmerOutfitPayloads: [[String: Any]] = []
+        var failFarmerOutfitWrite = false
+        var mismatchedFarmerOutfitReceipt = false
+        var omitsFarmerOutfitReceiptField = false
+        var holdFarmerOutfitWrite = false
+        var schoolMetadataSchoolID: String? = "postech"
+        var includesSecondSchool = false
+        var schoolAdmissionYear: Int?
+        var schoolDepartment: String?
+        var schoolProfileReads = 0
+        var schoolProfileWrites = 0
+        var failSchoolProfileWrite = false
+        var mismatchedSchoolProfileReceipt = false
         var failReads = false
+        var isOperator = false
+        var failCapabilities = false
+        var reviewCount = 0
+        var failAfterReview = false
+        var loseReviewResponse = false
+        var holdReviewResponse = false
+        var ignoreStoryStatusFilter = false
+        var evidenceReviewCount = 0
+        var evidenceRPCMissing = false
+        var holdEvidenceRead = false
+        var history: [[String: Any]] = []
+        var failHistoryReads = false
+        var holdHistoryRead = false
+        var revokeOnDocumentRead = false
+        var analysisStatus = 200
+        var analysisError = "analysis_unavailable"
+        var analysisResult: [String: Any] = [:]
+        var analysisBodies: [[String: Any]] = []
+        var holdAnalysis = false
+        var changeEvidenceAfterAnalysis = false
+        var revokeAfterAnalysis = false
+        var auditRecords: [[String: Any]] = []
+        var auditBodies: [[String: Any]] = []
+        var auditStatus = 200
+        var holdAuditRead = false
         var failRefreshToken = false
         var failLogout = false
         var logoutScopes: [String?] = []
@@ -67,7 +122,7 @@ final class OiTestBackend {
     func snapshot() -> State { lock.lock(); defer { lock.unlock() }; return state }
     func releaseHeldRead() {
         let value = snapshot().held
-        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false; $0.holdCardSend = false }
+        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false; $0.holdReviewResponse = false; $0.holdEvidenceRead = false; $0.holdHistoryRead = false; $0.holdAnalysis = false; $0.holdAuditRead = false; $0.holdCardSend = false; $0.holdFarmWrite = false; $0.holdFarmerOutfitWrite = false }
         value?.0.respond(200, value?.1 ?? Data())
     }
     func install() { OiStoreURLProtocol.handle = { [weak self] request, client in self?.receive(request, client: client) } }
@@ -123,10 +178,45 @@ final class OiTestBackend {
         else if path.contains("/object/authenticated/") {
             let key = path.replacingOccurrences(of: "/storage/v1/object/authenticated/", with: "")
             bytes = state.uploads[key]; if bytes == nil { status = 404 }
+            if state.revokeOnDocumentRead { state.isOperator = false }
+        } else if path == "/functions/v1/delete-account" {
+            if body["account_id"] as? String == Self.owner.uuidString,
+               body["proof"] as? String == "token-a", body["consent"] as? Bool == true {
+                result = ["deleted": true, "apple_revocation_required": false, "deleted_member_ids": [Self.owner.uuidString]]
+            } else { status = 403 }
+        } else if path == "/functions/v1/analyze-evidence" {
+            state.analysisBodies.append(body)
+            status = state.analysisStatus
+            if status == 200 { result = state.analysisResult }
+            else { result = ["error": state.analysisError] }
+            if state.changeEvidenceAfterAnalysis { state.evidence?["submitted_at"] = "2026-11-04T03:00:00Z" }
+            if state.revokeAfterAnalysis { state.isOperator = false }
         } else if path.contains("/storage/v1/object/") {
             let key = path.replacingOccurrences(of: "/storage/v1/object/", with: "")
             if state.uploads[key] != nil { status = 409 }
             else { state.uploads[key] = raw; result = ["Key":key] }
+        } else if path.hasSuffix("/rpc/oi_review_evidence") {
+            let payload = body["p_payload"] as? [String: Any] ?? [:]
+            let wanted = payload["status"] as? String ?? ""
+            state.evidenceReviewCount += 1
+            if state.evidenceRPCMissing { status = 404 }
+            else if !state.isOperator { status = 403 }
+            else if state.evidence?["status"] as? String != payload["expected_status"] as? String ||
+                state.evidence?["object_path"] as? String != payload["expected_object_path"] as? String ||
+                state.evidence?["submitted_at"] as? String != payload["expected_submitted_at"] as? String ||
+                state.evidence?["reviewed_at"] as? String != payload["expected_reviewed_at"] as? String { status = 409 }
+            else {
+                state.evidence?["status"] = wanted
+                state.evidence?["review_note"] = payload["review_note"]
+                state.evidence?["reviewed_at"] = "2026-11-04T02:00:00Z"
+                state.evidence?["reviewer_id"] = owner.uuidString
+                if wanted == "revoked", state.story?["grant_id"] as? String == Self.grant.uuidString {
+                    state.story?["status"] = "hidden"
+                }
+                result = state.evidence ?? [:]
+                if state.failAfterReview { state.failReads = true }
+                if state.loseReviewResponse { status = 503; state.loseReviewResponse = false }
+            }
         } else if path.hasSuffix("/rpc/oi_mutate") {
             let payload = body["p_payload"] as? [String:Any] ?? [:]
             let action = body["p_action"] as? String ?? ""
@@ -148,6 +238,20 @@ final class OiTestBackend {
                 let nextRevision = (state.story?["revision"] as? Int ?? 0)+1
                 state.story?["revision"] = nextRevision
                 result = state.story ?? [:]
+            } else if action == "review_story" {
+                state.reviewCount += 1
+                let wanted = payload["status"] as? String ?? ""
+                if !state.isOperator { status = 403 }
+                else if state.story?["revision"] as? Int != payload["revision"] as? Int { status = 409 }
+                else if !["published", "hidden"].contains(wanted) { status = 400 }
+                else {
+                    state.story?["status"] = wanted
+                    let nextRevision = (state.story?["revision"] as? Int ?? 0) + 1
+                    state.story?["revision"] = nextRevision
+                    result = state.story ?? [:]
+                    if state.failAfterReview { state.failReads = true }
+                    if state.loseReviewResponse { status = 503; state.loseReviewResponse = false }
+                }
             } else if action == "start_evidence" {
                 let id = payload["id"] as? String ?? ""
                 state.requestIDs.insert(id)
@@ -160,49 +264,173 @@ final class OiTestBackend {
                 result = state.evidence ?? [:]
                 if state.loseEvidenceResponse { status = 503; state.loseEvidenceResponse = false }
             } else { result = ["id":payload["id"] ?? ""] }
+        } else if path.hasSuffix("/rpc/oi_operator_audit") {
+            state.auditBodies.append(body); status = state.auditStatus
+            if !state.isOperator { status = 403 }
+            let parser = ISO8601DateFormatter()
+            func date(_ value: String?) -> Date? {
+                guard let value else { return nil }
+                parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                if let date = parser.date(from: value) { return date }
+                parser.formatOptions = [.withInternetDateTime]
+                return parser.date(from: value)
+            }
+            let from = date(body["p_from"] as? String) ?? .distantPast
+            let until = date(body["p_until"] as? String) ?? .distantFuture
+            let cursorAt = date(body["p_cursor_at"] as? String)
+            let cursorID = Int64(body["p_cursor_id"] as? String ?? "") ?? .max
+            let category = body["p_category"] as? String ?? "all"
+            let limit = body["p_limit"] as? Int ?? 50
+            let matches = state.auditRecords.filter { row in
+                guard let created = date(row["created_at"] as? String) else { return false }
+                let id = Int64(row["id"] as? String ?? "") ?? 0
+                let action = row["action"] as? String ?? ""
+                let categoryMatches = category == "all" || category == "evidence" && action.hasPrefix("review_evidence:") ||
+                    category == "stories" && action == "review_story" || category == "accounts" && action == "merge_accounts"
+                let before = cursorAt.map { created < $0 || created == $0 && id < cursorID } ?? true
+                return created >= from && created < until && categoryMatches && before
+            }.sorted {
+                (date($0["created_at"] as? String) ?? .distantPast, Int64($0["id"] as? String ?? "") ?? 0) >
+                (date($1["created_at"] as? String) ?? .distantPast, Int64($1["id"] as? String ?? "") ?? 0)
+            }
+            let page = Array(matches.prefix(limit))
+            var cursor: Any = NSNull()
+            if matches.count > limit, let last = page.last { cursor = ["id": last["id"] ?? "", "created_at": last["created_at"] ?? ""] }
+            result = ["records": page, "next_cursor": cursor]
         } else if path.hasSuffix("/rpc/oi_capabilities") {
-            var capabilities: [String:Any] = ["operator":false,"coins_enabled":false]
+            if state.failCapabilities { status = 503 }
+            var capabilities: [String:Any] = ["operator":state.isOperator,"coins_enabled":false]
             if let enabled = state.unapprovedDraftsEnabled { capabilities["unapproved_drafts_enabled"] = enabled }
             if let canonical = state.canonicalAccountID {
                 capabilities["account_id"] = canonical.uuidString
                 capabilities["account_merge_enabled"] = true
                 capabilities["account_member_ids"] = [Self.owner.uuidString,Self.other.uuidString]
             }
+            if state.schoolProfileEnabled { capabilities["school_profile_enabled"] = true }
+            if state.farmerOutfitEnabled { capabilities["farmer_outfit_enabled"] = true }
+            capabilities["account_providers"] = ["apple"]
             result = capabilities
+        }
+        else if path.hasSuffix("/rpc/oi_farmer_outfit") || path.hasSuffix("/rpc/oi_save_farmer_outfit") {
+            let writing = path.hasSuffix("/rpc/oi_save_farmer_outfit")
+            if writing {
+                state.farmerOutfitWrites += 1
+                state.farmerOutfitPayloads.append(body)
+                if state.failFarmerOutfitWrite { status = 503 }
+                else if owner == Self.owner { state.farmerOutfit = body["p_outfit"] as? [String: Any] }
+                else { state.otherFarmerOutfit = body["p_outfit"] as? [String: Any] }
+            } else { state.farmerOutfitReads += 1 }
+            let receiptOwner = state.mismatchedFarmerOutfitReceipt ? Self.other : owner
+            var receipt: [String: Any] = ["account_id": receiptOwner.uuidString]
+            if !state.omitsFarmerOutfitReceiptField {
+                receipt["outfit"] = (owner == Self.owner ? state.farmerOutfit : state.otherFarmerOutfit) as Any? ?? NSNull()
+            }
+            result = receipt
+        }
+        else if path.hasSuffix("/rpc/oi_school_profile") || path.hasSuffix("/rpc/oi_update_school_profile") {
+            let writing = path.hasSuffix("/rpc/oi_update_school_profile")
+            if writing {
+                state.schoolProfileWrites += 1
+                if state.failSchoolProfileWrite { status = 503 }
+                else {
+                    state.schoolID = body["p_school_id"] as? String
+                    state.schoolMetadataSchoolID = state.schoolID
+                    state.schoolAdmissionYear = body["p_admission_year"] as? Int
+                    state.schoolDepartment = body["p_department"] as? String
+                }
+            } else { state.schoolProfileReads += 1 }
+            let receiptOwner = writing && state.mismatchedSchoolProfileReceipt ? Self.other : owner
+            result = ["id":receiptOwner.uuidString,"nickname":state.nickname,"farmer_asset":"OiFarmer",
+                "farm_name":owner == Self.owner ? state.farmName as Any? ?? NSNull() : state.otherFarmName,
+                "school_id":state.schoolID as Any? ?? NSNull(),
+                "public_name":state.publicName, "department":state.department, "admission_year":state.admissionYear,
+                "school_admission_year":owner == Self.owner && state.schoolID == state.schoolMetadataSchoolID ? state.schoolAdmissionYear as Any? ?? NSNull() : NSNull(),
+                "school_department":owner == Self.owner && state.schoolID == state.schoolMetadataSchoolID ? state.schoolDepartment as Any? ?? NSNull() : NSNull()]
         }
         else if path.hasSuffix("/rpc/oi_collection_metrics") { result = [] }
         else if path.hasSuffix("/oi_stories") {
             if state.failReads { status = 503 }
-            else if let story = state.story, story["user_id"] as? String == owner.uuidString { result = [story] }
-        } else if path.hasSuffix("/oi_schools") { result = [["id":"postech","name":"POSTECH"]] }
+            else if let story = state.story, state.isOperator || story["user_id"] as? String == owner.uuidString {
+                let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems ?? []
+                let id = query.first { $0.name == "id" }?.value
+                let filter = query.first { $0.name == "status" }?.value
+                let matchesID = id == nil || id == "eq.\(story["id"] as? String ?? "")"
+                let matchesState = state.ignoreStoryStatusFilter || filter == nil || filter == "eq.\(story["status"] as? String ?? "")" ||
+                    (filter == "in.(pending,published,hidden)" && ["pending", "published", "hidden"].contains(story["status"] as? String ?? ""))
+                if matchesID && matchesState { result = [story] }
+            }
+        } else if path.hasSuffix("/oi_schools") {
+            result = [["id":"postech","name":"POSTECH"]] + (state.includesSecondSchool ? [["id":"other","name":"Other School"]] : [])
+        }
         else if path.hasSuffix("/oi_regions") { result = [["id":"pond","school_id":"postech","name":"Pond"]] }
         else if path.hasSuffix("/oi_assets") { result = [["id":"OiCats","kind":"cucumber","name":"Cats"]] }
         else if path.hasSuffix("/oi_profiles") {
             if request.httpMethod == "PATCH" {
+                state.profilePatchBodies.append(body)
+                if let farm = body["farm_name"] as? String {
+                    if state.failFarmWrite { status = 503 }
+                    else if owner == Self.owner { state.farmName = farm }
+                    else { state.otherFarmName = farm }
+                }
                 state.nickname = body["nickname"] as? String ?? state.nickname
                 state.publicName = body["public_name"] as? String ?? state.publicName
                 state.department = body["department"] as? String ?? state.department
                 state.admissionYear = body["admission_year"] as? String ?? state.admissionYear
                 if let school = body["school_id"] { state.schoolID = school as? String }
             }
-            result = [["id":owner.uuidString,"nickname":owner == Self.owner ? state.nickname : "Owner B","farmer_asset":"OiFarmer", "school_id":state.schoolID as Any? ?? NSNull(),
-                       "public_name":state.publicName, "department":state.department, "admission_year":state.admissionYear]]
+            let receiptOwner = body["farm_name"] != nil && state.mismatchedFarmReceipt ? Self.other : owner
+            result = [["id":receiptOwner.uuidString,"nickname":owner == Self.owner ? state.nickname : "Owner B",
+                "farmer_asset":"OiFarmer", "school_id":state.schoolID as Any? ?? NSNull(),
+                "farm_name":owner == Self.owner ? state.farmName as Any? ?? NSNull() : state.otherFarmName,
+                "public_name":state.publicName, "department":state.department, "admission_year":state.admissionYear]]
         } else if path.hasSuffix("/oi_story_media") {
             result = state.paths.enumerated().map { position, path in
                 ["id":UUID().uuidString,"story_id":state.story?["id"] ?? "","object_path":path,"position":position]
             }
-        } else if path.hasSuffix("/oi_evidence_requests"), let evidence = state.evidence { result = [evidence] }
+        } else if path.hasSuffix("/oi_evidence_history") {
+            if state.failHistoryReads { status = 503 }
+            else {
+                let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems ?? []
+                func value(_ name: String) -> String? { query.first { $0.name == name }?.value }
+                let filtered = state.history.filter { row in
+                    (value("id") == nil || value("id") == "eq.\(row["id"] as? String ?? "")") &&
+                    (value("request_id") == nil || value("request_id") == "eq.\(row["request_id"] as? String ?? "")")
+                }.sorted { ($0["recorded_at"] as? String ?? "", $0["id"] as? String ?? "") > ($1["recorded_at"] as? String ?? "", $1["id"] as? String ?? "") }
+                result = Array(filtered.dropFirst(Int(value("offset") ?? "0") ?? 0).prefix(Int(value("limit") ?? "200") ?? 200))
+            }
+        } else if path.hasSuffix("/oi_evidence_requests"), let evidence = state.evidence {
+            if state.failReads { status = 503 }
+            else {
+                let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems ?? []
+                let id = query.first { $0.name == "id" }?.value
+                if id == nil || id == "eq.\(evidence["id"] as? String ?? "")" { result = [evidence] }
+            }
+        }
         else if path.hasSuffix("/oi_writing_grants") {
             if let url = request.url,
                let owner = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "user_id" })?.value {
                 state.grantOwnerQueries.append(owner)
             }
             result = state.hasWritingGrant ? [["id":Self.grant.uuidString,"story_limit":5]] : []
+            if let url = request.url,
+               URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains(where: { $0.name == "evidence_id" }) == true {
+                let evidenceStatus = state.evidence?["status"] as? String
+                result = evidenceStatus == "approved" || evidenceStatus == "revoked"
+                    ? [["id":Self.grant.uuidString,"story_limit":3,"revoked_at":evidenceStatus == "revoked" ? "2026-11-04T02:00:00Z" as Any : NSNull()]] : []
+            }
         }
         let data = bytes ?? ((try? JSONSerialization.data(withJSONObject: result)) ?? Data())
         if (path.hasSuffix("/oi_stories") && owner == Self.owner && state.holdOwnerRead)
+            || (path.hasSuffix("/rpc/oi_mutate") && body["p_action"] as? String == "review_story" && state.holdReviewResponse)
+            || (path.hasSuffix("/rpc/oi_review_evidence") && state.holdReviewResponse)
+            || (path.hasSuffix("/oi_evidence_requests") && state.holdEvidenceRead)
+            || (path.hasSuffix("/oi_evidence_history") && state.holdHistoryRead)
+            || (path == "/functions/v1/analyze-evidence" && state.holdAnalysis)
+            || (path.hasSuffix("/rpc/oi_operator_audit") && state.holdAuditRead)
             || (path.hasSuffix("/rpc/oi_capabilities") && state.holdPostMergeRead && state.mergeConfirmCount > 0)
-            || (path.hasSuffix("/rpc/oi_request_card") && state.holdCardSend) {
+            || (path.hasSuffix("/rpc/oi_request_card") && state.holdCardSend)
+            || (path.hasSuffix("/oi_profiles") && body["farm_name"] != nil && state.holdFarmWrite)
+            || (path.hasSuffix("/rpc/oi_save_farmer_outfit") && state.holdFarmerOutfitWrite) {
             state.held = (client,data)
             let notify = state.didHold
             lock.unlock(); notify?(); return
@@ -240,7 +468,922 @@ final class OiControlledAuthentication: OiAuthenticating {
     }
 }
 
+@MainActor private struct OiDeletionAuthentication: OiAuthenticating {
+    func signIn(api: OiServiceAPI) async throws -> OiSession {
+        try XCTUnwrap(OiMemorySession().read())
+    }
+}
+
 final class OiRemoteStoreTests: XCTestCase {
+    @MainActor func testConfirmedDeletionPurgesOnlyDeletedAccountLocalDrafts() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        let drafts = OiDraftVault(directory: directory)
+        let ours = OiLocalDraft(draft: draft(), version: 1)
+        let theirs = OiLocalDraft(draft: draft(), version: 1)
+        try await drafts.save(ours, owner: OiTestBackend.owner)
+        try await drafts.save(theirs, owner: OiTestBackend.other)
+        await store.start()
+        let receipt = try await store.deleteAccount(using: OiDeletionAuthentication())
+        XCTAssertTrue(receipt.deleted)
+        XCTAssertNil(store.account)
+        XCTAssertNil(vault.value)
+        let removed = try await drafts.load(owner: OiTestBackend.owner, id: ours.id)
+        let preserved = try await drafts.load(owner: OiTestBackend.other, id: theirs.id)
+        XCTAssertNil(removed)
+        XCTAssertNotNil(preserved)
+    }
+
+    private func auditFixture(_ id: Int) -> [String: Any] {
+        ["id": String(9_007_199_254_740_990 + id), "actor_id": OiTestBackend.owner.uuidString,
+         "action": id % 2 == 0 ? "review_evidence:approved" : "review_story",
+         "target_id": OiTestBackend.grant.uuidString, "created_at": "2026-11-04T00:00:00Z"]
+    }
+    @MainActor private func auditQuery(_ category: OiAuditCategory = .all) throws -> OiAuditQuery {
+        let parser = ISO8601DateFormatter()
+        return try OiAuditQuery(from: XCTUnwrap(parser.date(from: "2026-11-03T00:00:00Z")),
+                               until: XCTUnwrap(parser.date(from: "2026-11-05T00:00:00Z")), category: category)
+    }
+
+    @MainActor func testOperatorAuditPagesKeepCursorAndApplyCategory() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.auditRecords = (1...52).map(auditFixture) }
+        await store.start()
+        let model = OiOperatorAuditModel()
+        await model.reload(try auditQuery(), using: store)
+        XCTAssertEqual(model.records.count, 50); XCTAssertNotNil(model.nextCursor)
+        XCTAssertEqual(model.records.first?.id, "9007199254741042")
+        XCTAssertEqual(backend.snapshot().auditBodies.count, 1, "Do not automatically fetch every page")
+        backend.configure { $0.auditRecords.append(auditFixture(53)) }
+        await model.loadMore(using: store)
+        XCTAssertEqual(model.records.count, 52); XCTAssertNil(model.nextCursor)
+        XCTAssertEqual(Set(model.records.map(\.id)).count, 52)
+        let body = try XCTUnwrap(backend.snapshot().auditBodies.last)
+        XCTAssertEqual(body["p_limit"] as? Int, 50)
+        XCTAssertNotNil(body["p_cursor_at"]); XCTAssertNotNil(body["p_cursor_id"] as? String)
+        await model.reload(try auditQuery(.evidence), using: store)
+        XCTAssertEqual(model.records.count, 26)
+        XCTAssertTrue(model.records.allSatisfy { $0.action == "review_evidence:approved" })
+        XCTAssertNil(backend.snapshot().auditBodies.last?["p_cursor_id"])
+        XCTAssertNil(model.error)
+    }
+
+    @MainActor func testOperatorAuditPageFailureRetryMissingRPCAndRights() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.auditRecords = (1...52).map(auditFixture) }
+        await store.start()
+        let model = OiOperatorAuditModel()
+        await model.reload(try auditQuery(), using: store)
+        backend.configure { $0.auditStatus = 503 }
+        await model.loadMore(using: store)
+        XCTAssertEqual(model.records.count, 50); XCTAssertNotNil(model.nextCursor); XCTAssertNotNil(model.error)
+        backend.configure { $0.auditStatus = 200 }
+        await model.loadMore(using: store)
+        XCTAssertEqual(model.records.count, 52); XCTAssertNil(model.error)
+        backend.configure { $0.auditStatus = 404 }
+        await model.reload(try auditQuery(), using: store)
+        XCTAssertTrue(model.records.isEmpty); XCTAssertTrue(model.error?.contains("배포") == true)
+        backend.configure { $0.auditStatus = 200; $0.isOperator = false }
+        let count = backend.snapshot().auditBodies.count
+        await model.reload(try auditQuery(), using: store)
+        XCTAssertTrue(model.records.isEmpty); XCTAssertFalse(model.hasLoaded)
+        XCTAssertEqual(backend.snapshot().auditBodies.count, count)
+    }
+
+    @MainActor func testOperatorAuditOldAccountResponseIsDiscarded() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.auditRecords = [auditFixture(1)] }
+        await store.start()
+        let model = OiOperatorAuditModel()
+        let query = try auditQuery()
+        let held = expectation(description: "audit pending")
+        backend.configure { $0.holdAuditRead = true; $0.didHold = { held.fulfill() } }
+        let read = Task { await model.reload(query, using: store) }
+        await fulfillment(of: [held], timeout: 5)
+        model.invalidate()
+        await store.signOut()
+        backend.releaseHeldRead()
+        await read.value
+        XCTAssertTrue(model.records.isEmpty); XCTAssertFalse(model.hasLoaded); XCTAssertNil(model.error)
+    }
+
+    @MainActor func testOperatorAuditDuplicatePageLoadIsBlocked() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.auditRecords = (1...52).map(auditFixture) }
+        await store.start()
+        let model = OiOperatorAuditModel()
+        await model.reload(try auditQuery(), using: store)
+        let held = expectation(description: "next audit page pending")
+        backend.configure { $0.holdAuditRead = true; $0.didHold = { held.fulfill() } }
+        let first = Task { await model.loadMore(using: store) }
+        await fulfillment(of: [held], timeout: 5)
+        await model.loadMore(using: store)
+        XCTAssertEqual(backend.snapshot().auditBodies.count, 2)
+        backend.releaseHeldRead()
+        await first.value
+        XCTAssertEqual(model.records.count, 52)
+    }
+
+    @MainActor func testOperatorAuditNewQueryRejectsPreviousQueryResponse() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.auditRecords = [auditFixture(2)] }
+        await store.start()
+        let model = OiOperatorAuditModel()
+        let query = try auditQuery()
+        let held = expectation(description: "old audit query pending")
+        backend.configure { $0.holdAuditRead = true; $0.didHold = { held.fulfill() } }
+        let old = Task { await model.reload(query, using: store) }
+        await fulfillment(of: [held], timeout: 5)
+        backend.configure { $0.holdAuditRead = false; $0.auditRecords = [auditFixture(3)] }
+        await model.reload(try auditQuery(.stories), using: store)
+        backend.releaseHeldRead()
+        await old.value
+        XCTAssertEqual(model.query?.category, .stories)
+        XCTAssertEqual(model.records.map(\.action), ["review_story"])
+    }
+
+    @MainActor func testOperatorAuditRejectsInvalidRangesAndPagesWithoutInventingDecision() throws {
+        let query = try auditQuery()
+        XCTAssertThrowsError(try OiAuditQuery(from: query.from, until: query.from, category: .all))
+        XCTAssertThrowsError(try OiAuditQuery(from: query.from, until: query.from.addingTimeInterval(32 * 86400), category: .all))
+        XCTAssertNoThrow(try OiAuditQuery(from: query.from, until: query.from.addingTimeInterval(31 * 86400), category: .all))
+        let record = OiAuditRecord(id: "9007199254741042", actorId: OiTestBackend.owner, action: "review_story",
+                                   targetId: OiTestBackend.grant, createdAt: "2026-11-04T00:00:00Z")
+        XCTAssertEqual(record.title, "이야기 공개 상태 검토")
+        XCTAssertNoThrow(try OiAuditPage(records: [record], nextCursor: nil).validate(query: query, after: nil))
+        XCTAssertThrowsError(try OiAuditPage(records: [record, record], nextCursor: nil).validate(query: query, after: nil))
+        let cursor = OiAuditCursor(createdAt: record.createdAt, id: record.id)
+        XCTAssertThrowsError(try OiAuditPage(records: [record], nextCursor: cursor).validate(query: query, after: nil))
+        let unknown = OiAuditRecord(id: "1", actorId: OiTestBackend.owner, action: "future_action", targetId: OiTestBackend.grant, createdAt: record.createdAt)
+        XCTAssertEqual(unknown.title, "기타 처리 (future_action)")
+        XCTAssertEqual(unknown.targetLabel, "대상 ID")
+    }
+
+    @MainActor func testOperatorAuditScreenLayouts() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        for name in ["records", "empty", "error", "accessibility"] {
+            backend.configure { $0.auditRecords = name == "empty" ? [] : [auditFixture(1), auditFixture(2)]; $0.auditStatus = name == "error" ? 404 : 200 }
+            let window = UIWindow(windowScene: scene)
+            let controller = UIHostingController(rootView: NavigationStack { OiOperatorAuditView(remote: store) }
+                .environment(\.scenePhase, .active).environment(\.locale, Locale(identifier: "ko_KR"))
+                .environment(\.dynamicTypeSize, name == "accessibility" ? .accessibility5 : .large)
+                .preferredColorScheme(.light))
+            window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+            window.rootViewController = controller; window.makeKeyAndVisible()
+            try await Task.sleep(for: .milliseconds(400))
+            controller.view.layoutIfNeeded()
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+            }
+            let attachment = XCTAttachment(image: image); attachment.name = "operator-audit-\(name)"; attachment.lifetime = .keepAlways; add(attachment)
+            window.isHidden = true; window.rootViewController = nil
+        }
+    }
+
+    private func historyFixture() -> [String: Any] {
+        ["id": UUID().uuidString, "request_id": OiTestBackend.grant.uuidString,
+         "status": "changes_requested", "object_path": "\(OiTestBackend.owner.uuidString.lowercased())/\(OiTestBackend.grant.uuidString.lowercased())/previous.png",
+         "review_note": "가상 증빙을 보완해 주세요", "reviewer_id": OiTestBackend.other.uuidString,
+         "recorded_at": "2026-11-04T00:00:00Z"]
+    }
+
+    private func analysisFixture(verdict: String = "inconclusive") -> [String: Any] {
+        ["evidence_id": OiTestBackend.grant.uuidString.lowercased(), "submitted_at": "2026-11-04T01:00:00.000Z",
+         "sha256": String(repeating: "a", count: 64), "analyzed_at": "2026-11-04T02:00:00Z",
+         "model": "synthetic-model", "prompt_version": "evidence-visual-review-v1",
+         "human_review_required": true, "authenticity_verified": false,
+         "notice": "AI 참고 자료이며 원본 진위·실제 납입 확인을 보증하지 않습니다.",
+         "assessment": ["verdict": verdict, "readability": verdict == "inconclusive" ? "limited" : "readable",
+                        "findings": verdict == "suspicious" ? [["category": "visual_edit", "location": "가상 금액 영역", "observation": "가상 문자의 경계가 다름"]] : [],
+                        "limitations": ["가상 자료만 분석한 결과입니다."], "manual_checks": ["원본과 기부 내역을 직접 확인하세요."]]]
+    }
+
+    @MainActor func testOperatorEvidenceHistoryPaginationFiltersAndFailures() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        var rows = (0..<205).map { _ in historyFixture() }
+        var unrelated = historyFixture(); unrelated["request_id"] = UUID().uuidString; rows.append(unrelated)
+        backend.configure { $0.isOperator = true; $0.history = rows }
+        await store.start()
+        let model = OiOperatorEvidenceHistoryModel()
+        await model.load(OiTestBackend.grant, using: store)
+        XCTAssertEqual(model.rows.count, 205); XCTAssertTrue(model.hasLoaded)
+        XCTAssertTrue(model.rows.allSatisfy { $0.requestId == OiTestBackend.grant })
+        XCTAssertEqual(model.rows.first?.status, "changes_requested")
+        backend.configure { $0.history = [] }
+        await model.load(OiTestBackend.grant, using: store)
+        XCTAssertTrue(model.hasLoaded); XCTAssertTrue(model.rows.isEmpty)
+        backend.configure { $0.failHistoryReads = true }
+        await model.load(OiTestBackend.grant, using: store)
+        XCTAssertFalse(model.hasLoaded); XCTAssertNotNil(model.error)
+        backend.configure { $0.failHistoryReads = false; $0.isOperator = false }
+        await model.load(OiTestBackend.grant, using: store)
+        XCTAssertTrue(model.rows.isEmpty); XCTAssertNotNil(model.error)
+    }
+
+    @MainActor func testOperatorEvidenceHistoryOpensArchivedOriginalAndRechecksRights() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        let history = historyFixture()
+        let path = try XCTUnwrap(history["object_path"] as? String)
+        let bytes = Data([0xff, 0xd8, 0xff, 0x00])
+        backend.configure {
+            $0.isOperator = true; $0.evidence = evidenceFixture(); $0.history = [history]
+            $0.uploads["oi-evidence/\(path)"] = bytes
+        }
+        await store.start()
+        let entries = try await store.operatorEvidenceHistory(OiTestBackend.grant)
+        let entry = try XCTUnwrap(entries.first)
+        let document = try await store.operatorEvidenceHistoryDocument(entry)
+        XCTAssertEqual(document.data, bytes, "Archived path, rather than current submission, must be opened")
+        backend.configure { $0.history[0]["object_path"] = "changed.png" }
+        do { _ = try await store.operatorEvidenceHistoryDocument(entry); XCTFail("Changed history must be rejected") }
+        catch OiServiceError.conflict {}
+        backend.configure { $0.history = [history]; $0.revokeOnDocumentRead = true }
+        do { _ = try await store.operatorEvidenceHistoryDocument(entry); XCTFail("Rights must be rechecked before return") }
+        catch OiOperatorStoryError.accessDenied {}
+    }
+
+    @MainActor func testOperatorEvidenceAnalysisUsesIDOnlyAndNeverApproves() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
+        await store.start()
+        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
+        XCTAssertTrue(backend.snapshot().analysisBodies.isEmpty)
+        let model = OiOperatorEvidenceAnalysisModel()
+        for verdict in ["suspicious", "no_obvious_signs", "inconclusive"] {
+            backend.configure { $0.analysisResult = analysisFixture(verdict: verdict) }
+            await model.analyze(row, using: store)
+            XCTAssertEqual(model.result?.assessment.verdict.rawValue, verdict)
+            XCTAssertNil(model.error)
+        }
+        let bodies = backend.snapshot().analysisBodies
+        XCTAssertEqual(bodies.count, 3)
+        XCTAssertTrue(bodies.allSatisfy { Set($0.keys) == ["evidence_id"] && $0["evidence_id"] as? String == row.id.uuidString.lowercased() })
+        XCTAssertEqual(backend.snapshot().evidence?["status"] as? String, "pending")
+        XCTAssertEqual(backend.snapshot().evidenceReviewCount, 0)
+        XCTAssertEqual(backend.snapshot().reviewCount, 0)
+        backend.configure { $0.evidence?["submitted_at"] = "2026-11-04T03:00:00Z" }
+        await model.revalidate(row, using: store)
+        XCTAssertNil(model.result); XCTAssertNotNil(model.error)
+    }
+
+    @MainActor func testOperatorEvidenceAnalysisErrorsAreDistinctAndDoNotRetry() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
+        await store.start()
+        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
+        let model = OiOperatorEvidenceAnalysisModel()
+        for (status, code, expected) in [(404, "NOT_FOUND", "배포"), (503, "analysis_not_configured", "설정"),
+                                         (429, "analysis_busy", "한도"), (504, "analysis_timeout", "초과"),
+                                         (422, "analysis_refused", "자료"), (502, "invalid_analysis_response", "완료하지 못"),
+                                         (409, "evidence_changed", "새로고침")] {
+            backend.configure { $0.analysisStatus = status; $0.analysisError = code }
+            let count = backend.snapshot().analysisBodies.count
+            await model.analyze(row, using: store)
+            XCTAssertNil(model.result); XCTAssertTrue(model.error?.contains(expected) == true, model.error ?? "No error")
+            XCTAssertEqual(backend.snapshot().analysisBodies.count, count + 1)
+        }
+    }
+
+    @MainActor func testOperatorEvidenceAnalysisRejectsStaleAndRevokedResults() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture(); $0.analysisResult = analysisFixture() }
+        await store.start()
+        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
+        let model = OiOperatorEvidenceAnalysisModel()
+        backend.configure { $0.changeEvidenceAfterAnalysis = true }
+        await model.analyze(row, using: store)
+        XCTAssertNil(model.result); XCTAssertNotNil(model.error)
+        backend.configure { $0.changeEvidenceAfterAnalysis = false; $0.evidence = evidenceFixture(); $0.revokeAfterAnalysis = true }
+        await model.analyze(row, using: store)
+        XCTAssertNil(model.result); XCTAssertFalse(store.isOperator)
+        XCTAssertEqual(backend.snapshot().evidenceReviewCount, 0)
+    }
+
+    @MainActor func testOperatorEvidenceAnalysisRejectsUnsafeOrMalformedContract() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
+        await store.start()
+        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
+        let model = OiOperatorEvidenceAnalysisModel()
+        for key in ["authenticity_verified", "human_review_required", "evidence_id", "sha256", "assessment"] {
+            var fixture = analysisFixture()
+            switch key {
+            case "authenticity_verified": fixture[key] = true
+            case "human_review_required": fixture[key] = false
+            case "evidence_id": fixture[key] = UUID().uuidString
+            default: fixture[key] = "invalid"
+            }
+            backend.configure { $0.analysisResult = fixture }
+            await model.analyze(row, using: store)
+            XCTAssertNil(model.result); XCTAssertNotNil(model.error)
+        }
+    }
+
+    @MainActor func testOperatorEvidenceAnalysisDuplicateInvalidationAndAccountChange() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture(); $0.analysisResult = analysisFixture() }
+        await store.start()
+        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
+        let model = OiOperatorEvidenceAnalysisModel()
+        let held = expectation(description: "analysis pending")
+        backend.configure { $0.holdAnalysis = true; $0.didHold = { held.fulfill() } }
+        let first = Task { await model.analyze(row, using: store) }
+        await fulfillment(of: [held], timeout: 5)
+        await model.analyze(row, using: store)
+        XCTAssertEqual(backend.snapshot().analysisBodies.count, 1)
+        model.invalidate()
+        await store.signOut()
+        backend.releaseHeldRead()
+        await first.value
+        XCTAssertNil(model.result); XCTAssertNil(model.error); XCTAssertFalse(model.isLoading)
+    }
+
+    @MainActor func testOperatorEvidenceAnalysisCancellationDoesNotCreateVerdict() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture(); $0.analysisResult = analysisFixture() }
+        await store.start()
+        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
+        let model = OiOperatorEvidenceAnalysisModel()
+        let held = expectation(description: "cancelable analysis")
+        backend.configure { $0.holdAnalysis = true; $0.didHold = { held.fulfill() } }
+        let request = Task { await model.analyze(row, using: store) }
+        await fulfillment(of: [held], timeout: 5)
+        request.cancel()
+        await request.value
+        backend.releaseHeldRead()
+        XCTAssertNil(model.result); XCTAssertNil(model.error); XCTAssertFalse(model.isLoading)
+        XCTAssertEqual(backend.snapshot().analysisBodies.count, 1)
+    }
+
+    @MainActor func testOperatorEvidenceSupplementScreenLayouts() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture(); $0.history = [historyFixture()] }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        for name in ["history", "history-empty", "history-error", "analysis-suspicious", "analysis-no_obvious_signs", "analysis-inconclusive", "analysis-accessibility"] {
+            backend.configure { $0.history = name == "history-empty" ? [] : [historyFixture()]; $0.failHistoryReads = name == "history-error" }
+            let view: AnyView
+            if name.hasPrefix("history") { view = AnyView(NavigationStack { OiOperatorEvidenceHistoryView(remote: store, evidenceID: OiTestBackend.grant) }) }
+            else {
+                let verdict = name == "analysis-accessibility" ? "suspicious" : String(name.dropFirst("analysis-".count))
+                let result = try decoder.decode(OiEvidenceAnalysis.self, from: JSONSerialization.data(withJSONObject: analysisFixture(verdict: verdict)))
+                view = AnyView(NavigationStack { List { Section("AI 참고 분석") { OiEvidenceAnalysisResultView(result: result) } }.navigationTitle("증빙 검토 상세") })
+            }
+            let window = UIWindow(windowScene: scene)
+            let controller = UIHostingController(rootView: view.environment(\.scenePhase, .active)
+                .environment(\.locale, Locale(identifier: "ko_KR"))
+                .environment(\.dynamicTypeSize, name.hasSuffix("accessibility") ? .accessibility5 : .large)
+                .preferredColorScheme(.light))
+            window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+            window.rootViewController = controller; window.makeKeyAndVisible()
+            try await Task.sleep(for: .milliseconds(400))
+            controller.view.layoutIfNeeded()
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+            }
+            let attachment = XCTAttachment(image: image); attachment.name = "operator-supplement-\(name)"; attachment.lifetime = .keepAlways; add(attachment)
+            window.isHidden = true; window.rootViewController = nil
+        }
+        XCTAssertTrue(backend.snapshot().analysisBodies.isEmpty, "Rendering never automatically calls AI")
+    }
+
+    private func evidenceFixture(status: String = "pending") -> [String: Any] {
+        ["id": OiTestBackend.grant.uuidString, "user_id": OiTestBackend.owner.uuidString,
+         "storage_owner_id": OiTestBackend.owner.uuidString, "status": status,
+         "object_path": "\(OiTestBackend.owner.uuidString.lowercased())/\(OiTestBackend.grant.uuidString.lowercased())/synthetic.png",
+         "submitted_at": "2026-11-04T01:00:00Z"]
+    }
+
+    @MainActor func testOperatorEvidenceListDetailAndAllDecisions() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
+        await store.start()
+        let list = OiOperatorEvidenceListModel()
+        await list.load(using: store)
+        XCTAssertEqual(list.filtered.count, 1)
+        let model = OiOperatorEvidenceModel()
+        for decision in OiEvidenceDecision.allCases {
+            backend.configure { $0.evidence = evidenceFixture(status: decision == .revoked ? "approved" : "pending") }
+            await model.load(OiTestBackend.grant, using: store)
+            let snapshot = try XCTUnwrap(model.detail?.evidence)
+            let review = try OiEvidenceReview(snapshot: snapshot, decision: decision, note: "가상 자료 검토 의견", count: "3")
+            let result = await model.review(review, using: store)
+            let receipt = try XCTUnwrap(result)
+            XCTAssertEqual(receipt.status, decision.rawValue)
+            XCTAssertNotNil(model.notice)
+            XCTAssertTrue(model.requiresReload)
+            list.apply(receipt)
+            XCTAssertTrue(list.filtered.isEmpty)
+            list.filter = OiEvidenceFilter(rawValue: decision.rawValue) ?? .all
+            XCTAssertEqual(list.filtered.first?.id, receipt.id)
+            list.filter = .pending
+        }
+        XCTAssertEqual(backend.snapshot().evidenceReviewCount, 4)
+    }
+
+    @MainActor func testOperatorEvidenceValidationAndDocumentFormats() throws {
+        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let row = try decoder.decode(OiEvidence.self, from: JSONSerialization.data(withJSONObject: evidenceFixture()))
+        for count in ["", "0", "-1", "1.5", "999999999999", "１２"] {
+            XCTAssertThrowsError(try OiEvidenceReview(snapshot: row, decision: .approved, note: "", count: count))
+        }
+        XCTAssertNoThrow(try OiEvidenceReview(snapshot: row, decision: .approved, note: "", count: "2"))
+        for decision in [OiEvidenceDecision.changesRequested, .rejected, .revoked] {
+            XCTAssertThrowsError(try OiEvidenceReview(snapshot: row, decision: decision, note: " \n", count: ""))
+        }
+        XCTAssertThrowsError(try OiEvidenceReview(snapshot: row, decision: .approved, note: String(repeating: "a", count: 2001), count: "1"))
+        XCTAssertThrowsError(try OiEvidenceDocument(data: Data("<html>error</html>".utf8)))
+        XCTAssertThrowsError(try OiEvidenceDocument(data: Data(repeating: 0, count: OiEvidenceDocument.maximumBytes + 1)))
+        XCTAssertEqual(try OiEvidenceDocument(data: Data("%PDF-synthetic".utf8)).kind, .pdf)
+    }
+
+    @MainActor func testOperatorEvidencePrivateOriginalAndStaleSnapshot() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        let fixture = evidenceFixture()
+        let path = try XCTUnwrap(fixture["object_path"] as? String)
+        let png = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { context in
+            UIColor.green.setFill(); context.fill(CGRect(x: 0, y: 0, width: 20, height: 20))
+        }.pngData())
+        backend.configure { $0.isOperator = true; $0.evidence = fixture; $0.uploads["oi-evidence/\(path)"] = png }
+        await store.start()
+        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
+        let document = try await store.operatorEvidenceDocument(row)
+        XCTAssertEqual(document.data, png)
+        backend.configure { $0.evidence?["submitted_at"] = "2026-11-04T01:01:00Z" }
+        do { _ = try await store.operatorEvidenceDocument(row); XCTFail("Stale originals must not open") }
+        catch OiServiceError.conflict {}
+        let model = OiOperatorEvidenceModel()
+        await model.load(row.id, using: store)
+        let current = try XCTUnwrap(model.detail?.evidence)
+        backend.configure { $0.evidence?["submitted_at"] = "2026-11-04T01:02:00Z" }
+        let review = try OiEvidenceReview(snapshot: current, decision: .approved, note: "", count: "2")
+        let receipt = await model.review(review, using: store)
+        XCTAssertNil(receipt); XCTAssertTrue(model.requiresReload); XCTAssertNotNil(model.error)
+        XCTAssertEqual(backend.snapshot().evidence?["status"] as? String, "pending")
+    }
+
+    @MainActor func testOperatorEvidenceResponseLossAndMissingRPCNeverReplay() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
+        await store.start()
+        let model = OiOperatorEvidenceModel()
+        for missing in [true, false] {
+            backend.configure { $0.evidence = evidenceFixture(); $0.evidenceRPCMissing = missing; $0.loseReviewResponse = !missing }
+            await model.load(OiTestBackend.grant, using: store)
+            let row = try XCTUnwrap(model.detail?.evidence)
+            let review = try OiEvidenceReview(snapshot: row, decision: .approved, note: "", count: "2")
+            let result = await model.review(review, using: store)
+            XCTAssertNil(result); XCTAssertTrue(model.requiresReload)
+            let count = backend.snapshot().evidenceReviewCount
+            let second = await model.review(review, using: store)
+            XCTAssertNil(second); XCTAssertEqual(backend.snapshot().evidenceReviewCount, count)
+            if missing { XCTAssertTrue(model.error?.contains("아직 준비") == true) }
+            else {
+                await model.load(row.id, using: store)
+                XCTAssertEqual(model.detail?.evidence.status, "approved")
+            }
+        }
+    }
+
+    @MainActor func testOperatorEvidenceReceiptSurvivesRefreshFailureAndRightsAreChecked() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture(status: "approved") }
+        await store.start()
+        let savedResult = await store.save(draft(title: "철회 시 비공개 전환할 가상 이야기"))
+        let saved = try XCTUnwrap(savedResult)
+        let pendingResult = await store.submitStory(saved)
+        let pending = try XCTUnwrap(pendingResult)
+        _ = try await store.reviewOperatorStory(pending, publish: true)
+        XCTAssertFalse(store.stories.isEmpty)
+        let model = OiOperatorEvidenceModel()
+        await model.load(OiTestBackend.grant, using: store)
+        let row = try XCTUnwrap(model.detail?.evidence)
+        let review = try OiEvidenceReview(snapshot: row, decision: .revoked, note: "가상 철회 사유", count: "")
+        backend.configure { $0.failAfterReview = true }
+        let result = await model.review(review, using: store)
+        XCTAssertEqual(result?.status, "revoked"); XCTAssertNotNil(model.warning)
+        XCTAssertEqual(store.evidence.first?.status, "revoked")
+        XCTAssertTrue(store.stories.isEmpty); XCTAssertTrue(store.reviewStories.isEmpty)
+        backend.configure { $0.failReads = false; $0.isOperator = false }
+        do { _ = try await store.operatorEvidenceList(); XCTFail("Permission required") }
+        catch OiOperatorStoryError.accessDenied {}
+    }
+
+    @MainActor func testEvidenceRevocationPreservesUnrelatedTemporaryStoryOnRefreshFailure() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure {
+            $0.isOperator = true
+            $0.unapprovedDraftsEnabled = true
+            $0.evidence = evidenceFixture(status: "approved")
+        }
+        await store.start()
+        var temporary = draft()
+        temporary.grantId = nil
+        let saveResult = await store.save(temporary)
+        let saved = try XCTUnwrap(saveResult)
+        let submitResult = await store.submitStory(saved)
+        let pending = try XCTUnwrap(submitResult)
+        _ = try await store.reviewOperatorStory(pending, publish: true)
+        let evidence = try await store.operatorEvidence(OiTestBackend.grant).evidence
+        let review = try OiEvidenceReview(snapshot: evidence, decision: .revoked, note: "Synthetic revocation", count: "")
+        backend.configure { $0.failAfterReview = true }
+        let result = try await store.reviewOperatorEvidence(review)
+        XCTAssertEqual(result.evidence.status, "revoked")
+        XCTAssertNotNil(result.warning)
+        XCTAssertEqual(store.stories.map(\.id), [saved.id])
+        XCTAssertEqual(store.ownStories.map(\.id), [saved.id])
+        XCTAssertEqual(backend.snapshot().story?["status"] as? String, "published")
+    }
+
+    @MainActor func testOperatorEvidenceDuplicateAndPreviousAccountResponse() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
+        await store.start()
+        let model = OiOperatorEvidenceModel()
+        await model.load(OiTestBackend.grant, using: store)
+        let row = try XCTUnwrap(model.detail?.evidence)
+        let review = try OiEvidenceReview(snapshot: row, decision: .approved, note: "", count: "2")
+        let held = expectation(description: "evidence response held")
+        backend.configure { $0.holdReviewResponse = true; $0.didHold = { held.fulfill() } }
+        let first = Task { await model.review(review, using: store) }
+        await fulfillment(of: [held], timeout: 5)
+        let duplicate = await model.review(review, using: store)
+        XCTAssertNil(duplicate); XCTAssertEqual(backend.snapshot().evidenceReviewCount, 1)
+        await store.signOut()
+        XCTAssertNotNil(store.account, "A mutation in progress blocks account changes")
+        backend.releaseHeldRead()
+        let result = await first.value
+        XCTAssertEqual(result?.status, "approved")
+        let readHeld = expectation(description: "evidence read pending")
+        backend.configure { $0.holdEvidenceRead = true; $0.didHold = { readHeld.fulfill() } }
+        let read = Task { try await store.operatorEvidenceList() }
+        await fulfillment(of: [readHeld], timeout: 5)
+        backend.configure { $0.holdEvidenceRead = false }
+        await store.signOut()
+        backend.releaseHeldRead()
+        do { _ = try await read.value; XCTFail("Old account response must not be returned") }
+        catch OiServiceError.accountChanged {}
+    }
+
+    @MainActor func testOperatorEvidenceScreenLayouts() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        for name in ["list", "detail", "detail-accessibility", "approved", "list-failed", "list-empty"] {
+            backend.configure {
+                $0.failReads = name == "list-failed"
+                $0.evidence = evidenceFixture(status: name == "approved" ? "approved" : name == "list-empty" ? "draft" : "pending")
+            }
+            let detail = name.hasPrefix("detail") || name == "approved"
+            let view = detail ? AnyView(NavigationStack { OiOperatorEvidenceDetailView(remote: store, evidenceID: OiTestBackend.grant) })
+                : AnyView(NavigationStack { OiOperatorEvidenceListView(remote: store) })
+            let window = UIWindow(windowScene: scene)
+            let controller = UIHostingController(rootView: view.environment(\.scenePhase, .active)
+                .environment(\.locale, Locale(identifier: "ko_KR"))
+                .environment(\.dynamicTypeSize, name.hasSuffix("accessibility") ? .accessibility5 : .large)
+                .preferredColorScheme(.light))
+            window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+            window.rootViewController = controller; window.makeKeyAndVisible()
+            try await Task.sleep(for: .milliseconds(500))
+            controller.view.layoutIfNeeded()
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+            }
+            let attachment = XCTAttachment(image: image); attachment.name = "operator-evidence-\(name)"
+            attachment.lifetime = .keepAlways; add(attachment)
+            window.isHidden = true; window.rootViewController = nil
+        }
+    }
+
+    @MainActor func testOperatorStoryReadCannotReturnPreviousAccountsData() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let held = expectation(description: "operator list pending")
+        backend.configure { $0.holdOwnerRead = true; $0.didHold = { held.fulfill() } }
+        let read = Task { try await store.operatorStories() }
+        await fulfillment(of: [held], timeout: 5)
+        backend.configure { $0.holdOwnerRead = false }
+        await store.signOut()
+        backend.releaseHeldRead()
+        do { _ = try await read.value; XCTFail("Old account response must not be returned") }
+        catch OiServiceError.accountChanged { }
+    }
+
+    @MainActor func testOperatorStoryScreenLayouts() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let savedResult = await store.save(draft(title: "후배에게 전하고 싶은 작은 응원"))
+        let saved = try XCTUnwrap(savedResult)
+        let pendingResult = await store.submitStory(saved)
+        let pending = try XCTUnwrap(pendingResult)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        for name in ["list", "detail", "list-empty", "list-failed", "detail-accessibility"] {
+            backend.configure {
+                $0.failReads = name == "list-failed"
+                $0.story?["status"] = name == "list-empty" ? "published" : "pending"
+            }
+            let view: AnyView
+            if name.hasPrefix("detail") {
+                view = AnyView(NavigationStack { OiOperatorStoryDetailView(remote: store, storyID: pending.id) })
+            } else { view = AnyView(NavigationStack { OiOperatorStoriesView(remote: store) }) }
+            let window = UIWindow(windowScene: scene)
+            let controller = UIHostingController(rootView: view
+                .environment(\.scenePhase, .active)
+                .environment(\.locale, Locale(identifier: "ko_KR"))
+                .environment(\.dynamicTypeSize, name.hasSuffix("accessibility") ? .accessibility5 : .large)
+                .preferredColorScheme(.light))
+            window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+            window.rootViewController = controller
+            window.makeKeyAndVisible()
+            try await Task.sleep(for: .milliseconds(500))
+            controller.view.layoutIfNeeded()
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "operator-story-\(name)-402x874"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+    }
+
+    @MainActor func testOperatorStoryReviewLoadsAndMovesBetweenFilters() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let draftResult = await store.save(draft(title: "공개 검토할 이야기"))
+        let draft = try XCTUnwrap(draftResult)
+        let pendingResult = await store.submitStory(draft)
+        let pending = try XCTUnwrap(pendingResult)
+        let list = OiOperatorStoriesModel()
+        await list.load(using: store)
+        XCTAssertEqual(list.filtered.map(\.id), [pending.id])
+        let detail = OiOperatorStoryModel()
+        await detail.load(pending.id, using: store)
+        XCTAssertEqual(detail.detail?.story.id, pending.id)
+        XCTAssertTrue(detail.detail?.media.isEmpty == true)
+
+        let publishResult = await detail.review(pending, publish: true, using: store)
+        let published = try XCTUnwrap(publishResult)
+        list.apply(published)
+        XCTAssertTrue(list.filtered.isEmpty)
+        list.filter = .published
+        XCTAssertEqual(list.filtered.map(\.id), [pending.id])
+        XCTAssertEqual(detail.detail?.story.status, "published")
+        XCTAssertNotNil(detail.notice)
+        XCTAssertTrue(store.stories.contains { $0.id == pending.id })
+
+        let hideResult = await detail.review(published, publish: false, using: store)
+        let hidden = try XCTUnwrap(hideResult)
+        list.apply(hidden)
+        XCTAssertTrue(list.filtered.isEmpty)
+        list.filter = .hidden
+        XCTAssertEqual(list.filtered.map(\.id), [pending.id])
+        XCTAssertFalse(store.stories.contains { $0.id == pending.id })
+        XCTAssertEqual(backend.snapshot().reviewCount, 2)
+    }
+
+    @MainActor func testOperatorStoryConflictRequiresFreshConfirmation() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let savedResult = await store.save(draft(title: "변경 전 이야기"))
+        let saved = try XCTUnwrap(savedResult)
+        let pendingResult = await store.submitStory(saved)
+        let pending = try XCTUnwrap(pendingResult)
+        let model = OiOperatorStoryModel()
+        await model.load(pending.id, using: store)
+        backend.configure { $0.story?["revision"] = pending.revision + 1; $0.story?["body"] = "다른 운영자가 확인할 새 내용" }
+        let conflicted = await model.review(pending, publish: true, using: store)
+        XCTAssertNil(conflicted)
+        XCTAssertTrue(model.requiresReload)
+        XCTAssertFalse(model.canReview)
+        XCTAssertNotNil(model.error)
+        let blocked = await model.review(pending, publish: true, using: store)
+        XCTAssertNil(blocked)
+        XCTAssertEqual(backend.snapshot().reviewCount, 1)
+        await model.load(pending.id, using: store)
+        let latest = try XCTUnwrap(model.detail?.story)
+        XCTAssertEqual(latest.body, "다른 운영자가 확인할 새 내용")
+        let stale = await model.review(pending, publish: true, using: store)
+        XCTAssertNil(stale, "Old confirmation must not submit a newer revision")
+        XCTAssertEqual(backend.snapshot().reviewCount, 1)
+        await model.load(pending.id, using: store)
+        let confirmed = await model.review(latest, publish: true, using: store)
+        XCTAssertNotNil(confirmed)
+    }
+
+    @MainActor func testOperatorStoryLostResponseRequiresReadBeforeAnotherDecision() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let savedResult = await store.save(draft(title: "응답 유실 시험"))
+        let saved = try XCTUnwrap(savedResult)
+        let pendingResult = await store.submitStory(saved)
+        let pending = try XCTUnwrap(pendingResult)
+        let model = OiOperatorStoryModel()
+        await model.load(pending.id, using: store)
+        backend.configure { $0.loseReviewResponse = true }
+        let lost = await model.review(pending, publish: true, using: store)
+        XCTAssertNil(lost)
+        XCTAssertNil(model.notice)
+        XCTAssertTrue(model.requiresReload)
+        let duplicate = await model.review(pending, publish: true, using: store)
+        XCTAssertNil(duplicate)
+        XCTAssertEqual(backend.snapshot().reviewCount, 1)
+        await model.load(pending.id, using: store)
+        XCTAssertEqual(model.detail?.story.status, "published")
+        XCTAssertTrue(model.canReview)
+    }
+
+    @MainActor func testOperatorStoryConfirmedReceiptSurvivesListRefreshFailure() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let savedResult = await store.save(draft(title: "저장 후 동기화 실패 시험"))
+        let saved = try XCTUnwrap(savedResult)
+        let pendingResult = await store.submitStory(saved)
+        let pending = try XCTUnwrap(pendingResult)
+        let model = OiOperatorStoryModel()
+        await model.load(pending.id, using: store)
+        backend.configure { $0.failAfterReview = true }
+        let receipt = await model.review(pending, publish: true, using: store)
+        XCTAssertEqual(receipt?.status, "published")
+        XCTAssertEqual(model.detail?.story.status, "published")
+        XCTAssertNotNil(model.notice)
+        XCTAssertNotNil(model.warning)
+        XCTAssertTrue(model.requiresReload)
+        XCTAssertEqual(backend.snapshot().reviewCount, 1)
+    }
+
+    @MainActor func testOperatorStoryRejectsRevokedRightsAndMissingStory() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let savedResult = await store.save(draft(title: "권한 철회 시험"))
+        let saved = try XCTUnwrap(savedResult)
+        let pendingResult = await store.submitStory(saved)
+        let pending = try XCTUnwrap(pendingResult)
+        let model = OiOperatorStoryModel()
+        await model.load(UUID(), using: store)
+        XCTAssertNil(model.detail)
+        XCTAssertNotNil(model.error)
+        await model.load(pending.id, using: store)
+        backend.configure { $0.isOperator = false }
+        let denied = await model.review(pending, publish: true, using: store)
+        XCTAssertNil(denied)
+        XCTAssertNil(model.detail)
+        XCTAssertFalse(store.isOperator)
+        XCTAssertEqual(backend.snapshot().reviewCount, 0)
+        let list = OiOperatorStoriesModel()
+        await list.load(using: store)
+        XCTAssertFalse(list.hasLoaded)
+        XCTAssertTrue(list.stories.isEmpty)
+    }
+
+    @MainActor func testOperatorStoryRejectsDuplicateDecisionWhileRequestPending() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let savedResult = await store.save(draft(title: "중복 처리 시험"))
+        let saved = try XCTUnwrap(savedResult)
+        let pendingResult = await store.submitStory(saved)
+        let pending = try XCTUnwrap(pendingResult)
+        let model = OiOperatorStoryModel()
+        await model.load(pending.id, using: store)
+        let held = expectation(description: "decision awaiting response")
+        backend.configure { $0.holdReviewResponse = true; $0.didHold = { held.fulfill() } }
+        let first = Task { await model.review(pending, publish: true, using: store) }
+        await fulfillment(of: [held], timeout: 5)
+        XCTAssertTrue(model.isProcessing)
+        let duplicate = await model.review(pending, publish: true, using: store)
+        XCTAssertNil(duplicate)
+        XCTAssertEqual(backend.snapshot().reviewCount, 1)
+        backend.releaseHeldRead()
+        let confirmed = await first.value
+        XCTAssertNotNil(confirmed)
+    }
+
+    @MainActor func testOperatorHomeLayouts() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        for (name, allowed, failure, size) in [
+            ("menu", true, false, DynamicTypeSize.large),
+            ("menu-accessibility", true, false, DynamicTypeSize.accessibility5),
+            ("denied", false, false, DynamicTypeSize.large),
+            ("failed", true, true, DynamicTypeSize.large)
+        ] {
+            backend.configure { $0.isOperator = allowed; $0.failCapabilities = failure }
+            let window = UIWindow(windowScene: scene)
+            let controller = UIHostingController(rootView: OiOperatorHomeView(remote: store)
+                .environment(\.scenePhase, .active)
+                .environment(\.locale, Locale(identifier: "ko_KR"))
+                .environment(\.dynamicTypeSize, size))
+            window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+            window.rootViewController = controller
+            window.makeKeyAndVisible()
+            try await Task.sleep(for: .milliseconds(500))
+            controller.view.layoutIfNeeded()
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "operator-\(name)-402x874"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+    }
+
+    @MainActor func testOperatorAccessRechecksServerAndRemovesRevokedAccess() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let access = OiOperatorAccess()
+        await access.check { try await store.verifyOperatorAccess() }
+        XCTAssertEqual(access.state, .allowed)
+        backend.configure { $0.isOperator = false }
+        await access.check { try await store.verifyOperatorAccess() }
+        XCTAssertEqual(access.state, .denied)
+        XCTAssertFalse(store.isOperator)
+        XCTAssertTrue(store.reviewStories.isEmpty)
+    }
+
+    @MainActor func testOperatorAccessFailureClosesCachedAccessAndCanRetry() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let access = OiOperatorAccess()
+        await access.check { try await store.verifyOperatorAccess() }
+        backend.configure { $0.failCapabilities = true }
+        await access.check { try await store.verifyOperatorAccess() }
+        XCTAssertEqual(access.state, .failed)
+        backend.configure { $0.failCapabilities = false }
+        await access.check { try await store.verifyOperatorAccess() }
+        XCTAssertEqual(access.state, .allowed)
+        await store.signOut()
+        await access.check { try await store.verifyOperatorAccess() }
+        XCTAssertNotEqual(access.state, .allowed)
+    }
+
+    @MainActor func testOperatorAccessDiscardsResponseAfterInvalidation() async {
+        let access = OiOperatorAccess()
+        await access.check {
+            access.invalidate()
+            return true
+        }
+        XCTAssertEqual(access.state, .checking)
+        await access.check { throw URLError(.cancelled) }
+        XCTAssertEqual(access.state, .checking)
+        await access.check { false }
+        XCTAssertEqual(access.state, .denied)
+    }
+
     @MainActor func testLiveCatalogAndSchoolPersistAcrossRelaunch() async throws {
         let (store,backend,vault,session,directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
@@ -284,6 +1427,57 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(restored.profile?.nickname, "Owner A")
     }
 
+    @MainActor func testPublicAndPrivateAcademicInformationRemainIndependentAcrossEdits() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure {
+            $0.schoolProfileEnabled = true; $0.schoolID = "postech"
+            $0.publicName = "Public donor"; $0.department = "Public department"; $0.admissionYear = "26"
+            $0.schoolAdmissionYear = 2020; $0.schoolDepartment = "Private Physics"
+        }
+        await store.start()
+        XCTAssertEqual(store.profile?.admissionYear, "26")
+        XCTAssertEqual(store.profile?.department, "Public department")
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2020)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Private Physics")
+
+        await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2021, department: "Private Mathematics")
+        XCTAssertNil(store.error)
+        XCTAssertEqual(store.profile?.publicName, "Public donor")
+        XCTAssertEqual(store.profile?.admissionYear, "26")
+        XCTAssertEqual(store.profile?.department, "Public department")
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2021)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Private Mathematics")
+        XCTAssertEqual(backend.snapshot().admissionYear, "26")
+        XCTAssertEqual(backend.snapshot().department, "Public department")
+
+        backend.configure { $0.failReads = true }
+        await store.updateProfile(academicInfo: .init(name: "Edited public donor", department: "Public History", admissionYear: "25"))
+        XCTAssertEqual(store.profile?.admissionYear, "25")
+        XCTAssertEqual(store.profile?.department, "Public History")
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2021)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Private Mathematics")
+        await store.updateFarmName("햇살")
+        await store.updateProfile(nickname: "Legacy public nickname")
+        XCTAssertEqual(store.profile?.publicName, "Edited public donor")
+        XCTAssertEqual(store.profile?.admissionYear, "25")
+        XCTAssertEqual(store.profile?.department, "Public History")
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2021)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Private Mathematics")
+        XCTAssertEqual(backend.snapshot().profilePatchBodies.map { $0.keys.sorted() },
+            [["admission_year", "department", "public_name"], ["farm_name"], ["nickname"]])
+
+        backend.configure { $0.failReads = false }
+        let restored = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: vault)
+        await restored.start()
+        XCTAssertEqual(restored.profile?.publicName, "Edited public donor")
+        XCTAssertEqual(restored.profile?.admissionYear, "25")
+        XCTAssertEqual(restored.profile?.department, "Public History")
+        XCTAssertEqual(restored.profile?.schoolAdmissionYear, 2021)
+        XCTAssertEqual(restored.profile?.schoolDepartment, "Private Mathematics")
+    }
+
     @MainActor func testProfileEditsDoNotOverwriteFieldsChangedOnAnotherDevice() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
@@ -299,6 +1493,317 @@ final class OiRemoteStoreTests: XCTestCase {
         await store.updateProfile(schoolID: "postech")
         XCTAssertEqual(backend.snapshot().nickname, "Name on another device")
         XCTAssertEqual(store.profile?.schoolId, "postech")
+    }
+
+    @MainActor func testSchoolProfilePersistsAndNicknameEditsPreservePrivateMetadata() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.schoolProfileEnabled = true }
+        await store.start()
+        XCTAssertTrue(store.isSchoolProfileAvailable)
+        await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2020, department: "  Computer Science  ")
+        XCTAssertNil(store.error)
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2020)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Computer Science")
+        await store.updateProfile(nickname: "Changed nickname")
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2020)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Computer Science")
+        let restored = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: vault)
+        await restored.start()
+        XCTAssertEqual(restored.profile?.schoolAdmissionYear, 2020)
+        XCTAssertEqual(restored.profile?.schoolDepartment, "Computer Science")
+        XCTAssertGreaterThanOrEqual(backend.snapshot().schoolProfileReads, 2)
+    }
+
+    @MainActor func testSkippedDepartmentClearsOnlyPrivateDepartment() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.schoolProfileEnabled = true; $0.schoolID = "postech"; $0.schoolAdmissionYear = 2020; $0.schoolDepartment = "Old department" }
+        await store.start()
+        await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2021, department: nil)
+        XCTAssertNil(store.error)
+        XCTAssertNil(store.profile?.schoolDepartment)
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2021)
+        XCTAssertEqual(store.profile?.nickname, "Owner A")
+        XCTAssertNil(backend.snapshot().schoolDepartment)
+    }
+
+    @MainActor func testLegacyServerKeepsLoadingWithoutPrivateSchoolRPC() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        XCTAssertTrue(store.hasLoadedRemote)
+        XCTAssertFalse(store.isSchoolProfileAvailable)
+        XCTAssertEqual(backend.snapshot().schoolProfileReads, 0)
+        await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2020, department: nil)
+        XCTAssertNotNil(store.error)
+        XCTAssertEqual(backend.snapshot().schoolProfileWrites, 0)
+        XCTAssertEqual(store.profile?.nickname, "Owner A")
+    }
+
+    @MainActor func testLegacySchoolChangeDoesNotAttachPreviousDepartmentToNewSchool() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure {
+            $0.schoolProfileEnabled = true; $0.includesSecondSchool = true
+            $0.schoolID = "postech"; $0.schoolAdmissionYear = 2020; $0.schoolDepartment = "Original department"
+        }
+        await store.start()
+        XCTAssertEqual(store.profile?.schoolDepartment, "Original department")
+        await store.updateProfile(schoolID: "other")
+        XCTAssertNil(store.error)
+        XCTAssertEqual(store.profile?.schoolId, "other")
+        XCTAssertNil(store.profile?.schoolAdmissionYear)
+        XCTAssertNil(store.profile?.schoolDepartment)
+    }
+
+    @MainActor func testSchoolProfileWriteFailurePreservesPreviousValues() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.schoolProfileEnabled = true; $0.schoolID = "postech"; $0.schoolAdmissionYear = 2020; $0.schoolDepartment = "Original" }
+        await store.start()
+        backend.configure { $0.failSchoolProfileWrite = true }
+        await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2021, department: "Changed")
+        XCTAssertNotNil(store.error)
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2020)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Original")
+    }
+
+    @MainActor func testSchoolProfileRejectsReceiptForAnotherAccount() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.schoolProfileEnabled = true; $0.schoolID = "postech"; $0.schoolAdmissionYear = 2020 }
+        await store.start()
+        backend.configure { $0.mismatchedSchoolProfileReceipt = true }
+        await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2021, department: "Changed")
+        XCTAssertNotNil(store.error)
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2020)
+        XCTAssertEqual(store.account?.id, OiTestBackend.owner)
+    }
+
+    @MainActor func testFarmNamePersistsIndependentlyAcrossRelaunchAndOtherProfileEdits() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure {
+            $0.schoolProfileEnabled = true; $0.schoolID = "postech"
+            $0.schoolAdmissionYear = 2020; $0.schoolDepartment = "Computer Science"
+        }
+        await store.start()
+        XCTAssertEqual(store.profile?.farmName, "오이")
+        await store.updateFarmName("  햇살  ")
+        XCTAssertNil(store.error)
+        XCTAssertEqual(store.profile?.farmName, "햇살")
+        XCTAssertEqual(store.profile?.nickname, "Owner A")
+        XCTAssertEqual(store.profile?.schoolId, "postech")
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2020)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Computer Science")
+        XCTAssertEqual(backend.snapshot().profilePatchBodies.first?.keys.sorted(), ["farm_name"])
+        let restored = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: vault)
+        await restored.start()
+        XCTAssertEqual(restored.profile?.farmName, "햇살")
+        await restored.updateProfile(nickname: "Changed public author")
+        XCTAssertEqual(restored.profile?.farmName, "햇살")
+        await restored.updateSchoolProfile(schoolID: "postech", admissionYear: 2021, department: "Physics")
+        XCTAssertNil(restored.error)
+        XCTAssertEqual(restored.profile?.farmName, "햇살")
+        XCTAssertEqual(restored.profile?.nickname, "Changed public author")
+    }
+
+    @MainActor func testFarmNameRejectsEmptyAndOverlongInputAndNormalizesHangul() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        for invalid in [" \n\t", "일이삼사오육칠"] {
+            await store.updateFarmName(invalid)
+            XCTAssertNotNil(store.error)
+        }
+        XCTAssertTrue(backend.snapshot().profilePatchBodies.isEmpty)
+        await store.updateFarmName("오이".decomposedStringWithCanonicalMapping)
+        XCTAssertNil(store.error)
+        XCTAssertEqual(store.profile?.farmName, "오이")
+        await store.updateFarmName("일이삼사오육")
+        XCTAssertNil(store.error)
+        XCTAssertEqual(store.profile?.farmName, "일이삼사오육")
+        await store.updateFarmName(String(repeating: "가".decomposedStringWithCanonicalMapping, count: 6))
+        XCTAssertNil(store.error)
+        XCTAssertEqual(store.profile?.farmName, "가가가가가가")
+        await store.updateFarmName(String(repeating: "🌱", count: 6))
+        XCTAssertNil(store.error)
+        XCTAssertEqual(store.profile?.farmName, String(repeating: "🌱", count: 6))
+    }
+
+    @MainActor func testLegacyServerDoesNotWriteNicknameAsFarmName() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.farmName = nil }
+        await store.start()
+        XCTAssertTrue(store.hasLoadedRemote)
+        await store.updateFarmName("햇살")
+        XCTAssertNotNil(store.error)
+        XCTAssertTrue(backend.snapshot().profilePatchBodies.isEmpty)
+        XCTAssertEqual(store.profile?.nickname, "Owner A")
+        XCTAssertNil(store.profile?.farmName)
+    }
+
+    @MainActor func testFailedFarmWriteAndForeignReceiptPreserveConfirmedProfile() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        backend.configure { $0.failFarmWrite = true }
+        await store.updateFarmName("햇살")
+        XCTAssertNotNil(store.error)
+        XCTAssertEqual(store.profile?.farmName, "오이")
+        backend.configure { $0.failFarmWrite = false; $0.mismatchedFarmReceipt = true }
+        await store.updateFarmName("햇살")
+        XCTAssertNotNil(store.error)
+        XCTAssertEqual(store.profile?.farmName, "오이")
+        XCTAssertEqual(store.account?.id, OiTestBackend.owner)
+    }
+
+    @MainActor func testLateFarmWriteCannotReplaceAnotherAccountFarm() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let held = expectation(description: "Previous account farm write is held")
+        backend.configure { $0.holdFarmWrite = true; $0.didHold = { held.fulfill() } }
+        let write = Task { await store.updateFarmName("햇살") }
+        await fulfillment(of: [held], timeout: 5)
+        vault.value = OiMemorySession(owner: OiTestBackend.other).value
+        await store.start()
+        backend.releaseHeldRead()
+        await write.value
+        XCTAssertEqual(store.account?.id, OiTestBackend.other)
+        XCTAssertNil(store.profile, "A stale write must not repopulate the profile cleared during account restoration")
+        // Account restoration deliberately skips a refresh while a write is busy.
+        await store.refresh()
+        XCTAssertEqual(store.profile?.farmName, "다른밭")
+        XCTAssertEqual(store.profile?.nickname, "Owner B")
+    }
+
+    @MainActor func testFarmerOutfitPersistsAcrossRelaunchAndOtherProfileEdits() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.farmerOutfitEnabled = true; $0.schoolProfileEnabled = true }
+        await store.start()
+        XCTAssertTrue(store.isFarmerOutfitAvailable)
+        XCTAssertNil(store.farmerOutfit)
+        let outfit = OiFarmerOutfit(character: "kyu", slots: ["top": "kyu-3916-2673", "hat": "kyu-hat"])
+        let saved = await store.saveFarmerOutfit(outfit)
+        XCTAssertTrue(saved)
+        XCTAssertEqual(store.farmerOutfit, outfit)
+        XCTAssertEqual(Set(try XCTUnwrap(backend.snapshot().farmerOutfitPayloads.first).keys), ["p_outfit"])
+        await store.updateFarmName("햇살")
+        await store.updateProfile(nickname: "Legacy name")
+        await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2020, department: "Physics")
+        XCTAssertEqual(store.farmerOutfit, outfit)
+        let restored = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: vault)
+        await restored.start()
+        XCTAssertEqual(restored.farmerOutfit, outfit)
+        XCTAssertGreaterThanOrEqual(backend.snapshot().farmerOutfitReads, 2)
+    }
+
+    @MainActor func testLegacyServerDoesNotRequestOrPretendToSaveFarmerOutfit() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        XCTAssertTrue(store.hasLoadedRemote)
+        XCTAssertFalse(store.isFarmerOutfitAvailable)
+        XCTAssertNil(store.farmerOutfit)
+        let saved = await store.saveFarmerOutfit(OiFarmerOutfit(character: "kyu", slots: [:]))
+        XCTAssertFalse(saved)
+        XCTAssertNotNil(store.error)
+        XCTAssertEqual(backend.snapshot().farmerOutfitReads, 0)
+        XCTAssertEqual(backend.snapshot().farmerOutfitWrites, 0)
+    }
+
+    @MainActor func testFarmerOutfitRejectsInvalidSelectionBeforeNetworkWrite() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.farmerOutfitEnabled = true }
+        await store.start()
+        let invalid = [
+            OiFarmerOutfit(version: 2, character: "kyu", slots: [:]),
+            OiFarmerOutfit(character: "unknown", slots: [:]),
+            OiFarmerOutfit(character: "kyu", slots: ["cape": "cape"]),
+            OiFarmerOutfit(character: "kyu", slots: ["hat": "https://example.invalid/asset"]),
+            OiFarmerOutfit(character: "kyu", slots: ["hat": String(repeating: "a", count: 81)])
+        ]
+        for outfit in invalid {
+            let saved = await store.saveFarmerOutfit(outfit)
+            XCTAssertFalse(saved)
+            XCTAssertNotNil(store.error)
+        }
+        XCTAssertEqual(backend.snapshot().farmerOutfitWrites, 0)
+    }
+
+    @MainActor func testFarmerOutfitWriteFailureAndForeignReceiptPreserveLastKnownOutfit() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.farmerOutfitEnabled = true }
+        await store.start()
+        let original = OiFarmerOutfit(character: "cumber", slots: ["set": "legacy-classic"])
+        let initialSaved = await store.saveFarmerOutfit(original)
+        XCTAssertTrue(initialSaved)
+        let changed = OiFarmerOutfit(character: "kyu", slots: ["hat": "kyu-hat"])
+        backend.configure { $0.failFarmerOutfitWrite = true }
+        let failed = await store.saveFarmerOutfit(changed)
+        XCTAssertFalse(failed)
+        XCTAssertEqual(store.farmerOutfit, original)
+        backend.configure { $0.failFarmerOutfitWrite = false; $0.mismatchedFarmerOutfitReceipt = true }
+        let mismatched = await store.saveFarmerOutfit(changed)
+        XCTAssertFalse(mismatched)
+        XCTAssertEqual(store.farmerOutfit, original)
+        XCTAssertNotNil(store.error)
+    }
+
+    @MainActor func testFarmerOutfitMissingReceiptFieldIsNotTreatedAsAnEmptySavedOutfit() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.farmerOutfitEnabled = true; $0.omitsFarmerOutfitReceiptField = true }
+        await store.start()
+        XCTAssertFalse(store.hasLoadedRemote)
+        XCTAssertNotNil(store.loadError)
+        XCTAssertNil(store.farmerOutfit)
+    }
+
+    @MainActor func testFarmerOutfitReceiptSurvivesRefreshFailure() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.farmerOutfitEnabled = true }
+        await store.start()
+        backend.configure { $0.failReads = true }
+        let outfit = OiFarmerOutfit(character: "kyu", slots: ["top": "kyu-top"])
+        let saved = await store.saveFarmerOutfit(outfit)
+        XCTAssertTrue(saved)
+        XCTAssertEqual(store.farmerOutfit, outfit)
+        XCTAssertNotNil(store.syncWarning)
+        XCTAssertNotNil(store.loadError)
+    }
+
+    @MainActor func testLateFarmerOutfitWriteCannotReplaceAnotherAccountOutfit() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure {
+            $0.farmerOutfitEnabled = true
+            $0.otherFarmerOutfit = ["version": 1, "character": "cumber", "slots": ["set": "legacy-classic"]]
+        }
+        await store.start()
+        let held = expectation(description: "Previous account outfit write is held")
+        backend.configure { $0.holdFarmerOutfitWrite = true; $0.didHold = { held.fulfill() } }
+        let write = Task { await store.saveFarmerOutfit(OiFarmerOutfit(character: "kyu", slots: ["top": "kyu-top"])) }
+        await fulfillment(of: [held], timeout: 5)
+        vault.value = OiMemorySession(owner: OiTestBackend.other).value
+        await store.start()
+        backend.releaseHeldRead()
+        let saved = await write.value
+        XCTAssertFalse(saved)
+        XCTAssertEqual(store.account?.id, OiTestBackend.other)
+        XCTAssertNil(store.farmerOutfit)
+        await store.refresh()
+        XCTAssertEqual(store.farmerOutfit, OiFarmerOutfit(character: "cumber", slots: ["set": "legacy-classic"]))
     }
 
     @MainActor func testSignOutOnlyRevokesCurrentSessionAndClearsDeviceCredentials() async throws {
@@ -424,7 +1929,8 @@ final class OiRemoteStoreTests: XCTestCase {
         let card = try await repository.fetchPublicStoryCard(storyID: saved.id.uuidString)
         XCTAssertEqual(card?.storyID, story?.id)
         XCTAssertNil(card?.imageURL, "No fabricated card image URL")
-        backend.configure { $0.story?["status"] = "hidden" }
+        // Simulate a malformed server response despite the public status filter.
+        backend.configure { $0.story?["status"] = "hidden"; $0.ignoreStoryStatusFilter = true }
         do { _ = try await repository.fetchPublicStory(storyID: saved.id.uuidString); XCTFail("Hidden story rendered") }
         catch {}
     }
@@ -1310,6 +2816,141 @@ extension OiRemoteStoreTests {
         }
     }
 
+}
+
+extension OiRemoteStoreTests {
+    @MainActor func testDonationAIResultRejectsOtherSubmissionAndApprovalClaims() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let previous = OiStoreURLProtocol.handle
+        defer { session.invalidateAndCancel(); OiStoreURLProtocol.handle = previous }
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let request = OiEvidence(id: UUID(), userId: OiTestBackend.owner, status: "pending",
+            objectPath: "private.png", reviewNote: nil, submittedAt: "2026-11-05T00:00:00Z")
+        let base: [String: Any] = [
+            "review_type": "donation_evidence", "evidence_id": request.id.uuidString,
+            "submitted_at": request.submittedAt ?? "", "analyzed_at": "2026-11-05T00:01:00Z",
+            "human_review_required": true, "authenticity_verified": false, "notice": "운영자 검토 필요",
+            "assessment": ["verdict": "no_obvious_signs", "readability": "readable", "findings": [],
+                "limitations": ["진위 및 납입 미확인"], "manual_checks": ["원본 확인"]]
+        ]
+        for field in ["valid", "evidence_id", "submitted_at", "human_review_required", "authenticity_verified"] {
+            var response = base
+            if field == "evidence_id" { response[field] = UUID().uuidString }
+            if field == "submitted_at" { response[field] = "2026-11-05T00:02:00Z" }
+            if field == "human_review_required" { response[field] = false }
+            if field == "authenticity_verified" { response[field] = true }
+            let bytes = try JSONSerialization.data(withJSONObject: response)
+            OiStoreURLProtocol.handle = { input, client in
+                XCTAssertEqual(input.url?.path, "/functions/v1/analyze-donation-evidence")
+                XCTAssertEqual(input.httpMethod, "POST")
+                XCTAssertEqual(input.timeoutInterval, 70)
+                let payload = try? JSONSerialization.jsonObject(with: OiTestBackend.body(input)) as? [String: String]
+                XCTAssertEqual(payload, ["evidence_id": request.id.uuidString])
+                client.respond(200, bytes)
+            }
+            do {
+                let review = try await api.reviewDonationEvidence(request, token: "synthetic-session")
+                XCTAssertEqual(field, "valid")
+                XCTAssertEqual(review.assessment.verdict, .noObviousSigns)
+                XCTAssertNil(review.summary, "A legacy visual-only response must remain compatible without implying evidence sufficiency")
+            } catch { XCTAssertNotEqual(field, "valid", "The matching non-authoritative result must be accepted") }
+        }
+    }
+
+    @MainActor func testDonationEvidenceDatesAndUnknownStatesAreNotFabricated() throws {
+        XCTAssertEqual(OiDonationEvidenceContent.dateLabel("2026-11-05T00:00:00.000Z"), "2026년 11월 5일 목요일 09:00")
+        XCTAssertEqual(OiDonationEvidenceContent.dateLabel(nil), "접수일 확인 중")
+        XCTAssertEqual(OiDonationEvidenceContent.statusTitle("new_server_status"), "상태 확인 필요")
+        XCTAssertEqual(OiDonationEvidenceContent.statusTitle("approved"), "작성 승인")
+    }
+
+    @MainActor func testDonationSemanticSummaryAcceptsSMSAndSeparatesOtherOutcomes() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let previous = OiStoreURLProtocol.handle
+        defer { session.invalidateAndCancel(); OiStoreURLProtocol.handle = previous }
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let evidence = OiEvidence(id: UUID(), userId: OiTestBackend.owner, status: "pending",
+            objectPath: "synthetic-private.png", reviewNote: nil, submittedAt: "2026-11-05T00:00:00Z")
+        for outcome in OiDonationEvidenceSummary.Outcome.allCases {
+            let sufficient = outcome == .sufficientEvidence
+            let summary: [String: Any] = [
+                "outcome": outcome.rawValue, "sufficient_evidence": sufficient,
+                "title": sufficient ? "문자에서 기부 완료 근거를 확인했어요" : "자료에 추가 확인이 필요해요",
+                "reasons": ["실제 발신번호와 입금 완료 내용을 함께 대조했어요."],
+                "checks": [["kind": "sender", "status": "matched", "detail": "공식 기부 문의 번호와 일치해요."]],
+                "source_references": [["id": "postech-giving", "url": "https://vision.postech.ac.kr/web/?sub=contract&top=participation",
+                    "title": "POSTECH 발전기금", "kind": "official", "verified_at": "2026-11-05"]]
+            ]
+            let response: [String: Any] = [
+                "review_type": "donation_evidence", "evidence_id": evidence.id.uuidString,
+                "submitted_at": evidence.submittedAt ?? "", "analyzed_at": "2026-11-05T00:01:00Z",
+                "human_review_required": true, "authenticity_verified": false, "notice": "글 작성은 운영자 최종 승인 후 가능해요.",
+                "summary": summary,
+                "assessment": ["verdict": "no_obvious_signs", "readability": "readable", "findings": [],
+                    "limitations": ["원본 진위와 실제 납입은 별도 확인이 필요해요."], "manual_checks": ["제출자 본인 자료인지 확인해 주세요."]]
+            ]
+            let bytes = try JSONSerialization.data(withJSONObject: response)
+            OiStoreURLProtocol.handle = { _, client in client.respond(200, bytes) }
+            let review = try await api.reviewDonationEvidence(evidence, token: "synthetic-session")
+            XCTAssertEqual(review.summary?.outcome, outcome)
+            XCTAssertEqual(review.summary?.sufficientEvidence, sufficient)
+            XCTAssertEqual(review.humanReviewRequired, true)
+            XCTAssertEqual(review.authenticityVerified, false)
+            XCTAssertNotNil(review.summary?.sourceReferences.first?.safeURL)
+        }
+    }
+
+    @MainActor func testDonationSemanticSummaryRejectsConflictingPassClaims() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let previous = OiStoreURLProtocol.handle
+        defer { session.invalidateAndCancel(); OiStoreURLProtocol.handle = previous }
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let evidence = OiEvidence(id: UUID(), userId: OiTestBackend.owner, status: "pending",
+            objectPath: "synthetic-private.png", reviewNote: nil, submittedAt: "2026-11-05T00:00:00Z")
+        for scenario in ["mismatchedFlag", "missingPassFlag", "suspiciousPass", "unreadablePass", "emptyReasons", "unknownOutcome"] {
+            var summary: [String: Any] = ["outcome": "sufficient_evidence", "sufficient_evidence": true,
+                "title": "문자 증빙 충족", "reasons": ["입금 완료 근거 확인"], "checks": [], "source_references": []]
+            var assessment: [String: Any] = ["verdict": "no_obvious_signs", "readability": "readable", "findings": [],
+                "limitations": ["원본 진위 미확인"], "manual_checks": ["운영자 확인"]]
+            if scenario == "mismatchedFlag" { summary["outcome"] = "needs_more_evidence" }
+            if scenario == "missingPassFlag" { summary["sufficient_evidence"] = false }
+            if scenario == "suspiciousPass" { assessment["verdict"] = "suspicious" }
+            if scenario == "unreadablePass" { assessment["readability"] = "unreadable" }
+            if scenario == "emptyReasons" { summary["reasons"] = [] as [String] }
+            if scenario == "unknownOutcome" { summary["outcome"] = "automatically_approved" }
+            let response: [String: Any] = ["review_type": "donation_evidence", "evidence_id": evidence.id.uuidString,
+                "submitted_at": evidence.submittedAt ?? "", "analyzed_at": "2026-11-05T00:01:00Z",
+                "human_review_required": true, "authenticity_verified": false, "notice": "운영자 확인 필요",
+                "summary": summary, "assessment": assessment]
+            let bytes = try JSONSerialization.data(withJSONObject: response)
+            OiStoreURLProtocol.handle = { _, client in client.respond(200, bytes) }
+            do {
+                _ = try await api.reviewDonationEvidence(evidence, token: "synthetic-session")
+                XCTFail("Conflicting evidence pass must be rejected: \(scenario)")
+            } catch {}
+        }
+    }
+
+    @MainActor func testDonationSourceLinksOnlyOpenTrustedHTTPSHosts() {
+        for value in ["https://vision.postech.ac.kr/web/", "https://www.postech.ac.kr/"] {
+            let source = OiDonationEvidenceSummary.SourceReference(id: "official", url: value,
+                title: "기부 안내", kind: "official", verifiedAt: "2026-11-05")
+            XCTAssertNotNil(source.safeURL)
+        }
+        for value in ["http://vision.postech.ac.kr/", "javascript:alert(1)", "https://postech.ac.kr.example.com/",
+                      "https://postech.ac.kr@evil.example/", "https://user@vision.postech.ac.kr/",
+                      "https://vision.postech.ac.kr:8080/", "https://unreviewed-donor.example/"] {
+            let source = OiDonationEvidenceSummary.SourceReference(id: "untrusted", url: value,
+                title: "기부 후기", kind: "report", verifiedAt: "2026-11-05")
+            XCTAssertNil(source.safeURL)
+        }
+    }
 }
 
 

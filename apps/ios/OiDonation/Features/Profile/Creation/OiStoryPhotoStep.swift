@@ -11,7 +11,11 @@ struct OiStoryPhotoStep<Photo: View>: View {
     let remove: (OiEditingPhoto) -> Void
     let photo: (OiEditingPhoto) -> Photo
     var thumbnail: ((OiEditingPhoto) -> Photo)? = nil
+    var previewWidth: CGFloat = 296
     var previewHeight: CGFloat = 400
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .caption) private var countLineHeight = 16.0
+    @ScaledMetric(relativeTo: .body) private var representativeLineHeight = 14.0
     @State private var previewImage: UIImage?
     @State private var previewID: UUID?
     @State private var isEditing = false
@@ -26,7 +30,9 @@ struct OiStoryPhotoStep<Photo: View>: View {
         let image: UIImage
     }
     private var current: OiEditingPhoto? { selected.flatMap { items.contains($0) ? $0 : nil } ?? items.first }
+    private var remainingSlots: Int { max(0, OiCreationStep.storyPhotoLimit - items.count) }
     var body: some View {
+        let glowInset: CGFloat = 14
         VStack(spacing: 0) {
             if let current {
                 Group {
@@ -40,8 +46,12 @@ struct OiStoryPhotoStep<Photo: View>: View {
                         .accessibilityIdentifier("oi.photos.rotationPreview")
                     } else { photo(current) }
                 }
-                .frame(maxWidth: 350).frame(height: previewHeight).padding(.bottom, 30)
-                HStack(spacing: 9) {
+                .frame(width: previewWidth, height: previewHeight)
+                .clipped()
+                .padding(.bottom, 30)
+                let toolLayout = dynamicTypeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(spacing: 9)) : AnyLayout(HStackLayout(spacing: 9))
+                toolLayout {
                     Button {
                         if case .local(let id) = current { cropPhotoID = id }
                     } label: { toolLabel("자르기", symbol: "crop") }
@@ -59,51 +69,52 @@ struct OiStoryPhotoStep<Photo: View>: View {
                 ContentUnavailableView("이야기에 담을 사진을 골라주세요", systemImage: "photo.on.rectangle.angled", description: Text("선택한 사진은 먼저 이 기기에 보관돼요."))
                     .frame(minHeight: previewHeight).padding(.bottom, 22)
             }
-            Text("\(items.count) / 15")
-                .font(.custom("Paperlogy-6SemiBold", size: 12, relativeTo: .caption))
+            HStack(spacing: 4) {
+                Text(items.count.formatted())
+                    .font(.custom("Paperlogy-6SemiBold", size: 12, relativeTo: .caption))
+                Text("/")
+                Text(OiCreationStep.storyPhotoLimit.formatted())
+            }
+                .font(.custom("Paperlogy-4Regular", size: 12, relativeTo: .caption))
                 .tracking(0.24)
+                .frame(minHeight: countLineHeight)
                 .padding(.horizontal, 12).padding(.vertical, 4)
                 .foregroundStyle(.black)
                 .background(Color(red: 241 / 255, green: 244 / 255, blue: 236 / 255).opacity(0.6), in: Capsule())
                 .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(alignment: .top, spacing: 10) {
-                PhotosPicker(selection: $selections, matching: .images) {
-                    VStack(spacing: 10) {
-                        Image(systemName: "plus").font(.system(size: 30))
-                            .frame(width: 60, height: 75)
-                            .foregroundStyle(Color("OiDark"))
-                            .background(Color("OiBorder"), in: RoundedRectangle(cornerRadius: 10))
-                            .accessibilityHidden(true)
-                        thumbnailLabel("추가")
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("사진 \(items.count) / \(OiCreationStep.storyPhotoLimit)")
+            HStack(alignment: .top, spacing: 0) {
+                PhotosPicker(selection: $selections, maxSelectionCount: max(1, remainingSlots), matching: .images) {
+                    thumbnailTile("추가") {
+                        Color("OiBorder").overlay {
+                            Text("+").font(.custom("Paperlogy-4Regular", size: 30, relativeTo: .body))
+                                .tracking(0.6)
+                                .foregroundStyle(Color(red: 84 / 255, green: 105 / 255, blue: 48 / 255))
+                                .accessibilityHidden(true)
+                        }
                     }
                 }.accessibilityIdentifier("oi.photos.add").buttonStyle(.plain)
-                    .padding(.vertical, 4)
+                    .disabled(remainingSlots == 0)
+                    .opacity(remainingSlots == 0 ? 0.45 : 1)
+                    .padding(.vertical, glowInset)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
                         ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                             Button { selected = item } label: {
-                                VStack(spacing: 10) {
-                                    (thumbnail?(item) ?? photo(item)).frame(width: 60, height: 75).clipped()
-                                        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
-                                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                                        .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(current == item ? .white : .clear, lineWidth: 3) }
-                                        .shadow(color: current == item ? .white.opacity(0.6) : .clear, radius: 8)
-                                        .overlay(alignment: .top) {
-                                            if index == 0 {
-                                                Text("대표").font(CampusStyle.medium(10))
-                                                    .foregroundStyle(.black).padding(.horizontal, 10).padding(.vertical, 2)
-                                                    .background(.white, in: Capsule()).padding(.top, 6)
-                                            }
-                                        }
-                                    thumbnailLabel("\(index + 1)")
+                                thumbnailTile("\(index + 1)", selected: current == item, representative: index == 0) {
+                                    thumbnail?(item) ?? photo(item)
                                 }
                             }.buttonStyle(.plain).accessibilityLabel("\(index + 1)번째 사진 선택")
                                 .accessibilityAddTraits(current == item ? .isSelected : [])
                         }
-                    }.padding(.vertical, 4)
+                    }
+                    // Match the tile spacing at the pinned edge while leaving room for the glow.
+                    .padding(.leading, 10)
+                    .padding([.vertical, .trailing], glowInset)
                 }
             }
-            .padding(.top, current == nil ? 18 : 14)
+            .padding(.top, current == nil ? 8 : 4)
         }
         .disabled(cropPhotoID != nil || isEditing)
         .task(id: current) {
@@ -174,9 +185,32 @@ struct OiStoryPhotoStep<Photo: View>: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.vertical, 8)
-        .frame(maxWidth: 85, minHeight: 88)
+        .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : 85, minHeight: 88)
         .foregroundStyle(Color(white: 106 / 255))
         .background(Color(white: 244 / 255), in: RoundedRectangle(cornerRadius: 20))
+    }
+
+    private func thumbnailTile<Content: View>(_ title: String, selected: Bool = false, representative: Bool = false,
+                                              @ViewBuilder content: () -> Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 10)
+        return VStack(spacing: 10) {
+            content()
+                .frame(width: 60, height: 75)
+                .background(Color(.secondarySystemBackground))
+                .clipShape(shape)
+                .overlay { if selected { shape.strokeBorder(.white, lineWidth: 3) } }
+                .shadow(color: selected ? .white : .clear, radius: 8)
+                .overlay(alignment: .top) {
+                    if representative {
+                        Text("대표").font(CampusStyle.medium(10))
+                            .tracking(0.2)
+                            .frame(minHeight: representativeLineHeight)
+                            .foregroundStyle(.black).padding(.horizontal, 10).padding(.vertical, 2)
+                            .background(.white, in: Capsule()).padding(.top, 6)
+                    }
+                }
+            thumbnailLabel(title)
+        }
     }
 
     private func thumbnailLabel(_ title: String) -> some View {
@@ -231,11 +265,11 @@ private struct OiRotatablePhoto: UIViewRepresentable {
     override func layoutSubviews() {
         super.layoutSubviews()
         guard image.size.width > 0, image.size.height > 0 else { return }
-        let factor = min(bounds.width / image.size.width, bounds.height / image.size.height)
+        let factor = max(bounds.width / image.size.width, bounds.height / image.size.height)
         let size = CGSize(width: image.size.width * factor, height: image.size.height * factor)
-        canvas.frame = CGRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2, width: size.width, height: size.height)
+        canvas.frame = bounds
         imageView.bounds = CGRect(origin: .zero, size: size)
-        imageView.center = CGPoint(x: size.width / 2, y: size.height / 2)
+        imageView.center = CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY)
         updateTransform()
     }
     func setPreviewRotation(_ radians: CGFloat) {
