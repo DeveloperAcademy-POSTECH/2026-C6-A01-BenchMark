@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  OiRemoteStoreTests.swift
+//  OiDonationTests
+//
+//  Created by 이돈혁 on 10/28/26.
+//
 
 import XCTest
 import SwiftUI
@@ -30,10 +35,35 @@ final class OiTestBackend {
     private let lock = NSLock()
     struct State {
         var nickname = "Owner A"
+        var farmName: String? = "오이"
+        var otherFarmName = "다른밭"
+        var profilePatchBodies: [[String: Any]] = []
+        var failFarmWrite = false
+        var mismatchedFarmReceipt = false
+        var holdFarmWrite = false
         var publicName = ""
         var department = ""
         var admissionYear = ""
         var schoolID: String?
+        var schoolProfileEnabled = false
+        var farmerOutfitEnabled = false
+        var farmerOutfit: [String: Any]?
+        var otherFarmerOutfit: [String: Any]?
+        var farmerOutfitReads = 0
+        var farmerOutfitWrites = 0
+        var farmerOutfitPayloads: [[String: Any]] = []
+        var failFarmerOutfitWrite = false
+        var mismatchedFarmerOutfitReceipt = false
+        var omitsFarmerOutfitReceiptField = false
+        var holdFarmerOutfitWrite = false
+        var schoolMetadataSchoolID: String? = "postech"
+        var includesSecondSchool = false
+        var schoolAdmissionYear: Int?
+        var schoolDepartment: String?
+        var schoolProfileReads = 0
+        var schoolProfileWrites = 0
+        var failSchoolProfileWrite = false
+        var mismatchedSchoolProfileReceipt = false
         var failReads = false
         var failRefreshToken = false
         var failLogout = false
@@ -64,7 +94,7 @@ final class OiTestBackend {
     func snapshot() -> State { lock.lock(); defer { lock.unlock() }; return state }
     func releaseHeldRead() {
         let value = snapshot().held
-        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false; $0.holdCardSend = false }
+        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false; $0.holdCardSend = false; $0.holdFarmWrite = false; $0.holdFarmerOutfitWrite = false }
         value?.0.respond(200, value?.1 ?? Data())
     }
     func install() { OiStoreURLProtocol.handle = { [weak self] request, client in self?.receive(request, client: client) } }
@@ -164,25 +194,75 @@ final class OiTestBackend {
                 capabilities["account_merge_enabled"] = true
                 capabilities["account_member_ids"] = [Self.owner.uuidString,Self.other.uuidString]
             }
+            if state.schoolProfileEnabled { capabilities["school_profile_enabled"] = true }
+            if state.farmerOutfitEnabled { capabilities["farmer_outfit_enabled"] = true }
+            capabilities["account_providers"] = ["apple"]
             result = capabilities
+        }
+        else if path.hasSuffix("/rpc/oi_farmer_outfit") || path.hasSuffix("/rpc/oi_save_farmer_outfit") {
+            let writing = path.hasSuffix("/rpc/oi_save_farmer_outfit")
+            if writing {
+                state.farmerOutfitWrites += 1
+                state.farmerOutfitPayloads.append(body)
+                if state.failFarmerOutfitWrite { status = 503 }
+                else if owner == Self.owner { state.farmerOutfit = body["p_outfit"] as? [String: Any] }
+                else { state.otherFarmerOutfit = body["p_outfit"] as? [String: Any] }
+            } else { state.farmerOutfitReads += 1 }
+            let receiptOwner = state.mismatchedFarmerOutfitReceipt ? Self.other : owner
+            var receipt: [String: Any] = ["account_id": receiptOwner.uuidString]
+            if !state.omitsFarmerOutfitReceiptField {
+                receipt["outfit"] = (owner == Self.owner ? state.farmerOutfit : state.otherFarmerOutfit) as Any? ?? NSNull()
+            }
+            result = receipt
+        }
+        else if path.hasSuffix("/rpc/oi_school_profile") || path.hasSuffix("/rpc/oi_update_school_profile") {
+            let writing = path.hasSuffix("/rpc/oi_update_school_profile")
+            if writing {
+                state.schoolProfileWrites += 1
+                if state.failSchoolProfileWrite { status = 503 }
+                else {
+                    state.schoolID = body["p_school_id"] as? String
+                    state.schoolMetadataSchoolID = state.schoolID
+                    state.schoolAdmissionYear = body["p_admission_year"] as? Int
+                    state.schoolDepartment = body["p_department"] as? String
+                }
+            } else { state.schoolProfileReads += 1 }
+            let receiptOwner = writing && state.mismatchedSchoolProfileReceipt ? Self.other : owner
+            result = ["id":receiptOwner.uuidString,"nickname":state.nickname,"farmer_asset":"OiFarmer",
+                "farm_name":owner == Self.owner ? state.farmName as Any? ?? NSNull() : state.otherFarmName,
+                "school_id":state.schoolID as Any? ?? NSNull(),
+                "public_name":state.publicName, "department":state.department, "admission_year":state.admissionYear,
+                "school_admission_year":owner == Self.owner && state.schoolID == state.schoolMetadataSchoolID ? state.schoolAdmissionYear as Any? ?? NSNull() : NSNull(),
+                "school_department":owner == Self.owner && state.schoolID == state.schoolMetadataSchoolID ? state.schoolDepartment as Any? ?? NSNull() : NSNull()]
         }
         else if path.hasSuffix("/rpc/oi_collection_metrics") { result = [] }
         else if path.hasSuffix("/oi_stories") {
             if state.failReads { status = 503 }
             else if let story = state.story, story["user_id"] as? String == owner.uuidString { result = [story] }
-        } else if path.hasSuffix("/oi_schools") { result = [["id":"postech","name":"POSTECH"]] }
+        } else if path.hasSuffix("/oi_schools") {
+            result = [["id":"postech","name":"POSTECH"]] + (state.includesSecondSchool ? [["id":"other","name":"Other School"]] : [])
+        }
         else if path.hasSuffix("/oi_regions") { result = [["id":"pond","school_id":"postech","name":"Pond"]] }
         else if path.hasSuffix("/oi_assets") { result = [["id":"OiCats","kind":"cucumber","name":"Cats"]] }
         else if path.hasSuffix("/oi_profiles") {
             if request.httpMethod == "PATCH" {
+                state.profilePatchBodies.append(body)
+                if let farm = body["farm_name"] as? String {
+                    if state.failFarmWrite { status = 503 }
+                    else if owner == Self.owner { state.farmName = farm }
+                    else { state.otherFarmName = farm }
+                }
                 state.nickname = body["nickname"] as? String ?? state.nickname
                 state.publicName = body["public_name"] as? String ?? state.publicName
                 state.department = body["department"] as? String ?? state.department
                 state.admissionYear = body["admission_year"] as? String ?? state.admissionYear
                 if let school = body["school_id"] { state.schoolID = school as? String }
             }
-            result = [["id":owner.uuidString,"nickname":owner == Self.owner ? state.nickname : "Owner B","farmer_asset":"OiFarmer", "school_id":state.schoolID as Any? ?? NSNull(),
-                       "public_name":state.publicName, "department":state.department, "admission_year":state.admissionYear]]
+            let receiptOwner = body["farm_name"] != nil && state.mismatchedFarmReceipt ? Self.other : owner
+            result = [["id":receiptOwner.uuidString,"nickname":owner == Self.owner ? state.nickname : "Owner B",
+                "farmer_asset":"OiFarmer", "school_id":state.schoolID as Any? ?? NSNull(),
+                "farm_name":owner == Self.owner ? state.farmName as Any? ?? NSNull() : state.otherFarmName,
+                "public_name":state.publicName, "department":state.department, "admission_year":state.admissionYear]]
         } else if path.hasSuffix("/oi_story_media") {
             result = state.paths.enumerated().map { position, path in
                 ["id":UUID().uuidString,"story_id":state.story?["id"] ?? "","object_path":path,"position":position]
@@ -198,7 +278,9 @@ final class OiTestBackend {
         let data = bytes ?? ((try? JSONSerialization.data(withJSONObject: result)) ?? Data())
         if (path.hasSuffix("/oi_stories") && owner == Self.owner && state.holdOwnerRead)
             || (path.hasSuffix("/rpc/oi_capabilities") && state.holdPostMergeRead && state.mergeConfirmCount > 0)
-            || (path.hasSuffix("/rpc/oi_request_card") && state.holdCardSend) {
+            || (path.hasSuffix("/rpc/oi_request_card") && state.holdCardSend)
+            || (path.hasSuffix("/oi_profiles") && body["farm_name"] != nil && state.holdFarmWrite)
+            || (path.hasSuffix("/rpc/oi_save_farmer_outfit") && state.holdFarmerOutfitWrite) {
             state.held = (client,data)
             let notify = state.didHold
             lock.unlock(); notify?(); return
@@ -280,6 +362,57 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(restored.profile?.nickname, "Owner A")
     }
 
+    @MainActor func testPublicAndPrivateAcademicInformationRemainIndependentAcrossEdits() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure {
+            $0.schoolProfileEnabled = true; $0.schoolID = "postech"
+            $0.publicName = "Public donor"; $0.department = "Public department"; $0.admissionYear = "26"
+            $0.schoolAdmissionYear = 2020; $0.schoolDepartment = "Private Physics"
+        }
+        await store.start()
+        XCTAssertEqual(store.profile?.admissionYear, "26")
+        XCTAssertEqual(store.profile?.department, "Public department")
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2020)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Private Physics")
+
+        await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2021, department: "Private Mathematics")
+        XCTAssertNil(store.error)
+        XCTAssertEqual(store.profile?.publicName, "Public donor")
+        XCTAssertEqual(store.profile?.admissionYear, "26")
+        XCTAssertEqual(store.profile?.department, "Public department")
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2021)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Private Mathematics")
+        XCTAssertEqual(backend.snapshot().admissionYear, "26")
+        XCTAssertEqual(backend.snapshot().department, "Public department")
+
+        backend.configure { $0.failReads = true }
+        await store.updateProfile(academicInfo: .init(name: "Edited public donor", department: "Public History", admissionYear: "25"))
+        XCTAssertEqual(store.profile?.admissionYear, "25")
+        XCTAssertEqual(store.profile?.department, "Public History")
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2021)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Private Mathematics")
+        await store.updateFarmName("햇살")
+        await store.updateProfile(nickname: "Legacy public nickname")
+        XCTAssertEqual(store.profile?.publicName, "Edited public donor")
+        XCTAssertEqual(store.profile?.admissionYear, "25")
+        XCTAssertEqual(store.profile?.department, "Public History")
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2021)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Private Mathematics")
+        XCTAssertEqual(backend.snapshot().profilePatchBodies.map { $0.keys.sorted() },
+            [["admission_year", "department", "public_name"], ["farm_name"], ["nickname"]])
+
+        backend.configure { $0.failReads = false }
+        let restored = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: vault)
+        await restored.start()
+        XCTAssertEqual(restored.profile?.publicName, "Edited public donor")
+        XCTAssertEqual(restored.profile?.admissionYear, "25")
+        XCTAssertEqual(restored.profile?.department, "Public History")
+        XCTAssertEqual(restored.profile?.schoolAdmissionYear, 2021)
+        XCTAssertEqual(restored.profile?.schoolDepartment, "Private Mathematics")
+    }
+
     @MainActor func testProfileEditsDoNotOverwriteFieldsChangedOnAnotherDevice() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
@@ -295,6 +428,317 @@ final class OiRemoteStoreTests: XCTestCase {
         await store.updateProfile(schoolID: "postech")
         XCTAssertEqual(backend.snapshot().nickname, "Name on another device")
         XCTAssertEqual(store.profile?.schoolId, "postech")
+    }
+
+    @MainActor func testSchoolProfilePersistsAndNicknameEditsPreservePrivateMetadata() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.schoolProfileEnabled = true }
+        await store.start()
+        XCTAssertTrue(store.isSchoolProfileAvailable)
+        await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2020, department: "  Computer Science  ")
+        XCTAssertNil(store.error)
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2020)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Computer Science")
+        await store.updateProfile(nickname: "Changed nickname")
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2020)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Computer Science")
+        let restored = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: vault)
+        await restored.start()
+        XCTAssertEqual(restored.profile?.schoolAdmissionYear, 2020)
+        XCTAssertEqual(restored.profile?.schoolDepartment, "Computer Science")
+        XCTAssertGreaterThanOrEqual(backend.snapshot().schoolProfileReads, 2)
+    }
+
+    @MainActor func testSkippedDepartmentClearsOnlyPrivateDepartment() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.schoolProfileEnabled = true; $0.schoolID = "postech"; $0.schoolAdmissionYear = 2020; $0.schoolDepartment = "Old department" }
+        await store.start()
+        await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2021, department: nil)
+        XCTAssertNil(store.error)
+        XCTAssertNil(store.profile?.schoolDepartment)
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2021)
+        XCTAssertEqual(store.profile?.nickname, "Owner A")
+        XCTAssertNil(backend.snapshot().schoolDepartment)
+    }
+
+    @MainActor func testLegacyServerKeepsLoadingWithoutPrivateSchoolRPC() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        XCTAssertTrue(store.hasLoadedRemote)
+        XCTAssertFalse(store.isSchoolProfileAvailable)
+        XCTAssertEqual(backend.snapshot().schoolProfileReads, 0)
+        await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2020, department: nil)
+        XCTAssertNotNil(store.error)
+        XCTAssertEqual(backend.snapshot().schoolProfileWrites, 0)
+        XCTAssertEqual(store.profile?.nickname, "Owner A")
+    }
+
+    @MainActor func testLegacySchoolChangeDoesNotAttachPreviousDepartmentToNewSchool() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure {
+            $0.schoolProfileEnabled = true; $0.includesSecondSchool = true
+            $0.schoolID = "postech"; $0.schoolAdmissionYear = 2020; $0.schoolDepartment = "Original department"
+        }
+        await store.start()
+        XCTAssertEqual(store.profile?.schoolDepartment, "Original department")
+        await store.updateProfile(schoolID: "other")
+        XCTAssertNil(store.error)
+        XCTAssertEqual(store.profile?.schoolId, "other")
+        XCTAssertNil(store.profile?.schoolAdmissionYear)
+        XCTAssertNil(store.profile?.schoolDepartment)
+    }
+
+    @MainActor func testSchoolProfileWriteFailurePreservesPreviousValues() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.schoolProfileEnabled = true; $0.schoolID = "postech"; $0.schoolAdmissionYear = 2020; $0.schoolDepartment = "Original" }
+        await store.start()
+        backend.configure { $0.failSchoolProfileWrite = true }
+        await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2021, department: "Changed")
+        XCTAssertNotNil(store.error)
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2020)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Original")
+    }
+
+    @MainActor func testSchoolProfileRejectsReceiptForAnotherAccount() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.schoolProfileEnabled = true; $0.schoolID = "postech"; $0.schoolAdmissionYear = 2020 }
+        await store.start()
+        backend.configure { $0.mismatchedSchoolProfileReceipt = true }
+        await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2021, department: "Changed")
+        XCTAssertNotNil(store.error)
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2020)
+        XCTAssertEqual(store.account?.id, OiTestBackend.owner)
+    }
+
+    @MainActor func testFarmNamePersistsIndependentlyAcrossRelaunchAndOtherProfileEdits() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure {
+            $0.schoolProfileEnabled = true; $0.schoolID = "postech"
+            $0.schoolAdmissionYear = 2020; $0.schoolDepartment = "Computer Science"
+        }
+        await store.start()
+        XCTAssertEqual(store.profile?.farmName, "오이")
+        await store.updateFarmName("  햇살  ")
+        XCTAssertNil(store.error)
+        XCTAssertEqual(store.profile?.farmName, "햇살")
+        XCTAssertEqual(store.profile?.nickname, "Owner A")
+        XCTAssertEqual(store.profile?.schoolId, "postech")
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2020)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Computer Science")
+        XCTAssertEqual(backend.snapshot().profilePatchBodies.first?.keys.sorted(), ["farm_name"])
+        let restored = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: vault)
+        await restored.start()
+        XCTAssertEqual(restored.profile?.farmName, "햇살")
+        await restored.updateProfile(nickname: "Changed public author")
+        XCTAssertEqual(restored.profile?.farmName, "햇살")
+        await restored.updateSchoolProfile(schoolID: "postech", admissionYear: 2021, department: "Physics")
+        XCTAssertNil(restored.error)
+        XCTAssertEqual(restored.profile?.farmName, "햇살")
+        XCTAssertEqual(restored.profile?.nickname, "Changed public author")
+    }
+
+    @MainActor func testFarmNameRejectsEmptyAndOverlongInputAndNormalizesHangul() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        for invalid in [" \n\t", "일이삼사오육칠"] {
+            await store.updateFarmName(invalid)
+            XCTAssertNotNil(store.error)
+        }
+        XCTAssertTrue(backend.snapshot().profilePatchBodies.isEmpty)
+        await store.updateFarmName("오이".decomposedStringWithCanonicalMapping)
+        XCTAssertNil(store.error)
+        XCTAssertEqual(store.profile?.farmName, "오이")
+        await store.updateFarmName("일이삼사오육")
+        XCTAssertNil(store.error)
+        XCTAssertEqual(store.profile?.farmName, "일이삼사오육")
+        await store.updateFarmName(String(repeating: "가".decomposedStringWithCanonicalMapping, count: 6))
+        XCTAssertNil(store.error)
+        XCTAssertEqual(store.profile?.farmName, "가가가가가가")
+        await store.updateFarmName(String(repeating: "🌱", count: 6))
+        XCTAssertNil(store.error)
+        XCTAssertEqual(store.profile?.farmName, String(repeating: "🌱", count: 6))
+    }
+
+    @MainActor func testLegacyServerDoesNotWriteNicknameAsFarmName() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.farmName = nil }
+        await store.start()
+        XCTAssertTrue(store.hasLoadedRemote)
+        await store.updateFarmName("햇살")
+        XCTAssertNotNil(store.error)
+        XCTAssertTrue(backend.snapshot().profilePatchBodies.isEmpty)
+        XCTAssertEqual(store.profile?.nickname, "Owner A")
+        XCTAssertNil(store.profile?.farmName)
+    }
+
+    @MainActor func testFailedFarmWriteAndForeignReceiptPreserveConfirmedProfile() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        backend.configure { $0.failFarmWrite = true }
+        await store.updateFarmName("햇살")
+        XCTAssertNotNil(store.error)
+        XCTAssertEqual(store.profile?.farmName, "오이")
+        backend.configure { $0.failFarmWrite = false; $0.mismatchedFarmReceipt = true }
+        await store.updateFarmName("햇살")
+        XCTAssertNotNil(store.error)
+        XCTAssertEqual(store.profile?.farmName, "오이")
+        XCTAssertEqual(store.account?.id, OiTestBackend.owner)
+    }
+
+    @MainActor func testLateFarmWriteCannotReplaceAnotherAccountFarm() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let held = expectation(description: "Previous account farm write is held")
+        backend.configure { $0.holdFarmWrite = true; $0.didHold = { held.fulfill() } }
+        let write = Task { await store.updateFarmName("햇살") }
+        await fulfillment(of: [held], timeout: 5)
+        vault.value = OiMemorySession(owner: OiTestBackend.other).value
+        await store.start()
+        backend.releaseHeldRead()
+        await write.value
+        XCTAssertEqual(store.account?.id, OiTestBackend.other)
+        XCTAssertNil(store.profile, "A stale write must not repopulate the profile cleared during account restoration")
+        // Account restoration deliberately skips a refresh while a write is busy.
+        await store.refresh()
+        XCTAssertEqual(store.profile?.farmName, "다른밭")
+        XCTAssertEqual(store.profile?.nickname, "Owner B")
+    }
+
+    @MainActor func testFarmerOutfitPersistsAcrossRelaunchAndOtherProfileEdits() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.farmerOutfitEnabled = true; $0.schoolProfileEnabled = true }
+        await store.start()
+        XCTAssertTrue(store.isFarmerOutfitAvailable)
+        XCTAssertNil(store.farmerOutfit)
+        let outfit = OiFarmerOutfit(character: "kyu", slots: ["top": "kyu-3916-2673", "hat": "kyu-hat"])
+        let saved = await store.saveFarmerOutfit(outfit)
+        XCTAssertTrue(saved)
+        XCTAssertEqual(store.farmerOutfit, outfit)
+        XCTAssertEqual(Set(try XCTUnwrap(backend.snapshot().farmerOutfitPayloads.first).keys), ["p_outfit"])
+        await store.updateFarmName("햇살")
+        await store.updateProfile(nickname: "Legacy name")
+        await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2020, department: "Physics")
+        XCTAssertEqual(store.farmerOutfit, outfit)
+        let restored = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: vault)
+        await restored.start()
+        XCTAssertEqual(restored.farmerOutfit, outfit)
+        XCTAssertGreaterThanOrEqual(backend.snapshot().farmerOutfitReads, 2)
+    }
+
+    @MainActor func testLegacyServerDoesNotRequestOrPretendToSaveFarmerOutfit() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        XCTAssertTrue(store.hasLoadedRemote)
+        XCTAssertFalse(store.isFarmerOutfitAvailable)
+        XCTAssertNil(store.farmerOutfit)
+        let saved = await store.saveFarmerOutfit(OiFarmerOutfit(character: "kyu", slots: [:]))
+        XCTAssertFalse(saved)
+        XCTAssertNotNil(store.error)
+        XCTAssertEqual(backend.snapshot().farmerOutfitReads, 0)
+        XCTAssertEqual(backend.snapshot().farmerOutfitWrites, 0)
+    }
+
+    @MainActor func testFarmerOutfitRejectsInvalidSelectionBeforeNetworkWrite() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.farmerOutfitEnabled = true }
+        await store.start()
+        let invalid = [
+            OiFarmerOutfit(version: 2, character: "kyu", slots: [:]),
+            OiFarmerOutfit(character: "unknown", slots: [:]),
+            OiFarmerOutfit(character: "kyu", slots: ["cape": "cape"]),
+            OiFarmerOutfit(character: "kyu", slots: ["hat": "https://example.invalid/asset"]),
+            OiFarmerOutfit(character: "kyu", slots: ["hat": String(repeating: "a", count: 81)])
+        ]
+        for outfit in invalid {
+            let saved = await store.saveFarmerOutfit(outfit)
+            XCTAssertFalse(saved)
+            XCTAssertNotNil(store.error)
+        }
+        XCTAssertEqual(backend.snapshot().farmerOutfitWrites, 0)
+    }
+
+    @MainActor func testFarmerOutfitWriteFailureAndForeignReceiptPreserveLastKnownOutfit() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.farmerOutfitEnabled = true }
+        await store.start()
+        let original = OiFarmerOutfit(character: "cumber", slots: ["set": "legacy-classic"])
+        let initialSaved = await store.saveFarmerOutfit(original)
+        XCTAssertTrue(initialSaved)
+        let changed = OiFarmerOutfit(character: "kyu", slots: ["hat": "kyu-hat"])
+        backend.configure { $0.failFarmerOutfitWrite = true }
+        let failed = await store.saveFarmerOutfit(changed)
+        XCTAssertFalse(failed)
+        XCTAssertEqual(store.farmerOutfit, original)
+        backend.configure { $0.failFarmerOutfitWrite = false; $0.mismatchedFarmerOutfitReceipt = true }
+        let mismatched = await store.saveFarmerOutfit(changed)
+        XCTAssertFalse(mismatched)
+        XCTAssertEqual(store.farmerOutfit, original)
+        XCTAssertNotNil(store.error)
+    }
+
+    @MainActor func testFarmerOutfitMissingReceiptFieldIsNotTreatedAsAnEmptySavedOutfit() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.farmerOutfitEnabled = true; $0.omitsFarmerOutfitReceiptField = true }
+        await store.start()
+        XCTAssertFalse(store.hasLoadedRemote)
+        XCTAssertNotNil(store.loadError)
+        XCTAssertNil(store.farmerOutfit)
+    }
+
+    @MainActor func testFarmerOutfitReceiptSurvivesRefreshFailure() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.farmerOutfitEnabled = true }
+        await store.start()
+        backend.configure { $0.failReads = true }
+        let outfit = OiFarmerOutfit(character: "kyu", slots: ["top": "kyu-top"])
+        let saved = await store.saveFarmerOutfit(outfit)
+        XCTAssertTrue(saved)
+        XCTAssertEqual(store.farmerOutfit, outfit)
+        XCTAssertNotNil(store.syncWarning)
+        XCTAssertNotNil(store.loadError)
+    }
+
+    @MainActor func testLateFarmerOutfitWriteCannotReplaceAnotherAccountOutfit() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure {
+            $0.farmerOutfitEnabled = true
+            $0.otherFarmerOutfit = ["version": 1, "character": "cumber", "slots": ["set": "legacy-classic"]]
+        }
+        await store.start()
+        let held = expectation(description: "Previous account outfit write is held")
+        backend.configure { $0.holdFarmerOutfitWrite = true; $0.didHold = { held.fulfill() } }
+        let write = Task { await store.saveFarmerOutfit(OiFarmerOutfit(character: "kyu", slots: ["top": "kyu-top"])) }
+        await fulfillment(of: [held], timeout: 5)
+        vault.value = OiMemorySession(owner: OiTestBackend.other).value
+        await store.start()
+        backend.releaseHeldRead()
+        let saved = await write.value
+        XCTAssertFalse(saved)
+        XCTAssertEqual(store.account?.id, OiTestBackend.other)
+        XCTAssertNil(store.farmerOutfit)
+        await store.refresh()
+        XCTAssertEqual(store.farmerOutfit, OiFarmerOutfit(character: "cumber", slots: ["set": "legacy-classic"]))
     }
 
     @MainActor func testSignOutOnlyRevokesCurrentSessionAndClearsDeviceCredentials() async throws {

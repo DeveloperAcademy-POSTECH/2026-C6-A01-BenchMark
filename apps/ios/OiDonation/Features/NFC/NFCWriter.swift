@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  NFCWriter.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 10/22/26.
+//
 
 import CoreNFC
 import Foundation
