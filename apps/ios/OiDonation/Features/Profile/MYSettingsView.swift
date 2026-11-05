@@ -74,6 +74,15 @@ struct MYSettingsView: View {
                             }
                         }
                     }
+                    if let remote {
+                        section("기부 인증") {
+                            NavigationLink { OiDonationEvidenceView(remote: remote) } label: {
+                                settingsCard(action: "확인") {
+                                    profileValue("기부 자료 제출 · 인증 진척도")
+                                }
+                            }.accessibilityIdentifier("my.settings.donationEvidence")
+                        }
+                    }
                     section("권한허용", detail: "iPhone 설정에서 변경") {
                         if permissionValues.count < MYPermission.allCases.count {
                             ProgressView().accessibilityLabel("기기 권한 확인 중")

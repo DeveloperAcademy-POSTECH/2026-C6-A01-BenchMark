@@ -78,6 +78,21 @@ struct OiServiceAPI {
         }
     }
 
+    func reviewDonationEvidence(_ evidence: OiEvidence, token: String) async throws -> OiDonationEvidenceReview {
+        let response: Data
+        do {
+            response = try await request("functions/v1/analyze-donation-evidence", method: "POST", token: token,
+                body: JSONEncoder().encode(["evidence_id": evidence.id.uuidString]), timeout: 70)
+        } catch OiServiceError.unavailable {
+            throw OiServiceError.server("증빙은 접수됐지만 AI 검사를 완료하지 못했어요. AI 검사만 다시 시도해 주세요.")
+        }
+        let review = try decoder.decode(OiDonationEvidenceReview.self, from: response)
+        guard review.reviewType == "donation_evidence", review.evidenceId == evidence.id,
+              review.submittedAt == evidence.submittedAt, review.humanReviewRequired,
+              !review.authenticityVerified else { throw OiServiceError.conflict }
+        return review
+    }
+
     func reviewSchoolEvidence(_ data: Data, contentType: String, token: String) async throws -> OiSchoolEvidenceReview {
         let response: Data
         do {

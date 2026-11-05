@@ -399,3 +399,10 @@ MY 설정이 실제 Apple·Google 인증, 로그아웃, 닉네임, 학교, 기�
 `HomeView`는 작성자의 공개 학교·학과·입학연도·이름을 검색 항목으로 투영한다. 오이가 배치된 캠퍼스를 작성자 학교로 추정하지 않으며 닉네임을 이름의 대체값으로 쓰지 않는다. 입학연도는 26·2026·26학번 검색을 지원한다. `CampusSearchContentState`는 입력 전, 로딩, 실패, 결과, 조회 성공 0건을 구분한다. 운영 DB 마이그레이션 적용과 기존 이용자의 검색용 정보 입력이 있어야 새 항목으로 실제 검색된다.
 
 2026-11-05 develop 통합: 공개 기부자 검색의 `public_name`·`department`·`admission_year`는 공개 입력 계약을 유지한다. 학교 인증 RPC의 private 응답은 `school_department`·`school_admission_year`로 분리해 공개 문자열 연도(26/2026)와 비공개 정수 연도가 섞이지 않게 한다. 각 편집은 다른 정보 영역을 덮어쓰지 않는다.
+
+
+## 기부 인증 화면과 제출자 AI 참고 검사 — 2026-11-05 / #161
+
+Figma `2911:752`를 `OiDonationEvidenceView`와 표시 전용 `OiDonationEvidenceContent`에 적용한다. 기존 `OiRemoteStore.submitEvidence`·비공개 `oi-evidence`·재제출 작업 식별자를 재사용하며, 설정과 작성 승인 안내에서 진입한다. 계정 변경·취소와 서버 접수/AI 실패를 분리한다.
+
+사용자가 제출 즉시 결과를 확인하도록 별도 `analyze-donation-evidence`에서 로그인·본인 제출본·pending 상태를 확인하고 기존 `analyzeDocument`를 그대로 호출한다. 운영자 전용 `analyze-evidence`의 권한과 분석 엔진은 수정하지 않는다. 반환 직전 사용자 세션·파일 경로·제출 시각을 재확인하며, 결과로 승인/권한/보상을 쓰지 않는다. 자세한 계약과 배포 경계는 [구현 기록](../apps/ios/docs/donation-verification-161.md)을 따른다.

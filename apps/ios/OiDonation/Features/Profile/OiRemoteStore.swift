@@ -552,16 +552,18 @@ final class OiRemoteStore {
     }
 
     func submitEvidence(data: Data, contentType: String, fileExtension: String, replacing request: OiEvidence? = nil) async {
-        guard !isBusy, let owner = account?.id else { error = OiServiceError.signInRequired.localizedDescription; return }
+        guard !isBusy, !needsReauthentication, let owner = account?.id else { error = OiServiceError.signInRequired.localizedDescription; return }
+        let started = generation
         do {
             let operation = OiEvidenceOperation(requestID: request?.id ?? UUID(), uploadID: UUID(), contentType: contentType,
                 fileExtension: fileExtension, previousStatus: request?.status, previousPath: request?.objectPath, phase: "prepared",
                 storageOwnerID: request?.storageOwnerId ?? request?.userId)
             try await drafts.saveAttachment(data, owner: owner, id: operation.uploadID)
             try await drafts.saveEvidence(operation, owner: owner)
-            guard account?.id == owner else { throw OiServiceError.accountChanged }
+            try Task.checkCancellation()
+            guard generation == started, account?.id == owner else { throw OiServiceError.accountChanged }
             evidenceOperation = operation; await retryEvidence()
-        } catch { self.error = error.localizedDescription }
+        } catch { if generation == started { self.error = error.localizedDescription } }
     }
 
     func retryEvidence() async {
@@ -571,9 +573,13 @@ final class OiRemoteStore {
         defer { isBusy = false }
         do {
             let accessToken = try await token()
+            try Task.checkCancellation()
+            guard generation == started else { throw OiServiceError.accountChanged }
             var request = try await api.mutate("start_evidence", payload: ["id":operation.requestID.uuidString], token: accessToken, as: OiEvidence.self)
+            guard generation == started else { throw OiServiceError.accountChanged }
             operation.storageOwnerID = request.storageOwnerId ?? request.userId
             try await drafts.saveEvidence(operation, owner: owner)
+            guard generation == started else { throw OiServiceError.accountChanged }
             evidenceOperation = operation
             let path = operation.objectPath(owner: owner)
             if request.objectPath == path && request.status != "draft" { operation.phase = request.status }
@@ -581,12 +587,20 @@ final class OiRemoteStore {
                 if let previousStatus = operation.previousStatus, let previousPath = operation.previousPath {
                     request = try await api.mutate("reopen_evidence", payload: ["id":request.id.uuidString,"operation_id":operation.uploadID.uuidString,
                         "expected_status":previousStatus,"expected_object_path":previousPath], token: accessToken, as: OiEvidence.self)
+                    guard generation == started else { throw OiServiceError.accountChanged }
                 }
                 guard request.status == "draft" else { throw OiServiceError.conflict }
-                operation.phase = "uploading"; try await drafts.saveEvidence(operation, owner: owner); evidenceOperation = operation
+                operation.phase = "uploading"; try await drafts.saveEvidence(operation, owner: owner)
+                guard generation == started else { throw OiServiceError.accountChanged }
+                evidenceOperation = operation
                 let data = try await drafts.attachment(owner: owner, id: operation.uploadID)
+                try Task.checkCancellation()
+                guard generation == started else { throw OiServiceError.accountChanged }
                 try await api.upload(bucket: "oi-evidence", path: path, data: data, contentType: operation.contentType, token: accessToken)
-                operation.phase = "submitting"; try await drafts.saveEvidence(operation, owner: owner); evidenceOperation = operation
+                guard generation == started else { throw OiServiceError.accountChanged }
+                operation.phase = "submitting"; try await drafts.saveEvidence(operation, owner: owner)
+                guard generation == started else { throw OiServiceError.accountChanged }
+                evidenceOperation = operation
                 request = try await api.mutate("submit_evidence", payload: ["id":request.id.uuidString,"object_path":path], token: accessToken, as: OiEvidence.self)
                 operation.phase = request.status
             }
@@ -742,6 +756,25 @@ final class OiRemoteStore {
         try await drafts.saveSchoolEvidenceReview(review, owner: owner)
         try Task.checkCancellation()
         guard started == generation, account?.id == owner else { throw OiServiceError.accountChanged }
+    }
+
+    func reviewDonationEvidence(_ evidence: OiEvidence) async throws -> OiDonationEvidenceReview {
+        guard let api else { throw OiServiceError.configuration }
+        guard let owner = account?.id, owner == evidence.userId, !needsReauthentication else { throw OiServiceError.signInRequired }
+        let started = generation
+        do {
+            let accessToken = try await token()
+            try Task.checkCancellation()
+            guard started == generation else { throw OiServiceError.accountChanged }
+            let review = try await api.reviewDonationEvidence(evidence, token: accessToken)
+            try Task.checkCancellation()
+            guard started == generation else { throw OiServiceError.accountChanged }
+            return review
+        } catch {
+            guard started == generation else { throw OiServiceError.accountChanged }
+            noteAuthenticationFailure(error)
+            throw error
+        }
     }
 
     func reviewSchoolEvidence(_ data: Data, contentType: String) async throws -> OiSchoolEvidenceReview {
