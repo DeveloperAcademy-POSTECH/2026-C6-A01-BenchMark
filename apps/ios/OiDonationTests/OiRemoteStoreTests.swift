@@ -1512,3 +1512,138 @@ extension OiRemoteStoreTests {
     }
 
 }
+
+extension OiRemoteStoreTests {
+    @MainActor func testDonationAIResultRejectsOtherSubmissionAndApprovalClaims() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let previous = OiStoreURLProtocol.handle
+        defer { session.invalidateAndCancel(); OiStoreURLProtocol.handle = previous }
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let request = OiEvidence(id: UUID(), userId: OiTestBackend.owner, status: "pending",
+            objectPath: "private.png", reviewNote: nil, submittedAt: "2026-11-05T00:00:00Z")
+        let base: [String: Any] = [
+            "review_type": "donation_evidence", "evidence_id": request.id.uuidString,
+            "submitted_at": request.submittedAt ?? "", "analyzed_at": "2026-11-05T00:01:00Z",
+            "human_review_required": true, "authenticity_verified": false, "notice": "운영자 검토 필요",
+            "assessment": ["verdict": "no_obvious_signs", "readability": "readable", "findings": [],
+                "limitations": ["진위 및 납입 미확인"], "manual_checks": ["원본 확인"]]
+        ]
+        for field in ["valid", "evidence_id", "submitted_at", "human_review_required", "authenticity_verified"] {
+            var response = base
+            if field == "evidence_id" { response[field] = UUID().uuidString }
+            if field == "submitted_at" { response[field] = "2026-11-05T00:02:00Z" }
+            if field == "human_review_required" { response[field] = false }
+            if field == "authenticity_verified" { response[field] = true }
+            let bytes = try JSONSerialization.data(withJSONObject: response)
+            OiStoreURLProtocol.handle = { input, client in
+                XCTAssertEqual(input.url?.path, "/functions/v1/analyze-donation-evidence")
+                XCTAssertEqual(input.httpMethod, "POST")
+                XCTAssertEqual(input.timeoutInterval, 70)
+                let payload = try? JSONSerialization.jsonObject(with: OiTestBackend.body(input)) as? [String: String]
+                XCTAssertEqual(payload, ["evidence_id": request.id.uuidString])
+                client.respond(200, bytes)
+            }
+            do {
+                let review = try await api.reviewDonationEvidence(request, token: "synthetic-session")
+                XCTAssertEqual(field, "valid")
+                XCTAssertEqual(review.assessment.verdict, .noObviousSigns)
+                XCTAssertNil(review.summary, "A legacy visual-only response must remain compatible without implying evidence sufficiency")
+            } catch { XCTAssertNotEqual(field, "valid", "The matching non-authoritative result must be accepted") }
+        }
+    }
+
+    @MainActor func testDonationEvidenceDatesAndUnknownStatesAreNotFabricated() throws {
+        XCTAssertEqual(OiDonationEvidenceContent.dateLabel("2026-11-05T00:00:00.000Z"), "2026년 11월 5일 목요일 09:00")
+        XCTAssertEqual(OiDonationEvidenceContent.dateLabel(nil), "접수일 확인 중")
+        XCTAssertEqual(OiDonationEvidenceContent.statusTitle("new_server_status"), "상태 확인 필요")
+        XCTAssertEqual(OiDonationEvidenceContent.statusTitle("approved"), "작성 승인")
+    }
+
+    @MainActor func testDonationSemanticSummaryAcceptsSMSAndSeparatesOtherOutcomes() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let previous = OiStoreURLProtocol.handle
+        defer { session.invalidateAndCancel(); OiStoreURLProtocol.handle = previous }
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let evidence = OiEvidence(id: UUID(), userId: OiTestBackend.owner, status: "pending",
+            objectPath: "synthetic-private.png", reviewNote: nil, submittedAt: "2026-11-05T00:00:00Z")
+        for outcome in OiDonationEvidenceSummary.Outcome.allCases {
+            let sufficient = outcome == .sufficientEvidence
+            let summary: [String: Any] = [
+                "outcome": outcome.rawValue, "sufficient_evidence": sufficient,
+                "title": sufficient ? "문자에서 기부 완료 근거를 확인했어요" : "자료에 추가 확인이 필요해요",
+                "reasons": ["실제 발신번호와 입금 완료 내용을 함께 대조했어요."],
+                "checks": [["kind": "sender", "status": "matched", "detail": "공식 기부 문의 번호와 일치해요."]],
+                "source_references": [["id": "postech-giving", "url": "https://vision.postech.ac.kr/web/?sub=contract&top=participation",
+                    "title": "POSTECH 발전기금", "kind": "official", "verified_at": "2026-11-05"]]
+            ]
+            let response: [String: Any] = [
+                "review_type": "donation_evidence", "evidence_id": evidence.id.uuidString,
+                "submitted_at": evidence.submittedAt ?? "", "analyzed_at": "2026-11-05T00:01:00Z",
+                "human_review_required": true, "authenticity_verified": false, "notice": "글 작성은 운영자 최종 승인 후 가능해요.",
+                "summary": summary,
+                "assessment": ["verdict": "no_obvious_signs", "readability": "readable", "findings": [],
+                    "limitations": ["원본 진위와 실제 납입은 별도 확인이 필요해요."], "manual_checks": ["제출자 본인 자료인지 확인해 주세요."]]
+            ]
+            let bytes = try JSONSerialization.data(withJSONObject: response)
+            OiStoreURLProtocol.handle = { _, client in client.respond(200, bytes) }
+            let review = try await api.reviewDonationEvidence(evidence, token: "synthetic-session")
+            XCTAssertEqual(review.summary?.outcome, outcome)
+            XCTAssertEqual(review.summary?.sufficientEvidence, sufficient)
+            XCTAssertEqual(review.humanReviewRequired, true)
+            XCTAssertEqual(review.authenticityVerified, false)
+            XCTAssertNotNil(review.summary?.sourceReferences.first?.safeURL)
+        }
+    }
+
+    @MainActor func testDonationSemanticSummaryRejectsConflictingPassClaims() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let previous = OiStoreURLProtocol.handle
+        defer { session.invalidateAndCancel(); OiStoreURLProtocol.handle = previous }
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let evidence = OiEvidence(id: UUID(), userId: OiTestBackend.owner, status: "pending",
+            objectPath: "synthetic-private.png", reviewNote: nil, submittedAt: "2026-11-05T00:00:00Z")
+        for scenario in ["mismatchedFlag", "missingPassFlag", "suspiciousPass", "unreadablePass", "emptyReasons", "unknownOutcome"] {
+            var summary: [String: Any] = ["outcome": "sufficient_evidence", "sufficient_evidence": true,
+                "title": "문자 증빙 충족", "reasons": ["입금 완료 근거 확인"], "checks": [], "source_references": []]
+            var assessment: [String: Any] = ["verdict": "no_obvious_signs", "readability": "readable", "findings": [],
+                "limitations": ["원본 진위 미확인"], "manual_checks": ["운영자 확인"]]
+            if scenario == "mismatchedFlag" { summary["outcome"] = "needs_more_evidence" }
+            if scenario == "missingPassFlag" { summary["sufficient_evidence"] = false }
+            if scenario == "suspiciousPass" { assessment["verdict"] = "suspicious" }
+            if scenario == "unreadablePass" { assessment["readability"] = "unreadable" }
+            if scenario == "emptyReasons" { summary["reasons"] = [] as [String] }
+            if scenario == "unknownOutcome" { summary["outcome"] = "automatically_approved" }
+            let response: [String: Any] = ["review_type": "donation_evidence", "evidence_id": evidence.id.uuidString,
+                "submitted_at": evidence.submittedAt ?? "", "analyzed_at": "2026-11-05T00:01:00Z",
+                "human_review_required": true, "authenticity_verified": false, "notice": "운영자 확인 필요",
+                "summary": summary, "assessment": assessment]
+            let bytes = try JSONSerialization.data(withJSONObject: response)
+            OiStoreURLProtocol.handle = { _, client in client.respond(200, bytes) }
+            do {
+                _ = try await api.reviewDonationEvidence(evidence, token: "synthetic-session")
+                XCTFail("Conflicting evidence pass must be rejected: \(scenario)")
+            } catch {}
+        }
+    }
+
+    @MainActor func testDonationSourceLinksOnlyOpenTrustedHTTPSHosts() {
+        for value in ["https://vision.postech.ac.kr/web/", "https://www.postech.ac.kr/"] {
+            let source = OiDonationEvidenceSummary.SourceReference(id: "official", url: value,
+                title: "기부 안내", kind: "official", verifiedAt: "2026-11-05")
+            XCTAssertNotNil(source.safeURL)
+        }
+        for value in ["http://vision.postech.ac.kr/", "javascript:alert(1)", "https://postech.ac.kr.example.com/",
+                      "https://postech.ac.kr@evil.example/", "https://user@vision.postech.ac.kr/",
+                      "https://vision.postech.ac.kr:8080/", "https://unreviewed-donor.example/"] {
+            let source = OiDonationEvidenceSummary.SourceReference(id: "untrusted", url: value,
+                title: "기부 후기", kind: "report", verifiedAt: "2026-11-05")
+            XCTAssertNil(source.safeURL)
+        }
+    }
+}
