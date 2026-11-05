@@ -37,7 +37,7 @@ def run(command, **options):
 
 try:
     with log_path.open('w') as log:
-        run(['initdb', '-D', str(data), '-A', 'trust', '-U', 'postgres', '--no-locale'])
+        run(['initdb', '-D', str(data), '-A', 'trust', '-U', 'postgres', '--no-locale', '-E', 'UTF8'])
         run(['pg_ctl', '-D', str(data), '-l', str(root / 'postgres.log'), '-o', f"-F -h '' -k {socket} -p {port}", '-w', '-t', '20', 'start'])
         started = True
         pid = int((data / 'postmaster.pid').read_text().splitlines()[0])
@@ -57,10 +57,17 @@ create function auth.jwt() returns jsonb language sql stable as $$ select coales
 grant execute on function auth.jwt() to anon,authenticated;
 """, text=True)
         for migration in sorted((REPOSITORY / 'supabase/migrations').glob('*.sql')):
+            if migration.name.endswith('_oi_independent_farm_name.sql'):
+                run(connection, input="insert into auth.users(id) values('f1580000-0000-4000-8000-000000000001'); update public.oi_profiles set nickname='Legacy nickname' where id='f1580000-0000-4000-8000-000000000001';", text=True)
             run(connection + ['-f', str(migration)])
+        run(connection + ['-f', 'supabase/tests/oi-farm-name.sql'])
+        # The backfill fixture belongs only to the farm migration test.
+        run(connection, input="delete from benchmark_private.oi_account_members where auth_user_id='f1580000-0000-4000-8000-000000000001' and account_id=auth_user_id; delete from auth.users where id='f1580000-0000-4000-8000-000000000001';", text=True)
         run(connection + ['-f', 'supabase/tests/oi-flow.sql'])
         run(connection + ['-f', 'supabase/tests/account-merge.sql'])
         run(connection + ['-f', 'supabase/tests/oi-card-requests.sql'])
+        run(connection + ['-f', 'supabase/tests/oi-school-profile.sql'])
+        run(connection + ['-f', 'supabase/tests/oi-farmer-outfit.sql'])
         print('PASS: migrations, existing SQL regression, data union, preservation, consent, operator exclusion, rollback, RLS and old-session cutover')
 
         users = ['90000000-0000-4000-8000-000000000001', '90000000-0000-4000-8000-000000000002']
@@ -111,10 +118,16 @@ grant execute on function auth.jwt() to anon,authenticated;
         for migration in migrations:
             if migration == merge_migration:
                 run(remote_connection + ['-f', 'supabase/tests/fixtures/deployed-campus-mutate.sql'])
+            if migration.name.endswith('_oi_independent_farm_name.sql'):
+                run(remote_connection, input="insert into auth.users(id) values('f1580000-0000-4000-8000-000000000001'); update public.oi_profiles set nickname='Legacy nickname' where id='f1580000-0000-4000-8000-000000000001';", text=True)
             run(remote_connection + ['-f', str(migration)])
+        run(remote_connection + ['-f', 'supabase/tests/oi-farm-name.sql'])
+        run(remote_connection, input="delete from benchmark_private.oi_account_members where auth_user_id='f1580000-0000-4000-8000-000000000001' and account_id=auth_user_id; delete from auth.users where id='f1580000-0000-4000-8000-000000000001';", text=True)
         run(remote_connection + ['-f', 'supabase/tests/account-merge.sql'])
         run(remote_connection + ['-f', 'supabase/tests/account-merge-campus-compat.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-card-requests.sql'])
+        run(remote_connection + ['-f', 'supabase/tests/oi-school-profile.sql'])
+        run(remote_connection + ['-f', 'supabase/tests/oi-farmer-outfit.sql'])
         print('PASS: deployed save_campus_story, height_meters and heading_degrees behavior survives canonical ownership patch')
         # Unknown owning function edits must stop the migration before any schema change commits.
         run(connection + ['-c', 'create database unknown_drift'])

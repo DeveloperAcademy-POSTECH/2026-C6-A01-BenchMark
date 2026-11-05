@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  OiAppleAuthentication.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 11/3/26.
+//
 
 import AuthenticationServices
 import CryptoKit

@@ -33,6 +33,11 @@ select pg_temp.assert_true((public.oi_capabilities()->>'coins_enabled')::boolean
 update public.oi_profiles set nickname='Synthetic farmer',school_id='postech' where id=auth.uid();
 select pg_temp.assert_true((select nickname='Synthetic farmer' and school_id='postech' from public.oi_profiles where id=auth.uid()),'profile and school persisted');
 select pg_temp.assert_error($command$update public.oi_profiles set school_id='nonexistent-school' where id=auth.uid()$command$,'23503');
+select pg_temp.assert_true((select public_name='' and department='' and admission_year='' from public.oi_profiles where id=auth.uid()),'no automatic disclosure from legacy nickname');
+update public.oi_profiles set public_name='가상기부자',department='가상학과',admission_year='2026' where id=auth.uid();
+select pg_temp.assert_error($command$update public.oi_profiles set admission_year='20260001' where id=auth.uid()$command$,'23514');
+select pg_temp.assert_error($command$update public.oi_profiles set public_name=repeat('가',51) where id=auth.uid()$command$,'23514');
+select pg_temp.assert_true((select public_name='가상기부자' and nickname='Synthetic farmer' from public.oi_profiles where id=auth.uid()),'public name is separate from nickname');
 
 select pg_temp.assert_error('insert into benchmark_private.oi_operators values (auth.uid())','42501');
 select pg_temp.assert_error('update public.oi_profiles set id=gen_random_uuid() where id=auth.uid()','42501');
@@ -46,6 +51,8 @@ select public.oi_mutate('submit_evidence','{"id":"b1000000-0000-4000-8000-000000
 select pg_temp.assert_error($command$insert into storage.objects(bucket_id,name) values('oi-evidence','b1000000-0000-4000-8000-000000000001/b1000000-0000-4000-8000-000000000010/overwrite.png')$command$,'42501');
 
 select set_config('request.jwt.claim.sub','b1000000-0000-4000-8000-000000000002',true);
+update public.oi_profiles set public_name='타인변경' where id='b1000000-0000-4000-8000-000000000001';
+select pg_temp.assert_true((select count(*)=0 from public.oi_profiles where id='b1000000-0000-4000-8000-000000000001'),'unpublished donor metadata remains private');
 select pg_temp.assert_true((select count(*)=0 from public.oi_evidence_requests),'other evidence hidden');
 select pg_temp.assert_true((select count(*)=0 from storage.objects where bucket_id='oi-evidence'),'other evidence file hidden');
 select pg_temp.assert_error($command$select public.oi_mutate('start_evidence','{"id":"b1000000-0000-4000-8000-000000000010"}')$command$,'42501');
@@ -82,6 +89,8 @@ select pg_temp.assert_true((select count(*)=1 from public.oi_stories),'published
 select pg_temp.assert_true((select count(*)=1 from public.oi_story_media),'published media metadata readable');
 select pg_temp.assert_true((select count(*)=1 from storage.objects),'only published story object readable');
 select pg_temp.assert_true((select count(*)=1 from public.oi_profiles),'only published author profile readable');
+select pg_temp.assert_true((select public_name='가상기부자' and department='가상학과' and admission_year='2026' from public.oi_profiles),'public author search metadata readable, other user cannot modify it');
+select pg_temp.assert_error($command$update public.oi_profiles set public_name='anonymous mutation'$command$,'42501');
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub','b1000000-0000-4000-8000-000000000002',true);

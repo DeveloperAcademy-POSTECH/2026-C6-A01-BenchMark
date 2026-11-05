@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  OiServiceChecks.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 10/28/26.
+//
 
 import Foundation
 
@@ -133,6 +138,7 @@ struct OiServiceChecks {
         }
         let profiles = try await api.rows("oi_profiles", as: OiProfile.self)
         precondition(profiles.count == 201 && Set(profiles.map(\.id)).count == 201)
+        precondition(profiles.allSatisfy { $0.publicName == nil && $0.department == nil && $0.admissionYear == nil }, "Pre-migration profile responses remain readable")
 
         let publicID = UUID()
         func publicFixture(status: String, id: UUID) throws -> Data {

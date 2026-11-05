@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C15811050000000000000001 /* OiSchoolEvidenceContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15811050000000000000002; };
 		C10911020000000000000005 /* OiCats PNG in Resources */ = {isa = PBXBuildFile; fileRef = C10911020000000000000001 /* OiCats PNG */; };
 		C10911020000000000000006 /* OiGardener PNG in Resources */ = {isa = PBXBuildFile; fileRef = C10911020000000000000002 /* OiGardener PNG */; };
 		C10911020000000000000007 /* OiWizard PNG in Resources */ = {isa = PBXBuildFile; fileRef = C10911020000000000000003 /* OiWizard PNG */; };
@@ -50,6 +51,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		C15811050000000000000002 /* OiSchoolEvidenceContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiSchoolEvidenceContractTests.swift; sourceTree = SOURCE_ROOT; };
 		C10911020000000000000001 /* OiCats PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiCats PNG"; path = OiDonation/Assets.xcassets/OiCats.imageset/61272.png; sourceTree = SOURCE_ROOT; };
 		C10911020000000000000002 /* OiGardener PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiGardener PNG"; path = OiDonation/Assets.xcassets/OiGardener.imageset/0e35d.png; sourceTree = SOURCE_ROOT; };
 		C10911020000000000000003 /* OiWizard PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiWizard PNG"; path = OiDonation/Assets.xcassets/OiWizard.imageset/9ac42.png; sourceTree = SOURCE_ROOT; };
@@ -178,6 +180,7 @@
 				B10000000000000000000008,
 				C13211030000000000000010,
 				C15211040000000000000001 /* CampusMapInteractionTests.swift */,
+				C15811050000000000000002,
 				8736DA6B30777C9800D0CFC9 /* OiDonation */,
 				87169566307CB1CF0090D456 /* OiDonationClip */,
 				C10911020000000000000009 /* App Clip Character Resources */,
@@ -359,7 +362,7 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		B10000000000000000000004 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (B10000000000000000000009,C13211030000000000000011,C15211040000000000000002,); runOnlyForDeploymentPostprocessing = 0; };
+		B10000000000000000000004 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (B10000000000000000000009,C13211030000000000000011,C15211040000000000000002,C15811050000000000000001,); runOnlyForDeploymentPostprocessing = 0; };
 		87169561307CB1CF0090D456 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
