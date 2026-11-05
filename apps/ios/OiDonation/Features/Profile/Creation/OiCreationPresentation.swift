@@ -4,6 +4,7 @@ enum OiCreationStep: String, CaseIterable {
     case consent, story, photos, location, cucumber, card
 
     static let storyTextLimit = 45
+    static let storyPhotoLimit = 3
 
     var title: String {
         switch self {

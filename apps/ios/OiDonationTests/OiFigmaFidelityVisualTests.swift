@@ -68,6 +68,57 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testStoryFieldsGrowAfterPastingMultipleLines() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: ScrollView { StoryPasteFixture() })
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+            previousKeyWindow?.makeKey()
+        }
+
+        let pasteboard = UIPasteboard.general
+        let previousItems = pasteboard.items
+        defer { pasteboard.items = previousItems }
+        let pastedText = "캠퍼스의 봄\n친구와 걷던 길\n함께 남긴 이야기"
+
+        func editors(in view: UIView) -> [UITextView] {
+            if let editor = view as? UITextView { return [editor] }
+            return view.subviews.flatMap { editors(in: $0) }
+        }
+
+        try await Task.sleep(for: .milliseconds(300))
+        let fields = editors(in: host.view).sorted { $0.convert(.zero, to: host.view).minY < $1.convert(.zero, to: host.view).minY }
+        XCTAssertEqual(fields.count, 2)
+        for field in fields {
+            XCTAssertTrue(field.becomeFirstResponder())
+            try await Task.sleep(for: .milliseconds(300))
+            let initialHeight = field.bounds.height
+            XCTAssertGreaterThan(initialHeight, 0)
+            pasteboard.string = pastedText
+            field.paste(nil)
+            try await Task.sleep(for: .milliseconds(400))
+            XCTAssertEqual(field.text, pastedText)
+            XCTAssertGreaterThan(field.bounds.height, initialHeight + 20)
+            XCTAssertFalse(field.isScrollEnabled)
+            field.resignFirstResponder()
+        }
+    }
+
+    private struct StoryPasteFixture: View {
+        @State private var draft = OiStoryDraft()
+        @FocusState private var focusedField: OiStoryWritingStep.Field?
+
+        var body: some View {
+            OiStoryWritingStep(draft: $draft, grants: [], focusedField: $focusedField)
+        }
+    }
+
     private struct StoryWritingCapture: View {
         let draft: OiStoryDraft
         @FocusState private var focusedField: OiStoryWritingStep.Field?
@@ -261,6 +312,15 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             onReload: {}, onDecision: { _, _ in }, onRetryDecision: {})
         try await capture(unconfirmed, name: "card-requests-unconfirmed-decision",
             variant: reference, defaults: fixture.defaults, attach: true)
+    }
+
+    func testEvidenceDesignPreviewCapture() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        for variant in variants {
+            try await capture(NavigationStack { OiEvidenceDesignPreview() },
+                              name: "evidence-preview", variant: variant, defaults: fixture.defaults, attach: true)
+        }
     }
 
     func testMYScreenCapturesWithoutRemoteStore() async throws {

@@ -71,6 +71,14 @@ struct MYWorkshopView: View {
                     Text("의 작업실").font(.custom("PearToucan-Light", size: 20, relativeTo: .body))
                 }.foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6).accessibilityElement(children: .combine)
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink { OiEvidenceDesignPreview() } label: {
+                    OiSeedBalanceLabel(count: 0)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("my.workshop.addSeed")
+            }
+            .sharedBackgroundVisibility(.hidden)
         }
         .safeAreaInset(edge: .bottom) {
             if dynamicTypeSize.isAccessibilitySize {

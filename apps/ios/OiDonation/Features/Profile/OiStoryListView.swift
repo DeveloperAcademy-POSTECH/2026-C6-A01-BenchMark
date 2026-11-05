@@ -53,7 +53,7 @@ struct OiStoryListView: View {
 
             ToolbarItem(placement: .topBarTrailing) {
                 optionalButton(action: onAddSeed) {
-                    seedStatusLabel
+                    OiSeedBalanceLabel(count: seedCount)
                 }
                 .accessibilityIdentifier("storyList.seedBalance")
             }
@@ -103,47 +103,6 @@ struct OiStoryListView: View {
             }
         }
 
-    }
-
-    private var seedStatusLabel: some View {
-        HStack(spacing: 10) {
-            Text("+")
-                .font(.custom("Paperlogy-7Bold", size: 25, relativeTo: .title2))
-                .foregroundStyle(.white)
-                .frame(width: 30, height: 30)
-                .background(seedBalanceBorderColor, in: Circle())
-
-            HStack(spacing: 4) {
-                seedIcon
-                Text(seedCount.map { "\($0)pc" } ?? "—pc")
-                    .font(.custom("Paperlogy-5Medium", size: 16, relativeTo: .callout))
-                    .tracking(0.32)
-                    .foregroundStyle(.black)
-                    .lineLimit(1)
-                    .monospacedDigit()
-            }
-        }
-        .padding(.leading, 7)
-        .padding(.trailing, 15)
-        .frame(minHeight: 44)
-        .background(seedBalanceBackgroundColor, in: Capsule())
-        .overlay { Capsule().stroke(seedBalanceBorderColor, lineWidth: 1) }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("보유 씨앗")
-        .accessibilityValue(seedCount.map { "\($0)개" } ?? "개수 확인 준비 중")
-        .accessibilityHint("씨앗 안내 보기")
-    }
-
-    /// The Figma image fill crops the square source into a 24 × 26 point slot.
-    private var seedIcon: some View {
-        Color.clear.frame(width: 24, height: 26)
-            .overlay(alignment: .topLeading) {
-                Image("StorySeedIcon").resizable()
-                    .frame(width: 24 * 1.5794, height: 26 * 1.4569)
-                    .offset(x: -24 * 0.2991, y: -26 * 0.2155)
-            }
-            .clipped()
-            .accessibilityHidden(true)
     }
 
     private func storySlot(_ item: OiStoryListItem) -> some View {
@@ -358,7 +317,7 @@ struct OiStoryListView: View {
     ) -> some View {
         HStack(spacing: 4) {
             if icon == "StorySeedIcon" {
-                seedIcon
+                OiStorySeedIcon()
             } else {
                 Image(icon)
                     .resizable()
@@ -396,14 +355,6 @@ struct OiStoryListView: View {
         }
     }
 
-    private var seedBalanceBorderColor: Color {
-        Color(red: 198 / 255, green: 191 / 255, blue: 91 / 255)
-    }
-
-    private var seedBalanceBackgroundColor: Color {
-        Color(red: 255 / 255, green: 254 / 255, blue: 228 / 255)
-    }
-
     private var seedButtonColor: Color {
         Color(red: 163 / 255, green: 140 / 255, blue: 33 / 255)
     }
@@ -414,6 +365,61 @@ struct OiStoryListView: View {
 
     private var usesAccessibilityLayout: Bool {
         dynamicTypeSize.isAccessibilitySize
+    }
+}
+
+struct OiSeedBalanceLabel: View {
+    let count: Int?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text("+")
+                .font(.custom("Paperlogy-7Bold", size: 25, relativeTo: .title2))
+                .foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+                .background(seedBalanceBorderColor, in: Circle())
+
+            HStack(spacing: 4) {
+                OiStorySeedIcon()
+                Text(count.map { "\($0)pc" } ?? "—pc")
+                    .font(.custom("Paperlogy-5Medium", size: 16, relativeTo: .callout))
+                    .tracking(0.32)
+                    .foregroundStyle(.black)
+                    .lineLimit(1)
+                    .monospacedDigit()
+            }
+        }
+        .padding(.leading, 7)
+        .padding(.trailing, 15)
+        .frame(minHeight: 44)
+        .background(seedBalanceBackgroundColor, in: Capsule())
+        .overlay { Capsule().stroke(seedBalanceBorderColor, lineWidth: 1) }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("씨앗 추가")
+        .accessibilityValue(count.map { "\($0)개" } ?? "개수 확인 준비 중")
+        .accessibilityHint("기부 인증 미리보기 열기")
+    }
+
+    private var seedBalanceBorderColor: Color {
+        Color(red: 198 / 255, green: 191 / 255, blue: 91 / 255)
+    }
+
+    private var seedBalanceBackgroundColor: Color {
+        Color(red: 255 / 255, green: 254 / 255, blue: 228 / 255)
+    }
+}
+
+struct OiStorySeedIcon: View {
+    /// The Figma image fill crops the square source into a 24 × 26 point slot.
+    var body: some View {
+        Color.clear.frame(width: 24, height: 26)
+            .overlay(alignment: .topLeading) {
+                Image("StorySeedIcon").resizable()
+                    .frame(width: 24 * 1.5794, height: 26 * 1.4569)
+                    .offset(x: -24 * 0.2991, y: -26 * 0.2155)
+            }
+            .clipped()
+            .accessibilityHidden(true)
     }
 }
 

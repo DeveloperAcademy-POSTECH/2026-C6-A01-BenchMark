@@ -20,6 +20,7 @@ struct OiStoryListScreen: View {
     @State private var showingConsent = false
     @State private var showingApprovalNotice = false
     @State private var showingSeedNotice = false
+    @State private var showingEvidencePreview = false
 
     var body: some View {
         OiStoryListView(
@@ -28,7 +29,7 @@ struct OiStoryListScreen: View {
             notices: OiStoryListView.listNotices,
             guidance: OiStoryListView.listGuidance,
             onRetry: { Task { await remote.refresh(); await loadLocalDrafts() } },
-            onAddSeed: { showingSeedNotice = true },
+            onAddSeed: { showingEvidencePreview = true },
             onSelectStory: selectStory,
             onCreateStory: beginCreatingStory,
             onUseSeed: { showingSeedNotice = true }
@@ -42,6 +43,7 @@ struct OiStoryListScreen: View {
             showingConsent = false
             showingApprovalNotice = false
             showingSeedNotice = false
+            showingEvidencePreview = false
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             if let owner = remote.account?.id, loadedDraftOwner == owner, unreadableDraftCount > 0 || pendingDiscardCount > 0 {
@@ -63,6 +65,7 @@ struct OiStoryListScreen: View {
             }
         }
         .navigationDestination(isPresented: $showingSettings) { MYSettingsView(remote: remote) }
+        .navigationDestination(isPresented: $showingEvidencePreview) { OiEvidenceDesignPreview() }
         .navigationDestination(item: $selectedLocalID) { id in
             OiStoryEditor(remote: remote, localID: id, onFinish: { selectedLocalID = nil })
         }

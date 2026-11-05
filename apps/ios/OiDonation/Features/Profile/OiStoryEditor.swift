@@ -99,6 +99,7 @@ struct OiStoryEditor: View {
             defer { preparingPhoto = false; photoSelections = [] }
             var failures = 0
             for selection in selections {
+                guard editingPhotos.count < OiCreationStep.storyPhotoLimit else { break }
                 do {
                     guard let data = try await selection.loadTransferable(type: Data.self) else { throw OiServiceError.invalidInput }
                     let jpeg = try OiPhotoProcessor.prepare(data)
@@ -107,6 +108,7 @@ struct OiStoryEditor: View {
                     try await remote.saveLocalPhoto(jpeg, id: id, owner: owner)
                     try Task.checkCancellation()
                     guard remote.account?.id == owner else { throw OiServiceError.accountChanged }
+                    guard editingPhotos.count < OiCreationStep.storyPhotoLimit else { break }
                     photos.append(id); localVersion += 1; _ = await persist()
                 } catch is CancellationError { return }
                 catch { failures += 1 }
@@ -174,9 +176,7 @@ struct OiStoryEditor: View {
         .navigationBarBackButtonHidden()
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                if step == .photos {
-                    Button("취소", action: cancelPhotoEditing).accessibilityIdentifier("oi.photos.cancel")
-                } else if step == .location {
+                if step == .location {
                     Button("취소") { navigate(to: .story) }.accessibilityIdentifier("oi.location.cancel3D")
                 } else {
                     Button(action: goBack) { Image(systemName: "chevron.left") }
@@ -185,10 +185,7 @@ struct OiStoryEditor: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                if restored && !submitted && step == .photos {
-                    Button("완료") { finishPhotoEditing() }
-                        .accessibilityIdentifier("oi.creation.photosDone")
-                } else if !submitted && step != .location {
+                if !submitted && step != .location && step != .photos {
                     Button("나가기") { if restored { choosingExit = true } else { dismiss() } }
                         .disabled(remote.isBusy || preparingPhoto || publishing || saving || isDiscarding)
                 }
@@ -229,7 +226,7 @@ struct OiStoryEditor: View {
         }
     }
 
-    private var usesNavigationBar: Bool { !restored || (!submitted && (step == .photos || step == .location)) }
+    private var usesNavigationBar: Bool { !restored || (!submitted && step == .location) }
 
     private func reviewIssue(_ title: String, destination: OiCreationStep) -> some View {
         Button {
@@ -242,26 +239,72 @@ struct OiStoryEditor: View {
     }
 
     private var photoEditorContent: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                VStack(spacing: 16) {
-                    storyPhotos(previewHeight: min(400, max(180, geometry.size.height - 326)))
-                    if let localError { Text(localError).font(.footnote).foregroundStyle(.red) }
+        VStack(spacing: 0) {
+            photoEditorHeader
+            GeometryReader { geometry in
+                ScrollView {
+                    VStack(spacing: 16) {
+                        storyPhotos(previewWidth: min(296, max(0, geometry.size.width - 40)),
+                                    previewHeight: min(400, max(180, geometry.size.height - 318)))
+                        if let localError { Text(localError).font(.footnote).foregroundStyle(.red) }
+                    }
+                    .padding(.horizontal, 20).padding(.top, 24).padding(.bottom, 12)
+                    .frame(maxWidth: .infinity)
                 }
-                .padding(.horizontal, 20).padding(.top, 24).padding(.bottom, 12)
-                .frame(maxWidth: .infinity)
             }
         }
         .onAppear { beginPhotoEditing() }
     }
 
-    private func storyPhotos(previewHeight: CGFloat = 400) -> some View {
+    private var photoEditorHeader: some View {
+        let cancel = Button(action: cancelPhotoEditing) {
+            Text("취소").font(.custom("Paperlogy-3Light", size: 20, relativeTo: .body))
+                .fixedSize()
+                .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+        }.accessibilityIdentifier("oi.photos.cancel")
+        let title = Text("이미지 선택")
+            .font(.custom("Paperlogy-5Medium", size: 20, relativeTo: .body))
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .accessibilityAddTraits(.isHeader)
+        let done = Button(action: finishPhotoEditing) {
+            Text("완료").font(.custom("Paperlogy-5Medium", size: 20, relativeTo: .body))
+                .fixedSize()
+                .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+                .contentShape(Rectangle())
+        }.accessibilityIdentifier("oi.creation.photosDone")
+
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                cancel
+                title.fixedSize().frame(maxWidth: .infinity)
+                done
+            }
+            VStack(spacing: 4) {
+                title
+                HStack {
+                    cancel
+                    Spacer(minLength: 8)
+                    done
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color(white: 108 / 255))
+        .tracking(0.4)
+        .padding(.horizontal, 20)
+        .frame(minHeight: 60)
+    }
+
+    private func storyPhotos(previewWidth: CGFloat = 296, previewHeight: CGFloat = 400) -> some View {
         OiStoryPhotoStep(items: editingPhotos, uploadedPhotos: attachedPhotoIDs, selections: $photoSelections,
             loadPhoto: { id in
                 guard let owner, remote.account?.id == owner else { throw OiServiceError.accountChanged }
                 return try await remote.localPhoto(id: id, owner: owner)
             }, edit: { id, operation in await editPhoto(id, operation: operation) }, remove: removePhoto,
-            photo: { reviewPhoto($0) }, thumbnail: { reviewPhoto($0, allowsRetry: false) }, previewHeight: previewHeight)
+            photo: { reviewPhoto($0, contentMode: .fill) }, thumbnail: { reviewPhoto($0, allowsRetry: false, contentMode: .fill) },
+            previewWidth: previewWidth, previewHeight: previewHeight)
     }
 
     private func beginPhotoEditing() {
@@ -352,7 +395,7 @@ struct OiStoryEditor: View {
 
     private var canCompleteStoryStep: Bool {
         OiCreationStep.story.canContinue(draft: draft)
-            && !editingPhotos.isEmpty
+            && hasValidStoryPhotoCount
             && OiCreationStep.location.canContinue(draft: draft)
     }
 
@@ -463,6 +506,9 @@ struct OiStoryEditor: View {
                         if !OiCreationStep.location.canContinue(draft: draft) {
                             reviewIssue("캠퍼스 위치를 선택해 주세요", destination: .location)
                         }
+                        if !hasValidStoryPhotoCount {
+                            reviewIssue("사진을 1~\(OiCreationStep.storyPhotoLimit)장 선택해 주세요", destination: .photos)
+                        }
                         if draft.cucumberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draft.cucumberName.count > 50 {
                             reviewIssue("오이 이름을 1~50자로 입력해 주세요", destination: .card)
                         }
@@ -483,19 +529,22 @@ struct OiStoryEditor: View {
             }
     }
 
-    @ViewBuilder private func reviewPhoto(_ photo: OiEditingPhoto, allowsRetry: Bool = true) -> some View {
+    @ViewBuilder private func reviewPhoto(_ photo: OiEditingPhoto, allowsRetry: Bool = true, contentMode: ContentMode = .fit) -> some View {
         switch photo {
         case .local(let id):
-            if let owner { OiLocalPhoto(remote: remote, owner: owner, id: id) }
+            if let owner { OiLocalPhoto(remote: remote, owner: owner, id: id, contentMode: contentMode) }
         case .uploaded(let path):
-            OiStoryMediaImage(path: path, allowsRetry: allowsRetry) { try await remote.mediaURL(bucket: "oi-story-media", path: $0) }
+            OiStoryMediaImage(path: path, allowsRetry: allowsRetry, contentMode: contentMode) { try await remote.mediaURL(bucket: "oi-story-media", path: $0) }
         }
     }
 
     private var availableGrants: [OiWritingGrant] { remote.grants.filter { $0.revokedAt == nil } }
     private var canWrite: Bool { remote.canWriteStory(grantID: draft.grantId) }
+    private var hasValidStoryPhotoCount: Bool {
+        (1...OiCreationStep.storyPhotoLimit).contains(editingPhotos.count)
+    }
     private var canSubmit: Bool {
-        canWrite && consentState.allRequiredClausesAreAgreed &&
+        canWrite && consentState.allRequiredClausesAreAgreed && hasValidStoryPhotoCount &&
         OiCreationStep.allCases.allSatisfy { $0.canContinue(draft: draft) }
     }
     private var serverMediaPaths: [String] { remote.mediaPaths(storyID: draft.id) }
@@ -734,12 +783,13 @@ struct OiLocalPhoto: View {
     let remote: OiRemoteStore
     let owner: UUID
     let id: UUID
+    var contentMode: ContentMode = .fit
     @State private var image: UIImage?
     @State private var error: String?
 
     var body: some View {
         Group {
-            if let image { Image(uiImage: image).resizable().scaledToFit() }
+            if let image { Image(uiImage: image).resizable().aspectRatio(contentMode: contentMode) }
             else if let error { Text(error).font(.caption) } else { ProgressView() }
         }.task(id: id) {
             do {
@@ -760,6 +810,7 @@ struct OiLocalPhoto: View {
 struct OiStoryMediaImage: View {
     let path: String
     var allowsRetry = true
+    var contentMode: ContentMode = .fit
     let loadURL: (String) async throws -> URL
     @State private var retryCount = 0
     @State private var resolution: Resolution?
@@ -780,7 +831,7 @@ struct OiStoryMediaImage: View {
             if case .success(let resolved, let url) = resolution, resolved == request {
                 AsyncImage(url: url) { phase in
                     if let image = phase.image {
-                        image.resizable().scaledToFit().accessibilityLabel("이야기에 첨부된 사진")
+                        image.resizable().aspectRatio(contentMode: contentMode).accessibilityLabel("이야기에 첨부된 사진")
                     } else if phase.error != nil { failure("사진을 불러오지 못했어요.") }
                     else { ProgressView().accessibilityLabel("사진 불러오는 중") }
                 }
