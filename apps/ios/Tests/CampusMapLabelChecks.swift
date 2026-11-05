@@ -81,6 +81,7 @@ import simd
         checkTiltClustering()
         checkSettling(sites)
         checkZoomMotion()
+        checkPanMotion()
     }
 
     private static func checkProjection(_ sites: [CampusRegionClustering.Site]) {
@@ -331,5 +332,76 @@ import simd
             "The first spring frames must preserve release direction")
         precondition(outward.sample(at: 1).radius == 80 && inward.sample(at: 1).radius == 80)
         print("Campus map zoom motion: PASS (elastic limits, inverse re-grab, reversal, release velocity, 60/120Hz spring return)")
+    }
+
+    private static func checkPanMotion() {
+        typealias Motion = CampusMapMotion
+        let stretch: Float = 20
+        let inputs: [SIMD3<Float>] = [
+            SIMD3(-320, 7, 0), SIMD3(310, 7, 0), SIMD3(0, 7, -380), SIMD3(0, 7, 350),
+            SIMD3(-320, 7, -380), SIMD3(-320, 7, 350), SIMD3(310, 7, -380), SIMD3(310, 7, 350)
+        ]
+        for input in inputs {
+            let bounded = Motion.clampedTarget(input)
+            let displayed = Motion.resistedTarget(input, stretch: stretch)
+            precondition(displayed.y == input.y && bounded.y == input.y, "Panning must preserve terrain height")
+            precondition(abs(displayed.x - bounded.x) < stretch && abs(displayed.z - bounded.z) < stretch,
+                "Every map edge and corner must have finite elastic travel")
+            precondition(simd_distance(Motion.inputTarget(for: displayed, stretch: stretch), input) < 0.02,
+                "The elastic map position must have a continuous inverse for re-grabbing")
+
+            // A pinch may change the camera radius before a new one-finger segment.
+            let zoomRadii: [Float] = [20, 100, 600]
+            for radius in zoomRadii {
+                let resumedStretch = Motion.panStretch(radius: radius, target: displayed)
+                let resumed = Motion.inputTarget(for: displayed, stretch: resumedStretch)
+                precondition(simd_distance(Motion.resistedTarget(resumed, stretch: resumedStretch), displayed) < 0.001,
+                    "Rebasing after a simultaneous zoom must preserve the displayed map position")
+            }
+        }
+
+        let interior = SIMD3<Float>(25, 7, 25)
+        precondition(Motion.clampedTarget(interior) == interior && Motion.resistedTarget(interior, stretch: stretch) == interior)
+        let xs = (-320...310).map { Motion.resistedTarget(SIMD3(Float($0), 7, 25), stretch: stretch).x }
+        let zs = (-380...350).map { Motion.resistedTarget(SIMD3(25, 7, Float($0)), stretch: stretch).z }
+        for values in [xs, zs] {
+            precondition(zip(values, values.dropFirst()).allSatisfy { previous, next in next > previous },
+                "Dragging farther toward an edge must move continuously in the same direction")
+        }
+        for boundary in [SIMD3<Float>(-120, 7, 0), SIMD3(110, 7, 0), SIMD3(0, 7, -180), SIMD3(0, 7, 150)] {
+            let before = Motion.resistedTarget(boundary - SIMD3(0.001, 0, 0.001), stretch: stretch)
+            let after = Motion.resistedTarget(boundary + SIMD3(0.001, 0, 0.001), stretch: stretch)
+            precondition(simd_distance(before, after) < 0.003, "Crossing a map boundary must not jump")
+        }
+        let velocity = SIMD3<Float>(10, 9, -12)
+        precondition(Motion.targetVelocity(velocity, input: interior, stretch: stretch) == SIMD3(10, 0, -12))
+        let resisted = Motion.targetVelocity(velocity, input: SIMD3(310, 7, -380), stretch: stretch)
+        precondition(resisted.x > 0 && resisted.x < velocity.x && resisted.z < 0 && resisted.z > velocity.z && resisted.y == 0,
+            "Release speed must preserve direction and lose energy at both edges of a corner")
+        let extreme = Motion.targetVelocity(SIMD3(1e9, 0, -1e9), input: interior, stretch: stretch)
+        precondition(extreme.x.isFinite && extreme.z.isFinite && abs(extreme.x) <= stretch * 18 && abs(extreme.z) <= stretch * 18,
+            "An extreme fling must retain a bounded release speed on both map axes")
+
+        let origin = Motion.resistedTarget(SIMD3(310, 7, -380), stretch: stretch)
+        let destination = Motion.clampedTarget(origin)
+        let spring = Motion.Spring(from: 100, to: 100)
+        let release = SIMD3<Float>(30, 0, -40)
+        func position(at elapsed: TimeInterval, velocity: SIMD3<Float>) -> SIMD3<Float> {
+            let sample = spring.sample(at: elapsed)
+            return origin + (destination - origin) * sample.progress + velocity * sample.velocityFactor
+        }
+        precondition(position(at: 0, velocity: release) == origin && spring.sample(at: 0).velocityFactor == 0,
+            "Map bounce must begin from the displayed corner")
+        let early = position(at: 0.001, velocity: release)
+        precondition(early.x > origin.x && early.z < origin.z, "The first return frame must carry the release velocity")
+        for frame in 0...60 {
+            let time60 = Double(frame) / 60
+            let time120 = Double(frame * 2) / 120
+            precondition(position(at: time60, velocity: release) == position(at: time120, velocity: release),
+                "Map bounce must use the same world position at 60Hz and 120Hz")
+        }
+        precondition(position(at: 1, velocity: release) == destination && spring.sample(at: 1).velocityFactor == 0,
+            "Both axes must finish exactly at their map boundaries")
+        print("Campus map pan motion: PASS (4 edges, 4 corners, inverse re-grab, zoom rebasing, release velocity, 60/120Hz)")
     }
 }

@@ -147,7 +147,10 @@ final class CampusMapInteractionTests: XCTestCase {
         pinch.state = .ended
         scene.perform(pinchAction, with: pinch)
         assertSame(badges(in: canvas), as: inFlight)
-        try await Task.sleep(for: .milliseconds(950))
+        try await waitUntil("Pinch release must finish the badge transition") {
+            let current = badges(in: canvas)
+            return !current.isEmpty && current.values.allSatisfy { $0.alpha == 1 && $0.interactive }
+        }
         XCTAssertTrue(badges(in: canvas).values.allSatisfy { $0.alpha == 1 && $0.interactive })
 
         // Keep a second gesture active. The pinch ending must not move the
@@ -187,7 +190,7 @@ final class CampusMapInteractionTests: XCTestCase {
         XCTAssertGreaterThan(radius(), interruptedRadius)
         pinch.state = .cancelled
         scene.perform(pinchAction, with: pinch)
-        try await Task.sleep(for: .milliseconds(950))
+        try await waitUntil("Cancelled overzoom must return to the minimum radius") { abs(radius() - 20) < 0.01 }
         XCTAssertEqual(radius(), 20, accuracy: 0.01)
 
         pinch.state = .began
@@ -199,7 +202,10 @@ final class CampusMapInteractionTests: XCTestCase {
         XCTAssertLessThan(radius(), 720)
         pinch.state = .failed
         scene.perform(pinchAction, with: pinch)
-        try await Task.sleep(for: .milliseconds(950))
+        try await waitUntil("Failed overzoom must return within bounds with opaque badges") {
+            let current = badges(in: canvas)
+            return radius() <= 600.01 && !current.isEmpty && current.values.allSatisfy { $0.alpha == 1 && $0.interactive }
+        }
         XCTAssertLessThanOrEqual(radius(), 600.01)
         XCTAssertTrue(badges(in: canvas).values.allSatisfy { $0.alpha == 1 && $0.interactive })
         try await capture("map-settled-after-bounce", in: canvas)
@@ -217,6 +223,151 @@ final class CampusMapInteractionTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(80))
         XCTAssertGreaterThanOrEqual(radius(), 20)
         XCTAssertEqual(radius(), restoredRadius, accuracy: 0.01)
+    }
+
+    func testPanEdgesBounceAndRebaseDuringMultitouch() async throws {
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let windowID = ObjectIdentifier(window)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        let scene = CampusExploreScene()
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controller.view.addSubview(canvas)
+        window.isHidden = false
+        defer {
+            scene.suspendForARCamera()
+            canvas.removeFromSuperview()
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+            XCTAssertFalse(windowScene.windows.contains { ObjectIdentifier($0) == windowID })
+        }
+        await scene.load()
+        XCTAssertTrue(scene.ready)
+        window.layoutIfNeeded()
+        canvas.layoutIfNeeded()
+        let map = try XCTUnwrap(canvas.map)
+        let camera = try XCTUnwrap(map.scene.anchors.flatMap { Array($0.children) }
+            .compactMap { $0 as? PerspectiveCamera }.first)
+        // The test keeps the overview orbit unchanged and reads its pivot from
+        // the actual RealityKit camera, without exposing scene navigation state.
+        func pose() -> (target: SIMD3<Float>, radius: Float) {
+            let eye = camera.position(relativeTo: nil)
+            let radius = (eye.y - 2) / sin(Float(1.02))
+            let orbit = SIMD3<Float>(0, sin(1.02), cos(1.02))
+            return (eye - orbit * radius, radius)
+        }
+        let pan = TestTilt()
+        pan.touches = 1
+        let panAction = NSSelectorFromString("pan:")
+        let edgeDeltas = [CGPoint(x: 2000, y: 0), CGPoint(x: -2000, y: 0),
+                          CGPoint(x: 0, y: 2000), CGPoint(x: 0, y: -2000), CGPoint(x: 2000, y: 2000)]
+        for delta in edgeDeltas {
+            scene.showOverview()
+            pan.state = .began
+            scene.perform(panAction, with: pan)
+            pan.state = .changed
+            pan.delta = delta
+            scene.perform(panAction, with: pan)
+            let overrun = pose().target
+            let destination = CampusMapMotion.clampedTarget(overrun)
+            XCTAssertGreaterThan(simd_distance(overrun, destination), 0.1, "The map must stretch beyond each edge")
+            XCTAssertLessThan(simd_distance(overrun, destination), 80)
+            XCTAssertEqual(overrun.y, 2, accuracy: 0.001)
+            pan.state = .ended
+            scene.perform(panAction, with: pan)
+            XCTAssertLessThan(simd_distance(pose().target, overrun), 0.001, "Release must start from the displayed map position")
+            try await waitUntil("The map must finish returning to its edge or corner") {
+                simd_distance(pose().target, destination) < 0.01
+            }
+            XCTAssertLessThan(simd_distance(pose().target, destination), 0.01, "The map must return to the exact edge or corner")
+        }
+
+        scene.showOverview()
+        pan.state = .began
+        scene.perform(panAction, with: pan)
+        pan.state = .changed
+        pan.delta = CGPoint(x: 2000, y: 2000)
+        scene.perform(panAction, with: pan)
+        pan.state = .ended
+        scene.perform(panAction, with: pan)
+        try await Task.sleep(for: .milliseconds(120))
+        let interrupted = pose().target
+        pan.state = .began
+        scene.perform(panAction, with: pan)
+        XCTAssertLessThan(simd_distance(pose().target, interrupted), 0.001)
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertLessThan(simd_distance(pose().target, interrupted), 0.001, "Re-grabbing must cancel the old return")
+        pan.state = .changed
+        pan.delta = .zero
+        scene.perform(panAction, with: pan)
+        XCTAssertLessThan(simd_distance(pose().target, interrupted), 0.001)
+        for touches in [2, 1] {
+            pan.touches = touches
+            pan.delta = CGPoint(x: 500, y: 500)
+            scene.perform(panAction, with: pan)
+            XCTAssertLessThan(simd_distance(pose().target, interrupted), 0.001, "Finger-count changes must rebase the touch centroid")
+        }
+        pan.delta = CGPoint(x: -1, y: -1)
+        scene.perform(panAction, with: pan)
+        XCTAssertGreaterThan(pose().target.x, interrupted.x)
+        XCTAssertGreaterThan(pose().target.z, interrupted.z)
+
+        let pinch = TestPinch()
+        let pinchAction = NSSelectorFromString("pinch:")
+        pinch.state = .began
+        scene.perform(pinchAction, with: pinch)
+        pinch.state = .changed
+        pinch.scale = 1.4
+        scene.perform(pinchAction, with: pinch)
+        let simultaneous = pose()
+        pan.delta = .zero
+        scene.perform(panAction, with: pan)
+        XCTAssertLessThan(simd_distance(pose().target, simultaneous.target), 0.001, "Zooming during a drag must not change pan resistance")
+        pinch.state = .ended
+        scene.perform(pinchAction, with: pinch)
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertLessThan(simd_distance(pose().target, simultaneous.target), 0.001, "The remaining pan must hold the map until it ends")
+        XCTAssertEqual(pose().radius, simultaneous.radius, accuracy: 0.001)
+        pan.state = .cancelled
+        scene.perform(panAction, with: pan)
+        try await waitUntil("The last simultaneous gesture must settle pan and zoom") {
+            let current = pose()
+            return simd_distance(current.target, CampusMapMotion.clampedTarget(simultaneous.target)) < 0.01
+                && current.radius >= 19.99 && current.radius <= 600.01
+        }
+        let settled = pose()
+        XCTAssertLessThan(simd_distance(settled.target, CampusMapMotion.clampedTarget(simultaneous.target)), 0.01)
+        XCTAssertGreaterThanOrEqual(settled.radius, 19.99)
+        XCTAssertLessThanOrEqual(settled.radius, 600.01)
+
+        scene.showOverview()
+        pan.state = .began
+        scene.perform(panAction, with: pan)
+        pan.state = .changed
+        pan.delta = CGPoint(x: -2000, y: -2000)
+        scene.perform(panAction, with: pan)
+        let hiddenDestination = CampusMapMotion.clampedTarget(pose().target)
+        pan.state = .failed
+        scene.perform(panAction, with: pan)
+        scene.setVisible(false)
+        scene.setVisible(true)
+        XCTAssertLessThan(simd_distance(pose().target, hiddenDestination), 0.01)
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertLessThan(simd_distance(pose().target, hiddenDestination), 0.01, "Backgrounding must clear the old edge-return motion")
+    }
+
+    private func waitUntil(_ description: String, timeout: TimeInterval = 3, condition: () -> Bool,
+                           file: StaticString = #filePath, line: UInt = #line) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(min(3, timeout)))
+        while !condition(), clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(condition(), description, file: file, line: line)
     }
 
     private func assertPondAnchor(scene: CampusExploreScene, canvas: CampusMapCanvas, panelOpacity: CGFloat) async throws {
@@ -306,7 +457,10 @@ private final class TestTilt: UIPanGestureRecognizer {
         set { testState = newValue }
     }
     var delta = CGPoint.zero
-    override var numberOfTouches: Int { 2 }
+    var touches = 2
+    var panVelocity = CGPoint.zero
+    override var numberOfTouches: Int { touches }
     override func translation(in view: UIView?) -> CGPoint { delta }
     override func setTranslation(_ translation: CGPoint, in view: UIView?) { delta = translation }
+    override func velocity(in view: UIView?) -> CGPoint { panVelocity }
 }
