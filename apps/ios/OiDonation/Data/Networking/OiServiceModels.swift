@@ -38,6 +38,7 @@ struct OiProfile: Codable, Equatable, Identifiable {
     var nickname: String
     var schoolId: String?
     let farmerAsset: String
+    var farmName: String? = nil
     var admissionYear: Int? = nil
     var department: String? = nil
 }

@@ -79,7 +79,7 @@ struct HomeView: View {
             switch destination {
             case .workshop:
                 MYWorkshopView(demo: myDemo, remote: remote)
-            case .farm: MYFarmView(remote: remote, nickname: myDemo.nickname).id(remote?.account?.id)
+            case .farm: MYFarmView(remote: remote).id(remote?.account?.id)
             case .collection: MYCollectionView(demo: myDemo, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
             case .school(let school): MYCollectionView(demo: myDemo, school: school, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
             }

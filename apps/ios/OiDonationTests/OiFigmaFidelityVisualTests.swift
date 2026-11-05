@@ -363,6 +363,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         let previousHandler = OiStoreURLProtocol.handle
         let backend = OiTestBackend()
+        backend.configure { $0.nickname = "공개 작성자"; $0.farmName = "햇살" }
         backend.install()
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [OiStoreURLProtocol.self]
@@ -385,7 +386,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(remote.account?.id, OiTestBackend.owner)
         XCTAssertTrue(remote.ownStories.isEmpty)
         for variant in variants {
-            let empty = NavigationStack { MYFarmView(remote: remote, nickname: "검증용 농부") }
+            let empty = NavigationStack { MYFarmView(remote: remote) }
             try await capture(empty, name: "my-farm-empty", variant: variant, defaults: fixture.defaults)
         }
         var draft = Self.draft
@@ -397,7 +398,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(saved.status, "draft")
         XCTAssertEqual(remote.ownStories.map(\.id), [saved.id])
         for variant in variants {
-            let populated = NavigationStack { MYFarmView(remote: remote, nickname: "검증용 농부") }
+            let populated = NavigationStack { MYFarmView(remote: remote) }
             try await capture(populated, name: "my-farm-populated", variant: variant, defaults: fixture.defaults)
         }
     }

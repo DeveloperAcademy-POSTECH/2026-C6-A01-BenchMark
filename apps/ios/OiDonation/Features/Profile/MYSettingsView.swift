@@ -15,16 +15,15 @@ struct MYSettingsView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var settingsError = false
     @State private var permissionValues: [MYPermission: PermissionStatus] = [:]
-    @State private var nicknameOwner: UUID?
-    @State private var nicknameInput = ""
-    @State private var nicknameError: String?
-    @FocusState private var nicknameFocused: Bool
+    @State private var farmNameOwner: UUID?
+    @State private var farmNameInput = ""
+    @State private var farmNameError: String?
+    @FocusState private var farmNameFocused: Bool
 
-    private var nickname: String {
-        if let remote { return remote.profile?.nickname ?? "농부" }
-        return demo?.nickname ?? "농부"
+    private var currentFarmName: String {
+        remote?.profile?.farmName ?? "오이"
     }
-    private var cleanedNickname: String { nicknameInput.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var cleanedFarmName: String { farmNameInput.precomposedStringWithCanonicalMapping.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     private var schoolName: String {
         guard let id = remote?.profile?.schoolId else { return "학교를 선택해 주세요" }
@@ -65,8 +64,8 @@ struct MYSettingsView: View {
                             }
                         }
                     }
-                    section("내 농장 이름", detail: "닉네임 · 띄어쓰기 포함 30자 이내") {
-                        nicknameRow
+                    section("내 농장 이름", detail: "띄어쓰기 포함 6자 이내") {
+                        farmNameRow
                             .accessibilityIdentifier("my.settings.farm")
                     }
                     VStack(alignment: .leading, spacing: 0) {
@@ -99,34 +98,34 @@ struct MYSettingsView: View {
         }
         .task(id: scenePhase) { if scenePhase == .active { await refreshPermissions() } }
         .onChange(of: remote?.account?.id) { _, _ in
-            resetNicknameEditor()
+            resetFarmNameEditor()
         }
         .alert("설정을 열 수 없어요", isPresented: $settingsError) {
             Button("확인", role: .cancel) {}
         } message: { Text("iPhone의 설정 앱에서 오이기부의 권한과 위치 접근을 확인해 주세요.") }
     }
 
-    @ViewBuilder private var nicknameRow: some View {
+    @ViewBuilder private var farmNameRow: some View {
         if let remote, let owner = remote.account?.id, remote.hasLoadedRemote, !remote.needsReauthentication {
-            if nicknameOwner == owner {
+            if farmNameOwner == owner {
                 VStack(alignment: .leading, spacing: 10) {
-                    TextField("닉네임", text: $nicknameInput)
+                    TextField("농장 이름", text: $farmNameInput)
                         .font(CampusStyle.semibold(18))
                         .textInputAutocapitalization(.never)
                         .submitLabel(.done)
-                        .focused($nicknameFocused)
-                        .onAppear { nicknameFocused = true }
-                        .onSubmit { saveNickname(remote: remote) }
-                        .accessibilityIdentifier("my.settings.nickname.input")
-                    if let nicknameError { Text(nicknameError).font(.footnote).foregroundStyle(.secondary) }
+                        .focused($farmNameFocused)
+                        .onAppear { farmNameFocused = true }
+                        .onSubmit { saveFarmName(remote: remote) }
+                        .accessibilityIdentifier("my.settings.farm.input")
+                    if let farmNameError { Text(farmNameError).font(.footnote).foregroundStyle(.secondary) }
                     HStack {
-                        Button("취소", role: .cancel, action: resetNicknameEditor)
+                        Button("취소", role: .cancel, action: resetFarmNameEditor)
                             .buttonStyle(.bordered)
-                        Button("저장") { saveNickname(remote: remote) }
+                        Button("저장") { saveFarmName(remote: remote) }
                             .buttonStyle(.borderedProminent)
                             .tint(CampusStyle.green)
-                            .disabled(cleanedNickname.isEmpty || cleanedNickname.count > 30)
-                            .accessibilityIdentifier("my.settings.nickname.save")
+                            .disabled(cleanedFarmName.isEmpty || cleanedFarmName.unicodeScalars.count > 6)
+                            .accessibilityIdentifier("my.settings.farm.save")
                     }
                 }
                 .disabled(remote.isBusy)
@@ -134,37 +133,37 @@ struct MYSettingsView: View {
                 .background(Color(white: 243 / 255), in: RoundedRectangle(cornerRadius: 15))
             } else {
                 Button {
-                    nicknameInput = nickname
-                    nicknameOwner = owner
+                    farmNameInput = currentFarmName
+                    farmNameOwner = owner
                 } label: {
-                    settingsCard(action: "수정") { farmName }
-                }.accessibilityIdentifier("my.settings.nickname")
+                    settingsCard(action: "수정") { farmNameLabel }
+                }.accessibilityIdentifier("my.settings.farm.edit")
             }
         } else {
-            settingsCard { farmName }.accessibilityIdentifier("my.settings.nickname")
+            settingsCard { farmNameLabel }.accessibilityIdentifier("my.settings.farm.edit")
         }
     }
 
-    private func saveNickname(remote: OiRemoteStore) {
-        let value = cleanedNickname
-        guard let owner = nicknameOwner, remote.account?.id == owner, remote.hasLoadedRemote, !remote.isBusy,
-              !remote.needsReauthentication, !value.isEmpty, value.count <= 30 else { return }
-        nicknameError = nil
+    private func saveFarmName(remote: OiRemoteStore) {
+        let value = cleanedFarmName
+        guard let owner = farmNameOwner, remote.account?.id == owner, remote.hasLoadedRemote, !remote.isBusy,
+              !remote.needsReauthentication, !value.isEmpty, value.unicodeScalars.count <= 6 else { return }
+        farmNameError = nil
         Task {
-            guard remote.account?.id == owner, nicknameOwner == owner, remote.hasLoadedRemote,
+            guard remote.account?.id == owner, farmNameOwner == owner, remote.hasLoadedRemote,
                   !remote.needsReauthentication, !remote.isBusy else { return }
-            await remote.updateProfile(nickname: value)
-            guard remote.account?.id == owner, nicknameOwner == owner else { return }
-            if let error = remote.error { nicknameError = error }
-            else { resetNicknameEditor() }
+            await remote.updateFarmName(value)
+            guard remote.account?.id == owner, farmNameOwner == owner else { return }
+            if let error = remote.error { farmNameError = error }
+            else { resetFarmNameEditor() }
         }
     }
 
-    private func resetNicknameEditor() {
-        nicknameFocused = false
-        nicknameOwner = nil
-        nicknameInput = ""
-        nicknameError = nil
+    private func resetFarmNameEditor() {
+        farmNameFocused = false
+        farmNameOwner = nil
+        farmNameInput = ""
+        farmNameError = nil
     }
 
     private func section<Content: View>(_ title: String, detail: String? = nil, @ViewBuilder content: () -> Content) -> some View {
@@ -190,14 +189,14 @@ struct MYSettingsView: View {
             .foregroundStyle(CampusStyle.sectionGreen)
     }
 
-    private var farmName: some View {
+    private var farmNameLabel: some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                profileValue(nickname)
-                Text("의 밭").font(CampusStyle.body(18))
+                profileValue(currentFarmName)
+                Text("밭").font(CampusStyle.body(18))
                     .foregroundStyle(Color(red: 139 / 255, green: 98 / 255, blue: 53 / 255))
             }
-            Text(nickname + "의 밭").font(CampusStyle.semibold(18))
+            Text(currentFarmName + " 밭").font(CampusStyle.semibold(18))
                 .foregroundStyle(CampusStyle.sectionGreen)
                 .fixedSize(horizontal: false, vertical: true)
         }

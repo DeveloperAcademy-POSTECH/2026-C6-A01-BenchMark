@@ -227,6 +227,16 @@ struct OiServiceAPI {
         return profile
     }
 
+    func updateFarmName(owner: UUID, farmName: String, token: String) async throws -> OiProfile {
+        let body = try JSONSerialization.data(withJSONObject: ["farm_name": farmName])
+        let data = try await request("rest/v1/oi_profiles?id=eq.\(owner.uuidString)", method: "PATCH", token: token,
+            body: body, prefer: "return=representation")
+        let profiles = try decoder.decode([OiProfile].self, from: data)
+        guard profiles.count == 1, let profile = profiles.first, profile.id == owner,
+              profile.farmName == farmName else { throw OiServiceError.unavailable }
+        return profile
+    }
+
     func updateProfile(owner: UUID, nickname: String?, schoolID: String?, token: String) async throws -> OiProfile {
         var patch: [String: String] = [:]
         if let nickname { patch["nickname"] = nickname }

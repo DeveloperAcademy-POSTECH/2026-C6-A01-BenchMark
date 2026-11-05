@@ -4,7 +4,6 @@ import SwiftUI
 
 struct MYFarmView: View {
     var remote: OiRemoteStore? = nil
-    var nickname = "농부"
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private let farmGround = Color(red: 193 / 255, green: 215 / 255, blue: 72 / 255)
 
@@ -61,7 +60,7 @@ struct MYFarmView: View {
     }
 
     private var farmTitle: some View {
-        Text("\(remote?.profile?.nickname ?? nickname)의 밭")
+        Text("\(remote?.profile?.farmName ?? "오이") 밭")
             .font(.custom("PearToucan-Regular", size: 35, relativeTo: .title))
             .foregroundStyle(Color(red: 126 / 255, green: 88 / 255, blue: 48 / 255))
             .lineLimit(1).minimumScaleFactor(0.6).accessibilityAddTraits(.isHeader)

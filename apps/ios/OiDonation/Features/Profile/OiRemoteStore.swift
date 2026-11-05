@@ -449,6 +449,35 @@ final class OiRemoteStore {
         } catch { if started == generation { noteAuthenticationFailure(error); self.error = error.localizedDescription } }
     }
 
+    func updateFarmName(_ name: String) async {
+        guard !isBusy, !needsReauthentication, let account, let api else { error = OiServiceError.signInRequired.localizedDescription; return }
+        guard profile?.farmName != nil else {
+            error = "지금은 농장 이름을 저장할 수 없어요. 잠시 후 다시 시도해 주세요."; return
+        }
+        let owner = account.id
+        let started = generation
+        let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines).precomposedStringWithCanonicalMapping
+        guard !cleaned.isEmpty, cleaned.unicodeScalars.count <= 6 else {
+            error = OiServiceError.invalidInput.localizedDescription; return
+        }
+        isBusy = true; error = nil
+        defer { isBusy = false }
+        do {
+            let accessToken = try await token()
+            try Task.checkCancellation()
+            guard started == generation, self.account?.id == owner else { return }
+            var saved = try await api.updateFarmName(owner: owner, farmName: cleaned, token: accessToken)
+            try Task.checkCancellation()
+            guard started == generation, self.account?.id == owner else { return }
+            saved.admissionYear = saved.schoolId == profile?.schoolId ? profile?.admissionYear : nil
+            saved.department = saved.schoolId == profile?.schoolId ? profile?.department : nil
+            loadSequence += 1
+            profile = saved; revision += 1; await refreshAfterCommit()
+        } catch {
+            if started == generation { noteAuthenticationFailure(error); self.error = error.localizedDescription }
+        }
+    }
+
     func updateSchoolProfile(schoolID: String, admissionYear: Int, department: String?) async {
         guard !isBusy, !needsReauthentication, let account, let api else { error = OiServiceError.signInRequired.localizedDescription; return }
         guard isSchoolProfileAvailable else { error = "지금은 학교 정보를 저장할 수 없어요. 잠시 후 다시 시도해 주세요."; return }
