@@ -48,8 +48,7 @@ struct CampusSearchView: View {
 
     private var results: [CampusSearchEntry] {
         if mode == .donor { return submitted.map { filter($0) } ?? [] }
-        // Name browsing starts with all available records; a code must be entered exactly.
-        return filter(query)
+        return hasSearched ? filter(query) : []
     }
     private func filter(_ query: CampusSearchQuery) -> [CampusSearchEntry] { entries.filter { $0.matches(query, mode: mode) } }
     private var hasSearched: Bool {
@@ -58,17 +57,24 @@ struct CampusSearchView: View {
 
     var body: some View {
         let matches = results
-        let showsNoMatches = remote?.hasLoadedRemote != false && remote?.loadError == nil && hasSearched && matches.isEmpty
+        let state = CampusSearchContentState(hasSearched: hasSearched, hasMatches: !matches.isEmpty,
+            hasLoaded: remote?.hasLoadedRemote != false, isLoading: remote?.isRefreshing == true,
+            hasError: remote?.loadError != nil)
 
         NavigationStack {
             GeometryReader { viewport in
                 ScrollView {
-                    VStack(spacing: 28) {
+                    VStack(spacing: 30) {
                         searchFields
-                        if showsNoMatches {
-                            CampusSearchEmptyResult(mode: mode)
+                        switch state {
+                        case .prompt, .noMatches:
+                            CampusSearchEmptyResult(mode: mode, isPrompt: state == .prompt)
                                 .frame(maxHeight: .infinity)
-                        } else {
+                        case .loading:
+                            ProgressView().accessibilityLabel("이야기 불러오는 중")
+                        case .failed:
+                            if let remote { OiConnectionStatus(remote: remote, showsInitialProgress: false) }
+                        case .results:
                             searchResults(matches)
                         }
                         if isExample {
@@ -76,10 +82,10 @@ struct CampusSearchView: View {
                         }
                     }
                     .padding(.horizontal, 20)
-                    .padding(.top, 24)
-                    // The reference reserves 64pt above the bottom safe area below the empty result.
-                    .padding(.bottom, showsNoMatches ? 64 : 24)
-                    .frame(minHeight: showsNoMatches ? viewport.size.height : nil)
+                    .padding(.top, 16)
+                    // Figma centers the horizontal donor artwork lower than the name/code illustration.
+                    .padding(.bottom, state.showsIllustration ? (mode == .donor ? 12 : 64) : 24)
+                    .frame(minHeight: state.showsIllustration ? viewport.size.height : nil)
                 }
                 .scrollDismissesKeyboard(.interactively)
             }
@@ -88,8 +94,8 @@ struct CampusSearchView: View {
             .toolbar {
                 ToolbarItem(placement: .principal) { Text(mode.title).font(CampusStyle.medium(20)).minimumScaleFactor(0.8) }
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("취소") { dismiss() }.font(CampusStyle.body(20)).tint(.gray)
-                }
+                    Button("취소") { dismiss() }.font(CampusStyle.body(20)).tint(Color(white: 108/255))
+                }.sharedBackgroundVisibility(.hidden)
             }
         }.tint(CampusStyle.mapAction)
     }
@@ -98,13 +104,20 @@ struct CampusSearchView: View {
         if mode == .donor {
             VStack(spacing: 10) {
                 field("학교입력", text: $query.school, icon: "pencil")
-                field("공개 닉네임", text: $query.name, icon: "pencil")
-                Text("공개된 학교와 닉네임으로 검색해요.").font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("campus.search.school")
+                field("학과입력", text: $query.department, icon: "pencil")
+                    .accessibilityIdentifier("campus.search.department")
+                field("학번", text: $query.year, icon: "pencil")
+                    .accessibilityHint("입학연도를 입력하세요. 예: 26 또는 2026")
+                    .accessibilityIdentifier("campus.search.year")
+                field("이름", text: $query.name, icon: "pencil")
+                    .accessibilityIdentifier("campus.search.name")
                 Button { submitted = query; focused = false } label: {
                     Text("검색").font(CampusStyle.semibold(18)).foregroundStyle(query.hasDonorFilter ? .white : CampusStyle.secondaryAction)
                         .frame(maxWidth: .infinity, minHeight: 41)
                         .background(query.hasDonorFilter ? CampusStyle.green : Color(red: 241/255, green: 244/255, blue: 236/255), in: Capsule())
-                }.buttonStyle(.plain).disabled(!query.hasDonorFilter).accessibilityIdentifier("campus.search.submit")
+                }.buttonStyle(.plain).disabled(!query.hasDonorFilter).padding(.top, 6)
+                    .accessibilityIdentifier("campus.search.submit")
             }
         } else {
             field(mode == .code ? "코드입력" : "검색", text: $query.text, icon: "magnifyingglass")
@@ -114,38 +127,29 @@ struct CampusSearchView: View {
 
     private func searchResults(_ matches: [CampusSearchEntry]) -> some View {
         LazyVStack(spacing: 14) {
-            if let remote, !remote.hasLoadedRemote || (hasSearched && matches.isEmpty && remote.loadError != nil) {
-                if remote.isRefreshing || remote.isBusy || remote.loadError == nil {
-                    ProgressView().accessibilityLabel("이야기 불러오는 중")
-                } else {
-                    OiConnectionStatus(remote: remote, showsInitialProgress: false)
-                }
-            } else {
-                ForEach(matches) { entry in
-                    Button { focused = false; onSelect(entry) } label: {
-                        CampusStoryRow(story: entry.story, showsDate: false, outlined: true)
-                    }.buttonStyle(.plain).accessibilityIdentifier("campus.search.result.\(entry.id)")
-                }
-                if entries.isEmpty {
-                    ContentUnavailableView("아직 공개된 오이가 없어요", systemImage: "leaf", description: Text("캠퍼스에 이야기가 올라오면 이곳에서 찾을 수 있어요."))
-                }
+            ForEach(matches) { entry in
+                Button { focused = false; onSelect(entry) } label: {
+                    CampusStoryRow(story: entry.story, showsDate: false, outlined: true)
+                }.buttonStyle(.plain).accessibilityIdentifier("campus.search.result.\(entry.id)")
             }
         }
     }
 
     private func field(_ prompt: String, text: Binding<String>, icon: String) -> some View {
         HStack {
-            TextField(prompt, text: text).font(CampusStyle.medium(18)).focused($focused)
+            TextField(prompt, text: text, prompt: Text(prompt).foregroundStyle(.black.opacity(0.5)))
+                .font(CampusStyle.medium(18)).focused($focused)
                 .textInputAutocapitalization(.never).autocorrectionDisabled().submitLabel(.search)
                 .onSubmit { if mode == .donor && query.hasDonorFilter { submitted = query }; focused = false }
             Image(systemName: icon).font(.system(size: 20, weight: .semibold)).foregroundStyle(.gray).accessibilityHidden(true)
         }.padding(.horizontal, 22).frame(minHeight: 57)
-            .background(Color(white: 217/255).opacity(0.3), in: Capsule())
+            .background(Color(white: 248/255), in: Capsule())
     }
 }
 
 private struct CampusSearchEmptyResult: View {
     let mode: CampusSearchMode
+    let isPrompt: Bool
     @Environment(\.colorSchemeContrast) private var contrast
     @ScaledMetric(relativeTo: .body) private var lineHeight = 27.0
 
@@ -172,14 +176,23 @@ private struct CampusSearchEmptyResult: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("campus.search.noMatches")
+        .accessibilityIdentifier(isPrompt ? "campus.search.prompt" : "campus.search.noMatches")
     }
 
     private var message: some View {
-        let copy = switch mode {
-        case .name: "해당 이름을 가진 오이가 없습니다\n오이이름이 정확한지 한번 더 확인해주세요"
-        case .code: "해당 코드를 가진 오이가 없습니다\n오이코드가 정확한지 한번 더 확인해주세요"
-        case .donor: "해당 정보를 가진 유저가 없습니다\n유저 정보가 정확한지\n한번 더 확인해주세요"
+        let copy: String
+        if isPrompt {
+            copy = switch mode {
+            case .name: "찾고 싶은 오이의 이름을 입력해주세요"
+            case .code: "찾고 싶은 오이의 코드를 입력해주세요"
+            case .donor: "학교·학과·학번·이름으로\n기부자의 오이를 찾아보세요"
+            }
+        } else {
+            copy = switch mode {
+            case .name: "해당 이름을 가진 오이가 없습니다\n오이이름이 정확한지 한번 더 확인해주세요"
+            case .code: "해당 코드를 가진 오이가 없습니다\n오이코드가 정확한지 한번 더 확인해주세요"
+            case .donor: "해당 정보를 가진 유저가 없습니다\n유저 정보가 정확한지\n한번 더 확인해주세요"
+            }
         }
         return Text(copy)
             .font(CampusStyle.medium(18))

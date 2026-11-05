@@ -15,6 +15,7 @@ struct MYSettingsView: View {
     @State private var settingsError = false
     @State private var permissionValues: [MYPermission: PermissionStatus] = [:]
     @State private var editingSchoolOwner: UUID?
+    @State private var showingAcademicEditor = false
     @State private var nicknameOwner: UUID?
     @State private var nicknameInput = ""
     @State private var nicknameError: String?
@@ -52,7 +53,19 @@ struct MYSettingsView: View {
                         }
                     }.accessibilityIdentifier("my.settings.farm")
                 }
-                section("학적정보") { schoolRow }
+                section("학적정보") {
+                    schoolRow
+                    if let remote, let owner = remote.account?.id, remote.hasLoadedRemote {
+                        Button { showingAcademicEditor = true } label: {
+                            editableCard("기부자 검색 정보", action: "수정")
+                        }
+                        .disabled(remote.needsReauthentication || remote.isBusy)
+                        .accessibilityIdentifier("my.settings.academic.edit")
+                        .sheet(isPresented: $showingAcademicEditor) {
+                            OiPublicAcademicEditor(remote: remote, owner: owner)
+                        }
+                    }
+                }
                 section("권한허용", detail: "iPhone 설정에서 변경") {
                     if permissionValues.count < MYPermission.allCases.count {
                         ProgressView().accessibilityLabel("기기 권한 확인 중")
@@ -97,6 +110,7 @@ struct MYSettingsView: View {
         .onChange(of: remote?.account?.id) { _, _ in
             resetNicknameEditor()
             editingSchoolOwner = nil
+            showingAcademicEditor = false
         }
         .alert("설정을 열 수 없어요", isPresented: $settingsError) {
             Button("확인", role: .cancel) {}

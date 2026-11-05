@@ -133,6 +133,7 @@ struct OiServiceChecks {
         }
         let profiles = try await api.rows("oi_profiles", as: OiProfile.self)
         precondition(profiles.count == 201 && Set(profiles.map(\.id)).count == 201)
+        precondition(profiles.allSatisfy { $0.publicName == nil && $0.department == nil && $0.admissionYear == nil }, "Pre-migration profile responses remain readable")
 
         let publicID = UUID()
         func publicFixture(status: String, id: UUID) throws -> Data {
