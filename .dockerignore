@@ -1,8 +1,0 @@
-.git
-node_modules
-**/node_modules
-**/.next
-**/.env*
-.env*
-**/*.tsbuildinfo
-**/test-results

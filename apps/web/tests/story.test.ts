@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { storyInput, storyText, byteLength } from "../src/lib/story";
-import { correctPassword, makeSession, validSession, checkOrigin, boundedBody, HttpError } from "../src/lib/security";
+import { storyInput, storyText, byteLength } from "../lib/story";
+import { correctPassword, makeSession, validSession, checkOrigin, boundedBody, HttpError } from "../lib/security";
 process.env.ADMIN_PASSWORD = "test-only-password-not-for-production";
 process.env.SESSION_SECRET = "test-only-session-secret-at-least-32-characters";
 const input = { matNumber: 1, matSize: "small", displayName: "운영팀", story: "이야기", paymentVerified: false, published: false };

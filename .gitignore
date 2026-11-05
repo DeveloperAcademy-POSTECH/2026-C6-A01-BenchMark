@@ -70,3 +70,8 @@ node_modules/
 test-results/
 playwright-report/
 .DS_Store
+supabase/.temp/
+
+# Local public client configuration; never commit key values.
+apps/ios/OiDonation/Service.local.plist
+apps/ios/OiDonationClip/Service.local.plist

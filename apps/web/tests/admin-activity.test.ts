@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { activityExclusionToken, validActivityExclusion, validSession, makeSession } from "../src/lib/security";
+import { activityExclusionToken, validActivityExclusion, validSession, makeSession } from "../lib/security";
 
 process.env.ADMIN_PASSWORD = "test-only-admin-password";
 process.env.SESSION_SECRET = "test-only-session-secret-at-least-32-characters";

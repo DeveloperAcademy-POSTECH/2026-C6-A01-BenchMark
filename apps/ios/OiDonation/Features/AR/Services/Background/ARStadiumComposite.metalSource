@@ -1,0 +1,31 @@
+#include <metal_stdlib>
+using namespace metal;
+
+struct StadiumUniforms {
+    float2 backgroundScale;
+    float farDepth;
+    float enabled;
+};
+
+kernel void oiStadiumComposite(texture2d<float, access::read> scene [[texture(0)]],
+                              depth2d<float, access::sample> depth [[texture(1)]],
+                              texture2d<float, access::sample> mask [[texture(2)]],
+                              texture2d<float, access::sample> stadium [[texture(3)]],
+                              texture2d<float, access::write> output [[texture(4)]],
+                              constant StadiumUniforms &settings [[buffer(0)]],
+                              uint2 pixel [[thread_position_in_grid]]) {
+    if (pixel.x >= output.get_width() || pixel.y >= output.get_height()) return;
+    float4 original = scene.read(pixel);
+    if (settings.enabled < 0.5) { output.write(original, pixel); return; }
+    constexpr sampler s(coord::normalized, address::clamp_to_edge, filter::linear);
+    float2 uv = (float2(pixel) + 0.5) / float2(output.get_width(), output.get_height());
+    float foreground = mask.sample(s, uv).r;
+    float z = depth.sample(s, uv);
+    // The exact clear value (0 or 1) is selected from the projection. This
+    // preserves virtual geometry regardless of forward/reversed depth.
+    bool virtualPixel = isfinite(z) && abs(z - settings.farDepth) > 0.00001;
+    float keep = virtualPixel ? 1.0 : clamp(foreground, 0.0, 1.0);
+    float2 backgroundUV = (uv - 0.5) * settings.backgroundScale + 0.5;
+    float4 background = stadium.sample(s, backgroundUV);
+    output.write(float4(mix(background.rgb, original.rgb, keep), 1), pixel);
+}

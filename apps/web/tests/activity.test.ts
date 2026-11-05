@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { activityEvent, csvActivity, publicPath } from "../src/lib/activity";
+import { activityEvent, csvActivity, publicPath } from "../lib/activity";
 const story = randomUUID();
 const event = { id: randomUUID(), visitId: randomUUID(), sessionId: randomUUID(), occurredAt: new Date().toISOString(), path: `/stories/${story}`, storyId: story, name: "page_view", properties: {} };
 test("strict activity allowlist excludes private fields, URLs and event properties", () => {

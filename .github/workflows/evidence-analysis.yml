@@ -1,0 +1,30 @@
+name: Supabase service checks
+on:
+  push:
+    branches: [develop]
+    paths: ['supabase/functions/analyze-donation-evidence/**', 'supabase/functions/analyze-evidence/**', 'supabase/functions/_shared/**', 'supabase/functions/analyze-school-evidence/**', 'supabase/functions/account-merge/**', 'supabase/tests/evidence-analysis*.mjs', 'supabase/tests/donation-*.test.mjs', 'supabase/tests/oi-evidence-fingerprints.sql', 'supabase/tests/school-evidence-analysis.test.mjs', 'supabase/tests/account-merge*', 'supabase/tests/run-account-merge-db-checks.py', 'supabase/tests/fixtures/**', 'supabase/migrations/**', 'supabase/package.json', '.github/workflows/evidence-analysis.yml']
+  pull_request:
+    paths: ['supabase/functions/analyze-donation-evidence/**', 'supabase/functions/analyze-evidence/**', 'supabase/functions/_shared/**', 'supabase/functions/analyze-school-evidence/**', 'supabase/functions/account-merge/**', 'supabase/tests/evidence-analysis*.mjs', 'supabase/tests/donation-*.test.mjs', 'supabase/tests/oi-evidence-fingerprints.sql', 'supabase/tests/school-evidence-analysis.test.mjs', 'supabase/tests/account-merge*', 'supabase/tests/run-account-merge-db-checks.py', 'supabase/tests/fixtures/**', 'supabase/migrations/**', 'supabase/package.json', '.github/workflows/evidence-analysis.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: npm --prefix supabase test
+      - run: npm --prefix supabase run check
+  database:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "/usr/lib/postgresql/16/bin" >> "$GITHUB_PATH"
+      - run: python3 supabase/tests/run-account-merge-db-checks.py

@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { reservationDetailsInput, reservationInput } from "../src/lib/reservation";
-import { activityEvent } from "../src/lib/activity";
+import { reservationDetailsInput, reservationInput } from "../lib/reservation";
+import { activityEvent } from "../lib/activity";
 const details = { email: "donor@example.test", displayName: "검증용", title: "검증", story: "스토리", paymentMethod: "deposit", amount: "10000" };
 test("whole-won donations accept free amounts from 10000 within the database integer range", () => {
   for (const amount of [10000,10001,12500,20000,"10000","25000",2147483647]) assert.equal(reservationDetailsInput.safeParse({ ...details, amount }).success, true);

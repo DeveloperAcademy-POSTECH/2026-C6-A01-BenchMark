@@ -1,0 +1,50 @@
+name: Sites web
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    paths: ['apps/web/**', 'apps/oi-web/**', 'apps/team-web/**', 'scripts/check-sites.mjs', 'package*.json', '.github/workflows/sites-web.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        app: [web, oi-web, team-web]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/${{ matrix.app }}/package-lock.json
+      - run: npm run sites:check
+      - run: npm ci
+        working-directory: apps/${{ matrix.app }}
+      - run: npm run typecheck && npm test --if-present && npm run build
+        working-directory: apps/${{ matrix.app }}
+      - name: Local Worker HTTP verification
+        if: matrix.app == 'web'
+        working-directory: apps/web
+        shell: bash
+        run: |
+          for migration in drizzle/*.sql; do
+            node --import ./scripts/sites-env.mjs node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file "$migration"
+          done
+          npm start -- --port 4314 \
+            --var ADMIN_PASSWORD:test-only-local-admin-password \
+            --var SESSION_SECRET:test-only-local-session-secret-at-least-32-characters \
+            --var APP_ORIGIN:http://127.0.0.1:4314 \
+            --var MIGRATION_ENABLED:true \
+            --var MIGRATION_TOKEN:test-only-local-migration-key-at-least-32-characters > /tmp/sites-web.log 2>&1 &
+          web_pid=$!
+          trap 'kill "$web_pid"; wait "$web_pid" || true' EXIT
+          ready=false
+          for attempt in {1..30}; do
+            if curl -fsS http://127.0.0.1:4314/api/health; then ready=true; break; fi
+            sleep 1
+          done
+          test "$ready" = true
+          npm run test:integration

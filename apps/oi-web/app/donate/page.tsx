@@ -1,0 +1,9 @@
+import Link from "next/link";
+import { currentAccount } from "@/lib/auth/server";
+import { officialDonationUrl } from "@/lib/web-config";
+export const metadata = { title: "기부 안내" };
+export default async function Donate() {
+  const url = officialDonationUrl();
+  const { user } = await currentAccount();
+  return <div className="oi-donate oi-shell"><Link className="back-link" href="/">← 홈으로</Link><section className="oi-donate-heading"><span className="oi-kicker">당신의 마음을 모교에</span><h1>오래 남을 이야기,<br />기부에서 시작해요.</h1><p>기부금은 POSTECH의 공식 절차로 전달합니다.<br />오이기부는 그 마음이 이야기로 이어지도록 돕습니다.</p></section><div className="oi-donate-grid"><section className="oi-donate-guide"><h2>참여하기 전에 확인해주세요</h2><ol><li><h3>공식 절차로 기부하기</h3><p>약정·납입·영수증 발급·취소 및 환불은 학교에서 진행합니다. 웹에서 결제 정보는 수집하지 않습니다.</p></li><li><h3>이야기와 명패 참여</h3><p>벤치·문구·명패는 학교의 승인이 필요합니다. 금액별 명패 기준과 참여 신청 방법은 협의 후 안내합니다.</p></li><li><h3>학교 확인 후 진행</h3><p>공식 페이지 방문은 납입 확인이 아닙니다. 학교에서 확인하기 전까지 기부 완료로 처리하지 않습니다.</p></li></ol><details><summary>명패 기준과 제작 일정이 궁금해요</summary><p>최소 기부금, 명패 수량·기간과 제작 일정은 아직 확정되지 않았습니다. 학교와 협의한 기준이 준비되면 안내하겠습니다.</p></details></section><aside className="oi-donate-card"><span className="oi-kicker">POSTECH 공식 기부</span><h2>마음을 전하는<br />첫 걸음</h2><p>학교의 공식 기부 페이지에서<br />절차를 확인하고 참여해주세요.</p>{url ? <a className="button primary" href={url} target="_blank" rel="noopener noreferrer">공식 기부 페이지로 이동 ↗<span className="sr-only"> (새 창)</span></a> : <div className="oi-notice" role="status"><strong>공식 기부 연결 준비 중</strong><p>학교와 연결 주소를 협의하고 있어요. 준비가 끝나면 여기서 바로 안내하겠습니다.</p></div>}<p className="oi-caption">페이지 이동만으로 기부가 접수되거나 납입 확인되지 않습니다.</p><div className="oi-account-note">{user ? <p>Google 계정으로 로그인되어 있어요.<br />학교 납입 내역과 명패 진행 상태는 아직 연동되지 않았습니다.</p> : <><p>앱과 같은 Google 계정으로<br />웹에서도 로그인할 수 있어요.</p><Link href="/login?next=%2Fdonate" className="oi-inline-link">로그인하고 돌아오기 →</Link></>}</div></aside></div></div>;
+}
