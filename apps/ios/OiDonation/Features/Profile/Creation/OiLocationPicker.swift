@@ -1,54 +1,49 @@
 import SwiftUI
 
-/// Keep the destination and its search focus in the same presentation state.
-struct OiLocationPickerRequest: Identifiable {
-    let id = UUID()
-    let focusPlaceID: String?
-}
-
 struct OiLocationPicker: View {
     @Binding var latitude: Double?
     @Binding var longitude: Double?
     var focusPlaceID: String? = nil
+    var onFinish: (() -> Void)? = nil
     @State private var scene = CampusExploreScene()
     @State private var isOnScreen = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        NavigationStack {
-            CampusMapSurface(scene: scene)
-                .ignoresSafeArea(.container, edges: .top)
-                .safeAreaInset(edge: .bottom) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        if let error = scene.error ?? scene.placementError {
-                            Text(error).foregroundStyle(.red)
-                            Button("다시 시도") { Task { await prepare() } }
-                        } else if scene.isLoading || scene.placementLoading {
-                            ProgressView().accessibilityLabel("캠퍼스 지도 준비 중")
-                        }
-                        Text(scene.placementMessage).font(.footnote)
-                        CampusPlacementTools(scene: scene)
-                    }.padding().background(.regularMaterial)
-                }
-                .navigationTitle("오이 위치 지정").navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("취소") { dismiss() } }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("이 위치로 지정") {
-                            guard let point = scene.draftPoint, let data = scene.data,
-                                  data.placementError(at: point) == nil else { return }
-                            let coordinate = data.coordinate(point)
-                            latitude = coordinate.latitude; longitude = coordinate.longitude
-                            dismiss()
-                        }.disabled(scene.draftPoint == nil || !scene.placementReady)
+        CampusMapSurface(scene: scene)
+            .ignoresSafeArea(.container, edges: .top)
+            .safeAreaInset(edge: .bottom) {
+                VStack(alignment: .leading, spacing: 8) {
+                    if let error = scene.error ?? scene.placementError {
+                        Text(error).foregroundStyle(.red)
+                        Button("다시 시도") { Task { await prepare() } }
+                    } else if scene.isLoading || scene.placementLoading {
+                        ProgressView().accessibilityLabel("캠퍼스 지도 준비 중")
                     }
-                }
-        }
+                    Text(scene.placementMessage).font(.footnote)
+                    CampusPlacementTools(scene: scene)
+                    OiCreationNextButton(title: "오이 위치로 지정하기",
+                        enabled: scene.draftPoint != nil && scene.placementReady, action: confirmLocation)
+                        .accessibilityIdentifier("oi.location.confirm3D")
+                }.padding().background(.regularMaterial)
+            }
         .task { await prepare() }
         .onAppear { isOnScreen = true; scene.setVisible(scenePhase == .active) }
         .onDisappear { isOnScreen = false; scene.endPlacement(); scene.suspendForARCamera() }
         .onChange(of: scenePhase) { _, phase in scene.setVisible(isOnScreen && phase == .active) }
+    }
+
+    private func confirmLocation() {
+        guard let point = scene.draftPoint, let data = scene.data,
+              scene.placementReady, data.placementError(at: point) == nil else { return }
+        let coordinate = data.coordinate(point)
+        latitude = coordinate.latitude; longitude = coordinate.longitude
+        close()
+    }
+
+    private func close() {
+        if let onFinish { onFinish() } else { dismiss() }
     }
 
     private func prepare() async {

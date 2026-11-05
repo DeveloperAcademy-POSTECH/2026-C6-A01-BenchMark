@@ -9,7 +9,7 @@ final class OiWardrobeScene {
     var error: String?
     var height: Float?
     var photoPreviewError: String?
-    let editingSlot: OiPhotoSlot?
+    private(set) var editingSlot: OiPhotoSlot?
     init(editingSlot: OiPhotoSlot? = nil) { self.editingSlot = editingSlot }
     @ObservationIgnored private var photoNodes: [OiPhotoSlot: Entity] = [:]
     @ObservationIgnored private var previewTexture: TextureResource?
@@ -78,6 +78,13 @@ final class OiWardrobeScene {
                 print("OI_WARDROBE_ERROR \(look.modelName)")
             }
         }
+    }
+
+    func editPhotos(in slot: OiPhotoSlot?, look: OiWardrobeLook) {
+        editingSlot = slot
+        previewTexture = nil; previewVersion += 1
+        request = nil
+        update(look)
     }
 
     func setPhotoPreview(_ image: CGImage) async {
@@ -154,12 +161,16 @@ struct OiWardrobeSurface: UIViewRepresentable {
 struct OiWardrobePreview: View {
     let look: OiWardrobeLook
     var controls = true
-    @State private var scene = OiWardrobeScene()
+    @State private var scene: OiWardrobeScene
+    init(look: OiWardrobeLook, controls: Bool = true, scene: OiWardrobeScene? = nil) {
+        self.look = look; self.controls = controls
+        _scene = State(initialValue: scene ?? OiWardrobeScene())
+    }
     @Environment(\.scenePhase) private var scenePhase
     var body: some View {
-        VStack(spacing: 4) {
+        ZStack(alignment: .leading) {
             ZStack {
-                if scenePhase == .active {
+                if scenePhase != .background {
                     OiWardrobeSurface(scene: scene, look: look)
                 }
                 if scene.loading { ProgressView().accessibilityLabel("옷 입는 중") }
@@ -169,16 +180,20 @@ struct OiWardrobePreview: View {
                 }
             }.clipped()
             if controls {
-                HStack(spacing: 4) {
-                    ForEach(Array([("정면", Float(0)), ("좌", .pi / 2), ("우", -.pi / 2), ("뒤", .pi)].enumerated()), id: \.offset) { _, item in
+                VStack(spacing: 0) {
+                    ForEach(Array([("앞", Float(0)), ("뒤", .pi), ("좌", .pi / 2), ("우", -.pi / 2)].enumerated()), id: \.offset) { _, item in
                         Button(item.0) { scene.angle(item.1) }.font(CampusStyle.body(12))
-                            .frame(maxWidth: .infinity, minHeight: 44).accessibilityIdentifier("oi.wardrobe.angle.\(item.0)")
+                            .frame(minWidth: 44, minHeight: 44)
+                            .buttonStyle(OiCreationPressStyle())
+                            .accessibilityLabel("오이 \(item.0) 보기")
+                            .accessibilityIdentifier("oi.wardrobe.angle.\(item.0 == "앞" ? "정면" : item.0)")
                     }
-                }.tint(Color("OiDark"))
+                }.foregroundStyle(Color("OiGreen"))
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
             }
         }
         .onDisappear { scene.release() }
-        .onChange(of: scenePhase) { _, phase in if phase != .active { scene.release() } }
+        .onChange(of: scenePhase) { _, phase in if phase == .background { scene.release() } }
     }
 }
 

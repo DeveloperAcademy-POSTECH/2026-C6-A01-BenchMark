@@ -2,7 +2,10 @@ import SwiftUI
 import UIKit
 
 private enum OiCardTab: String, CaseIterable {
+    case size = "크기"
     case background = "배경"
+    case pattern = "패턴"
+    case border = "테두리"
     case set = "세트"
 }
 
@@ -11,6 +14,7 @@ struct OiCardCustomizationStep: View {
     @Binding var customization: OiDraftCustomization
     let assets: [OiAsset]
     var canContinue = true
+    var isFinished = false
     var onContinue: (() -> Void)?
     @State private var tab: OiCardTab = .background
     var body: some View {
@@ -18,33 +22,54 @@ struct OiCardCustomizationStep: View {
             ZStack(alignment: .bottomTrailing) {
                 OiDraftCardPreview(draft: draft, customization: customization).frame(height: 283).frame(maxWidth: .infinity)
                 if let onContinue {
-                    OiCreationDoneButton(enabled: canContinue, action: onContinue)
-                        .accessibilityIdentifier("oi.creation.next")
-                        .accessibilityHint("공개 검토를 요청하기 전에 내용을 확인합니다")
+                    OiCreationDoneButton(enabled: canContinue, title: isFinished ? "다시 꾸미기" : "완료", action: onContinue)
+                        .accessibilityIdentifier("oi.customization.done")
+                        .accessibilityHint(isFinished ? "카드 설정을 다시 열어요" : "카드를 확인하고 이전·다음 버튼을 표시해요")
                 }
             }.padding(.bottom, 12)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(OiCardTab.allCases, id: \.self) { item in
-                        OiCustomizationTabButton(title: item.rawValue, selected: tab == item) { tab = item }
-                            .accessibilityAddTraits(tab == item ? .isSelected : [])
+            if isFinished {
+                Text(draft.cucumberName).font(CampusStyle.characterTitle(24))
+                Text("다음을 눌러 이야기와 공개 예정 카드를 확인해 주세요.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(OiCardTab.allCases, id: \.self) { item in
+                            OiCustomizationTabButton(title: item.rawValue, selected: tab == item) { tab = item }
+                                .accessibilityAddTraits(tab == item ? .isSelected : [])
+                        }
                     }
                 }
-            }
-            switch tab {
-            case .background:
-                Picker("배경 채우기", selection: $customization.fill) {
-                    Text("단색").tag(OiDraftCustomization.Fill.solid)
-                    Text("그라데이션").tag(OiDraftCustomization.Fill.gradient)
-                }.pickerStyle(.segmented)
-                ColorPicker("첫 번째 색", selection: color(\.firstColor), supportsOpacity: false)
-                if customization.fill == .gradient {
-                    ColorPicker("두 번째 색", selection: color(\.secondColor), supportsOpacity: false)
+                HStack {
+                    TextField("오이 이름 입력", text: $draft.cucumberName)
+                        .accessibilityIdentifier("oi.draft.cucumberName")
+                    Image(systemName: "pencil").accessibilityHidden(true)
+                }.font(CampusStyle.body(18)).foregroundStyle(Color("OiGreen"))
+                    .padding(.horizontal, 22).padding(.vertical, 12)
+                    .background(Color("OiLight"), in: Capsule())
+                if draft.cucumberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("검토를 요청하기 전에 오이 이름을 입력해 주세요.").font(.caption).foregroundStyle(.secondary)
+                } else if draft.cucumberName.count > 50 {
+                    Text("오이 이름은 50자 이내로 입력해 주세요.").font(.caption).foregroundStyle(.red)
                 }
-                Toggle("카드에 오이 표시", isOn: $customization.showsCharacter).tint(Color("OiGreen"))
-            case .set:
-                Text("공개 카드 프리셋").font(.headline)
-                OiCreationAssetPicker(assets: assets.filter { $0.kind == "card" }, selection: $draft.cardAsset, draft: draft)
+                switch tab {
+                case .size, .pattern, .border:
+                    Text("\(tab.rawValue) 설정은 준비 중이에요.")
+                        .font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 88)
+                case .background:
+                    Picker("배경 채우기", selection: $customization.fill) {
+                        Text("단색").tag(OiDraftCustomization.Fill.solid)
+                        Text("그라데이션").tag(OiDraftCustomization.Fill.gradient)
+                    }.pickerStyle(.segmented)
+                    ColorPicker("첫 번째 색", selection: color(\.firstColor), supportsOpacity: false)
+                    if customization.fill == .gradient {
+                        ColorPicker("두 번째 색", selection: color(\.secondColor), supportsOpacity: false)
+                    }
+                    Toggle("카드에 오이 표시", isOn: $customization.showsCharacter).tint(Color("OiGreen"))
+                case .set:
+                    Text("공개 카드 프리셋").font(.headline)
+                    OiCreationAssetPicker(assets: assets.filter { $0.kind == "card" }, selection: $draft.cardAsset, draft: draft)
+                }
             }
             Text("색상·그라데이션은 이 기기의 미리보기예요. 공개 카드에는 ‘세트’에서 선택한 프리셋이 적용돼요.")
                 .font(.caption).foregroundStyle(.secondary)

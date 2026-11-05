@@ -297,9 +297,16 @@ MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하
 
 위치 선택은 기존 `CampusExploreScene`과 `CampusPlacementTools`를 재사용한다. 건물 검색은 카메라만 이동시키고 좌표를 자동 확정하지 않는다. 사용자가 바닥을 선택하고 확인하면 좌표를 초안에 전달한다. 선택 화면이 닫힐 때 숨은 RealityKit 렌더러를 해제한다. 구현 경계와 검증 절차는 [이야기 생성 흐름](story-creation-flow.md)을 따른다.
 
-개발용 작성 체험은 #141에서 제거했다. 지도 검색 모달은 `OiLocationPickerRequest` item으로 전달해 화면 열림과 검색 대상이 함께 갱신되도록 한다.
+개발용 작성 체험은 #141에서 제거했다. 위치 설정은 편집기의 `.location` 단계에서 `OiLocationPicker` 3D 내용을 직접 표시한다. 별도 검색 모달과 `OiLocationPickerRequest`는 제거했다.
+
+2026-11-05 #154: `OiStoryEditor`의 `customizationReady`는 오이·카드 편집 완료 후 이동 버튼을 표시하는 화면 내 상태다. 단계 변경 시 초기화하며 초안 데이터와 분리한다. 실제 입력·의상은 기존 계정별 자동 저장 경로를 사용한다. `OiCreationNavigationBar`와 누름 효과를 공유하고, 오이 이름 검증은 입력이 있는 카드 단계에서 수행한다. 저장·검토 요청의 전체 유효성 검사는 유지한다.
+
+같은 날 추가 요청: `OiCreationStep.consent`를 편집기에 통합하고 모든 단계 이동을 입력 검사와 분리했다. 약관 선택은 선택적 `OiLocalDraft.agreedConsentClauseIDs`로 보존하며 누락된 구버전 초안은 동의로 간주하지 않는다. 저장·검토 요청은 약관·전체 입력·기존 작성 권한 검사 후 기존 API를 호출한다. 사진·위치는 별도 편집 화면으로 표시하고, 약관·오이·카드의 ‘모든 화면’ 메뉴에서 보조 화면을 연다. `OiEvidenceDesignPreview`와 접수 완료 미리보기는 네트워크 제출이나 승인 상태 변경을 수행하지 않는다.
 
 사진 자르기는 공통 `OiPhotoCropEditor`의 고정 사진과 자유 비율 선택 격자로 구성한다. `OiPhotoCropGeometry`가 모서리·가장자리 크기 변경 및 선택 영역 이동을 이미지 경계 안으로 제한한다. 이미지의 aspect-fit 프레임을 기준으로 선택 영역을 정규화하여 `OiPhotoProcessor`에서 픽셀 크롭한다. 편집 화면은 선택만 소유하며 적용 전에는 초안 사진을 쓰지 않는다. 실제 편집기는 사진 읽기·편집 콜백으로 기존 저장 경계를 유지한다.
+
+2026-11-05 사진 후속: 사진 화면의 `UIRotationGestureRecognizer`가 두 손가락 각도를 받아 `OiPhotoRotationGeometry`의 중앙 회전·cover scale을 미리보기와 JPEG에 동일 적용한다. 사진 교체 시 새 UUID로 UIKit 뷰도 교체한다. `OiStoryEditor.PhotoCheckpoint`는 사진 화면 진입 시 첨부/삭제 상태를 캡처해 취소 시 복원하며 완료 시 해제한다. 위치 지도는 별도 `NavigationStack`을 만들지 않고 편집기가 상단 바와 취소를 소유해 상위 숨김 설정과 충돌하지 않게 한다.
+
 ## App Clip 수집 AR 카메라 생명주기 — 2026-11-02 / #109 브랜치
 
 사용자가 요청한 시작·실패 애니메이션 보완 범위에서 `.starting`과 `.playing`이 같은 컨테이너의 AR 컨트롤러·ARView·ARSession을 공유한다. 카메라 추적·텍스처·배치 준비 후 overlay를 표시하고, 조립·유지·페이드가 끝나야 수집과 단일 타이머를 활성화한다. 화면 이탈 때만 세션을 중지하고 anchor·비동기 작업을 해제한다. 실패는 고정 배경 위 원본 글자 세 조각의 transform을 단일 시간축으로 보간한다. 세부 Figma 값, 이미지 정규화, 접근성 대응과 실기기 서명 검증의 미완료 항목은 [검증 문서](../apps/ios/docs/app-clip-ar-collection.md)에 기록한다. 서버 수집 계약·권한·기부 정책은 변경하지 않는다.
@@ -366,3 +373,15 @@ MY 설정이 실제 Apple·Google 인증, 로그아웃, 닉네임, 학교, 기�
 `oi_stories.grant_id`를 nullable로 바꾸고 private 설정 테이블의 `unapproved_drafts_enabled`로 최초 승인 필요 여부를 제어한다. `oi_capabilities`가 앱에 정책을 전달하며 누락 시 기본값은 false다. `OiWritingAccess`는 입력 유효성과 작성 권한을 분리하고, 최종 권한은 매 RPC/Storage 쓰기에서 서버가 검사한다. 기존 승인 연결·소유권·revision·위치·공개 검토 조건을 보존한다. 승인 없는 기존 초안에 유효한 승인을 연결할 때도 story_limit을 검사한다.
 
 설정 OFF는 읽기 정책·기존 글·사진·공개 상태를 변경하지 않는다. 저장 불가 시 계정별 vault 입력/사진을 보관하며 새 승인 연결 후 같은 ID로 재개한다. 임시 작성은 기부 확인이 아니며 공개 지도·AR은 여전히 published만 조회한다. 서버 배포 전 RPC 소스 해시를 검사해 기존 campus/height/heading 확장을 유지한다. 상세 계약·회귀 검사·켜기/끄기는 [임시 작성 모드 문서](temporary-story-drafts.md)를 따른다.
+
+## 사진 의상 시트와 작성 하단 배경 — 2026-11-05
+
+Figma `4158:9340`에 맞춰 `OiCucumberCustomizationStep`이 하나의 `OiWardrobeScene`을 소유하고, 462pt 기본 높이의 사진 편집 시트와 배경 미리보기가 같은 씬을 사용한다. 모델을 새 뷰로 옮기지 않으며, 시트 닫힘에서 저장 또는 기존 외형을 다시 적용한다. 시트는 크게 펼칠 수 있고 기본 높이에서 모델을 직접 돌려볼 수 있다. 사진 편집 중에는 배경의 작성 단계 이동을 막는다. 일시적인 `.inactive`는 렌더러를 유지하고 `.background`와 화면 이탈에서 해제한다.
+
+사진 보관함만 `PHPickerViewController`로 표시하여 기존 작성 cover → 편집 sheet → SwiftUI PhotosPicker의 모달 상태 결합을 피한다. 선택 가능한 수는 보관함을 열 때 고정하고, 선택 종료 후 압축·검증하여 레이어를 추가한다. `OiPhotoEditingLimit`은 면당 2장의 UI 추가/복제/이동 한도를 담당한다. 기존 8레이어 데이터 검증과 보관본은 유지하여 구버전 초안을 손상시키지 않는다. 원본 사진은 수정하지 않고 계정별 초안·공개 API의 기존 경계를 유지한다.
+
+`OiCreationNavigationBar`는 `safeAreaInset` 안에 배치하고 배경만 하단 안전 영역 밖까지 확장한다. iOS 26은 `glassEffect(.regular)`, 이전 버전은 Material을 사용한다. 투명도 줄이기에서는 불투명 배경을 제공한다. 사진 자르기에는 어두운 색상 환경과 흰 tint를 명시하여 부모 화면의 검정 tint가 버튼에 전파되지 않게 한다.
+
+## 약관 콘텐츠와 초안 호환 — 2026-11-05
+
+Figma `2935:1210`의 세 약관은 `OiStoryConsentClause.figmaDrafts`에서 순서대로 제공한다. 새 `donationVerification` ID를 기존 계정별 초안의 `agreedConsentClauseIDs`에 저장하며 이전 두 ID는 그대로 읽는다. 새 항목이 없는 초안은 해당 동의를 미선택으로 복원하고, 모든 필수 동의 검사는 세 ID를 기준으로 한다. API/DB나 기부 증빙 제출 경로는 변경하지 않는다. 이번 원문과 저장 경계는 [약관 원문 정합](story-creation-flow.md#약관-원문-정합--2026-11-05--figma-29351210)에 기록한다.

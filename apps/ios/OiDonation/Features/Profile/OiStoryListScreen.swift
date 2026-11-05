@@ -19,17 +19,22 @@ struct OiStoryListScreen: View {
     @State private var selectedStoryID: UUID?
     @State private var showingConsent = false
     @State private var showingApprovalNotice = false
+    @State private var showingSeedNotice = false
 
     var body: some View {
         OiStoryListView(
             state: state,
+            minimumVisibleSlotCount: 1,
+            seedCount: nil, // UI only until a server-owned seed balance is available.
             notices: ["이야기를 누르면 작성 내용과 공개 상태를 확인할 수 있습니다", "운영자 공개 승인 후 지도에서 오이를 볼 수 있습니다"],
             guidance: remote.unapprovedDraftsEnabled
                 ? "임시 작성 모드 · 승인 없이 초안을 저장할 수 있어요"
                 : "작성 승인을 받은 뒤 오이와 이야기를 심어보세요",
             onRetry: { Task { await remote.refresh(); await loadLocalDrafts() } },
+            onAddSeed: { showingSeedNotice = true },
             onSelectStory: selectStory,
-            onCreateStory: beginCreatingStory
+            onCreateStory: beginCreatingStory,
+            onUseSeed: { showingSeedNotice = true }
         )
         .task(id: DraftLoadKey(owner: remote.account?.id, revision: remote.revision)) {
             await loadLocalDrafts()
@@ -39,6 +44,7 @@ struct OiStoryListScreen: View {
             selectedStoryID = nil
             showingConsent = false
             showingApprovalNotice = false
+            showingSeedNotice = false
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             if let owner = remote.account?.id, loadedDraftOwner == owner, unreadableDraftCount > 0 || pendingDiscardCount > 0 {
@@ -68,6 +74,11 @@ struct OiStoryListScreen: View {
         }
         .navigationDestination(isPresented: $showingConsent) {
             OiStoryCreationConsentFlow(remote: remote, onFinish: { showingConsent = false })
+        }
+        .alert("씨앗 기능을 준비하고 있어요", isPresented: $showingSeedNotice) {
+            Button("확인", role: .cancel) {}
+        } message: {
+            Text("씨앗 개수 확인과 사용은 추후 제공할 예정이에요. 지금은 ‘오이 만들기’로 이야기를 작성할 수 있어요.")
         }
         .alert("작성 승인이 필요해요", isPresented: $showingApprovalNotice) {
             Button("닫기", role: .cancel) {}

@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import UniformTypeIdentifiers
 
 struct OiWardrobePhotoEditor: View {
     let slot: OiPhotoSlot
@@ -7,11 +8,12 @@ struct OiWardrobePhotoEditor: View {
     let onSave: (OiWardrobeArtwork) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var phase
-    @State private var scene: OiWardrobeScene
+    let scene: OiWardrobeScene
     @State private var draft = OiPhotoDraft()
-    @State private var selection: [PhotosPickerItem] = []
+    @State private var selection: [PHPickerResult] = []
+    @State private var importID = UUID()
     @State private var isPhotoPickerPresented = false
-    @State private var pickerSelectionLimit = OiPhotoDesign.maximumLayers
+    @State private var pickerSelectionLimit = OiPhotoEditingLimit.perSide
     @State private var selectedID: String?
     @State private var side: OiPhotoSide = .front
     @State private var showGuide = true
@@ -28,9 +30,9 @@ struct OiWardrobePhotoEditor: View {
     @State private var renderGeneration = UUID()
     @State private var guideEdges: [OiPhotoSide: [[[Double]]]] = [:]
 
-    init(slot: OiPhotoSlot, look: OiWardrobeLook, onSave: @escaping (OiWardrobeArtwork) -> Void) {
+    init(slot: OiPhotoSlot, look: OiWardrobeLook, scene: OiWardrobeScene, onSave: @escaping (OiWardrobeArtwork) -> Void) {
         self.slot = slot; self.look = look; self.onSave = onSave
-        _scene = State(initialValue: OiWardrobeScene(editingSlot: slot))
+        self.scene = scene
         if let design = look.artwork.designs[slot.itemID(in: look)] {
             do {
                 let restored = try OiPhotoRenderer.load(design, sources: look.artwork.sources)
@@ -45,82 +47,70 @@ struct OiWardrobePhotoEditor: View {
     }
     private var selectedIndex: Int? { draft.layers.firstIndex { $0.id == selectedID } }
     private var selectedLayer: OiPhotoLayer? { selectedIndex.map { draft.layers[$0] } }
-    private var remaining: Int { OiPhotoDesign.maximumLayers - draft.layers.count }
+    private var remaining: Int { OiPhotoEditingLimit.remaining(on: side, in: draft.layers) }
+    private var oppositeSide: OiPhotoSide { side == .front ? .back : .front }
+    private var canApply: Bool {
+        !importInProgress && !saving && !restoreFailed && renderTask == nil &&
+        !scene.loading && scene.error == nil && scene.photoPreviewError == nil
+    }
     var body: some View {
-        NavigationStack {
-            GeometryReader { geometry in
-                VStack(spacing: 8) {
-                    ZStack(alignment: .topTrailing) {
-                        if phase != .background { OiWardrobeSurface(scene: scene, look: look) }
-                        if scene.loading { ProgressView().padding(14) }
-                        else { Label("실시간 미리보기", systemImage: "circle.fill").font(.system(size: 10, weight: .medium)).foregroundStyle(Color("OiGreen")).padding(12) }
+        VStack(spacing: 12) {
+            HStack {
+                Text("이미지 디자인").font(CampusStyle.semibold(26)).foregroundStyle(Color("OiDark"))
+                Spacer(minLength: 8)
+                Button("완료", action: save)
+                    .font(CampusStyle.medium(20)).underline().foregroundStyle(Color(white: 0.44))
+                    .disabled(!canApply).opacity(canApply ? 1 : 0.45)
+                    .frame(minHeight: 44).accessibilityIdentifier("photo-apply")
+                Button { dismiss() } label: { Image(systemName: "xmark").font(.system(size: 15)) }
+                    .frame(width: 32, height: 44).accessibilityLabel("사진 디자인 취소")
+                    .accessibilityIdentifier("photo-cancel").disabled(saving || importInProgress)
+            }
+            ScrollView {
+                VStack(spacing: 16) {
+                    Picker("편집할 면", selection: $side) {
+                        ForEach(OiPhotoSide.allCases) { Text($0.title).tag($0) }
+                    }.pickerStyle(.segmented).accessibilityIdentifier("photo-side")
+                        .disabled(importInProgress)
+                    uvCanvas.frame(width: 236, height: 236)
+                    photoControls
+                    Text("사진을 눌러 선택한 뒤 드래그·핀치로 배치하세요.\n두 손가락으로 회전하면 3D 옷에도 바로 반영돼요!")
+                        .font(CampusStyle.body(10)).foregroundStyle(Color(white: 0.48))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if let message = error ?? scene.error ?? scene.photoPreviewError {
+                        Text(message).font(.caption).foregroundStyle(.red).accessibilityIdentifier("photo-editor-error")
                     }
-                    .frame(height: max(180, min(280, geometry.size.height * 0.29)))
-                    .clipShape(RoundedRectangle(cornerRadius: 22)).padding(.horizontal, 16)
-                    HStack {
-                        ForEach(Array(["정면", "좌", "우", "뒤"].enumerated()), id: \.offset) { index, name in
-                            Button(name) { scene.angle([0, .pi / 2, -.pi / 2, .pi][index]) }
-                                .frame(maxWidth: .infinity, minHeight: 32).accessibilityIdentifier("photo-angle-\(index)")
+                    if !restoreFailed && (scene.error != nil || scene.photoPreviewError != nil) {
+                        Button("미리보기 다시 시도") {
+                            if scene.error != nil { scene.update(look, retry: true) }
+                            requestPreview()
+                        }.disabled(scene.loading || renderTask != nil)
+                    }
+                    if importInProgress { ProgressView().accessibilityLabel("사진을 불러오는 중…") }
+                    if !draft.layers.isEmpty {
+                        layerPicker
+                        if selectedLayer != nil {
+                            DisclosureGroup("선택한 사진 편집") { transformControls.padding(.top, 12) }
+                                .font(.subheadline).accessibilityIdentifier("photo-layer-controls")
                         }
-                    }.font(.caption.bold()).padding(.horizontal, 16)
-                    ScrollView {
-                        VStack(spacing: 14) {
-                            photoControls
-                            if let message = error ?? scene.error ?? scene.photoPreviewError {
-                                Text(message).font(.caption).foregroundStyle(.red).accessibilityIdentifier("photo-editor-error")
-                            }
-                            if !restoreFailed && (scene.error != nil || scene.photoPreviewError != nil) {
-                                Button("미리보기 다시 시도") {
-                                    if scene.error != nil { scene.update(look, retry: true) }
-                                    requestPreview()
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled(scene.loading || renderTask != nil)
-                            }
-                            if importInProgress { ProgressView().accessibilityLabel("사진을 불러오는 중…") }
-                            Picker("편집할 면", selection: $side) {
-                                ForEach(OiPhotoSide.allCases) { Text($0.title).tag($0) }
-                            }.pickerStyle(.segmented).accessibilityIdentifier("photo-side")
-                            HStack {
-                                Text("\(side.title) UV 펼침도").font(.subheadline.bold())
-                                Spacer()
-                                Toggle("윤곽", isOn: $showGuide).font(.caption).fixedSize().accessibilityIdentifier("photo-uv-guide")
-                            }
-                            uvCanvas.frame(width: min(280, geometry.size.width - 36), height: min(280, geometry.size.width - 36))
-                            Text("사진을 눌러 선택한 뒤 한 손가락으로 옮기세요. 두 손가락을 벌리거나 오므리면 크기가 바뀌고, 비틀면 회전해요. 3D 옷에도 바로 반영돼요.")
-                                .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-                            layerPicker
-                            if selectedLayer != nil { transformControls }
-                            Text("사진은 최대 8장까지 추가할 수 있어요. 사진은 축소·압축하여 이 기기의 초안에만 저장해요.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }.padding(18).padding(.bottom, 20)
-                    }.accessibilityIdentifier("photo-editor-scroll")
-                }
-            }
-            .background(Color.white).foregroundStyle(Color("OiDark"))
-            .navigationTitle(slot.title(in: look) + " 디자인").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("취소") { dismiss() }.disabled(saving).accessibilityIdentifier("photo-cancel")
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(action: save) {
-                        if saving { ProgressView().accessibilityHidden(true) }
-                        else { Text("적용").bold() }
                     }
-                    .accessibilityLabel("적용")
-                    .accessibilityValue(saving ? "저장 중" : "")
-                    .disabled(importInProgress || saving || restoreFailed || renderTask != nil || scene.loading || scene.error != nil || scene.photoPreviewError != nil)
-                    .accessibilityIdentifier("photo-apply")
-                }
-            }
+                    Text("앞·뒷면 각각 최대 2장 · 완료하면 이 기기의 초안에 저장돼요.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }.padding(.bottom, 20)
+            }.accessibilityIdentifier("photo-editor-scroll")
         }
-        .tint(Color("OiGreen")).interactiveDismissDisabled(saving)
-        .navigationBarBackButtonHidden(true)
-        // Own presentation outside the scrolling controls. The picker must survive
-        // preview/layout updates, and its selection limit stays fixed while open.
-        .photosPicker(isPresented: $isPhotoPickerPresented, selection: $selection,
-                      maxSelectionCount: pickerSelectionLimit, selectionBehavior: .ordered, matching: .images)
+        .padding(.horizontal, 20).padding(.top, 12)
+        .foregroundStyle(Color("OiDark"))
+        .tint(Color("OiGreen"))
+        .preferredColorScheme(.light).environment(\.colorScheme, .light)
+        .interactiveDismissDisabled(saving || importInProgress)
+        // UIKit owns only the library picker. This avoids SwiftUI SheetBridge
+        // dismissing both the editing sheet and PhotosPicker in a creation cover.
+        .background {
+            OiWardrobePhotoLibrary(isPresented: $isPhotoPickerPresented, limit: pickerSelectionLimit) { results in
+                selection = results; importID = UUID()
+            }.frame(width: 0, height: 0)
+        }
         .onAppear {
             for face in OiPhotoSide.allCases {
                 let name = slot.resource(in: look) + "-" + face.rawValue
@@ -129,7 +119,7 @@ struct OiWardrobePhotoEditor: View {
             }
              scene.angle(side == .front ? 0 : .pi); requestPreview()
         }
-        .onDisappear { stopPreview(); scene.release() }
+        .onDisappear { stopPreview() }
         .onChange(of: phase) { _, value in
             // System presentations can temporarily make the scene inactive.
             // Keep the existing preview alive until the app actually backgrounds.
@@ -145,7 +135,7 @@ struct OiWardrobePhotoEditor: View {
         .onChange(of: isDragging) { _, active in if !active { previousDrag = .zero } }
         .onChange(of: isTransforming) { _, active in if !active { transformStart = nil } }
         // Import after the user finishes/cancels, never while selection is ongoing.
-        .task(id: isPhotoPickerPresented ? [] : selection) { await importPhotos() }
+        .task(id: importID) { await importPhotos() }
     }
 
     private var photoControls: some View {
@@ -155,9 +145,15 @@ struct OiWardrobePhotoEditor: View {
             pickerSelectionLimit = remaining
             isPhotoPickerPresented = true
         } label: {
-            Label("사진 추가 \(draft.layers.count)/8", systemImage: "photo.badge.plus")
-                .frame(maxWidth: .infinity, minHeight: 44).foregroundStyle(.white)
-        }.buttonStyle(.borderedProminent).disabled(remaining == 0 || importInProgress || restoreFailed)
+            HStack(spacing: 20) {
+                Label("사진 추가", systemImage: "photo.badge.plus")
+                Text("\(draft.layers.filter { $0.side == side }.count)/2")
+            }.font(CampusStyle.body(16))
+                .frame(maxWidth: .infinity, minHeight: 40)
+                .foregroundStyle(Color(white: 0.35))
+                .background(.white, in: Capsule())
+                .shadow(color: .black.opacity(0.14), radius: 3)
+        }.buttonStyle(OiCreationPressStyle()).disabled(remaining == 0 || importInProgress || restoreFailed)
             .accessibilityIdentifier("photo-import")
     }
     private var layerPicker: some View {
@@ -186,10 +182,10 @@ struct OiWardrobePhotoEditor: View {
         VStack(spacing: 12) {
             HStack {
                 Button("다른 면으로") {
-                    guard let index = selectedIndex else { return }
+                    guard let index = selectedIndex, OiPhotoEditingLimit.remaining(on: oppositeSide, in: draft.layers) > 0 else { return }
                     draft.layers[index].side = side == .front ? .back : .front
                     side = draft.layers[index].side
-                }.accessibilityIdentifier("photo-move-side")
+                }.disabled(OiPhotoEditingLimit.remaining(on: oppositeSide, in: draft.layers) == 0).accessibilityIdentifier("photo-move-side")
                 Spacer()
                 Button("복제") {
                     guard var layer = selectedLayer, remaining > 0 else { return }
@@ -309,7 +305,7 @@ struct OiWardrobePhotoEditor: View {
     private func add(_ asset: OiPhotoImageAsset) {
         guard remaining > 0 else { return }
         draft.assets[asset.id] = asset
-        let offset = Double(draft.layers.filter { $0.side == side }.count % 4) * 0.05
+        let offset = Double(draft.layers.filter { $0.side == side }.count) * 0.05
         let layer = OiPhotoLayer(source: asset.id, side: side, placement: OiPhotoPlacement(x: 0.5 + offset, y: 0.5 + offset))
         draft.layers.append(layer); selectedID = layer.id; error = nil
     }
@@ -332,7 +328,12 @@ struct OiWardrobePhotoEditor: View {
         var failures = 0
         for pick in picks {
             do {
-                guard let data = try await pick.loadTransferable(type: Data.self) else { throw OiPhotoDataError.unreadable }
+                let data: Data = try await withCheckedThrowingContinuation { continuation in
+                    pick.itemProvider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, error in
+                        if let data { continuation.resume(returning: data) }
+                        else { continuation.resume(throwing: error ?? OiPhotoDataError.unreadable) }
+                    }
+                }
                 try Task.checkCancellation()
                 let asset = try OiPhotoRenderer.asset(data)
                 try Task.checkCancellation(); add(asset)
@@ -371,5 +372,38 @@ struct OiWardrobePhotoEditor: View {
         }
         catch { self.error = error.localizedDescription }
         saving = false
+    }
+}
+
+/// Presents from the editing sheet without coupling Photos state to SwiftUI's modal bridge.
+private struct OiWardrobePhotoLibrary: UIViewControllerRepresentable {
+    @Binding var isPresented: Bool
+    let limit: Int
+    let onSelection: ([PHPickerResult]) -> Void
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+    func makeUIViewController(context: Context) -> UIViewController { UIViewController() }
+    func updateUIViewController(_ controller: UIViewController, context: Context) {
+        context.coordinator.parent = self
+        guard isPresented, controller.presentedViewController == nil, !context.coordinator.presenting else { return }
+        context.coordinator.presenting = true
+        var configuration = PHPickerConfiguration(photoLibrary: .shared())
+        configuration.filter = .images
+        configuration.selectionLimit = max(1, limit)
+        configuration.selection = .ordered
+        let picker = PHPickerViewController(configuration: configuration)
+        picker.delegate = context.coordinator
+        controller.present(picker, animated: true)
+    }
+    final class Coordinator: NSObject, PHPickerViewControllerDelegate {
+        var parent: OiWardrobePhotoLibrary
+        var presenting = false
+        init(parent: OiWardrobePhotoLibrary) { self.parent = parent }
+        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            picker.dismiss(animated: true) { [self] in
+                presenting = false
+                parent.isPresented = false
+                parent.onSelection(results)
+            }
+        }
     }
 }

@@ -35,6 +35,12 @@ struct OiStoryLocationStep: View {
                 Label("선택한 위치", systemImage: "mappin.circle.fill").foregroundStyle(Color("OiGreen"))
                 Text(String(format: "위도 %.7f · 경도 %.7f", latitude, longitude)).font(.caption.monospacedDigit())
             } else { Text("아직 위치를 선택하지 않았어요.").foregroundStyle(.secondary) }
+            Button { choose(nil) } label: {
+                Label(draft.latitude == nil ? "포스텍 3D 지도에서 위치 선택" : "3D 지도에서 위치 수정", systemImage: "map")
+                    .font(CampusStyle.semibold(16)).frame(maxWidth: .infinity, minHeight: 48)
+            }.buttonStyle(.borderedProminent).tint(Color("OiGreen"))
+                .buttonBorderShape(.roundedRectangle(radius: 20))
+                .accessibilityIdentifier("oi.location.choose3D")
             if !regions.isEmpty {
                 Picker("이야기를 표시할 구역", selection: $draft.regionId) {
                     ForEach(regions) { Text($0.name).tag($0.id) }
