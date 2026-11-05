@@ -68,7 +68,7 @@ struct OiServiceAPI {
         catch APIError.httpStatus(let status) {
             switch status {
             case 401: throw OiServiceError.signInRequired
-            case 403: throw OiServiceError.server("권한이 없거나 작성 승인이 만료됐습니다. 검토 상태를 확인해 주세요.")
+            case 403: throw OiServiceError.server("요청 권한·작성 승인·임시 작성 모드 상태를 새로고침해 확인해 주세요. 기존 글과 사진은 보관됩니다.")
             case 404 where path == "rest/v1/rpc/\(Self.resolveCardRequestRPC)": throw OiServiceError.conflict
             case 409: throw OiServiceError.conflict
             case 400, 422: throw OiServiceError.invalidInput

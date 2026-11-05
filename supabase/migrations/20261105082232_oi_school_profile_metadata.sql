@@ -81,7 +81,7 @@ grant execute on function public.oi_update_school_profile(text, integer, text) t
 -- Fail atomically if another deployment changed the capability contract.
 do $$ begin
   if (select md5(btrim(prosrc, E' \n\r\t')) from pg_proc where oid = 'public.oi_capabilities()'::regprocedure)
-    <> '2a0ecd9d487aa12cd16834e56db7065e' then
+    not in ('2a0ecd9d487aa12cd16834e56db7065e', '495eb677ead4cfee7641871d7022e76c') then
     raise exception 'oi_capabilities drift requires review before adding school profile metadata';
   end if;
 end; $$;
@@ -90,7 +90,8 @@ language sql security invoker set search_path = '' as $$
   with context as (select benchmark_private.oi_account_context() value)
   select jsonb_build_object('operator', benchmark_private.oi_is_operator(), 'coins_enabled', false,
     'account_merge_enabled', true, 'account_id', value -> 'id', 'account_member_ids', value -> 'member_ids',
-    'account_providers', value -> 'account_providers', 'school_profile_enabled', true) from context;
+    'account_providers', value -> 'account_providers', 'school_profile_enabled', true,
+    'unapproved_drafts_enabled', benchmark_private.oi_unapproved_drafts_enabled()) from context;
 $$;
 revoke all on function public.oi_capabilities() from public, anon;
 grant execute on function public.oi_capabilities() to authenticated;

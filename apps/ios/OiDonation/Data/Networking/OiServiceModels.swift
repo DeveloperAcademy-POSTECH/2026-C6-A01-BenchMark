@@ -71,7 +71,7 @@ struct OiPublicAcademicInfo: Equatable {
 struct OiLiveStory: Codable, Identifiable, Equatable {
     let id: UUID
     let userId: UUID
-    let grantId: UUID
+    let grantId: UUID?
     let regionId: String
     let title: String
     let body: String
@@ -282,12 +282,21 @@ nonisolated struct OiFarmerOutfitReceipt: Decodable, Sendable {
 struct OiCapabilities: Decodable {
     let `operator`: Bool
     let coinsEnabled: Bool
+    let unapprovedDraftsEnabled: Bool?
     let accountId: UUID?
     let accountMergeEnabled: Bool?
     let accountMemberIds: [UUID]?
     let accountProviders: [String]?
     let schoolProfileEnabled: Bool?
     let farmerOutfitEnabled: Bool?
+}
+
+/// Content validation is separate from permission. The server remains authoritative.
+enum OiWritingAccess {
+    static func canWrite(grantID: UUID?, grants: [OiWritingGrant], unapprovedDraftsEnabled: Bool) -> Bool {
+        if let grantID { return grants.contains { $0.id == grantID && $0.revokedAt == nil } }
+        return unapprovedDraftsEnabled
+    }
 }
 
 struct OiStoryDraft: Codable, Equatable {
@@ -316,7 +325,7 @@ struct OiStoryDraft: Codable, Equatable {
     }
 
     var valid: Bool {
-        grantId != nil && latitude != nil && longitude != nil &&
+        latitude != nil && longitude != nil &&
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !theme.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
@@ -325,8 +334,8 @@ struct OiStoryDraft: Codable, Equatable {
     }
 
     func payload() throws -> [String: Any] {
-        guard valid, let grantId, let latitude, let longitude else { throw OiServiceError.invalidDraft }
-        return ["id": id.uuidString, "grant_id": grantId.uuidString, "revision": revision,
+        guard valid, let latitude, let longitude else { throw OiServiceError.invalidDraft }
+        return ["id": id.uuidString, "grant_id": grantId.map { $0.uuidString as Any } ?? NSNull(), "revision": revision,
                 "region_id": regionId, "title": title, "body": body, "theme": theme,
                 "emotion": emotion, "cucumber_name": cucumberName, "cucumber_asset": cucumberAsset,
                 "card_asset": cardAsset, "latitude": latitude, "longitude": longitude]
@@ -360,7 +369,7 @@ nonisolated struct OiSavedSchoolEvidenceReview: Codable, Sendable {
 }
 
 enum OiServiceError: LocalizedError {
-    case configuration, signInRequired, invalidDraft, invalidCallback, unavailable, accountChanged, authenticationFailed
+    case configuration, signInRequired, writingApprovalRequired, invalidDraft, invalidCallback, unavailable, accountChanged, authenticationFailed
     case server(String)
     case invalidInput, conflict
     case secureStorage(Int32)
@@ -371,7 +380,8 @@ enum OiServiceError: LocalizedError {
         case .configuration: "Supabase 연결 설정이 없습니다. 개발용 공개 키를 설정한 빌드를 사용해 주세요."
         case .signInRequired: "로그인이 필요합니다."
         case .authenticationFailed: "로그인을 완료하지 못했습니다. 계정과 로그인 설정을 확인한 뒤 다시 시도해 주세요."
-        case .invalidDraft: "작성 승인과 모든 입력 항목, 캠퍼스 바깥 공간의 위치를 확인해 주세요."
+        case .writingApprovalRequired: "서버 저장·검토 요청에는 작성 승인이 필요해요. 기존 글과 사진은 보관됩니다."
+        case .invalidDraft: "모든 입력 항목과 캠퍼스의 야외 위치를 확인해 주세요."
         case .invalidCallback: "로그인 응답을 확인할 수 없습니다. 다시 로그인해 주세요."
         case .unavailable: "지금은 연결할 수 없습니다. 잠시 후 다시 시도해 주세요."
         case .accountChanged: "계정이 변경됐습니다. 다시 시도해 주세요."

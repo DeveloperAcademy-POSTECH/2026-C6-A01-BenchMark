@@ -34,6 +34,8 @@ final class OiTestBackend {
     static let grant = UUID(uuidString: "b1000000-0000-4000-8000-000000000010") ?? UUID()
     private let lock = NSLock()
     struct State {
+        var unapprovedDraftsEnabled: Bool?
+        var hasWritingGrant = true
         var nickname = "Owner A"
         var farmName: String? = "오이"
         var otherFarmName = "다른밭"
@@ -189,6 +191,7 @@ final class OiTestBackend {
             } else { result = ["id":payload["id"] ?? ""] }
         } else if path.hasSuffix("/rpc/oi_capabilities") {
             var capabilities: [String:Any] = ["operator":false,"coins_enabled":false]
+            if let enabled = state.unapprovedDraftsEnabled { capabilities["unapproved_drafts_enabled"] = enabled }
             if let canonical = state.canonicalAccountID {
                 capabilities["account_id"] = canonical.uuidString
                 capabilities["account_merge_enabled"] = true
@@ -273,7 +276,7 @@ final class OiTestBackend {
                let owner = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "user_id" })?.value {
                 state.grantOwnerQueries.append(owner)
             }
-            result = [["id":Self.grant.uuidString,"story_limit":5]]
+            result = state.hasWritingGrant ? [["id":Self.grant.uuidString,"story_limit":5]] : []
         }
         let data = bytes ?? ((try? JSONSerialization.data(withJSONObject: result)) ?? Data())
         if (path.hasSuffix("/oi_stories") && owner == Self.owner && state.holdOwnerRead)
@@ -926,6 +929,49 @@ final class OiRemoteStoreTests: XCTestCase {
         value.title = title; value.body = "Current body"; value.theme = "감사"; value.emotion = "기쁨"
         value.cucumberName = "테스트오이"; value.latitude = 36.01261057021347; value.longitude = 129.3197268697784
         return value
+    }
+
+    @MainActor func testTemporaryWritingFlagPreservesStoryAndPhotoWhenDisabled() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { clean(session, directory: directory) }
+        backend.configure { $0.hasWritingGrant = false }
+        await store.start()
+        XCTAssertFalse(store.canStartStory, "Old servers with no flag must require approval")
+        backend.configure { $0.unapprovedDraftsEnabled = true }
+        await store.refresh()
+        XCTAssertTrue(store.canStartStory)
+        var temporary = draft(); temporary.grantId = nil
+        guard let saved = await store.save(temporary),
+              let withPhoto = await store.uploadStoryImage(Data([1, 2, 3]), photoID: UUID(), story: saved) else {
+            XCTFail("Temporary draft/photo save failed"); return
+        }
+        XCTAssertNil(withPhoto.grantId)
+        XCTAssertEqual(withPhoto.status, "draft")
+        XCTAssertTrue(store.stories.isEmpty, "Saving must not publish")
+        let paths = store.mediaPaths(storyID: saved.id)
+        XCTAssertEqual(paths.count, 1)
+        backend.configure { $0.unapprovedDraftsEnabled = false }
+        await store.refresh()
+        XCTAssertFalse(store.canStartStory)
+        XCTAssertFalse(store.canWriteStory(grantID: nil))
+        XCTAssertEqual(store.ownStories.first?.body, temporary.body)
+        XCTAssertEqual(store.mediaPaths(storyID: saved.id), paths)
+        let denied = await store.save(OiStoryDraft(story: withPhoto))
+        XCTAssertNil(denied)
+        XCTAssertEqual(backend.snapshot().uploads.count, 1)
+        backend.configure { $0.hasWritingGrant = true }
+        await store.refresh()
+        var resumed = OiStoryDraft(story: withPhoto); resumed.grantId = OiTestBackend.grant
+        let approved = await store.save(resumed)
+        XCTAssertEqual(approved?.id, saved.id)
+        XCTAssertEqual(approved?.grantId, OiTestBackend.grant)
+        XCTAssertEqual(store.mediaPaths(storyID: saved.id), paths)
+        backend.configure { $0.unapprovedDraftsEnabled = true }
+        await store.refresh()
+        XCTAssertTrue(store.unapprovedDraftsEnabled)
+        await store.signOut()
+        XCTAssertFalse(store.unapprovedDraftsEnabled)
+        XCTAssertFalse(store.canStartStory)
     }
 
     @MainActor func testWriteReceiptSurvivesRefreshFailure() async throws {

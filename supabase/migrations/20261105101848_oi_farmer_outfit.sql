@@ -73,7 +73,7 @@ begin
   select prosrc, pg_get_functiondef(oid) into source, definition from pg_proc
     where oid = 'public.oi_capabilities()'::regprocedure;
   anchor := '''school_profile_enabled'', true';
-  if md5(btrim(source, E' \n\r\t')) <> '289a2b7a3b77d5e0a7534d15979cea58'
+  if md5(btrim(source, E' \n\r\t')) not in ('289a2b7a3b77d5e0a7534d15979cea58', '932bdc07a8810b60ed66c360b40e0e09')
     or (length(definition) - length(replace(definition, anchor, ''))) / length(anchor) <> 1 then
     raise exception 'oi_capabilities drift requires review before adding farmer outfits';
   end if;
