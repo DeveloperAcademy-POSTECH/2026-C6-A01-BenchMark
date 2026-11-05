@@ -15,7 +15,7 @@ function fixture(options = {}) {
   const facts = { document_kind: "sms", institution: "postech", payment_state: "completed",
     completion_evidence: "incoming_acknowledgement", sender_phone: "+82 54-279-2417",
     sender_phone_location: "sender_header", recipient_matches_institution: true, chronology: "unclear",
-    document_date: null, transaction_reference: null, reference_scope: "none", visual_review: assessment, ...options.facts };
+    document_date: null, transaction_reference: null, reference_scope: "none", amount_observations: [], visual_review: assessment, ...options.facts };
   let reads = 0, authReads = 0, contextReads = 0;
   const fetcher = async (url, init) => {
     calls.push(String(url));

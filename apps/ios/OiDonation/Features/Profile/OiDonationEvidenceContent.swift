@@ -245,6 +245,7 @@ struct OiDonationEvidenceResult: View {
         case "case_reference", "references", "donor_reports": "기부 사례 대조"
         case "chronology", "date": "날짜와 순서"
         case "ownership": "제출자 확인"
+        case "amount": "금액 표기 일관성"
         default: "확인 항목"
         }
     }

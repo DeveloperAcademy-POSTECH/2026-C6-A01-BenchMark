@@ -3,7 +3,7 @@ import {
 } from "../_shared/document-analysis.ts";
 import type { Assessment, DocumentAnalysisInput } from "../_shared/document-analysis.ts";
 
-export const DONATION_PROMPT_VERSION = "donation-evidence-semantic-v2";
+export const DONATION_PROMPT_VERSION = "donation-evidence-semantic-v3";
 export const SOURCES = [
   { id: "postech-giving-faq", url: "https://vision.postech.ac.kr/web/?sub=faq&top=donation",
     title: "POSTECH 발전기금 FAQ", kind: "official", verifiedAt: "2026-11-05",
@@ -28,6 +28,7 @@ export type DonationFacts = {
   document_date: string | null;
   transaction_reference: string | null;
   reference_scope: "transaction" | "pledge" | "none";
+  amount_observations: { role: "principal" | "amount_in_words" | "total_debited" | "fee" | "balance" | "other"; currency: "KRW" | "other" | "unknown"; value: number }[];
   visual_review: Assessment;
 };
 export type DuplicateCheck = { exact_duplicate: boolean; semantic_duplicate: boolean; same_request: boolean };
@@ -45,6 +46,10 @@ const fields = {
   document_date: { type: ["string", "null"], maxLength: 10 },
   transaction_reference: { type: ["string", "null"], maxLength: 128 },
   reference_scope: choice(["transaction", "pledge", "none"]),
+  amount_observations: { type: "array", maxItems: 8, items: { type: "object", additionalProperties: false,
+    properties: { role: choice(["principal", "amount_in_words", "total_debited", "fee", "balance", "other"]),
+      currency: choice(["KRW", "other", "unknown"]), value: { type: "number", minimum: 0, maximum: 1e15 } },
+    required: ["role", "currency", "value"] } },
   visual_review: visualAssessmentSchema,
 };
 const schema = { type: "object", additionalProperties: false, properties: fields, required: Object.keys(fields) };
@@ -64,6 +69,14 @@ A request to pay, a thank-you without explicit payment confirmation, or a donor'
 For bank_transfer require a completed transfer AND the institution visibly identified as payee; a school's
 name in a user-entered memo is not payee evidence. For donation_receipt require an issued donation receipt,
 not an application or blank sample. Emails have no independently verified email headers here; keep uncertainty.
+Independently extract ALL legible monetary representations of the SAME latest completed transaction into
+amount_observations, even if the document claims the amounts agree. Convert written-out amounts to numbers:
+"one hundred Korean won" is 100, NOT 10000; "ten thousand won" and "일만원" are 10000.
+principal is the actual donation/transfer amount, amount_in_words is its written-out equivalent, total_debited
+is the total charged from the payer, fee is a separately stated transfer fee, balance is remaining balance.
+Do not infer missing amounts or mix different transactions/earlier SMS messages, balances or currencies.
+Return [] when no amount is legible. The server checks numeric consistency; do not omit a conflicting field
+to make a document look consistent. Names and amounts need not be unredacted for otherwise sufficient SMS.
 Redacted donor names, account details or absent amount are NOT grounds for rejection. No minimum amount,
 mandatory receipt, full account number or unredacted identity is required for SMS evidence sufficiency.
 Do not infer a year from a month/day-only SMS timestamp. document_date is YYYY-MM-DD only when the full
@@ -100,6 +113,11 @@ export function parseDonationFacts(value: unknown): DonationFacts {
     || !(value.transaction_reference === null || typeof value.transaction_reference === "string"
       && value.transaction_reference.length >= 1 && value.transaction_reference.length <= 128)) return fail();
   parseAssessment(value.visual_review);
+  if (!Array.isArray(value.amount_observations) || value.amount_observations.length > 8
+    || !value.amount_observations.every(item => object(item) && Object.keys(item).length === 3
+      && typeof item.role === "string" && ["principal", "amount_in_words", "total_debited", "fee", "balance", "other"].includes(item.role)
+      && typeof item.currency === "string" && ["KRW", "other", "unknown"].includes(item.currency)
+      && typeof item.value === "number" && Number.isFinite(item.value) && item.value >= 0 && item.value <= 1e15)) return fail();
   if (value.payment_state === "completed" && value.completion_evidence === "none") return fail();
   if (value.reference_scope !== "transaction" && value.transaction_reference !== null) return fail();
   return value as DonationFacts;
@@ -122,7 +140,7 @@ export function normalizeKoreanPhone(value: string | null): string | null {
 export function semanticReference(facts: DonationFacts): string | null {
   if (facts.institution !== "postech" || facts.payment_state !== "completed" || facts.reference_scope !== "transaction"
     || !facts.transaction_reference || !/^[\p{L}\p{N}][\p{L}\p{N}\s/_-]{5,127}$/u.test(facts.transaction_reference)) return null;
-  if (!facts.recipient_matches_institution || facts.visual_review.verdict !== "no_obvious_signs"
+  if (hasAmountConflict(facts) || !facts.recipient_matches_institution || facts.visual_review.verdict !== "no_obvious_signs"
     || facts.visual_review.readability !== "readable" || facts.chronology === "inconsistent"
     || !(facts.document_kind === "sms" && facts.completion_evidence === "incoming_acknowledgement"
       && facts.sender_phone_location === "sender_header" && normalizeKoreanPhone(facts.sender_phone) === "0542792417"
@@ -133,6 +151,18 @@ export function semanticReference(facts: DonationFacts): string | null {
   if (normalizeKoreanPhone(reference) || /^\d{4}[-/]?\d{2}[-/]?\d{2}$/.test(reference)
     || !(/[A-Z]/.test(reference) && /\d/.test(reference) || /^\d{12,}$/.test(reference))) return null;
   return reference;
+}
+
+export function hasAmountConflict(facts: DonationFacts): boolean {
+  const amounts = facts.amount_observations.filter(item => item.currency === "KRW");
+  const principal = amounts.filter(item => item.role === "principal" || item.role === "amount_in_words").map(item => item.value);
+  if (principal.some(value => value === 0) || new Set(principal).size > 1) return true;
+  if (principal.length === 0) return false;
+  const total = amounts.filter(item => item.role === "total_debited").map(item => item.value);
+  const fees = amounts.filter(item => item.role === "fee").map(item => item.value);
+  // A greater debit can legitimately include an unstated fee. Balances never
+  // represent the donation amount and are not compared with the principal.
+  return total.some(value => value < principal[0] || fees.length === 1 && value !== principal[0] + fees[0]);
 }
 
 export async function semanticDigest(facts: DonationFacts, secret: string): Promise<string | null> {
@@ -159,6 +189,7 @@ export function assessDonation(facts: DonationFacts, duplicate: DuplicateCheck, 
     || facts.document_kind === "donation_receipt" && facts.completion_evidence === "issued_receipt");
   const institutionMatches = facts.institution === "postech" && facts.recipient_matches_institution;
   const clear = facts.visual_review.verdict === "no_obvious_signs" && facts.visual_review.readability === "readable";
+  const amountConflict = hasAmountConflict(facts);
   const checks = [
     { kind: "institution", status: institutionMatches ? "matched" : "unknown", detail: institutionMatches ? "자료에 POSTECH 수납기관 근거가 보여요." : "수납기관을 공식 기준과 대조하기 어려워요." },
     { kind: "sender", status: senderMatches ? "matched" : facts.document_kind === "sms" ? "unknown" : "not_applicable",
@@ -167,6 +198,9 @@ export function assessDonation(facts: DonationFacts, duplicate: DuplicateCheck, 
     { kind: "completion", status: completionMatches ? "matched" : "insufficient",
       detail: completionMatches ? "약정 접수와 구분되는 입금 완료 근거가 보여요." : "약정·예약·감사 안내만으로 입금 완료를 인정하지 않아요." },
     { kind: "visual", status: clear ? "clear" : "review", detail: clear ? "눈에 띄는 수정 흔적을 찾지 못했어요." : "가독성이나 수정 흔적의 추가 확인이 필요해요." },
+    { kind: "amount", status: amountConflict ? "review" : "clear", detail: amountConflict
+      ? "동일 거래의 숫자·문자 금액 또는 출금 합계가 서로 맞지 않아요. 원본 확인이 필요해요."
+      : "확인 가능한 금액 표기 사이에 모순이 없어요. 금액이 없는 문자도 제외하지 않아요." },
     { kind: "duplicate", status: duplicateFound ? "duplicate" : "clear",
       detail: duplicateFound ? "다른 신청과 파일 또는 거래 참조가 겹쳐요. 중복 사용 여부를 운영자가 확인해야 해요."
         : duplicate.same_request ? "같은 신청의 재검사예요. 이를 중복 기부로 처리하지 않아요."
@@ -181,7 +215,7 @@ export function assessDonation(facts: DonationFacts, duplicate: DuplicateCheck, 
   let reason: string;
   if (duplicateFound) {
     outcome = "duplicate_evidence"; title = "중복 증빙 확인이 필요해요"; reason = "다른 신청과 겹치는 자료가 있어 자동으로 증빙 충족 처리하지 않았어요.";
-  } else if (facts.visual_review.verdict === "suspicious") {
+  } else if (facts.visual_review.verdict === "suspicious" || amountConflict) {
     outcome = "suspected_manipulation"; title = "자료의 수정 흔적을 확인해 주세요"; reason = "구체적인 수정·불일치 징후가 있어 운영자 확인이 필요해요. 위조를 확정한 결과는 아니에요.";
   } else if (facts.document_kind === "other" || facts.payment_state === "not_donation") {
     outcome = "not_donation"; title = "기부 증빙을 확인하기 어려워요"; reason = "선택한 자료에서 기부 내역의 근거를 찾지 못했어요.";
@@ -195,7 +229,7 @@ export function assessDonation(facts: DonationFacts, duplicate: DuplicateCheck, 
     || facts.document_kind === "sms" && !senderMatches) {
     outcome = "manual_review"; title = "추가 확인이 필요해요"; reason = "확인된 근거와 남은 불확실성을 운영자에게 함께 전달해요. 기부금 영수증만을 필수로 요구하지 않아요.";
   } else {
-    outcome = "sufficient_evidence"; title = "증빙 충족"; reason = "기부 완료 내용과 수납기관 근거가 충족됐어요. 문자만으로도 증빙 충족으로 판단할 수 있어요. 최종 글 작성 권한은 운영자가 승인해요.";
+    outcome = "sufficient_evidence"; title = "기부 완료 근거를 확인했어요"; reason = "기부 완료 내용과 수납기관 근거가 충족됐어요. 문자만으로도 증빙 충족으로 판단할 수 있어요. 최종 글 작성 권한은 운영자가 승인해요.";
   }
   return { outcome, sufficient_evidence: outcome === "sufficient_evidence", title, reasons: [reason], checks,
     source_references: SOURCES.map(({ fact: _fact, ...source }) => ({ id: source.id, url: source.url, title: source.title,
