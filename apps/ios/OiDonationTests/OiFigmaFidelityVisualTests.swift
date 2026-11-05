@@ -197,6 +197,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         backend.configure { profile in
             profile.nickname = "검증용 농부"
             profile.schoolID = "postech"
+            profile.schoolProfileEnabled = true
         }
         backend.install()
         let configuration = URLSessionConfiguration.ephemeral
@@ -234,25 +235,45 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertNil(signedOut.account)
 
         for variant in variants {
-            let settings = NavigationStack {
-                MYSettingsView(remote: signedIn).environment(\.scenePhase, .active)
+            let settings = NavigationStack(path: .constant([true])) {
+                Color.white.navigationDestination(for: Bool.self) { _ in
+                    MYSettingsView(remote: signedIn).environment(\.scenePhase, .active)
+                }
             }
             try await capture(settings, name: "my-settings-signed-in", variant: variant,
                 defaults: fixture.defaults, delay: .milliseconds(450), attach: true)
 
-            let signIn = NavigationStack {
-                MYSettingsView(remote: signedOut).defaultScrollAnchor(.bottom).environment(\.scenePhase, .active)
+            let signIn = NavigationStack(path: .constant([true])) {
+                Color.white.navigationDestination(for: Bool.self) { _ in
+                    MYSettingsView(remote: signedOut).environment(\.scenePhase, .active)
+                }
             }
             try await capture(signIn, name: "my-settings-signed-out-auth", variant: variant,
                 defaults: fixture.defaults, delay: .milliseconds(450), attach: true)
         }
 
         let reference = try XCTUnwrap(variants.first)
-        let account = NavigationStack {
-            MYSettingsView(remote: signedIn).defaultScrollAnchor(.bottom).environment(\.scenePhase, .active)
+        let account = NavigationStack(path: .constant([true])) {
+            Color.white.navigationDestination(for: Bool.self) { _ in
+                MYSettingsView(remote: signedIn).defaultScrollAnchor(.bottom).environment(\.scenePhase, .active)
+            }
         }
         try await capture(account, name: "my-settings-signed-in-auth", variant: reference,
             defaults: fixture.defaults, delay: .milliseconds(450), attach: true)
+        let steps: [(String, OiSchoolEvidenceView.Step)] = [
+            ("profile", .profile), ("affiliation", .affiliation),
+            ("student-document", .document(.student)), ("graduate-document", .document(.graduate)),
+            ("attachment", .attachment(.graduate, .diploma))
+        ]
+        for variant in variants {
+            for (name, step) in steps {
+                let screen = NavigationStack {
+                    OiSchoolEvidenceView(remote: signedIn, initialStep: step)
+                }
+                try await capture(screen, name: "school-evidence-" + name, variant: variant,
+                    defaults: fixture.defaults, delay: .milliseconds(450), attach: true)
+            }
+        }
     }
 
     func testCampusDetailAndSummaryCaptures() async throws {
