@@ -1,10 +1,14 @@
 import Foundation
 
 enum OiCreationStep: String, CaseIterable {
-    case story, photos, location, cucumber, card
+    case consent, story, photos, location, cucumber, card
+
+    static let storyTextLimit = 45
+    static let storyPhotoLimit = 3
 
     var title: String {
         switch self {
+        case .consent: "약관 동의"
         case .story: "이야기 작성"
         case .photos: "이미지 선택"
         case .location: "위치 설정"
@@ -13,23 +17,43 @@ enum OiCreationStep: String, CaseIterable {
         }
     }
     var progress: Int {
-        switch self { case .story, .photos, .location: 2; case .cucumber: 3; case .card: 4 }
+        switch self { case .consent: 1; case .story, .photos, .location: 2; case .cucumber: 3; case .card: 4 }
     }
-    var previous: Self? { Self.allCases.prefix(while: { $0 != self }).last }
-    var next: Self? { Self.allCases.drop(while: { $0 != self }).dropFirst().first }
+    static func stage(_ number: Int) -> Self? {
+        switch number { case 1: .consent; case 2: .story; case 3: .cucumber; case 4: .card; default: nil }
+    }
+    var previous: Self? {
+        switch self {
+        case .consent: nil
+        case .story: .consent
+        case .photos, .location, .cucumber: .story
+        case .card: .cucumber
+        }
+    }
+    var next: Self? {
+        switch self {
+        case .consent, .photos, .location: .story
+        case .story: .cucumber
+        case .cucumber: .card
+        case .card: nil
+        }
+    }
 
     func canContinue(draft: OiStoryDraft) -> Bool {
         switch self {
+        // Consent is checked separately from navigation and story input at submission.
+        case .consent: true
         case .story:
             [draft.title, draft.body, draft.theme, draft.emotion].allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                && draft.title.count <= 100 && draft.body.count <= 10_000
+                && draft.title.count <= Self.storyTextLimit && draft.body.count <= Self.storyTextLimit
                 && draft.theme.count <= 30 && draft.emotion.count <= 30
         case .photos: true
         case .location:
             draft.latitude.map { $0.isFinite && (-90...90).contains($0) } == true &&
             draft.longitude.map { $0.isFinite && (-180...180).contains($0) } == true
-        case .cucumber: !draft.cucumberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && draft.cucumberName.count <= 50
-        case .card: draft.valid
+        // The latest flow names the cucumber in the card step. Do not block the wardrobe before that field exists.
+        case .cucumber: true
+        case .card: draft.valid && draft.cucumberName.count <= 50
         }
     }
 }

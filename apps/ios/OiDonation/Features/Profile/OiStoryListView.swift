@@ -7,14 +7,15 @@ struct OiStoryListView: View {
 
     let state: OiStoryListState
     var minimumVisibleSlotCount = 4
-    var ticketCountText: String?
+    // nil means the seed balance has not been connected; it is not a zero balance.
+    var seedCount: Int?
     var notices: [String] = []
     var guidance: String?
     var onRetry: () -> Void = {}
-    var onAddTicket: (() -> Void)?
+    var onAddSeed: (() -> Void)?
     var onSelectStory: ((UUID) -> Void)?
     var onCreateStory: (() -> Void)?
-    var onUseTicket: (() -> Void)?
+    var onUseSeed: (() -> Void)?
 
     var body: some View {
         Group {
@@ -50,14 +51,13 @@ struct OiStoryListView: View {
                 .accessibilityLabel("뒤로")
             }
 
-            if let ticketCountText {
-                ToolbarItem(placement: .topBarTrailing) {
-                    optionalButton(action: onAddTicket) {
-                        ticketStatusLabel(ticketCountText)
-                    }
+            ToolbarItem(placement: .topBarTrailing) {
+                optionalButton(action: onAddSeed) {
+                    OiSeedBalanceLabel(count: seedCount)
                 }
-                .sharedBackgroundVisibility(.hidden)
+                .accessibilityIdentifier("storyList.seedBalance")
             }
+            .sharedBackgroundVisibility(.hidden)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if showsStoryChrome && !usesAccessibilityLayout {
@@ -77,65 +77,32 @@ struct OiStoryListView: View {
     }
 
     private var storySlots: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                if let guidance {
-                    Text(guidance).font(CampusStyle.semibold(15)).tracking(0.3)
-                        .foregroundStyle(Color("OiGreen"))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 20).padding(.top, 18)
-                }
-                LazyVStack(spacing: 10) {
-                    ForEach(state.slots(minimumVisibleCount: minimumVisibleSlotCount)) { slot in
-                        if let item = slot.item {
-                            storySlot(item)
-                        } else {
-                            emptySlot(index: slot.index)
-                        }
+        VStack(spacing: 0) {
+            if let guidance {
+                Text(guidance).font(CampusStyle.semibold(15)).tracking(0.3)
+                    .foregroundStyle(Color("OiGreen"))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 20).padding(.top, 18)
+            }
+            LazyVStack(spacing: 10) {
+                ForEach(state.slots(minimumVisibleCount: minimumVisibleSlotCount)) { slot in
+                    if let item = slot.item {
+                        storySlot(item)
+                    } else {
+                        emptySlot(index: slot.index)
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
-                .padding(.bottom, 10)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, 10)
 
-                if usesAccessibilityLayout {
-                    footer
-                }
+            if usesAccessibilityLayout {
+                footer
             }
         }
-        .scrollIndicators(.hidden)
-    }
 
-    private func ticketStatusLabel(_ countText: String) -> some View {
-        HStack(spacing: 10) {
-            Text("+")
-                .font(.custom("Paperlogy-8ExtraBold", size: 25, relativeTo: .title2))
-                .foregroundStyle(.white)
-                .frame(width: 30, height: 30)
-                .background(ticketColor, in: Circle())
-
-            HStack(spacing: 4) {
-                Image("StoryTicketIcon")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 30, height: 30)
-
-                Text(countText)
-                    .font(.custom("Paperlogy-5Medium", size: 16, relativeTo: .callout))
-                    .tracking(0.32)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-            }
-        }
-        .padding(.leading, 7)
-        .padding(.trailing, 15)
-        .frame(height: 42)
-        .background(ticketBackgroundColor, in: Capsule())
-        .overlay {
-            Capsule().stroke(ticketColor, lineWidth: 1)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("보유 티켓 \(countText)")
     }
 
     private func storySlot(_ item: OiStoryListItem) -> some View {
@@ -273,14 +240,14 @@ struct OiStoryListView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
                     }
-                }
+            }
 
             Color.clear
                 .frame(height: 10)
                 .padding(.horizontal, 20)
         }
-            .accessibilityLabel("빈 이야기 슬롯")
-            .accessibilityIdentifier("storyList.empty.\(index)")
+        .accessibilityLabel("빈 이야기 슬롯")
+        .accessibilityIdentifier("storyList.empty.\(index)")
     }
 
     private var footer: some View {
@@ -288,23 +255,25 @@ struct OiStoryListView: View {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(notices.enumerated()), id: \.offset) { _, notice in
                     Text("* \(notice)")
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .font(.custom("Paperlogy-4Regular", size: 14, relativeTo: .subheadline))
-            .tracking(0.28)
+            .font(.custom("Paperlogy-4Regular", size: 13, relativeTo: .subheadline))
+            .tracking(0.26)
             .foregroundStyle(Color(red: 147 / 255, green: 147 / 255, blue: 147 / 255))
             .lineSpacing(1)
 
             if usesAccessibilityLayout {
                 VStack(spacing: 12) {
                     createStoryFooterButton
-                    if onUseTicket != nil { useTicketFooterButton }
+                    if onUseSeed != nil { useSeedFooterButton }
                 }
             } else {
                 HStack(spacing: 20) {
                     createStoryFooterButton
-                    if onUseTicket != nil { useTicketFooterButton }
+                    if onUseSeed != nil { useSeedFooterButton }
                 }
             }
         }
@@ -323,18 +292,20 @@ struct OiStoryListView: View {
                 background: Color("OiLight")
             )
         }
+        .accessibilityIdentifier("storyList.createStory")
     }
 
-    private var useTicketFooterButton: some View {
-        optionalButton(action: onUseTicket) {
+    private var useSeedFooterButton: some View {
+        optionalButton(action: onUseSeed) {
             footerButtonLabel(
-                title: "오이 심기",
-                icon: "StoryTicketIcon",
-                iconSize: CGSize(width: 30, height: 30),
-                foreground: ticketColor,
-                background: ticketBackgroundColor
+                title: "씨앗 사용하기",
+                icon: "StorySeedIcon",
+                iconSize: CGSize(width: 24, height: 26),
+                foreground: seedButtonColor,
+                background: seedButtonBackgroundColor
             )
         }
+        .accessibilityIdentifier("storyList.useSeed")
     }
 
     private func footerButtonLabel(
@@ -345,10 +316,16 @@ struct OiStoryListView: View {
         background: Color
     ) -> some View {
         HStack(spacing: 4) {
-            Image(icon)
-                .resizable()
-                .scaledToFit()
-                .frame(width: iconSize.width, height: iconSize.height)
+            if icon == "StorySeedIcon" {
+                OiStorySeedIcon()
+            } else {
+                Image(icon)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: iconSize.width, height: iconSize.height)
+                    .clipped()
+                    .accessibilityHidden(true)
+            }
 
             Text(title)
                 .font(.custom("Paperlogy-6SemiBold", size: 18, relativeTo: .headline))
@@ -358,8 +335,10 @@ struct OiStoryListView: View {
         }
         .padding(.vertical, usesAccessibilityLayout ? 8 : 0)
         .frame(maxWidth: .infinity, minHeight: 50)
-        .background(background, in: Capsule())
-        .shadow(color: foreground.opacity(0.6), radius: 2)
+        .background {
+            Capsule().fill(background)
+                .shadow(color: foreground.opacity(0.6), radius: 2)
+        }
         .accessibilityElement(children: .combine)
     }
 
@@ -376,11 +355,11 @@ struct OiStoryListView: View {
         }
     }
 
-    private var ticketColor: Color {
+    private var seedButtonColor: Color {
         Color(red: 163 / 255, green: 140 / 255, blue: 33 / 255)
     }
 
-    private var ticketBackgroundColor: Color {
+    private var seedButtonBackgroundColor: Color {
         Color(red: 255 / 255, green: 249 / 255, blue: 223 / 255)
     }
 
@@ -389,11 +368,66 @@ struct OiStoryListView: View {
     }
 }
 
+struct OiSeedBalanceLabel: View {
+    let count: Int?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text("+")
+                .font(.custom("Paperlogy-7Bold", size: 25, relativeTo: .title2))
+                .foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+                .background(seedBalanceBorderColor, in: Circle())
+
+            HStack(spacing: 4) {
+                OiStorySeedIcon()
+                Text(count.map { "\($0)pc" } ?? "—pc")
+                    .font(.custom("Paperlogy-5Medium", size: 16, relativeTo: .callout))
+                    .tracking(0.32)
+                    .foregroundStyle(.black)
+                    .lineLimit(1)
+                    .monospacedDigit()
+            }
+        }
+        .padding(.leading, 7)
+        .padding(.trailing, 15)
+        .frame(minHeight: 44)
+        .background(seedBalanceBackgroundColor, in: Capsule())
+        .overlay { Capsule().stroke(seedBalanceBorderColor, lineWidth: 1) }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("씨앗 추가")
+        .accessibilityValue(count.map { "\($0)개" } ?? "개수 확인 준비 중")
+        .accessibilityHint("기부 인증 미리보기 열기")
+    }
+
+    private var seedBalanceBorderColor: Color {
+        Color(red: 198 / 255, green: 191 / 255, blue: 91 / 255)
+    }
+
+    private var seedBalanceBackgroundColor: Color {
+        Color(red: 255 / 255, green: 254 / 255, blue: 228 / 255)
+    }
+}
+
+struct OiStorySeedIcon: View {
+    /// The Figma image fill crops the square source into a 24 × 26 point slot.
+    var body: some View {
+        Color.clear.frame(width: 24, height: 26)
+            .overlay(alignment: .topLeading) {
+                Image("StorySeedIcon").resizable()
+                    .frame(width: 24 * 1.5794, height: 26 * 1.4569)
+                    .offset(x: -24 * 0.2991, y: -26 * 0.2155)
+            }
+            .clipped()
+            .accessibilityHidden(true)
+    }
+}
+
 extension OiStoryListView {
-    static let figmaPreviewNotices = [
+    static let listGuidance = "본인이 만든 오이를 씨앗을 통해 농장에 심을 수 있습니다"
+    static let listNotices = [
         "이야기 저장은 4개까지 가능합니다",
-        "출시 전에는 이야기 및 오이를 눌러서 편집할 수 있습니다",
-        "티켓을 사용하여 ‘오이&이야기’ 선택 후 출시할 수 있습니다"
+        "농장에 심기 전에는 이야기 및 오이를 눌러서 편집할 수 있습니다"
     ]
 }
 
@@ -401,8 +435,10 @@ extension OiStoryListView {
     NavigationStack {
         OiStoryListView(
             state: .preview,
-            ticketCountText: "3pc",
-            notices: OiStoryListView.figmaPreviewNotices
+            seedCount: 3,
+            notices: OiStoryListView.listNotices,
+            guidance: OiStoryListView.listGuidance,
+            onAddSeed: {}, onCreateStory: {}, onUseSeed: {}
         )
     }
 }
@@ -411,8 +447,10 @@ extension OiStoryListView {
     NavigationStack {
         OiStoryListView(
             state: .empty,
-            ticketCountText: "3pc",
-            notices: OiStoryListView.figmaPreviewNotices
+            seedCount: 0,
+            notices: OiStoryListView.listNotices,
+            guidance: OiStoryListView.listGuidance,
+            onAddSeed: {}, onCreateStory: {}, onUseSeed: {}
         )
     }
 }

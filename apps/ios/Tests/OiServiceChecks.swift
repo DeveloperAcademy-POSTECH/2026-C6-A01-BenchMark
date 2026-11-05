@@ -250,7 +250,7 @@ struct OiServiceChecks {
         let oldCapabilities = try capabilityDecoder.decode(OiCapabilities.self, from: Data("{\"operator\":false,\"coins_enabled\":false}".utf8))
         precondition(oldCapabilities.unapprovedDraftsEnabled != true)
         precondition(OiCreationStep.allCases.allSatisfy { $0.canContinue(draft: draft) })
-        precondition(OiCreationStep.story.previous == nil && OiCreationStep.card.next == nil)
+        precondition(OiCreationStep.consent.previous == nil && OiCreationStep.story.previous == .consent && OiCreationStep.card.next == nil)
         var invalid = draft; invalid.title = String(repeating: "가", count: 101)
         precondition(!OiCreationStep.story.canContinue(draft: invalid))
         invalid = draft; invalid.emotion = "   "
@@ -260,7 +260,11 @@ struct OiServiceChecks {
         invalid = draft; invalid.longitude = 181
         precondition(!OiCreationStep.location.canContinue(draft: invalid))
         invalid = draft; invalid.cucumberName = String(repeating: "가", count: 51)
-        precondition(!OiCreationStep.cucumber.canContinue(draft: invalid))
+        precondition(OiCreationStep.cucumber.canContinue(draft: invalid))
+        precondition(!OiCreationStep.card.canContinue(draft: invalid))
+        invalid.cucumberName = ""
+        precondition(OiCreationStep.cucumber.canContinue(draft: invalid), "Name entry now belongs to the card step")
+        precondition(!OiCreationStep.card.canContinue(draft: invalid), "A missing name still blocks review")
         for status in ["pending", "published", "hidden", "deleted"] {
             precondition(!OiCreationAccess.canEdit(status: status, submitted: false))
         }
@@ -297,7 +301,11 @@ struct OiServiceChecks {
         let legacyJSON = try JSONEncoder().encode(record)
         let legacy = try JSONDecoder().decode(OiLocalDraft.self, from: legacyJSON)
         precondition(legacy.creationStep == nil && legacy.customization == nil &&
-                     legacy.removedMediaPaths == nil && legacy.removedPhotoIDs == nil)
+                     legacy.removedMediaPaths == nil && legacy.removedPhotoIDs == nil &&
+                     legacy.agreedConsentClauseIDs == nil, "Legacy drafts must not imply consent")
+        record.agreedConsentClauseIDs = ["storyWriting"]
+        let consentRoundTrip = try JSONDecoder().decode(OiLocalDraft.self, from: JSONEncoder().encode(record))
+        precondition(consentRoundTrip.agreedConsentClauseIDs == ["storyWriting"])
         record.creationStep = OiCreationStep.card.rawValue
         record.customization = OiDraftCustomization(fill: .gradient, firstColor: 0xABCDEF, secondColor: 0x123456,
                                                    showsCharacter: false, garmentColors: ["모자":0x445566])
@@ -323,6 +331,17 @@ struct OiServiceChecks {
         var front = OiPhotoLayer(source: source)
         front.placement = OiPhotoPlacement(x: 0.3, y: 0.6, width: 0.7, rotation: 27)
         var back = OiPhotoLayer(source: source); back.side = .back
+        var front2 = front; front2.id = UUID().uuidString
+        var back2 = back; back2.id = UUID().uuidString
+        let fullFaces = [front, front2, back, back2]
+        precondition(OiPhotoEditingLimit.remaining(on: .front, in: fullFaces) == 0)
+        precondition(OiPhotoEditingLimit.remaining(on: .back, in: fullFaces) == 0)
+        precondition(OiPhotoEditingLimit.remaining(on: .back, in: [front, front2]) == 2)
+        var legacyThird = front; legacyThird.id = UUID().uuidString
+        let legacyDesign = OiPhotoDesign(layers: [front, front2, legacyThird])
+        let recoveredDesign = try JSONDecoder().decode(OiPhotoDesign.self, from: JSONEncoder().encode(legacyDesign))
+        precondition(recoveredDesign == legacyDesign && recoveredDesign.isValid, "Existing photos must survive the new editing limit")
+        precondition(OiPhotoEditingLimit.remaining(on: .front, in: recoveredDesign.layers) == 0)
         let design = OiPhotoDesign(layers: [front, back])
         try look.artwork.set(design, sources: [source: Data([10,20,30])], for: "top-hoodie")
         try look.artwork.set(OiPhotoDesign(layers: [back]), for: "bottom-shorts")

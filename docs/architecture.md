@@ -311,11 +311,18 @@ MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하
 
 `OiLocalDraft`의 선택적 `creationStep`·`customization`·`removedMediaPaths`는 구버전 초안을 그대로 읽을 수 있게 추가한다. `OiDraftCustomization`은 로컬 미리보기 전용이며 `OiStoryDraft.payload()`나 공유 DB를 확장하지 않는다. 업로드 사진 순서를 유지하고 기기 사본과 서버 경로를 중복 표시하지 않는다. 기존 `attach_media` RPC로 사진 연결을 변경하며, 변경 직후 목록 동기화가 실패해도 응답의 revision과 경로를 보존한다.
 
-위치 선택은 기존 `CampusExploreScene`과 `CampusPlacementTools`를 재사용한다. 건물 검색은 카메라만 이동시키고 좌표를 자동 확정하지 않는다. 사용자가 바닥을 선택하고 확인하면 좌표를 초안에 전달한다. 선택 화면이 닫힐 때 숨은 RealityKit 렌더러를 해제한다. 구현 경계와 검증 절차는 [이야기 생성 흐름](story-creation-flow.md)을 따른다.
+위치 선택은 기존 `CampusExploreScene`을 재사용한다. 2026-11-05 후속 요청에 따라 `OiLocationPicker`가 장소 검색 → 지도 확인을 소유하고, `OiStoryLocationStep`은 번들 POSTECH POI 검색 목록을 표시한다. 별도 오이 모델 로딩 없이 지도 카메라의 광학 중심 광선과 `CampusHeightField`의 교차점으로 임시 좌표를 계산한다. 이동·회전·기울기·확대·탄성 복귀마다 갱신하며 유효하지 않으면 이전 유효 좌표도 비워 잘못 확정되지 않게 한다. 확인 버튼에서 카메라 이동을 멈추고 다시 검증한 뒤 초안에 전달한다. 지도 검색 복귀·화면 종료 시 숨은 RealityKit 렌더러를 해제하며 메인과 같은 `CampusMapLabels`를 사용한다. 현장 테스트 화면의 탭·`CampusPlacementTools`는 변경하지 않는다. 구현 경계와 검증 절차는 [이야기 생성 흐름](story-creation-flow.md)을 따른다.
 
-개발용 작성 체험은 #141에서 제거했다. 지도 검색 모달은 `OiLocationPickerRequest` item으로 전달해 화면 열림과 검색 대상이 함께 갱신되도록 한다.
+개발용 작성 체험은 #141에서 제거했다. 위치 설정은 편집기의 `.location` 단계에서 `OiLocationPicker`를 표시한다. 별도 검색 모달과 `OiLocationPickerRequest` 없이 피커 내부에서 검색과 지도를 전환한다.
+
+2026-11-05 #154: `OiStoryEditor`의 `customizationReady`는 오이·카드 편집 완료 후 이동 버튼을 표시하는 화면 내 상태다. 단계 변경 시 초기화하며 초안 데이터와 분리한다. 실제 입력·의상은 기존 계정별 자동 저장 경로를 사용한다. `OiCreationNavigationBar`와 누름 효과를 공유하고, 오이 이름 검증은 입력이 있는 카드 단계에서 수행한다. 저장·검토 요청의 전체 유효성 검사는 유지한다.
+
+같은 날 추가 요청: `OiCreationStep.consent`를 편집기에 통합하고 모든 단계 이동을 입력 검사와 분리했다. 약관 선택은 선택적 `OiLocalDraft.agreedConsentClauseIDs`로 보존하며 누락된 구버전 초안은 동의로 간주하지 않는다. 저장·검토 요청은 약관·전체 입력·기존 작성 권한 검사 후 기존 API를 호출한다. 사진·위치는 별도 편집 화면으로 표시하고, 약관·오이·카드의 ‘모든 화면’ 메뉴에서 보조 화면을 연다. `OiEvidenceDesignPreview`와 접수 완료 미리보기는 네트워크 제출이나 승인 상태 변경을 수행하지 않는다.
 
 사진 자르기는 공통 `OiPhotoCropEditor`의 고정 사진과 자유 비율 선택 격자로 구성한다. `OiPhotoCropGeometry`가 모서리·가장자리 크기 변경 및 선택 영역 이동을 이미지 경계 안으로 제한한다. 이미지의 aspect-fit 프레임을 기준으로 선택 영역을 정규화하여 `OiPhotoProcessor`에서 픽셀 크롭한다. 편집 화면은 선택만 소유하며 적용 전에는 초안 사진을 쓰지 않는다. 실제 편집기는 사진 읽기·편집 콜백으로 기존 저장 경계를 유지한다.
+
+2026-11-05 사진 후속: 사진 화면의 `UIRotationGestureRecognizer`가 두 손가락 각도를 받아 `OiPhotoRotationGeometry`의 중앙 회전·cover scale을 미리보기와 JPEG에 동일 적용한다. 사진 교체 시 새 UUID로 UIKit 뷰도 교체한다. `OiStoryEditor.PhotoCheckpoint`는 사진 화면 진입 시 첨부/삭제 상태를 캡처해 취소 시 복원하며 완료 시 해제한다. 위치 피커는 별도 `NavigationStack` 없이 검색 헤더·취소와 지도 뒤로가기를 직접 소유하며 편집기의 상단 바는 숨긴다.
+
 ## App Clip 수집 AR 카메라 생명주기 — 2026-11-02 / #109 브랜치
 
 사용자가 요청한 시작·실패 애니메이션 보완 범위에서 `.starting`과 `.playing`이 같은 컨테이너의 AR 컨트롤러·ARView·ARSession을 공유한다. 카메라 추적·텍스처·배치 준비 후 overlay를 표시하고, 조립·유지·페이드가 끝나야 수집과 단일 타이머를 활성화한다. 화면 이탈 때만 세션을 중지하고 anchor·비동기 작업을 해제한다. 실패는 고정 배경 위 원본 글자 세 조각의 transform을 단일 시간축으로 보간한다. 세부 Figma 값, 이미지 정규화, 접근성 대응과 실기기 서명 검증의 미완료 항목은 [검증 문서](../apps/ios/docs/app-clip-ar-collection.md)에 기록한다. 서버 수집 계약·권한·기부 정책은 변경하지 않는다.
@@ -415,6 +422,20 @@ develop `1e789d5`의 위치 기반 수집·카드 요청과 운영자 경로를 
 
 설정 OFF는 읽기 정책·기존 글·사진·공개 상태를 변경하지 않는다. 저장 불가 시 계정별 vault 입력/사진을 보관하며 새 승인 연결 후 같은 ID로 재개한다. 임시 작성은 기부 확인이 아니며 공개 지도·AR은 여전히 published만 조회한다. 서버 배포 전 RPC 소스 해시를 검사해 기존 campus/height/heading 확장을 유지한다. 상세 계약·회귀 검사·켜기/끄기는 [임시 작성 모드 문서](temporary-story-drafts.md)를 따른다.
 
+## 사진 의상 시트와 작성 하단 배경 — 2026-11-05
+
+Figma `4158:9340`에 맞춰 `OiCucumberCustomizationStep`이 하나의 `OiWardrobeScene`을 소유하고, 462pt 기본 높이의 사진 편집 시트와 배경 미리보기가 같은 씬을 사용한다. 모델을 새 뷰로 옮기지 않으며, 시트 닫힘에서 저장 또는 기존 외형을 다시 적용한다. 시트는 크게 펼칠 수 있고 기본 높이에서 모델을 직접 돌려볼 수 있다. 사진 편집 중에는 배경의 작성 단계 이동을 막는다. 일시적인 `.inactive`는 렌더러를 유지하고 `.background`와 화면 이탈에서 해제한다.
+
+사진 보관함만 `PHPickerViewController`로 표시하여 기존 작성 cover → 편집 sheet → SwiftUI PhotosPicker의 모달 상태 결합을 피한다. 선택 가능한 수는 보관함을 열 때 고정하고, 선택 종료 후 압축·검증하여 레이어를 추가한다. `OiPhotoEditingLimit`은 면당 2장의 UI 추가/복제/이동 한도를 담당한다. 기존 8레이어 데이터 검증과 보관본은 유지하여 구버전 초안을 손상시키지 않는다. 원본 사진은 수정하지 않고 계정별 초안·공개 API의 기존 경계를 유지한다.
+
+`OiCreationNavigationBar`는 `safeAreaInset` 안에 배치하고 배경만 하단 안전 영역 밖까지 확장한다. iOS 26은 `glassEffect(.regular)`, 이전 버전은 Material을 사용한다. 투명도 줄이기에서는 불투명 배경을 제공한다. 사진 자르기에는 어두운 색상 환경과 흰 tint를 명시하여 부모 화면의 검정 tint가 버튼에 전파되지 않게 한다.
+
+## 약관 콘텐츠와 초안 호환 — 2026-11-05
+
+약관 단계는 `OiStoryConsentView`의 스크롤 끝에 나가기와 오이 커스텀 시작하기를 표시한다. 시작하기와 상단 STEP 이동은 세 필수 약관의 동의 여부를 확인한다. `OiStoryEditor`가 기존 단계 이동과 기기 보관·버리기·계속 작성 확인창을 처리한다.
+
+Figma `2935:1210`의 세 약관은 `OiStoryConsentClause.figmaDrafts`에서 순서대로 제공한다. 새 `donationVerification` ID를 기존 계정별 초안의 `agreedConsentClauseIDs`에 저장하며 이전 두 ID는 그대로 읽는다. 새 항목이 없는 초안은 해당 동의를 미선택으로 복원하고, 모든 필수 동의 검사는 세 ID를 기준으로 한다. API/DB나 기부 증빙 제출 경로는 변경하지 않는다. 이번 원문과 저장 경계는 [약관 원문 정합](story-creation-flow.md#약관-원문-정합--2026-11-05--figma-29351210)에 기록한다.
+
 ## 신규 설정과 비공개 학적정보 — 2026-11-05 / #158
 
 `MYSettingsView`는 로그인 전/후를 분기하고 기존 인증·계정 연결·실제 OS 권한 경계와 독립 농장 이름 저장를 재사용한다. `OiSchoolEvidenceView`가 Figma 단계와 첨부·명시적 동의·요청·기기 요약 보관을 담당한다. 입학년도·학과는 공개 작성자 프로필을 확장하지 않고 private 테이블과 대표 계정 RPC로 저장한다. 신규 capability가 없는 서버는 기존 조회를 유지한다. 본인인증·탈퇴·공식 소속 승인과 원격 배포는 구현 완료로 간주하지 않는다. [디자인·저장·검증 기록](../apps/ios/docs/settings-view-158.md)을 따른다.
@@ -439,6 +460,13 @@ develop `1e789d5`의 위치 기반 수집·카드 요청과 운영자 경로를 
 
 2026-11-05 develop 통합: 공개 기부자 검색의 `public_name`·`department`·`admission_year`는 공개 입력 계약을 유지한다. 학교 인증 RPC의 private 응답은 `school_department`·`school_admission_year`로 분리해 공개 문자열 연도(26/2026)와 비공개 정수 연도가 섞이지 않게 한다. 각 편집은 다른 정보 영역을 덮어쓰지 않는다.
 
+## #156과 develop 충돌 통합 — 2026-11-05 / PR #157
+
+최신 작업실의 로그인 잠금·독립 농장 이름·농부 옷장을 유지하고, 씨앗 추가 미리보기는 숨긴 시스템 툴바 대신 실제 작업실 헤더에 연결한다. 큰 글자 모드에서는 하단 접근성 영역에 제공한다. 씨앗 지급·차감과 실제 기부 제출은 추가하지 않는다.
+
+학교 인증 migration은 계정 통합만 적용한 기존 함수와 임시 작성 모드까지 적용한 함수의 정확한 해시를 검사한다. 후자의 `unapproved_drafts_enabled`를 유지한 채 `school_profile_enabled`를 제공하며, 농부 옷장 migration도 두 검토된 함수만 허용한다. 알 수 없는 함수 변경의 중단 검사는 유지한다. 새 DB와 기존 캠퍼스 RPC 변형을 격리 DB에서 검증하며 운영 서버 migration은 수행하지 않는다. DB 검사 실행기는 임시 작성·학교 정보·농부 의상 검사를 모두 실행한다.
+
+2026-11-06 재통합: develop `195c264`의 실제 기부 인증 진입과 운영자 검토·감사·증빙 지문 검사를 보존한다. 씨앗 추가의 디자인 미리보기와 작성 승인 안내의 실제 기부 인증은 각각 별도 상태/화면으로 연결한다. 학교 정보 migration은 임시 작성 함수가 있을 때 최신 develop과 같은 capability 정의를 생성하고, 없는 기존 계약에 대한 분기는 보존한다. 농부 의상 migration의 허용 해시도 이 정의와 맞추며 임의 함수 변경 시 중단한다. 검증 범위는 [작성 흐름 기록](story-creation-flow.md)을 따른다.
 
 ## 기부 인증 화면과 제출자 AI 참고 검사 — 2026-11-05 / #161
 

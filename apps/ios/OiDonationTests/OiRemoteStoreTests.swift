@@ -1940,6 +1940,152 @@ final class OiRemoteStoreTests: XCTestCase {
         }
     }
 
+    /// Opt-in sheet/save regression, with only synthetic local photos (no library interaction).
+    @MainActor func testInteractiveWardrobePhotoSheet() async throws {
+        guard ProcessInfo.processInfo.environment["OI_WARDROBE_SHEET_CHECK"] == "1" else {
+            throw XCTSkip("Opt in: photo sheet → duplicate front photo → Done → card")
+        }
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let image = try XCTUnwrap(UIImage(named: "DonationCampus"))
+        let asset = try OiPhotoRenderer.asset(XCTUnwrap(image.jpegData(compressionQuality: 0.8)))
+        var wardrobe = OiWardrobeLook(); wardrobe.top = .tshirt
+        try wardrobe.artwork.set(OiPhotoDesign(layers: [OiPhotoLayer(source: asset.id, side: .back),
+                                    OiPhotoLayer(source: asset.id, side: .back), OiPhotoLayer(source: asset.id)]),
+                                 sources: [asset.id: asset.data], for: "top-tshirt")
+        var customization = OiDraftCustomization(); customization.wardrobe = wardrobe
+        let local = OiLocalDraft(draft: draft(title: "사진 시트 검증"), version: 1,
+                                creationStep: OiCreationStep.cucumber.rawValue, customization: customization)
+        try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: Color.white.fullScreenCover(isPresented: .constant(true)) {
+            NavigationStack { OiStoryEditor(remote: store, localID: local.id).environment(\.scenePhase, .active) }
+        })
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
+        for _ in 0..<240 {
+            try await Task.sleep(for: .seconds(1))
+            let saved = try await store.localDraft(id: local.id, owner: OiTestBackend.owner)
+            XCTAssertNil(backend.snapshot().story, "Clothing edits must not submit a story")
+            if saved?.creationStep == OiCreationStep.card.rawValue {
+                let design = try XCTUnwrap(saved?.customization?.wardrobe?.artwork.designs["top-tshirt"])
+                XCTAssertEqual(design.layers.filter { $0.side == .front }.count, 2)
+                XCTAssertEqual(design.layers.filter { $0.side == .back }.count, 2)
+                XCTAssertTrue(saved?.customization?.wardrobe?.artwork.isValid == true)
+                return
+            }
+        }
+        XCTFail("Wardrobe sheet interaction route did not finish")
+    }
+
+    /// Exercises the production editor with local photos and no network writes.
+    @MainActor func testInteractivePhotoCancelAndLocation() async throws {
+        guard ProcessInfo.processInfo.environment["OI_PHOTO_INTERACTION_CHECK"] == "1" else {
+            throw XCTSkip("Opt in: edit/delete → Cancel → edit/delete → Done → location → Cancel")
+        }
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let first = UUID(), second = UUID()
+        let image = try XCTUnwrap(UIImage(named: "DonationCampus")?.jpegData(compressionQuality: 0.9))
+        for id in [first, second] { try await store.saveLocalPhoto(image, id: id, owner: OiTestBackend.owner) }
+        let local = OiLocalDraft(draft: draft(title: "사진·위치 화면 검증"), photos: [first, second], version: 1,
+                                creationStep: OiCreationStep.photos.rawValue)
+        try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: NavigationStack {
+            OiStoryEditor(remote: store, localID: local.id).environment(\.scenePhase, .active)
+        })
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
+        var sawEdit = false, sawCancel = false, sawDone = false, sawLocation = false
+        for _ in 0..<240 {
+            try await Task.sleep(for: .seconds(1))
+            let candidate = try await store.localDraft(id: local.id, owner: OiTestBackend.owner)
+            let saved = try XCTUnwrap(candidate)
+            XCTAssertNil(backend.snapshot().story, "Photo and location edits never submit to server")
+            if saved.photos != local.photos { sawEdit = true }
+            if sawEdit && saved.creationStep == OiCreationStep.story.rawValue && !sawCancel {
+                XCTAssertEqual(saved.photos, local.photos, "Cancel restores all original attachments")
+                let bytes = try await store.localPhoto(id: first, owner: OiTestBackend.owner)
+                XCTAssertEqual(bytes, image, "Edits keep the original photo copy intact")
+                sawCancel = true
+            }
+            if sawCancel && saved.creationStep == OiCreationStep.story.rawValue && saved.photos.count == 1 { sawDone = true }
+            if sawDone && saved.creationStep == OiCreationStep.location.rawValue { sawLocation = true }
+            if sawLocation && saved.creationStep == OiCreationStep.story.rawValue {
+                XCTAssertEqual(saved.draft.latitude, local.draft.latitude)
+                XCTAssertEqual(saved.draft.longitude, local.draft.longitude)
+                XCTAssertEqual(saved.photos.count, 1)
+                return
+            }
+        }
+        XCTFail("Photo/location UI route did not finish")
+    }
+
+    /// Opt-in live UI check with a fake API and an isolated draft vault. Never uses a real account.
+    @MainActor func testInteractiveCreationNavigation() async throws {
+        let mode = ProcessInfo.processInfo.environment["OI_CREATION_INTERACTION_CHECK"]
+        let freelyExplore = mode == "all-screens"
+        guard mode == "1" || freelyExplore else {
+            throw XCTSkip("Opt in to drive Done → Next → Previous → Previous with simulator UI automation")
+        }
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        var look = OiDraftCustomization()
+        look.wardrobe = OiWardrobeLook()
+        var input = draft(title: "화면 이동 검증용 이야기")
+        if freelyExplore { input.body = ""; input.latitude = nil; input.longitude = nil; input.cucumberName = "" }
+        let local = OiLocalDraft(draft: input, version: 1,
+            creationStep: (freelyExplore ? OiCreationStep.consent : .cucumber).rawValue, customization: look)
+        try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        let controller = UIHostingController(rootView: NavigationStack {
+            OiStoryEditor(remote: store, localID: local.id).environment(\.scenePhase, .active)
+        }.preferredColorScheme(.light))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+            previousKey?.makeKey()
+        }
+        var reachedCard = false
+        var visited = Set<String>()
+        for _ in 0..<300 {
+            try await Task.sleep(for: .seconds(1))
+            let saved = try await store.localDraft(id: local.id, owner: OiTestBackend.owner)
+            if freelyExplore {
+                if let step = saved?.creationStep { visited.insert(step) }
+                XCTAssertFalse(OiStoryConsentState(savedIDs: saved?.agreedConsentClauseIDs ?? []).allRequiredClausesAreAgreed,
+                               "Visiting screens never accepts terms")
+                XCTAssertNil(backend.snapshot().story, "Previewing screens never creates a server story")
+                if visited.count == OiCreationStep.allCases.count && saved?.creationStep == OiCreationStep.consent.rawValue {
+                    XCTAssertEqual(saved?.draft, input)
+                    XCTAssertEqual(saved?.customization?.wardrobe, look.wardrobe)
+                    return
+                }
+                continue
+            }
+            if saved?.creationStep == OiCreationStep.card.rawValue { reachedCard = true }
+            if reachedCard && saved?.creationStep == OiCreationStep.story.rawValue {
+                XCTAssertEqual(saved?.draft.title, local.draft.title)
+                XCTAssertEqual(saved?.customization?.wardrobe, look.wardrobe)
+                XCTAssertNil(backend.snapshot().story, "Navigation and Done must not submit a story")
+                return
+            }
+        }
+        XCTFail("The simulator UI check did not complete its requested navigation route")
+    }
+
     @MainActor private func context(expired: Bool = false, authentication: (any OiAuthenticating)? = nil) throws -> (OiRemoteStore, OiTestBackend, OiMemorySession, URLSession, URL) {
         let backend = OiTestBackend(); backend.install()
         let configuration = URLSessionConfiguration.ephemeral
@@ -2268,6 +2414,56 @@ final class OiPhotoCropTests: XCTestCase {
         XCTAssertEqual(result.width, 200); XCTAssertEqual(result.height, 200)
         let color = try centerPixel(result)
         XCTAssertLessThan(color[0], 30); XCTAssertGreaterThan(color[1], 220); XCTAssertLessThan(color[2], 30)
+    }
+
+    func testFreeRotationPreviewAndSavedPhotoHaveSameClockwiseComposition() throws {
+        let source = quadrantImage()
+        let view = OiPhotoRotationViewport(image: source)
+        view.frame = CGRect(x: 0, y: 0, width: 400, height: 200); view.layoutIfNeeded()
+        view.setPreviewRotation(.pi / 6)
+        let right = CGPoint(x: 100, y: 0).applying(view.imageView.transform)
+        XCTAssertGreaterThan(right.y, 0, "Positive rotation moves the right side down (clockwise)")
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let preview = UIGraphicsImageRenderer(size: view.bounds.size, format: format).image { context in
+            view.layer.render(in: context.cgContext)
+        }
+        let bytes = try OiPhotoProcessor.edit(XCTUnwrap(source.pngData()), operation: .rotate(.pi / 6))
+        let saved = try XCTUnwrap(UIImage(data: bytes)?.cgImage)
+        XCTAssertEqual(saved.width, 800); XCTAssertEqual(saved.height, 400)
+        let previewCG = try XCTUnwrap(preview.cgImage)
+        for point in [CGPoint(x: 0.2, y: 0.2), CGPoint(x: 0.8, y: 0.2),
+                      CGPoint(x: 0.2, y: 0.8), CGPoint(x: 0.8, y: 0.8)] {
+            func sample(_ image: CGImage) throws -> [UInt8] {
+                let rect = CGRect(x: point.x * CGFloat(image.width) - 4, y: point.y * CGFloat(image.height) - 4, width: 8, height: 8)
+                return try centerPixel(XCTUnwrap(image.cropping(to: rect)))
+            }
+            let a = try sample(previewCG), b = try sample(saved)
+            for channel in 0..<3 { XCTAssertEqual(Int(a[channel]), Int(b[channel]), accuracy: 15) }
+        }
+        view.setPreviewRotation(-.pi / 6)
+        XCTAssertLessThan(CGPoint(x: 100, y: 0).applying(view.imageView.transform).y, 0)
+    }
+
+    func testArbitraryRotationCoversCornersAndRejectsInvalidAngles() throws {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        for size in [CGSize(width: 800, height: 400), CGSize(width: 400, height: 800)] {
+            let original = UIGraphicsImageRenderer(size: size, format: format).image { ctx in
+                UIColor.white.setFill(); ctx.fill(CGRect(origin: .zero, size: size))
+            }
+            for degrees: CGFloat in [-170, -45, 15, 60, 120] {
+                let data = try OiPhotoProcessor.edit(XCTUnwrap(original.pngData()), operation: .rotate(degrees * .pi / 180))
+                let image = try XCTUnwrap(UIImage(data: data)?.cgImage)
+                for x in [2, image.width - 6] {
+                    for y in [2, image.height - 6] {
+                        let corner = try XCTUnwrap(image.cropping(to: CGRect(x: x, y: y, width: 4, height: 4)))
+                        XCTAssertGreaterThan(try centerPixel(corner)[0], 235, "Rotation must not save black corners")
+                    }
+                }
+            }
+        }
+        for invalid in [CGFloat.nan, .infinity, -.infinity] {
+            XCTAssertThrowsError(try OiPhotoProcessor.edit(XCTUnwrap(quadrantImage().pngData()), operation: .rotate(invalid)))
+        }
     }
 
     private func quadrantImage() -> UIImage {

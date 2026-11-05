@@ -85,7 +85,11 @@ do $$ begin
     raise exception 'oi_capabilities drift requires review before adding school profile metadata';
   end if;
 end; $$;
-create or replace function public.oi_capabilities() returns jsonb
+do $patch$
+declare definition text;
+begin
+  if to_regprocedure('benchmark_private.oi_unapproved_drafts_enabled()') is not null then
+    definition := $definition$create or replace function public.oi_capabilities() returns jsonb
 language sql security invoker set search_path = '' as $$
   with context as (select benchmark_private.oi_account_context() value)
   select jsonb_build_object('operator', benchmark_private.oi_is_operator(), 'coins_enabled', false,
@@ -93,6 +97,19 @@ language sql security invoker set search_path = '' as $$
     'account_providers', value -> 'account_providers', 'school_profile_enabled', true,
     'unapproved_drafts_enabled', benchmark_private.oi_unapproved_drafts_enabled()) from context;
 $$;
+$definition$;
+  else
+    definition := $definition$create or replace function public.oi_capabilities() returns jsonb
+language sql security invoker set search_path = '' as $$
+  with context as (select benchmark_private.oi_account_context() value)
+  select jsonb_build_object('operator', benchmark_private.oi_is_operator(), 'coins_enabled', false,
+    'account_merge_enabled', true, 'account_id', value -> 'id', 'account_member_ids', value -> 'member_ids',
+    'account_providers', value -> 'account_providers', 'school_profile_enabled', true) from context;
+$$;
+$definition$;
+  end if;
+  execute definition;
+end; $patch$;
 revoke all on function public.oi_capabilities() from public, anon;
 grant execute on function public.oi_capabilities() to authenticated;
 

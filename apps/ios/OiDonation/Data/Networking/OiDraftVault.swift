@@ -17,6 +17,8 @@ struct OiLocalDraft: Codable, Identifiable, Equatable {
     var customization: OiDraftCustomization?
     var removedMediaPaths: [String]?
     var removedPhotoIDs: Set<UUID>?
+    /// Local consent selections, never inferred from visiting a screen or legacy drafts.
+    var agreedConsentClauseIDs: Set<String>?
     var id: UUID { draft.id }
 }
 
@@ -355,6 +357,14 @@ struct OiPhotoLayer: Codable, Equatable, Identifiable {
     var placement = OiPhotoPlacement()
     var isValid: Bool { UUID(uuidString: id) != nil && placement.isValid && source.count == 64 && source.allSatisfy { "0123456789abcdef".contains($0) } }
 }
+enum OiPhotoEditingLimit {
+    static let perSide = 2
+    static func remaining(on side: OiPhotoSide, in layers: [OiPhotoLayer]) -> Int {
+        max(0, min(perSide - layers.filter { $0.side == side }.count,
+                   OiPhotoDesign.maximumLayers - layers.count))
+    }
+}
+
 struct OiPhotoDesign: Codable, Equatable {
     static let maximumLayers = 8
     var version = UUID().uuidString

@@ -157,44 +157,112 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         for variant in variants {
             for bottom in [false, true] {
                 let page = CreationCapturePage(step: 2, anchor: bottom ? .bottom : .top) {
-                    OiStoryWritingStep(draft: .constant(Self.draft), grants: [])
+                    StoryWritingCapture(draft: Self.draft)
                 }
                 try await capture(page, name: "writing\(bottom ? "-bottom" : "")", variant: variant, defaults: fixture.defaults)
             }
         }
     }
 
+    func testStoryFieldsGrowAfterPastingMultipleLines() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: ScrollView { StoryPasteFixture() })
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+            previousKeyWindow?.makeKey()
+        }
+
+        let pasteboard = UIPasteboard.general
+        let previousItems = pasteboard.items
+        defer { pasteboard.items = previousItems }
+        let pastedText = "캠퍼스의 봄\n친구와 걷던 길\n함께 남긴 이야기"
+
+        func editors(in view: UIView) -> [UITextView] {
+            if let editor = view as? UITextView { return [editor] }
+            return view.subviews.flatMap { editors(in: $0) }
+        }
+
+        try await Task.sleep(for: .milliseconds(300))
+        let fields = editors(in: host.view).sorted { $0.convert(.zero, to: host.view).minY < $1.convert(.zero, to: host.view).minY }
+        XCTAssertEqual(fields.count, 2)
+        for field in fields {
+            XCTAssertTrue(field.becomeFirstResponder())
+            try await Task.sleep(for: .milliseconds(300))
+            let initialHeight = field.bounds.height
+            XCTAssertGreaterThan(initialHeight, 0)
+            pasteboard.string = pastedText
+            field.paste(nil)
+            try await Task.sleep(for: .milliseconds(400))
+            XCTAssertEqual(field.text, pastedText)
+            XCTAssertGreaterThan(field.bounds.height, initialHeight + 20)
+            XCTAssertFalse(field.isScrollEnabled)
+            field.resignFirstResponder()
+        }
+    }
+
+    private struct StoryPasteFixture: View {
+        @State private var draft = OiStoryDraft()
+        @FocusState private var focusedField: OiStoryWritingStep.Field?
+
+        var body: some View {
+            OiStoryWritingStep(draft: $draft, grants: [], focusedField: $focusedField)
+        }
+    }
+
+    private struct StoryWritingCapture: View {
+        let draft: OiStoryDraft
+        @FocusState private var focusedField: OiStoryWritingStep.Field?
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 50) {
+                OiStoryWritingStep(draft: .constant(draft), grants: [], focusedField: $focusedField)
+                OiStoryAttachmentSections(photoCount: 0, latitude: draft.latitude,
+                    longitude: draft.longitude, onPhotos: {}, onLocation: {})
+            }
+        }
+    }
+
     func testPopulatedPhotoAndLocationCaptures() async throws {
         let fixture = try isolatedDefaults()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
-        let campusPhoto = try XCTUnwrap(UIImage(named: "DonationCampus"))
-        let secondPhoto = try XCTUnwrap(UIImage(named: "CampusSchoolMap"))
-        let firstID = UUID()
-        let secondID = UUID()
-        let photoBytes = [firstID: try XCTUnwrap(campusPhoto.pngData()), secondID: try XCTUnwrap(secondPhoto.pngData())]
-        let items: [OiEditingPhoto] = [.local(firstID), .local(secondID)]
-        var locatedDraft = Self.draft
-        locatedDraft.latitude = 36.01261057021347
-        locatedDraft.longitude = 129.3197268697784
-        let regions = [OiRegion(id: "pond", schoolId: "postech", name: "지곡회관 · 연못")]
-        for variant in variants where variant.name == "402x874" || variant.dynamicTypeSize == .accessibility5 {
-            for anchor: UnitPoint in [.top, .bottom] {
-                let photo = CreationCapturePage(step: OiCreationStep.photos.progress, anchor: anchor) {
-                    OiStoryPhotoStep(items: items, uploadedPhotos: [], selections: .constant([]),
-                        loadPhoto: { id in
-                            guard let data = photoBytes[id] else { throw OiServiceError.invalidInput }
-                            return data
-                        }, edit: { _, _ in }, remove: { _ in }, photo: { item in
-                            Image(uiImage: item == .local(firstID) ? campusPhoto : secondPhoto).resizable().scaledToFit()
-                        })
+        let backend = OiTestBackend(); backend.install()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let directory = FileManager.default.temporaryDirectory.appending(path: "PhotoLocation-\(UUID())")
+        defer {
+            withExtendedLifetime(backend) {}
+            session.invalidateAndCancel(); OiStoreURLProtocol.handle = nil
+            fixture.defaults.removePersistentDomain(forName: fixture.name)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let store = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+                                 drafts: OiDraftVault(directory: directory), vault: OiMemorySession())
+        await store.start()
+        let first = UUID(), second = UUID()
+        try await store.saveLocalPhoto(XCTUnwrap(UIImage(named: "DonationCampus")?.jpegData(compressionQuality: 0.9)),
+                                       id: first, owner: OiTestBackend.owner)
+        try await store.saveLocalPhoto(XCTUnwrap(UIImage(named: "CampusSchoolMap")?.jpegData(compressionQuality: 0.9)),
+                                       id: second, owner: OiTestBackend.owner)
+        for variant in variants {
+            for step in [OiCreationStep.photos, .location] {
+                // Capture the production editor route rather than a mocked form wrapper.
+                if step == .location && variant.dynamicTypeSize == .accessibility5 { continue }
+                var draft = Self.draft; draft.id = UUID()
+                draft.latitude = 36.01261057021347; draft.longitude = 129.3197268697784
+                let local = OiLocalDraft(draft: draft, photos: [first, second], version: 1, creationStep: step.rawValue)
+                try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+                let editor = NavigationStack {
+                    OiStoryEditor(remote: store, localID: local.id).environment(\.scenePhase, .active)
                 }
-                try await capture(photo, name: anchor == .top ? "photo-populated" : "photo-populated-bottom",
-                    variant: variant, defaults: fixture.defaults, attach: true)
+                try await capture(editor, name: step == .photos ? "photo-populated" : "location-search-entry",
+                                  variant: variant, defaults: fixture.defaults, delay: .seconds(3), attach: true)
             }
-            let location = CreationCapturePage(step: OiCreationStep.location.progress) {
-                OiStoryLocationStep(draft: .constant(locatedDraft), regions: regions, choose: { _ in })
-            }
-            try await capture(location, name: "location-selected", variant: variant, defaults: fixture.defaults, attach: true)
         }
     }
 
@@ -205,14 +273,99 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             let cucumber = CreationCapturePage(step: 3) {
                 OiCucumberCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
                     assets: Self.assets, canContinue: true, onContinue: {})
+                    .environment(\.scenePhase, .active)
             }
-            try await capture(cucumber, name: "cucumber-customization", variant: variant, defaults: fixture.defaults)
+            try await capture(cucumber, name: "cucumber-customization", variant: variant, defaults: fixture.defaults, delay: .seconds(2))
             let card = CreationCapturePage(step: 4) {
                 OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
                     assets: Self.assets, canContinue: true, onContinue: {})
             }
             try await capture(card, name: "card-customization", variant: variant, defaults: fixture.defaults)
         }
+    }
+
+    func testCropToolbarContrastCapture() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let image = try XCTUnwrap(UIImage(named: "DonationCampus"))
+        // Reproduce the light parent and inherited black tint of the creation flow.
+        let crop = OiPhotoCropEditor(image: image, apply: { _ in })
+            .tint(.black).environment(\.colorScheme, .light)
+        try await capture(crop, name: "crop-toolbar-contrast", variant: variants[0],
+                          defaults: fixture.defaults, attach: true)
+    }
+
+    func testStoryListSeedUICaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        XCTAssertNotNil(UIImage(named: "StorySeedIcon"))
+        for variant in variants {
+            let reference = NavigationStack {
+                OiStoryListView(state: .preview, seedCount: 3,
+                    notices: OiStoryListView.listNotices,
+                    guidance: OiStoryListView.listGuidance,
+                    onAddSeed: {}, onCreateStory: {}, onUseSeed: {})
+            }
+            try await capture(reference, name: "story-list-seed-reference", variant: variant,
+                              defaults: fixture.defaults, attach: true)
+            // The actual screen displays zero until a seed service is connected.
+            let store = OiRemoteStore(vault: OiMemorySession())
+            let live = NavigationStack { OiStoryListScreen(remote: store) }
+            try await capture(live, name: "story-list-seed-unconnected", variant: variant,
+                              defaults: fixture.defaults, attach: true)
+        }
+    }
+
+    func testUpdatedConsentCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        for variant in variants {
+            let page = VStack(spacing: 0) {
+                OiCreationProgressHeader(step: 1).padding(.horizontal, 20)
+                OiStoryConsentView(clauses: OiStoryConsentClause.figmaDrafts, showsHeader: false)
+            }
+            try await capture(page, name: "consent-three-clauses", variant: variant,
+                              defaults: fixture.defaults, attach: true)
+        }
+    }
+
+    func testFinishedCustomizationAndConsentCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        for variant in variants {
+            let cucumber = CreationCapturePage(step: 3, showsNavigation: true) {
+                OiCucumberCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
+                    assets: Self.assets, isFinished: true, onContinue: {})
+                    .environment(\.scenePhase, .active)
+            }
+            try await capture(cucumber, name: "cucumber-finished", variant: variant, defaults: fixture.defaults, delay: .seconds(2), attach: true)
+            let card = CreationCapturePage(step: 4, showsNavigation: true) {
+                OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
+                    assets: Self.assets, isFinished: true, onContinue: {})
+            }
+            try await capture(card, name: "card-finished", variant: variant, defaults: fixture.defaults, attach: true)
+            try await capture(NavigationStack { OiStoryConsentView(clauses: OiStoryConsentClause.figmaDrafts) },
+                name: "consent-footprints", variant: variant, defaults: fixture.defaults, attach: true)
+        }
+    }
+
+    func testLocationSearchFirstCapture() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        for variant in variants {
+            let picker = OiLocationPicker(latitude: .constant(nil), longitude: .constant(nil))
+            try await capture(picker, name: "location-search-first", variant: variant,
+                defaults: fixture.defaults, attach: true)
+        }
+    }
+
+    func testThreeDimensionalLocationPickerCapture() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let picker = OiLocationPicker(latitude: .constant(36.01261057021347), longitude: .constant(129.3197268697784), focusPlaceID: "53")
+            .environment(\.scenePhase, .active)
+        try await capture(picker, name: "location-3D-picker", variant: try XCTUnwrap(variants.first),
+            defaults: fixture.defaults, delay: .seconds(3), attach: true)
     }
 
     func testSharedCardAndCollectionResultCaptures() async throws {
@@ -273,6 +426,15 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             onReload: {}, onDecision: { _, _ in }, onRetryDecision: {})
         try await capture(unconfirmed, name: "card-requests-unconfirmed-decision",
             variant: reference, defaults: fixture.defaults, attach: true)
+    }
+
+    func testEvidenceDesignPreviewCapture() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        for variant in variants {
+            try await capture(NavigationStack { OiEvidenceDesignPreview() },
+                              name: "evidence-preview", variant: variant, defaults: fixture.defaults, attach: true)
+        }
     }
 
     func testMYScreenCapturesWithoutRemoteStore() async throws {
@@ -530,9 +692,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertFalse(places.contains { $0.name.localizedCaseInsensitiveContains(query) })
 
         for variant in variants {
-            let location = CreationCapturePage(step: OiCreationStep.location.progress) {
-                OiStoryLocationStep(draft: .constant(Self.draft), regions: [], initialQuery: query, choose: { _ in })
-            }
+            let location = OiStoryLocationStep(initialQuery: query, choose: { _ in })
             try await capture(location, name: "location-search-no-matches", variant: variant,
                 defaults: fixture.defaults, attach: true)
         }
@@ -919,6 +1079,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
 private struct CreationCapturePage<Content: View>: View {
     let step: Int
     var anchor: UnitPoint = .top
+    var showsNavigation = false
     @ViewBuilder let content: () -> Content
 
     var body: some View {
@@ -929,10 +1090,11 @@ private struct CreationCapturePage<Content: View>: View {
                 VStack(alignment: .leading, spacing: 20) { content() }
                     .padding(.horizontal, 20).padding(.bottom, 24)
             }.defaultScrollAnchor(anchor)
-            if step == 2 {
-                OiCreationNextButton(title: "다음", action: {})
-                    .padding(.horizontal, 20).padding(.vertical, 10)
-            }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if step == 2 || showsNavigation {
+                        OiCreationNavigationBar(onPrevious: {}, onNext: {}, onSaveAndExit: {})
+                    }
+                }
         }.background(Color(.systemBackground))
     }
 }

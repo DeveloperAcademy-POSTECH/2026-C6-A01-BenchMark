@@ -1,72 +1,191 @@
+import MapKit
 import SwiftUI
 
 struct OiCreationProgressHeader: View {
     let step: Int
     var onPrevious: (() -> Void)?
+    var onSelect: ((Int) -> Void)?
+    var canSelectStage: (Int) -> Bool = { _ in true }
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var selectionFeedback = 0
+
     var body: some View {
         Group {
             if dynamicTypeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("\(step) / 4 · \(title(step))").font(.headline)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let onPrevious {
-                        Button("이전 단계로 이동", action: onPrevious).font(.body)
-                            .frame(minHeight: 44)
-                    }
-                }.frame(maxWidth: .infinity, alignment: .leading)
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    ForEach(1...4, id: \.self) { number in stageButton(number, width: 66) }
+                }
             } else {
-                footprints
+                HStack(spacing: 8) {
+                    ForEach(1...4, id: \.self) { number in stageButton(number, width: 66) }
+                }
             }
         }
-        .foregroundStyle(Color("OiDark"))
-        .frame(minHeight: 64)
+        .foregroundStyle(Color("OiDark")).padding(.vertical, 6)
+        .sensoryFeedback(.selection, trigger: selectionFeedback)
     }
 
-    private var footprints: some View {
-        HStack(spacing: 5) {
-            ForEach(1...4, id: \.self) { number in
-                if number == step - 1, let onPrevious {
-                    Button(action: onPrevious) { footprint(number) }.buttonStyle(.plain)
-                        .accessibilityLabel("이전 단계로 이동")
-                } else {
-                    footprint(number)
-                        .accessibilityLabel("\(number)단계, \(title(number))\(number == step ? ", 현재 단계" : "")")
-                }
+    private func stageButton(_ number: Int, width: CGFloat) -> some View {
+        let isAllowed = canSelectStage(number)
+        let canNavigate = isAllowed && (onSelect != nil || (number == step - 1 && onPrevious != nil))
+        return Button {
+            selectionFeedback += 1
+            if let onSelect { onSelect(number) }
+            else if number == step - 1 { onPrevious?() }
+        } label: {
+            VStack(spacing: 7) {
+                OiCreationCurrentStepPulse(isCurrent: number == step) {
+                    ZStack {
+                        artwork(number, width: width).foregroundStyle(Color("OiDark")).offset(y: 4)
+                        artwork(number, width: width)
+                            .foregroundStyle(LinearGradient(
+                                colors: number == step
+                                    ? [Color("OiGreen").opacity(0.85), Color("OiGreen")]
+                                    : [Color("OiLight"), Color("OiBorder")],
+                                startPoint: .top, endPoint: .bottom))
+                            .shadow(color: .white.opacity(0.65), radius: 0.5, y: -1)
+                    }
+                } label: {
+                    Text("STEP \(number)")
+                        .font(.custom("Paperlogy-7Bold", size: 10, relativeTo: .caption2))
+                        .foregroundStyle(number == step ? Color.white : Color("OiDark"))
+                }.frame(height: 42)
+                Text(title(number))
+                    .font(.custom(number == step ? "Paperlogy-6SemiBold" : "Paperlogy-4Regular", size: 12, relativeTo: .caption))
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1).minimumScaleFactor(0.75)
+            }
+            .frame(maxWidth: .infinity, minHeight: 70).contentShape(Rectangle())
+        }
+        .buttonStyle(OiCreationFootprintStyle(selected: number == step))
+        .disabled(!canNavigate)
+        .opacity(!isAllowed && number != step ? 0.45 : 1)
+        .accessibilityLabel("\(number)단계, \(title(number))")
+        .accessibilityValue(number == step ? "현재 단계" : canNavigate ? "이동 가능" : "이동 불가")
+        .accessibilityHint(canNavigate ? "입력한 내용을 유지하고 이 단계로 이동해요" : "")
+        .accessibilityAddTraits(number == step ? .isSelected : [])
+        .accessibilityIdentifier("oi.creation.stage.\(number)")
+    }
+
+    private func artwork(_ number: Int, width: CGFloat) -> some View {
+        Image(number.isMultiple(of: 2) ? "ConsentStepInactiveLowered" : "ConsentStepActive")
+            .resizable().renderingMode(.template)
+            .frame(width: width, height: number.isMultiple(of: 2) ? width * 29.991 / 69.8566 : width * 38.4729 / 65.6168)
+            .rotationEffect(.degrees(number.isMultiple(of: 2) ? 0 : 16.63))
+    }
+
+    private func title(_ number: Int) -> String {
+        ["약관 동의", "이야기 작성", "오이 커스텀", "카드 커스텀"][number - 1]
+    }
+}
+
+private extension EnvironmentValues {
+    @Entry var oiCreationStepIsPressed = false
+}
+
+/// One phase drives brightness, size, lift and shadow; the text moves with the face.
+private struct OiCreationCurrentStepPulse<Face: View, Label: View>: View {
+    let isCurrent: Bool
+    @ViewBuilder var face: () -> Face
+    @ViewBuilder var label: () -> Label
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.oiCreationStepIsPressed) private var isPressed
+
+    var body: some View {
+        if isCurrent && !reduceMotion && scenePhase == .active && !isPressed {
+            PhaseAnimator([false, true]) { lowered in
+                footprint(lowered: lowered)
+            } animation: { _ in
+                .easeInOut(duration: 1.6)
+            }
+        } else {
+            footprint(lowered: false)
+        }
+    }
+
+    private func footprint(lowered: Bool) -> some View {
+        let closeToSurface = lowered || isPressed
+        return ZStack {
+            face().brightness(lowered ? -0.16 : 0)
+            label()
+        }
+        .scaleEffect(lowered ? 0.94 : 1)
+        .rotation3DEffect(.degrees(lowered ? -5 : 0), axis: (x: 1, y: 0, z: 0))
+        .offset(y: lowered ? 3 : 0)
+        .shadow(color: Color("OiDark").opacity(closeToSurface ? 0.08 : 0.2),
+                radius: closeToSurface ? 1 : 3, y: closeToSurface ? 1 : 4)
+    }
+}
+
+private struct OiCreationFootprintStyle: ButtonStyle {
+    let selected: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .environment(\.oiCreationStepIsPressed, configuration.isPressed)
+            .scaleEffect(reduceMotion ? 1 : configuration.isPressed ? 0.94 : selected ? 1.04 : 1)
+            .rotation3DEffect(.degrees(reduceMotion || configuration.isPressed ? 0 : 7), axis: (x: 1, y: 0, z: 0))
+            .offset(y: reduceMotion ? 0 : configuration.isPressed ? 3 : 0)
+            .opacity(configuration.isPressed ? 0.85 : 1)
+            .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.58), value: configuration.isPressed)
+            .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.65), value: selected)
+    }
+}
+
+/// A tactile response without changing the footprint artwork or repeating motion.
+struct OiCreationPressStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .contentShape(Rectangle())
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.94 : 1)
+            .offset(y: configuration.isPressed && !reduceMotion ? 2 : 0)
+            .opacity(configuration.isPressed ? 0.72 : 1)
+            .animation(reduceMotion ? nil : .spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
+    }
+}
+
+struct OiCreationNavigationBar: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    var canContinue = true
+    let onPrevious: () -> Void
+    let onNext: () -> Void
+    let onSaveAndExit: () -> Void
+    var body: some View {
+        VStack(spacing: 8) {
+            Button("임시저장 후 나가기", action: onSaveAndExit)
+                .font(CampusStyle.body(14)).underline()
+                .foregroundStyle(.secondary).frame(minHeight: 44)
+                .accessibilityIdentifier("oi.creation.saveAndExit")
+            HStack(spacing: 12) {
+                navigationButton("이전", tint: Color("OiBorder"), action: onPrevious)
+                    .accessibilityIdentifier("oi.creation.previous")
+                navigationButton("다음", tint: Color("OiGreen"), action: onNext)
+                    .disabled(!canContinue).opacity(canContinue ? 1 : 0.45)
+                    .accessibilityIdentifier("oi.creation.next")
             }
         }
-        .font(.custom("Paperlogy-4Regular", size: 12, relativeTo: .caption))
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .padding(.horizontal, 20).padding(.bottom, 10)
+        .background {
+            navigationBackground.ignoresSafeArea(.container, edges: .bottom)
+        }
     }
-    private func footprint(_ number: Int) -> some View {
-        let lowered = number.isMultiple(of: 2)
-        let reached = number <= step
-        return VStack(spacing: 0) {
-            if lowered { stepLabel(number).frame(minHeight: 29, alignment: .bottom) }
-            ZStack {
-                if lowered {
-                    Image("ConsentStepInactiveLowered").resizable().renderingMode(.template)
-                        .foregroundStyle(reached ? Color("OiGreen") : Color("OiBorder"))
-                        .frame(width: 69.8566, height: 29.991)
-                } else {
-                    Image(reached ? "ConsentStepActive" : "ConsentStepInactiveRaised")
-                        .resizable().frame(width: 65.6168, height: 38.4729)
-                        .rotationEffect(.degrees(16.63))
-                }
-                Text("STEP \(number)").font(.custom("Paperlogy-7Bold", size: 10, relativeTo: .caption2))
-                    .foregroundStyle(reached ? Color("OiSoft").opacity(number == step ? 1 : 0.4) : Color("OiGreen").opacity(0.5))
-            }.frame(height: lowered ? 35 : 39)
-            if !lowered { stepLabel(number).frame(minHeight: 25, alignment: .top) }
-        }.frame(maxWidth: .infinity, minHeight: 64)
-            .accessibilityElement(children: .ignore)
+    @ViewBuilder private var navigationBackground: some View {
+        let shape = UnevenRoundedRectangle(topLeadingRadius: 25, topTrailingRadius: 25)
+        if reduceTransparency {
+            shape.fill(Color(.systemBackground))
+        } else if #available(iOS 26.0, *) {
+            Color.clear.glassEffect(.regular, in: shape)
+        } else {
+            shape.fill(.regularMaterial)
+        }
     }
-    private func stepLabel(_ number: Int) -> some View {
-        Text(number == step - 1 ? "이전으로" : title(number))
-            .opacity(number == step ? 1 : number < step ? 0.3 : 0)
-            .minimumScaleFactor(0.8)
-    }
-    private func title(_ number: Int) -> String {
-        ["약관동의", "이야기작성", "오이커스텀", "카드커스텀"][number - 1]
+    private func navigationButton(_ title: String, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(CampusStyle.medium(16)).frame(maxWidth: .infinity, minHeight: 46)
+                .background(tint, in: RoundedRectangle(cornerRadius: 20))
+        }.buttonStyle(OiCreationPressStyle())
+            .foregroundStyle(title == "이전" ? Color("OiDark") : .white)
     }
 }
 
@@ -86,28 +205,30 @@ struct OiCreationNextButton: View {
 
 struct OiCreationDoneButton: View {
     var enabled = true
+    var title = "완료"
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            Text("완료").font(CampusStyle.medium(20)).tracking(0.4)
+            Text(title).font(CampusStyle.medium(20)).tracking(0.4)
                 .padding(.horizontal, 20).frame(minHeight: 44)
                 .background(Color("OiBorder"), in: Capsule())
-        }.buttonStyle(.plain).foregroundStyle(.primary).disabled(!enabled)
+        }.buttonStyle(OiCreationPressStyle()).foregroundStyle(Color("OiGreen")).disabled(!enabled)
     }
 }
 
 struct OiCreationSection<Content: View>: View {
     let title: String
     var hint: String = ""
+    var titleSize: CGFloat = 26
     @ViewBuilder let content: Content
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             let headingLayout = dynamicTypeSize.isAccessibilitySize
                 ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
-                : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 10))
+                : AnyLayout(HStackLayout(alignment: .bottom, spacing: 10))
             headingLayout {
-                Text(title).font(.custom("Paperlogy-6SemiBold", size: 26, relativeTo: .title2))
+                Text(title).font(.custom("Paperlogy-6SemiBold", size: titleSize, relativeTo: .title2))
                 if !hint.isEmpty {
                     Text(hint).font(.custom("Paperlogy-3Light", size: 16, relativeTo: .subheadline))
                         .tracking(0.32).foregroundStyle(Color("OiGreen"))
@@ -119,26 +240,26 @@ struct OiCreationSection<Content: View>: View {
 }
 
 struct OiStoryWritingStep: View {
+    enum Field: Hashable { case title, body }
+
     @Binding var draft: OiStoryDraft
     let grants: [OiWritingGrant]
     var canChangeGrant = false
+    let focusedField: FocusState<Field?>.Binding
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private let fieldBackground = Color(white: 244 / 255)
+    private let textLimit = OiCreationStep.storyTextLimit
     static let themes = ["가족", "우정", "사랑", "성장", "도전", "꿈", "배움", "경쟁", "협력", "갈등", "화해", "일탈", "나눔", "응원", "성취", "기타"]
     static let emotions = ["행복함", "즐거움", "뿌듯함", "고마움", "편안함", "설렘", "따뜻함", "짜릿함", "놀라움", "신남", "벅참", "그리움", "후련함", "부끄러움", "후회", "긴장감", "슬픔", "화남", "아쉬움", "기타"]
     var body: some View {
         VStack(alignment: .leading, spacing: 50) {
             OiCreationSection(title: "테마 선택", hint: "(택 1)") { tags(Self.themes, selected: $draft.theme) }
             OiCreationSection(title: "감정 선택", hint: "(택 1)") { tags(Self.emotions, selected: $draft.emotion) }
-            OiCreationSection(title: "제목 입력", hint: "\(draft.title.count) / 100") {
-                HStack(alignment: .firstTextBaseline) {
-                    TextField("이야기 제목", text: $draft.title, axis: .vertical)
-                        .accessibilityIdentifier("oi.draft.title")
-                    Image(systemName: "pencil").accessibilityHidden(true)
-                }.padding(20).background(CampusStyle.mapSheet, in: RoundedRectangle(cornerRadius: 20))
+            OiCreationSection(title: "제목 입력", hint: "(띄어쓰기 포함 \(textLimit)자 이내)") {
+                inputBox($draft.title, field: .title, label: "이야기 제목", identifier: "oi.draft.title")
             }
-            OiCreationSection(title: "내용 입력", hint: "\(draft.body.count) / 10,000") {
-                TextField("오래 남기고 싶은 이야기를 들려주세요", text: $draft.body, axis: .vertical)
-                    .lineLimit(7...16).accessibilityIdentifier("oi.draft.body").padding(20)
-                    .background(CampusStyle.mapSheet, in: RoundedRectangle(cornerRadius: 20))
+            OiCreationSection(title: "이야기 입력", hint: "(띄어쓰기 포함 \(textLimit)자 이내)") {
+                inputBox($draft.body, field: .body, label: "이야기 내용", identifier: "oi.draft.body")
             }
             if !grants.isEmpty && canChangeGrant {
                 Picker("사용할 작성 승인", selection: $draft.grantId) {
@@ -146,24 +267,165 @@ struct OiStoryWritingStep: View {
                     ForEach(grants) { Text("승인 \($0.id.uuidString.prefix(8)) · 최대 \($0.storyLimit)개").tag(Optional($0.id)) }
                 }
             }
-        }.font(.custom("Paperlogy-4Regular", size: 16, relativeTo: .body))
+        }
+        .font(.custom("Paperlogy-4Regular", size: 16, relativeTo: .body))
+        .padding(.top, 20)
     }
+
+    private func limitedText(_ text: Binding<String>) -> Binding<String> {
+        Binding(get: { text.wrappedValue }, set: { newValue in
+            let previousCount = text.wrappedValue.count
+            let newCount = newValue.count
+            // Keep longer drafts intact on restore and let the author shorten them.
+            let isShorteningLongDraft = previousCount > textLimit && newCount < previousCount
+            guard newCount <= textLimit || isShorteningLongDraft else { return }
+            text.wrappedValue = newValue
+        })
+    }
+
+    private func inputBox(_ text: Binding<String>, field: Field, label: String, identifier: String) -> some View {
+        // Measure the bound text so typing, pasting, and restoring use the same layout.
+        // The invisible character gives a trailing line break room for the caret.
+        let editorInset = EdgeInsets(top: 8, leading: 5, bottom: 8, trailing: 5)
+        return HStack(alignment: .center) {
+            Text(verbatim: text.wrappedValue + "\u{200B}")
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(editorInset)
+                .hidden()
+                .accessibilityHidden(true)
+                .overlay(alignment: .topLeading) {
+                    TextEditor(text: limitedText(text))
+                        .scrollContentBackground(.hidden)
+                        .scrollDisabled(true)
+                        .focused(focusedField, equals: field)
+                        .accessibilityLabel(label)
+                        .accessibilityIdentifier(identifier)
+                }
+                .overlay(alignment: .topLeading) {
+                    if text.wrappedValue.isEmpty {
+                        Text("입력").foregroundStyle(Color(uiColor: .placeholderText))
+                            .padding(editorInset)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .font(.custom("Paperlogy-3Light", size: 18, relativeTo: .body))
+                .tracking(0.36)
+            Image(systemName: "pencil")
+                .font(.system(size: 18, weight: .light))
+                .foregroundStyle(Color(white: 106 / 255))
+                .accessibilityHidden(true)
+        }
+        .padding(.leading, 15)
+        .padding(.trailing, 20)
+        .padding(.top, 14)
+        .padding(.bottom, 10)
+        .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+        .background(fieldBackground, in: RoundedRectangle(cornerRadius: 15))
+    }
+
     private func tags(_ values: [String], selected: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            OiCreationTagLayout {
-                ForEach(values, id: \.self) { value in
-                    Button { selected.wrappedValue = value } label: {
-                        Text(value).tracking(0.32).padding(.horizontal, 20).frame(minHeight: 34)
-                            .foregroundStyle(selected.wrappedValue == value ? Color.white : Color("OiDark"))
-                            .background(selected.wrappedValue == value ? Color("OiGreen") : CampusStyle.mapSheet, in: Capsule())
-                            .frame(minHeight: 44).contentShape(Rectangle())
-                    }.buttonStyle(.plain).accessibilityAddTraits(selected.wrappedValue == value ? .isSelected : [])
+            if dynamicTypeSize.isAccessibilitySize {
+                OiCreationTagLayout {
+                    ForEach(values, id: \.self) { tag($0, selected: selected) }
+                }
+            } else {
+                // A 36pt chip inside a 44pt hit area leaves 4pt above and below.
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(stride(from: 0, to: values.count, by: 4)), id: \.self) { start in
+                        HStack(spacing: 10) {
+                            ForEach(values[start..<min(start + 4, values.count)], id: \.self) {
+                                tag($0, selected: selected)
+                            }
+                        }
+                    }
                 }
             }
             if !selected.wrappedValue.isEmpty && !values.contains(selected.wrappedValue) {
                 Text("기존 선택: \(selected.wrappedValue)").font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+
+    private func tag(_ value: String, selected: Binding<String>) -> some View {
+        let isSelected = selected.wrappedValue == value
+        return Button {
+            selected.wrappedValue = value
+        } label: {
+            Text(value)
+                .tracking(0.32).lineLimit(1).minimumScaleFactor(0.8)
+                .padding(.horizontal, 20).frame(minHeight: 36)
+                .foregroundStyle(isSelected ? Color.white : Color("OiDark"))
+                .background(isSelected ? Color("OiGreen") : fieldBackground, in: Capsule())
+                .overlay(Capsule().strokeBorder(isSelected ? Color("OiGreen") : Color(white: 234 / 255), lineWidth: 1))
+                .frame(minHeight: 44).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// Photo and location editors are opened from the story form, as in Figma 2945:2931.
+struct OiStoryAttachmentSections: View {
+    let photoCount: Int
+    let latitude: Double?
+    let longitude: Double?
+    let onPhotos: () -> Void
+    let onLocation: () -> Void
+
+    private var coordinate: CLLocationCoordinate2D? {
+        guard let latitude, let longitude else { return nil }
+        let value = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        return CLLocationCoordinate2DIsValid(value) ? value : nil
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 50) {
+            OiCreationSection(title: "사진 선택", hint: "(1장 이상, \(OiCreationStep.storyPhotoLimit)장 이내)") {
+                formButton(photoCount == 0 ? "사진 추가하기" : "선택한 사진 보기 · \(photoCount)장",
+                           highlighted: false, action: onPhotos)
+                    .accessibilityIdentifier("oi.story.editPhotos")
+                if photoCount > OiCreationStep.storyPhotoLimit {
+                    Text("계속하려면 사진을 \(OiCreationStep.storyPhotoLimit)장 이하로 줄여 주세요.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            OiCreationSection(title: "오이 위치 설정", titleSize: 30) {
+                Map(position: .constant(.region(MKCoordinateRegion(
+                    center: coordinate ?? CLLocationCoordinate2D(latitude: 36.0139, longitude: 129.3232),
+                    latitudinalMeters: coordinate == nil ? 1_200 : 300,
+                    longitudinalMeters: coordinate == nil ? 1_200 : 300))), interactionModes: []) {
+                    if let coordinate { Marker("선택한 오이 위치", coordinate: coordinate).tint(.red) }
+                }
+                .mapStyle(.standard(pointsOfInterest: .excludingAll))
+                .frame(height: 245).clipShape(RoundedRectangle(cornerRadius: 20))
+                .allowsHitTesting(false)
+                .overlay(alignment: .bottom) {
+                    if coordinate == nil {
+                        Text("아래 버튼에서 위치를 선택해 주세요")
+                            .font(CampusStyle.body(14)).padding(12)
+                            .background(.regularMaterial, in: Capsule()).padding(12)
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(coordinate == nil ? "위치를 선택하지 않은 캠퍼스 지도" : "선택한 오이 위치 지도")
+                .accessibilityIdentifier("oi.story.locationPreview")
+                formButton(coordinate == nil ? "위치 설정하기" : "재설정하기", highlighted: true, action: onLocation)
+                    .accessibilityIdentifier("oi.story.editLocation")
+            }
+        }
+    }
+
+    private func formButton(_ title: String, highlighted: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(CampusStyle.medium(17)).tracking(0.34)
+                .frame(maxWidth: .infinity, minHeight: 57)
+                .foregroundStyle(highlighted ? Color("OiGreen") : Color(white: 106 / 255))
+                .background(highlighted ? Color("OiLight") : Color(white: 244 / 255),
+                            in: RoundedRectangle(cornerRadius: 20))
+        }.buttonStyle(OiCreationPressStyle())
     }
 }
 
@@ -185,8 +447,10 @@ private struct OiCreationTagLayout: Layout {
     private func arrange(_ subviews: Subviews, width: CGFloat) -> (size: CGSize, points: [CGPoint]) {
         var points: [CGPoint] = [], x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
         for subview in subviews {
-            let size = subview.sizeThatFits(ProposedViewSize(width: width, height: nil))
-            if x > 0 && x + size.width > width { x = 0; y += rowHeight; rowHeight = 0 }
+            let size = subview.sizeThatFits(ProposedViewSize(width: min(subview.sizeThatFits(.unspecified).width, width), height: nil))
+            if x > 0 && x + size.width > width {
+                x = 0; y += rowHeight + 2; rowHeight = 0
+            }
             points.append(CGPoint(x: x, y: y))
             x += size.width + 10; rowHeight = max(rowHeight, size.height)
         }

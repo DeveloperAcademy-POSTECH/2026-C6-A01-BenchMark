@@ -36,6 +36,9 @@ struct OiPhotoCropEditor: View {
                 }
             }
         }.preferredColorScheme(.dark)
+            .environment(\.colorScheme, .dark)
+            .tint(.white)
+            .toolbarColorScheme(.dark, for: .navigationBar)
     }
 }
 

@@ -12,6 +12,95 @@ import XCTest
 
 @MainActor
 final class CampusMapInteractionTests: XCTestCase {
+    func testCenterLocationTracksMapAndRejectsBuildings() async throws {
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        let scene = CampusExploreScene()
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controller.view.addSubview(canvas)
+        window.isHidden = false
+        defer {
+            scene.endPlacement()
+            scene.suspendForARCamera()
+            canvas.removeFromSuperview()
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+        }
+        await scene.load()
+        window.layoutIfNeeded()
+        canvas.layoutIfNeeded()
+        let data = try XCTUnwrap(scene.data)
+        let point = try XCTUnwrap(data.graph.values.map { data.world($0.p) }.first { p in
+            [-1, 0, 1].allSatisfy { x in
+                [-1, 0, 1].allSatisfy { z in
+                    data.placementError(at: p + SIMD3(Float(x), 0, Float(z))) == nil
+                }
+            }
+        })
+        let original = data.coordinate(point)
+        scene.beginCenterLocation(latitude: original.latitude, longitude: original.longitude)
+        XCTAssertFalse(scene.placementReady, "Location picking must not require loading a character")
+        XCTAssertTrue(scene.selectingCenterLocation)
+        let first = try XCTUnwrap(scene.draftPoint)
+        XCTAssertLessThan(simd_distance(first, point), 0.001)
+        scene.setMapLabelPresentation(enabled: true, topInset: 70, bottomInset: 190)
+
+        let pan = TestTilt()
+        pan.touches = 1
+        pan.state = .began
+        scene.perform(NSSelectorFromString("pan:"), with: pan)
+        pan.state = .changed
+        pan.delta = CGPoint(x: 2, y: -2)
+        scene.perform(NSSelectorFromString("pan:"), with: pan)
+        let moved = try XCTUnwrap(scene.draftPoint)
+        XCTAssertGreaterThan(simd_distance(first, moved), 0.001)
+        pan.state = .ended
+        scene.perform(NSSelectorFromString("pan:"), with: pan)
+
+        let pinch = TestPinch()
+        pinch.state = .began
+        scene.perform(NSSelectorFromString("pinch:"), with: pinch)
+        pinch.state = .changed; pinch.scale = 1.2
+        scene.perform(NSSelectorFromString("pinch:"), with: pinch)
+        pinch.state = .ended
+        scene.perform(NSSelectorFromString("pinch:"), with: pinch)
+        pan.touches = 2; pan.state = .began
+        scene.perform(NSSelectorFromString("pan:"), with: pan)
+        pan.state = .changed; pan.delta = CGPoint(x: 20, y: 12)
+        scene.perform(NSSelectorFromString("pan:"), with: pan)
+        pan.state = .ended
+        scene.perform(NSSelectorFromString("pan:"), with: pan)
+
+        let confirmed = try XCTUnwrap(scene.confirmCenterLocation())
+        let selected = data.world(latitude: confirmed.latitude, longitude: confirmed.longitude)
+        let map = try XCTUnwrap(canvas.map)
+        let camera = try XCTUnwrap(map.scene.anchors.flatMap { Array($0.children) }
+            .compactMap { $0 as? PerspectiveCamera }.first)
+        let matrix = camera.transform.matrix
+        let forward = -SIMD3(matrix.columns.2.x, matrix.columns.2.y, matrix.columns.2.z)
+        let ray = simd_normalize(selected - camera.position(relativeTo: nil))
+        XCTAssertGreaterThan(simd_dot(ray, forward), 0.99999, "Saved location must lie below the fixed optical-center pin")
+
+        // A building selection cannot silently keep the preceding valid location.
+        let building = try XCTUnwrap(data.pois.first { data.placementError(at: data.world($0.p)) != nil })
+        scene.focusPlaceForPlacement(building.id)
+        XCTAssertNil(scene.draftPoint)
+        XCTAssertNotNil(scene.centerLocationError)
+        XCTAssertNil(scene.confirmCenterLocation())
+        scene.endPlacement()
+        XCTAssertFalse(scene.selectingCenterLocation)
+        XCTAssertNil(scene.draftPoint)
+        scene.beginCenterLocation(latitude: original.latitude, longitude: original.longitude)
+        let reopened = try XCTUnwrap(scene.confirmCenterLocation())
+        XCTAssertEqual(reopened.latitude, original.latitude, accuracy: 0.000001)
+        XCTAssertEqual(reopened.longitude, original.longitude, accuracy: 0.000001)
+    }
+
     func testOverviewPinchReversalAndTilt() async throws {
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: windowScene)
