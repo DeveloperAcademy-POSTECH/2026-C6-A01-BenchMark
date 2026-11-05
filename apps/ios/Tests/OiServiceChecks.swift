@@ -287,7 +287,7 @@ struct OiServiceChecks {
         // Old customization records have no wardrobe key and must still recover.
         let oldCustomization = try JSONEncoder().encode(record.customization!)
         let oldRecovered = try JSONDecoder().decode(OiDraftCustomization.self, from: oldCustomization)
-        precondition(oldRecovered.wardrobe == nil)
+        precondition(oldRecovered.wardrobe == nil && oldRecovered.card == nil)
         let future = try JSONDecoder().decode(OiWardrobeLook.self, from: Data(#"{"top":"future-garment","bottom":"retired-pants","topColor":4294967295}"#.utf8))
         precondition(future.top == .tshirt && future.bottom == .long && future.topColor == 0xFFFFFF)
         precondition(future.fabrics.isEmpty, "Legacy looks have no fabric override")
@@ -362,6 +362,29 @@ struct OiServiceChecks {
         look.costume = .dinosaur
         print("PASS: complete costume persistence, unsupported ID fallback and individual-look restoration")
         record.customization?.wardrobe = look
+        var card = OiCardDesign()
+        card.borderFill = .gradient; card.borderFirst = 0xF9F2E5; card.borderSecond = 0xE4E7EB
+        card.caption = "함께한 캠퍼스"; card.anonymous = true; card.pattern = 3
+        card.characterPlacement = OiCardPlacement(x: 0.31, y: 0.68, scale: 2.4)
+        card.backgroundPlacement = OiCardPlacement(x: 0.44, y: 0.62, scale: 1.8)
+        // New optional pose must decode old card drafts and survive account-vault reopening.
+        let legacyCardBytes = try JSONEncoder().encode(card)
+        let legacyCard = try JSONDecoder().decode(OiCardDesign.self, from: legacyCardBytes)
+        precondition(legacyCard.characterOrientation == nil)
+        card.characterOrientation = OiCardOrientation(yaw: .pi / 2, pitch: 0.3)
+        let invalidAngle = OiCardOrientation(yaw: .infinity, pitch: .nan).normalized
+        precondition(invalidAngle == OiCardOrientation())
+        let wrappedAngle = OiCardOrientation(yaw: 5 * .pi, pitch: 8).normalized
+        precondition(abs(wrappedAngle.yaw) <= .pi && wrappedAngle.pitch == .pi / 3)
+        let movedAngle = OiCardOrientation().rotated(horizontal: 50, vertical: 30)
+        precondition(movedAngle == OiCardOrientation(yaw: -0.5, pitch: 0.3))
+        precondition(movedAngle.cacheIdentity != OiCardOrientation().cacheIdentity)
+        precondition(OiCardOrientation(yaw: 2 * .pi).cacheIdentity == OiCardOrientation().cacheIdentity)
+        card.backgroundPhoto = Data([1,2,3]); card.portraitPNG = Data([4,5,6]); card.portraitKey = "test-look"
+        record.customization?.card = card
+        let bounded = OiCardPlacement(x: .infinity, y: -8, scale: 100).normalized
+        precondition(bounded.x == 0.5 && bounded.y == -0.25 && bounded.scale == 4)
+        precondition(OiCardPlacement(x: 0.2, y: 0.8, scale: 1.7).normalized == OiCardPlacement(x: 0.2, y: 0.8, scale: 1.7))
         record.removedMediaPaths = [oldPath]
         record.removedPhotoIDs = [removedPhoto]
         try await vault.saveAttachment(Data([1,2,3]), owner: owner, id: photoID)
@@ -375,6 +398,9 @@ struct OiServiceChecks {
         precondition(recovered?.customization?.firstColor == 0xABCDEF && recovered?.customization?.garmentColors["모자"] == 0x445566)
         precondition(recovered?.customization?.showsCharacter == false && recovered?.removedMediaPaths == [oldPath])
         precondition(recovered?.removedPhotoIDs == [removedPhoto], "Removal intent must survive reopening after a lost receipt")
+        precondition(recovered?.customization?.card == card, "Card framing, portrait, background, caption and privacy choice must survive vault reopening")
+        precondition(recovered?.customization?.card?.characterOrientation == card.characterOrientation)
+        print("PASS: card framing, 3D orientation and artwork survive draft recovery; legacy cards and public payload unchanged")
         precondition(recovered?.customization?.wardrobe == look, "Garments and all three colors must survive reopening the account draft")
         precondition(recovered?.customization?.wardrobe?.artwork == look.artwork)
         precondition(recovered?.customization?.wardrobe?.fabrics == look.fabrics)

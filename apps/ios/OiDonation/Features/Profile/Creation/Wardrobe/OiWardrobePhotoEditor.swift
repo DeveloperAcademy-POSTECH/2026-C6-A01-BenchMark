@@ -360,7 +360,7 @@ struct OiWardrobePhotoEditor: View {
 }
 
 /// Presents from the editing panel without coupling Photos state to SwiftUI's modal bridge.
-private struct OiWardrobePhotoLibrary: UIViewControllerRepresentable {
+struct OiWardrobePhotoLibrary: UIViewControllerRepresentable {
     @Binding var isPresented: Bool
     let limit: Int
     let onSelection: ([PHPickerResult]) -> Void

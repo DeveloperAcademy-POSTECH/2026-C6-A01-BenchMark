@@ -802,7 +802,7 @@ private struct CreationCapturePage<Content: View>: View {
             OiCreationProgressHeader(step: step, onPrevious: {})
                 .padding(.horizontal, 20).padding(.top, 1).padding(.bottom, 29)
             Group {
-                if step == 3 { content() }
+                if step == 3 || step == 4 { content() }
                 else {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 20) { content() }

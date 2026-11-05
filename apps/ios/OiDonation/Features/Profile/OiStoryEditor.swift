@@ -139,7 +139,7 @@ struct OiStoryEditor: View {
                         OiStoryConsentView(clauses: OiStoryConsentClause.figmaDrafts,
                             onContinue: advance, onExit: { choosingExit = true },
                             showsHeader: false, state: $consentState)
-                    } else if step == .cucumber {
+                    } else if step == .cucumber || step == .card {
                         VStack(spacing: 0) {
                             editorStatus.padding(.horizontal, 20)
                             stepContent
@@ -457,6 +457,9 @@ struct OiStoryEditor: View {
             NavigationStack {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
+                        OiDraftCardPreview(draft: draft, customization: customization,
+                            donorName: remote.profile?.publicName ?? "").frame(width: 222, height: 308)
+                        Text("내가 꾸민 카드 · 기기 초안").font(.caption).foregroundStyle(.secondary)
                         MYCardArtwork(card: publicCard).frame(height: 280).frame(maxWidth: .infinity)
                         Text("공개 예정 카드 프리셋").font(.caption).foregroundStyle(.secondary)
                         Text("커스텀 색상과 의상 설정은 이 기기의 미리보기에만 보관됩니다.").font(.caption)
@@ -601,9 +604,9 @@ struct OiStoryEditor: View {
                 onPhotoEditingChanged: { wardrobePhotoEditing = $0 })
         case .card:
             OiCardCustomizationStep(draft: $draft, customization: $customization, assets: remote.assets,
+                donorName: remote.profile?.publicName ?? "",
                 canContinue: true, isFinished: customizationReady, onContinue: toggleCustomizationReady)
-            Button("초안 저장·사진 업로드") { Task { _ = await saveCurrent() } }
-                .disabled(!canSubmit).accessibilityIdentifier("oi.story.save")
+
         }
     }
 

@@ -237,6 +237,58 @@ struct OiDraftCustomization: Codable, Equatable {
     var garmentColors: [String: UInt32] = [:]
     /// Nil preserves the existing preset for older drafts. A look is local until the shared asset API exists.
     var wardrobe: OiWardrobeLook?
+    var card: OiCardDesign?
+}
+
+/// Card-space coordinates shared by the small editor frame and the final card.
+/// Values are normalized, so changing device size cannot change the chosen crop.
+struct OiCardPlacement: Codable, Equatable {
+    var x = 0.5
+    var y = 0.5
+    var scale = 1.0
+    var normalized: Self {
+        Self(x: x.isFinite ? min(1.25, max(-0.25, x)) : 0.5,
+             y: y.isFinite ? min(1.25, max(-0.25, y)) : 0.5,
+             scale: scale.isFinite ? min(4, max(0.35, scale)) : 1)
+    }
+}
+
+/// Radians around the portrait camera's target. This never changes the AR model.
+struct OiCardOrientation: Codable, Equatable {
+    var yaw = 0.0
+    var pitch = 0.0
+    var normalized: Self {
+        let turn = yaw.isFinite ? yaw.remainder(dividingBy: 2 * .pi) : 0
+        return Self(yaw: turn == 0 ? 0 : turn,
+                    pitch: pitch.isFinite ? min(.pi / 3, max(-.pi / 3, pitch)) : 0)
+    }
+    func rotated(horizontal: Double, vertical: Double) -> Self {
+        let current = normalized
+        return Self(yaw: current.yaw - horizontal * 0.01,
+                    pitch: current.pitch + vertical * 0.01).normalized
+    }
+    /// Cheap to compute on each gesture event; wardrobe/photo bytes are hashed separately.
+    var cacheIdentity: String {
+        let value = normalized
+        return "\(value.yaw.bitPattern)-\(value.pitch.bitPattern)"
+    }
+}
+
+/// Kept in the protected local draft, never added implicitly to the public API payload.
+struct OiCardDesign: Codable, Equatable {
+    var borderFill: OiDraftCustomization.Fill = .solid
+    var borderFirst: UInt32 = 0xD9D9D9
+    var borderSecond: UInt32 = 0xFFFFFF
+    var pattern: Int? = nil
+    var caption: String? = nil
+    var anonymous = false
+    var characterPlacement = OiCardPlacement()
+    /// Optional so drafts saved before 3D rotation still decode at the front angle.
+    var characterOrientation: OiCardOrientation? = nil
+    var backgroundPlacement = OiCardPlacement()
+    var backgroundPhoto: Data? = nil
+    var portraitPNG: Data? = nil
+    var portraitKey: String? = nil
 }
 
 enum OiDenim: String, CaseIterable, Codable, Identifiable {
