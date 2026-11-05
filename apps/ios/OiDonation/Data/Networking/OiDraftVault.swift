@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  OiDraftVault.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 10/28/26.
+//
 
 import Foundation
 
@@ -11,17 +16,25 @@ struct OiLocalDraft: Codable, Identifiable, Equatable {
     var creationStep: String?
     var customization: OiDraftCustomization?
     var removedMediaPaths: [String]?
+    var removedPhotoIDs: Set<UUID>?
     var id: UUID { draft.id }
 }
 
 struct OiDraftListing {
     let drafts: [OiLocalDraft]
     let unreadableFiles: [String]
+    let pendingDiscardCount: Int
 }
 
 private struct OiUnreadableDraftsError: LocalizedError {
     let count: Int
     var errorDescription: String? { "기기 초안 \(count)개를 읽지 못했습니다. 원본은 그대로 보관했습니다." }
+}
+
+struct OiDraftDiscardCleanupError: LocalizedError {
+    var errorDescription: String? {
+        "초안은 목록에서 제거했지만 첨부 파일 정리를 끝내지 못했어요. 버리기를 다시 시도해 주세요."
+    }
 }
 
 struct OiEvidenceOperation: Codable, Equatable {
@@ -66,7 +79,11 @@ actor OiDraftVault {
     }
 
     func load(owner: UUID, id: UUID) throws -> OiLocalDraft? {
-        let url = try ownerDirectory(owner).appending(path: "draft-\(id.uuidString).json")
+        let folder = try ownerDirectory(owner)
+        guard !FileManager.default.fileExists(atPath: discardMarker(in: folder, id: id).path) else {
+            throw OiDraftDiscardCleanupError()
+        }
+        let url = folder.appending(path: "draft-\(id.uuidString).json")
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         return try JSONDecoder().decode(OiLocalDraft.self, from: Data(contentsOf: url))
     }
@@ -86,17 +103,25 @@ actor OiDraftVault {
     func listing(owner: UUID) throws -> OiDraftListing {
         let folder = try ownerDirectory(owner)
         let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
-            .filter { $0.lastPathComponent.hasPrefix("draft-") && $0.pathExtension == "json" }
         var drafts: [OiLocalDraft] = []
         var unreadableFiles: [String] = []
-        for file in files {
+        var pendingDiscardCount = 0
+        for file in files where file.pathExtension == "json" {
+            let name = file.deletingPathExtension().lastPathComponent
+            if name.hasPrefix("discarded-draft-"), let id = UUID(uuidString: String(name.dropFirst("discarded-draft-".count))) {
+                // A marker exists only after the user chose to discard this draft.
+                do { try discard(owner: owner, id: id) }
+                catch { pendingDiscardCount += 1 }
+                continue
+            }
+            guard name.hasPrefix("draft-") else { continue }
             // File-system failures must remain visible; only decoding failures are isolated.
             let data = try Data(contentsOf: file)
             do { drafts.append(try JSONDecoder().decode(OiLocalDraft.self, from: data)) }
             catch is DecodingError { unreadableFiles.append(file.lastPathComponent) }
         }
         return OiDraftListing(drafts: drafts.sorted { $0.id.uuidString < $1.id.uuidString },
-                              unreadableFiles: unreadableFiles.sorted())
+                              unreadableFiles: unreadableFiles.sorted(), pendingDiscardCount: pendingDiscardCount)
     }
 
     /// Copies account-scoped drafts after a verified server merge. Originals are never removed.
@@ -166,12 +191,31 @@ actor OiDraftVault {
     }
 
     func discard(owner: UUID, id: UUID) throws {
-        guard let record = try load(owner: owner, id: id) else { return }
-        for photoID in record.photos {
-            let url = try ownerDirectory(owner).appending(path: "attachment-\(photoID.uuidString)")
-            if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+        let folder = try ownerDirectory(owner)
+        let files = FileManager.default
+        let marker = discardMarker(in: folder, id: id)
+        if !files.fileExists(atPath: marker.path) {
+            guard let record = try load(owner: owner, id: id) else { return }
+            guard record.id == id else { throw OiServiceError.invalidInput }
+            let active = folder.appending(path: "draft-\(id.uuidString).json")
+            // A same-directory rename hides the draft before removing any of its photos.
+            try files.moveItem(at: active, to: marker)
         }
-        try FileManager.default.removeItem(at: ownerDirectory(owner).appending(path: "draft-\(id.uuidString).json"))
+        do {
+            let record = try JSONDecoder().decode(OiLocalDraft.self, from: Data(contentsOf: marker))
+            guard record.id == id else { throw OiServiceError.invalidInput }
+            for photoID in record.photos {
+                let url = folder.appending(path: "attachment-\(photoID.uuidString)")
+                if files.fileExists(atPath: url.path) { try files.removeItem(at: url) }
+            }
+            try files.removeItem(at: marker)
+        } catch {
+            throw OiDraftDiscardCleanupError()
+        }
+    }
+
+    private func discardMarker(in folder: URL, id: UUID) -> URL {
+        folder.appending(path: "discarded-draft-\(id.uuidString).json")
     }
 
     func schoolEvidenceReview(owner: UUID) throws -> OiSavedSchoolEvidenceReview? {

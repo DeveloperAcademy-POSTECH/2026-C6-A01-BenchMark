@@ -25,6 +25,7 @@ struct OiWardrobePhotoEditor: View {
     @GestureState private var isTransforming = false
     @State private var renderTask: Task<Void, Never>?
     @State private var renderPending = false
+    @State private var renderGeneration = UUID()
     @State private var guideEdges: [OiPhotoSide: [[[Double]]]] = [:]
 
     init(slot: OiPhotoSlot, look: OiWardrobeLook, onSave: @escaping (OiWardrobeArtwork) -> Void) {
@@ -68,7 +69,15 @@ struct OiWardrobePhotoEditor: View {
                             if let message = error ?? scene.error ?? scene.photoPreviewError {
                                 Text(message).font(.caption).foregroundStyle(.red).accessibilityIdentifier("photo-editor-error")
                             }
-                            if importInProgress { ProgressView("사진을 불러오는 중…") }
+                            if !restoreFailed && (scene.error != nil || scene.photoPreviewError != nil) {
+                                Button("미리보기 다시 시도") {
+                                    if scene.error != nil { scene.update(look, retry: true) }
+                                    requestPreview()
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(scene.loading || renderTask != nil)
+                            }
+                            if importInProgress { ProgressView().accessibilityLabel("사진을 불러오는 중…") }
                             Picker("편집할 면", selection: $side) {
                                 ForEach(OiPhotoSide.allCases) { Text($0.title).tag($0) }
                             }.pickerStyle(.segmented).accessibilityIdentifier("photo-side")
@@ -95,9 +104,14 @@ struct OiWardrobePhotoEditor: View {
                     Button("취소") { dismiss() }.disabled(saving).accessibilityIdentifier("photo-cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(saving ? "저장 중…" : "적용") { save() }.bold()
-                        .disabled(importInProgress || saving || restoreFailed || scene.loading || scene.error != nil || scene.photoPreviewError != nil)
-                        .accessibilityIdentifier("photo-apply")
+                    Button(action: save) {
+                        if saving { ProgressView().accessibilityHidden(true) }
+                        else { Text("적용").bold() }
+                    }
+                    .accessibilityLabel("적용")
+                    .accessibilityValue(saving ? "저장 중" : "")
+                    .disabled(importInProgress || saving || restoreFailed || renderTask != nil || scene.loading || scene.error != nil || scene.photoPreviewError != nil)
+                    .accessibilityIdentifier("photo-apply")
                 }
             }
         }
@@ -115,11 +129,11 @@ struct OiWardrobePhotoEditor: View {
             }
              scene.angle(side == .front ? 0 : .pi); requestPreview()
         }
-        .onDisappear { renderTask?.cancel(); renderTask = nil; scene.release() }
+        .onDisappear { stopPreview(); scene.release() }
         .onChange(of: phase) { _, value in
             // System presentations can temporarily make the scene inactive.
             // Keep the existing preview alive until the app actually backgrounds.
-            if value == .background { renderTask?.cancel(); scene.release() }
+            if value == .background { stopPreview(); scene.release() }
             else if value == .active { requestPreview() }
         }
         .onChange(of: draft.layers) { _, _ in requestPreview() }
@@ -135,21 +149,16 @@ struct OiWardrobePhotoEditor: View {
     }
 
     private var photoControls: some View {
-        HStack(spacing: 10) {
-            Button {
-                guard remaining > 0, !importInProgress, !isPhotoPickerPresented else { return }
-                selection = []
-                pickerSelectionLimit = remaining
-                isPhotoPickerPresented = true
-            } label: {
-                Label("사진 추가 \(draft.layers.count)/8", systemImage: "photo.badge.plus")
-                    .frame(maxWidth: .infinity, minHeight: 44).foregroundStyle(.white)
-            }.buttonStyle(.borderedProminent).disabled(remaining == 0 || importInProgress || restoreFailed).accessibilityIdentifier("photo-import")
-            Button("샘플 추가") {
-                do { add(try OiPhotoRenderer.asset(OiPhotoRenderer.sample())) }
-                catch { self.error = error.localizedDescription }
-            }.font(.caption.bold()).disabled(remaining == 0 || importInProgress || restoreFailed).accessibilityIdentifier("photo-sample")
-        }
+        Button {
+            guard remaining > 0, !importInProgress, !isPhotoPickerPresented else { return }
+            selection = []
+            pickerSelectionLimit = remaining
+            isPhotoPickerPresented = true
+        } label: {
+            Label("사진 추가 \(draft.layers.count)/8", systemImage: "photo.badge.plus")
+                .frame(maxWidth: .infinity, minHeight: 44).foregroundStyle(.white)
+        }.buttonStyle(.borderedProminent).disabled(remaining == 0 || importInProgress || restoreFailed)
+            .accessibilityIdentifier("photo-import")
     }
     private var layerPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -333,10 +342,12 @@ struct OiWardrobePhotoEditor: View {
         if failures > 0 { error = "사진 \(failures)장을 불러오지 못했어요. 나머지 사진은 추가했어요." }
     }
     private func requestPreview() {
+        guard phase != .background else { return }
         renderPending = true
         guard renderTask == nil else { return }
+        let generation = renderGeneration
         renderTask = Task { @MainActor in
-            defer { renderTask = nil }
+            defer { if renderGeneration == generation { renderTask = nil } }
             while renderPending && !Task.isCancelled {
                 renderPending = false
                 let image = OiPhotoRenderer.atlas(layers: draft.layers, assets: draft.assets, panelSize: 512, color: slot.color(in: look), fabric: slot.fabric(in: look))
@@ -344,6 +355,12 @@ struct OiWardrobePhotoEditor: View {
                 try? await Task.sleep(for: .milliseconds(50))
             }
         }
+    }
+    private func stopPreview() {
+        renderGeneration = UUID()
+        renderTask?.cancel()
+        renderTask = nil
+        renderPending = false
     }
     private func save() {
         saving = true

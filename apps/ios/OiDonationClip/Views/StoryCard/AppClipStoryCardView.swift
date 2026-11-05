@@ -11,6 +11,8 @@ import UIKit
 struct AppClipStoryCardView: View {
     let experience: AppClipExperience
     let isCollected: Bool
+    var cancelTitle = "삭제"
+    var notice: String? = nil
     let onCollect: () -> Void
     let onCancel: () -> Void
 
@@ -26,8 +28,9 @@ struct AppClipStoryCardView: View {
             isCollected: isCollected,
             collectTitle: "이 기기에 보관하기",
             collectedTitle: "이 기기에 보관됨",
-            cancelTitle: "삭제",
+            cancelTitle: cancelTitle,
             accessibilityPrefix: "appclip.storyCard",
+            notice: notice,
             onCollect: onCollect,
             onCancel: onCancel
         ) {
@@ -66,8 +69,9 @@ private struct StoryCardImage: View {
                     AsyncImage(url: url, transaction: Transaction(animation: reduceMotion ? nil : .easeInOut(duration: 0.2))) { phase in
                         switch phase {
                         case .empty:
-                            ProgressView("카드를 불러오는 중이에요")
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            placeholder {
+                                ProgressView().accessibilityLabel("카드를 불러오는 중이에요")
+                            }
                         case .success(let image):
                             image
                                 .resizable()
@@ -92,7 +96,6 @@ private struct StoryCardImage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(red: 234 / 255, green: 238 / 255, blue: 226 / 255))
         .environment(\.colorScheme, .light)
         .clipped()
         .accessibilityElement(children: .contain)
@@ -109,16 +112,25 @@ private struct StoryCardImage: View {
     }
 
     private func unavailableImage(canRetry: Bool) -> some View {
-        VStack(spacing: 12) {
-            ContentUnavailableView(
-                "카드를 불러오지 못했어요",
-                systemImage: "photo",
-                description: Text("잠시 후 다시 확인해 주세요.")
-            )
-            if canRetry {
-                Button("다시 불러오기") { reloadID += 1 }
-                    .buttonStyle(.borderedProminent)
+        placeholder {
+            VStack(spacing: 12) {
+                ContentUnavailableView(
+                    "카드를 불러오지 못했어요",
+                    systemImage: "photo",
+                    description: Text("잠시 후 다시 확인해 주세요.")
+                )
+                if canRetry {
+                    Button("다시 불러오기") { reloadID += 1 }
+                        .buttonStyle(.borderedProminent)
+                }
             }
         }
+    }
+
+    private func placeholder<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(red: 234 / 255, green: 238 / 255, blue: 226 / 255),
+                        in: RoundedRectangle(cornerRadius: 13))
     }
 }

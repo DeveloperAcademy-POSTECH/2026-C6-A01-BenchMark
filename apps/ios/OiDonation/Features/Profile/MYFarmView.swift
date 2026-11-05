@@ -1,10 +1,14 @@
-// Created by 이돈혁
+//
+//  MYFarmView.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 10/28/26.
+//
 
 import SwiftUI
 
 struct MYFarmView: View {
     var remote: OiRemoteStore? = nil
-    var nickname = "농부"
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private let farmGround = Color(red: 193 / 255, green: 215 / 255, blue: 72 / 255)
 
@@ -13,16 +17,16 @@ struct MYFarmView: View {
             let isEmptyFarm = remote.hasLoadedRemote && remote.account != nil && remote.ownStories.isEmpty
             let hasPlots = remote.hasLoadedRemote && remote.account != nil && !remote.ownStories.isEmpty
             ScrollView {
-                OiConnectionStatus(remote: remote).padding(.horizontal, 20)
+                OiConnectionStatus(remote: remote, showsInitialProgress: false).padding(.horizontal, 20)
                 if !remote.hasLoadedRemote {
-                    if remote.loadError == nil { ProgressView("내 농장을 불러오는 중") }
+                    if remote.loadError == nil || remote.isRefreshing { ProgressView().accessibilityLabel("내 농장을 불러오는 중") }
                 } else if remote.account == nil {
                     ContentUnavailableView {
                         Label("로그인이 필요해요", systemImage: "person")
                     } description: {
                         Text("로그인하면 내가 등록한 오이와 이야기를 볼 수 있어요.")
                     } actions: {
-                        NavigationLink("로그인하기") { OiAccountView(remote: remote) }
+                        NavigationLink("로그인하기") { MYSettingsView(remote: remote) }
                     }.padding(.top, 170)
                 } else if remote.ownStories.isEmpty {
                     emptyFarm
@@ -61,7 +65,7 @@ struct MYFarmView: View {
     }
 
     private var farmTitle: some View {
-        Text("\(remote?.profile?.nickname ?? nickname)의 밭")
+        Text("\(remote?.profile?.farmName ?? "오이") 밭")
             .font(.custom("PearToucan-Regular", size: 35, relativeTo: .title))
             .foregroundStyle(Color(red: 126 / 255, green: 88 / 255, blue: 48 / 255))
             .lineLimit(1).minimumScaleFactor(0.6).accessibilityAddTraits(.isHeader)
@@ -133,14 +137,14 @@ struct MYFarmView: View {
                 .frame(maxWidth: .infinity)
             Text("안내된 정식 기부처의 절차를 따라 기부해요.\n작성 승인을 받은 계정에서 나만의 오이와 이야기를 만들 수 있어요.")
                 .font(.custom("Paperlogy-3Light", size: 18, relativeTo: .body)).lineSpacing(5)
-            Text("최소 기부금과 성장·보상 정책은 아직 정해지지 않았어요.")
-                .font(.custom("Paperlogy-3Light", size: 14, relativeTo: .footnote))
             NavigationLink {
                 if let remote { OiStoryListScreen(remote: remote) }
                 else {
                     ContentUnavailableView("로그인이 필요해요", systemImage: "person")
                 }
             } label: { emptyAction }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
         }.foregroundStyle(Color(red: 39 / 255, green: 49 / 255, blue: 22 / 255))
             .padding(.horizontal, 38).padding(.vertical, 24)
     }
@@ -150,8 +154,9 @@ struct MYFarmView: View {
             .multilineTextAlignment(.center).foregroundStyle(.black)
             .padding(.horizontal, 20).padding(.vertical, 15)
             .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : 284, minHeight: 68)
-            .background(.white, in: Capsule()).shadow(color: .black.opacity(0.2), radius: 5)
-            .frame(maxWidth: .infinity)
+            .background(.white, in: Capsule())
+            .contentShape(Capsule())
+            .shadow(color: .black.opacity(0.2), radius: 5)
     }
 
 }

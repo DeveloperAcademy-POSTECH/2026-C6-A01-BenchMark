@@ -10,7 +10,6 @@ struct OiCucumberCustomizationStep: View {
     var onContinue: (() -> Void)?
     @State private var tab: OiWardrobeTab = .top
     @State private var photoSlot: OiPhotoSlot?
-    @State private var showingFieldTest = false
     private var look: OiWardrobeLook { customization.wardrobe ?? OiWardrobeLook() }
 
     var body: some View {
@@ -23,7 +22,7 @@ struct OiCucumberCustomizationStep: View {
                 .background(Color("OiLight"), in: Capsule()).padding(.horizontal, 32)
 
             ZStack(alignment: .bottomTrailing) {
-                if photoSlot == nil && !showingFieldTest { OiWardrobePreview(look: look).frame(height: 300) }
+                if photoSlot == nil { OiWardrobePreview(look: look).frame(height: 300) }
                 else { Color.white.frame(height: 300) }
                 if let onContinue {
                     OiCreationDoneButton(enabled: canContinue, action: onContinue)
@@ -64,10 +63,6 @@ struct OiCucumberCustomizationStep: View {
                     }.pickerStyle(.menu)
                 }.font(.footnote).tint(Color("OiGreen"))
             }
-            Button { showingFieldTest = true } label: {
-                Label("캠퍼스에 테스트 배치", systemImage: "mappin.and.ellipse")
-                    .frame(maxWidth: .infinity, minHeight: 44)
-            }.buttonStyle(.bordered).accessibilityIdentifier("wardrobe.field.open")
             if let slot = selectedPhotoSlot { photoControls(slot) }
         }
         // Push within the creation flow instead of stacking another full-screen
@@ -75,9 +70,6 @@ struct OiCucumberCustomizationStep: View {
         // SheetBridge when the customizer itself was presented over the map.
         .navigationDestination(item: $photoSlot) { slot in
             OiWardrobePhotoEditor(slot: slot, look: look) { artwork in change { $0.artwork = artwork } }
-        }
-        .navigationDestination(isPresented: $showingFieldTest) {
-            OiWardrobeFieldTestScreen(initialLook: look, initialName: draft.cucumberName)
         }
         .onAppear {
             if customization.wardrobe == nil { customization.wardrobe = OiWardrobeLook() }
@@ -253,31 +245,3 @@ struct OiCucumberCustomizationStep: View {
         var value = look; action(&value); customization.wardrobe = value
     }
 }
-
-#if DEBUG
-struct OiWardrobePreviewHost: View {
-    var allowsDismiss = false
-    @Environment(\.dismiss) private var dismiss
-    @State private var draft = OiStoryDraft()
-    @State private var customization = OiDraftCustomization()
-    @State private var card = false
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    Text("옷장 체험 · 저장한 현장 테스트는 유지돼요")
-                        .font(.caption).foregroundStyle(Color("OiGreen"))
-                    OiCreationProgressHeader(step: card ? 4 : 3)
-                    if card { OiCardCustomizationStep(draft: $draft, customization: $customization, assets: []) }
-                    else { OiCucumberCustomizationStep(draft: $draft, customization: $customization, assets: []) }
-                }.padding(20)
-            }.background(.white).navigationTitle(card ? "카드 미리보기" : "오이 커스텀")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) { Button(card ? "옷 수정" : "완료") { card.toggle() } }
-                    if allowsDismiss { ToolbarItem(placement: .topBarLeading) { Button("닫기") { dismiss() } } }
-                }
-        }.preferredColorScheme(.light)
-    }
-}
-#endif

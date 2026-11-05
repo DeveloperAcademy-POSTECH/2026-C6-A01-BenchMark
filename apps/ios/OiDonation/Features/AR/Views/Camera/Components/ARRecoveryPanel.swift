@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  ARRecoveryPanel.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 10/28/26.
+//
 
 import SwiftUI
 
@@ -49,9 +54,9 @@ struct ARRecoveryPanel: View {
     @ViewBuilder
     private var recoveryAction: some View {
         if closing {
-            ProgressView("촬영 마무리 중…")
+            ProgressView().accessibilityLabel("촬영 마무리 중…")
         } else if starting {
-            ProgressView("카메라 다시 준비 중…")
+            ProgressView().accessibilityLabel("카메라 다시 준비 중…")
         } else if issue.canOpenSettings {
             Button(action: openSettings) {
                 Text("설정 열기").frame(maxWidth: .infinity, minHeight: 44)

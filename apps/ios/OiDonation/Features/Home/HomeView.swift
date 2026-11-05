@@ -1,19 +1,14 @@
 import SwiftUI
 
-/// The home is now the immersive campus explorer; existing account flows live in its menu.
 struct HomeView: View {
     let container: AppContainer
     let store: CampusStoryStore
     let myDemo: MYLibraryStore
     let isCameraCoverActive: Bool
-    let onCamera: () -> Void
     let onOpenProfile: () -> Void
     let onOpenStory: (String) -> Void
     var remote: OiRemoteStore? = nil
-    var onAccount: (() -> Void)? = nil
     var onCreateStory: (() -> Void)? = nil
-    var onOpenExamples: (() -> Void)? = nil
-    var onCloseExamples: (() -> Void)? = nil
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var scene = CampusExploreScene()
@@ -30,7 +25,11 @@ struct HomeView: View {
     @State private var pendingStoryID: String?
     @State private var showingRequests = false
     @State private var listIsAtTop = true
-    @State private var showingWardrobeTest = false
+
+    private var isLoadingStories: Bool {
+        guard let remote else { return false }
+        return remote.isRefreshing && !remote.hasLoadedRemote
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -40,8 +39,9 @@ struct HomeView: View {
                     mapHeader.padding(.horizontal, 20).padding(.top, region == nil ? 9 : 4)
                     Spacer()
                     if region == nil {
-                        if let remote, (remote.isRefreshing && !remote.hasLoadedRemote) || remote.loadError != nil || remote.syncWarning != nil || remote.needsReauthentication {
-                            OiConnectionStatus(remote: remote).padding(10).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 20)
+                        if let remote, remote.loadError != nil || remote.syncWarning != nil || remote.needsReauthentication {
+                            OiConnectionStatus(remote: remote, showsInitialProgress: false)
+                                .padding(10).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 20)
                         }
                         homeActions.padding(.leading, 22).padding(.trailing, 20).padding(.bottom, 0)
                     }
@@ -53,7 +53,10 @@ struct HomeView: View {
                             .accessibilityLabel("안내 닫기")
                     }.padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
                 }
-                if scene.isLoading { ProgressView("POSTECH 캠퍼스 불러오는 중").padding(22).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20)) }
+                if scene.error == nil && (scene.isLoading || (region == nil && isLoadingStories)) {
+                    ProgressView()
+                        .accessibilityLabel(scene.isLoading ? "캠퍼스 지도 불러오는 중" : "이야기 불러오는 중")
+                }
                 if let error = scene.error {
                     ContentUnavailableView { Label("지도를 불러올 수 없어요", systemImage: "map") } description: { Text(error) } actions: {
                         Button("다시 시도") { Task { await scene.load() } }
@@ -75,13 +78,12 @@ struct HomeView: View {
         .navigationDestination(for: MYDestination.self) { destination in
             switch destination {
             case .workshop:
-                MYWorkshopView(container: container, store: store, demo: myDemo, onCamera: openCamera, remote: remote)
-            case .farm: MYFarmView(remote: remote, nickname: myDemo.nickname)
-            case .collection: MYCollectionView(demo: myDemo, storyRepository: container.storyRepository, remote: remote)
-            case .school(let school): MYCollectionView(demo: myDemo, school: school, storyRepository: container.storyRepository, remote: remote)
+                MYWorkshopView(demo: myDemo, remote: remote)
+            case .farm: MYFarmView(remote: remote).id(remote?.account?.id)
+            case .collection: MYCollectionView(demo: myDemo, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
+            case .school(let school): MYCollectionView(demo: myDemo, school: school, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
             }
         }
-        .navigationDestination(isPresented: $showingWardrobeTest) { OiWardrobeFieldTestScreen() }
         .sheet(isPresented: $showingSchools) {
             CampusSchoolSearchView {
                 showingSchools = false; region = nil; expanded = false; searchResults = nil
@@ -97,46 +99,17 @@ struct HomeView: View {
             // Push only after the search cover has gone, so it cannot cover the destination.
             if let id = pendingStoryID { pendingStoryID = nil; openStory(id) }
         }) { mode in
-            CampusSearchView(mode: mode, entries: searchEntries, isExample: store.isExample) {
+            CampusSearchView(mode: mode, entries: searchEntries, isExample: store.isExample, remote: remote) {
                 pendingStoryID = $0.id; searchMode = nil
             }
         }
         .sheet(isPresented: $showingRequests) {
-            NavigationStack {
-                ContentUnavailableView("카드 요청 준비 중", systemImage: "envelope",
-                    description: Text("카드 요청은 아직 지원하지 않아요. 공개된 오이는 이야기 화면에서 수집할 수 있어요."))
-                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("닫기") { showingRequests = false } } }
-            }
+            if let remote { CampusCardRequestSheet(remote: remote).id(remote.account?.id) }
         }
         .task {
             configureSceneCallbacks()
             scene.setRegionCounts(Dictionary(grouping: store.stories, by: \.regionID).mapValues(\.count))
             await scene.load()
-            #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("-campus-map-browsing-check") { scene.checkMapBrowsing() }
-            if ProcessInfo.processInfo.arguments.contains("-campus-map-label-check") { await scene.checkMapLabels() }
-            if ProcessInfo.processInfo.arguments.contains("-campus-renderer-check") { await scene.checkRendererRestoration() }
-            if ProcessInfo.processInfo.arguments.contains("-campus-placement-check") {
-                await scene.preparePlacements(); scene.checkPrecisePlacement()
-            }
-            if ProcessInfo.processInfo.arguments.contains("-campus-schools-preview") { showingSchools = true }
-            if ProcessInfo.processInfo.arguments.contains("-campus-region-preview"), let first = CampusRegion.campus.first {
-                scene.onRegion?(first)
-                if ProcessInfo.processInfo.arguments.contains("-campus-expanded-preview") { expanded = true }
-                if ProcessInfo.processInfo.arguments.contains("-campus-list-motion-preview") {
-                    do {
-                        try await Task.sleep(for: .seconds(2))
-                        setListExpanded(true)
-                        try await Task.sleep(for: .seconds(2))
-                        setListExpanded(false)
-                    } catch is CancellationError {
-                        return
-                    } catch {
-                        assertionFailure("Unexpected preview clock failure: \(error)")
-                    }
-                }
-            }
-            #endif
         }
         .onAppear { isOnScreen = true; scene.setVisible(!isCameraCoverActive && scenePhase == .active) }
         .onDisappear { isOnScreen = false; scene.suspendForARCamera() }
@@ -146,8 +119,7 @@ struct HomeView: View {
             if active {
                 scene.suspendForARCamera()
             } else {
-                isOnScreen = true
-                scene.setVisible(scenePhase == .active)
+                scene.setVisible(isOnScreen && scenePhase == .active)
             }
         }
         .onChange(of: store.stories) { _, _ in
@@ -156,16 +128,6 @@ struct HomeView: View {
                 scene.showStoriesInCurrentArea(region, stories: searchResults == nil ? store.stories(in: region.id, sortedBy: sort) : store.stories)
                 if searchResults != nil { searchResults = scene.visibleStoryIDs() }
             }
-        }
-        .onChange(of: store.isExample) { _, example in
-            configureSceneCallbacks()
-            // Keep the current ARView/scene graph alive when changing the data source.
-            sort = .latest; expanded = false; searchResults = nil
-            if example, let first = CampusRegion.campus.first {
-                region = first
-                scene.focus(first, stories: store.stories(in: first.id, sortedBy: .latest))
-                distances = scene.distances()
-            } else { region = nil; scene.showOverview() }
         }
     }
 
@@ -203,43 +165,33 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Button(action: onOpenProfile) {
                     HStack(spacing: -12) {
-                        MYFarmerArtwork(ownerID: remote?.account?.id)
+                        MYFarmerArtwork(ownerID: remote?.account?.id, outfit: remote?.farmerOutfit)
                             .frame(width: 38, height: 38).background(CampusStyle.secondaryAction, in: Circle())
                             .clipShape(Circle()).overlay(Circle().stroke(CampusStyle.green, lineWidth: 1.5))
                             .zIndex(1)
-                        Text(myDemo.nickname).font(CampusStyle.medium(14)).tracking(0.28)
+                        Text(remote?.profile?.farmName ?? "오이").font(CampusStyle.medium(14)).tracking(0.28)
                             .lineLimit(1).padding(.leading, 24).padding(.trailing, 15).padding(.vertical, 2)
                             .background(.white, in: Capsule())
                     }.shadow(color: CampusStyle.mapAction.opacity(0.4), radius: 7, y: 3)
                         .frame(minHeight: 44)
-                }.buttonStyle(.plain).accessibilityLabel("\(myDemo.nickname)의 농부 프로필")
+                }.buttonStyle(.plain).accessibilityLabel("\(remote?.profile?.farmName ?? "오이")의 농부 프로필")
                     .accessibilityIdentifier("campus.profile")
                 Button(action: onOpenProfile) {
-                    Circle()
-                        .fill(Color(red: 1, green: 247 / 255, blue: 219 / 255))
-                        .frame(width: 100, height: 100)
-                        .overlay {
-                            Image("CampusMyHouse").resizable().scaledToFit()
-                                .frame(width: 80, height: 80).offset(y: -3)
-                        }
-                        .clipShape(Circle())
-                        .overlay {
-                            Circle().strokeBorder(Color(red: 128 / 255, green: 99 / 255, blue: 33 / 255), lineWidth: 2)
-                                .frame(width: 104, height: 104)
-                        }
-                        .shadow(color: Color(red: 120 / 255, green: 77 / 255, blue: 25 / 255), radius: 7.5)
-                        .contentShape(Circle())
-                }.buttonStyle(.plain).accessibilityLabel("MY 작업실 열기").accessibilityIdentifier("campus.workshop")
+                    CampusMyHouseButtonArtwork()
+                }.buttonStyle(CampusMyHouseButtonStyle())
+                    .accessibilityLabel("MY 작업실 열기").accessibilityIdentifier("campus.workshop")
             }.disabled(store.isExample)
             Spacer()
             VStack(spacing: 10) {
-                mapAction("envelope", label: "카드 요청", id: "campus.requests") { showingRequests = true }
+                if remote != nil {
+                    mapAction("envelope", label: "카드 요청", id: "campus.requests") { showingRequests = true }
+                }
                 mapAction("magnifyingglass", label: "오이 검색", id: "campus.search",
                     background: "CampusMapSearchBackground") { showingSearchChoice = true }
                 Button { onCreateStory?() } label: {
                     Image("CampusAddOi").renderingMode(.original).frame(width: 60, height: 60)
                         .contentShape(Circle())
-                }.buttonStyle(.plain).accessibilityLabel("오이 심기 · 작성 승인과 내 이야기")
+                }.buttonStyle(.plain).accessibilityLabel("오이 심기 · 이야기 목록")
                     .accessibilityIdentifier("placement.begin")
                     .disabled(store.isExample).opacity(store.isExample ? 0.45 : 1)
             }
@@ -261,11 +213,14 @@ struct HomeView: View {
     private var searchEntries: [CampusSearchEntry] {
         store.stories.map { story in
             let live = remote?.stories.first { $0.id.uuidString == story.id }
-            let schoolID = remote?.regions.first { $0.id == story.regionID }?.schoolId
-            let school = remote?.schools.first { $0.id == schoolID }?.name ?? "POSTECH"
-            let nickname = remote?.profiles.first { $0.id == live?.userId }?.nickname ?? (story.isExample ? story.donor : "")
+            if story.isExample { return CampusSearchEntry.example(story) }
+            let author = remote?.profiles.first { $0.id == live?.userId }
+            // Search the donor's declared school, not the campus where the cucumber was placed.
+            let schoolID = author?.schoolId
+            let school = remote?.schools.first { $0.id == schoolID }?.name ?? ""
             return CampusSearchEntry(story: story, publicID: UUID(uuidString: story.id), cucumberName: story.title,
-                code: story.id, school: school + (schoolID == "postech" || story.isExample ? " 포스텍 포항공과대학교" : ""), donorName: nickname)
+                code: story.id, school: school + (schoolID == "postech" ? " 포스텍 포항공과대학교" : ""),
+                department: author?.department ?? "", year: author?.admissionYear ?? "", donorName: author?.publicName ?? "")
         }
     }
 
@@ -274,11 +229,6 @@ struct HomeView: View {
         region = closest; expanded = false
         scene.showStoriesInCurrentArea(closest, stories: store.stories)
         distances = scene.distances(); searchResults = scene.visibleStoryIDs()
-    }
-
-    private func openCamera() {
-        scene.suspendForARCamera()
-        onCamera()
     }
 
     private func openStory(_ id: String) {
@@ -301,10 +251,7 @@ struct HomeView: View {
                 .buttonStyle(.plain).glassEffect(.regular.interactive(), in: Circle())
                 .accessibilityLabel("캠퍼스 전체 지도").accessibilityIdentifier("campus.overview")
                 Spacer()
-                if let onCloseExamples {
-                    Button("예시 닫기", action: onCloseExamples)
-                        .font(.caption).buttonStyle(.glass).accessibilityIdentifier("campus.examples.close")
-                } else { Color.clear.frame(width: 50, height: 1) }
+                Color.clear.frame(width: 50, height: 1)
             } else {
                 Button { showingSchools = true } label: {
                     HStack(spacing: 8) {
@@ -314,22 +261,7 @@ struct HomeView: View {
                 }
                 .buttonStyle(.plain).glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 20))
                 .accessibilityLabel("캠퍼스 선택").accessibilityIdentifier("campus.school")
-                .contextMenu {
-                    if let onAccount {
-                        Button(remote?.account == nil ? "로그인" : "계정", systemImage: "person.crop.circle", action: onAccount)
-                    }
-                    if let onOpenExamples {
-                        Button("예시 오이 둘러보기", systemImage: "leaf", action: onOpenExamples)
-                    }
-                    Button("내 오이 현장 테스트", systemImage: "mappin.and.ellipse") {
-                        showingWardrobeTest = true
-                    }.accessibilityIdentifier("campus.wardrobeTest.open")
-                }
                 Spacer()
-                if let onCloseExamples {
-                    Button("예시 닫기", action: onCloseExamples)
-                        .buttonStyle(.glass).accessibilityIdentifier("campus.examples.close")
-                }
             }
         }
         .overlay(alignment: .top) {
@@ -371,8 +303,8 @@ struct HomeView: View {
                         Button { sort = item; distances = scene.distances() } label: {
                             Text(item.rawValue).font(CampusStyle.body(16)).tracking(0.32)
                                 .padding(.horizontal, 12).frame(height: 29)
-                                .foregroundStyle(sort == item ? Color(red: 247/255, green: 1, blue: 233/255) : .black)
-                                .background(sort == item ? CampusStyle.lightGreen : .white, in: Capsule())
+                                .foregroundStyle(sort == item ? .white : .black)
+                                .background(sort == item ? CampusStyle.sectionGreen : .white, in: Capsule())
                                 .frame(minHeight: 44).contentShape(Capsule())
                         }.buttonStyle(.plain).accessibilityAddTraits(sort == item ? .isSelected : [])
                     }
@@ -383,7 +315,7 @@ struct HomeView: View {
                         Button("인기순") { sort = .popular }
                     } label: {
                         Text("\(items.count)개").font(CampusStyle.medium(16)).tracking(0.32)
-                            .foregroundStyle(Color(red: 112 / 255, green: 140 / 255, blue: 64 / 255))
+                            .foregroundStyle(.black)
                             .padding(.horizontal, 16).frame(minWidth: 68).frame(height: 29)
                             .background(CampusStyle.secondaryAction, in: Capsule())
                             .frame(minHeight: 44).contentShape(Capsule())
@@ -432,4 +364,41 @@ struct HomeView: View {
         }
     }
 
+}
+
+struct CampusMyHouseButtonArtwork: View {
+    var body: some View {
+        Circle()
+            .fill(Color(red: 1, green: 247 / 255, blue: 219 / 255))
+            .frame(width: 100, height: 100)
+            .overlay {
+                // The original export has an opaque white matte and a shadow that reaches its edges.
+                Image("CampusMyHouse").resizable().scaledToFit()
+                    .frame(width: 80, height: 80)
+                    .mask { Rectangle().padding(3).blur(radius: 2) }
+                    .offset(y: -3)
+                    .blendMode(.multiply)
+            }
+            .compositingGroup()
+            .clipShape(Circle())
+            .overlay {
+                Circle().strokeBorder(Color(red: 128 / 255, green: 99 / 255, blue: 33 / 255), lineWidth: 2)
+                    .frame(width: 104, height: 104)
+            }
+            .shadow(color: Color(red: 120 / 255, green: 77 / 255, blue: 25 / 255), radius: 7.5)
+            .contentShape(Circle())
+    }
+}
+
+struct CampusMyHouseButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        makeBody(label: configuration.label, isPressed: configuration.isPressed, isEnabled: isEnabled)
+    }
+
+    func makeBody<Label: View>(label: Label, isPressed: Bool, isEnabled: Bool = true) -> some View {
+        let pressedOpacity = isPressed ? 0.8 : 1.0
+        return label.opacity(isEnabled ? pressedOpacity : 0.45)
+    }
 }

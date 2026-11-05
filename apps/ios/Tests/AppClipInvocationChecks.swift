@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  AppClipInvocationChecks.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 10/22/26.
+//
 
 import Foundation
 
@@ -244,8 +249,24 @@ struct AppClipInvocationChecks {
         require(collectionStore.cards.count == 1, "one collection record is stored per story")
         let reopenedCollectionStore = StoryCollectionStore(defaults: collectionDefaults)
         require(reopenedCollectionStore.cards == collectionStore.cards, "full app can reopen App Clip collection records")
-        reopenedCollectionStore.remove(storyID: storyCard.storyID)
-        require(reopenedCollectionStore.cards.isEmpty, "a selected preview collection record can be reset")
+        let collectionKey = "collectedStoryCards.v1"
+        let validPayload = collectionDefaults.data(forKey: collectionKey)
+        let damagedPayload = Data("invalid local collection data".utf8)
+        collectionDefaults.set(damagedPayload, forKey: collectionKey)
+        let damagedStore = StoryCollectionStore(defaults: collectionDefaults)
+        require(damagedStore.persistenceError != nil, "reopening reports unreadable App Clip records")
+        require(!damagedStore.collect(storyCard), "collect cannot overwrite unreadable records")
+        require(!reopenedCollectionStore.remove(storyID: storyCard.storyID), "delete cannot replace unreadable records")
+        require(reopenedCollectionStore.contains(storyID: storyCard.storyID), "a failed deletion retains the last readable card in memory")
+        require(collectionDefaults.data(forKey: collectionKey) == damagedPayload, "corrupt bytes survive failed mutations")
+
+        collectionDefaults.set(validPayload, forKey: collectionKey)
+        require(!reopenedCollectionStore.collect(storyCard, at: Date(timeIntervalSince1970: 3)),
+                "after recovery the original card still deduplicates")
+        require(reopenedCollectionStore.persistenceError == nil, "a readable store clears the error on retry")
+        require(reopenedCollectionStore.remove(storyID: storyCard.storyID), "a selected preview collection record can be reset")
+        require(reopenedCollectionStore.cards.isEmpty, "confirmed deletion clears the in-memory card")
+        require(StoryCollectionStore(defaults: collectionDefaults).cards.isEmpty, "confirmed deletion persists")
         collectionDefaults.removePersistentDomain(forName: collectionSuite)
 
         gameModel.reset()

@@ -27,16 +27,21 @@ struct CampusCollectionGameHost: View {
 
     var body: some View {
         Group {
-            if remote.account == nil {
+            if owner == nil {
                 NavigationStack {
-                    OiAccountView(remote: remote)
+                    MYSettingsView(remote: remote)
                         .toolbar {
                             ToolbarItem(placement: .cancellationAction) {
                                 Button("수집 닫기", action: onClose)
                             }
+                            if let account = remote.account, remote.hasLoadedRemote, !remote.isBusy, !remote.needsReauthentication {
+                                ToolbarItem(placement: .confirmationAction) {
+                                    Button("수집 계속하기") { owner = account.id }
+                                }
+                            }
                         }
                 }
-            } else if owner == nil || remote.account?.id != owner || remote.needsReauthentication {
+            } else if remote.account?.id != owner || remote.needsReauthentication {
                 ContentUnavailableView {
                     Label("로그인을 확인해 주세요", systemImage: "person.crop.circle")
                 } description: {
@@ -89,10 +94,7 @@ struct CampusCollectionGameHost: View {
             guard let request = saveRequest else { return }
             await save(request: request)
         }
-        .onChange(of: remote.account?.id) { _, account in
-            saveRequest = nil
-            if owner == nil { owner = account }
-        }
+        .onChange(of: remote.account?.id) { _, _ in saveRequest = nil }
         .onDisappear { saveRequest = nil }
         .interactiveDismissDisabled(saveRequest != nil)
         .preferredColorScheme(.light)

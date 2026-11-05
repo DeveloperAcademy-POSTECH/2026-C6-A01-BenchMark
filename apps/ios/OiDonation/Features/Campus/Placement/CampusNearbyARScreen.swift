@@ -123,7 +123,7 @@ private struct CampusNearbyStoryView: View {
         Group {
             if let story { CampusStoryDetailView(story: story, store: stories) }
             else if let error { ContentUnavailableView("이야기를 확인할 수 없어요", systemImage: "leaf", description: Text(error)) }
-            else { ProgressView("이야기 확인 중") }
+            else { ProgressView().accessibilityLabel("이야기 확인 중") }
         }
         .navigationDestination(for: CampusDestination.self) { destination in
             switch destination {

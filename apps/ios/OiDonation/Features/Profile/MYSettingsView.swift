@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  MYSettingsView.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 10/30/26.
+//
 
 import SwiftUI
 import AVFoundation
@@ -7,79 +12,179 @@ import Photos
 import UserNotifications
 
 struct MYSettingsView: View {
-    let container: AppContainer
-    let store: CampusStoryStore
-    let demo: MYLibraryStore
-    let onCamera: () -> Void
-    var remote: OiRemoteStore?
+    var demo: MYLibraryStore? = nil
+    let remote: OiRemoteStore?
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var settingsError = false
-    @State private var permissionValues: [MYPermission: String] = [:]
+    @State private var showingAcademicEditor = false
+    @State private var permissionValues: [MYPermission: PermissionStatus] = [:]
+    @State private var farmNameOwner: UUID?
+    @State private var farmNameInput = ""
+    @State private var farmNameError: String?
+    @FocusState private var farmNameFocused: Bool
+
+    private var currentFarmName: String {
+        remote?.profile?.farmName ?? "오이"
+    }
+    private var cleanedFarmName: String { farmNameInput.precomposedStringWithCanonicalMapping.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     private var schoolName: String {
         guard let id = remote?.profile?.schoolId else { return "학교를 선택해 주세요" }
-        return remote?.schools.first { $0.id == id }?.name ?? "학교 정보 확인 중"
+        return remote?.schools.first { $0.id == id }?.name ?? "학교 정보 없음"
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 40) {
-                if let remote { OiConnectionStatus(remote: remote) }
-                section("닉네임", detail: "띄어쓰기 포함 30자 이내") {
-                    NavigationLink { account } label: {
-                        editableCard(remote?.profile?.nickname ?? demo.nickname, action: "수정")
-                    }.accessibilityIdentifier("my.settings.nickname")
+                section("소셜 로그인") {
+                    if let remote {
+                        OiSignInView(remote: remote, presentation: .settings)
+                    }
                 }
-                section("학적정보") {
-                    NavigationLink {
-                        if let remote { MYSchoolSettings(remote: remote) }
-                        else { ContentUnavailableView("로그인이 필요해요", systemImage: "person") }
-                    } label: {
-                        editableCard(schoolName, prefix: "학교", action: "수정")
-                    }.accessibilityIdentifier("my.settings.school")
-                }
-                section("권한허용") {
-                    VStack(spacing: 0) {
-                        ForEach(MYPermission.allCases, id: \.self) { permission in
-                            let value = permissionValues[permission] ?? "확인 중"
-                            Button { openAppSettings() } label: {
-                                ViewThatFits(in: .horizontal) {
-                                    HStack(spacing: 12) { permissionTitle(permission.title); Spacer(minLength: 8); permissionValue(value) }
-                                    VStack(alignment: .leading, spacing: 8) { permissionTitle(permission.title); permissionValue(value) }
-                                }.padding(.horizontal, 20)
-                                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                                    .contentShape(Rectangle())
-                            }.accessibilityLabel("\(permission.title), \(value), iPhone 설정에서 변경")
+                if remote?.account != nil || demo != nil {
+                    section("본인인증") {
+                        Button {} label: {
+                            Text("본인 인증하기")
+                                .font(CampusStyle.semibold(18))
+                                .tracking(0.36)
+                                .foregroundStyle(CampusStyle.green)
+                                .padding(.vertical, 20)
+                                .frame(maxWidth: .infinity, minHeight: 69)
+                                .background(Color(white: 243 / 255), in: RoundedRectangle(cornerRadius: 15))
+                                .overlay { RoundedRectangle(cornerRadius: 15).stroke(Color(white: 205 / 255), lineWidth: 1) }
+                        }
+                        .disabled(true)
+                        .accessibilityIdentifier("my.settings.identity")
+                    }
+                    section("학적정보") {
+                        schoolRow
+                        if let remote, let owner = remote.account?.id, remote.hasLoadedRemote {
+                            Button { showingAcademicEditor = true } label: {
+                                settingsCard(action: "수정") {
+                                    Text("기부자 검색 정보").font(CampusStyle.medium(18))
+                                }
+                            }
+                            .disabled(remote.needsReauthentication || remote.isBusy)
+                            .accessibilityIdentifier("my.settings.academic.edit")
+                            .sheet(isPresented: $showingAcademicEditor) {
+                                OiPublicAcademicEditor(remote: remote, owner: owner)
+                            }
                         }
                     }
-                    Text("권한은 iPhone 설정에서 변경할 수 있어요.")
-                        .font(CampusStyle.body(14)).foregroundStyle(.secondary)
+                    section("권한허용", detail: "iPhone 설정에서 변경") {
+                        if permissionValues.count < MYPermission.allCases.count {
+                            ProgressView().accessibilityLabel("기기 권한 확인 중")
+                        }
+                        VStack(spacing: 0) {
+                            ForEach(MYPermission.allCases, id: \.self) { permission in
+                                permissionRow(permission)
+                            }
+                        }
+                    }
+                    section("내 농장 이름", detail: "띄어쓰기 포함 6자 이내") {
+                        farmNameRow
+                            .accessibilityIdentifier("my.settings.farm")
+                    }
+                    VStack(alignment: .leading, spacing: 0) {
+                        if let remote {
+                            Button(role: .destructive) {
+                                Task { await remote.signOut() }
+                            } label: {
+                                Text("로그아웃")
+                                    .font(CampusStyle.medium(16))
+                                    .foregroundStyle(Color(white: 156 / 255))
+                                    .frame(minHeight: 44)
+                            }
+                            .disabled(remote.isBusy)
+                            .accessibilityIdentifier("oi.auth.signOut")
+                        }
+                        Button("회원 탈퇴") {}
+                            .font(CampusStyle.medium(16))
+                            .foregroundStyle(Color(white: 156 / 255))
+                            .frame(minHeight: 44)
+                            .disabled(true)
+                            .accessibilityIdentifier("my.settings.deleteAccount")
+                    }
                 }
-                section("로그인 계정") {
-                    NavigationLink { account } label: {
-                        editableCard(remote?.account?.email ?? (remote?.account == nil ? "로그인하기" : "로그인한 계정"), action: "관리")
-                    }.accessibilityIdentifier("my.settings.account")
-                }
-                NavigationLink {
-                    CampusProfileMenu(container: container, store: store, onCamera: onCamera, remote: remote)
-                } label: {
-                    Label("기존 메뉴 · 촬영 · 수집 목록", systemImage: "square.grid.2x2")
-                        .font(CampusStyle.body(16)).frame(minHeight: 44)
-                }
-            }.buttonStyle(.plain).padding(.horizontal, 20).padding(.top, 26).padding(.bottom, 30)
+            }.buttonStyle(.plain).padding(.horizontal, 20).padding(.top, 17).padding(.bottom, 40)
         }
         .background(Color.white.ignoresSafeArea()).foregroundStyle(.black)
-        .navigationTitle("설정")
-        .navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
-        .toolbar { ToolbarItem(placement: .principal) {
-            Text("설정").font(.custom("Paperlogy-7Bold", size: 30, relativeTo: .title))
-                .foregroundStyle(Color(red: 117 / 255, green: 75 / 255, blue: 0))
-        } }
+        .toolbar(.hidden, for: .navigationBar)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            OiSettingsHeader(title: "설정", back: { dismiss() })
+        }
         .task(id: scenePhase) { if scenePhase == .active { await refreshPermissions() } }
+        .onChange(of: remote?.account?.id) { _, _ in
+            resetFarmNameEditor()
+            showingAcademicEditor = false
+        }
         .alert("설정을 열 수 없어요", isPresented: $settingsError) {
             Button("확인", role: .cancel) {}
         } message: { Text("iPhone의 설정 앱에서 오이기부의 권한과 위치 접근을 확인해 주세요.") }
+    }
+
+    @ViewBuilder private var farmNameRow: some View {
+        if let remote, let owner = remote.account?.id, remote.hasLoadedRemote, !remote.needsReauthentication {
+            if farmNameOwner == owner {
+                VStack(alignment: .leading, spacing: 10) {
+                    TextField("농장 이름", text: $farmNameInput)
+                        .font(CampusStyle.semibold(18))
+                        .textInputAutocapitalization(.never)
+                        .submitLabel(.done)
+                        .focused($farmNameFocused)
+                        .onAppear { farmNameFocused = true }
+                        .onSubmit { saveFarmName(remote: remote) }
+                        .accessibilityIdentifier("my.settings.farm.input")
+                    if let farmNameError { Text(farmNameError).font(.footnote).foregroundStyle(.secondary) }
+                    HStack {
+                        Button("취소", role: .cancel, action: resetFarmNameEditor)
+                            .buttonStyle(.bordered)
+                        Button("저장") { saveFarmName(remote: remote) }
+                            .buttonStyle(.borderedProminent)
+                            .tint(CampusStyle.green)
+                            .disabled(cleanedFarmName.isEmpty || cleanedFarmName.unicodeScalars.count > 6)
+                            .accessibilityIdentifier("my.settings.farm.save")
+                    }
+                }
+                .disabled(remote.isBusy)
+                .padding(.horizontal, 20).padding(.vertical, 18)
+                .background(Color(white: 243 / 255), in: RoundedRectangle(cornerRadius: 15))
+            } else {
+                Button {
+                    farmNameInput = currentFarmName
+                    farmNameOwner = owner
+                } label: {
+                    settingsCard(action: "수정") { farmNameLabel }
+                }.accessibilityIdentifier("my.settings.farm.edit")
+            }
+        } else {
+            settingsCard { farmNameLabel }.accessibilityIdentifier("my.settings.farm.edit")
+        }
+    }
+
+    private func saveFarmName(remote: OiRemoteStore) {
+        let value = cleanedFarmName
+        guard let owner = farmNameOwner, remote.account?.id == owner, remote.hasLoadedRemote, !remote.isBusy,
+              !remote.needsReauthentication, !value.isEmpty, value.unicodeScalars.count <= 6 else { return }
+        farmNameError = nil
+        Task {
+            guard remote.account?.id == owner, farmNameOwner == owner, remote.hasLoadedRemote,
+                  !remote.needsReauthentication, !remote.isBusy else { return }
+            await remote.updateFarmName(value)
+            guard remote.account?.id == owner, farmNameOwner == owner else { return }
+            if let error = remote.error { farmNameError = error }
+            else { resetFarmNameEditor() }
+        }
+    }
+
+    private func resetFarmNameEditor() {
+        farmNameFocused = false
+        farmNameOwner = nil
+        farmNameInput = ""
+        farmNameError = nil
     }
 
     private func section<Content: View>(_ title: String, detail: String? = nil, @ViewBuilder content: () -> Content) -> some View {
@@ -93,58 +198,145 @@ struct MYSettingsView: View {
     }
 
     private func sectionTitle(_ value: String) -> some View {
-        Text(value).font(CampusStyle.semibold(26)).accessibilityAddTraits(.isHeader)
+        Text(value).font(CampusStyle.medium(20)).accessibilityAddTraits(.isHeader)
     }
 
     @ViewBuilder private func sectionDetail(_ value: String?) -> some View {
-        if let value { Text(value).font(.custom("Paperlogy-3Light", size: 16, relativeTo: .body)).foregroundStyle(CampusStyle.green) }
+        if let value { Text(value).font(.custom("Paperlogy-3Light", size: 12, relativeTo: .caption)).tracking(0.24).foregroundStyle(CampusStyle.green) }
     }
 
-    private func editableCard(_ value: String, prefix: String? = nil, action: String) -> some View {
-        HStack(spacing: 12) {
-            if let prefix { Text(prefix).font(CampusStyle.semibold(18)) }
-            Text(value).font(CampusStyle.semibold(18)).frame(maxWidth: .infinity, alignment: .leading)
-            Text(action).font(.system(size: 18, weight: .light)).foregroundStyle(CampusStyle.green)
-        }.foregroundStyle(CampusStyle.sectionGreen)
-            .padding(.horizontal, 20).padding(.vertical, 18).frame(maxWidth: .infinity, minHeight: 60)
-            .background(CampusStyle.mapSheet, in: RoundedRectangle(cornerRadius: 15))
-            .contentShape(RoundedRectangle(cornerRadius: 15))
+    private func profileValue(_ value: String) -> some View {
+        Text(value).font(CampusStyle.semibold(18)).tracking(0.36)
+            .foregroundStyle(CampusStyle.sectionGreen)
+    }
+
+    private var farmNameLabel: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                profileValue(currentFarmName)
+                Text("밭").font(CampusStyle.body(18))
+                    .foregroundStyle(Color(red: 139 / 255, green: 98 / 255, blue: 53 / 255))
+            }
+            Text(currentFarmName + " 밭").font(CampusStyle.semibold(18))
+                .foregroundStyle(CampusStyle.sectionGreen)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder private var schoolRow: some View {
+        if let remote {
+            NavigationLink {
+                OiSchoolEvidenceView(remote: remote)
+            } label: {
+                VStack(spacing: 4) {
+                    Text("학교 인증하기")
+                        .font(CampusStyle.semibold(18))
+                        .tracking(0.36)
+                        .foregroundStyle(CampusStyle.green)
+                    Text("대학 합격 인증 / 학생증 / 재학증명서 / 졸업증명서")
+                        .font(CampusStyle.body(12))
+                        .tracking(0.24)
+                        .foregroundStyle(Color(white: 121 / 255))
+                        .multilineTextAlignment(.center)
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, minHeight: 91)
+                .background(Color(white: 243 / 255), in: RoundedRectangle(cornerRadius: 15))
+                .overlay { RoundedRectangle(cornerRadius: 15).stroke(Color(white: 205 / 255), lineWidth: 1) }
+            }
+            .disabled(remote.needsReauthentication || remote.isBusy)
+            .accessibilityValue(schoolName)
+            .accessibilityIdentifier("my.settings.school")
+        }
+    }
+
+    private func settingsCard<Content: View>(action: String? = nil, @ViewBuilder content: () -> Content) -> some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
+        return layout {
+            content().frame(maxWidth: .infinity, alignment: .leading)
+            if let action {
+                Text(action).font(.system(size: 16, weight: .light)).underline().foregroundStyle(Color(white: 61 / 255))
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, minHeight: 60)
+        .background(Color(white: 243 / 255), in: RoundedRectangle(cornerRadius: 15))
+        .contentShape(RoundedRectangle(cornerRadius: 15))
+    }
+
+    private func permissionRow(_ permission: MYPermission) -> some View {
+        let status = permissionValues[permission]
+        return Button(action: openAppSettings) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    permissionTitle(permission.title)
+                    Spacer(minLength: 8)
+                    permissionIndicator(status)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    permissionTitle(permission.title)
+                    permissionIndicator(status)
+                }
+            }
+            .padding(.horizontal, 20)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel(permission.title)
+        .accessibilityValue(status?.label ?? "")
+        .accessibilityHint("iPhone 설정에서 변경")
     }
 
     private func permissionTitle(_ title: String) -> some View {
-        Text(title).font(.custom("Paperlogy-3Light", size: 20, relativeTo: .body)).foregroundStyle(.black)
+        Text(title).font(.custom("Paperlogy-3Light", size: 16, relativeTo: .body))
+            .tracking(0.32).foregroundStyle(.black)
     }
 
-    private func permissionValue(_ value: String) -> some View {
-        HStack(spacing: 6) {
-            Text(value).font(CampusStyle.body(14))
-            Image(systemName: "chevron.right").font(.caption)
-        }.foregroundStyle(CampusStyle.sectionGreen)
+    private func permissionIndicator(_ status: PermissionStatus?) -> some View {
+        ZStack {
+            if let isGranted = status?.isGranted {
+                Capsule().fill(isGranted ? CampusStyle.green : Color(uiColor: .tertiaryLabel))
+                    .overlay(alignment: isGranted ? .trailing : .leading) {
+                        Capsule().fill(.white).frame(width: 38, height: 24).padding(.horizontal, 2)
+                    }
+            }
+        }
+        .frame(width: 64, height: 28)
+        .accessibilityHidden(true)
+    }
+
+    private struct PermissionStatus {
+        let label: String
+        let isGranted: Bool?
     }
 
     @MainActor private func refreshPermissions() async {
-        let location: String
+        let location: PermissionStatus
         switch CLLocationManager().authorizationStatus {
-        case .authorizedAlways: location = "항상 허용"
-        case .authorizedWhenInUse: location = "사용 중 허용"
-        case .denied, .restricted: location = "허용 안 함"
-        case .notDetermined: location = "요청 전"
-        @unknown default: location = "확인 필요"
+        case .authorizedAlways: location = .init(label: "항상 허용", isGranted: true)
+        case .authorizedWhenInUse: location = .init(label: "사용 중 허용", isGranted: true)
+        case .denied, .restricted: location = .init(label: "허용 안 함", isGranted: false)
+        case .notDetermined: location = .init(label: "요청 전", isGranted: false)
+        @unknown default: location = .init(label: "확인 필요", isGranted: nil)
         }
-        let camera: String
+        let camera: PermissionStatus
         switch AVCaptureDevice.authorizationStatus(for: .video) {
-        case .authorized: camera = "허용됨"
-        case .denied, .restricted: camera = "허용 안 함"
-        case .notDetermined: camera = "요청 전"
-        @unknown default: camera = "확인 필요"
+        case .authorized: camera = .init(label: "허용됨", isGranted: true)
+        case .denied, .restricted: camera = .init(label: "허용 안 함", isGranted: false)
+        case .notDetermined: camera = .init(label: "요청 전", isGranted: false)
+        @unknown default: camera = .init(label: "확인 필요", isGranted: nil)
         }
-        let photos: String
+        let photos: PermissionStatus
         switch PHPhotoLibrary.authorizationStatus(for: .readWrite) {
-        case .authorized: photos = "모든 사진 허용"
-        case .limited: photos = "선택한 사진 허용"
-        case .denied, .restricted: photos = "허용 안 함"
-        case .notDetermined: photos = "요청 전"
-        @unknown default: photos = "확인 필요"
+        case .authorized: photos = .init(label: "모든 사진 허용", isGranted: true)
+        case .limited: photos = .init(label: "선택한 사진 허용", isGranted: true)
+        case .denied, .restricted: photos = .init(label: "허용 안 함", isGranted: false)
+        case .notDetermined: photos = .init(label: "요청 전", isGranted: false)
+        @unknown default: photos = .init(label: "확인 필요", isGranted: nil)
         }
         permissionValues[.location] = location
         permissionValues[.camera] = camera
@@ -153,22 +345,66 @@ struct MYSettingsView: View {
         let notification = await UNUserNotificationCenter.current().notificationSettings()
         guard !Task.isCancelled else { return }
         switch notification.authorizationStatus {
-        case .authorized: permissionValues[.notifications] = "허용됨"
-        case .provisional, .ephemeral: permissionValues[.notifications] = "일부 허용"
-        case .denied: permissionValues[.notifications] = "허용 안 함"
-        case .notDetermined: permissionValues[.notifications] = "요청 전"
-        @unknown default: permissionValues[.notifications] = "확인 필요"
+        case .authorized: permissionValues[.notifications] = .init(label: "허용됨", isGranted: true)
+        case .provisional, .ephemeral: permissionValues[.notifications] = .init(label: "일부 허용", isGranted: true)
+        case .denied: permissionValues[.notifications] = .init(label: "허용 안 함", isGranted: false)
+        case .notDetermined: permissionValues[.notifications] = .init(label: "요청 전", isGranted: false)
+        @unknown default: permissionValues[.notifications] = .init(label: "확인 필요", isGranted: nil)
         }
-    }
-
-    @ViewBuilder private var account: some View {
-        if let remote { OiAccountView(remote: remote) }
-        else { ContentUnavailableView("로그인이 필요해요", systemImage: "person") }
     }
 
     private func openAppSettings() {
         guard let url = URL(string: UIApplication.openSettingsURLString) else { settingsError = true; return }
         openURL(url) { accepted in if !accepted { settingsError = true } }
+    }
+}
+
+struct OiSettingsHeader: View {
+    let title: String
+    let back: () -> Void
+    var close: (() -> Void)? = nil
+    var backgroundColor: Color = .white
+    var titleColor: Color = Color(red: 117 / 255, green: 75 / 255, blue: 0)
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(action: back) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: close == nil ? 19 : 22, weight: close == nil ? .semibold : .regular))
+                    .frame(width: 50, height: 50, alignment: close == nil ? .center : .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .modifier(SettingsBackMaterial(isGlass: close == nil))
+            .accessibilityLabel("이전 화면")
+            Text(title)
+                .font(.custom(close == nil ? "Paperlogy-7Bold" : "Paperlogy-6SemiBold", size: close == nil ? 30 : 26, relativeTo: .title))
+                .foregroundStyle(titleColor)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .accessibilityAddTraits(.isHeader)
+            if let close {
+                Button(action: close) {
+                    Image(systemName: "xmark").font(.system(size: 20))
+                        .frame(width: 50, height: 50, alignment: .trailing).contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityLabel("학교 인증 닫기")
+            } else {
+                Color.clear.frame(width: 50, height: 50).accessibilityHidden(true)
+            }
+        }
+        .foregroundStyle(.black)
+        .padding(.horizontal, 20)
+        .padding(.top, 4)
+        .padding(.bottom, 13)
+        .background(backgroundColor)
+    }
+}
+
+private struct SettingsBackMaterial: ViewModifier {
+    let isGlass: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        if isGlass { content.glassEffect(.regular.interactive(), in: Circle()) }
+        else { content }
     }
 }
 
@@ -185,27 +421,14 @@ private enum MYPermission: CaseIterable, Hashable {
     }
 }
 
-private struct MYSchoolSettings: View {
-    let remote: OiRemoteStore
-    var body: some View {
-        List {
-            OiConnectionStatus(remote: remote)
-            if remote.account == nil {
-                NavigationLink("로그인하기") { OiAccountView(remote: remote) }
-            } else {
-                ForEach(remote.schools) { school in
-                    Button {
-                        Task { await remote.updateProfile(nickname: remote.profile?.nickname ?? "농부", schoolID: school.id) }
-                    } label: {
-                        HStack {
-                            Text(school.name); Spacer()
-                            if remote.profile?.schoolId == school.id { Image(systemName: "checkmark") }
-                        }.frame(minHeight: 44)
-                    }.disabled(remote.isBusy)
-                }
-                if remote.schools.isEmpty { Text("등록된 학교가 없어요.") }
-            }
-            if let error = remote.error { Text(error).foregroundStyle(.red) }
-        }.navigationTitle("학교 설정").navigationBarTitleDisplayMode(.inline)
-    }
+#Preview("Settings · Reference", traits: .fixedLayout(width: 402, height: 874)) {
+    NavigationStack { MYSettingsView(remote: OiRemoteStore()) }
+}
+
+#Preview("Settings · Small", traits: .fixedLayout(width: 375, height: 667)) {
+    NavigationStack { MYSettingsView(remote: OiRemoteStore()) }
+}
+
+#Preview("Settings · Large", traits: .fixedLayout(width: 440, height: 956)) {
+    NavigationStack { MYSettingsView(remote: OiRemoteStore()) }
 }

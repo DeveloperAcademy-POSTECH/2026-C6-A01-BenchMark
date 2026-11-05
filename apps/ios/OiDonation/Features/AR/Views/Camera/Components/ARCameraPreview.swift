@@ -27,7 +27,7 @@ struct ARCameraPreview: View {
                     }
                 }
                 if controller.loading {
-                    ProgressView("캐릭터 불러오는 중…")
+                    ProgressView().accessibilityLabel("캐릭터 불러오는 중…")
                         .padding(12).background(.regularMaterial, in: Capsule())
                 }
             }

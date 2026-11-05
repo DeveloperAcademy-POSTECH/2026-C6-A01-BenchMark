@@ -4,8 +4,7 @@ import simd
 @main struct CampusPlacementChecks {
     @MainActor static func main() throws {
         let resourceURL = URL(fileURLWithPath: CommandLine.arguments[1])
-        var map = try JSONDecoder().decode(CampusMapData.self, from: Data(contentsOf: resourceURL.appending(path: "campus-data.json")))
-        map.surface = try CampusHeightField(directory: resourceURL)
+        let map = try CampusMapData.load(from: resourceURL.appending(path: "campus-data.json"))
         for node in map.graph.values {
             guard let ll = node.wgs84 else { preconditionFailure("Missing source coordinates") }
             let world = map.world(latitude: ll[1], longitude: ll[0])
@@ -77,6 +76,20 @@ import simd
 
         let directory = FileManager.default.temporaryDirectory.appending(path: "campus-placement-tests-\(UUID())")
         defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let malformedMap = directory.appending(path: "malformed-map.json")
+        for fixture in [
+            #"{"origin":[129],"unitsPerMeter":1,"bounds":[],"buildings":[],"pois":[],"graph":{}}"#,
+            #"{"origin":[129,36],"unitsPerMeter":1,"bounds":[[[0,0],[1],[0,1]]],"buildings":[],"pois":[],"graph":{}}"#
+        ] {
+            try Data(fixture.utf8).write(to: malformedMap)
+            do {
+                _ = try CampusMapData.load(from: malformedMap)
+                preconditionFailure("Invalid map coordinates must fail before the renderer accesses them")
+            } catch let error as CocoaError {
+                precondition(error.code == .fileReadCorruptFile)
+            }
+        }
         let repository = LocalCampusPlacementRepository(url: directory.appending(path: "placements.json"))
         let store = CampusPlacementStore(repository: repository)
         store.load(map: map, storyIDs: ["example"])

@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  NFCWriteView.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 10/22/26.
+//
 
 import SwiftUI
 
@@ -94,7 +99,7 @@ struct NFCWriteView: View {
             EmptyView()
         case .working(let message):
             VStack(alignment: .leading, spacing: 12) {
-                ProgressView(message)
+                ProgressView().accessibilityLabel(Text(message))
                 Button("기록 취소") { writer.cancel() }.frame(minHeight: 44)
             }
         case .succeeded(let url):

@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  OiServiceChecks.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 10/28/26.
+//
 
 import Foundation
 
@@ -69,6 +74,61 @@ struct OiServiceChecks {
         print("PASS: school evidence summary survives reopening and is scoped to its account")
     }
 
+    private static func requestBody(_ request: URLRequest) throws -> Data {
+        var data = request.httpBody ?? Data()
+        if let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count < 0 { throw OiServiceError.unavailable }
+                if count == 0 { break }
+                data.append(buffer, count: count)
+            }
+        }
+        return data
+    }
+
+    static func checkCardRequests(api: OiServiceAPI) async throws {
+        let id = UUID()
+        let fixture: [String: String] = [
+            "id": id.uuidString, "story_title": "우리가 남긴 이야기", "requester_name": "새싹",
+            "requester_school_name": "POSTECH", "created_at": "2026-11-04T09:00:00.123456+00:00", "status": "pending"
+        ]
+        OiURLProtocol.handler = { request in
+            precondition(request.httpMethod == "POST")
+            precondition(request.value(forHTTPHeaderField: "Authorization") == "Bearer card-request-test")
+            let body = try JSONSerialization.jsonObject(with: requestBody(request)) as? [String: String]
+            switch request.url?.path {
+            case "/rest/v1/rpc/oi_card_requests":
+                precondition(body == [:])
+                return (200, try JSONSerialization.data(withJSONObject: [fixture]))
+            case "/rest/v1/rpc/oi_resolve_card_request":
+                precondition(body == ["p_request_id": id.uuidString, "p_decision": "accept"])
+                return (200, try JSONSerialization.data(withJSONObject: fixture.merging(["status": "accepted"]) { _, updated in updated }))
+            default:
+                preconditionFailure("Unexpected card request endpoint")
+            }
+        }
+        let inbox = try await api.cardRequests(token: "card-request-test")
+        precondition(inbox.count == 1 && inbox.first?.id == id && inbox.first?.status == .pending)
+        precondition(inbox.first?.storyTitle == fixture["story_title"] && inbox.first?.requesterSchoolName == "POSTECH")
+        let receipt = try await api.resolveCardRequest(id, accept: true, token: "card-request-test")
+        precondition(receipt.status == .accepted)
+        OiURLProtocol.handler = { _ in (200, try JSONSerialization.data(withJSONObject: fixture)) }
+        do {
+            _ = try await api.resolveCardRequest(id, accept: false, token: "card-request-test")
+            preconditionFailure("An uncommitted decision must not be shown as saved")
+        } catch OiServiceError.unavailable {}
+        OiURLProtocol.handler = { _ in (401, Data()) }
+        do {
+            _ = try await api.cardRequests(token: "card-request-test")
+            preconditionFailure("An unauthenticated read must not be shown as an empty inbox")
+        } catch OiServiceError.signInRequired {}
+        print("PASS: card request auth, timestamp, RPC payload and verified decision receipt")
+    }
+
     @MainActor static func main() async throws {
         try checkFieldTrial()
         try await checkSchoolReviewRecovery()
@@ -85,6 +145,7 @@ struct OiServiceChecks {
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel(); OiURLProtocol.handler = nil }
         let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        try await checkCardRequests(api: api)
         OiURLProtocol.handler = { request in
             precondition(request.url?.scheme == "https" && request.url?.host == OiServiceAPI.projectHost)
             precondition(request.value(forHTTPHeaderField: "apikey") == "sb_publishable_testing")
@@ -97,6 +158,7 @@ struct OiServiceChecks {
         }
         let profiles = try await api.rows("oi_profiles", as: OiProfile.self)
         precondition(profiles.count == 201 && Set(profiles.map(\.id)).count == 201)
+        precondition(profiles.allSatisfy { $0.publicName == nil && $0.department == nil && $0.admissionYear == nil }, "Pre-migration profile responses remain readable")
 
         let publicID = UUID()
         func publicFixture(status: String, id: UUID) throws -> Data {
@@ -145,18 +207,7 @@ struct OiServiceChecks {
         OiURLProtocol.handler = { request in
             precondition(request.url?.path == "/rest/v1/rpc/oi_mutate")
             precondition(request.value(forHTTPHeaderField: "Authorization") == "Bearer test-user-token")
-            var data = request.httpBody ?? Data()
-            if let stream = request.httpBodyStream {
-                stream.open()
-                defer { stream.close() }
-                var buffer = [UInt8](repeating: 0, count: 4096)
-                while stream.hasBytesAvailable {
-                    let count = stream.read(&buffer, maxLength: buffer.count)
-                    if count < 0 { throw OiServiceError.unavailable }
-                    if count == 0 { break }
-                    data.append(buffer, count: count)
-                }
-            }
+            let data = try requestBody(request)
             guard let body = try JSONSerialization.jsonObject(with: data) as? [String:Any] else { throw OiServiceError.unavailable }
             precondition(body["p_action"] as? String == "collect")
             return (200, Data("{\"id\":\"b1000000-0000-4000-8000-000000000020\"}".utf8))
@@ -205,6 +256,20 @@ struct OiServiceChecks {
         let removedPath = "owner/story/\(removedPhoto.uuidString.lowercased()).jpg"
         let ordered = OiEditingPhoto.ordered(local: [localA, localB], remote: [oldPath, localPath, removedPath], removed: [removedPath])
         precondition(ordered == [.uploaded(oldPath), .local(localA), .local(localB)])
+        let lateReceipt = OiEditingPhoto.ordered(local: [localA, removedPhoto],
+            remote: [oldPath, localPath, removedPath], removed: [], removedPhotoIDs: [removedPhoto])
+        precondition(lateReceipt == [.uploaded(oldPath), .local(localA)],
+                     "A locally deleted photo must not return after a lost upload receipt or a late refresh")
+        let currentServerDraft = OiLiveStory(id: draft.id, userId: UUID(), grantId: draft.grantId!,
+            regionId: draft.regionId, title: draft.title, body: draft.body, theme: draft.theme, emotion: draft.emotion,
+            cucumberName: draft.cucumberName, cucumberAsset: draft.cucumberAsset, cardAsset: draft.cardAsset,
+            latitude: draft.latitude!, longitude: draft.longitude!, status: "draft", revision: 4, createdAt: "")
+        precondition(OiCreationAccess.canRebase(draft, to: currentServerDraft),
+                     "A revision bump with identical content can be reconciled without overwriting the local draft")
+        var localEdit = draft
+        localEdit.body += " with a new paragraph"
+        precondition(!OiCreationAccess.canRebase(localEdit, to: currentServerDraft),
+                     "A distinct local edit must never be silently rebased over a changed server draft")
         print("PASS: creation validation, server review lock, and stable deduplicated photo ordering")
         let payload = try draft.payload()
         precondition(payload["revision"] as? Int == 0 && payload["cucumber_asset"] as? String == "OiCats")
@@ -215,7 +280,8 @@ struct OiServiceChecks {
         var record = OiLocalDraft(draft: draft, photos: [photoID], version: 2)
         let legacyJSON = try JSONEncoder().encode(record)
         let legacy = try JSONDecoder().decode(OiLocalDraft.self, from: legacyJSON)
-        precondition(legacy.creationStep == nil && legacy.customization == nil && legacy.removedMediaPaths == nil)
+        precondition(legacy.creationStep == nil && legacy.customization == nil &&
+                     legacy.removedMediaPaths == nil && legacy.removedPhotoIDs == nil)
         record.creationStep = OiCreationStep.card.rawValue
         record.customization = OiDraftCustomization(fill: .gradient, firstColor: 0xABCDEF, secondColor: 0x123456,
                                                    showsCharacter: false, garmentColors: ["모자":0x445566])
@@ -285,6 +351,7 @@ struct OiServiceChecks {
         print("PASS: complete costume persistence, unsupported ID fallback and individual-look restoration")
         record.customization?.wardrobe = look
         record.removedMediaPaths = [oldPath]
+        record.removedPhotoIDs = [removedPhoto]
         try await vault.saveAttachment(Data([1,2,3]), owner: owner, id: photoID)
         try await vault.save(record, owner: owner)
         record.version = 1; record.draft.title = "Stale edit"
@@ -295,6 +362,7 @@ struct OiServiceChecks {
         precondition(recovered?.creationStep == "card" && recovered?.customization?.fill == .gradient)
         precondition(recovered?.customization?.firstColor == 0xABCDEF && recovered?.customization?.garmentColors["모자"] == 0x445566)
         precondition(recovered?.customization?.showsCharacter == false && recovered?.removedMediaPaths == [oldPath])
+        precondition(recovered?.removedPhotoIDs == [removedPhoto], "Removal intent must survive reopening after a lost receipt")
         precondition(recovered?.customization?.wardrobe == look, "Garments and all three colors must survive reopening the account draft")
         precondition(recovered?.customization?.wardrobe?.artwork == look.artwork)
         precondition(recovered?.customization?.wardrobe?.fabrics == look.fabrics)

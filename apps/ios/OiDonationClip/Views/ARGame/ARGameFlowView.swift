@@ -22,15 +22,24 @@ struct ARGameFlowView: View {
             cucumberImageURL: experience.story.cucumberImageURL,
             onBack: onBack
         ) { retry in
+            let persistenceError = collectionStore.persistenceError
             AppClipStoryCardView(
                 experience: experience,
                 isCollected: collectionStore.contains(storyID: experience.story.storyID),
+                cancelTitle: persistenceError == nil ? "삭제" : "닫기",
+                notice: persistenceError,
                 onCollect: {
-                    collectionStore.collect(experience.storyCard)
+                    let saved = collectionStore.collect(experience.storyCard)
+                    guard collectionStore.persistenceError == nil,
+                          saved || collectionStore.contains(storyID: experience.story.storyID) else { return }
                     onRequestFullApp()
                 },
                 onCancel: {
-                    collectionStore.remove(storyID: experience.story.storyID)
+                    if persistenceError != nil {
+                        onBack()
+                        return
+                    }
+                    guard collectionStore.remove(storyID: experience.story.storyID) else { return }
                     retry()
                 }
             )
@@ -101,7 +110,8 @@ struct ARCollectionGameView<SuccessContent: View>: View {
                 }
                 .transition(.opacity)
             case .requestingPermission:
-                ProgressView("카메라 권한을 확인하고 있어요")
+                ProgressView()
+                    .accessibilityLabel("카메라 권한을 확인하고 있어요")
                     .task {
                         await viewModel.resolvePermission()
                     }

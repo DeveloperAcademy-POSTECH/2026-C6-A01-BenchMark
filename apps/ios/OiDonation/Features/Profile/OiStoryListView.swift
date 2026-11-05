@@ -20,7 +20,7 @@ struct OiStoryListView: View {
         Group {
             switch state {
             case .loading:
-                ProgressView("이야기를 불러오는 중이에요")
+                ProgressView().accessibilityLabel("이야기를 불러오는 중이에요")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .failure(let message):
                 ContentUnavailableView {
@@ -299,12 +299,12 @@ struct OiStoryListView: View {
             if usesAccessibilityLayout {
                 VStack(spacing: 12) {
                     createStoryFooterButton
-                    useTicketFooterButton
+                    if onUseTicket != nil { useTicketFooterButton }
                 }
             } else {
                 HStack(spacing: 20) {
                     createStoryFooterButton
-                    useTicketFooterButton
+                    if onUseTicket != nil { useTicketFooterButton }
                 }
             }
         }

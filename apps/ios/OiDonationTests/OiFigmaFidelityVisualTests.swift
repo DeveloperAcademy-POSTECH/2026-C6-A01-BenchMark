@@ -29,6 +29,32 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         ]
     }
 
+    func testMYHouseArtworkDoesNotRevealImageMatte() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let variant = Variant(name: "124x124", size: CGSize(width: 124, height: 124), dynamicTypeSize: .large)
+        for isPressed in [false, true] {
+            let artwork = CampusMyHouseButtonStyle().makeBody(label: CampusMyHouseButtonArtwork(), isPressed: isPressed)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(red: 0.74, green: 0.82, blue: 0.66))
+            let png = try await capture(artwork, name: isPressed ? "my-house-pressed" : "my-house-idle",
+                                        variant: variant, defaults: fixture.defaults, includesSafeArea: false)
+            let bitmap = try renderedBitmap(png, size: variant.size)
+            let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: 124 * 124 * 4)
+            for y in [40, 82] {
+                // Both samples are inside the circle, on opposite sides of the PNG's left edge.
+                let outside = (y * 124 + 21) * 4
+                let inside = (y * 124 + 23) * 4
+                XCTAssertGreaterThan(Int(pixels[outside]) - Int(pixels[0]), 30,
+                                     "The sampled edge must be within the cream button, not the page background")
+                for channel in 0..<3 {
+                    XCTAssertLessThanOrEqual(abs(Int(pixels[outside + channel]) - Int(pixels[inside + channel])), 8,
+                                             "The source image matte must blend through its edge (pressed: \(isPressed))")
+                }
+            }
+        }
+    }
+
     func testStoryWritingCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
@@ -39,6 +65,40 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 }
                 try await capture(page, name: "writing\(bottom ? "-bottom" : "")", variant: variant, defaults: fixture.defaults)
             }
+        }
+    }
+
+    func testPopulatedPhotoAndLocationCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let campusPhoto = try XCTUnwrap(UIImage(named: "DonationCampus"))
+        let secondPhoto = try XCTUnwrap(UIImage(named: "CampusSchoolMap"))
+        let firstID = UUID()
+        let secondID = UUID()
+        let photoBytes = [firstID: try XCTUnwrap(campusPhoto.pngData()), secondID: try XCTUnwrap(secondPhoto.pngData())]
+        let items: [OiEditingPhoto] = [.local(firstID), .local(secondID)]
+        var locatedDraft = Self.draft
+        locatedDraft.latitude = 36.01261057021347
+        locatedDraft.longitude = 129.3197268697784
+        let regions = [OiRegion(id: "pond", schoolId: "postech", name: "지곡회관 · 연못")]
+        for variant in variants where variant.name == "402x874" || variant.dynamicTypeSize == .accessibility5 {
+            for anchor: UnitPoint in [.top, .bottom] {
+                let photo = CreationCapturePage(step: OiCreationStep.photos.progress, anchor: anchor) {
+                    OiStoryPhotoStep(items: items, uploadedPhotos: [], selections: .constant([]),
+                        loadPhoto: { id in
+                            guard let data = photoBytes[id] else { throw OiServiceError.invalidInput }
+                            return data
+                        }, edit: { _, _ in }, remove: { _ in }, photo: { item in
+                            Image(uiImage: item == .local(firstID) ? campusPhoto : secondPhoto).resizable().scaledToFit()
+                        })
+                }
+                try await capture(photo, name: anchor == .top ? "photo-populated" : "photo-populated-bottom",
+                    variant: variant, defaults: fixture.defaults, attach: true)
+            }
+            let location = CreationCapturePage(step: OiCreationStep.location.progress) {
+                OiStoryLocationStep(draft: .constant(locatedDraft), regions: regions, choose: { _ in })
+            }
+            try await capture(location, name: "location-selected", variant: variant, defaults: fixture.defaults, attach: true)
         }
     }
 
@@ -77,26 +137,401 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testCardRequestInboxCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let now = Date.now
+        let rows = [
+            OiCardRequestInboxItem(id: UUID(), requesterName: "검증용 농부", storyTitle: "캠퍼스에 남긴 이야기",
+                schoolName: "POSTECH", portraitURL: nil, createdAt: now.addingTimeInterval(-180)),
+            OiCardRequestInboxItem(id: UUID(), requesterName: "검증용 농부", storyTitle: "같은 농부가 요청한 또 다른 카드",
+                schoolName: nil, portraitURL: nil, createdAt: now.addingTimeInterval(-1_620)),
+            OiCardRequestInboxItem(id: UUID(), requesterName: "긴 닉네임의 검증용 농부", storyTitle: "긴 카드 제목을 줄이지 않고 보여주는지 확인하는 이야기",
+                schoolName: nil, portraitURL: nil, createdAt: now.addingTimeInterval(-86_400)),
+            OiCardRequestInboxItem(id: UUID(), requesterName: "검증용 농부", storyTitle: "가장 오래된 카드 요청",
+                schoolName: nil, portraitURL: nil, createdAt: now.addingTimeInterval(-1_468_800))
+        ]
+        let states: [(name: String, rows: [OiCardRequestInboxItem], error: String?)] = [
+            ("card-requests-inbox", rows, nil),
+            ("card-requests-empty", [], nil),
+            ("card-requests-error", [], "연결을 확인한 뒤 다시 시도해 주세요.")
+        ]
+        for variant in variants {
+            for state in states {
+                let inbox = OiCardRequestInboxView(requests: state.rows, isLoading: false, loadError: state.error,
+                    pendingRequestID: nil, actionError: nil, onReload: {}, onDecision: { _, _ in })
+                try await capture(inbox, name: state.name, variant: variant, defaults: fixture.defaults, attach: true)
+            }
+        }
+        // Compare the sheet content at the Figma node's own dimensions. The
+        // dark backing makes its 70% fill visible without depending on live map data.
+        let sheetVariant = Variant(name: "402x803-sheet", size: CGSize(width: 402, height: 803), dynamicTypeSize: .large)
+        let emptySheet = OiCardRequestInboxView(requests: [], isLoading: false, loadError: nil,
+            pendingRequestID: nil, actionError: nil, onReload: {}, onDecision: { _, _ in })
+        try await capture(emptySheet.background(Color(white: 0.117)), name: "card-requests-empty",
+            variant: sheetVariant, defaults: fixture.defaults, includesSafeArea: false, attach: true)
+
+        let reference = try XCTUnwrap(variants.first)
+        let unconfirmed = OiCardRequestInboxView(requests: [], isLoading: false, loadError: nil,
+            pendingRequestID: nil, actionError: "처리 결과를 확인하지 못했어요. 같은 응답을 다시 확인해 주세요.",
+            onReload: {}, onDecision: { _, _ in }, onRetryDecision: {})
+        try await capture(unconfirmed, name: "card-requests-unconfirmed-decision",
+            variant: reference, defaults: fixture.defaults, attach: true)
+    }
+
     func testMYScreenCapturesWithoutRemoteStore() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
-        let repository = UnconnectedPilotRepository()
-        let container = AppContainer(homeRepository: repository, benchRepository: repository,
-            participationRepository: repository, storyRepository: repository, approvedLinkHost: nil)
-        let store = CampusStoryStore(defaults: fixture.defaults)
         let library = MYLibraryStore()
         library.synchronize(nickname: "검증용 농부", cards: [], favorites: [])
         for variant in variants {
             let workshop = NavigationStack {
-                MYWorkshopView(container: container, store: store, demo: library, onCamera: {}, remote: nil)
+                MYWorkshopView(demo: library, remote: nil)
             }
             try await capture(workshop, name: "my-workshop", variant: variant, defaults: fixture.defaults)
-            let farmer = NavigationStack { MYFarmerCustomizationView(ownerID: nil) }
+            let farmer = NavigationStack { MYFarmerCustomizationView(remote: nil) }
             try await capture(farmer, name: "my-farmer", variant: variant, defaults: fixture.defaults)
             let settings = NavigationStack {
-                MYSettingsView(container: container, store: store, demo: library, onCamera: {}, remote: nil)
+                MYSettingsView(demo: library, remote: nil)
             }
             try await capture(settings, name: "my-settings", variant: variant, defaults: fixture.defaults)
+        }
+    }
+
+    func testMYCollectionCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let collectionStore = StoryCollectionStore(defaults: fixture.defaults)
+        let collectionVariants = variants + [Variant(name: "small-accessibility5", size: CGSize(width: 375, height: 667), dynamicTypeSize: .accessibility5)]
+        for populated in [false, true] {
+            for filter in MYCollectionFilter.allCases {
+                let library = MYLibraryStore()
+                let cards = populated ? (0..<7).map { index in
+                    MYCard(id: "my-capture-\(index)", title: "검증용 오이 \(index + 1)", image: "OiCats",
+                        school: .postech, order: index, body: Self.draft.body, donor: "검증용 농부", date: "2026.11.05")
+                } : []
+                library.synchronize(nickname: "검증용 농부", cards: cards, favorites: [])
+                library.collectionFilter = filter
+                for variant in collectionVariants {
+                    let view = NavigationStack {
+                        MYCollectionView(demo: library, storyRepository: AppContainer.preview.storyRepository,
+                            collectionStore: collectionStore)
+                    }
+                    try await capture(view, name: "my-collection-\(filter == .all ? "all" : "schools")-\(populated ? "content" : "empty")",
+                        variant: variant, defaults: fixture.defaults, attach: true)
+                }
+                if filter == .schools {
+                    for variant in collectionVariants {
+                        let view = NavigationStack {
+                            MYCollectionView(demo: library, school: .postech, storyRepository: AppContainer.preview.storyRepository,
+                                collectionStore: collectionStore)
+                        }
+                        try await capture(view, name: "my-collection-school-\(populated ? "content" : "empty")",
+                            variant: variant, defaults: fixture.defaults, attach: true)
+                    }
+                }
+            }
+        }
+    }
+
+    func testFarmerWardrobeAssetsAndSelectionContract() throws {
+        let wardrobe = try MYFarmerWardrobe.loaded.get()
+        XCTAssertEqual(wardrobe.items.count, 120)
+        XCTAssertEqual(wardrobe.items.filter { $0.character == "kyu" }.count, 64)
+        XCTAssertEqual(wardrobe.items.filter { $0.character == "cumber" }.count, 56)
+        XCTAssertEqual(wardrobe.items.filter { !$0.wearables.isEmpty }.count, 117)
+        XCTAssertFalse(wardrobe.items(character: "kyu", slot: .accessory).contains { $0.id == "kyu-3927-3879" })
+        XCTAssertFalse(wardrobe.items(character: "cumber", slot: .set).contains { $0.id == "cumber-4148-5133" })
+        XCTAssertFalse(wardrobe.items(character: "cumber", slot: .accessory).contains { $0.id == "cumber-4148-5283" })
+        let canvases = Array(wardrobe.bodies.values) + wardrobe.items.flatMap { [$0.thumbnail] + $0.wearables }
+        for canvas in canvases {
+            XCTAssertGreaterThan(canvas.width, 0)
+            XCTAssertGreaterThan(canvas.height, 0)
+            XCTAssertFalse(canvas.layers.isEmpty)
+            for layer in canvas.layers {
+                XCTAssertNotNil(UIImage(named: layer.asset), "Missing bundled original: \(layer.asset)")
+                XCTAssertGreaterThan(layer.width, 0)
+                XCTAssertGreaterThan(layer.height, 0)
+                for matrix in [layer.matrix, layer.crop] {
+                    XCTAssertEqual(matrix.count, 2)
+                    XCTAssertTrue(matrix.allSatisfy { $0.count == 3 && $0.allSatisfy(\.isFinite) })
+                    let transform = MYFarmerCanvasArtwork.transform(matrix)
+                    XCTAssertGreaterThan(abs(transform.a * transform.d - transform.b * transform.c), 0.000001)
+                }
+            }
+        }
+        XCTAssertTrue(wardrobe.validates(.legacy(.classic)))
+        XCTAssertTrue(wardrobe.validates(.legacy(.casual)))
+        XCTAssertFalse(wardrobe.validates(OiFarmerOutfit(character: "other", slots: [:])))
+        for character in ["kyu", "cumber"] {
+            let top = try XCTUnwrap(wardrobe.items(character: character, slot: .top).first)
+            let bottom = try XCTUnwrap(wardrobe.items(character: character, slot: .bottom).first)
+            let set = try XCTUnwrap(wardrobe.items(character: character, slot: .set).first)
+            let initial = OiFarmerOutfit(character: character, slots: [:])
+            let separates = initial.selecting(top).selecting(bottom)
+            XCTAssertTrue(wardrobe.validates(separates))
+            XCTAssertEqual(separates.slots.count, 2)
+            let onePiece = separates.selecting(set)
+            XCTAssertEqual(onePiece.slots, ["set": set.id])
+            XCTAssertEqual(onePiece.selecting(top).slots, ["top": top.id])
+            XCTAssertFalse(wardrobe.validates(OiFarmerOutfit(character: character, slots: ["shoes": top.id])))
+        }
+    }
+
+    func testFarmerWearableAndThumbnailContactSheets() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let wardrobe = try MYFarmerWardrobe.loaded.get()
+        for character in ["kyu", "cumber"] {
+            for slot in [MYFarmerSlot.top, .bottom, .shoes, .set, .accessory] {
+                let items = wardrobe.items(character: character, slot: slot)
+                let rows = (items.count + 1) / 2
+                let variant = Variant(name: "contact", size: CGSize(width: 402, height: CGFloat(rows * 180 + 28)), dynamicTypeSize: .large)
+                let gallery = LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                    ForEach(items) { item in
+                        VStack(spacing: 4) {
+                            HStack(spacing: 8) {
+                                MYFarmerLayeredArtwork(outfit: OiFarmerOutfit(character: character, slots: [slot.rawValue: item.id]), wardrobe: wardrobe)
+                                    .frame(width: 90, height: 125)
+                                Color.clear.frame(width: 60, height: 72)
+                                    .overlay(alignment: .topLeading) {
+                                        MYFarmerCanvasArtwork(canvas: item.thumbnail)
+                                            .scaleEffect(60 / item.thumbnail.width, anchor: .topLeading)
+                                    }.clipped()
+                            }
+                            Text(item.name).font(.system(size: 12)).multilineTextAlignment(.center).frame(height: 35)
+                        }.frame(maxWidth: .infinity)
+                    }
+                }.padding(14).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).background(.white)
+                try await capture(gallery, name: "farmer-\(character)-\(slot.rawValue)", variant: variant,
+                    defaults: fixture.defaults, includesSafeArea: false, attach: true)
+            }
+        }
+    }
+
+    func testEmptyCollectionCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let collectionStore = StoryCollectionStore(defaults: fixture.defaults)
+        XCTAssertTrue(collectionStore.cards.isEmpty)
+        XCTAssertNil(collectionStore.persistenceError)
+        XCTAssertNotNil(UIImage(named: "MYEmptyCollection"))
+
+        for filter in [MYCollectionFilter.all, .schools] {
+            let library = MYLibraryStore()
+            library.collectionFilter = filter
+            let name = filter == .all ? "my-collection-empty" : "my-collection-schools-empty"
+            for variant in variants {
+                let collection = NavigationStack {
+                    MYCollectionView(demo: library, storyRepository: UnconnectedPilotRepository(),
+                        collectionStore: collectionStore)
+                }
+                try await capture(collection, name: name, variant: variant, defaults: fixture.defaults, attach: true)
+            }
+        }
+    }
+
+    func testCampusSearchStatesDoNotConfusePromptFailureAndEmptyResults() {
+        for hasMatches in [false, true] {
+            XCTAssertEqual(CampusSearchContentState(hasSearched: false, hasMatches: hasMatches,
+                hasLoaded: false, isLoading: true, hasError: false), .prompt)
+        }
+        XCTAssertEqual(CampusSearchContentState(hasSearched: true, hasMatches: false,
+            hasLoaded: false, isLoading: false, hasError: false), .loading)
+        XCTAssertEqual(CampusSearchContentState(hasSearched: true, hasMatches: false,
+            hasLoaded: true, isLoading: true, hasError: false), .loading)
+        for hasLoaded in [false, true] {
+            XCTAssertEqual(CampusSearchContentState(hasSearched: true, hasMatches: false,
+                hasLoaded: hasLoaded, isLoading: false, hasError: true), .failed)
+        }
+        XCTAssertEqual(CampusSearchContentState(hasSearched: true, hasMatches: true,
+            hasLoaded: true, isLoading: false, hasError: true), .results)
+        XCTAssertEqual(CampusSearchContentState(hasSearched: true, hasMatches: false,
+            hasLoaded: true, isLoading: false, hasError: false), .noMatches)
+    }
+
+    func testCampusSearchPromptCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let story = CampusStory(id: "prompt-fixture", regionID: "pond", title: "테스트오이", image: "OiCats",
+            tags: [], donor: "가상 기부자", location: "테스트", date: "", order: 0, popularity: 0, palette: 0)
+        for mode in CampusSearchMode.allCases {
+            for variant in variants {
+                let screen = CampusSearchView(mode: mode, entries: [.example(story)], isExample: false,
+                    onSelect: { _ in XCTFail("No search has been submitted") })
+                let png = try await capture(screen, name: "campus-search-\(mode.rawValue)-prompt", variant: variant,
+                    defaults: fixture.defaults, attach: true)
+                if variant.name == "402x874" {
+                    let bitmap = try renderedBitmap(png, size: variant.size)
+                    let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: bitmap.width * bitmap.height * 4)
+                    var greenPixels = 0
+                    for y in 250..<800 {
+                        for x in 20..<382 {
+                            let i = (y * bitmap.width + x) * 4
+                            let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
+                            if g > r + 12 && g > b + 25 { greenPixels += 1 }
+                        }
+                    }
+                    XCTAssertGreaterThan(greenPixels, 2500, "The initial screen must actually render the green cucumber, not only text")
+                }
+            }
+        }
+    }
+
+    func testCampusSearchEmptyResultCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        XCTAssertNotNil(UIImage(named: "CampusSearchNoResults"))
+
+        for mode in CampusSearchMode.allCases {
+            let query = CampusSearchQuery(text: "없는 오이", name: "없는 농부")
+            for variant in variants {
+                let result = CampusSearchView(mode: mode, entries: [], isExample: false, initialQuery: query,
+                    onSelect: { _ in XCTFail("Empty search must offer no selection") })
+                try await capture(result, name: "campus-search-\(mode.rawValue)-no-matches", variant: variant,
+                    defaults: fixture.defaults, attach: true)
+            }
+        }
+    }
+
+    func testSchoolSearchEmptyResultCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        XCTAssertNotNil(UIImage(named: "CampusSearchNoResults"))
+        for variant in variants {
+            let screen = CampusSchoolSearchView(initialQuery: "없는 학교") {
+                XCTFail("A school with no matching result must not be selected")
+            }
+            let png = try await capture(screen, name: "school-search-no-matches", variant: variant,
+                defaults: fixture.defaults, attach: true)
+            if variant.name == "402x874" {
+                let bitmap = try renderedBitmap(png, size: variant.size)
+                let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: bitmap.width * bitmap.height * 4)
+                var greenPixels = 0
+                for y in 280..<610 {
+                    for x in 100..<302 {
+                        let i = (y * bitmap.width + x) * 4
+                        let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
+                        if g > r + 12 && g > b + 25 { greenPixels += 1 }
+                    }
+                }
+                XCTAssertGreaterThan(greenPixels, 2500, "The school empty state must render its original cucumber illustration")
+            }
+        }
+        let reference = try XCTUnwrap(variants.first)
+        for (name, query) in [("initial", ""), ("matched", "postech")] {
+            try await capture(CampusSchoolSearchView(initialQuery: query, onSelect: {}),
+                name: "school-search-\(name)", variant: reference, defaults: fixture.defaults, attach: true)
+        }
+    }
+
+    func testLocationSearchEmptyResultCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let query = "location-fixture-no-match"
+        let places = try CampusMapData.load().pois
+        XCTAssertFalse(places.isEmpty)
+        XCTAssertFalse(places.contains { $0.name.localizedCaseInsensitiveContains(query) })
+
+        for variant in variants {
+            let location = CreationCapturePage(step: OiCreationStep.location.progress) {
+                OiStoryLocationStep(draft: .constant(Self.draft), regions: [], initialQuery: query, choose: { _ in })
+            }
+            try await capture(location, name: "location-search-no-matches", variant: variant,
+                defaults: fixture.defaults, attach: true)
+        }
+    }
+
+    func testMYSettingsCapturesWithOfflineAccounts() async throws {
+        let fixture = try isolatedDefaults()
+        let previousHandler = OiStoreURLProtocol.handle
+        let backend = OiTestBackend()
+        backend.configure { profile in
+            profile.nickname = "검증용 농부"
+            profile.schoolID = "postech"
+            profile.schoolProfileEnabled = true
+            profile.farmerOutfitEnabled = true
+            profile.farmName = "오이농장주인"
+        }
+        backend.install()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MYSettings-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            fixture.defaults.removePersistentDomain(forName: fixture.name)
+            withExtendedLifetime(backend) {}
+            session.invalidateAndCancel()
+            OiStoreURLProtocol.handle = previousHandler
+            if FileManager.default.fileExists(atPath: directory.path) {
+                XCTAssertNoThrow(try FileManager.default.removeItem(at: directory))
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+        }
+
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let signedIn = OiRemoteStore(api: api,
+            drafts: OiDraftVault(directory: directory.appendingPathComponent("signed-in", isDirectory: true)),
+            vault: OiMemorySession())
+        let emptySession = OiMemorySession()
+        try emptySession.write(nil)
+        let signedOut = OiRemoteStore(api: api,
+            drafts: OiDraftVault(directory: directory.appendingPathComponent("signed-out", isDirectory: true)),
+            vault: emptySession)
+        await signedIn.start()
+        await signedOut.start()
+        XCTAssertTrue(signedIn.hasLoadedRemote)
+        XCTAssertTrue(signedIn.isFarmerOutfitAvailable)
+        XCTAssertEqual(signedIn.profile?.nickname, "검증용 농부")
+        XCTAssertEqual(signedIn.profile?.schoolId, "postech")
+        XCTAssertTrue(signedOut.hasLoadedRemote)
+        XCTAssertTrue(signedOut.isConfigured)
+        XCTAssertNil(signedOut.account)
+
+        for variant in variants {
+            let workshop = NavigationStack { MYWorkshopView(demo: MYLibraryStore(), remote: signedIn) }
+            try await capture(workshop, name: "my-workshop-signed-in", variant: variant, defaults: fixture.defaults, attach: true)
+            let farmer = NavigationStack { MYFarmerCustomizationView(remote: signedIn) }
+            try await capture(farmer, name: "my-farmer-signed-in", variant: variant, defaults: fixture.defaults, attach: true)
+            let settings = NavigationStack(path: .constant([true])) {
+                Color.white.navigationDestination(for: Bool.self) { _ in
+                    MYSettingsView(remote: signedIn).environment(\.scenePhase, .active)
+                }
+            }
+            try await capture(settings, name: "my-settings-signed-in", variant: variant,
+                defaults: fixture.defaults, delay: .milliseconds(450), attach: true)
+
+            let signIn = NavigationStack(path: .constant([true])) {
+                Color.white.navigationDestination(for: Bool.self) { _ in
+                    MYSettingsView(remote: signedOut).environment(\.scenePhase, .active)
+                }
+            }
+            try await capture(signIn, name: "my-settings-signed-out-auth", variant: variant,
+                defaults: fixture.defaults, delay: .milliseconds(450), attach: true)
+        }
+
+        let reference = try XCTUnwrap(variants.first)
+        let account = NavigationStack(path: .constant([true])) {
+            Color.white.navigationDestination(for: Bool.self) { _ in
+                MYSettingsView(remote: signedIn).defaultScrollAnchor(.bottom).environment(\.scenePhase, .active)
+            }
+        }
+        try await capture(account, name: "my-settings-signed-in-auth", variant: reference,
+            defaults: fixture.defaults, delay: .milliseconds(450), attach: true)
+        let steps: [(String, OiSchoolEvidenceView.Step)] = [
+            ("profile", .profile), ("affiliation", .affiliation),
+            ("student-document", .document(.student)), ("graduate-document", .document(.graduate)),
+            ("attachment", .attachment(.graduate, .diploma))
+        ]
+        for variant in variants {
+            for (name, step) in steps {
+                let screen = NavigationStack {
+                    OiSchoolEvidenceView(remote: signedIn, initialStep: step)
+                }
+                try await capture(screen, name: "school-evidence-" + name, variant: variant,
+                    defaults: fixture.defaults, delay: .milliseconds(450), attach: true)
+            }
         }
     }
 
@@ -127,11 +562,67 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testCampusSummaryShowsActionForVerifiedLocation() async throws {
+        let fixture = try isolatedDefaults()
+        let previousHandler = OiStoreURLProtocol.handle
+        let backend = OiTestBackend()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let directory = FileManager.default.temporaryDirectory.appending(path: "CampusCardLocation-\(UUID())")
+        defer {
+            fixture.defaults.removePersistentDomain(forName: fixture.name)
+            withExtendedLifetime(backend) {}
+            session.invalidateAndCancel()
+            OiStoreURLProtocol.handle = previousHandler
+            if FileManager.default.fileExists(atPath: directory.path) {
+                XCTAssertNoThrow(try FileManager.default.removeItem(at: directory))
+            }
+        }
+        var draft = Self.draft
+        draft.grantId = OiTestBackend.grant
+        draft.latitude = 36.01261057021347
+        draft.longitude = 129.3197268697784
+        var published = try draft.payload()
+        published["user_id"] = OiTestBackend.owner.uuidString
+        published["status"] = "published"
+        published["created_at"] = "2026-10-28T00:00:00Z"
+        backend.configure { $0.story = published }
+        backend.install()
+        let vault = OiMemorySession()
+        try vault.write(nil)
+        let remote = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: vault)
+        await remote.start()
+        let story = remote.campusStory(try XCTUnwrap(remote.stories.first))
+        let store = CampusStoryStore(defaults: fixture.defaults)
+        store.synchronize(stories: [story], collected: [])
+        let reference = try XCTUnwrap(variants.first)
+        let states: [(String, CampusCardProximity?)] = [
+            ("pohang-collect", .near),
+            ("outside-pohang-request", .away),
+            ("unknown-location-request", nil)
+        ]
+        for (name, proximity) in states {
+            let summary = NavigationStack { CampusSummaryView(story: story, store: store) }
+                .environment(remote)
+                .environment(\.campusCardProximity) { _ in
+                    guard let proximity else { throw CampusCardLocationError.permissionDenied }
+                    return proximity
+                }
+                .environment(\.scenePhase, .active)
+            try await capture(summary, name: name, variant: reference,
+                defaults: fixture.defaults, delay: .seconds(2), attach: true)
+        }
+        XCTAssertTrue(backend.snapshot().cardSendPayloads.isEmpty, "Checking the location must not send a request")
+    }
+
     func testFarmCapturesWithOfflineOwnedStory() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         let previousHandler = OiStoreURLProtocol.handle
         let backend = OiTestBackend()
+        backend.configure { $0.nickname = "공개 작성자"; $0.farmName = "햇살" }
         backend.install()
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [OiStoreURLProtocol.self]
@@ -154,7 +645,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(remote.account?.id, OiTestBackend.owner)
         XCTAssertTrue(remote.ownStories.isEmpty)
         for variant in variants {
-            let empty = NavigationStack { MYFarmView(remote: remote, nickname: "검증용 농부") }
+            let empty = NavigationStack { MYFarmView(remote: remote) }
             try await capture(empty, name: "my-farm-empty", variant: variant, defaults: fixture.defaults)
         }
         var draft = Self.draft
@@ -166,7 +657,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(saved.status, "draft")
         XCTAssertEqual(remote.ownStories.map(\.id), [saved.id])
         for variant in variants {
-            let populated = NavigationStack { MYFarmView(remote: remote, nickname: "검증용 농부") }
+            let populated = NavigationStack { MYFarmView(remote: remote) }
             try await capture(populated, name: "my-farm-populated", variant: variant, defaults: fixture.defaults)
         }
     }
@@ -189,8 +680,10 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(MYFarmerAppearanceStore.read(ownerID: nil, defaults: restoredDefaults), .classic)
     }
 
+    @discardableResult
     private func capture<V: View>(_ view: V, name: String, variant: Variant, defaults: UserDefaults,
-                                 delay: Duration = .milliseconds(180)) async throws {
+                                 includesSafeArea: Bool = true,
+                                 delay: Duration = .milliseconds(180), attach: Bool = false) async throws -> Data {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first, "The isolated simulator test host must have a window scene")
@@ -202,6 +695,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             .environment(\.dynamicTypeSize, variant.dynamicTypeSize)
             .environment(\.colorScheme, .light)
             .defaultAppStorage(defaults))
+        if !includesSafeArea { host.safeAreaRegions = [] }
         window.frame = CGRect(origin: .zero, size: variant.size)
         window.overrideUserInterfaceStyle = .light
         window.rootViewController = root
@@ -245,6 +739,12 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
         XCTAssertTrue(rendered, "The attached production view must draw its hierarchy")
         try assertNonemptyRender(png, size: variant.size)
+        if attach {
+            let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            attachment.name = "\(name)-\(variant.name)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
         let directory = try XCTUnwrap(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first)
             .appendingPathComponent("Figma132", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -252,6 +752,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         try png.write(to: output, options: .atomic)
         XCTAssertEqual(try Data(contentsOf: output).count, png.count, "The saved capture must contain the rendered PNG")
         print("Figma132 capture: \(output.path)")
+        return png
     }
 
     private func releaseCampusRenderers(in view: UIView) {
@@ -263,6 +764,20 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     }
 
     private func assertNonemptyRender(_ data: Data, size: CGSize) throws {
+        let context = try renderedBitmap(data, size: size)
+        let bytes = try XCTUnwrap(context.data).bindMemory(to: UInt8.self, capacity: context.width * context.height * 4)
+        var colors = Set<UInt32>()
+        for y in stride(from: 0, to: context.height, by: 8) {
+            for x in stride(from: 0, to: context.width, by: 8) {
+                let offset = (y * context.width + x) * 4
+                colors.insert(UInt32(bytes[offset]) << 24 | UInt32(bytes[offset + 1]) << 16
+                    | UInt32(bytes[offset + 2]) << 8 | UInt32(bytes[offset + 3]))
+            }
+        }
+        XCTAssertGreaterThan(colors.count, 8, "A blank or uniform host is not a valid capture of these views")
+    }
+
+    private func renderedBitmap(_ data: Data, size: CGSize) throws -> CGContext {
         let image = try XCTUnwrap(UIImage(data: data)?.cgImage)
         XCTAssertEqual(image.width, Int(size.width))
         XCTAssertEqual(image.height, Int(size.height))
@@ -270,16 +785,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
         context.draw(image, in: CGRect(origin: .zero, size: size))
-        let bytes = try XCTUnwrap(context.data).bindMemory(to: UInt8.self, capacity: image.width * image.height * 4)
-        var colors = Set<UInt32>()
-        for y in stride(from: 0, to: image.height, by: 8) {
-            for x in stride(from: 0, to: image.width, by: 8) {
-                let offset = (y * image.width + x) * 4
-                colors.insert(UInt32(bytes[offset]) << 24 | UInt32(bytes[offset + 1]) << 16
-                    | UInt32(bytes[offset + 2]) << 8 | UInt32(bytes[offset + 3]))
-            }
-        }
-        XCTAssertGreaterThan(colors.count, 8, "A blank or uniform host is not a valid capture of these views")
+        return context
     }
 
     private func isolatedDefaults() throws -> (name: String, defaults: UserDefaults) {

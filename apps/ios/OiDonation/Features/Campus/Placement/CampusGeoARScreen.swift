@@ -14,6 +14,7 @@ struct CampusGeoARScreen: View {
     @State private var controller = CampusGeoARController()
     @State private var location = CampusGeoLocation()
     @State private var showingStory = false
+    @State private var isVisible = false
     @State private var restartID = UUID()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -31,18 +32,22 @@ struct CampusGeoARScreen: View {
                 HStack {
                     Text("현장 AR").font(.headline)
                     Spacer()
-                    Button("닫기", systemImage: "xmark") { controller.stop(); dismiss() }
+                    Button("닫기", systemImage: "xmark") { stopScreen(); dismiss() }
                 }
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(controller.mode.rawValue).font(.headline)
-                    Text(sharedError ?? controller.message).font(.subheadline)
+                    if controller.mode != .preparing { Text(controller.mode.rawValue).font(.headline) }
+                    if let message = sharedError ?? controller.message {
+                        Text(message).font(.subheadline)
+                    } else if controller.mode == .preparing {
+                        ProgressView().tint(.white).accessibilityLabel("현장 AR 준비 중")
+                    }
                     TimelineView(.periodic(from: .now, by: 1)) { _ in
                         if let fix = location.location {
                             if fix.horizontalAccuracy >= 0 {
                                 Text("목표까지 약 \(target.distance(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude), specifier: "%.0f")m · GPS 불확실성 반경 \(fix.horizontalAccuracy, specifier: "%.0f")m")
                                 Text(location.isReady(for: target) ? "근접 조건 충족 · 정확한 배치 보장 아님" : "위치 재확인 중")
                             } else { Text("유효한 GPS 위치를 기다리고 있어요.") }
-                        } else { Text(location.message) }
+                        } else if controller.canChangeMode, let message = location.message { Text(message) }
                     }.font(.caption)
                     Text("GPS 모드는 나침반과 주변 바닥 높이로 근사 배치합니다. 경사·계단에서는 높이가 다를 수 있고, 직접 바닥 보정은 이 세션에만 적용됩니다.")
                         .font(.caption2).foregroundStyle(.secondary)
@@ -51,6 +56,7 @@ struct CampusGeoARScreen: View {
                 VStack(spacing: 10) {
                     HStack {
                         Button("GPS 근사 배치") { controller.startApproximate() }
+                            .accessibilityHint("지리 추적을 기다리지 않고 GPS 위치로 배치합니다.")
                         Button("직접 바닥 보정") { controller.startApproximate(manual: true) }
                     }.disabled(!controller.canChangeMode)
                     HStack {
@@ -68,32 +74,45 @@ struct CampusGeoARScreen: View {
             }
             .foregroundStyle(.white)
         }
-        .task(id: restartID) {
-            guard scenePhase == .active, !showingStory else { return }
-            controller.onStory = { showingStory = true }
+        .task(id: restartID) { [request = restartID] in
+            guard isCurrent(request) else { return }
+            controller.stop()
+            controller.onStory = {
+                guard isCurrent(request) else { return }
+                showingStory = true
+            }
             sharedError = nil
             do {
-                livePlacement = try await currentPlacement()
-                try Task.checkCancellation()
-                await controller.start(target, location: location)
+                let current = try await currentPlacement()
+                guard isCurrent(request) else { return }
+                livePlacement = current
+                await controller.start(current, location: location)
                 // Refresh publication and coordinates while AR is visible. Hidden/deleted stories stop rendering.
-                while !Task.isCancelled {
+                while isCurrent(request) {
                     try await Task.sleep(for: .seconds(30))
+                    guard isCurrent(request) else { return }
                     let updated = try await currentPlacement()
+                    guard isCurrent(request) else { return }
                     if updated != target {
                         livePlacement = updated
                         await controller.start(updated, location: location)
                     }
                 }
-            } catch is CancellationError { }
-            catch { controller.stop(); sharedError = error.localizedDescription }
+            } catch {
+                guard isCurrent(request), !OiServiceFailure.isCancellation(error) else { return }
+                controller.stop()
+                sharedError = error.localizedDescription
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             restartID = UUID() // Cancel in-flight server reads as well as the AR session.
             if phase != .active { controller.stop() }
         }
-        .onAppear { if !showingStory { restartID = UUID() } }
-        .onDisappear { controller.stop() }
+        .onAppear {
+            isVisible = true
+            if !showingStory { restartID = UUID() }
+        }
+        .onDisappear { stopScreen() }
         .onChange(of: showingStory) { _, showing in
             restartID = UUID()
             if showing { controller.stop() }
@@ -107,14 +126,29 @@ struct CampusGeoARScreen: View {
                                 // Keep related stories in this sheet without starting a second 3D renderer over AR.
                                 switch destination {
                                 case .summary(let id), .story(let id):
-                                    if let related = stories.story(id) { CampusStoryDetailView(story: related, store: stories) }
+                                    if let related = stories.story(id) {
+                                        CampusStoryDetailView(story: related, store: stories)
+                                    } else {
+                                        ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc")
+                                    }
                                 }
                             }
+                    } else {
+                        ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc")
                     }
                 }
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("AR로 돌아가기") { showingStory = false } } }
             }
         }
+    }
+
+    private func isCurrent(_ request: UUID) -> Bool {
+        !Task.isCancelled && isVisible && request == restartID && scenePhase == .active && !showingStory
+    }
+
+    private func stopScreen() {
+        isVisible = false
+        controller.stop()
     }
 }
 
