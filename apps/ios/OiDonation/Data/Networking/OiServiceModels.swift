@@ -126,6 +126,41 @@ struct OiEvidence: Codable, Identifiable, Equatable {
     let objectPath: String?
     let reviewNote: String?
     var storageOwnerId: UUID? = nil
+    var submittedAt: String? = nil
+    var createdAt: String? = nil
+}
+
+struct OiDonationEvidenceReview: Decodable, Equatable {
+    struct Assessment: Decodable, Equatable {
+        enum Verdict: String, Decodable { case suspicious, noObviousSigns = "no_obvious_signs", inconclusive }
+        enum Readability: String, Decodable { case readable, limited, unreadable }
+        struct Finding: Decodable, Equatable {
+            let category: String
+            let location: String
+            let observation: String
+        }
+        let verdict: Verdict
+        let readability: Readability
+        let findings: [Finding]
+        let limitations: [String]
+        let manualChecks: [String]
+
+        var title: String {
+            switch verdict {
+            case .noObviousSigns: "눈에 띄는 수정 흔적을 찾지 못했어요"
+            case .suspicious: "운영자의 추가 확인이 필요해요"
+            case .inconclusive: "자료만으로 판단하기 어려워요"
+            }
+        }
+    }
+    let reviewType: String
+    let evidenceId: UUID
+    let submittedAt: String
+    let analyzedAt: String
+    let humanReviewRequired: Bool
+    let authenticityVerified: Bool
+    let notice: String
+    let assessment: Assessment
 }
 
 struct OiWritingGrant: Codable, Identifiable, Equatable {
