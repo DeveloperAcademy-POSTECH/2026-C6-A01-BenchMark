@@ -79,6 +79,8 @@ import simd
         checkProjection(sites)
         checkClustering(sites)
         checkTiltClustering()
+        checkSettling(sites)
+        checkZoomMotion()
     }
 
     private static func checkProjection(_ sites: [CampusRegionClustering.Site]) {
@@ -229,5 +231,105 @@ import simd
             separation: shallow.planeSeparation)
         precondition(active(in: shallow, at: expanded).count == 2, "Cluster tap zoom must respect the same shallow projection")
         print("Campus map tilt clustering: PASS (3D foreshortening, overhead separation, pan-stable grouping, tap zoom)")
+    }
+
+    private static func checkSettling(_ campusSites: [CampusRegionClustering.Site]) {
+        typealias Cluster = CampusRegionClustering
+        let limits: ClosedRange<Float> = 20...600
+        let focalLength: CGFloat = 950
+        let pair = Cluster(sites: [.init(id: "a", anchor: .zero), .init(id: "b", anchor: SIMD3(10, 0, 0))])
+        precondition(pair.settledRadius(for: 95, within: limits, focalLength: focalLength) < 88)
+        precondition(pair.settledRadius(for: 105, within: limits, focalLength: focalLength) > 112)
+        precondition(pair.settledRadius(for: 40, within: limits, focalLength: focalLength) == 40)
+        precondition(pair.settledRadius(for: 800, within: limits, focalLength: focalLength) == 600)
+        precondition(pair.settledRadius(for: 10, within: limits, focalLength: focalLength) == 20)
+
+        let boundaryPairs = [Float(2), 60].map { distance in
+            Cluster(sites: [.init(id: "a", anchor: .zero), .init(id: "b", anchor: SIMD3(distance, 0, 0))])
+        }
+        for (group, radius) in zip(boundaryPairs, [limits.lowerBound, limits.upperBound]) {
+            let settled = group.settledRadius(for: radius, within: limits, focalLength: focalLength)
+            precondition(limits.contains(settled) && settled != radius, "A transition at either zoom limit must settle inward")
+            precondition(group.markers(radius: settled, focalLength: focalLength, reduceMotion: false).allSatisfy { $0.opacity == 1 })
+        }
+        let overlapping = Cluster(sites: [
+            .init(id: "a", anchor: SIMD3(0, 0, 0)), .init(id: "b", anchor: SIMD3(10, 0, 0)),
+            .init(id: "c", anchor: SIMD3(100, 0, 0)), .init(id: "d", anchor: SIMD3(111, 0, 0))
+        ])
+        let groups = [pair, overlapping, Cluster(sites: campusSites)] + boundaryPairs
+        let viewport = CGRect(x: 0, y: 0, width: 400, height: 800)
+        let pitches: [Float] = [0.35, 0.95, 1.4]
+        for group in groups {
+            let ids = group.nodes.last!.siteIDs
+            for pitch in pitches {
+                let projection = CampusMapProjection(eye: .zero, yaw: 0.61, pitch: pitch, verticalFOV: 42, viewport: viewport)
+                for radius in stride(from: Float(20), through: 600, by: 5) {
+                    let settled = group.settledRadius(for: radius, within: limits, focalLength: focalLength,
+                        separation: projection.planeSeparation)
+                    let markers = group.markers(radius: settled, focalLength: focalLength, reduceMotion: false,
+                        separation: projection.planeSeparation)
+                    precondition(limits.contains(settled) && settled.isFinite)
+                    precondition(markers.allSatisfy { $0.opacity == 1 && $0.isInteractive && $0.anchor == $0.node.anchor },
+                        "Release must finish every overlapping transition at an opaque geographic anchor")
+                    precondition(markers.flatMap { $0.node.siteIDs }.sorted() == ids, "Settling must preserve all counts without duplicate hit targets")
+                    precondition(group.settledRadius(for: settled, within: limits, focalLength: focalLength,
+                        separation: projection.planeSeparation) == settled, "An already settled zoom must remain fixed")
+                }
+            }
+        }
+        print("Campus map settling: PASS (nearest stable zoom, overlapping bands, min/max boundaries, 3 camera pitches)")
+    }
+
+    private static func checkZoomMotion() {
+        typealias Motion = CampusMapMotion
+        let limits: ClosedRange<Float> = 20...600
+        let lower = log(limits.lowerBound)
+        let upper = log(limits.upperBound)
+        let inputs = (0...400).map { lower - 2 + Float($0) * (upper - lower + 4) / 400 }
+        let radii = inputs.map { Motion.resistedRadius(logRadius: $0, within: limits) }
+        precondition(radii.allSatisfy { $0.isFinite && $0 > 16 && $0 < 720 }, "Overzoom must remain bounded beyond both camera limits")
+        precondition(zip(radii, radii.dropFirst()).allSatisfy { first, next in first < next },
+            "Pinching farther must keep moving with increasing resistance")
+        for (input, radius) in zip(inputs, radii) {
+            let resumed = Motion.inputLogRadius(for: radius, within: limits)
+            precondition(abs(resumed - input) < 0.001, "Re-grabbing a resisted radius must preserve the original pinch input")
+            let reversed = Motion.resistedRadius(logRadius: resumed - 0.04 + 0.04, within: limits)
+            precondition(abs(log(reversed / radius)) < 0.00001, "A reversed pinch must return to the displayed radius")
+        }
+        for boundary in [lower, upper] {
+            let before = Motion.resistedRadius(logRadius: boundary - 0.0001, within: limits)
+            let after = Motion.resistedRadius(logRadius: boundary + 0.0001, within: limits)
+            precondition(abs(log(after / before)) < 0.0002, "Crossing a zoom boundary must have no position discontinuity")
+        }
+        precondition(abs(Motion.resistedRadius(logRadius: log(100), within: limits) - 100) < 0.0001)
+        precondition(abs(Motion.releaseVelocity(1, logRadius: lower - 1, within: limits)) < 1)
+        precondition(Motion.releaseVelocity(1, logRadius: log(100), within: limits) == 1)
+        precondition(Motion.releaseVelocity(.infinity, logRadius: lower, within: limits) == 0)
+
+        for (origin, destination) in [(Float(17), Float(20)), (700, 600), (95, 87.9), (105, 112.2)] {
+            let spring = Motion.Spring(from: origin, to: destination)
+            let first = spring.sample(at: 0)
+            precondition(abs(first.radius - origin) < 0.0001 && first.progress == 0 && !first.isComplete,
+                "Release must start from the last displayed radius")
+            let frames60 = (0...60).map { spring.sample(at: Double($0) / 60) }
+            let frames120 = (0...120).map { spring.sample(at: Double($0) / 120) }
+            for (index, sample) in frames60.enumerated() {
+                precondition(sample.radius == frames120[index * 2].radius, "Spring position must be independent of display refresh rate")
+                precondition(sample.radius >= min(origin, destination) - 0.001 && sample.radius <= max(origin, destination) + 0.001)
+            }
+            precondition(frames60.last!.radius == destination && frames60.last!.progress == 1 && frames60.last!.isComplete,
+                "Spring return must finish at the exact destination")
+            let interrupted = spring.sample(at: 0.08).radius
+            let input = Motion.inputLogRadius(for: interrupted, within: limits)
+            precondition(abs(Motion.resistedRadius(logRadius: input, within: limits) - interrupted) < 0.001,
+                "Re-grabbing during spring return must preserve the displayed radius")
+        }
+        let outward = Motion.Spring(from: 100, to: 80, velocity: 1)
+        let inward = Motion.Spring(from: 100, to: 80, velocity: -1)
+        precondition(outward.sample(at: 0).radius == inward.sample(at: 0).radius)
+        precondition(outward.sample(at: 0.01).radius > 100 && inward.sample(at: 0.01).radius < 100,
+            "The first spring frames must preserve release direction")
+        precondition(outward.sample(at: 1).radius == 80 && inward.sample(at: 1).radius == 80)
+        print("Campus map zoom motion: PASS (elastic limits, inverse re-grab, reversal, release velocity, 60/120Hz spring return)")
     }
 }
