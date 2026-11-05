@@ -1,7 +1,7 @@
 begin;
 
--- Public author profiles remain unchanged. Academic metadata is visible only
--- through an authenticated RPC that resolves the canonical account itself.
+-- Evidence-flow academic metadata is visible only through an authenticated
+-- RPC and remains separate from deliberately entered public donor information.
 create table benchmark_private.oi_school_profile_metadata (
   account_id uuid primary key references public.oi_profiles(id) on delete cascade,
   school_id text not null references public.oi_schools(id),
@@ -21,7 +21,7 @@ declare
   result jsonb;
 begin
   select to_jsonb(profile) || jsonb_build_object(
-    'admission_year', metadata.admission_year, 'department', metadata.department
+    'school_admission_year', metadata.admission_year, 'school_department', metadata.department
   ) into result
   from public.oi_profiles profile
   left join benchmark_private.oi_school_profile_metadata metadata

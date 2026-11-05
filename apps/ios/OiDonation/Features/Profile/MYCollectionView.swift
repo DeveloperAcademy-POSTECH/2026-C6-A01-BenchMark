@@ -19,14 +19,17 @@ struct MYCollectionView: View {
     @State private var selectedCollectedCard: CollectedStoryLibraryItem?
     @State private var detailCard: MYCard?
     @State private var selectedDetail: MYCard?
+    @ScaledMetric(relativeTo: .body) private var emptyCollectionLineHeight = 27.0
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.dismiss) private var dismiss
 
     private var filter: MYCollectionFilter { demo.collectionFilter }
     private var cards: [MYCard] { demo.collectionCards(school: school, sort: sort, pinnedOnly: pinnedOnly) }
     private var showsFolders: Bool { filter == .schools && school == nil }
     private var collectionBackground: Color {
-        school == nil ? .white : Color(red: 186 / 255, green: 154 / 255, blue: 95 / 255)
+        school == nil ? Color(.systemBackground) : Color(red: 186 / 255, green: 154 / 255, blue: 95 / 255)
     }
     private var schools: [MYSchool] {
         Array(Set(cards.map(\.school))).sorted { $0.name < $1.name }
@@ -36,7 +39,8 @@ struct MYCollectionView: View {
         demo: MYLibraryStore,
         school: MYSchool? = nil,
         storyRepository: any StoryRepository,
-        remote: OiRemoteStore? = nil
+        remote: OiRemoteStore? = nil,
+        collectionStore: StoryCollectionStore? = nil
     ) {
         self.demo = demo
         self.remote = remote
@@ -44,7 +48,7 @@ struct MYCollectionView: View {
         _collectedLibrary = State(
             initialValue: CollectedStoryLibrary(
                 repository: storyRepository,
-                collectionStore: StoryCollectionStore()
+                collectionStore: collectionStore ?? StoryCollectionStore()
             )
         )
     }
@@ -73,14 +77,20 @@ struct MYCollectionView: View {
                         schoolFolders
                     } else if !cards.isEmpty {
                         cardGrid
-                    } else if !shouldShowCollectedSection && collectedLibrary.persistenceError == nil {
-                        emptyCollection
-                            .frame(maxWidth: .infinity)
-                            .frame(minHeight: max(0, geometry.size.height - 20))
-                            .padding(.top, 4)
+                    } else if !shouldShowCollectedSection && collectedLibrary.persistenceError == nil && canShowEmptyCollection {
+                        if canShowIllustratedEmptyCollection {
+                            illustratedEmptyCollection
+                                .frame(minHeight: max(0, geometry.size.height - 20))
+                                .padding(.top, 4)
+                        } else {
+                            ContentUnavailableView(pinnedOnly ? "즐겨찾는 오이가 없어요" : "아직 수집한 카드가 없어요", systemImage: pinnedOnly ? "pin" : "leaf", description: Text(emptyCollectionGuidance))
+                                .padding(.top, 60)
+                        }
                     }
-                }.scrollIndicators(.hidden)
+                }
+                .scrollIndicators(.hidden)
             }
+            .clipped()
         }
         .padding(.horizontal, 20)
         .background(collectionBackground.ignoresSafeArea())
@@ -91,7 +101,10 @@ struct MYCollectionView: View {
                                  : Color(red: 105 / 255, green: 79 / 255, blue: 33 / 255))
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if school == nil { collectionFilters }
+            if school == nil {
+                collectionFilters
+                    .background(dynamicTypeSize.isAccessibilitySize ? Color(.systemBackground) : .clear)
+            }
         }
         .task { await collectedLibrary.load() }
         .refreshable { await collectedLibrary.load() }
@@ -112,29 +125,39 @@ struct MYCollectionView: View {
 
     private var emptyCollectionGuidance: String {
         if pinnedOnly { return "카드 확대 화면의 핀을 눌러 이 화면에 모아보세요." }
-        return "아직 수집한 오이카드가 없습니다\n동문들의 카드를 수집하고\n나만의 도감을 만들어보세요!"
+        if remote?.account == nil { return "로그인 후 캠퍼스의 공개 오이 이야기를 수집해 보세요." }
+        return "캠퍼스의 공개 오이 이야기를 수집해 보세요."
     }
 
-    private var emptyCollection: some View {
+    private var canShowEmptyCollection: Bool {
+        guard let remote else { return true }
+        return remote.account != nil && remote.loadError == nil && !remote.needsReauthentication
+    }
+
+    private var canShowIllustratedEmptyCollection: Bool {
+        canShowEmptyCollection && !pinnedOnly
+    }
+
+    private var illustratedEmptyCollection: some View {
         VStack(spacing: 16) {
-            Image("MYCollectionEmptyCucumber")
-                .resizable().scaledToFit()
-                .frame(width: 192, height: 300)
+            Image("MYEmptyCollection")
+                .resizable()
+                .scaledToFit()
+                .frame(width: dynamicTypeSize.isAccessibilitySize ? 96 : 192,
+                       height: dynamicTypeSize.isAccessibilitySize ? 150 : 300)
                 .accessibilityHidden(true)
-            Text(pinnedOnly ? "즐겨찾는 오이가 없어요" : emptyCollectionGuidance)
+
+            Text("아직 수집한 오이카드가 없습니다\n동문들의 카드를 수집하고\n나만의 도감을 만들어보세요!")
                 .font(CampusStyle.medium(18))
                 .tracking(0.36)
-                .lineSpacing(6)
-                .foregroundStyle(CampusStyle.green)
+                .lineHeight(.exact(points: emptyCollectionLineHeight))
+                .foregroundStyle(school != nil ? Color.black : (colorScheme == .dark || colorSchemeContrast == .increased
+                    ? Color.primary : Color("OiGreen")))
                 .multilineTextAlignment(.center)
-            if pinnedOnly {
-                Text(emptyCollectionGuidance)
-                    .font(CampusStyle.body(14))
-                    .foregroundStyle(CampusStyle.sectionGreen)
-                    .multilineTextAlignment(.center)
-            }
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("my.collection.illustratedEmpty")
         }
-        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity)
         .accessibilityIdentifier("my.collection.empty")
     }
 
@@ -348,7 +371,7 @@ struct MYCollectionView: View {
                 }.buttonStyle(.plain).accessibilityAddTraits(filter == option ? .isSelected : [])
                     .accessibilityIdentifier("my.filter.\(option)")
             }
-        }.frame(maxWidth: 186).padding(.bottom, 6)
+        }.frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : 186).padding(.bottom, 6)
             .frame(maxWidth: .infinity).padding(.top, 8)
 
     }

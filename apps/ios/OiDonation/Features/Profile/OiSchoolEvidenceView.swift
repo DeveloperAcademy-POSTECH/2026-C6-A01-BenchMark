@@ -433,11 +433,11 @@ struct OiSchoolEvidenceView: View {
     private func hydrateProfile(owner: UUID) {
         guard hydratedOwner != owner else { return }
         hydratedOwner = owner
-        admissionYear = remote.profile?.admissionYear
+        admissionYear = remote.profile?.schoolAdmissionYear
         schoolID = remote.profile?.schoolId
         schoolQuery = remote.schools.first { $0.id == schoolID }?.name ?? ""
-        department = remote.profile?.department ?? ""
-        skipsDepartment = remote.profile?.admissionYear != nil && department.isEmpty
+        department = remote.profile?.schoolDepartment ?? ""
+        skipsDepartment = remote.profile?.schoolAdmissionYear != nil && department.isEmpty
     }
 
     private func saveProfile(_ input: ProfileSubmission) async {
@@ -446,7 +446,7 @@ struct OiSchoolEvidenceView: View {
         await remote.updateSchoolProfile(schoolID: input.schoolID, admissionYear: input.admissionYear, department: input.department)
         guard !Task.isCancelled, profileSubmission?.id == input.id, remote.account?.id == input.owner else { return }
         guard remote.error == nil, remote.profile?.schoolId == input.schoolID,
-              remote.profile?.admissionYear == input.admissionYear, remote.profile?.department == input.department else {
+              remote.profile?.schoolAdmissionYear == input.admissionYear, remote.profile?.schoolDepartment == input.department else {
             error = remote.error ?? "학적정보를 저장하지 못했어요. 다시 시도해 주세요."
             return
         }

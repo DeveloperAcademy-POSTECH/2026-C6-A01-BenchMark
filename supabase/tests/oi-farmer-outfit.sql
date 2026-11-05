@@ -90,6 +90,49 @@ select public.oi_merge_accounts('preview', 'f1590000-0000-4000-8000-000000000022
   :'owner', :'unused', :'owner_session', :'unused_session') as unused_preview \gset
 select pg_temp.assert_true((:'unused_preview'::jsonb ->> 'source_is_new')::boolean,
   'accounts with no saved outfit retain new-login-method classification');
+-- Isolate preview operations so independent cases do not consume the merge rate limit.
+-- Public-only profile customization also needs the existing-account confirmation.
+savepoint public_name_case;
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', :'unused', true);
+update public.oi_profiles set public_name = 'Public donor' where id = auth.uid();
+set local role service_role;
+select pg_temp.assert_true((public.oi_merge_accounts('preview', 'f1590000-0000-4000-8000-000000000023',
+  :'owner', :'unused', :'owner_session', :'unused_session') ->> 'source_is_new')::boolean is false,
+  'a public-name-only account is not classified as an unused login method');
+rollback to savepoint public_name_case;
+release savepoint public_name_case;
+
+savepoint public_department_case;
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', :'unused', true);
+update public.oi_profiles set department = 'Public department' where id = auth.uid();
+set local role service_role;
+select pg_temp.assert_true((public.oi_merge_accounts('preview', 'f1590000-0000-4000-8000-000000000024',
+  :'owner', :'unused', :'owner_session', :'unused_session') ->> 'source_is_new')::boolean is false,
+  'a public-department-only account is not classified as an unused login method');
+rollback to savepoint public_department_case;
+release savepoint public_department_case;
+
+savepoint public_admission_year_case;
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', :'unused', true);
+update public.oi_profiles set admission_year = '26' where id = auth.uid();
+set local role service_role;
+select pg_temp.assert_true((public.oi_merge_accounts('preview', 'f1590000-0000-4000-8000-000000000025',
+  :'owner', :'unused', :'owner_session', :'unused_session') ->> 'source_is_new')::boolean is false,
+  'a public-admission-year-only account is not classified as an unused login method');
+rollback to savepoint public_admission_year_case;
+release savepoint public_admission_year_case;
+
+set local role service_role;
+select pg_temp.assert_true((public.oi_merge_accounts('preview', 'f1590000-0000-4000-8000-000000000026',
+  :'owner', :'unused', :'owner_session', :'unused_session') ->> 'source_is_new')::boolean,
+  'restoring all public defaults retains new-login-method classification');
+
 select public.oi_merge_accounts('confirm', 'f1590000-0000-4000-8000-000000000021',
   :'owner', :'other', :'owner_session', :'other_session',
   (:'merge_preview'::jsonb ->> 'challenge_id')::uuid, true);

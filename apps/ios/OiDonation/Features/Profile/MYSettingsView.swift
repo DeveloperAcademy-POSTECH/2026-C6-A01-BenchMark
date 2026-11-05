@@ -14,6 +14,7 @@ struct MYSettingsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var settingsError = false
+    @State private var showingAcademicEditor = false
     @State private var permissionValues: [MYPermission: PermissionStatus] = [:]
     @State private var farmNameOwner: UUID?
     @State private var farmNameInput = ""
@@ -53,7 +54,21 @@ struct MYSettingsView: View {
                         .disabled(true)
                         .accessibilityIdentifier("my.settings.identity")
                     }
-                    section("학적정보") { schoolRow }
+                    section("학적정보") {
+                        schoolRow
+                        if let remote, let owner = remote.account?.id, remote.hasLoadedRemote {
+                            Button { showingAcademicEditor = true } label: {
+                                settingsCard(action: "수정") {
+                                    Text("기부자 검색 정보").font(CampusStyle.medium(18))
+                                }
+                            }
+                            .disabled(remote.needsReauthentication || remote.isBusy)
+                            .accessibilityIdentifier("my.settings.academic.edit")
+                            .sheet(isPresented: $showingAcademicEditor) {
+                                OiPublicAcademicEditor(remote: remote, owner: owner)
+                            }
+                        }
+                    }
                     section("권한허용", detail: "iPhone 설정에서 변경") {
                         if permissionValues.count < MYPermission.allCases.count {
                             ProgressView().accessibilityLabel("기기 권한 확인 중")
@@ -99,6 +114,7 @@ struct MYSettingsView: View {
         .task(id: scenePhase) { if scenePhase == .active { await refreshPermissions() } }
         .onChange(of: remote?.account?.id) { _, _ in
             resetFarmNameEditor()
+            showingAcademicEditor = false
         }
         .alert("설정을 열 수 없어요", isPresented: $settingsError) {
             Button("확인", role: .cancel) {}

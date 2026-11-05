@@ -87,7 +87,9 @@ begin
     raise exception 'oi_merge_accounts drift requires review before adding farmer outfits';
   end if;
   execute replace(definition, anchor,
-    'and not exists(select 1 from benchmark_private.oi_farmer_outfits where account_id=source_account) ' || anchor);
+    'and not exists(select 1 from benchmark_private.oi_farmer_outfits where account_id=source_account) ' ||
+    'and not exists(select 1 from public.oi_profiles where id=source_account ' ||
+    'and (public_name<>'''' or department<>'''' or admission_year<>'''')) ' || anchor);
 end;
 $patch$;
 

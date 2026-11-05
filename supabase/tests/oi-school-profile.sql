@@ -26,7 +26,7 @@ insert into public.oi_schools (id, name) values ('school-profile-158', 'Syntheti
 
 select pg_temp.assert_true(not exists (
   select 1 from information_schema.columns
-  where table_schema = 'public' and table_name = 'oi_profiles' and column_name in ('admission_year', 'department')
+  where table_schema = 'public' and table_name = 'oi_profiles' and column_name in ('school_admission_year', 'school_department')
 ), 'public author profiles have no private academic columns');
 select pg_temp.assert_true((select relrowsecurity from pg_class
   where oid = 'benchmark_private.oi_school_profile_metadata'::regclass), 'private metadata enables RLS');
@@ -44,31 +44,48 @@ select set_config('request.jwt.claim.sub', :'owner', true);
 select pg_temp.assert_true((public.oi_capabilities() ->> 'school_profile_enabled')::boolean,
   'capability advertises the installed school profile RPCs');
 select pg_temp.assert_true(public.oi_school_profile() ->> 'id' = :'owner'
-  and public.oi_school_profile() ->> 'admission_year' is null
-  and public.oi_school_profile() ->> 'department' is null, 'legacy accounts have optional metadata');
+  and public.oi_school_profile() ->> 'school_admission_year' is null
+  and public.oi_school_profile() ->> 'school_department' is null, 'legacy accounts have optional metadata');
+update public.oi_profiles set public_name = 'Public donor', department = 'Public department', admission_year = '26'
+where id = auth.uid();
 select public.oi_update_school_profile('postech', 2020, '  Computer Science  ') as initial \gset
 select pg_temp.assert_true(:'initial'::jsonb ->> 'id' = :'owner'
   and :'initial'::jsonb ->> 'school_id' = 'postech'
-  and (:'initial'::jsonb ->> 'admission_year')::integer = 2020
-  and :'initial'::jsonb ->> 'department' = 'Computer Science', 'school and trimmed metadata save atomically');
+  and (:'initial'::jsonb ->> 'school_admission_year')::integer = 2020
+  and :'initial'::jsonb ->> 'school_department' = 'Computer Science', 'school and trimmed metadata save atomically');
+select pg_temp.assert_true(:'initial'::jsonb ->> 'public_name' = 'Public donor'
+  and :'initial'::jsonb ->> 'admission_year' = '26'
+  and :'initial'::jsonb ->> 'department' = 'Public department',
+  'private school RPC preserves public donor fields in its JSON receipt');
+select pg_temp.assert_true((select public_name = 'Public donor' and admission_year = '26' and department = 'Public department'
+  from public.oi_profiles where id = auth.uid()), 'private school update never changes public donor metadata');
+update public.oi_profiles set public_name = 'Edited public donor', admission_year = '25', department = 'Public History'
+where id = auth.uid();
+select pg_temp.assert_true(public.oi_school_profile() ->> 'admission_year' = '25'
+  and public.oi_school_profile() ->> 'department' = 'Public History'
+  and (public.oi_school_profile() ->> 'school_admission_year')::integer = 2020
+  and public.oi_school_profile() ->> 'school_department' = 'Computer Science',
+  'public donor edits preserve separate private academic metadata');
+select pg_temp.assert_true(not (select to_jsonb(profile) ?| array['school_admission_year', 'school_department']
+  from public.oi_profiles profile where id = auth.uid()), 'public profile responses never include private metadata');
 select pg_temp.assert_error('select * from benchmark_private.oi_school_profile_metadata', '42501');
-select pg_temp.assert_error($command$update public.oi_profiles set admission_year = 2021 where id = auth.uid()$command$, '42703');
+select pg_temp.assert_error($command$update public.oi_profiles set school_admission_year = 2021 where id = auth.uid()$command$, '42703');
 
 -- Existing independent edits must preserve the new values.
 update public.oi_profiles set nickname = 'Synthetic school owner' where id = auth.uid();
 update public.oi_profiles set school_id = 'postech' where id = auth.uid();
 select pg_temp.assert_true(public.oi_school_profile() ->> 'nickname' = 'Synthetic school owner'
-  and public.oi_school_profile() ->> 'department' = 'Computer Science'
-  and (public.oi_school_profile() ->> 'admission_year')::integer = 2020,
+  and public.oi_school_profile() ->> 'school_department' = 'Computer Science'
+  and (public.oi_school_profile() ->> 'school_admission_year')::integer = 2020,
   'legacy nickname and school PATCHes preserve private metadata');
 update public.oi_profiles set school_id = 'school-profile-158' where id = auth.uid();
 select pg_temp.assert_true(public.oi_school_profile() ->> 'school_id' = 'school-profile-158'
-  and public.oi_school_profile() ->> 'admission_year' is null
-  and public.oi_school_profile() ->> 'department' is null,
+  and public.oi_school_profile() ->> 'school_admission_year' is null
+  and public.oi_school_profile() ->> 'school_department' is null,
   'a legacy school change never displays academic metadata from the previous school');
 update public.oi_profiles set school_id = 'postech' where id = auth.uid();
-select pg_temp.assert_true(public.oi_school_profile() ->> 'department' = 'Computer Science'
-  and (public.oi_school_profile() ->> 'admission_year')::integer = 2020,
+select pg_temp.assert_true(public.oi_school_profile() ->> 'school_department' = 'Computer Science'
+  and (public.oi_school_profile() ->> 'school_admission_year')::integer = 2020,
   'preserved metadata is readable only when its original school is selected again');
 select pg_temp.assert_error($command$select public.oi_update_school_profile('postech', 1899, 'Physics')$command$, '22023');
 select pg_temp.assert_error(format('select public.oi_update_school_profile(%L, %s, %L)',
@@ -78,19 +95,19 @@ select pg_temp.assert_error($command$select public.oi_update_school_profile('mis
 select pg_temp.assert_error(format('select public.oi_update_school_profile(%L, 2021, %L)', 'postech', repeat('x', 101)), '22023');
 select pg_temp.assert_error($command$select public.oi_update_school_profile('postech', 2021, E' \t\n ')$command$, '22023');
 select pg_temp.assert_true(public.oi_school_profile() ->> 'school_id' = 'postech'
-  and public.oi_school_profile() ->> 'department' = 'Computer Science'
-  and (public.oi_school_profile() ->> 'admission_year')::integer = 2020,
+  and public.oi_school_profile() ->> 'school_department' = 'Computer Science'
+  and (public.oi_school_profile() ->> 'school_admission_year')::integer = 2020,
   'invalid submissions preserve both public school and private metadata');
 
 select public.oi_update_school_profile('postech', 2019, null);
-select pg_temp.assert_true(public.oi_school_profile() -> 'department' = 'null'::jsonb
-  and (public.oi_school_profile() ->> 'admission_year')::integer = 2019,
+select pg_temp.assert_true(public.oi_school_profile() -> 'school_department' = 'null'::jsonb
+  and (public.oi_school_profile() ->> 'school_admission_year')::integer = 2019,
   'an explicit skipped department clears its previous value');
 
 select set_config('request.jwt.claim.sub', :'other', true);
 select pg_temp.assert_true(public.oi_school_profile() ->> 'id' = :'other'
-  and public.oi_school_profile() ->> 'admission_year' is null
-  and public.oi_school_profile() ->> 'department' is null, 'another account cannot read the first account metadata');
+  and public.oi_school_profile() ->> 'school_admission_year' is null
+  and public.oi_school_profile() ->> 'school_department' is null, 'another account cannot read the first account metadata');
 select public.oi_update_school_profile('postech', 2021, 'Physics');
 reset role;
 select pg_temp.assert_true((select count(*) = 2 from benchmark_private.oi_school_profile_metadata),
@@ -112,8 +129,8 @@ select pg_temp.assert_error('select public.oi_school_profile()', 'PT401');
 select pg_temp.assert_error($command$select public.oi_update_school_profile('postech', 2022, 'Engineering')$command$, 'PT401');
 select set_config('request.jwt.claims', jsonb_build_object('session_id', :'other_session')::text, true);
 select pg_temp.assert_true(public.oi_school_profile() ->> 'id' = :'owner'
-  and (public.oi_school_profile() ->> 'admission_year')::integer = 2019
-  and public.oi_school_profile() -> 'department' = 'null'::jsonb,
+  and (public.oi_school_profile() ->> 'school_admission_year')::integer = 2019
+  and public.oi_school_profile() -> 'school_department' = 'null'::jsonb,
   'a verified merged member reads only the representative account metadata');
 select public.oi_update_school_profile('postech', 2022, 'Engineering');
 reset role;

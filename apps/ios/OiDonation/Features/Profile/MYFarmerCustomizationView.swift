@@ -115,7 +115,8 @@ struct MYFarmerCustomizationView: View {
                 .padding(.horizontal, 20).frame(minHeight: 40)
                 .background(CampusStyle.green, in: Capsule())
         }.buttonStyle(.plain)
-            .disabled(isSaving || remote?.account == nil || remote?.isFarmerOutfitAvailable != true || !wardrobe.validates(selection))
+            .disabled(isSaving || remote?.isBusy == true || remote?.needsReauthentication == true ||
+                      remote?.account == nil || remote?.isFarmerOutfitAvailable != true || !wardrobe.validates(selection))
             .accessibilityIdentifier("my.farmer.save")
     }
 
@@ -257,6 +258,7 @@ struct MYFarmerCustomizationView: View {
 
     private var notices: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if let remote { OiConnectionStatus(remote: remote, showsInitialProgress: false) }
             if let saveError { Text(saveError).foregroundStyle(.red).accessibilityIdentifier("my.farmer.saveError") }
             if remote?.account == nil { Text("로그인하면 농부 모습을 계정에 저장할 수 있어요.") }
             else if remote?.isFarmerOutfitAvailable != true { Text("농부 모습 저장을 준비 중이에요. 잠시 후 다시 시도해 주세요.") }

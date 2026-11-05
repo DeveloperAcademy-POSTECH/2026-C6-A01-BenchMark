@@ -36,6 +36,9 @@ final class OiTestBackend {
         var failFarmWrite = false
         var mismatchedFarmReceipt = false
         var holdFarmWrite = false
+        var publicName = ""
+        var department = ""
+        var admissionYear = ""
         var schoolID: String?
         var schoolProfileEnabled = false
         var farmerOutfitEnabled = false
@@ -50,8 +53,8 @@ final class OiTestBackend {
         var holdFarmerOutfitWrite = false
         var schoolMetadataSchoolID: String? = "postech"
         var includesSecondSchool = false
-        var admissionYear: Int?
-        var department: String?
+        var schoolAdmissionYear: Int?
+        var schoolDepartment: String?
         var schoolProfileReads = 0
         var schoolProfileWrites = 0
         var failSchoolProfileWrite = false
@@ -215,16 +218,17 @@ final class OiTestBackend {
                 else {
                     state.schoolID = body["p_school_id"] as? String
                     state.schoolMetadataSchoolID = state.schoolID
-                    state.admissionYear = body["p_admission_year"] as? Int
-                    state.department = body["p_department"] as? String
+                    state.schoolAdmissionYear = body["p_admission_year"] as? Int
+                    state.schoolDepartment = body["p_department"] as? String
                 }
             } else { state.schoolProfileReads += 1 }
             let receiptOwner = writing && state.mismatchedSchoolProfileReceipt ? Self.other : owner
             result = ["id":receiptOwner.uuidString,"nickname":state.nickname,"farmer_asset":"OiFarmer",
                 "farm_name":owner == Self.owner ? state.farmName as Any? ?? NSNull() : state.otherFarmName,
                 "school_id":state.schoolID as Any? ?? NSNull(),
-                "admission_year":owner == Self.owner && state.schoolID == state.schoolMetadataSchoolID ? state.admissionYear as Any? ?? NSNull() : NSNull(),
-                "department":owner == Self.owner && state.schoolID == state.schoolMetadataSchoolID ? state.department as Any? ?? NSNull() : NSNull()]
+                "public_name":state.publicName, "department":state.department, "admission_year":state.admissionYear,
+                "school_admission_year":owner == Self.owner && state.schoolID == state.schoolMetadataSchoolID ? state.schoolAdmissionYear as Any? ?? NSNull() : NSNull(),
+                "school_department":owner == Self.owner && state.schoolID == state.schoolMetadataSchoolID ? state.schoolDepartment as Any? ?? NSNull() : NSNull()]
         }
         else if path.hasSuffix("/rpc/oi_collection_metrics") { result = [] }
         else if path.hasSuffix("/oi_stories") {
@@ -244,12 +248,16 @@ final class OiTestBackend {
                     else { state.otherFarmName = farm }
                 }
                 state.nickname = body["nickname"] as? String ?? state.nickname
+                state.publicName = body["public_name"] as? String ?? state.publicName
+                state.department = body["department"] as? String ?? state.department
+                state.admissionYear = body["admission_year"] as? String ?? state.admissionYear
                 if let school = body["school_id"] { state.schoolID = school as? String }
             }
             let receiptOwner = body["farm_name"] != nil && state.mismatchedFarmReceipt ? Self.other : owner
             result = [["id":receiptOwner.uuidString,"nickname":owner == Self.owner ? state.nickname : "Owner B",
                 "farmer_asset":"OiFarmer", "school_id":state.schoolID as Any? ?? NSNull(),
-                "farm_name":owner == Self.owner ? state.farmName as Any? ?? NSNull() : state.otherFarmName]]
+                "farm_name":owner == Self.owner ? state.farmName as Any? ?? NSNull() : state.otherFarmName,
+                "public_name":state.publicName, "department":state.department, "admission_year":state.admissionYear]]
         } else if path.hasSuffix("/oi_story_media") {
             result = state.paths.enumerated().map { position, path in
                 ["id":UUID().uuidString,"story_id":state.story?["id"] ?? "","object_path":path,"position":position]
@@ -324,6 +332,82 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(backend.snapshot().nickname, "Saved name")
     }
 
+    @MainActor func testPublicAcademicInfoPersistsClearsAndPreservesLegacyProfile() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        await store.updateProfile(schoolID: "postech", academicInfo: .init(name: "  테스트농부  ", department: "컴퓨터공학과", admissionYear: "2026"))
+        XCTAssertNil(store.error)
+        XCTAssertEqual(store.profile?.publicName, "테스트농부")
+        XCTAssertEqual(store.profile?.nickname, "Owner A")
+        let restored = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: vault)
+        await restored.start()
+        XCTAssertEqual(restored.profile?.department, "컴퓨터공학과")
+        XCTAssertEqual(restored.profile?.admissionYear, "2026")
+        await restored.updateProfile(academicInfo: .init(name: "바뀌면 안 됨", admissionYear: "20260001"))
+        XCTAssertNotNil(restored.error)
+        XCTAssertEqual(backend.snapshot().publicName, "테스트농부")
+        await restored.updateProfile(academicInfo: .init())
+        XCTAssertNil(restored.error)
+        XCTAssertEqual(restored.profile?.publicName, "")
+        XCTAssertEqual(restored.profile?.department, "")
+        XCTAssertEqual(restored.profile?.admissionYear, "")
+        XCTAssertEqual(restored.profile?.schoolId, "postech")
+        XCTAssertEqual(restored.profile?.nickname, "Owner A")
+    }
+
+    @MainActor func testPublicAndPrivateAcademicInformationRemainIndependentAcrossEdits() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure {
+            $0.schoolProfileEnabled = true; $0.schoolID = "postech"
+            $0.publicName = "Public donor"; $0.department = "Public department"; $0.admissionYear = "26"
+            $0.schoolAdmissionYear = 2020; $0.schoolDepartment = "Private Physics"
+        }
+        await store.start()
+        XCTAssertEqual(store.profile?.admissionYear, "26")
+        XCTAssertEqual(store.profile?.department, "Public department")
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2020)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Private Physics")
+
+        await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2021, department: "Private Mathematics")
+        XCTAssertNil(store.error)
+        XCTAssertEqual(store.profile?.publicName, "Public donor")
+        XCTAssertEqual(store.profile?.admissionYear, "26")
+        XCTAssertEqual(store.profile?.department, "Public department")
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2021)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Private Mathematics")
+        XCTAssertEqual(backend.snapshot().admissionYear, "26")
+        XCTAssertEqual(backend.snapshot().department, "Public department")
+
+        backend.configure { $0.failReads = true }
+        await store.updateProfile(academicInfo: .init(name: "Edited public donor", department: "Public History", admissionYear: "25"))
+        XCTAssertEqual(store.profile?.admissionYear, "25")
+        XCTAssertEqual(store.profile?.department, "Public History")
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2021)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Private Mathematics")
+        await store.updateFarmName("햇살")
+        await store.updateProfile(nickname: "Legacy public nickname")
+        XCTAssertEqual(store.profile?.publicName, "Edited public donor")
+        XCTAssertEqual(store.profile?.admissionYear, "25")
+        XCTAssertEqual(store.profile?.department, "Public History")
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2021)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Private Mathematics")
+        XCTAssertEqual(backend.snapshot().profilePatchBodies.map { $0.keys.sorted() },
+            [["admission_year", "department", "public_name"], ["farm_name"], ["nickname"]])
+
+        backend.configure { $0.failReads = false }
+        let restored = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: vault)
+        await restored.start()
+        XCTAssertEqual(restored.profile?.publicName, "Edited public donor")
+        XCTAssertEqual(restored.profile?.admissionYear, "25")
+        XCTAssertEqual(restored.profile?.department, "Public History")
+        XCTAssertEqual(restored.profile?.schoolAdmissionYear, 2021)
+        XCTAssertEqual(restored.profile?.schoolDepartment, "Private Mathematics")
+    }
+
     @MainActor func testProfileEditsDoNotOverwriteFieldsChangedOnAnotherDevice() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
@@ -349,30 +433,30 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertTrue(store.isSchoolProfileAvailable)
         await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2020, department: "  Computer Science  ")
         XCTAssertNil(store.error)
-        XCTAssertEqual(store.profile?.admissionYear, 2020)
-        XCTAssertEqual(store.profile?.department, "Computer Science")
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2020)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Computer Science")
         await store.updateProfile(nickname: "Changed nickname")
-        XCTAssertEqual(store.profile?.admissionYear, 2020)
-        XCTAssertEqual(store.profile?.department, "Computer Science")
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2020)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Computer Science")
         let restored = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
             drafts: OiDraftVault(directory: directory), vault: vault)
         await restored.start()
-        XCTAssertEqual(restored.profile?.admissionYear, 2020)
-        XCTAssertEqual(restored.profile?.department, "Computer Science")
+        XCTAssertEqual(restored.profile?.schoolAdmissionYear, 2020)
+        XCTAssertEqual(restored.profile?.schoolDepartment, "Computer Science")
         XCTAssertGreaterThanOrEqual(backend.snapshot().schoolProfileReads, 2)
     }
 
     @MainActor func testSkippedDepartmentClearsOnlyPrivateDepartment() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
-        backend.configure { $0.schoolProfileEnabled = true; $0.schoolID = "postech"; $0.admissionYear = 2020; $0.department = "Old department" }
+        backend.configure { $0.schoolProfileEnabled = true; $0.schoolID = "postech"; $0.schoolAdmissionYear = 2020; $0.schoolDepartment = "Old department" }
         await store.start()
         await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2021, department: nil)
         XCTAssertNil(store.error)
-        XCTAssertNil(store.profile?.department)
-        XCTAssertEqual(store.profile?.admissionYear, 2021)
+        XCTAssertNil(store.profile?.schoolDepartment)
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2021)
         XCTAssertEqual(store.profile?.nickname, "Owner A")
-        XCTAssertNil(backend.snapshot().department)
+        XCTAssertNil(backend.snapshot().schoolDepartment)
     }
 
     @MainActor func testLegacyServerKeepsLoadingWithoutPrivateSchoolRPC() async throws {
@@ -393,38 +477,38 @@ final class OiRemoteStoreTests: XCTestCase {
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
         backend.configure {
             $0.schoolProfileEnabled = true; $0.includesSecondSchool = true
-            $0.schoolID = "postech"; $0.admissionYear = 2020; $0.department = "Original department"
+            $0.schoolID = "postech"; $0.schoolAdmissionYear = 2020; $0.schoolDepartment = "Original department"
         }
         await store.start()
-        XCTAssertEqual(store.profile?.department, "Original department")
+        XCTAssertEqual(store.profile?.schoolDepartment, "Original department")
         await store.updateProfile(schoolID: "other")
         XCTAssertNil(store.error)
         XCTAssertEqual(store.profile?.schoolId, "other")
-        XCTAssertNil(store.profile?.admissionYear)
-        XCTAssertNil(store.profile?.department)
+        XCTAssertNil(store.profile?.schoolAdmissionYear)
+        XCTAssertNil(store.profile?.schoolDepartment)
     }
 
     @MainActor func testSchoolProfileWriteFailurePreservesPreviousValues() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
-        backend.configure { $0.schoolProfileEnabled = true; $0.schoolID = "postech"; $0.admissionYear = 2020; $0.department = "Original" }
+        backend.configure { $0.schoolProfileEnabled = true; $0.schoolID = "postech"; $0.schoolAdmissionYear = 2020; $0.schoolDepartment = "Original" }
         await store.start()
         backend.configure { $0.failSchoolProfileWrite = true }
         await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2021, department: "Changed")
         XCTAssertNotNil(store.error)
-        XCTAssertEqual(store.profile?.admissionYear, 2020)
-        XCTAssertEqual(store.profile?.department, "Original")
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2020)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Original")
     }
 
     @MainActor func testSchoolProfileRejectsReceiptForAnotherAccount() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
-        backend.configure { $0.schoolProfileEnabled = true; $0.schoolID = "postech"; $0.admissionYear = 2020 }
+        backend.configure { $0.schoolProfileEnabled = true; $0.schoolID = "postech"; $0.schoolAdmissionYear = 2020 }
         await store.start()
         backend.configure { $0.mismatchedSchoolProfileReceipt = true }
         await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2021, department: "Changed")
         XCTAssertNotNil(store.error)
-        XCTAssertEqual(store.profile?.admissionYear, 2020)
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2020)
         XCTAssertEqual(store.account?.id, OiTestBackend.owner)
     }
 
@@ -433,7 +517,7 @@ final class OiRemoteStoreTests: XCTestCase {
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
         backend.configure {
             $0.schoolProfileEnabled = true; $0.schoolID = "postech"
-            $0.admissionYear = 2020; $0.department = "Computer Science"
+            $0.schoolAdmissionYear = 2020; $0.schoolDepartment = "Computer Science"
         }
         await store.start()
         XCTAssertEqual(store.profile?.farmName, "오이")
@@ -442,8 +526,8 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(store.profile?.farmName, "햇살")
         XCTAssertEqual(store.profile?.nickname, "Owner A")
         XCTAssertEqual(store.profile?.schoolId, "postech")
-        XCTAssertEqual(store.profile?.admissionYear, 2020)
-        XCTAssertEqual(store.profile?.department, "Computer Science")
+        XCTAssertEqual(store.profile?.schoolAdmissionYear, 2020)
+        XCTAssertEqual(store.profile?.schoolDepartment, "Computer Science")
         XCTAssertEqual(backend.snapshot().profilePatchBodies.first?.keys.sorted(), ["farm_name"])
         let restored = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
             drafts: OiDraftVault(directory: directory), vault: vault)

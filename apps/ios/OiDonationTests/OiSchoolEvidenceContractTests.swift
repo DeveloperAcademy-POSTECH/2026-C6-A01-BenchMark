@@ -47,6 +47,58 @@ final class OiSchoolEvidenceContractTests: XCTestCase {
         }
     }
 
+    func testSchoolProfileRPCSeparatesPrivateMetadataFromPublicDonorFields() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let previous = OiStoreURLProtocol.handle
+        defer { session.invalidateAndCancel(); OiStoreURLProtocol.handle = previous }
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let owner = UUID()
+        let response: [String: Any] = [
+            "id": owner.uuidString, "nickname": "Legacy nickname", "farmer_asset": "OiFarmer", "farm_name": "오이",
+            "school_id": "postech", "public_name": "Public donor", "admission_year": "26", "department": "Public department",
+            "school_admission_year": 2020, "school_department": "Private department"
+        ]
+        let bytes = try JSONSerialization.data(withJSONObject: response)
+        OiStoreURLProtocol.handle = { request, client in
+            XCTAssertEqual(request.httpMethod, "POST")
+            if request.url?.path == "/rest/v1/rpc/oi_update_school_profile" {
+                let payload = try? JSONSerialization.jsonObject(with: OiTestBackend.body(request)) as? [String: Any]
+                XCTAssertEqual(payload?.keys.sorted(), ["p_admission_year", "p_department", "p_school_id"])
+                XCTAssertEqual(payload?["p_admission_year"] as? Int, 2020)
+                XCTAssertEqual(payload?["p_department"] as? String, "Private department")
+            } else {
+                XCTAssertEqual(request.url?.path, "/rest/v1/rpc/oi_school_profile")
+            }
+            client.respond(200, bytes)
+        }
+        let read = try await api.schoolProfile(owner: owner, token: "synthetic-token")
+        let saved = try await api.updateSchoolProfile(owner: owner, schoolID: "postech", admissionYear: 2020,
+            department: "Private department", token: "synthetic-token")
+        XCTAssertEqual(read, saved)
+        XCTAssertEqual(saved.admissionYear, "26")
+        XCTAssertEqual(saved.department, "Public department")
+        XCTAssertEqual(saved.schoolAdmissionYear, 2020)
+        XCTAssertEqual(saved.schoolDepartment, "Private department")
+        XCTAssertEqual(saved.farmName, "오이")
+
+        var missingPrivateReceipt = response
+        missingPrivateReceipt.removeValue(forKey: "school_admission_year")
+        missingPrivateReceipt.removeValue(forKey: "school_department")
+        let missingPrivateBytes = try JSONSerialization.data(withJSONObject: missingPrivateReceipt)
+        OiStoreURLProtocol.handle = { _, client in client.respond(200, missingPrivateBytes) }
+        do {
+            _ = try await api.updateSchoolProfile(owner: owner, schoolID: "postech", admissionYear: 2020,
+                department: "Private department", token: "synthetic-token")
+            XCTFail("A public academic profile must never confirm a private school update")
+        } catch OiServiceError.unavailable {
+            // Public fields cannot satisfy the required private write receipt.
+        } catch {
+            XCTFail("Unexpected school profile error: \(error)")
+        }
+    }
+
     func testSavedSummaryRestoresOnlyForItsOwner() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("SchoolSummary-\(UUID())")
         defer {
