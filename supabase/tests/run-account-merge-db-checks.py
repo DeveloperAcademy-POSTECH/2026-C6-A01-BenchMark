@@ -92,8 +92,8 @@ try:
         run(connection + ['-f', 'supabase/tests/bootstrap-local.sql'])
         run(connection, input="""create role service_role nologin bypassrls;
 alter table auth.users add column created_at timestamptz not null default now();
-create table auth.sessions(id uuid primary key,user_id uuid not null references auth.users(id),created_at timestamptz not null default now());
-create table auth.identities(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users(id),provider text not null);
+create table auth.sessions(id uuid primary key,user_id uuid not null references auth.users(id) on delete cascade,created_at timestamptz not null default now());
+create table auth.identities(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users(id) on delete cascade,provider text not null);
 create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb; $$;
 grant execute on function auth.jwt() to anon,authenticated;
 """, text=True)
@@ -111,6 +111,7 @@ grant execute on function auth.jwt() to anon,authenticated;
         run(connection + ['-f', 'supabase/tests/oi-operator-audit.sql'])
         run(connection + ['-f', 'supabase/tests/oi-operator-workflow.sql'])
         run(connection + ['-f', 'supabase/tests/oi-unapproved-drafts.sql'])
+        run(connection + ['-f', 'supabase/tests/oi-account-deletion.sql'])
         run(connection + ['-f', 'supabase/tests/oi-school-profile.sql'])
         run(connection + ['-f', 'supabase/tests/oi-farmer-outfit.sql'])
         run(connection + ['-f', 'supabase/tests/oi-evidence-fingerprints.sql'])
@@ -154,8 +155,8 @@ grant execute on function auth.jwt() to anon,authenticated;
         bootstrap = (REPOSITORY / 'supabase/tests/bootstrap-local.sql').read_text().replace('create role anon nologin;', '').replace('create role authenticated nologin;', '')
         run(remote_connection, input=bootstrap, text=True)
         extra = """alter table auth.users add column created_at timestamptz not null default now();
-create table auth.sessions(id uuid primary key,user_id uuid not null references auth.users(id),created_at timestamptz not null default now());
-create table auth.identities(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users(id),provider text not null);
+create table auth.sessions(id uuid primary key,user_id uuid not null references auth.users(id) on delete cascade,created_at timestamptz not null default now());
+create table auth.identities(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users(id) on delete cascade,provider text not null);
 create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb; $$;
 grant execute on function auth.jwt() to anon,authenticated;
 """
@@ -181,6 +182,7 @@ grant execute on function auth.jwt() to anon,authenticated;
         run(remote_connection + ['-f', 'supabase/tests/oi-operator-audit.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-operator-workflow.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-unapproved-drafts.sql'])
+        run(remote_connection + ['-f', 'supabase/tests/oi-account-deletion.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-school-profile.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-farmer-outfit.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-evidence-fingerprints.sql'])

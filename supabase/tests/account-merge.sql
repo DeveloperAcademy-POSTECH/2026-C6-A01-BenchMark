@@ -82,7 +82,18 @@ select pg_temp.assert_true((select count(*)=3 and count(*)filter(where revoked_a
 select pg_temp.assert_true((select array_agg(status order by id)=array['approved','approved','revoked'] from public.oi_evidence_requests),'evidence statuses preserved');
 select pg_temp.assert_true((select count(*)=5 from auth.users),'no Auth users deleted');
 select pg_temp.assert_true((select count(*)=3 and bool_and(owner_id='a1000000-0000-4000-8000-000000000002') from storage.objects),'Storage objects and owners unchanged');
-select pg_temp.assert_error($q$delete from auth.users where id='a1000000-0000-4000-8000-000000000002'$q$,'23503');
+do $$
+declare constraint_name text;
+begin
+  begin
+    delete from auth.users where id='a1000000-0000-4000-8000-000000000002';
+    raise exception 'linked auth user must not be directly deleted';
+  exception when sqlstate '23503' or sqlstate '23001' then
+    get stacked diagnostics constraint_name=constraint_name;
+    if constraint_name<>'oi_account_members_auth_user_id_fkey' then raise; end if;
+  end;
+end;
+$$;
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub','a1000000-0000-4000-8000-000000000002',true);

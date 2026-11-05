@@ -51,6 +51,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
     private(set) var isFarmerOutfitAvailable = false
     private(set) var farmerOutfit: OiFarmerOutfit?
     private(set) var accountMemberIDs: Set<UUID> = []
+    private(set) var isAccountDeletionPending = false
+    private let deletionCleanupKey = "oi.accountDeletion.cleanup.v1"
     private(set) var accountProviders: [String] = []
     private(set) var localRecoveryWarning: String?
     var error: String? { didSet { errorRevision &+= 1 } }
@@ -77,6 +79,10 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         do {
             if api == nil { api = try OiServiceAPI.configured() }
             isConfigured = true
+            if let cleanup = UserDefaults.standard.data(forKey: deletionCleanupKey) {
+                let receipt = try JSONDecoder().decode(OiAccountDeletionReceipt.self, from: cleanup)
+                try await clearDeletedAccount(receipt)
+            }
             let restored = try vault.read()
             if (restored?.appAccount ?? restored?.user)?.id != account?.id { resetAccountState() }
             started = generation
@@ -147,6 +153,62 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         do { try await load() }
         catch where OiServiceFailure.isCancellation(error) { }
         catch { loadError = error.localizedDescription }
+    }
+
+    func deleteAccount(using provider: any OiAuthenticating) async throws -> OiAccountDeletionReceipt {
+        guard let api, let account, !needsReauthentication, !isBusy, !isRefreshing else { throw OiServiceError.signInRequired }
+        let started = generation
+        isBusy = true
+        defer { isBusy = false }
+        let proof = try await provider.signIn(api: api)
+        try Task.checkCancellation()
+        guard started == generation else { throw OiServiceError.accountChanged }
+        let accessToken = try await token()
+        let receipt: OiAccountDeletionReceipt
+        do {
+            receipt = try await api.deleteAccount(account.id, token: accessToken, proof: proof)
+        } catch {
+            guard started == generation else { throw OiServiceError.accountChanged }
+            if let status = try? await api.accountDeletionStatus(token: accessToken), status.accountId == account.id {
+                showPendingDeletion(status)
+            }
+            throw error
+        }
+        guard started == generation else { throw OiServiceError.accountChanged }
+        UserDefaults.standard.set(try JSONEncoder().encode(receipt), forKey: deletionCleanupKey)
+        resetAccountState(); session = nil; self.account = nil
+        do { try await clearDeletedAccount(receipt) }
+        catch { syncWarning = "서버 탈퇴는 완료됐지만 기기 기록 정리가 남았어요. 앱을 다시 열면 정리를 재시도해요." }
+        if syncWarning == nil {
+            do { try await load() }
+            catch { loadError = error.localizedDescription }
+        }
+        return receipt
+    }
+
+    private func clearDeletedAccount(_ receipt: OiAccountDeletionReceipt) async throws {
+        try vault.write(nil)
+        try await drafts.purgeAccounts(Set(receipt.deletedMemberIds))
+        for owner in receipt.deletedMemberIds {
+            UserDefaults.standard.removeObject(forKey: MYFarmerAppearanceStore.key(ownerID: owner))
+        }
+        UserDefaults.standard.removeObject(forKey: deletionCleanupKey)
+    }
+
+    private func showPendingDeletion(_ status: OiAccountDeletionStatus) {
+        guard let id = status.accountId else { return }
+        let current = session
+        resetAccountState()
+        session = current
+        account = OiAccount(id: id, email: current?.user.email)
+        if var current {
+            current.appAccount = account
+            session = current
+            do { try vault.write(current) }
+            catch { localRecoveryWarning = "기기에 탈퇴 진행 상태를 저장하지 못했습니다. 다시 로그인해 삭제를 이어갈 수 있어요." }
+        }
+        accountMemberIDs = Set(status.memberIds ?? [id])
+        isAccountDeletionPending = true
     }
 
     func authenticateAdditional(using provider: any OiAuthenticating) async throws -> OiSession {
@@ -220,7 +282,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         profile = nil; ownStories = []; reviewStories = []; profiles = []; media = []; evidence = []; grants = []
         stories = []; collections = []; favorites = []; collectionCounts = [:]; evidenceOperation = nil; committedMediaPaths = [:]
         unapprovedDraftsEnabled = false
-        isOperator = false; hasLoadedRemote = false; needsReauthentication = false; isRefreshing = false
+        isAccountDeletionPending = false; isOperator = false; hasLoadedRemote = false; needsReauthentication = false; isRefreshing = false
         isAccountMergeAvailable = false; accountMemberIDs = []; accountProviders = []; localRecoveryWarning = nil
         isSchoolProfileAvailable = false; isFarmerOutfitAvailable = false; farmerOutfit = nil
         localSignOutWarning = nil; loadError = nil; syncWarning = nil; error = nil; revision += 1
@@ -512,7 +574,15 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         let sequence = loadSequence
         let accessToken = account == nil ? nil : try await token()
         let capabilities: OiCapabilities?
-        if let accessToken { capabilities = try await api.capabilities(token: accessToken) }
+        if let accessToken {
+            do { capabilities = try await api.capabilities(token: accessToken) }
+            catch OiServiceError.conflict {
+                let status = try await api.accountDeletionStatus(token: accessToken)
+                guard started == generation, sequence == loadSequence, status.accountId != nil else { throw OiServiceError.conflict }
+                showPendingDeletion(status)
+                return
+            }
+        }
         else { capabilities = nil }
         let resolvedOwner = capabilities?.accountId ?? account?.id
         let members = Set(capabilities?.accountMemberIds ?? resolvedOwner.map { [$0] } ?? [])

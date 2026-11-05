@@ -178,6 +178,11 @@ final class OiTestBackend {
             let key = path.replacingOccurrences(of: "/storage/v1/object/authenticated/", with: "")
             bytes = state.uploads[key]; if bytes == nil { status = 404 }
             if state.revokeOnDocumentRead { state.isOperator = false }
+        } else if path == "/functions/v1/delete-account" {
+            if body["account_id"] as? String == Self.owner.uuidString,
+               body["proof"] as? String == "token-a", body["consent"] as? Bool == true {
+                result = ["deleted": true, "apple_revocation_required": false, "deleted_member_ids": [Self.owner.uuidString]]
+            } else { status = 403 }
         } else if path == "/functions/v1/analyze-evidence" {
             state.analysisBodies.append(body)
             status = state.analysisStatus
@@ -462,7 +467,32 @@ final class OiControlledAuthentication: OiAuthenticating {
     }
 }
 
+@MainActor private struct OiDeletionAuthentication: OiAuthenticating {
+    func signIn(api: OiServiceAPI) async throws -> OiSession {
+        try XCTUnwrap(OiMemorySession().read())
+    }
+}
+
 final class OiRemoteStoreTests: XCTestCase {
+    @MainActor func testConfirmedDeletionPurgesOnlyDeletedAccountLocalDrafts() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        let drafts = OiDraftVault(directory: directory)
+        let ours = OiLocalDraft(draft: draft(), version: 1)
+        let theirs = OiLocalDraft(draft: draft(), version: 1)
+        try await drafts.save(ours, owner: OiTestBackend.owner)
+        try await drafts.save(theirs, owner: OiTestBackend.other)
+        await store.start()
+        let receipt = try await store.deleteAccount(using: OiDeletionAuthentication())
+        XCTAssertTrue(receipt.deleted)
+        XCTAssertNil(store.account)
+        XCTAssertNil(vault.value)
+        let removed = try await drafts.load(owner: OiTestBackend.owner, id: ours.id)
+        let preserved = try await drafts.load(owner: OiTestBackend.other, id: theirs.id)
+        XCTAssertNil(removed)
+        XCTAssertNotNil(preserved)
+    }
+
     private func auditFixture(_ id: Int) -> [String: Any] {
         ["id": String(9_007_199_254_740_990 + id), "actor_id": OiTestBackend.owner.uuidString,
          "action": id % 2 == 0 ? "review_evidence:approved" : "review_story",

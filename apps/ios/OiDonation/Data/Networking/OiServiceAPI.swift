@@ -80,6 +80,21 @@ struct OiServiceAPI {
         }
     }
 
+    func accountDeletionStatus(token: String) async throws -> OiAccountDeletionStatus {
+        let data = try await request("rest/v1/rpc/oi_account_deletion_status", method: "POST", token: token, body: Data("{}".utf8))
+        return try decoder.decode(OiAccountDeletionStatus.self, from: data)
+    }
+
+    func deleteAccount(_ account: UUID, token: String, proof: OiSession) async throws -> OiAccountDeletionReceipt {
+        let body = try JSONSerialization.data(withJSONObject: ["account_id": account.uuidString,
+            "consent": true, "proof": proof.accessToken])
+        let data = try await request("functions/v1/delete-account", method: "POST", token: token, body: body, timeout: 50)
+        let receipt = try decoder.decode(OiAccountDeletionReceipt.self, from: data)
+        guard receipt.deleted, receipt.deletedMemberIds.contains(account),
+              receipt.deletedMemberIds.contains(proof.user.id) else { throw OiServiceError.conflict }
+        return receipt
+    }
+
     func reviewDonationEvidence(_ evidence: OiEvidence, token: String) async throws -> OiDonationEvidenceReview {
         let response: Data
         do {

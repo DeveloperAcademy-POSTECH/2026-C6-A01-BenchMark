@@ -27,6 +27,12 @@ struct MYSettingsView: View {
     @State private var farmNameError: String?
     @FocusState private var farmNameFocused: Bool
 
+    @State private var confirmingDeletion = false
+    @State private var deletionInProgress = false
+    @State private var deletionNotice: String?
+    @State private var deletionSucceeded = false
+    @State private var deletionAppleAuthentication = OiAppleAuthentication()
+
     private var currentFarmName: String {
         remote?.profile?.farmName ?? "오이"
     }
@@ -120,11 +126,13 @@ struct MYSettingsView: View {
                             .disabled(remote.isBusy)
                             .accessibilityIdentifier("oi.auth.signOut")
                         }
-                        Button("회원 탈퇴") {}
+                        Button(remote?.isAccountDeletionPending == true ? "탈퇴 이어서 완료" : "회원 탈퇴", role: .destructive) {
+                            confirmingDeletion = true
+                        }
                             .font(CampusStyle.medium(16))
                             .foregroundStyle(Color(white: 156 / 255))
                             .frame(minHeight: 44)
-                            .disabled(true)
+                            .disabled(remote?.account == nil || remote?.isBusy == true || remote?.isRefreshing == true || remote?.needsReauthentication == true)
                             .accessibilityIdentifier("my.settings.deleteAccount")
                     }
                 }
@@ -144,9 +152,48 @@ struct MYSettingsView: View {
             resetFarmNameEditor()
             showingAcademicEditor = false
         }
+        .confirmationDialog("회원 탈퇴", isPresented: $confirmingDeletion, titleVisibility: .visible) {
+            if remote?.accountProviders.isEmpty == true || remote?.accountProviders.contains("google") == true {
+                Button("Google로 본인 확인 후 탈퇴", role: .destructive) { deleteAccount(using: OiGoogleAuthentication()) }
+            }
+            if remote?.accountProviders.isEmpty == true || remote?.accountProviders.contains("apple") == true {
+                Button("Apple로 본인 확인 후 탈퇴", role: .destructive) { deleteAccount(using: deletionAppleAuthentication) }
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("연결된 로그인 계정, 이야기, 사진, 기부 증빙과 수집 기록이 모두 삭제됩니다. 되돌릴 수 없으며 실제 기부 내역에는 영향이 없습니다.")
+        }
+        .alert(deletionSucceeded ? "회원 탈퇴 완료" : "탈퇴 상태 확인", isPresented: Binding(
+            get: { deletionNotice != nil }, set: { if !$0 { deletionNotice = nil } }
+        )) {
+            Button("확인", role: .cancel) { deletionNotice = nil }
+        } message: { Text(deletionNotice ?? "") }
+        .interactiveDismissDisabled(deletionInProgress)
         .alert("설정을 열 수 없어요", isPresented: $settingsError) {
             Button("확인", role: .cancel) {}
         } message: { Text("iPhone의 설정 앱에서 오이기부의 권한과 위치 접근을 확인해 주세요.") }
+    }
+
+    private func deleteAccount(using provider: any OiAuthenticating) {
+        guard let remote, !deletionInProgress else { return }
+        deletionInProgress = true
+        deletionSucceeded = false
+        Task {
+            defer { deletionInProgress = false }
+            do {
+                let receipt = try await remote.deleteAccount(using: provider)
+                deletionSucceeded = true
+                var message = remote.syncWarning ?? "연결 계정과 오이기부 데이터가 삭제됐어요."
+                if receipt.appleRevocationRequired {
+                    message += "\nApple 로그인 연결도 해제하려면 iPhone 설정 → Apple 계정 → Apple로 로그인 → 오이기부 → 사용 중단을 선택해 주세요."
+                }
+                deletionNotice = message
+            } catch where OiServiceFailure.isCancellation(error) {
+                return
+            } catch {
+                deletionNotice = "탈퇴 완료를 확인하지 못했어요. 현재 계정으로 다시 인증해 탈퇴를 이어서 진행해 주세요."
+            }
+        }
     }
 
     @ViewBuilder private var farmNameRow: some View {
