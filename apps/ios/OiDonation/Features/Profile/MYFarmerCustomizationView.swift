@@ -161,6 +161,8 @@ struct MYFarmerCustomizationView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(character == "kyu" ? "큐" : "컴버") 착용 미리보기")
+        .accessibilityValue([MYFarmerSlot.hat, .accessory, .top, .bottom, .shoes, .set]
+            .map { "\($0.title): \(itemName($0, wardrobe))" }.joined(separator: ", "))
     }
 
     private func callout(_ slot: MYFarmerSlot, _ wardrobe: MYFarmerWardrobe) -> some View {
