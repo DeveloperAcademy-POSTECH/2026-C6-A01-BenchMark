@@ -15,11 +15,13 @@
 
 - Apple·Google은 기존 네이티브 스타일 버튼으로 대체한다. Apple은 AuthenticationServices 버튼과 기존 인증을 유지한다. 연결된 수단은 서버 `account_providers`만 사용하며 추정하지 않는다. 추가 연결은 기존 두 계정 재인증·미리보기·명시적 동의 흐름을 재사용한다.
 - 본인인증과 회원 탈퇴는 버튼만 표시하고 비활성화한다. 실제 인증·삭제·성공 처리는 하지 않는다. 방법과 탈퇴 정책은 후속 결정이다.
-- 농장 이름은 기존 닉네임 기반 `닉네임 + 의 밭`을 유지한다. 농장 카드의 수정은 기존 30자 닉네임 저장을 사용한다. 별도 6자 농장 이름 필드를 만들지 않는다.
+- 2026-11-05 후속 결정: 농장 이름은 공개 프로필의 `farm_name`에 독립 저장한다. 기존·신규 계정 모두 기본값 `오이`로 시작하며 닉네임을 복사하지 않는다. NFC 정규화·앞뒤 공백 제거 후 1~6 Unicode scalar를 허용한다. 설정과 실제 농장 제목이 같은 값을 읽고 `밭` 접미사를 표시한다. 닉네임 저장 계약과 공개 작성자 표시는 후속 전환까지 유지한다.
 - 권한은 실제 OS 상태를 표시하고 누르면 iPhone 설정으로 이동한다. 앱 내부에서 허용을 끄는 가짜 토글을 제공하지 않는다. 권한 행은 44pt 터치 영역을 유지한다.
 - 학교 인증은 기존 분석·파일 처리 흐름을 재사용하며 Figma의 학교 정보→재학생/졸업생→자료 종류→첨부·명시적 요청 단계를 따른다. 학과는 검색 대신 직접 입력하고 건너뛰기를 지원한다. HWP는 사용자 결정으로 제외하며 JPEG·PNG·PDF 10MB를 유지한다.
 
 ## 저장·권한 경계
+
+`20261105093326_oi_independent_farm_name.sql`은 공개 `oi_profiles.farm_name`에 기본값·정규화·길이 제약·소유자 수정 권한을 추가한다. 공개 조회는 사용자 확정 사항이다. 농장 수정은 이 컬럼만 PATCH하고 계정·저장값을 확인한다. 닉네임·학교·비공개 학적정보는 변경하지 않는다. 계정 통합은 선택한 대표 농장 이름을 유지하며, 사용자 지정 농장은 미사용 신규 계정으로 분류하지 않는다. 구버전 서버에서는 기본 이름을 표시하고 저장 준비 오류를 안내하며 닉네임 저장으로 우회하지 않는다. 두 migration 모두 원격에는 적용하지 않았다.
 
 입학년도·학과는 공개 작성자 프로필 컬럼에 추가하지 않는다. `benchmark_private.oi_school_profile_metadata`와 인증된 대표 계정만 읽고 쓰는 RPC를 사용한다. 학교·입학년도·학과는 한 트랜잭션으로 저장한다. 학과는 앞뒤 공백을 정리하고 최대 100자, 건너뛰기는 명시적 null이다. 연도는 Gregorian 1900~현재 UTC 연도다.
 
@@ -35,10 +37,10 @@
 
 검증 명령과 결과·캡처는 PR의 검증 절에서 확인한다. 실제 문서 대신 가상 URLProtocol 응답·가상 계정과 격리 PostgreSQL을 사용한다. 시각 검사는 실제 View를 4개 크기에 렌더하며, 생성한 창은 key window를 차지하지 않고 숨김 창까지 scene에서 분리됐는지 검사한다. 카메라·실제 provider 로그인·실제 문서 분석은 실기기 검증으로 남는다.
 
-실행 결과: iOS Simulator 빌드·43개 테스트·29개 실제 화면 렌더 통과, Node 56개 통과, MY 도메인 검사와 격리 DB 검사 통과. 새 요약 DTO는 비격리 immutable Sendable 값으로 선언해 actor 저장소 경계를 명시했다. 기존 초안 모델의 Swift 5 동시성 경고와 AppIntents 메타데이터 경고는 별도 기존 범위로 남아 있다.
+실행 결과: iOS Simulator 빌드·49개 테스트·37개 실제 화면 렌더 통과, Node 56개 통과, MY 도메인 검사와 격리 DB 검사 통과. 새 요약 DTO는 비격리 immutable Sendable 값으로 선언해 actor 저장소 경계를 명시했다. 기존 초안 모델의 Swift 5 동시성 경고와 AppIntents 메타데이터 경고는 별도 기존 범위로 남아 있다.
 
 ```sh
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project apps/ios/OiDonation.xcodeproj -scheme OiFlowChecks -configuration Debug -destination 'platform=iOS Simulator,id=DA17B640-AC93-46C4-BF8B-9CBF7D5C1D7E' -derivedDataPath /private/tmp/benchmark-settings-158-build -resultBundlePath /private/tmp/benchmark-settings-158-reviewed.xcresult CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -test-timeouts-enabled YES -default-test-execution-time-allowance 90 -only-testing:OiDonationTests/OiFigmaFidelityVisualTests/testMYSettingsCapturesWithOfflineAccounts -only-testing:OiDonationTests/OiRemoteStoreTests -only-testing:OiDonationTests/OiSchoolEvidenceContractTests test
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project apps/ios/OiDonation.xcodeproj -scheme OiFlowChecks -configuration Debug -destination 'platform=iOS Simulator,id=D2FA322B-0E82-4E63-88DC-877DFBF86ADA' -derivedDataPath /private/tmp/benchmark-settings-158-build -resultBundlePath /private/tmp/benchmark-farm-158-reviewed.xcresult CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -test-timeouts-enabled YES -default-test-execution-time-allowance 90 -only-testing:OiDonationTests/OiRemoteStoreTests -only-testing:OiDonationTests/OiSchoolEvidenceContractTests -only-testing:OiDonationTests/OiFigmaFidelityVisualTests/testMYSettingsCapturesWithOfflineAccounts -only-testing:OiDonationTests/OiFigmaFidelityVisualTests/testFarmCapturesWithOfflineOwnedStory test
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer CLANG_MODULE_CACHE_PATH=/private/tmp/benchmark-settings-158-module-cache SWIFT_MODULECACHE_PATH=/private/tmp/benchmark-settings-158-module-cache sh apps/ios/Tests/run-my-checks.sh
 python3 supabase/tests/run-account-merge-db-checks.py
 (cd supabase && npm test)
@@ -48,3 +50,7 @@ git diff --check
 [기준 설정](assets/settings-158/my-settings-signed-in-402x874.png), [로그인 전](assets/settings-158/my-settings-signed-out-auth-402x874.png), [학교 정보](assets/settings-158/school-evidence-profile-402x874.png), [인증 방식](assets/settings-158/school-evidence-affiliation-402x874.png), [재학생](assets/settings-158/school-evidence-student-document-402x874.png), [졸업생](assets/settings-158/school-evidence-graduate-document-402x874.png), [첨부](assets/settings-158/school-evidence-attachment-402x874.png), [작은 화면](assets/settings-158/school-evidence-profile-375x667.png), [최대 글자](assets/settings-158/school-evidence-profile-accessibility5.png)를 보관했다. 시스템 상태바는 offscreen View 캡처에 포함하지 않는다. 네이티브 글꼴의 행 높이와 사용자 지정 네이티브 소셜 버튼의 형태·상태 라벨에 따른 차이는 유지한다.
 
 실행 리소스 최대 동시 그룹은 3개(전용 시뮬레이터, 빌드/테스트 실행기, 단일 캡처 창)였다. 캡처 창은 매번 숨김 상태까지 분리·해제 단언을 통과했고, 임시 PostgreSQL은 PID 파일·소켓 제거를 검사했다. 전용 시뮬레이터·앱·빌드 프로세스는 검증 뒤 종료했으며 사용자/다른 작업 리소스는 변경하지 않았다.
+
+## 독립 농장 이름 후속 검증
+
+2026-11-05 후속 요청으로 기존 닉네임 기반 이름 정책을 대체했다. 설정 편집과 실제 농장 제목에 닉네임 fallback이 없음을 검사하며, 저장·재실행·다른 프로필 수정·이전 계정의 늦은 응답·Unicode 경계를 검증한다. 후속 검사 49개와 화면 렌더 37개, MY 도메인·전체 DB 검사가 통과했다. DB 검증용 기존 계정 fixture는 농장 검사 직후 정리해 기존 사용자 수 단언을 유지했다. [설정 이름](assets/settings-158/my-settings-farm-402x874.png)과 [실제 농장](assets/settings-158/my-farm-name-402x874.png), [작은 화면](assets/settings-158/my-farm-name-375x667.png)에서 독립 이름 표시를 확인했다. 전용 시뮬레이터·테스트 앱·빌드·임시 DB는 종료했고 PID·소켓·37개 숨김 캡처 창 분리와 시뮬레이터 삭제를 확인했다.
