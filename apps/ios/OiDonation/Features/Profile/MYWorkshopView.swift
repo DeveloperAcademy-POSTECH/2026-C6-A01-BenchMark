@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  MYWorkshopView.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 10/28/26.
+//
 
 import SwiftUI
 

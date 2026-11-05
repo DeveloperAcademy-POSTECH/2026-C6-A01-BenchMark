@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  MYCardArtwork.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 10/30/26.
+//
 
 import SwiftUI
 

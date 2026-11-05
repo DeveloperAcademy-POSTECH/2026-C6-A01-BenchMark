@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  AppClipLink.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 10/22/26.
+//
 
 import Foundation
 
