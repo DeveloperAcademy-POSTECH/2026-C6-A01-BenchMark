@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { AnalysisError, analyzeDocument, documentType, MAX_FILE_BYTES, parseAssessment, readBounded } from "../functions/analyze-evidence/analysis.ts";
+import { AnalysisError, analyzeDocument, documentType, MAX_FILE_BYTES, parseAssessment, readBounded } from "../functions/_shared/document-analysis.ts";
 import { createHandler } from "../functions/analyze-evidence/handler.ts";
 
 const actor = "10000000-0000-4000-8000-000000000001";

@@ -270,6 +270,10 @@ MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하
 
 기존 운영자 권한·증빙 신청·비공개 Storage를 재사용하는 `supabase/functions/analyze-evidence`를 추가한다. 사용자 JWT를 검증하고 운영자에게만 현재 제출본의 AI 시각 분석을 반환한다. OpenAI 키는 서버 환경에만 두며 JPEG·PNG·PDF 입력, 응답 스키마·오류·시간 제한, 재제출·권한 회수 재확인을 적용한다. DB·Storage 쓰기와 자동 승인은 수행하지 않는다. 버튼·화면·CORS origin·원격 배포는 별도 연결 범위다. 결과 계약과 검증·개인정보 및 판별 한계는 [증빙 AI 분석 문서](evidence-ai-analysis.md)를 따른다.
 
+## 학교 소속 증빙 AI 검토 — 2026-11-04 / #139
+
+기존 문서 분석 모듈을 재사용하는 별도 Edge Function `analyze-school-evidence`를 둔다. 기본 비활성화하며, 활성화하면 로그인 사용자가 계정 화면에서 보낸 비식별화 문서를 분석해 참고 결과를 반환한다. 학교 소속 상태나 기부 승인에 대한 쓰기는 없다. [호출 계약과 운영 경계](school-evidence-ai-review.md)를 참고한다.
+
 ### 2026-11-03 로컬 캠퍼스 기능 복원
 
 최신 develop의 `OiServiceAPI`·`OiRemoteStore`·증빙/이야기 승인 계약을 유지하면서 학교 선택, 지도 마커·검색·고정 표시 배율과 주변 AR을 통합했다. 주변 AR은 공개 역할로 `oi_stories`를 다시 조회하고, 실패/숨김/삭제 시 앵커를 제거한다. 기존 `CampusShared*` 계층과 기기 예시 기반 수집은 복원하지 않는다. 적용 범위, 공개 AR 기본 높이·공통 모델의 한계 및 검증은 [복원 기록](local-work-restoration.md)을 참고한다.
