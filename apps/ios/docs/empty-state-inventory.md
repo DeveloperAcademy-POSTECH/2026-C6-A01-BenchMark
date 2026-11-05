@@ -13,7 +13,7 @@
 
 | 화면 | 적용한 조건과 Figma |
 | --- | --- |
-| 받은 카드 요청 | 조회 성공 후 대기 요청 0건. [요청함 0건](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=4228-11025)의 문구와 배치를 반영했다. 현재 제목과 닫기 동작을 사용한다. `Needs confirmation:` 시안에 적힌 30일 자동 삭제 정책과 구현 근거. |
+| 받은 카드 요청 | 조회 성공 후 대기 요청 0건. [요청함 0건](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=4228-11025)의 문구와 배치를 반영했다. 2026-11-05 반투명 녹색(70%), 모서리 35pt, 좌우·상단 20pt 여백과 본문 중앙 정렬을 보완했다. 사용자 결정에 따라 30일 보관 안내·자동 삭제는 제외한다. 해당 안내 자리에는 작은 제목과 닫기 버튼을 유지한다. |
 | 오이 검색 | 입력 전에는 같은 캐릭터와 입력 안내를 표시한다. 이름·학교/학과/학번/이름·코드 검색 성공 후 0건이면 Figma 문구를 표시한다. [이름](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=4240-11126), [기부자](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=4240-11140), [코드](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=4240-11171) |
 | MY 도감 · 전체 | 계정 및 App Clip 카드가 모두 0개. [전체 0개](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=4240-11327) |
 | MY 도감 · 학교별 | 상위 학교별 목록에서 학교 폴더가 0개. [학교 폴더 0개](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=4240-11357) |

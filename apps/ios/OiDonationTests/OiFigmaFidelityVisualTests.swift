@@ -163,6 +163,14 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 try await capture(inbox, name: state.name, variant: variant, defaults: fixture.defaults, attach: true)
             }
         }
+        // Compare the sheet content at the Figma node's own dimensions. The
+        // dark backing makes its 70% fill visible without depending on live map data.
+        let sheetVariant = Variant(name: "402x803-sheet", size: CGSize(width: 402, height: 803), dynamicTypeSize: .large)
+        let emptySheet = OiCardRequestInboxView(requests: [], isLoading: false, loadError: nil,
+            pendingRequestID: nil, actionError: nil, onReload: {}, onDecision: { _, _ in })
+        try await capture(emptySheet.background(Color(white: 0.117)), name: "card-requests-empty",
+            variant: sheetVariant, defaults: fixture.defaults, includesSafeArea: false, attach: true)
+
         let reference = try XCTUnwrap(variants.first)
         let unconfirmed = OiCardRequestInboxView(requests: [], isLoading: false, loadError: nil,
             pendingRequestID: nil, actionError: "처리 결과를 확인하지 못했어요. 같은 응답을 다시 확인해 주세요.",
