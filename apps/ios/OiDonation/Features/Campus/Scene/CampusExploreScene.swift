@@ -37,12 +37,15 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var regionClustering: CampusRegionClustering?
     @ObservationIgnored private var regionButtons: [String: CampusRegionButton] = [:]
     @ObservationIgnored private var cameraMotion: (
-        fromTarget: SIMD3<Float>, toTarget: SIMD3<Float>, spring: CampusMapMotion.Spring, start: CFTimeInterval
+        fromTarget: SIMD3<Float>, toTarget: SIMD3<Float>, targetVelocity: SIMD3<Float>,
+        spring: CampusMapMotion.Spring, start: CFTimeInterval
     )?
     @ObservationIgnored private var motionDisplayLink: CADisplayLink?
     @ObservationIgnored private var activeNavigation: Set<ObjectIdentifier> = []
     @ObservationIgnored private var pinchLogRadius: Float?
     @ObservationIgnored private var pinchReleaseVelocity: Float = 0
+    @ObservationIgnored private var panInput: (target: SIMD3<Float>, stretch: Float)?
+    @ObservationIgnored private var panReleaseVelocity = SIMD3<Float>.zero
     @ObservationIgnored private var positions: [String: SIMD3<Float>] = [:]
     @ObservationIgnored private let mapLabels = CampusMapLabels()
     private var target = SIMD3<Float>(25, 0, 25)
@@ -122,6 +125,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     func setVisible(_ active: Bool) {
         visible = active
         if !active {
+            target = CampusMapMotion.clampedTarget(target)
             radius = settledRadius()
             stopNavigation()
         }
@@ -592,14 +596,21 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     private func settleCamera() {
         let velocity = pinchReleaseVelocity
+        var targetVelocity = panReleaseVelocity
         pinchReleaseVelocity = 0
+        panReleaseVelocity = .zero
         guard activeNavigation.isEmpty else { return }
         let destination = settledRadius()
-        guard abs(log(destination / radius)) > 0.00001 else { return }
-        animateCamera(to: target, radius: destination, velocity: velocity)
+        let destinationTarget = CampusMapMotion.clampedTarget(target)
+        guard abs(log(destination / radius)) > 0.00001 ||
+                destinationTarget != target else { return }
+        if destinationTarget.x == target.x { targetVelocity.x = 0 }
+        if destinationTarget.z == target.z { targetVelocity.z = 0 }
+        animateCamera(to: destinationTarget, radius: destination, velocity: velocity, targetVelocity: targetVelocity)
     }
 
-    private func animateCamera(to destination: SIMD3<Float>, radius destinationRadius: Float, velocity: Float = 0) {
+    private func animateCamera(to destination: SIMD3<Float>, radius destinationRadius: Float,
+                               velocity: Float = 0, targetVelocity: SIMD3<Float> = .zero) {
         stopCameraMotion()
         if UIAccessibility.isReduceMotionEnabled || !visible {
             target = destination
@@ -607,7 +618,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             updateCamera()
             return
         }
-        cameraMotion = (target, destination,
+        cameraMotion = (target, destination, targetVelocity,
                         CampusMapMotion.Spring(from: radius, to: destinationRadius, velocity: velocity),
                         CACurrentMediaTime())
         let link = CADisplayLink(target: self, selector: #selector(advanceCameraMotion(_:)))
@@ -619,6 +630,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         guard let motion = cameraMotion else { return }
         let sample = motion.spring.sample(at: link.targetTimestamp - motion.start)
         target = motion.fromTarget + (motion.toTarget - motion.fromTarget) * sample.progress
+            + motion.targetVelocity * sample.velocityFactor
         radius = sample.radius
         updateCamera()
         if sample.isComplete {
@@ -638,6 +650,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         activeNavigation.removeAll()
         pinchLogRadius = nil
         pinchReleaseVelocity = 0
+        panInput = nil
+        panReleaseVelocity = .zero
         panTouchCount = 0
     }
 
@@ -645,7 +659,10 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         let id = ObjectIdentifier(gesture)
         switch gesture.state {
         case .began, .changed:
-            if activeNavigation.isEmpty { pinchReleaseVelocity = 0 }
+            if activeNavigation.isEmpty {
+                pinchReleaseVelocity = 0
+                panReleaseVelocity = .zero
+            }
             if activeNavigation.insert(id).inserted { stopCameraMotion() }
             return true
         case .ended, .cancelled, .failed:
@@ -657,8 +674,17 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
 
     @objc private func pan(_ gesture: UIPanGestureRecognizer) {
+        if gesture.state == .ended, panTouchCount == 1, let panInput {
+            let velocity = gesture.velocity(in: canvas)
+            let right = SIMD3<Float>(cos(yaw), 0, -sin(yaw))
+            let forward = SIMD3<Float>(sin(yaw), 0, cos(yaw))
+            let worldVelocity = -(right * Float(velocity.x) + forward * Float(velocity.y)) * radius * 0.0012
+            panReleaseVelocity = CampusMapMotion.targetVelocity(worldVelocity, input: panInput.target,
+                                                               stretch: panInput.stretch)
+        }
         guard updateNavigation(gesture) else {
             panTouchCount = 0
+            panInput = nil
             return
         }
         let touches = gesture.numberOfTouches
@@ -667,6 +693,9 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         // Adding/lifting a finger changes the touch centroid. Rebase without moving the camera.
         guard gesture.state == .changed, touches == panTouchCount else {
             panTouchCount = touches
+            let stretch = CampusMapMotion.panStretch(radius: radius, target: target)
+            panInput = touches == 1 ? (CampusMapMotion.inputTarget(for: target, stretch: stretch), stretch) : nil
+            panReleaseVelocity = .zero
             return
         }
         if touches == 2 {
@@ -675,9 +704,10 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         } else if touches == 1 {
             let right = SIMD3<Float>(cos(yaw), 0, -sin(yaw))
             let forward = SIMD3<Float>(sin(yaw), 0, cos(yaw))
-            target -= right * Float(delta.x) * radius * 0.0012 + forward * Float(delta.y) * radius * 0.0012
-            target.x = min(110, max(-120, target.x))
-            target.z = min(150, max(-180, target.z))
+            guard var input = panInput else { return }
+            input.target -= right * Float(delta.x) * radius * 0.0012 + forward * Float(delta.y) * radius * 0.0012
+            panInput = input
+            target = CampusMapMotion.resistedTarget(input.target, stretch: input.stretch)
         }
         hasMovedFromOverview = true
         updateCamera()
