@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  OiServiceChecks.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 10/28/26.
+//
 
 import Foundation
 
@@ -48,6 +53,25 @@ struct OiServiceChecks {
         let damaged = try Data(contentsOf: url); precondition(damaged == corrupt)
         try repo.remove(); let deleted = try repo.load(); precondition(deleted == nil)
         print("PASS: local field trial photo/denim/location relaunch, replacement, invalid-write rejection, damaged-file preservation and deletion")
+    }
+
+    static func checkSchoolReviewRecovery() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let owner = UUID()
+        let original = OiSavedSchoolEvidenceReview(
+            summary: .init(outcome: "school_document_needed", title: "학교 발급 증빙 필요",
+                           detail: "프로필 캡처가 제출됐어요.", nextStep: "학생증 앞면을 제출해 주세요.", reference: nil),
+            reviewedAt: Date(timeIntervalSince1970: 1_760_000_000)
+        )
+        try await OiDraftVault(directory: directory).saveSchoolEvidenceReview(original, owner: owner)
+
+        let reopened = OiDraftVault(directory: directory)
+        let restored = try await reopened.schoolEvidenceReview(owner: owner)
+        let otherAccount = try await reopened.schoolEvidenceReview(owner: UUID())
+        precondition(restored?.summary.outcome == original.summary.outcome)
+        precondition(restored?.reviewedAt == original.reviewedAt && otherAccount == nil)
+        print("PASS: school evidence summary survives reopening and is scoped to its account")
     }
 
     private static func requestBody(_ request: URLRequest) throws -> Data {
@@ -107,6 +131,7 @@ struct OiServiceChecks {
 
     @MainActor static func main() async throws {
         try checkFieldTrial()
+        try await checkSchoolReviewRecovery()
         for key in ["", "sb_secret_test", "$(UNSET)", "sb_publishable_bad\nheader"] {
             do { _ = try OiServiceAPI(key: key); preconditionFailure("Invalid key accepted") }
             catch OiServiceError.configuration {}
@@ -133,6 +158,7 @@ struct OiServiceChecks {
         }
         let profiles = try await api.rows("oi_profiles", as: OiProfile.self)
         precondition(profiles.count == 201 && Set(profiles.map(\.id)).count == 201)
+        precondition(profiles.allSatisfy { $0.publicName == nil && $0.department == nil && $0.admissionYear == nil }, "Pre-migration profile responses remain readable")
 
         let publicID = UUID()
         func publicFixture(status: String, id: UUID) throws -> Data {
@@ -207,6 +233,22 @@ struct OiServiceChecks {
         draft.theme = "감사"; draft.emotion = "기쁨"; draft.cucumberName = "Test"
         draft.latitude = 36.01261057021347; draft.longitude = 129.3197268697784
         precondition(draft.valid)
+        var temporaryDraft = draft
+        temporaryDraft.grantId = nil
+        precondition(temporaryDraft.valid)
+        let temporaryPayload = try temporaryDraft.payload()
+        precondition(temporaryPayload["grant_id"] is NSNull)
+        let grant = OiWritingGrant(id: draft.grantId!, storyLimit: 1, revokedAt: nil)
+        precondition(OiWritingAccess.canWrite(grantID: nil, grants: [], unapprovedDraftsEnabled: true))
+        precondition(!OiWritingAccess.canWrite(grantID: nil, grants: [], unapprovedDraftsEnabled: false))
+        precondition(OiWritingAccess.canWrite(grantID: grant.id, grants: [grant], unapprovedDraftsEnabled: false))
+        precondition(!OiWritingAccess.canWrite(grantID: grant.id, grants: [], unapprovedDraftsEnabled: true))
+        let revoked = OiWritingGrant(id: grant.id, storyLimit: 1, revokedAt: "2026-11-04")
+        precondition(!OiWritingAccess.canWrite(grantID: grant.id, grants: [revoked], unapprovedDraftsEnabled: true))
+        let capabilityDecoder = JSONDecoder()
+        capabilityDecoder.keyDecodingStrategy = .convertFromSnakeCase
+        let oldCapabilities = try capabilityDecoder.decode(OiCapabilities.self, from: Data("{\"operator\":false,\"coins_enabled\":false}".utf8))
+        precondition(oldCapabilities.unapprovedDraftsEnabled != true)
         precondition(OiCreationStep.allCases.allSatisfy { $0.canContinue(draft: draft) })
         precondition(OiCreationStep.story.previous == nil && OiCreationStep.card.next == nil)
         var invalid = draft; invalid.title = String(repeating: "가", count: 101)

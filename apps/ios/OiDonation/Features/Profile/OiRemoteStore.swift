@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  OiRemoteStore.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 10/28/26.
+//
 
 import Foundation
 import Observation
@@ -17,6 +22,17 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
     private(set) var media: [OiMedia] = []
     private(set) var evidence: [OiEvidence] = []
     private(set) var grants: [OiWritingGrant] = []
+    private(set) var unapprovedDraftsEnabled = false
+
+    var canStartStory: Bool {
+        account != nil && !needsReauthentication &&
+            (unapprovedDraftsEnabled || grants.contains { $0.revokedAt == nil })
+    }
+
+    func canWriteStory(grantID: UUID?) -> Bool {
+        account != nil && !needsReauthentication && OiWritingAccess.canWrite(
+            grantID: grantID, grants: grants, unapprovedDraftsEnabled: unapprovedDraftsEnabled)
+    }
     private(set) var collections: [OiOwnedStory] = []
     private(set) var favorites: Set<UUID> = []
     private(set) var collectionCounts: [UUID: Int] = [:]
@@ -31,6 +47,9 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
     private(set) var revision = 0
     private(set) var isConfigured = false
     private(set) var isAccountMergeAvailable = false
+    private(set) var isSchoolProfileAvailable = false
+    private(set) var isFarmerOutfitAvailable = false
+    private(set) var farmerOutfit: OiFarmerOutfit?
     private(set) var accountMemberIDs: Set<UUID> = []
     private(set) var accountProviders: [String] = []
     private(set) var localRecoveryWarning: String?
@@ -200,8 +219,10 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         generation = UUID(); loadSequence += 1; refreshTask?.cancel(); refreshTask = nil
         profile = nil; ownStories = []; reviewStories = []; profiles = []; media = []; evidence = []; grants = []
         stories = []; collections = []; favorites = []; collectionCounts = [:]; evidenceOperation = nil; committedMediaPaths = [:]
+        unapprovedDraftsEnabled = false
         isOperator = false; hasLoadedRemote = false; needsReauthentication = false; isRefreshing = false
         isAccountMergeAvailable = false; accountMemberIDs = []; accountProviders = []; localRecoveryWarning = nil
+        isSchoolProfileAvailable = false; isFarmerOutfitAvailable = false; farmerOutfit = nil
         localSignOutWarning = nil; loadError = nil; syncWarning = nil; error = nil; revision += 1
     }
 
@@ -305,9 +326,9 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
             applyReceipt(receipt, action: "review_evidence", payload: [:])
             if review.decision == .revoked {
                 // Remove affected cached entries even if synchronization fails.
-                stories.removeAll { revokedGrantIDs.contains($0.grantId) }
-                reviewStories.removeAll { revokedGrantIDs.contains($0.grantId) }
-                ownStories.removeAll { revokedGrantIDs.contains($0.grantId) }
+                stories.removeAll { $0.grantId.map(revokedGrantIDs.contains) == true }
+                reviewStories.removeAll { $0.grantId.map(revokedGrantIDs.contains) == true }
+                ownStories.removeAll { $0.grantId.map(revokedGrantIDs.contains) == true }
                 grants.removeAll { revokedGrantIDs.contains($0.id) }
             }
             await refreshAfterCommit()
@@ -500,6 +521,14 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         let fetchedAssets = try await api.rows("oi_assets", query: "order=id.asc", as: OiAsset.self)
         let fetched = try await api.rows("oi_stories", query: "order=created_at.desc,id.asc", token: accessToken, as: OiLiveStory.self)
         let fetchedProfiles = try await api.rows("oi_profiles", token: accessToken, as: OiProfile.self)
+        var ownProfile = fetchedProfiles.first { $0.id == resolvedOwner }
+        if capabilities?.schoolProfileEnabled == true, let resolvedOwner, let accessToken {
+            ownProfile = try await api.schoolProfile(owner: resolvedOwner, token: accessToken)
+        }
+        var fetchedFarmerOutfit: OiFarmerOutfit?
+        if capabilities?.farmerOutfitEnabled == true, let resolvedOwner, let accessToken {
+            fetchedFarmerOutfit = try await api.farmerOutfit(owner: resolvedOwner, token: accessToken)
+        }
         let fetchedMedia = try await api.rows("oi_story_media", query: "order=position.asc,id.asc", token: accessToken, as: OiMedia.self)
         let metrics = try await api.collectionMetrics(token: accessToken)
         var requests: [OiEvidence] = []; var permissions: [OiWritingGrant] = []
@@ -541,10 +570,13 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         stories = fetched.filter { $0.status == "published" }
         ownStories = fetched.filter { $0.userId == account?.id && $0.status != "deleted" }
         reviewStories = capabilities?.operator == true ? fetched.filter { ["pending","published","hidden"].contains($0.status) } : []
-        profile = fetchedProfiles.first { $0.id == account?.id }
+        profile = ownProfile
         profiles = fetchedProfiles; media = fetchedMedia; evidence = requests; grants = permissions; committedMediaPaths = [:]
         collections = collected; favorites = Set(starred.map(\.storyId)); isOperator = capabilities?.operator == true
+        unapprovedDraftsEnabled = capabilities?.unapprovedDraftsEnabled == true
         isAccountMergeAvailable = capabilities?.accountMergeEnabled == true; accountMemberIDs = members
+        isSchoolProfileAvailable = capabilities?.schoolProfileEnabled == true
+        isFarmerOutfitAvailable = capabilities?.farmerOutfitEnabled == true; farmerOutfit = fetchedFarmerOutfit
         accountProviders = capabilities?.accountProviders ?? []
         evidenceOperation = recoveredOperation; localRecoveryWarning = recoveryWarning
         collectionCounts = metrics.reduce(into: [:]) { $0[$1.storyId] = $1.collectionCount }
@@ -612,20 +644,23 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
     }
 
     func save(_ draft: OiStoryDraft) async -> OiLiveStory? {
+        guard canWriteStory(grantID: draft.grantId) else { error = OiServiceError.writingApprovalRequired.localizedDescription; return nil }
         do { return await change("save_story", payload: try draft.payload(), as: OiLiveStory.self) }
         catch { self.error = error.localizedDescription; return nil }
     }
 
     func submitStory(_ story: OiLiveStory) async -> OiLiveStory? {
-        await change("submit_story", payload: ["id":story.id.uuidString,"revision":story.revision], as: OiLiveStory.self)
+        guard canWriteStory(grantID: story.grantId) else { error = OiServiceError.writingApprovalRequired.localizedDescription; return nil }
+        return await change("submit_story", payload: ["id":story.id.uuidString,"revision":story.revision], as: OiLiveStory.self)
     }
 
-    func updateProfile(nickname: String? = nil, schoolID: String? = nil) async {
+    func updateProfile(nickname: String? = nil, schoolID: String? = nil, academicInfo: OiPublicAcademicInfo? = nil) async {
         guard !isBusy, !needsReauthentication, let account, let api else { error = OiServiceError.signInRequired.localizedDescription; return }
         let owner = account.id
         let started = generation
         let cleaned = nickname?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard cleaned != nil || schoolID != nil,
+        guard cleaned != nil || schoolID != nil || academicInfo != nil,
+              academicInfo?.cleaned.isValid ?? true,
               cleaned.map({ !$0.isEmpty && $0.count <= 30 }) ?? true,
               schoolID == nil || schools.contains(where: { $0.id == schoolID }) else {
             error = OiServiceError.invalidInput.localizedDescription; return
@@ -633,24 +668,117 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         isBusy = true; error = nil
         defer { isBusy = false }
         do {
-            let saved = try await api.updateProfile(owner: owner, nickname: cleaned, schoolID: schoolID, token: token())
+            var saved = try await api.updateProfile(owner: owner, nickname: cleaned, schoolID: schoolID, academicInfo: academicInfo, token: token())
             guard started == generation, self.account?.id == owner else { return }
+            saved.schoolAdmissionYear = saved.schoolId == profile?.schoolId ? profile?.schoolAdmissionYear : nil
+            saved.schoolDepartment = saved.schoolId == profile?.schoolId ? profile?.schoolDepartment : nil
             loadSequence += 1
             profile = saved; revision += 1; await refreshAfterCommit()
         } catch { if started == generation { noteAuthenticationFailure(error); self.error = error.localizedDescription } }
     }
 
+    func saveFarmerOutfit(_ outfit: OiFarmerOutfit) async -> Bool {
+        guard !isBusy, !needsReauthentication, let account, let api else {
+            error = OiServiceError.signInRequired.localizedDescription; return false
+        }
+        guard isFarmerOutfitAvailable else {
+            error = "지금은 농부 꾸미기를 저장할 수 없어요. 잠시 후 다시 시도해 주세요."; return false
+        }
+        guard outfit.isValid else { error = OiServiceError.invalidInput.localizedDescription; return false }
+        let owner = account.id
+        let started = generation
+        isBusy = true; error = nil
+        defer { isBusy = false }
+        do {
+            let accessToken = try await token()
+            try Task.checkCancellation()
+            guard started == generation, self.account?.id == owner else { return false }
+            let saved = try await api.saveFarmerOutfit(owner: owner, outfit: outfit, token: accessToken)
+            try Task.checkCancellation()
+            guard started == generation, self.account?.id == owner else { return false }
+            loadSequence += 1
+            farmerOutfit = saved; revision += 1
+            await refreshAfterCommit()
+            return started == generation && self.account?.id == owner
+        } catch {
+            if started == generation, !Task.isCancelled, !OiServiceFailure.isCancellation(error) {
+                noteAuthenticationFailure(error); self.error = error.localizedDescription
+            }
+            return false
+        }
+    }
+
+    func updateFarmName(_ name: String) async {
+        guard !isBusy, !needsReauthentication, let account, let api else { error = OiServiceError.signInRequired.localizedDescription; return }
+        guard profile?.farmName != nil else {
+            error = "지금은 농장 이름을 저장할 수 없어요. 잠시 후 다시 시도해 주세요."; return
+        }
+        let owner = account.id
+        let started = generation
+        let cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines).precomposedStringWithCanonicalMapping
+        guard !cleaned.isEmpty, cleaned.unicodeScalars.count <= 6 else {
+            error = OiServiceError.invalidInput.localizedDescription; return
+        }
+        isBusy = true; error = nil
+        defer { isBusy = false }
+        do {
+            let accessToken = try await token()
+            try Task.checkCancellation()
+            guard started == generation, self.account?.id == owner else { return }
+            var saved = try await api.updateFarmName(owner: owner, farmName: cleaned, token: accessToken)
+            try Task.checkCancellation()
+            guard started == generation, self.account?.id == owner else { return }
+            saved.schoolAdmissionYear = saved.schoolId == profile?.schoolId ? profile?.schoolAdmissionYear : nil
+            saved.schoolDepartment = saved.schoolId == profile?.schoolId ? profile?.schoolDepartment : nil
+            loadSequence += 1
+            profile = saved; revision += 1; await refreshAfterCommit()
+        } catch {
+            if started == generation { noteAuthenticationFailure(error); self.error = error.localizedDescription }
+        }
+    }
+
+    func updateSchoolProfile(schoolID: String, admissionYear: Int, department: String?) async {
+        guard !isBusy, !needsReauthentication, let account, let api else { error = OiServiceError.signInRequired.localizedDescription; return }
+        guard isSchoolProfileAvailable else { error = "지금은 학교 정보를 저장할 수 없어요. 잠시 후 다시 시도해 주세요."; return }
+        let owner = account.id
+        let started = generation
+        let cleanedDepartment = department?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .gmt
+        let currentYear = calendar.component(.year, from: .now)
+        guard schools.contains(where: { $0.id == schoolID }), (1900...currentYear).contains(admissionYear),
+              cleanedDepartment.map({ !$0.isEmpty && $0.unicodeScalars.count <= 100 }) ?? true else {
+            error = OiServiceError.invalidInput.localizedDescription; return
+        }
+        isBusy = true; error = nil
+        defer { isBusy = false }
+        do {
+            let accessToken = try await token()
+            try Task.checkCancellation()
+            guard started == generation else { return }
+            let saved = try await api.updateSchoolProfile(owner: owner, schoolID: schoolID,
+                admissionYear: admissionYear, department: cleanedDepartment, token: accessToken)
+            guard started == generation, self.account?.id == owner else { return }
+            loadSequence += 1
+            profile = saved; revision += 1; await refreshAfterCommit()
+        } catch {
+            if started == generation { noteAuthenticationFailure(error); self.error = error.localizedDescription }
+        }
+    }
+
     func submitEvidence(data: Data, contentType: String, fileExtension: String, replacing request: OiEvidence? = nil) async {
-        guard !isBusy, let owner = account?.id else { error = OiServiceError.signInRequired.localizedDescription; return }
+        guard !isBusy, !needsReauthentication, let owner = account?.id else { error = OiServiceError.signInRequired.localizedDescription; return }
+        let started = generation
         do {
             let operation = OiEvidenceOperation(requestID: request?.id ?? UUID(), uploadID: UUID(), contentType: contentType,
                 fileExtension: fileExtension, previousStatus: request?.status, previousPath: request?.objectPath, phase: "prepared",
                 storageOwnerID: request?.storageOwnerId ?? request?.userId)
             try await drafts.saveAttachment(data, owner: owner, id: operation.uploadID)
             try await drafts.saveEvidence(operation, owner: owner)
-            guard account?.id == owner else { throw OiServiceError.accountChanged }
+            try Task.checkCancellation()
+            guard generation == started, account?.id == owner else { throw OiServiceError.accountChanged }
             evidenceOperation = operation; await retryEvidence()
-        } catch { self.error = error.localizedDescription }
+        } catch { if generation == started { self.error = error.localizedDescription } }
     }
 
     func retryEvidence() async {
@@ -660,9 +788,13 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         defer { isBusy = false }
         do {
             let accessToken = try await token()
+            try Task.checkCancellation()
+            guard generation == started else { throw OiServiceError.accountChanged }
             var request = try await api.mutate("start_evidence", payload: ["id":operation.requestID.uuidString], token: accessToken, as: OiEvidence.self)
+            guard generation == started else { throw OiServiceError.accountChanged }
             operation.storageOwnerID = request.storageOwnerId ?? request.userId
             try await drafts.saveEvidence(operation, owner: owner)
+            guard generation == started else { throw OiServiceError.accountChanged }
             evidenceOperation = operation
             let path = operation.objectPath(owner: owner)
             if request.objectPath == path && request.status != "draft" { operation.phase = request.status }
@@ -670,12 +802,20 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
                 if let previousStatus = operation.previousStatus, let previousPath = operation.previousPath {
                     request = try await api.mutate("reopen_evidence", payload: ["id":request.id.uuidString,"operation_id":operation.uploadID.uuidString,
                         "expected_status":previousStatus,"expected_object_path":previousPath], token: accessToken, as: OiEvidence.self)
+                    guard generation == started else { throw OiServiceError.accountChanged }
                 }
                 guard request.status == "draft" else { throw OiServiceError.conflict }
-                operation.phase = "uploading"; try await drafts.saveEvidence(operation, owner: owner); evidenceOperation = operation
+                operation.phase = "uploading"; try await drafts.saveEvidence(operation, owner: owner)
+                guard generation == started else { throw OiServiceError.accountChanged }
+                evidenceOperation = operation
                 let data = try await drafts.attachment(owner: owner, id: operation.uploadID)
+                try Task.checkCancellation()
+                guard generation == started else { throw OiServiceError.accountChanged }
                 try await api.upload(bucket: "oi-evidence", path: path, data: data, contentType: operation.contentType, token: accessToken)
-                operation.phase = "submitting"; try await drafts.saveEvidence(operation, owner: owner); evidenceOperation = operation
+                guard generation == started else { throw OiServiceError.accountChanged }
+                operation.phase = "submitting"; try await drafts.saveEvidence(operation, owner: owner)
+                guard generation == started else { throw OiServiceError.accountChanged }
+                evidenceOperation = operation
                 request = try await api.mutate("submit_evidence", payload: ["id":request.id.uuidString,"object_path":path], token: accessToken, as: OiEvidence.self)
                 operation.phase = request.status
             }
@@ -813,6 +953,62 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         guard account?.id == owner else { throw OiServiceError.accountChanged }
         let data = try await drafts.attachment(owner: owner, id: id)
         guard account?.id == owner else { throw OiServiceError.accountChanged }; return data
+    }
+
+    func localSchoolEvidenceReview(owner: UUID) async throws -> OiSavedSchoolEvidenceReview? {
+        guard account?.id == owner else { throw OiServiceError.accountChanged }
+        let started = generation
+        let review = try await drafts.schoolEvidenceReview(owner: owner)
+        try Task.checkCancellation()
+        guard started == generation, account?.id == owner else { throw OiServiceError.accountChanged }
+        return review
+    }
+
+    func saveSchoolEvidenceReview(_ review: OiSavedSchoolEvidenceReview, owner: UUID) async throws {
+        try Task.checkCancellation()
+        guard account?.id == owner else { throw OiServiceError.accountChanged }
+        let started = generation
+        try await drafts.saveSchoolEvidenceReview(review, owner: owner)
+        try Task.checkCancellation()
+        guard started == generation, account?.id == owner else { throw OiServiceError.accountChanged }
+    }
+
+    func reviewDonationEvidence(_ evidence: OiEvidence) async throws -> OiDonationEvidenceReview {
+        guard let api else { throw OiServiceError.configuration }
+        guard let owner = account?.id, owner == evidence.userId, !needsReauthentication else { throw OiServiceError.signInRequired }
+        let started = generation
+        do {
+            let accessToken = try await token()
+            try Task.checkCancellation()
+            guard started == generation else { throw OiServiceError.accountChanged }
+            let review = try await api.reviewDonationEvidence(evidence, token: accessToken)
+            try Task.checkCancellation()
+            guard started == generation else { throw OiServiceError.accountChanged }
+            return review
+        } catch {
+            guard started == generation else { throw OiServiceError.accountChanged }
+            noteAuthenticationFailure(error)
+            throw error
+        }
+    }
+
+    func reviewSchoolEvidence(_ data: Data, contentType: String) async throws -> OiSchoolEvidenceReview {
+        guard let api else { throw OiServiceError.configuration }
+        guard account != nil, !needsReauthentication else { throw OiServiceError.signInRequired }
+        let started = generation
+        do {
+            let accessToken = try await token()
+            try Task.checkCancellation()
+            guard started == generation else { throw OiServiceError.accountChanged }
+            let review = try await api.reviewSchoolEvidence(data, contentType: contentType, token: accessToken)
+            try Task.checkCancellation()
+            guard started == generation else { throw OiServiceError.accountChanged }
+            return review
+        } catch {
+            guard started == generation else { throw OiServiceError.accountChanged }
+            noteAuthenticationFailure(error)
+            throw error
+        }
     }
 
     func mediaURL(bucket: String, path: String) async throws -> URL {

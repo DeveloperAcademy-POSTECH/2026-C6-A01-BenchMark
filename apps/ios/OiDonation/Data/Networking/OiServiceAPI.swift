@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  OiServiceAPI.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 10/28/26.
+//
 
 import Foundation
 
@@ -47,11 +52,12 @@ struct OiServiceAPI {
     }
 
     func request(_ path: String, method: String = "GET", token: String? = nil,
-                 body: Data? = nil, contentType: String = "application/json", prefer: String? = nil) async throws -> Data {
+                 body: Data? = nil, contentType: String = "application/json", prefer: String? = nil,
+                 timeout: TimeInterval = 30) async throws -> Data {
         guard let url = URL(string: "https://\(Self.projectHost)/\(path)") else { throw OiServiceError.configuration }
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.timeoutInterval = 30
+        request.timeoutInterval = timeout
         request.setValue(key, forHTTPHeaderField: "apikey")
         if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         else if key.hasPrefix("ey") { request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
@@ -62,7 +68,7 @@ struct OiServiceAPI {
         catch APIError.httpStatus(let status) {
             switch status {
             case 401: throw OiServiceError.signInRequired
-            case 403: throw OiServiceError.server("권한이 없거나 작성 승인이 만료됐습니다. 검토 상태를 확인해 주세요.")
+            case 403: throw OiServiceError.server("요청 권한·작성 승인·임시 작성 모드 상태를 새로고침해 확인해 주세요. 기존 글과 사진은 보관됩니다.")
             case 404 where path == "rest/v1/rpc/\(Self.resolveCardRequestRPC)": throw OiServiceError.conflict
             case 404 where path == "rest/v1/rpc/oi_review_evidence": throw OiEvidenceReviewError.serverNotReady
             case 404 where path == "rest/v1/rpc/oi_operator_audit": throw OiAuditError.notDeployed
@@ -72,6 +78,41 @@ struct OiServiceAPI {
             default: throw OiServiceError.unavailable
             }
         }
+    }
+
+    func reviewDonationEvidence(_ evidence: OiEvidence, token: String) async throws -> OiDonationEvidenceReview {
+        let response: Data
+        do {
+            response = try await request("functions/v1/analyze-donation-evidence", method: "POST", token: token,
+                body: JSONEncoder().encode(["evidence_id": evidence.id.uuidString]), timeout: 70)
+        } catch OiServiceError.unavailable {
+            throw OiServiceError.server("증빙은 접수됐지만 AI 검사를 완료하지 못했어요. AI 검사만 다시 시도해 주세요.")
+        }
+        let review = try decoder.decode(OiDonationEvidenceReview.self, from: response)
+        guard review.reviewType == "donation_evidence", review.evidenceId == evidence.id,
+              review.submittedAt == evidence.submittedAt, review.humanReviewRequired,
+              !review.authenticityVerified, review.summary?.isConsistent ?? true else { throw OiServiceError.conflict }
+        if review.summary?.sufficientEvidence == true {
+            guard review.assessment.verdict == .noObviousSigns, review.assessment.readability == .readable,
+                  review.assessment.findings.isEmpty else { throw OiServiceError.conflict }
+        }
+        return review
+    }
+
+    func reviewSchoolEvidence(_ data: Data, contentType: String, token: String) async throws -> OiSchoolEvidenceReview {
+        let response: Data
+        do {
+            response = try await request("functions/v1/analyze-school-evidence", method: "POST", token: token,
+                                         body: data, contentType: contentType, timeout: 70)
+        } catch OiServiceError.unavailable {
+            throw OiServiceError.server("학교 증빙을 분석하지 못했어요. 잠시 후 다시 시도해 주세요.")
+        }
+        let review = try decoder.decode(OiSchoolEvidenceReview.self, from: response)
+        guard review.reviewType == "school_affiliation", review.humanReviewRequired,
+              !review.affiliationVerified, !review.authenticityVerified else {
+            throw OiServiceError.server("학교 증빙 검토 응답을 확인할 수 없어요.")
+        }
+        return review
     }
 
     func rows<Value: Decodable & Identifiable>(_ table: String, query: String = "", token: String? = nil, as type: Value.Type) async throws -> [Value] {
@@ -286,10 +327,64 @@ struct OiServiceAPI {
         }
     }
 
-    func updateProfile(owner: UUID, nickname: String?, schoolID: String?, token: String) async throws -> OiProfile {
+    func schoolProfile(owner: UUID, token: String) async throws -> OiProfile {
+        let data = try await request("rest/v1/rpc/oi_school_profile", method: "POST", token: token, body: Data("{}".utf8))
+        let profile = try decoder.decode(OiProfile.self, from: data)
+        guard profile.id == owner else { throw OiServiceError.unavailable }
+        return profile
+    }
+
+    func updateSchoolProfile(owner: UUID, schoolID: String, admissionYear: Int, department: String?, token: String) async throws -> OiProfile {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "p_school_id": schoolID,
+            "p_admission_year": admissionYear,
+            "p_department": department as Any? ?? NSNull()
+        ])
+        let data = try await request("rest/v1/rpc/oi_update_school_profile", method: "POST", token: token, body: body)
+        let profile = try decoder.decode(OiProfile.self, from: data)
+        guard profile.id == owner, profile.schoolId == schoolID,
+              profile.schoolAdmissionYear == admissionYear, profile.schoolDepartment == department else { throw OiServiceError.unavailable }
+        return profile
+    }
+
+    func farmerOutfit(owner: UUID, token: String) async throws -> OiFarmerOutfit? {
+        let data = try await request("rest/v1/rpc/oi_farmer_outfit", method: "POST", token: token, body: Data("{}".utf8))
+        let receipt = try decoder.decode(OiFarmerOutfitReceipt.self, from: data)
+        guard receipt.accountId == owner, receipt.outfit?.isValid ?? true else { throw OiServiceError.unavailable }
+        return receipt.outfit
+    }
+
+    func saveFarmerOutfit(owner: UUID, outfit: OiFarmerOutfit, token: String) async throws -> OiFarmerOutfit {
+        guard outfit.isValid else { throw OiServiceError.invalidInput }
+        let value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(outfit))
+        let body = try JSONSerialization.data(withJSONObject: ["p_outfit": value])
+        let data = try await request("rest/v1/rpc/oi_save_farmer_outfit", method: "POST", token: token, body: body)
+        let receipt = try decoder.decode(OiFarmerOutfitReceipt.self, from: data)
+        guard receipt.accountId == owner, receipt.outfit == outfit else { throw OiServiceError.unavailable }
+        return outfit
+    }
+
+    func updateFarmName(owner: UUID, farmName: String, token: String) async throws -> OiProfile {
+        let body = try JSONSerialization.data(withJSONObject: ["farm_name": farmName])
+        let data = try await request("rest/v1/oi_profiles?id=eq.\(owner.uuidString)", method: "PATCH", token: token,
+            body: body, prefer: "return=representation")
+        let profiles = try decoder.decode([OiProfile].self, from: data)
+        guard profiles.count == 1, let profile = profiles.first, profile.id == owner,
+              profile.farmName == farmName else { throw OiServiceError.unavailable }
+        return profile
+    }
+
+    func updateProfile(owner: UUID, nickname: String?, schoolID: String?, academicInfo: OiPublicAcademicInfo? = nil, token: String) async throws -> OiProfile {
         var patch: [String: String] = [:]
         if let nickname { patch["nickname"] = nickname }
         if let schoolID { patch["school_id"] = schoolID }
+        if let academicInfo {
+            let info = academicInfo.cleaned
+            guard info.isValid else { throw OiServiceError.invalidInput }
+            patch["public_name"] = info.name
+            patch["department"] = info.department
+            patch["admission_year"] = info.admissionYear
+        }
         guard !patch.isEmpty else { throw OiServiceError.invalidInput }
         let body = try JSONSerialization.data(withJSONObject: patch)
         let data = try await request("rest/v1/oi_profiles?id=eq.\(owner.uuidString)", method: "PATCH", token: token,

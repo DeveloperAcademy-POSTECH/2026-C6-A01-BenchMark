@@ -1,5 +1,4 @@
 import UIKit
-import RealityKit
 
 /// A noninteractive screen-space layer. Labels follow roof coordinates as the camera moves.
 @MainActor final class CampusMapLabels {
@@ -23,7 +22,7 @@ import RealityKit
         areas = CampusRegion.campus.compactMap { region in
             guard let place = data.pois.first(where: { $0.id == region.placeID }) else { return nil }
             return entry(id: "area.\(region.id)", title: region.title,
-                         point: data.world(place.p) + SIMD3(0, 5, 0), roof: [], size: 13)
+                         point: data.world(place.p), roof: [], size: 13)
         }
         areas += CampusBuildingLabel.groups(data).map {
             entry(id: "area.\($0.id)", title: $0.title, point: $0.anchor, roof: $0.roof, size: 13)
@@ -49,26 +48,21 @@ import RealityKit
         return Entry(id: id, anchor: point, roof: roof, label: label)
     }
 
-    func update(map: RealityKit.ARView, camera: PerspectiveCamera, radius: Float, pins: [UIView]) {
+    func update(projection: CampusMapProjection, viewport bounds: CGRect, radius: Float, pins: [UIView]) {
         guard enabled, radius > 0 else { return }
-        let density = map.bounds.height / (2 * tan(CGFloat(camera.camera.fieldOfViewInDegrees) * .pi / 360) * CGFloat(radius))
+        let density = projection.focalLength / CGFloat(radius)
         level = CampusMapLabelLayout.level(pixelsPerUnit: density, previous: level)
         let active = level == .areas ? areas : buildings
         let inactive = level == .areas ? buildings : areas
         inactive.forEach { $0.label.isHidden = true }
-        let viewport = map.bounds.inset(by: insets).insetBy(dx: 8, dy: 5)
-        let visiblePins = pins.filter { !$0.isHidden }
+        let viewport = bounds.inset(by: insets).insetBy(dx: 8, dy: 5)
+        let visiblePins = pins.filter { !$0.isHidden && $0.alpha > 0.25 }
         var candidates: [CampusMapLabelLayout.Candidate] = []
         for item in active {
             item.label.isHidden = true
-            guard camera.convert(position: item.anchor, from: nil).z < -0.1,
-                  let point = map.project(item.anchor), point.x.isFinite, point.y.isFinite else { continue }
+            guard let point = projection.point(item.anchor) else { continue }
             if level == .buildings {
-                let points = item.roof.compactMap { point -> CGPoint? in
-                    guard camera.convert(position: point, from: nil).z < -0.1,
-                          let projected = map.project(point), projected.x.isFinite, projected.y.isFinite else { return nil }
-                    return projected
-                }
+                let points = item.roof.compactMap(projection.point)
                 guard points.count == item.roof.count, let first = points.first else { continue }
                 var footprint = CGRect(origin: first, size: .zero)
                 for point in points { footprint = footprint.union(CGRect(origin: point, size: .zero)) }
@@ -79,7 +73,7 @@ import RealityKit
             var alternatives: [CGRect] = []
             if level == .areas,
                let pin = visiblePins.first(where: { $0.accessibilityIdentifier == item.id.replacingOccurrences(of: "area.", with: "campus.region.") }) {
-                // The number marker may have shifted to avoid another marker; keep its caption attached.
+                // Keep the caption below its individual region badge when space allows.
                 frame.origin = CGPoint(x: pin.frame.midX - frame.width / 2, y: pin.frame.maxY + 9)
                 alternatives = [
                     CGRect(x: frame.minX, y: pin.frame.minY - frame.height - 9, width: frame.width, height: frame.height),
@@ -91,10 +85,7 @@ import RealityKit
             } else if level == .areas {
                 // A compound has no story-count marker. If its center is clipped,
                 // anchor its caption to a visible member roof rather than hide the whole area.
-                let memberPoints = item.roof.compactMap { anchor -> CGPoint? in
-                    guard camera.convert(position: anchor, from: nil).z < -0.1 else { return nil }
-                    return map.project(anchor)
-                }.sorted { hypot($0.x - point.x, $0.y - point.y) < hypot($1.x - point.x, $1.y - point.y) }
+                let memberPoints = item.roof.compactMap(projection.point).sorted { hypot($0.x - point.x, $0.y - point.y) < hypot($1.x - point.x, $1.y - point.y) }
                 let options = ([point] + memberPoints).filter { viewport.contains($0) }.flatMap { anchor -> [CGRect] in
                     let x = min(max(anchor.x - frame.width / 2, viewport.minX + 4), viewport.maxX - frame.width - 4)
                     return [CGRect(x: x, y: anchor.y - frame.height - 4, width: frame.width, height: frame.height),

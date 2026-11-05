@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  OiStoryEditor.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 10/28/26.
+//
 
 import ImageIO
 import PhotosUI
@@ -270,7 +275,7 @@ struct OiStoryEditor: View {
             if let server = remote.ownStories.first(where: { $0.id == draft.id }) {
                 submitted = !OiCreationAccess.canEdit(status: server.status, submitted: submitted)
             }
-            if draft.grantId == nil { draft.grantId = availableGrants.first?.id }
+            if draft.grantId == nil && !remote.unapprovedDraftsEnabled { draft.grantId = availableGrants.first?.id }
             restored = true; localError = nil; saveLabel = "이 계정의 기기 초안 자동 저장"
         } catch let error as OiDraftDiscardCleanupError {
             discardCleanupError = error.localizedDescription
@@ -303,7 +308,7 @@ struct OiStoryEditor: View {
                                     _ = await persist(); showingPreview = false
                                 }
                             }
-                        }.disabled(remote.isBusy || publishing || saving || !draft.valid || !hasApproval).accessibilityIdentifier("oi.story.confirmSubmit")
+                        }.disabled(remote.isBusy || publishing || saving || !draft.valid || !canWrite).accessibilityIdentifier("oi.story.confirmSubmit")
                     }.padding(20)
                 }.navigationTitle("공개 검토 전 확인").navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("수정으로 돌아가기") { showingPreview = false }.disabled(publishing) } }
@@ -321,8 +326,8 @@ struct OiStoryEditor: View {
     }
 
     private var availableGrants: [OiWritingGrant] { remote.grants.filter { $0.revokedAt == nil } }
-    private var hasApproval: Bool { availableGrants.contains { $0.id == draft.grantId } }
-    private var canContinue: Bool { hasApproval && step.canContinue(draft: draft) }
+    private var canWrite: Bool { remote.canWriteStory(grantID: draft.grantId) }
+    private var canContinue: Bool { canWrite && step.canContinue(draft: draft) }
     private var serverMediaPaths: [String] { remote.mediaPaths(storyID: draft.id) }
     private var attachedPhotoIDs: Set<UUID> {
         uploadedPhotos.union(serverMediaPaths.compactMap(OiEditingPhoto.localPhotoID(for:)))
@@ -340,7 +345,19 @@ struct OiStoryEditor: View {
     @ViewBuilder private var editorStatus: some View {
         OiConnectionStatus(remote: remote)
         if let error = localError ?? remote.error { Text(error).font(.footnote).foregroundStyle(.red) }
-        if !hasApproval { Text("유효한 작성 승인이 필요해요. 계정에서 승인 상태를 확인해 주세요.").font(.footnote).foregroundStyle(.orange) }
+        if !canWrite {
+            Text("서버 저장·검토 요청에는 작성 승인이 필요해요. 기존 글과 사진은 보관됩니다.")
+                .font(.footnote).foregroundStyle(.orange)
+            Button("작성 권한 새로고침") {
+                Task {
+                    await remote.refresh()
+                    if draft.grantId == nil && !remote.unapprovedDraftsEnabled { draft.grantId = availableGrants.first?.id }
+                }
+            }
+        } else if draft.grantId == nil {
+            Text("임시 작성 모드예요. 기부 승인으로 처리되지 않으며, 지도·AR 공개에는 운영자 검토가 필요해요.")
+                .font(.footnote).foregroundStyle(.secondary)
+        }
         if let saved = remote.ownStories.first(where: { $0.id == draft.id }),
            saved.revision != draft.revision, !OiCreationAccess.canRebase(draft, to: saved) {
             VStack(alignment: .leading) {
@@ -385,7 +402,8 @@ struct OiStoryEditor: View {
 
     @ViewBuilder private var stepContent: some View {
         switch step {
-        case .story: OiStoryWritingStep(draft: $draft, grants: availableGrants)
+        case .story: OiStoryWritingStep(draft: $draft, grants: availableGrants,
+            canChangeGrant: draft.revision == 0 || remote.ownStories.first(where: { $0.id == draft.id })?.grantId == nil)
         case .photos:
             OiStoryPhotoStep(items: editingPhotos,
                 uploadedPhotos: attachedPhotoIDs, selections: $photoSelections,
@@ -405,7 +423,7 @@ struct OiStoryEditor: View {
             OiCardCustomizationStep(draft: $draft, customization: $customization, assets: remote.assets,
                 canContinue: canContinue, onContinue: advance)
             Button("초안 저장·사진 업로드") { Task { _ = await saveCurrent() } }
-                .disabled(!draft.valid || !hasApproval).accessibilityIdentifier("oi.story.save")
+                .disabled(!draft.valid || !canWrite).accessibilityIdentifier("oi.story.save")
         }
     }
 
@@ -501,7 +519,7 @@ struct OiStoryEditor: View {
     }
 
     private func saveCurrent() async -> OiLiveStory? {
-        guard !saving, hasApproval, OiCreationStep.allCases.allSatisfy({ $0.canContinue(draft: draft) }) else { return nil }
+        guard !saving, canWrite, OiCreationStep.allCases.allSatisfy({ $0.canContinue(draft: draft) }) else { return nil }
         saving = true
         defer { saving = false }
         if let latest = remote.ownStories.first(where: { $0.id == draft.id }), latest.revision != draft.revision,

@@ -1,10 +1,14 @@
-// Created by 이돈혁
+//
+//  MYFarmView.swift
+//  OiDonation
+//
+//  Created by 이돈혁 on 10/28/26.
+//
 
 import SwiftUI
 
 struct MYFarmView: View {
     var remote: OiRemoteStore? = nil
-    var nickname = "농부"
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private let farmGround = Color(red: 193 / 255, green: 215 / 255, blue: 72 / 255)
 
@@ -61,7 +65,7 @@ struct MYFarmView: View {
     }
 
     private var farmTitle: some View {
-        Text("\(remote?.profile?.nickname ?? nickname)의 밭")
+        Text("\(remote?.profile?.farmName ?? "오이") 밭")
             .font(.custom("PearToucan-Regular", size: 35, relativeTo: .title))
             .foregroundStyle(Color(red: 126 / 255, green: 88 / 255, blue: 48 / 255))
             .lineLimit(1).minimumScaleFactor(0.6).accessibilityAddTraits(.isHeader)
@@ -131,7 +135,7 @@ struct MYFarmView: View {
                 .font(.custom("Paperlogy-7Bold", size: 30, relativeTo: .title))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
-            Text("안내된 정식 기부처의 절차를 따라 기부해요.\n작성 승인을 받은 계정에서 나만의 오이와 이야기를 만들 수 있어요.")
+            Text("안내된 정식 기부처의 절차를 따라 기부해요.\n작성 승인 또는 임시 작성 모드에서 나만의 오이와 이야기를 만들 수 있어요.")
                 .font(.custom("Paperlogy-3Light", size: 18, relativeTo: .body)).lineSpacing(5)
             NavigationLink {
                 if let remote { OiStoryListScreen(remote: remote) }

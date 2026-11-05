@@ -1,4 +1,4 @@
-import { AnalysisError, analyzeDocument, DEFAULT_MODEL, MAX_FILE_BYTES, PROMPT_VERSION, readBounded } from "./analysis.ts";
+import { AnalysisError, analyzeDocument, DEFAULT_MODEL, MAX_FILE_BYTES, PROMPT_VERSION, readBounded } from "../_shared/document-analysis.ts";
 
 type Configuration = {
   supabaseUrl: string; supabaseKey: string; openaiKey: string; model?: string;
