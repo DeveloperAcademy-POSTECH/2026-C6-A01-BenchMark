@@ -31,7 +31,7 @@ def visibility(points, faces, resolution=384):
     return front,back
 
 
-for source,role in [(p,role) for p in sorted((ROOT/'apps/ios/OiDonation/Resources/Wardrobe').glob('*.usdz')) for role in ['Top','Bottom'] if not (role=='Top' and 'postech' in p.name)]:
+for source,role in [(p,role) for p in sorted((ROOT/'apps/ios/OiDonation/Resources/Wardrobe').glob('*.usdz')) if not p.stem.startswith('wardrobe-costume-') for role in ['Top','Bottom'] if not (role=='Top' and 'postech' in p.name)]:
     name='photo-'+source.stem+'-'+role.lower()
     original_hash=hashlib.sha256(source.read_bytes()).hexdigest()
     stage=Usd.Stage.Open(str(source))

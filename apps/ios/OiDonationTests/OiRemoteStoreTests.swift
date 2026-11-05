@@ -8,6 +8,7 @@
 import XCTest
 import SwiftUI
 import UIKit
+import RealityKit
 @testable import OiDonation
 
 final class OiStoreURLProtocol: URLProtocol {
@@ -2948,6 +2949,191 @@ extension OiRemoteStoreTests {
             let source = OiDonationEvidenceSummary.SourceReference(id: "untrusted", url: value,
                 title: "기부 후기", kind: "report", verifiedAt: "2026-11-05")
             XCTAssertNil(source.safeURL)
+        }
+    }
+}
+
+@MainActor
+final class OiCostumePhotoTests: XCTestCase {
+    private func canvas(_ draw: (CGContext) -> Void) -> CGImage {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = false
+        return UIGraphicsImageRenderer(size: CGSize(width: 1024, height: 512), format: format).image { draw($0.cgContext) }.cgImage!
+    }
+    private func rgba(_ image: CGImage, size: Int) -> [UInt8] {
+        var data = [UInt8](repeating: 0, count: size * size * 4)
+        let context = CGContext(data: &data, width: size, height: size, bitsPerComponent: 8, bytesPerRow: size * 4,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.draw(image, in: CGRect(x: 0, y: 0, width: size, height: size))
+        return data
+    }
+    private var looks: [OiWardrobeLook] {
+        OiWardrobeLook.Costume.allCases.map { costume in var l = OiWardrobeLook(); l.costume = costume; return l }
+        + OiWardrobeLook.Bottom.allCases.map { bottom in var l = OiWardrobeLook(); l.top = .postech; l.bottom = bottom; return l }
+    }
+    // Metal's normalized linear sampler interpolates the native texel centers.
+    // CGContext's default image resizing uses a different reconstruction filter.
+    private func linearPixel(_ bytes: [UInt8], sourceSize: Int, pixel: Int, outputSize: Int) -> [Int] {
+        let x = (Double(pixel % outputSize) + 0.5) * Double(sourceSize) / Double(outputSize) - 0.5
+        let y = (Double(pixel / outputSize) + 0.5) * Double(sourceSize) / Double(outputSize) - 0.5
+        let x0 = Int(floor(x)), y0 = Int(floor(y)), dx = x - floor(x), dy = y - floor(y)
+        func sample(_ x: Int, _ y: Int, _ channel: Int) -> Double {
+            Double(bytes[(min(sourceSize - 1, max(0, y)) * sourceSize + min(sourceSize - 1, max(0, x))) * 4 + channel])
+        }
+        return (0..<4).map { channel in
+            Int(((sample(x0, y0, channel) * (1-dx) + sample(x0+1, y0, channel) * dx) * (1-dy)
+                + (sample(x0, y0+1, channel) * (1-dx) + sample(x0+1, y0+1, channel) * dx) * dy).rounded())
+        }
+    }
+    func testEveryCostumeBakesOriginalUVsAndPreservesUnpaintedPixels() async throws {
+        let empty = canvas { _ in }
+        let ink = canvas { cg in
+            cg.setFillColor(UIColor.red.cgColor); cg.fill(CGRect(x: 0, y: 0, width: 512, height: 512))
+            cg.setFillColor(UIColor.blue.cgColor); cg.fill(CGRect(x: 512, y: 0, width: 512, height: 512))
+        }
+        for look in looks {
+            let resource = OiPhotoSlot.top.resource(in: look)
+            let restored = try await OiCostumePhotoBaker.shared.bake(empty, resource: resource)
+            let printed = try await OiCostumePhotoBaker.shared.bake(ink, resource: resource)
+            XCTAssertEqual(restored.count, printed.count)
+            var front = 0, back = 0
+            for (original, edited) in zip(restored, printed) {
+                let originalImage = try XCTUnwrap(UIImage(contentsOfFile: OiCostumePhotoBaker.resource(original.binding.baseImage).path)?.cgImage)
+                let size = original.binding.size
+                XCTAssertEqual(originalImage.width, originalImage.height)
+                let source = rgba(originalImage, size: originalImage.width)
+                let plain = rgba(original.image, size: size), color = rgba(edited.image, size: size)
+                let compressed = try Data(contentsOf: OiCostumePhotoBaker.resource(original.binding.map))
+                let data = try (compressed as NSData).decompressed(using: .zlib) as Data
+                let map = data.withUnsafeBytes { Array($0.bindMemory(to: UInt16.self)) }
+                var unchanged = 0
+                for pixel in stride(from: 0, to: size * size, by: 67) {
+                    let i = pixel * 4
+                    let expected = linearPixel(source, sourceSize: originalImage.width, pixel: pixel, outputSize: size)
+                    for c in 0..<3 { XCTAssertLessThanOrEqual(abs(Int(plain[i+c])-expected[c]), 3, look.modelName) }
+                    if map[pixel*2] == 65535 {
+                        XCTAssertEqual(Array(plain[i..<i+4]), Array(color[i..<i+4]), look.modelName); unchanged += 1
+                    } else if map[pixel*2] < 32760 {
+                        XCTAssertGreaterThan(color[i], 250, look.modelName); XCTAssertLessThan(color[i+2], 5, look.modelName); front += 1
+                    } else if map[pixel*2] > 32775 {
+                        XCTAssertGreaterThan(color[i+2], 250, look.modelName); XCTAssertLessThan(color[i], 5, look.modelName); back += 1
+                    }
+                }
+                XCTAssertGreaterThan(unchanged, 1000)
+            }
+            XCTAssertGreaterThan(front, 50); XCTAssertGreaterThan(back, 50)
+            print("OI_PHOTO_BAKE_PASS \(look.modelName)")
+        }
+    }
+    func testPhotoVerticalOrientationAlphaAndUnpaintedBack() async throws {
+        let ink = canvas { cg in
+            cg.setFillColor(UIColor.red.cgColor); cg.fill(CGRect(x: 0, y: 0, width: 512, height: 256))
+            cg.setFillColor(UIColor.green.withAlphaComponent(0.5).cgColor)
+            cg.fill(CGRect(x: 0, y: 256, width: 512, height: 256))
+        }
+        let resource = "photo-wardrobe-costume-dinosaur-top"
+        let originals = try await OiCostumePhotoBaker.shared.bake(canvas { _ in }, resource: resource)
+        let edits = try await OiCostumePhotoBaker.shared.bake(ink, resource: resource)
+        let original = try XCTUnwrap(originals.first), edited = try XCTUnwrap(edits.first)
+        let size = original.binding.size
+        let plain = rgba(original.image, size: size), color = rgba(edited.image, size: size)
+        let compressed = try Data(contentsOf: OiCostumePhotoBaker.resource(original.binding.map))
+        let data = try (compressed as NSData).decompressed(using: .zlib) as Data
+        let map = data.withUnsafeBytes { Array($0.bindMemory(to: UInt16.self)) }
+        var top = 0, bottom = 0, back = 0
+        for pixel in stride(from: 0, to: size * size, by: 67) where map[pixel*2] != 65535 {
+            let i = pixel * 4, u = Float(map[pixel*2])/65534, v = Float(map[pixel*2+1])/65534
+            if u > 0.51 {
+                XCTAssertEqual(Array(plain[i..<i+4]), Array(color[i..<i+4])); back += 1
+            } else if u < 0.49 && v < 0.45 {
+                XCTAssertGreaterThan(color[i], 250); XCTAssertLessThan(color[i+1], 5); top += 1
+            } else if u < 0.49 && v > 0.55 {
+                XCTAssertEqual(Int(color[i]), Int(plain[i])/2, accuracy: 2)
+                XCTAssertEqual(Int(color[i+1]), 128 + Int(plain[i+1])/2, accuracy: 2)
+                XCTAssertEqual(Int(color[i+2]), Int(plain[i+2])/2, accuracy: 2); bottom += 1
+            }
+        }
+        XCTAssertGreaterThan(top, 100); XCTAssertGreaterThan(bottom, 100); XCTAssertGreaterThan(back, 100)
+    }
+    func testEveryCostumeBindsWithoutExtraMeshAndRestoresMaterial() async throws {
+        let ink = canvas { cg in cg.setFillColor(UIColor.magenta.cgColor); cg.fill(CGRect(x: 0, y: 0, width: 1024, height: 512)) }
+        func nodes(_ node: Entity) -> [Entity] { (node.components[ModelComponent.self] == nil ? [] : [node]) + node.children.flatMap(nodes) }
+        for look in looks {
+            let root = try await Entity(contentsOf: OiWardrobeAsset.url(look.modelName, folder: "Wardrobe"))
+            let before = nodes(root)
+            let bounds = root.visualBounds(relativeTo: root)
+            let textures = before.map { ($0.components[ModelComponent.self]?.materials.first as? PhysicallyBasedMaterial)?.baseColor.texture?.resource }
+            let prepared = try await OiCostumePhotoMaterial.prepare(ink, resource: OiPhotoSlot.top.resource(in: look))
+            try OiCostumePhotoMaterial.apply(prepared, to: root)
+            XCTAssertEqual(nodes(root).count, before.count)
+            XCTAssertEqual(root.visualBounds(relativeTo: root).extents, bounds.extents)
+            OiCostumePhotoMaterial.restore(root)
+            for (node, original) in zip(before, textures) {
+                let restored = (node.components[ModelComponent.self]?.materials.first as? PhysicallyBasedMaterial)?.baseColor.texture?.resource
+                XCTAssertEqual(restored, original, look.modelName)
+            }
+            print("OI_PHOTO_BIND_PASS \(look.modelName)")
+        }
+    }
+    func testSavedPhotoRemovalAndPlainGarmentStillWork() async throws {
+        var look = OiWardrobeLook(); look.costume = .dinosaur
+        let asset = try OiPhotoRenderer.asset(UIImage(cgImage: canvas { cg in
+            cg.setFillColor(UIColor.orange.cgColor); cg.fill(CGRect(x: 0, y: 0, width: 1024, height: 512))
+        }))
+        let design = OiPhotoDesign(layers: [OiPhotoLayer(source: asset.id)])
+        try look.artwork.set(design, sources: [asset.id: asset.data], for: OiPhotoSlot.top.itemID(in: look))
+        let roundTrip = try JSONDecoder().decode(OiWardrobeLook.self, from: JSONEncoder().encode(look))
+        XCTAssertEqual(roundTrip, look)
+        let (printed, overlays) = try await OiWardrobeAsset.prepare(roundTrip)
+        XCTAssertTrue(overlays.isEmpty)
+        try look.artwork.set(nil, for: OiPhotoSlot.top.itemID(in: look))
+        let (restored, remaining) = try await OiWardrobeAsset.prepare(look, existing: printed)
+        XCTAssertTrue(remaining.isEmpty); XCTAssertFalse(restored === printed)
+        XCTAssertEqual(restored.visualBounds(relativeTo: restored).extents, printed.visualBounds(relativeTo: printed).extents)
+        look.costume = nil
+        try look.artwork.set(design, sources: [asset.id: asset.data], for: "top-tshirt")
+        let (_, plainOverlays) = try await OiWardrobeAsset.prepare(look)
+        XCTAssertNotNil(plainOverlays[.top])
+    }
+    func testCostumePhotoVisualProof() async throws {
+        let ink = canvas { cg in
+            for y in 0..<8 { for x in 0..<16 {
+                let color: UIColor = (x+y)%2 == 0 ? .systemCyan : .systemOrange
+                cg.setFillColor(color.cgColor); cg.fill(CGRect(x: x*64, y: y*64, width: 64, height: 64))
+            }}
+            ("FRONT →" as NSString).draw(at: CGPoint(x: 90, y: 220), withAttributes: [.font: UIFont.boldSystemFont(ofSize: 48), .foregroundColor: UIColor.black])
+            ("BACK →" as NSString).draw(at: CGPoint(x: 610, y: 220), withAttributes: [.font: UIFont.boldSystemFont(ofSize: 48), .foregroundColor: UIColor.black])
+        }
+        let scene = OiWardrobeScene(editingSlot: .top)
+        let view = scene.install(); view.frame = CGRect(x: 0, y: 0, width: 500, height: 650)
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let window = UIWindow(windowScene: windowScene); let controller = UIViewController()
+        controller.view = view; window.rootViewController = controller; window.makeKeyAndVisible()
+        defer { scene.release(); window.isHidden = true }
+        let requested = ProcessInfo.processInfo.environment["OI_PHOTO_PROOF_SET"].flatMap(OiWardrobeLook.Costume.init(rawValue:))
+        for costume in requested.map({ [$0] }) ?? OiWardrobeLook.Costume.allCases {
+            let detailed = [.dinosaur, .farmer, .catBear].contains(costume)
+            var look = OiWardrobeLook(); look.costume = costume
+            scene.editPhotos(in: nil, look: look)
+            for _ in 0..<300 where scene.loading { try await Task.sleep(for: .milliseconds(50)) }
+            XCTAssertNil(scene.error); XCTAssertFalse(scene.loading)
+            if detailed {
+                scene.angle(0); try await Task.sleep(for: .milliseconds(700))
+                let baseline: UIImage? = await withCheckedContinuation { c in view.snapshot(saveToHDR: false) { c.resume(returning: $0) } }
+                let original = XCTAttachment(image: try XCTUnwrap(baseline))
+                original.name = "original-\(costume.rawValue)-front"; original.lifetime = .keepAlways; add(original)
+            }
+            scene.editPhotos(in: .top, look: look)
+            for _ in 0..<300 where scene.loading { try await Task.sleep(for: .milliseconds(50)) }
+            XCTAssertNil(scene.error); XCTAssertFalse(scene.loading)
+            await scene.setPhotoPreview(ink); XCTAssertNil(scene.photoPreviewError)
+            for (name, angle) in [("front", Float(0)), ("side", .pi/3), ("back", .pi)] {
+                if name == "side" && !detailed { continue }
+                scene.angle(angle); try await Task.sleep(for: .milliseconds(700))
+                let image: UIImage? = await withCheckedContinuation { c in view.snapshot(saveToHDR: false) { c.resume(returning: $0) } }
+                let screenshot = try XCTUnwrap(image)
+                let attachment = XCTAttachment(image: screenshot); attachment.name = "photo-\(costume.rawValue)-\(name)"; attachment.lifetime = .keepAlways
+                add(attachment)
+            }
         }
     }
 }

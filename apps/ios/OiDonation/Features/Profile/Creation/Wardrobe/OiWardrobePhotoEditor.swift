@@ -351,7 +351,7 @@ struct OiWardrobePhotoEditor: View {
             defer { if renderGeneration == generation { renderTask = nil } }
             while renderPending && !Task.isCancelled {
                 renderPending = false
-                let image = OiPhotoRenderer.atlas(layers: draft.layers, assets: draft.assets, panelSize: 512, color: slot.color(in: look), fabric: slot.fabric(in: look))
+                let image = OiPhotoRenderer.atlas(layers: draft.layers, assets: draft.assets, panelSize: 512, color: slot.color(in: look), fabric: slot.fabric(in: look), transparent: slot.preservesOriginalMaterial(in: look))
                 if let cg = image.cgImage { await scene.setPhotoPreview(cg) }
                 try? await Task.sleep(for: .milliseconds(50))
             }
