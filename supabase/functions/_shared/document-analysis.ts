@@ -42,6 +42,7 @@ const schema = {
   },
   required: ["verdict", "readability", "findings", "limitations", "manual_checks"],
 };
+export { schema as visualAssessmentSchema };
 
 const donationInstructions = `You assist a human operator reviewing a donation evidence document.
 Report only visible indications of editing or internal inconsistency. You cannot certify authenticity,
@@ -168,6 +169,7 @@ export async function requestDocumentAnalysis<T>(options: DocumentAnalysisInput,
   name: string;
   schema: object;
   parse: (value: unknown) => T;
+  maxOutputTokens?: number;
 }): Promise<T> {
   const mime = documentType(options.bytes, options.contentType);
   if (!options.apiKey.trim()) throw new AnalysisError(503, "analysis_not_configured");
@@ -181,7 +183,7 @@ export async function requestDocumentAnalysis<T>(options: DocumentAnalysisInput,
       method: "POST", redirect: "error", signal: options.signal,
       headers: { Authorization: `Bearer ${options.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: options.model ?? DEFAULT_MODEL, store: false, max_output_tokens: 2400,
+        model: options.model ?? DEFAULT_MODEL, store: false, max_output_tokens: format.maxOutputTokens ?? 2400,
         instructions: format.instructions, input: [{ role: "user", content: [
           { type: "input_text", text: format.prompt },
           attachment,

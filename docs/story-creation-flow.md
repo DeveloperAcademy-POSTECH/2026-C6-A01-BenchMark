@@ -165,7 +165,7 @@ Figma `2945:2969`의 오이 커스텀 단계에 실제 아이템을 연결했다
 3. `apps/ios/OiDonation.xcodeproj`를 열고 `OiDonation` scheme과 본인 iPhone을 선택한다. 두 타깃에 사용할 팀 권한·개발 인증서/개인키·기기가 포함된 최신 프로파일은 각 Mac에서 준비해야 한다. 개인 개발팀을 사용한다면 Bundle ID·App Group·App Clip 부모 연결도 그 팀 설정과 일치해야 한다. 공용 식별자를 임의로 다른 팀에 등록하지 않는다.
 4. 로그인 → 지도 **+** → **오이 만들기**에서 약관·이야기·사진·3D 위치·꾸미기·검토 요청 흐름을 확인한다. 실제 작성 가능 여부는 서버의 임시 모드 또는 유효한 작성 승인에 따른다. 상단 씨앗 추가는 기부 인증 미리보기를 열고 하단 씨앗 사용하기는 준비 안내를 표시한다.
 
-### 이번 업로드 전 검증
+### 최초 업로드 전 검증 — 2026-11-05
 
 - iPhone 17 / iOS 26.5 시뮬레이터, `OiFlowChecks` Debug, `CODE_SIGNING_ALLOWED=NO`: 본 앱/App Clip 빌드를 포함해 관련 검사 **49개 통과, 0개 실패, 3개 건너뜀**.
 - 범위: `OiRemoteStoreTests`, `OiPhotoImportTests`, `OiPhotoCropTests`, 작성/사진/위치/꾸미기/약관/씨앗/자르기 버튼 대비의 화면 캡처 7개.
@@ -173,3 +173,14 @@ Figma `2945:2969`의 오이 커스텀 단계에 실제 아이템을 연결했다
 - `sh apps/ios/Tests/run-oi-service-checks.sh`, `sh apps/ios/Tests/run-my-checks.sh`, `git diff --check` 통과.
 - 테스트 코드의 기존 `coordinateSpace` deprecated 경고가 남아 있다. 이번 업로드 과정에서는 실기기 설치를 하지 않았다. 팀원 기기의 서명, 실제 사진 선택, 반복 효과 체감과 실제 계정 업로드/검토 요청은 별도 확인한다.
 - 커스텀 의상/사진 외형은 기존 계정별 기기 초안 범위이며, 이 PR이 여러 기기 간 외형 공유 API를 추가하지는 않는다.
+
+## 장소 검색과 중앙 고정 핀 후속 반영 — 2026-11-06 / PR #157
+
+이야기의 위치 설정은 장소 검색을 먼저 표시한다. [검색 디자인](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=3504-13188)의 POSTECH POI 검색 결과 또는 지도 버튼을 누르면 [위치 확인 디자인](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=3517-13491)의 중앙 핀과 기존 3D 캠퍼스 지도를 표시한다. 핀 끝은 화면 중앙에 고정되며 지도 제스처에 따라 그 아래 지형 좌표가 변한다. 건물·캠퍼스 밖은 확정할 수 없고, 확인 시에만 초안 좌표를 변경한다. 검색으로 돌아가면 검색어를 유지하며 취소는 기존 좌표를 보존한다.
+
+최신 develop `195c264`를 통합했다. 씨앗 추가의 디자인 미리보기와 최신 기부 인증의 실제 제출 화면을 별도 진입으로 유지한다. 작성 승인 안내의 ‘기부 인증하기’는 develop의 실제 인증 화면을 열며 씨앗 지급·자동 공개를 추가하지 않는다. 학교 정보와 농부 의상 migration의 검토된 함수 해시를 맞추고 임시 작성·계정·인증 DB 검사를 모두 유지한다. 운영 DB/Edge Function 배포는 수행하지 않았다.
+
+- 통합 후 본 앱/App Clip 시뮬레이터 빌드 성공. `OiRemoteStoreTests`와 중앙 핀·검색/지도 화면 검사 4개를 실행해 **100개 통과, 0개 실패, 3개 건너뜀**. 건너뛴 항목은 위의 opt-in UI 조작 검사다.
+- `sh apps/ios/Tests/run-oi-service-checks.sh`, 격리 PostgreSQL의 `python3 supabase/tests/run-account-merge-db-checks.py`, `git diff --check` 통과. DB 검사는 신규 스키마와 기존 캠퍼스 RPC 변형, 동시 계정 통합/증빙 지문, 임시 모드 보존 및 알 수 없는 함수 변경의 롤백을 확인했다.
+- 위치 기능 변경 단계에서 지도 라벨/좌표 스크립트가 통과했고, Jun iPhone의 Debug 빌드·설치·실행을 확인했다. 이후 develop 통합본은 시뮬레이터에서 재검증했다. 실제 기기에서 위치 확정까지의 전체 조작과 현장 AR 정합은 별도 확인 대상이다.
+- 기존 Swift 동시성·deprecated API 경고는 남아 있다. 개인 서명 설정·프로파일·서비스 비밀값은 커밋하지 않는다.

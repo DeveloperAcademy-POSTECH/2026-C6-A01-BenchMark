@@ -1,0 +1,153 @@
+{
+  "version": 1,
+  "verified_at": "2026-11-05",
+  "provenance": "synthetic_evaluation_scenarios",
+  "notice": "All message bodies and transaction references are synthetic. This is not a collection of verified donor messages or an official SMS template.",
+  "cases": [
+    {
+      "id": "sms_paid_official_contact_number",
+      "document_kind": "sms",
+      "sender_phone": "054-279-2417",
+      "body": "[가상 평가 자료] POSTECH 대학발전팀입니다. 보내주신 발전기금의 입금 완료를 확인했습니다. 참여해 주셔서 감사합니다.",
+      "expected_outcome": "sufficient_evidence",
+      "conditions": ["readable", "no_visible_edit", "no_duplicate", "institution_visible"],
+      "reason": "Receipt is not required when the visible payment-completion message and institution/contact evidence are sufficient. Contact-number match is not sender authentication."
+    },
+    {
+      "id": "sms_paid_international_number_redacted_name_no_amount",
+      "document_kind": "sms",
+      "sender_phone": "+82 54-279-2417",
+      "body": "[가상 평가 자료] [이름 가림]님, 포항공과대학교 발전기금이 입금되었습니다. 감사합니다.",
+      "expected_outcome": "sufficient_evidence",
+      "conditions": ["readable", "no_visible_edit", "no_duplicate", "amount_not_visible", "donor_name_redacted"],
+      "reason": "Country-code formatting, redacted name and absent amount alone must not force a receipt or create a fraud finding."
+    },
+    {
+      "id": "sms_pledge_only",
+      "document_kind": "sms",
+      "sender_phone": "054-279-2417",
+      "body": "[가상 평가 자료] POSTECH 발전기금 약정 신청이 접수되었습니다. 선택하신 방법으로 납부해 주세요.",
+      "expected_outcome": "needs_more_evidence",
+      "reason": "Pledge submission is not payment completion even when the official contact number matches."
+    },
+    {
+      "id": "sms_pledge_followed_by_payment",
+      "document_kind": "sms",
+      "sender_phone": "054-279-2417",
+      "body": "[가상 평가 자료] 10월 10일: POSTECH 기부 약정을 접수했습니다. 10월 20일: 약정하신 기부금의 입금을 확인했습니다.",
+      "expected_outcome": "sufficient_evidence",
+      "conditions": ["chronology_consistent", "no_visible_edit", "no_duplicate"],
+      "reason": "Read the full visible history and use the later explicit completion message rather than stopping at the earlier pledge."
+    },
+    {
+      "id": "sms_paid_followed_by_refund",
+      "document_kind": "sms",
+      "sender_phone": "054-279-2417",
+      "body": "[가상 평가 자료] 10월 20일: 발전기금 입금이 확인되었습니다. 10월 21일: 요청하신 기부 취소와 전액 환불이 완료되었습니다.",
+      "expected_outcome": "needs_more_evidence",
+      "reason": "Later cancellation or refund must prevent an earlier payment message from satisfying current donation evidence."
+    },
+    {
+      "id": "sms_scheduled_only",
+      "document_kind": "sms",
+      "sender_phone": "054-279-2417",
+      "body": "[가상 평가 자료] POSTECH 발전기금 자동이체가 다음 주로 예약되었습니다. 출금 전 잔액을 확인해 주세요.",
+      "expected_outcome": "needs_more_evidence",
+      "reason": "A schedule is not a completed transfer."
+    },
+    {
+      "id": "sms_official_phone_in_body_only",
+      "document_kind": "sms",
+      "sender_phone": "010-0000-0000",
+      "body": "[가상 평가 자료] POSTECH 기부금 입금 완료. 문의 054-279-2417.",
+      "expected_outcome": "manual_review",
+      "reason": "The official number in a message body does not establish that the actual sender is the institution."
+    },
+    {
+      "id": "sms_contact_name_only",
+      "document_kind": "sms",
+      "sender_display_name": "POSTECH 대학발전팀",
+      "sender_phone": null,
+      "body": "[가상 평가 자료] 기부금이 입금되었습니다.",
+      "expected_outcome": "manual_review",
+      "reason": "A user-editable contact name cannot substitute for the visible sender number."
+    },
+    {
+      "id": "sms_inbound_pledge_number_as_sender",
+      "document_kind": "sms",
+      "sender_phone": "1800-2547",
+      "body": "[가상 평가 자료] POSTECH 발전기금 납입이 완료되었습니다.",
+      "expected_outcome": "manual_review",
+      "reason": "The official FAQ identifies this number for receiving pledge applications, not as a verified outbound SMS sender."
+    },
+    {
+      "id": "sms_other_institution",
+      "document_kind": "sms",
+      "sender_phone": "010-0000-0000",
+      "body": "[가상 평가 자료] 다른대학교 발전기금 입금을 확인했습니다.",
+      "expected_outcome": "manual_review",
+      "reason": "An unsupported institution must not be silently treated as POSTECH or called fraudulent solely because it is absent from the registry."
+    },
+    {
+      "id": "sms_tuition_payment_not_donation",
+      "document_kind": "sms",
+      "sender_phone": "054-279-2417",
+      "body": "[가상 평가 자료] POSTECH 학기 등록금 납부가 완료되었습니다.",
+      "expected_outcome": "not_donation",
+      "reason": "Institution and payment completion alone are insufficient when the payment purpose is tuition rather than donation."
+    },
+    {
+      "id": "sms_concrete_visible_manipulation",
+      "document_kind": "sms",
+      "sender_phone": "054-279-2417",
+      "body": "[가상 평가 자료] POSTECH 기부금 입금 완료.",
+      "visible_findings": ["Visible replacement-text boundary and contradictory completion status in the same record"],
+      "expected_outcome": "suspected_manipulation",
+      "reason": "A concrete editing or internal-consistency finding overrides otherwise positive semantic and contact signals."
+    },
+    {
+      "id": "unrelated_photo",
+      "document_kind": "other",
+      "description": "Synthetic landscape with no donation, institution or payment evidence.",
+      "expected_outcome": "not_donation",
+      "reason": "A clean-looking unrelated photo cannot pass merely because no editing is detected."
+    },
+    {
+      "id": "unreadable_document",
+      "document_kind": "unknown",
+      "description": "Synthetic document with essential completion text unreadable.",
+      "expected_outcome": "needs_more_evidence",
+      "reason": "Missing or unreadable essential evidence requires a clearer submission, not a confident clean result."
+    },
+    {
+      "id": "exact_file_replayed_other_request",
+      "base_case": "sms_paid_official_contact_number",
+      "duplicate_context": {"same_request": false, "exact_duplicate": true, "semantic_duplicate": false},
+      "expected_outcome": "duplicate_evidence",
+      "reason": "The same bytes appearing in a different application must be flagged without disclosing the other applicant."
+    },
+    {
+      "id": "transaction_reference_replayed_reencoded_file",
+      "base_case": "sms_paid_official_contact_number",
+      "synthetic_transaction_reference": "SYNTHETIC-TRANSFER-001",
+      "duplicate_context": {"same_request": false, "exact_duplicate": false, "semantic_duplicate": true},
+      "expected_outcome": "duplicate_evidence",
+      "reason": "A different file carrying the same sufficiently distinctive transaction reference can be detected using a server-keyed digest."
+    },
+    {
+      "id": "same_request_retry",
+      "base_case": "sms_paid_official_contact_number",
+      "duplicate_context": {"same_request": true, "exact_duplicate": false, "semantic_duplicate": false},
+      "expected_outcome": "sufficient_evidence",
+      "reason": "Re-running the same application's analysis is idempotent and must not accuse the submitter of duplicate use."
+    },
+    {
+      "id": "same_template_distinct_donors",
+      "base_case": "sms_paid_official_contact_number",
+      "duplicate_context": {"same_request": false, "exact_duplicate": false, "semantic_duplicate": false},
+      "conditions": ["different_bytes", "no_distinctive_transaction_reference", "same_institution_template"],
+      "expected_outcome": "sufficient_evidence",
+      "reason": "Common notification wording is not a unique transaction identifier and must not create false duplicate findings."
+    }
+  ]
+}
