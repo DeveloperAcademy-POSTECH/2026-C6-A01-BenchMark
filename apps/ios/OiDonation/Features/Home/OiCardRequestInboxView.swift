@@ -41,6 +41,10 @@ struct OiCardRequestInboxView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @ScaledMetric(relativeTo: .body) private var headerHeight = 33
+    @ScaledMetric(relativeTo: .body) private var emptyParagraphSpacing = 31.5
     @State private var confirmation: Confirmation?
     @State private var didAttemptLoad = false
 
@@ -54,6 +58,50 @@ struct OiCardRequestInboxView: View {
     private static let acceptGreen = Color(red: 105 / 255, green: 175 / 255, blue: 88 / 255)
 
     var body: some View {
+        GeometryReader { viewport in
+            inboxScrollView(minimumHeight: viewport.size.height + viewport.safeAreaInsets.bottom)
+        }
+        .accessibilityIdentifier("oi.cardRequests.inbox")
+        .refreshable { await onReload() }
+        .task {
+            await onReload()
+            if !Task.isCancelled { didAttemptLoad = true }
+        }
+        .background(sheetBackground.ignoresSafeArea())
+        .presentationDetents([.large])
+        .presentationCornerRadius(35)
+        .presentationBackground(.clear)
+        .presentationDragIndicator(.hidden)
+        .presentationContentInteraction(.scrolls)
+        .alert(
+            confirmation?.decision == .reject ? "카드 요청을 거절할까요?" : "카드 요청을 수락할까요?",
+            isPresented: Binding(
+                get: { confirmation != nil },
+                set: { if !$0 { confirmation = nil } }
+            ),
+            presenting: confirmation
+        ) { selection in
+            Button("취소", role: .cancel) {}
+            Button(selection.decision.label, role: selection.decision == .reject ? .destructive : nil) {
+                Task { await onDecision(selection.request.id, selection.decision) }
+            }
+        } message: { selection in
+            Text("\(selection.request.requesterName) 님이 ‘\(selection.request.storyTitle)’ 카드를 요청했어요.")
+        }
+    }
+
+    private var sheetBackground: Color {
+        let tint = colorScheme == .dark ? Self.darkGreen : CampusStyle.mapSheet
+        // Figma uses a 70% green fill, without a second material layer.
+        return tint.opacity(reduceTransparency || colorSchemeContrast == .increased ? 1 : 0.7)
+    }
+
+    private var showsEmptyState: Bool {
+        didAttemptLoad && !isLoading && requests.isEmpty && pendingRequestID == nil
+            && loadError == nil && actionError == nil && onRetryDecision == nil
+    }
+
+    private func inboxScrollView(minimumHeight: CGFloat) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 header
@@ -79,12 +127,11 @@ struct OiCardRequestInboxView: View {
                     if isLoading || (!didAttemptLoad && loadError == nil) {
                         ProgressView().accessibilityLabel("카드 요청을 불러오는 중이에요")
                             .frame(maxWidth: .infinity, minHeight: 150)
-                    } else if loadError == nil {
-                        ContentUnavailableView(
-                            "받은 카드 요청이 없어요",
-                            systemImage: "envelope",
-                            description: Text("새 카드 요청이 오면 여기에 표시돼요.")
-                        )
+                    } else if showsEmptyState {
+                        emptyState
+                            // Keep the message centered in the space below the header,
+                            // including the home-indicator area, as in the 402 × 803 sheet.
+                            .frame(minHeight: max(0, minimumHeight - 20 - headerHeight - 20))
                     }
                 } else {
                     LazyVStack(spacing: 26) {
@@ -92,52 +139,44 @@ struct OiCardRequestInboxView: View {
                     }
                 }
             }
-            .padding(20)
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, showsEmptyState ? 0 : 20)
         }
-        .accessibilityIdentifier("oi.cardRequests.inbox")
-        .refreshable { await onReload() }
-        .task {
-            await onReload()
-            if !Task.isCancelled { didAttemptLoad = true }
-        }
-        .background {
-            Rectangle()
-                .fill(.regularMaterial)
-                .overlay {
-                    (colorScheme == .dark
-                        ? Self.darkGreen
-                        : Color(red: 234 / 255, green: 238 / 255, blue: 226 / 255))
-                        .opacity(0.7)
-                }
-                .ignoresSafeArea()
-        }
-        .presentationCornerRadius(35)
-        .presentationBackground(.clear)
-        .presentationDragIndicator(.visible)
-        .presentationContentInteraction(.scrolls)
-        .alert(
-            confirmation?.decision == .reject ? "카드 요청을 거절할까요?" : "카드 요청을 수락할까요?",
-            isPresented: Binding(
-                get: { confirmation != nil },
-                set: { if !$0 { confirmation = nil } }
-            ),
-            presenting: confirmation
-        ) { selection in
-            Button("취소", role: .cancel) {}
-            Button(selection.decision.label, role: selection.decision == .reject ? .destructive : nil) {
-                Task { await onDecision(selection.request.id, selection.decision) }
+        .scrollIndicators(.hidden)
+        .scrollEdgeEffectHidden()
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            VStack(spacing: emptyParagraphSpacing) {
+                Text("아직 받은 요청이 없습니다")
+                Text("동문들과 친구들의 오이를 살펴보고\n카드를 요청해보세요!")
             }
-        } message: { selection in
-            Text("\(selection.request.requesterName) 님이 ‘\(selection.request.storyTitle)’ 카드를 요청했어요.")
+            .font(CampusStyle.medium(21))
+            .tracking(0.42)
+            .lineHeight(.exact(points: emptyParagraphSpacing))
+            .foregroundStyle(colorScheme == .dark || colorSchemeContrast == .increased
+                ? Color.primary : Color("OiGreen"))
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("oi.cardRequests.empty")
+            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity)
     }
 
     private var header: some View {
         Text("카드 요청")
-            .font(.custom("Paperlogy-7Bold", size: 22, relativeTo: .title2))
+            // The 30-day retention notice is intentionally excluded (2026-11-05).
+            // Keep the inbox title and an explicit accessible dismiss control.
+            .font(CampusStyle.medium(16))
+            .tracking(0.32)
             .foregroundStyle(colorScheme == .dark ? Color.white : Self.darkGreen)
             .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, minHeight: 33, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: headerHeight, alignment: .leading)
             .padding(.trailing, 52)
             .accessibilityAddTraits(.isHeader)
             .overlay(alignment: .trailing) {
@@ -149,7 +188,7 @@ struct OiCardRequestInboxView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(pendingRequestID != nil)
-                .accessibilityLabel("닫기")
+                .accessibilityLabel("카드 요청 닫기")
             }
     }
 

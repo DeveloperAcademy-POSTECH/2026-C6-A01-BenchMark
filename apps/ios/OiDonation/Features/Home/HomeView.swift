@@ -213,11 +213,14 @@ struct HomeView: View {
     private var searchEntries: [CampusSearchEntry] {
         store.stories.map { story in
             let live = remote?.stories.first { $0.id.uuidString == story.id }
-            let schoolID = remote?.regions.first { $0.id == story.regionID }?.schoolId
-            let school = remote?.schools.first { $0.id == schoolID }?.name ?? "POSTECH"
-            let nickname = remote?.profiles.first { $0.id == live?.userId }?.nickname ?? (story.isExample ? story.donor : "")
+            if story.isExample { return CampusSearchEntry.example(story) }
+            let author = remote?.profiles.first { $0.id == live?.userId }
+            // Search the donor's declared school, not the campus where the cucumber was placed.
+            let schoolID = author?.schoolId
+            let school = remote?.schools.first { $0.id == schoolID }?.name ?? ""
             return CampusSearchEntry(story: story, publicID: UUID(uuidString: story.id), cucumberName: story.title,
-                code: story.id, school: school + (schoolID == "postech" || story.isExample ? " 포스텍 포항공과대학교" : ""), donorName: nickname)
+                code: story.id, school: school + (schoolID == "postech" ? " 포스텍 포항공과대학교" : ""),
+                department: author?.department ?? "", year: author?.admissionYear ?? "", donorName: author?.publicName ?? "")
         }
     }
 

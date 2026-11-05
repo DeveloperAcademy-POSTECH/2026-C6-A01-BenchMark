@@ -19,7 +19,10 @@ struct MYCollectionView: View {
     @State private var selectedCollectedCard: CollectedStoryLibraryItem?
     @State private var detailCard: MYCard?
     @State private var selectedDetail: MYCard?
+    @ScaledMetric(relativeTo: .body) private var emptyCollectionLineHeight = 27.0
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.dismiss) private var dismiss
 
     private var filter: MYCollectionFilter { demo.collectionFilter }
@@ -33,7 +36,8 @@ struct MYCollectionView: View {
         demo: MYLibraryStore,
         school: MYSchool? = nil,
         storyRepository: any StoryRepository,
-        remote: OiRemoteStore? = nil
+        remote: OiRemoteStore? = nil,
+        collectionStore: StoryCollectionStore? = nil
     ) {
         self.demo = demo
         self.remote = remote
@@ -41,7 +45,7 @@ struct MYCollectionView: View {
         _collectedLibrary = State(
             initialValue: CollectedStoryLibrary(
                 repository: storyRepository,
-                collectionStore: StoryCollectionStore()
+                collectionStore: collectionStore ?? StoryCollectionStore()
             )
         )
     }
@@ -56,23 +60,32 @@ struct MYCollectionView: View {
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("my.appClip.storageError")
             }
-            ScrollView {
-                if shouldShowCollectedSection {
-                    collectedSection
-                }
-                if let remote, !remote.hasLoadedRemote {
-                    if !isLoadingCollectedSection && (remote.loadError == nil || remote.isRefreshing) {
-                        ProgressView().accessibilityLabel("도감을 불러오는 중")
+            GeometryReader { viewport in
+                ScrollView {
+                    if shouldShowCollectedSection {
+                        collectedSection
                     }
-                } else if showsFolders && !schools.isEmpty {
-                    schoolFolders
-                } else if !cards.isEmpty {
-                    cardGrid
-                } else if !shouldShowCollectedSection && collectedLibrary.persistenceError == nil {
-                    ContentUnavailableView(pinnedOnly ? "즐겨찾는 오이가 없어요" : "아직 수집한 카드가 없어요", systemImage: pinnedOnly ? "pin" : "leaf", description: Text(emptyCollectionGuidance))
-                        .padding(.top, 60)
+                    if let remote, !remote.hasLoadedRemote {
+                        if !isLoadingCollectedSection && (remote.loadError == nil || remote.isRefreshing) {
+                            ProgressView().accessibilityLabel("도감을 불러오는 중")
+                        }
+                    } else if showsFolders && !schools.isEmpty {
+                        schoolFolders
+                    } else if !cards.isEmpty {
+                        cardGrid
+                    } else if !shouldShowCollectedSection && collectedLibrary.persistenceError == nil {
+                        if canShowIllustratedEmptyCollection {
+                            illustratedEmptyCollection
+                                .frame(minHeight: viewport.size.height)
+                        } else {
+                            ContentUnavailableView(pinnedOnly ? "즐겨찾는 오이가 없어요" : "아직 수집한 카드가 없어요", systemImage: pinnedOnly ? "pin" : "leaf", description: Text(emptyCollectionGuidance))
+                                .padding(.top, 60)
+                        }
+                    }
                 }
-            }.scrollIndicators(.hidden)
+                .scrollIndicators(.hidden)
+            }
+            .clipped()
         }
         .padding(.horizontal, 20)
         .background {
@@ -90,7 +103,10 @@ struct MYCollectionView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarRole(.navigationStack)
         .safeAreaInset(edge: .bottom) {
-            if school == nil { collectionFilters }
+            if school == nil {
+                collectionFilters
+                    .background(dynamicTypeSize.isAccessibilitySize ? Color(.systemBackground) : .clear)
+            }
         }
         .task { await collectedLibrary.load() }
         .refreshable { await collectedLibrary.load() }
@@ -113,6 +129,34 @@ struct MYCollectionView: View {
         if pinnedOnly { return "카드 확대 화면의 핀을 눌러 이 화면에 모아보세요." }
         if remote?.account == nil { return "로그인 후 캠퍼스의 공개 오이 이야기를 수집해 보세요." }
         return "캠퍼스의 공개 오이 이야기를 수집해 보세요."
+    }
+
+    private var canShowIllustratedEmptyCollection: Bool {
+        guard school == nil, !pinnedOnly else { return false }
+        guard let remote else { return true }
+        return remote.account != nil && remote.loadError == nil && !remote.needsReauthentication
+    }
+
+    private var illustratedEmptyCollection: some View {
+        VStack(spacing: 16) {
+            Image("MYEmptyCollection")
+                .resizable()
+                .scaledToFit()
+                .frame(width: dynamicTypeSize.isAccessibilitySize ? 96 : 192,
+                       height: dynamicTypeSize.isAccessibilitySize ? 150 : 300)
+                .accessibilityHidden(true)
+
+            Text("아직 수집한 오이카드가 없습니다\n동문들의 카드를 수집하고\n나만의 도감을 만들어보세요!")
+                .font(CampusStyle.medium(18))
+                .tracking(0.36)
+                .lineHeight(.exact(points: emptyCollectionLineHeight))
+                .foregroundStyle(colorScheme == .dark || colorSchemeContrast == .increased
+                    ? Color.primary : Color("OiGreen"))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("my.collection.illustratedEmpty")
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private var shouldShowCollectedSection: Bool {
@@ -310,7 +354,7 @@ struct MYCollectionView: View {
                 }.buttonStyle(.plain).accessibilityAddTraits(filter == option ? .isSelected : [])
                     .accessibilityIdentifier("my.filter.\(option)")
             }
-        }.frame(maxWidth: 186).padding(.bottom, 6)
+        }.frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : 186).padding(.bottom, 6)
             .frame(maxWidth: .infinity).padding(.top, 8)
 
     }
@@ -469,7 +513,19 @@ struct MYCardStoryView: View {
     }
 }
 
-#Preview("도감") {
+#Preview("빈 도감 기준", traits: .fixedLayout(width: 402, height: 874)) {
+    NavigationStack {
+        MYCollectionView(demo: MYLibraryStore(), storyRepository: AppContainer.preview.storyRepository)
+    }
+}
+
+#Preview("빈 도감 작은 화면", traits: .fixedLayout(width: 375, height: 667)) {
+    NavigationStack {
+        MYCollectionView(demo: MYLibraryStore(), storyRepository: AppContainer.preview.storyRepository)
+    }
+}
+
+#Preview("빈 도감 큰 화면", traits: .fixedLayout(width: 440, height: 956)) {
     NavigationStack {
         MYCollectionView(demo: MYLibraryStore(), storyRepository: AppContainer.preview.storyRepository)
     }
