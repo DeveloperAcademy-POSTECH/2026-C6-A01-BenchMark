@@ -19,6 +19,7 @@ struct OiStoryListScreen: View {
     @State private var selectedStoryID: UUID?
     @State private var showingConsent = false
     @State private var showingApprovalNotice = false
+    @State private var showingEvidence = false
 
     var body: some View {
         OiStoryListView(
@@ -39,6 +40,7 @@ struct OiStoryListScreen: View {
             selectedStoryID = nil
             showingConsent = false
             showingApprovalNotice = false
+            showingEvidence = false
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             if let owner = remote.account?.id, loadedDraftOwner == owner, unreadableDraftCount > 0 || pendingDiscardCount > 0 {
@@ -60,6 +62,7 @@ struct OiStoryListScreen: View {
             }
         }
         .navigationDestination(isPresented: $showingSettings) { MYSettingsView(remote: remote) }
+        .navigationDestination(isPresented: $showingEvidence) { OiDonationEvidenceView(remote: remote) }
         .navigationDestination(item: $selectedLocalID) { id in
             OiStoryEditor(remote: remote, localID: id, onFinish: { selectedLocalID = nil })
         }
@@ -70,6 +73,7 @@ struct OiStoryListScreen: View {
             OiStoryCreationConsentFlow(remote: remote, onFinish: { showingConsent = false })
         }
         .alert("작성 승인이 필요해요", isPresented: $showingApprovalNotice) {
+            Button("기부 인증하기") { showingEvidence = true }
             Button("닫기", role: .cancel) {}
         } message: {
             Text("작성 승인을 받은 계정에서 오이와 이야기를 만들 수 있어요.")

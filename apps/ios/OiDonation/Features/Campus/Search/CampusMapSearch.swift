@@ -6,10 +6,10 @@ enum CampusSearchMode: String, Identifiable, CaseIterable {
     case donor, name, code
     var id: String { rawValue }
     var choice: String {
-        switch self { case .donor: "학교 / 닉네임"; case .name: "오이 이름"; case .code: "오이코드 입력" }
+        switch self { case .donor: "학교 / 학과 / 학번 / 이름"; case .name: "오이 이름"; case .code: "오이코드 입력" }
     }
     var title: String {
-        switch self { case .donor: "학교·닉네임 검색"; case .name: "오이 이름 검색"; case .code: "오이코드 검색" }
+        switch self { case .donor: "학교/학과/학번/이름 검색"; case .name: "오이 이름 검색"; case .code: "오이코드 검색" }
     }
 }
 
@@ -24,6 +24,23 @@ struct CampusSearchQuery: Equatable {
         value.precomposedStringWithCanonicalMapping.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "ko_KR"))
             .filter { !$0.isWhitespace }
     }
+}
+
+/// Search has not run until a query is entered (or the donor form is submitted).
+/// Cached matches remain useful during refresh; a failed lookup is never a zero result.
+enum CampusSearchContentState: Equatable {
+    case prompt, loading, failed, results, noMatches
+
+    init(hasSearched: Bool, hasMatches: Bool, hasLoaded: Bool, isLoading: Bool, hasError: Bool) {
+        if !hasSearched { self = .prompt }
+        else if hasMatches { self = .results }
+        else if isLoading { self = .loading }
+        else if hasError { self = .failed }
+        else if !hasLoaded { self = .loading }
+        else { self = .noMatches }
+    }
+
+    var showsIllustration: Bool { self == .prompt || self == .noMatches }
 }
 
 struct CampusSearchEntry: Identifiable {
@@ -49,8 +66,16 @@ struct CampusSearchEntry: Identifiable {
             return !term.isEmpty && CampusSearchQuery.normalized(code) == term
         case .donor:
             return query.hasDonorFilter && includes(school, query.school) && includes(department, query.department)
-                && includes(year, query.year) && includes(donorName, query.name)
+                && (CampusSearchQuery.normalized(query.year).isEmpty ||
+                    (!year.isEmpty && Self.cohort(year) == Self.cohort(query.year)))
+                && includes(donorName, query.name)
         }
+    }
+
+    /// 학번 here means admission cohort (26 / 2026 / 26학번), never a full student ID.
+    private static func cohort(_ value: String) -> String {
+        let value = CampusSearchQuery.normalized(value).replacingOccurrences(of: "학번", with: "")
+        return value.count == 4 && value.allSatisfy(\.isNumber) ? String(value.suffix(2)) : value
     }
 
     static func example(_ story: CampusStory) -> Self {

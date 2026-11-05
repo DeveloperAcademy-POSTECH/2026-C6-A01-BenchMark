@@ -1,4 +1,4 @@
-import { analyzeDocument, DEFAULT_MODEL } from "../functions/analyze-evidence/analysis.ts";
+import { analyzeDocument, DEFAULT_MODEL } from "../functions/_shared/document-analysis.ts";
 
 // No donor data or local uploads are read. This PDF exists only in memory.
 function syntheticPDF() {

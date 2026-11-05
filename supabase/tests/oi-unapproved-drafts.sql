@@ -28,6 +28,8 @@ select pg_temp.assert_error($q$select public.oi_mutate('save_story',pg_temp.draf
 set local role authenticated;
 select set_config('request.jwt.claim.sub','d1000000-0000-4000-8000-000000000001',true);
 select pg_temp.assert_true(public.oi_capabilities()->>'unapproved_drafts_enabled'='false','default closed');
+select pg_temp.assert_true(public.oi_capabilities()->>'school_profile_enabled'='true'
+  and public.oi_capabilities()->>'farmer_outfit_enabled'='true','independent capabilities survive integration');
 select pg_temp.assert_error('select public.oi_set_unapproved_drafts(true)','42501');
 select pg_temp.assert_error('update benchmark_private.oi_story_creation_settings set unapproved_drafts_enabled=true','42501');
 select pg_temp.assert_error($q$select public.oi_mutate('save_story',pg_temp.draft('d1000000-0000-4000-8000-000000000011',0))$q$,'42501');

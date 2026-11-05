@@ -2,9 +2,9 @@ name: Supabase service checks
 on:
   push:
     branches: [develop]
-    paths: ['supabase/functions/analyze-evidence/**', 'supabase/functions/account-merge/**', 'supabase/tests/evidence-analysis*.mjs', 'supabase/tests/account-merge*', 'supabase/tests/run-account-merge-db-checks.py', 'supabase/tests/fixtures/**', 'supabase/migrations/**', 'supabase/package.json', '.github/workflows/evidence-analysis.yml']
+    paths: ['supabase/functions/analyze-donation-evidence/**', 'supabase/functions/analyze-evidence/**', 'supabase/functions/_shared/**', 'supabase/functions/analyze-school-evidence/**', 'supabase/functions/account-merge/**', 'supabase/tests/evidence-analysis*.mjs', 'supabase/tests/donation-*.test.mjs', 'supabase/tests/oi-evidence-fingerprints.sql', 'supabase/tests/school-evidence-analysis.test.mjs', 'supabase/tests/account-merge*', 'supabase/tests/run-account-merge-db-checks.py', 'supabase/tests/fixtures/**', 'supabase/migrations/**', 'supabase/package.json', '.github/workflows/evidence-analysis.yml']
   pull_request:
-    paths: ['supabase/functions/analyze-evidence/**', 'supabase/functions/account-merge/**', 'supabase/tests/evidence-analysis*.mjs', 'supabase/tests/account-merge*', 'supabase/tests/run-account-merge-db-checks.py', 'supabase/tests/fixtures/**', 'supabase/migrations/**', 'supabase/package.json', '.github/workflows/evidence-analysis.yml']
+    paths: ['supabase/functions/analyze-donation-evidence/**', 'supabase/functions/analyze-evidence/**', 'supabase/functions/_shared/**', 'supabase/functions/analyze-school-evidence/**', 'supabase/functions/account-merge/**', 'supabase/tests/evidence-analysis*.mjs', 'supabase/tests/donation-*.test.mjs', 'supabase/tests/oi-evidence-fingerprints.sql', 'supabase/tests/school-evidence-analysis.test.mjs', 'supabase/tests/account-merge*', 'supabase/tests/run-account-merge-db-checks.py', 'supabase/tests/fixtures/**', 'supabase/migrations/**', 'supabase/package.json', '.github/workflows/evidence-analysis.yml']
 permissions:
   contents: read
 jobs:

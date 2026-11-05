@@ -79,7 +79,7 @@ struct HomeView: View {
             switch destination {
             case .workshop:
                 MYWorkshopView(demo: myDemo, remote: remote)
-            case .farm: MYFarmView(remote: remote, nickname: myDemo.nickname).id(remote?.account?.id)
+            case .farm: MYFarmView(remote: remote).id(remote?.account?.id)
             case .collection: MYCollectionView(demo: myDemo, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
             case .school(let school): MYCollectionView(demo: myDemo, school: school, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
             }
@@ -165,16 +165,16 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Button(action: onOpenProfile) {
                     HStack(spacing: -12) {
-                        MYFarmerArtwork(ownerID: remote?.account?.id)
+                        MYFarmerArtwork(ownerID: remote?.account?.id, outfit: remote?.farmerOutfit)
                             .frame(width: 38, height: 38).background(CampusStyle.secondaryAction, in: Circle())
                             .clipShape(Circle()).overlay(Circle().stroke(CampusStyle.green, lineWidth: 1.5))
                             .zIndex(1)
-                        Text(myDemo.nickname).font(CampusStyle.medium(14)).tracking(0.28)
+                        Text(remote?.profile?.farmName ?? "오이").font(CampusStyle.medium(14)).tracking(0.28)
                             .lineLimit(1).padding(.leading, 24).padding(.trailing, 15).padding(.vertical, 2)
                             .background(.white, in: Capsule())
                     }.shadow(color: CampusStyle.mapAction.opacity(0.4), radius: 7, y: 3)
                         .frame(minHeight: 44)
-                }.buttonStyle(.plain).accessibilityLabel("\(myDemo.nickname)의 농부 프로필")
+                }.buttonStyle(.plain).accessibilityLabel("\(remote?.profile?.farmName ?? "오이")의 농부 프로필")
                     .accessibilityIdentifier("campus.profile")
                 Button(action: onOpenProfile) {
                     CampusMyHouseButtonArtwork()
@@ -213,11 +213,14 @@ struct HomeView: View {
     private var searchEntries: [CampusSearchEntry] {
         store.stories.map { story in
             let live = remote?.stories.first { $0.id.uuidString == story.id }
-            let schoolID = remote?.regions.first { $0.id == story.regionID }?.schoolId
-            let school = remote?.schools.first { $0.id == schoolID }?.name ?? "POSTECH"
-            let nickname = remote?.profiles.first { $0.id == live?.userId }?.nickname ?? (story.isExample ? story.donor : "")
+            if story.isExample { return CampusSearchEntry.example(story) }
+            let author = remote?.profiles.first { $0.id == live?.userId }
+            // Search the donor's declared school, not the campus where the cucumber was placed.
+            let schoolID = author?.schoolId
+            let school = remote?.schools.first { $0.id == schoolID }?.name ?? ""
             return CampusSearchEntry(story: story, publicID: UUID(uuidString: story.id), cucumberName: story.title,
-                code: story.id, school: school + (schoolID == "postech" || story.isExample ? " 포스텍 포항공과대학교" : ""), donorName: nickname)
+                code: story.id, school: school + (schoolID == "postech" ? " 포스텍 포항공과대학교" : ""),
+                department: author?.department ?? "", year: author?.admissionYear ?? "", donorName: author?.publicName ?? "")
         }
     }
 

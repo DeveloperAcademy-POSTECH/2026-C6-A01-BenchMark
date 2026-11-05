@@ -5,6 +5,6 @@
   "engines": { "node": ">=24 <27" },
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "check": "deno check functions/analyze-evidence/index.ts functions/account-merge/index.ts"
+    "check": "deno check functions/analyze-donation-evidence/index.ts functions/analyze-evidence/index.ts functions/analyze-school-evidence/index.ts functions/account-merge/index.ts"
   }
 }

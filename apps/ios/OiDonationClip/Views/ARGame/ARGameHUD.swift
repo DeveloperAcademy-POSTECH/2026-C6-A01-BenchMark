@@ -1,4 +1,9 @@
-// Created by 이돈혁
+//
+//  ARGameHUD.swift
+//  OiDonationClip
+//
+//  Created by 이돈혁 on 11/2/26.
+//
 
 import SwiftUI
 
