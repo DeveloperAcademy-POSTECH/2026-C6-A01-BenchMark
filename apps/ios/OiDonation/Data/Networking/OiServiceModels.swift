@@ -38,6 +38,8 @@ struct OiProfile: Codable, Equatable, Identifiable {
     var nickname: String
     var schoolId: String?
     let farmerAsset: String
+    var admissionYear: Int? = nil
+    var department: String? = nil
 }
 
 struct OiLiveStory: Codable, Identifiable, Equatable {
@@ -131,6 +133,7 @@ struct OiCapabilities: Decodable {
     let accountMergeEnabled: Bool?
     let accountMemberIds: [UUID]?
     let accountProviders: [String]?
+    let schoolProfileEnabled: Bool?
 }
 
 struct OiStoryDraft: Codable, Equatable {
@@ -174,6 +177,32 @@ struct OiStoryDraft: Codable, Equatable {
                 "emotion": emotion, "cucumber_name": cucumberName, "cucumber_asset": cucumberAsset,
                 "card_asset": cardAsset, "latitude": latitude, "longitude": longitude]
     }
+}
+
+nonisolated struct OiSchoolEvidenceReview: Decodable, Sendable {
+    nonisolated struct Summary: Codable, Sendable {
+        nonisolated struct Reference: Codable, Sendable {
+            let title: String
+            let url: URL
+        }
+
+        let outcome: String
+        let title: String
+        let detail: String
+        let nextStep: String
+        let reference: Reference?
+    }
+
+    let reviewType: String
+    let humanReviewRequired: Bool
+    let affiliationVerified: Bool
+    let authenticityVerified: Bool
+    let summary: Summary?
+}
+
+nonisolated struct OiSavedSchoolEvidenceReview: Codable, Sendable {
+    let summary: OiSchoolEvidenceReview.Summary
+    let reviewedAt: Date
 }
 
 enum OiServiceError: LocalizedError {

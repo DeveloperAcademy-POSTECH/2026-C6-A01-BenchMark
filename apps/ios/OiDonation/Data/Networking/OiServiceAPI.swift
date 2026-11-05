@@ -47,11 +47,12 @@ struct OiServiceAPI {
     }
 
     func request(_ path: String, method: String = "GET", token: String? = nil,
-                 body: Data? = nil, contentType: String = "application/json", prefer: String? = nil) async throws -> Data {
+                 body: Data? = nil, contentType: String = "application/json", prefer: String? = nil,
+                 timeout: TimeInterval = 30) async throws -> Data {
         guard let url = URL(string: "https://\(Self.projectHost)/\(path)") else { throw OiServiceError.configuration }
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.timeoutInterval = 30
+        request.timeoutInterval = timeout
         request.setValue(key, forHTTPHeaderField: "apikey")
         if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         else if key.hasPrefix("ey") { request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
@@ -70,6 +71,22 @@ struct OiServiceAPI {
             default: throw OiServiceError.unavailable
             }
         }
+    }
+
+    func reviewSchoolEvidence(_ data: Data, contentType: String, token: String) async throws -> OiSchoolEvidenceReview {
+        let response: Data
+        do {
+            response = try await request("functions/v1/analyze-school-evidence", method: "POST", token: token,
+                                         body: data, contentType: contentType, timeout: 70)
+        } catch OiServiceError.unavailable {
+            throw OiServiceError.server("학교 증빙을 분석하지 못했어요. 잠시 후 다시 시도해 주세요.")
+        }
+        let review = try decoder.decode(OiSchoolEvidenceReview.self, from: response)
+        guard review.reviewType == "school_affiliation", review.humanReviewRequired,
+              !review.affiliationVerified, !review.authenticityVerified else {
+            throw OiServiceError.server("학교 증빙 검토 응답을 확인할 수 없어요.")
+        }
+        return review
     }
 
     func rows<Value: Decodable & Identifiable>(_ table: String, query: String = "", token: String? = nil, as type: Value.Type) async throws -> [Value] {
@@ -188,6 +205,26 @@ struct OiServiceAPI {
             default: throw failure
             }
         }
+    }
+
+    func schoolProfile(owner: UUID, token: String) async throws -> OiProfile {
+        let data = try await request("rest/v1/rpc/oi_school_profile", method: "POST", token: token, body: Data("{}".utf8))
+        let profile = try decoder.decode(OiProfile.self, from: data)
+        guard profile.id == owner else { throw OiServiceError.unavailable }
+        return profile
+    }
+
+    func updateSchoolProfile(owner: UUID, schoolID: String, admissionYear: Int, department: String?, token: String) async throws -> OiProfile {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "p_school_id": schoolID,
+            "p_admission_year": admissionYear,
+            "p_department": department as Any? ?? NSNull()
+        ])
+        let data = try await request("rest/v1/rpc/oi_update_school_profile", method: "POST", token: token, body: body)
+        let profile = try decoder.decode(OiProfile.self, from: data)
+        guard profile.id == owner, profile.schoolId == schoolID,
+              profile.admissionYear == admissionYear, profile.department == department else { throw OiServiceError.unavailable }
+        return profile
     }
 
     func updateProfile(owner: UUID, nickname: String?, schoolID: String?, token: String) async throws -> OiProfile {
