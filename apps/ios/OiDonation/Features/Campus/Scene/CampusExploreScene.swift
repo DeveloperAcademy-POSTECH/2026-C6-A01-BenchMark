@@ -36,10 +36,13 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var pins: [(UIButton, SIMD3<Float>)] = []
     @ObservationIgnored private var regionClustering: CampusRegionClustering?
     @ObservationIgnored private var regionButtons: [String: CampusRegionButton] = [:]
-    @ObservationIgnored private var clusterZoom: (
-        fromTarget: SIMD3<Float>, fromRadius: Float, toTarget: SIMD3<Float>, toRadius: Float, start: CFTimeInterval
+    @ObservationIgnored private var cameraMotion: (
+        fromTarget: SIMD3<Float>, toTarget: SIMD3<Float>, spring: CampusMapMotion.Spring, start: CFTimeInterval
     )?
-    @ObservationIgnored private var zoomDisplayLink: CADisplayLink?
+    @ObservationIgnored private var motionDisplayLink: CADisplayLink?
+    @ObservationIgnored private var activeNavigation: Set<ObjectIdentifier> = []
+    @ObservationIgnored private var pinchLogRadius: Float?
+    @ObservationIgnored private var pinchReleaseVelocity: Float = 0
     @ObservationIgnored private var positions: [String: SIMD3<Float>] = [:]
     @ObservationIgnored private let mapLabels = CampusMapLabels()
     private var target = SIMD3<Float>(25, 0, 25)
@@ -80,7 +83,12 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         tap.delegate = self
         for gesture in navigationGestures { tap.require(toFail: gesture) }
         canvas.addGestureRecognizer(tap)
-        canvas.didLayout = { [weak self] in self?.updateCamera() }
+        canvas.didLayout = { [weak self] in
+            self?.updateCamera()
+            if self?.activeNavigation.isEmpty == true, self?.cameraMotion == nil {
+                self?.settleCamera()
+            }
+        }
         if visible { attachRenderer(to: canvas) }
         updateCamera()
         return canvas
@@ -113,7 +121,10 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     func setVisible(_ active: Bool) {
         visible = active
-        if !active { stopClusterZoom() }
+        if !active {
+            radius = settledRadius()
+            stopNavigation()
+        }
         canvas?.isHidden = !active
         guard let canvas else { return }
         if active {
@@ -189,6 +200,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             }
             updateRegionCounts()
         }
+        radius = settledRadius()
         updateCamera()
     }
 
@@ -336,7 +348,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     func beginPlacement(editing placement: CampusPlacement? = nil) {
         guard placementReady else { return }
-        stopClusterZoom()
+        stopNavigation()
         endPlacement()
         if placement != nil, region != nil { showOverview() }
         browsingCamera = (target, radius, yaw, pitch)
@@ -492,7 +504,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     func recenter() { if let region { focus(region, stories: stories) } else { showOverview() } }
 
     private func clearPins() {
-        stopClusterZoom()
+        stopNavigation()
         pins.forEach { $0.0.removeFromSuperview() }
         pins.removeAll()
         positions.removeAll()
@@ -560,42 +572,95 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         let expandedRadius = clustering.expandedRadius(for: node, focalLength: projection.focalLength,
                                                        separation: projection.planeSeparation)
         let destination = max(20, min(radius, expandedRadius))
-        stopClusterZoom()
         hasMovedFromOverview = true
-        if UIAccessibility.isReduceMotionEnabled {
-            target = node.anchor; radius = destination
+        animateCamera(to: node.anchor, radius: settledRadius(from: destination))
+    }
+
+    private var zoomLimits: ClosedRange<Float> {
+        let minimum = editingPlacement ? Float(3 * (data?.unitsPerMeter ?? 0.12)) : 20
+        return minimum...600
+    }
+
+    private func settledRadius(from radius: Float? = nil) -> Float {
+        let current = radius ?? self.radius
+        let clamped = min(zoomLimits.upperBound, max(zoomLimits.lowerBound, current))
+        guard !editingPlacement, let view = canvas?.map, let clustering = regionClustering else { return clamped }
+        let projection = mapProjection(in: view.bounds)
+        return clustering.settledRadius(for: clamped, within: zoomLimits, focalLength: projection.focalLength,
+                                        separation: projection.planeSeparation)
+    }
+
+    private func settleCamera() {
+        let velocity = pinchReleaseVelocity
+        pinchReleaseVelocity = 0
+        guard activeNavigation.isEmpty else { return }
+        let destination = settledRadius()
+        guard abs(log(destination / radius)) > 0.00001 else { return }
+        animateCamera(to: target, radius: destination, velocity: velocity)
+    }
+
+    private func animateCamera(to destination: SIMD3<Float>, radius destinationRadius: Float, velocity: Float = 0) {
+        stopCameraMotion()
+        if UIAccessibility.isReduceMotionEnabled || !visible {
+            target = destination
+            radius = destinationRadius
             updateCamera()
             return
         }
-        clusterZoom = (target, radius, node.anchor, destination, CACurrentMediaTime())
-        let link = CADisplayLink(target: self, selector: #selector(advanceClusterZoom(_:)))
-        zoomDisplayLink = link
+        cameraMotion = (target, destination,
+                        CampusMapMotion.Spring(from: radius, to: destinationRadius, velocity: velocity),
+                        CACurrentMediaTime())
+        let link = CADisplayLink(target: self, selector: #selector(advanceCameraMotion(_:)))
+        motionDisplayLink = link
         link.add(to: .main, forMode: .common)
     }
 
-    @objc private func advanceClusterZoom(_ link: CADisplayLink) {
-        guard let clusterZoom else { return }
-        let duration = 0.28
-        let time = min(1, max(0, (link.targetTimestamp - clusterZoom.start) / duration))
-        let progress = CampusRegionClustering.smoothstep(Float(time))
-        target = clusterZoom.fromTarget + (clusterZoom.toTarget - clusterZoom.fromTarget) * progress
-        radius = clusterZoom.fromRadius + (clusterZoom.toRadius - clusterZoom.fromRadius) * progress
+    @objc private func advanceCameraMotion(_ link: CADisplayLink) {
+        guard let motion = cameraMotion else { return }
+        let sample = motion.spring.sample(at: link.targetTimestamp - motion.start)
+        target = motion.fromTarget + (motion.toTarget - motion.fromTarget) * sample.progress
+        radius = sample.radius
         updateCamera()
-        if time == 1 { stopClusterZoom() }
+        if sample.isComplete {
+            stopCameraMotion()
+            settleCamera()
+        }
     }
 
-    private func stopClusterZoom() {
-        zoomDisplayLink?.invalidate()
-        zoomDisplayLink = nil
-        clusterZoom = nil
+    private func stopCameraMotion() {
+        motionDisplayLink?.invalidate()
+        motionDisplayLink = nil
+        cameraMotion = nil
+    }
+
+    private func stopNavigation() {
+        stopCameraMotion()
+        activeNavigation.removeAll()
+        pinchLogRadius = nil
+        pinchReleaseVelocity = 0
+        panTouchCount = 0
+    }
+
+    private func updateNavigation(_ gesture: UIGestureRecognizer) -> Bool {
+        let id = ObjectIdentifier(gesture)
+        switch gesture.state {
+        case .began, .changed:
+            if activeNavigation.isEmpty { pinchReleaseVelocity = 0 }
+            if activeNavigation.insert(id).inserted { stopCameraMotion() }
+            return true
+        case .ended, .cancelled, .failed:
+            if activeNavigation.remove(id) != nil { settleCamera() }
+            return false
+        default:
+            return false
+        }
     }
 
     @objc private func pan(_ gesture: UIPanGestureRecognizer) {
-        guard gesture.state == .began || gesture.state == .changed else {
+        guard updateNavigation(gesture) else {
             panTouchCount = 0
             return
         }
-        stopClusterZoom()
         let touches = gesture.numberOfTouches
         let delta = gesture.translation(in: canvas)
         gesture.setTranslation(.zero, in: canvas)
@@ -618,17 +683,25 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         updateCamera()
     }
     @objc private func pinch(_ gesture: UIPinchGestureRecognizer) {
-        guard gesture.state == .began || gesture.state == .changed else { return }
-        stopClusterZoom()
-        let minimum = editingPlacement ? Float(3 * (data?.unitsPerMeter ?? 0.12)) : 20
-        radius = min(600, max(minimum, radius / Float(gesture.scale)))
+        guard updateNavigation(gesture) else {
+            pinchLogRadius = nil
+            return
+        }
+        let scale = Float(gesture.scale)
+        guard scale.isFinite, scale > 0 else { return }
+        let input = pinchLogRadius ?? CampusMapMotion.inputLogRadius(for: radius, within: zoomLimits)
+        let newInput = min(log(zoomLimits.upperBound) + 12,
+                           max(log(zoomLimits.lowerBound) - 12, input - log(scale)))
+        pinchLogRadius = newInput
+        radius = CampusMapMotion.resistedRadius(logRadius: newInput, within: zoomLimits)
+        pinchReleaseVelocity = CampusMapMotion.releaseVelocity(-Float(gesture.velocity) / scale,
+                                                               logRadius: newInput, within: zoomLimits)
         gesture.scale = 1
         hasMovedFromOverview = true
         updateCamera()
     }
     @objc private func rotate(_ gesture: UIRotationGestureRecognizer) {
-        guard gesture.state == .began || gesture.state == .changed else { return }
-        stopClusterZoom()
+        guard updateNavigation(gesture) else { return }
         // Positive UIKit rotation is clockwise. Increasing the orbit yaw turns
         // the visible map clockwise too, so it follows the fingers on screen.
         yaw += Float(gesture.rotation)

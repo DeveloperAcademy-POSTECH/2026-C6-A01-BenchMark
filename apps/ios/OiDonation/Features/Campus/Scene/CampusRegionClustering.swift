@@ -118,6 +118,32 @@ struct CampusRegionClustering {
         return spans[index] * (Float(focalLength) / Self.targetSpacing) * Self.splitEnd
     }
 
+    func settledRadius(for radius: Float, within limits: ClosedRange<Float>, focalLength: CGFloat,
+                       separation: ((SIMD3<Float>, SIMD3<Float>) -> Float)? = nil) -> Float {
+        let clamped = min(limits.upperBound, max(limits.lowerBound, radius))
+        guard clamped > 0, clamped.isFinite, focalLength > 0, focalLength.isFinite else { return clamped }
+        let scale = Float(focalLength) / Self.targetSpacing
+        let bands = splitSpans(separation: separation ?? Self.distance).compactMap { span -> ClosedRange<Float>? in
+            let threshold = span * scale
+            guard threshold > 0, threshold.isFinite else { return nil }
+            return (threshold * Self.splitEnd)...(threshold * Self.splitStart)
+        }
+        guard bands.contains(where: { clamped > $0.lowerBound && clamped < $0.upperBound }) else {
+            return clamped
+        }
+
+        // A sibling may still be transitioning at another node's endpoint. Check
+        // every candidate against all bands before choosing one destination.
+        let safeBands = bands.map { ($0.lowerBound * 0.999)...($0.upperBound * 1.001) }
+        let candidates = [limits.lowerBound, limits.upperBound] + safeBands.flatMap { [$0.lowerBound, $0.upperBound] }
+        let stable = candidates.filter { candidate in
+            limits.contains(candidate) && !safeBands.contains(where: {
+                candidate > $0.lowerBound && candidate < $0.upperBound
+            })
+        }
+        return stable.min { abs(log($0 / clamped)) < abs(log($1 / clamped)) } ?? clamped
+    }
+
     private func splitSpans(separation: (SIMD3<Float>, SIMD3<Float>) -> Float) -> [Float] {
         var spans: [Float] = []
         spans.reserveCapacity(nodes.count)
