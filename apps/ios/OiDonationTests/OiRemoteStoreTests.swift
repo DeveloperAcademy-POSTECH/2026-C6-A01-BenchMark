@@ -32,6 +32,9 @@ final class OiTestBackend {
         var unapprovedDraftsEnabled: Bool?
         var hasWritingGrant = true
         var nickname = "Owner A"
+        var publicName = ""
+        var department = ""
+        var admissionYear = ""
         var schoolID: String?
         var failReads = false
         var failRefreshToken = false
@@ -176,9 +179,13 @@ final class OiTestBackend {
         else if path.hasSuffix("/oi_profiles") {
             if request.httpMethod == "PATCH" {
                 state.nickname = body["nickname"] as? String ?? state.nickname
+                state.publicName = body["public_name"] as? String ?? state.publicName
+                state.department = body["department"] as? String ?? state.department
+                state.admissionYear = body["admission_year"] as? String ?? state.admissionYear
                 if let school = body["school_id"] { state.schoolID = school as? String }
             }
-            result = [["id":owner.uuidString,"nickname":owner == Self.owner ? state.nickname : "Owner B","farmer_asset":"OiFarmer", "school_id":state.schoolID as Any? ?? NSNull()]]
+            result = [["id":owner.uuidString,"nickname":owner == Self.owner ? state.nickname : "Owner B","farmer_asset":"OiFarmer", "school_id":state.schoolID as Any? ?? NSNull(),
+                       "public_name":state.publicName, "department":state.department, "admission_year":state.admissionYear]]
         } else if path.hasSuffix("/oi_story_media") {
             result = state.paths.enumerated().map { position, path in
                 ["id":UUID().uuidString,"story_id":state.story?["id"] ?? "","object_path":path,"position":position]
@@ -249,6 +256,31 @@ final class OiRemoteStoreTests: XCTestCase {
         await restored.updateProfile(nickname: "Wrong", schoolID: "unknown")
         XCTAssertNotNil(restored.error)
         XCTAssertEqual(backend.snapshot().nickname, "Saved name")
+    }
+
+    @MainActor func testPublicAcademicInfoPersistsClearsAndPreservesLegacyProfile() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        await store.updateProfile(schoolID: "postech", academicInfo: .init(name: "  테스트농부  ", department: "컴퓨터공학과", admissionYear: "2026"))
+        XCTAssertNil(store.error)
+        XCTAssertEqual(store.profile?.publicName, "테스트농부")
+        XCTAssertEqual(store.profile?.nickname, "Owner A")
+        let restored = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: vault)
+        await restored.start()
+        XCTAssertEqual(restored.profile?.department, "컴퓨터공학과")
+        XCTAssertEqual(restored.profile?.admissionYear, "2026")
+        await restored.updateProfile(academicInfo: .init(name: "바뀌면 안 됨", admissionYear: "20260001"))
+        XCTAssertNotNil(restored.error)
+        XCTAssertEqual(backend.snapshot().publicName, "테스트농부")
+        await restored.updateProfile(academicInfo: .init())
+        XCTAssertNil(restored.error)
+        XCTAssertEqual(restored.profile?.publicName, "")
+        XCTAssertEqual(restored.profile?.department, "")
+        XCTAssertEqual(restored.profile?.admissionYear, "")
+        XCTAssertEqual(restored.profile?.schoolId, "postech")
+        XCTAssertEqual(restored.profile?.nickname, "Owner A")
     }
 
     @MainActor func testProfileEditsDoNotOverwriteFieldsChangedOnAnotherDevice() async throws {

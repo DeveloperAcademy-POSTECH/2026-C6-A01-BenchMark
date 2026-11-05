@@ -190,10 +190,17 @@ struct OiServiceAPI {
         }
     }
 
-    func updateProfile(owner: UUID, nickname: String?, schoolID: String?, token: String) async throws -> OiProfile {
+    func updateProfile(owner: UUID, nickname: String?, schoolID: String?, academicInfo: OiPublicAcademicInfo? = nil, token: String) async throws -> OiProfile {
         var patch: [String: String] = [:]
         if let nickname { patch["nickname"] = nickname }
         if let schoolID { patch["school_id"] = schoolID }
+        if let academicInfo {
+            let info = academicInfo.cleaned
+            guard info.isValid else { throw OiServiceError.invalidInput }
+            patch["public_name"] = info.name
+            patch["department"] = info.department
+            patch["admission_year"] = info.admissionYear
+        }
         guard !patch.isEmpty else { throw OiServiceError.invalidInput }
         let body = try JSONSerialization.data(withJSONObject: patch)
         let data = try await request("rest/v1/oi_profiles?id=eq.\(owner.uuidString)", method: "PATCH", token: token,

@@ -42,6 +42,8 @@ struct OiCardRequestInboxView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @ScaledMetric(relativeTo: .body) private var headerHeight = 33
     @ScaledMetric(relativeTo: .body) private var emptyParagraphSpacing = 31.5
     @State private var confirmation: Confirmation?
     @State private var didAttemptLoad = false
@@ -57,7 +59,7 @@ struct OiCardRequestInboxView: View {
 
     var body: some View {
         GeometryReader { viewport in
-            inboxScrollView(minimumHeight: viewport.size.height)
+            inboxScrollView(minimumHeight: viewport.size.height + viewport.safeAreaInsets.bottom)
         }
         .accessibilityIdentifier("oi.cardRequests.inbox")
         .refreshable { await onReload() }
@@ -65,18 +67,11 @@ struct OiCardRequestInboxView: View {
             await onReload()
             if !Task.isCancelled { didAttemptLoad = true }
         }
-        .background {
-            Rectangle()
-                .fill(.regularMaterial)
-                .overlay {
-                    (colorScheme == .dark ? Self.darkGreen : CampusStyle.mapSheet)
-                        .opacity(0.7)
-                }
-                .ignoresSafeArea()
-        }
+        .background(sheetBackground.ignoresSafeArea())
+        .presentationDetents([.large])
         .presentationCornerRadius(35)
         .presentationBackground(.clear)
-        .presentationDragIndicator(.visible)
+        .presentationDragIndicator(.hidden)
         .presentationContentInteraction(.scrolls)
         .alert(
             confirmation?.decision == .reject ? "카드 요청을 거절할까요?" : "카드 요청을 수락할까요?",
@@ -93,6 +88,12 @@ struct OiCardRequestInboxView: View {
         } message: { selection in
             Text("\(selection.request.requesterName) 님이 ‘\(selection.request.storyTitle)’ 카드를 요청했어요.")
         }
+    }
+
+    private var sheetBackground: Color {
+        let tint = colorScheme == .dark ? Self.darkGreen : CampusStyle.mapSheet
+        // Figma uses a 70% green fill, without a second material layer.
+        return tint.opacity(reduceTransparency || colorSchemeContrast == .increased ? 1 : 0.7)
     }
 
     private var showsEmptyState: Bool {
@@ -128,6 +129,9 @@ struct OiCardRequestInboxView: View {
                             .frame(maxWidth: .infinity, minHeight: 150)
                     } else if showsEmptyState {
                         emptyState
+                            // Keep the message centered in the space below the header,
+                            // including the home-indicator area, as in the 402 × 803 sheet.
+                            .frame(minHeight: max(0, minimumHeight - 20 - headerHeight - 20))
                     }
                 } else {
                     LazyVStack(spacing: 26) {
@@ -135,9 +139,12 @@ struct OiCardRequestInboxView: View {
                     }
                 }
             }
-            .padding(20)
-            .frame(minHeight: showsEmptyState ? minimumHeight : 0, alignment: .top)
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, showsEmptyState ? 0 : 20)
         }
+        .scrollIndicators(.hidden)
+        .scrollEdgeEffectHidden()
     }
 
     private var emptyState: some View {
@@ -163,10 +170,13 @@ struct OiCardRequestInboxView: View {
 
     private var header: some View {
         Text("카드 요청")
-            .font(.custom("Paperlogy-7Bold", size: 22, relativeTo: .title2))
+            // The 30-day retention notice is intentionally excluded (2026-11-05).
+            // Keep the inbox title and an explicit accessible dismiss control.
+            .font(CampusStyle.medium(16))
+            .tracking(0.32)
             .foregroundStyle(colorScheme == .dark ? Color.white : Self.darkGreen)
             .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, minHeight: 33, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: headerHeight, alignment: .leading)
             .padding(.trailing, 52)
             .accessibilityAddTraits(.isHeader)
             .overlay(alignment: .trailing) {
@@ -178,7 +188,7 @@ struct OiCardRequestInboxView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(pendingRequestID != nil)
-                .accessibilityLabel("닫기")
+                .accessibilityLabel("카드 요청 닫기")
             }
     }
 

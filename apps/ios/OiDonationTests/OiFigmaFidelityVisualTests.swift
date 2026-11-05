@@ -255,6 +255,14 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 try await capture(inbox, name: state.name, variant: variant, defaults: fixture.defaults, attach: true)
             }
         }
+        // Compare the sheet content at the Figma node's own dimensions. The
+        // dark backing makes its 70% fill visible without depending on live map data.
+        let sheetVariant = Variant(name: "402x803-sheet", size: CGSize(width: 402, height: 803), dynamicTypeSize: .large)
+        let emptySheet = OiCardRequestInboxView(requests: [], isLoading: false, loadError: nil,
+            pendingRequestID: nil, actionError: nil, onReload: {}, onDecision: { _, _ in })
+        try await capture(emptySheet.background(Color(white: 0.117)), name: "card-requests-empty",
+            variant: sheetVariant, defaults: fixture.defaults, includesSafeArea: false, attach: true)
+
         let reference = try XCTUnwrap(variants.first)
         let unconfirmed = OiCardRequestInboxView(requests: [], isLoading: false, loadError: nil,
             pendingRequestID: nil, actionError: "처리 결과를 확인하지 못했어요. 같은 응답을 다시 확인해 주세요.",
@@ -304,6 +312,53 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testCampusSearchStatesDoNotConfusePromptFailureAndEmptyResults() {
+        for hasMatches in [false, true] {
+            XCTAssertEqual(CampusSearchContentState(hasSearched: false, hasMatches: hasMatches,
+                hasLoaded: false, isLoading: true, hasError: false), .prompt)
+        }
+        XCTAssertEqual(CampusSearchContentState(hasSearched: true, hasMatches: false,
+            hasLoaded: false, isLoading: false, hasError: false), .loading)
+        XCTAssertEqual(CampusSearchContentState(hasSearched: true, hasMatches: false,
+            hasLoaded: true, isLoading: true, hasError: false), .loading)
+        for hasLoaded in [false, true] {
+            XCTAssertEqual(CampusSearchContentState(hasSearched: true, hasMatches: false,
+                hasLoaded: hasLoaded, isLoading: false, hasError: true), .failed)
+        }
+        XCTAssertEqual(CampusSearchContentState(hasSearched: true, hasMatches: true,
+            hasLoaded: true, isLoading: false, hasError: true), .results)
+        XCTAssertEqual(CampusSearchContentState(hasSearched: true, hasMatches: false,
+            hasLoaded: true, isLoading: false, hasError: false), .noMatches)
+    }
+
+    func testCampusSearchPromptCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let story = CampusStory(id: "prompt-fixture", regionID: "pond", title: "테스트오이", image: "OiCats",
+            tags: [], donor: "가상 기부자", location: "테스트", date: "", order: 0, popularity: 0, palette: 0)
+        for mode in CampusSearchMode.allCases {
+            for variant in variants {
+                let screen = CampusSearchView(mode: mode, entries: [.example(story)], isExample: false,
+                    onSelect: { _ in XCTFail("No search has been submitted") })
+                let png = try await capture(screen, name: "campus-search-\(mode.rawValue)-prompt", variant: variant,
+                    defaults: fixture.defaults, attach: true)
+                if variant.name == "402x874" {
+                    let bitmap = try renderedBitmap(png, size: variant.size)
+                    let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: bitmap.width * bitmap.height * 4)
+                    var greenPixels = 0
+                    for y in 250..<800 {
+                        for x in 20..<382 {
+                            let i = (y * bitmap.width + x) * 4
+                            let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
+                            if g > r + 12 && g > b + 25 { greenPixels += 1 }
+                        }
+                    }
+                    XCTAssertGreaterThan(greenPixels, 2500, "The initial screen must actually render the green cucumber, not only text")
+                }
+            }
+        }
+    }
+
     func testCampusSearchEmptyResultCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
@@ -317,6 +372,37 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 try await capture(result, name: "campus-search-\(mode.rawValue)-no-matches", variant: variant,
                     defaults: fixture.defaults, attach: true)
             }
+        }
+    }
+
+    func testSchoolSearchEmptyResultCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        XCTAssertNotNil(UIImage(named: "CampusSearchNoResults"))
+        for variant in variants {
+            let screen = CampusSchoolSearchView(initialQuery: "없는 학교") {
+                XCTFail("A school with no matching result must not be selected")
+            }
+            let png = try await capture(screen, name: "school-search-no-matches", variant: variant,
+                defaults: fixture.defaults, attach: true)
+            if variant.name == "402x874" {
+                let bitmap = try renderedBitmap(png, size: variant.size)
+                let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: bitmap.width * bitmap.height * 4)
+                var greenPixels = 0
+                for y in 280..<610 {
+                    for x in 100..<302 {
+                        let i = (y * bitmap.width + x) * 4
+                        let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
+                        if g > r + 12 && g > b + 25 { greenPixels += 1 }
+                    }
+                }
+                XCTAssertGreaterThan(greenPixels, 2500, "The school empty state must render its original cucumber illustration")
+            }
+        }
+        let reference = try XCTUnwrap(variants.first)
+        for (name, query) in [("initial", ""), ("matched", "postech")] {
+            try await capture(CampusSchoolSearchView(initialQuery: query, onSelect: {}),
+                name: "school-search-\(name)", variant: reference, defaults: fixture.defaults, attach: true)
         }
     }
 

@@ -38,6 +38,26 @@ struct OiProfile: Codable, Equatable, Identifiable {
     var nickname: String
     var schoolId: String?
     let farmerAsset: String
+    // Only information deliberately entered for public donor search. Never inferred from evidence.
+    var publicName: String? = nil
+    var department: String? = nil
+    var admissionYear: String? = nil
+}
+
+struct OiPublicAcademicInfo: Equatable {
+    var name = ""
+    var department = ""
+    var admissionYear = ""
+
+    var cleaned: Self {
+        Self(name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+             department: department.trimmingCharacters(in: .whitespacesAndNewlines),
+             admissionYear: admissionYear.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+    var isValid: Bool {
+        name.count <= 50 && department.count <= 100 &&
+        (admissionYear.isEmpty || admissionYear.range(of: "^[0-9]{2}([0-9]{2})?$", options: .regularExpression) != nil)
+    }
 }
 
 struct OiLiveStory: Codable, Identifiable, Equatable {

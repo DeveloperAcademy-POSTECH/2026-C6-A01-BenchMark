@@ -435,12 +435,13 @@ final class OiRemoteStore {
         return await change("submit_story", payload: ["id":story.id.uuidString,"revision":story.revision], as: OiLiveStory.self)
     }
 
-    func updateProfile(nickname: String? = nil, schoolID: String? = nil) async {
+    func updateProfile(nickname: String? = nil, schoolID: String? = nil, academicInfo: OiPublicAcademicInfo? = nil) async {
         guard !isBusy, !needsReauthentication, let account, let api else { error = OiServiceError.signInRequired.localizedDescription; return }
         let owner = account.id
         let started = generation
         let cleaned = nickname?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard cleaned != nil || schoolID != nil,
+        guard cleaned != nil || schoolID != nil || academicInfo != nil,
+              academicInfo?.cleaned.isValid ?? true,
               cleaned.map({ !$0.isEmpty && $0.count <= 30 }) ?? true,
               schoolID == nil || schools.contains(where: { $0.id == schoolID }) else {
             error = OiServiceError.invalidInput.localizedDescription; return
@@ -448,7 +449,7 @@ final class OiRemoteStore {
         isBusy = true; error = nil
         defer { isBusy = false }
         do {
-            let saved = try await api.updateProfile(owner: owner, nickname: cleaned, schoolID: schoolID, token: token())
+            let saved = try await api.updateProfile(owner: owner, nickname: cleaned, schoolID: schoolID, academicInfo: academicInfo, token: token())
             guard started == generation, self.account?.id == owner else { return }
             loadSequence += 1
             profile = saved; revision += 1; await refreshAfterCommit()

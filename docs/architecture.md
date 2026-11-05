@@ -387,3 +387,9 @@ Figma `4158:9340`에 맞춰 `OiCucumberCustomizationStep`이 하나의 `OiWardro
 약관 단계는 `OiStoryConsentView`의 스크롤 끝에 나가기와 오이 커스텀 시작하기를 표시한다. 시작하기와 상단 STEP 이동은 세 필수 약관의 동의 여부를 확인한다. `OiStoryEditor`가 기존 단계 이동과 기기 보관·버리기·계속 작성 확인창을 처리한다.
 
 Figma `2935:1210`의 세 약관은 `OiStoryConsentClause.figmaDrafts`에서 순서대로 제공한다. 새 `donationVerification` ID를 기존 계정별 초안의 `agreedConsentClauseIDs`에 저장하며 이전 두 ID는 그대로 읽는다. 새 항목이 없는 초안은 해당 동의를 미선택으로 복원하고, 모든 필수 동의 검사는 세 ID를 기준으로 한다. API/DB나 기부 증빙 제출 경로는 변경하지 않는다. 이번 원문과 저장 경계는 [약관 원문 정합](story-creation-flow.md#약관-원문-정합--2026-11-05--figma-29351210)에 기록한다.
+
+### 2026-11-05 — 기부자 공개 검색 정보 (#150 / PR #151)
+
+`oi_profiles`에 `public_name`, `department`, `admission_year`를 빈 문자열 기본값으로 추가한다. 기존 프로필 PATCH API와 소유자 UPDATE RLS를 재사용한다. 본인·운영자 및 공개 이야기 작성자에 대한 기존 SELECT 범위를 확대하지 않는다. 인증 증빙과 Auth 메타데이터는 연결하지 않는다. iOS의 세 필드는 하위 호환 optional이며 설정의 기부자 검색 정보 편집기로 등록·삭제한다.
+
+`HomeView`는 작성자의 공개 학교·학과·입학연도·이름을 검색 항목으로 투영한다. 오이가 배치된 캠퍼스를 작성자 학교로 추정하지 않으며 닉네임을 이름의 대체값으로 쓰지 않는다. 입학연도는 26·2026·26학번 검색을 지원한다. `CampusSearchContentState`는 입력 전, 로딩, 실패, 결과, 조회 성공 0건을 구분한다. 운영 DB 마이그레이션 적용과 기존 이용자의 검색용 정보 입력이 있어야 새 항목으로 실제 검색된다.
