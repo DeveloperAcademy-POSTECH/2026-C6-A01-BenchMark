@@ -19,7 +19,10 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private(set) var placementLoading = false
     private(set) var placementError: String?
     private(set) var editingPlacement = false
+    private(set) var selectingCenterLocation = false
     private(set) var draftPoint: SIMD3<Float>?
+    private(set) var centerLocationError: String?
+    private(set) var centerLocationName = "포항공과대학교"
     var placementMessage = "지도에서 건물 밖의 바닥을 눌러 주세요."
     @ObservationIgnored private var oiTemplate: Entity?
     @ObservationIgnored private var placementLayer = Entity()
@@ -335,9 +338,58 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     func focusPlaceForPlacement(_ id: String) {
         guard editingPlacement, let data, let place = data.pois.first(where: { $0.id == id }) else { return }
+        stopNavigation()
         target = data.world(place.p); radius = 32; pitch = 1.25
         placementMessage = "\(place.name) 주변의 건물 밖 바닥을 선택해 주세요."
         updateCamera()
+    }
+
+    /// Story location picking only needs the campus mesh, not an Oi model.
+    func beginCenterLocation(latitude: Double?, longitude: Double?) {
+        guard ready, let data, !selectingCenterLocation else { return }
+        stopNavigation()
+        endPlacement()
+        browsingCamera = (target, radius, yaw, pitch)
+        editingPlacement = true
+        selectingCenterLocation = true
+        camera.camera.near = 0.01
+        if let latitude, let longitude {
+            target = data.world(latitude: latitude, longitude: longitude)
+        } else if let start = data.initialView?.walkingStart {
+            target = data.world(start)
+        }
+        radius = 32; pitch = 1.05
+        updateCamera()
+    }
+
+    func confirmCenterLocation() -> (latitude: Double, longitude: Double)? {
+        guard selectingCenterLocation, ready, let data else { return nil }
+        // Freeze any release animation and sample the displayed pose again.
+        stopNavigation()
+        updateCenterLocation()
+        guard let point = draftPoint, data.placementError(at: point) == nil else { return nil }
+        return data.coordinate(point)
+    }
+
+    private func updateCenterLocation() {
+        guard selectingCenterLocation, let data else { return }
+        // This is the optical center of the same camera used by the map. Using
+        // its pose avoids the renderer's previous-frame ray during gestures.
+        guard let hit = data.surface?.intersect(origin: eye, direction: simd_normalize(target - eye)) else {
+            draftPoint = nil
+            centerLocationError = "지도를 움직여 캠퍼스 바닥에 핀을 맞춰 주세요."
+            centerLocationName = "위치를 선택해 주세요"
+            return
+        }
+        centerLocationError = data.placementError(at: hit)
+        draftPoint = centerLocationError == nil ? hit : nil
+        if let place = data.pois.min(by: {
+            simd_distance_squared(data.world($0.p), hit) < simd_distance_squared(data.world($1.p), hit)
+        }), simd_distance(data.world(place.p), hit) < Float(120 * data.unitsPerMeter) {
+            centerLocationName = "\(place.name) 주변"
+        } else {
+            centerLocationName = "포항공과대학교"
+        }
     }
 
     func setDraft(_ placement: CampusPlacement) {
@@ -371,6 +423,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     func endPlacement() {
         editingPlacement = false; draftPoint = nil
+        selectingCenterLocation = false; centerLocationError = nil
         editingPlacementID = nil
         draftEntity?.removeFromParent(); draftEntity = nil
         placementReticle?.removeFromParent(); placementReticle = nil
@@ -386,7 +439,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     func updateDraft(height: Double, heading: Double) {
         draftHeight = height; draftHeading = heading
-        guard let point = draftPoint, let data, let oiTemplate else { return }
+        guard !selectingCenterLocation, let point = draftPoint, let data, let oiTemplate else { return }
         if draftEntity == nil {
             let entity = oiTemplate.clone(recursive: true)
             root.addChild(entity); draftEntity = entity
@@ -455,6 +508,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
 
     @objc private func selectPlacement(_ gesture: UITapGestureRecognizer) {
+        guard !selectingCenterLocation else { return }
         guard gesture.state == .ended, let view = canvas?.map, let data else { return }
         let point = gesture.location(in: view)
         if editingPlacement {
@@ -533,6 +587,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     private func updateCamera() {
         camera.look(at: target, from: eye, relativeTo: nil)
+        updateCenterLocation()
         guard visible, let view = canvas?.map else { return }
         let projection = mapProjection(in: view.bounds)
         let visibleBounds = view.bounds.insetBy(dx: -100, dy: -100)

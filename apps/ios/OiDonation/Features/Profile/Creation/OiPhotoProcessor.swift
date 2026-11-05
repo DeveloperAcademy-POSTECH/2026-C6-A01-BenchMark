@@ -29,6 +29,17 @@ enum OiPhotoProcessor {
                 .integral.intersection(bounds)
             guard pixels.width >= 1, pixels.height >= 1, let cropped = cg.cropping(to: pixels) else { throw OiServiceError.invalidInput }
             edited = UIImage(cgImage: cropped)
+        case .rotate(let radians):
+            guard radians.isFinite else { throw OiServiceError.invalidInput }
+            let size = CGSize(width: cg.width, height: cg.height)
+            let scale = OiPhotoRotationGeometry.coverScale(size: size, radians: radians)
+            let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
+            edited = UIGraphicsImageRenderer(size: size, format: format).image { context in
+                context.cgContext.translateBy(x: size.width / 2, y: size.height / 2)
+                context.cgContext.rotate(by: radians)
+                context.cgContext.scaleBy(x: scale, y: scale)
+                image.draw(in: CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height))
+            }
         case .rotateLeft:
             let format = UIGraphicsImageRendererFormat(); format.scale = 1
             let size = CGSize(width: cg.height, height: cg.width)
@@ -40,5 +51,15 @@ enum OiPhotoProcessor {
         }
         guard let jpeg = edited.jpegData(compressionQuality: 0.85) else { throw OiServiceError.invalidInput }
         return jpeg
+    }
+}
+
+/// The viewport and JPEG use the same centered transform; no blank corners are introduced.
+enum OiPhotoRotationGeometry {
+    static func coverScale(size: CGSize, radians: CGFloat) -> CGFloat {
+        guard size.width > 0, size.height > 0, radians.isFinite else { return 1 }
+        let c = abs(cos(radians)), s = abs(sin(radians))
+        return max(1, (size.width * c + size.height * s) / size.width,
+                   (size.width * s + size.height * c) / size.height)
     }
 }

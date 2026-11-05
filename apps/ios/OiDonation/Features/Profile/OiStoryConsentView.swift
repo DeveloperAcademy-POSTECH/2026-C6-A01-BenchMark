@@ -4,31 +4,39 @@ struct OiStoryConsentView: View {
     let clauses: [OiStoryConsentClause]
     var continueTitle = "오이 커스텀 시작하기"
     var onContinue: () -> Void = {}
+    var onExit: (() -> Void)?
+    var showsHeader = true
+    var showsContinueButton = true
+    var state: Binding<OiStoryConsentState>?
+    var onSelectStage: ((Int) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @State private var consentState = OiStoryConsentState()
+    @State private var localConsentState = OiStoryConsentState()
+    private var consentState: OiStoryConsentState { state?.wrappedValue ?? localConsentState }
 
     var body: some View {
         VStack(spacing: 0) {
-            topHeader
-
-            Color.clear
-                .frame(height: 29)
+            if showsHeader { topHeader.padding(.bottom, 20) }
 
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 50) {
-                    ForEach(clauses) { clause in
-                        clauseSection(clause)
+                LazyVStack(alignment: .leading, spacing: 20) {
+
+                    VStack(spacing: 50) {
+                        ForEach(clauses) { clause in
+                            clauseSection(clause)
+                        }
                     }
 
-                    continueButton
+                    if showsContinueButton { footerActions }
                 }
                 .padding(.horizontal, 20)
-                .padding(.bottom, 16)
+                .padding(.bottom, 34)
+                .padding(.top, 20)
             }
             .scrollIndicators(.hidden)
             .clipped()
+            .ignoresSafeArea(.container, edges: .bottom)
         }
         .navigationTitle("")
         .navigationBarBackButtonHidden(true)
@@ -37,7 +45,7 @@ struct OiStoryConsentView: View {
     }
 
     private var topHeader: some View {
-        GeometryReader { geometry in
+        HStack(alignment: .top, spacing: 14) {
             Button {
                 dismiss()
             } label: {
@@ -47,13 +55,13 @@ struct OiStoryConsentView: View {
             .buttonBorderShape(.circle)
             .controlSize(.large)
             .frame(width: 50, height: 50)
-            .offset(x: 20, y: 4)
+            .padding(.top, 4)
             .accessibilityLabel("뒤로")
 
-            progressHeader(width: max(0, geometry.size.width - 104))
-                .offset(x: 84, y: 1)
+            OiCreationProgressHeader(step: 1, onSelect: onSelectStage)
         }
-        .frame(height: 65)
+        .padding(.horizontal, 20)
+        .frame(minHeight: 65)
         .background(Color(.systemBackground))
     }
 
@@ -83,6 +91,7 @@ struct OiStoryConsentView: View {
             }
             .scrollIndicators(.hidden)
             .frame(height: clause.id == .moderation ? 104 : 145)
+            .accessibilityIdentifier("oi.consent.details.\(clause.id.rawValue)")
             .overlay {
                 Rectangle().stroke(Color("OiBorder"), lineWidth: 1)
             }
@@ -113,9 +122,30 @@ struct OiStoryConsentView: View {
                 )
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("oi.consent.agree.\(clause.id.rawValue)")
             .accessibilityLabel(clause.agreementText)
             .accessibilityValue(consentState.isAgreed(to: clause.id) ? "동의함" : "동의하지 않음")
             .accessibilityHint("두 번 탭하여 동의 상태를 변경합니다")
+        }
+    }
+
+    private var footerActions: some View {
+        VStack(spacing: 10) {
+            Button {
+                if let onExit { onExit() } else { dismiss() }
+            } label: {
+                Text("나가기")
+                    .font(.custom("Paperlogy-5Medium", size: 16, relativeTo: .body))
+                    .tracking(0.32)
+                    .underline()
+                    .foregroundStyle(Color.primary)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("oi.consent.exit")
+
+            continueButton
         }
     }
 
@@ -130,6 +160,7 @@ struct OiStoryConsentView: View {
         }
         .buttonStyle(.plain)
         .disabled(!consentState.allRequiredClausesAreAgreed)
+        .accessibilityIdentifier("oi.creation.next")
         .accessibilityHint(
             consentState.allRequiredClausesAreAgreed
                 ? "이야기 작성의 다음 단계로 이동합니다"
@@ -138,96 +169,9 @@ struct OiStoryConsentView: View {
     }
 
     private func toggleAgreement(for id: OiStoryConsentClause.ID) {
-        consentState.setAgreed(!consentState.isAgreed(to: id), to: id)
-    }
-
-    private func progressHeader(width: CGFloat) -> some View {
-        let scale = width / 298
-        let raisedWidth = 71.394 * scale
-        let loweredWidth = 69.446 * scale
-        let spacing = 5.106 * scale
-
-        return HStack(spacing: spacing) {
-            progressStep(number: 1, position: .raised, active: true, label: "약관동의", width: raisedWidth)
-            progressStep(number: 2, position: .lowered, active: false, width: loweredWidth)
-            progressStep(number: 3, position: .raised, active: false, width: raisedWidth)
-            progressStep(number: 4, position: .lowered, active: false, width: loweredWidth)
-        }
-        .frame(width: width, height: 64)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("4단계 중 1단계, 약관 동의")
-    }
-
-    private enum StepPosition {
-        case raised
-        case lowered
-    }
-
-    @ViewBuilder
-    private func progressStep(
-        number: Int,
-        position: StepPosition,
-        active: Bool,
-        label: String? = nil,
-        width: CGFloat
-    ) -> some View {
-        if position == .lowered {
-            loweredProgressStep(number: number, active: active, width: width)
-        } else {
-            raisedProgressStep(number: number, active: active, label: label, width: width)
-        }
-    }
-
-    private func loweredProgressStep(number: Int, active: Bool, width: CGFloat) -> some View {
-        ZStack(alignment: .topLeading) {
-            Image(stepAsset(position: .lowered, active: active))
-                .resizable()
-                .frame(width: 69.8566, height: 29.991)
-                .offset(y: -3)
-
-            Text("STEP \(number)")
-                .font(.custom("Paperlogy-7Bold", size: 10, relativeTo: .caption2))
-                .foregroundStyle(active ? consentBackgroundColor : Color("OiGreen").opacity(0.5))
-                .frame(width: 69, height: 22)
-                .offset(y: 5)
-        }
-        .frame(width: 69.8566, height: 29.991)
-        .frame(width: width, height: 64, alignment: .bottomLeading)
-    }
-
-    private func raisedProgressStep(
-        number: Int,
-        active: Bool,
-        label: String?,
-        width: CGFloat
-    ) -> some View {
-        ZStack(alignment: .bottom) {
-            ZStack {
-                Image(stepAsset(position: .raised, active: active))
-                    .resizable()
-                    .frame(width: 66, height: 39)
-                    .rotationEffect(.degrees(16.63))
-
-                Text("STEP \(number)")
-                    .font(.custom("Paperlogy-7Bold", size: 10, relativeTo: .caption2))
-                    .foregroundStyle(active ? consentBackgroundColor : Color("OiGreen").opacity(0.5))
-            }
-            .frame(maxHeight: .infinity, alignment: .top)
-
-            if let label {
-                Text(label)
-                    .font(.custom("Paperlogy-4Regular", size: 12, relativeTo: .caption))
-                    .tracking(0.24)
-                    .foregroundStyle(consentTextColor)
-                    .frame(width: min(68, width), height: 25, alignment: .top)
-            }
-        }
-        .frame(width: width, height: 64)
-    }
-
-    private func stepAsset(position: StepPosition, active: Bool) -> String {
-        if active { return "ConsentStepActive" }
-        return position == .raised ? "ConsentStepInactiveRaised" : "ConsentStepInactiveLowered"
+        var updated = consentState
+        updated.setAgreed(!updated.isAgreed(to: id), to: id)
+        if let state { state.wrappedValue = updated } else { localConsentState = updated }
     }
 
     private var consentTextColor: Color {
