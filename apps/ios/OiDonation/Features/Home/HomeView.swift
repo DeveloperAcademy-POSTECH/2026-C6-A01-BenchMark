@@ -165,16 +165,16 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Button(action: onOpenProfile) {
                     HStack(spacing: -12) {
-                        MYFarmerArtwork(ownerID: remote?.account?.id)
+                        MYFarmerArtwork(ownerID: remote?.account?.id, outfit: remote?.farmerOutfit)
                             .frame(width: 38, height: 38).background(CampusStyle.secondaryAction, in: Circle())
                             .clipShape(Circle()).overlay(Circle().stroke(CampusStyle.green, lineWidth: 1.5))
                             .zIndex(1)
-                        Text(myDemo.nickname).font(CampusStyle.medium(14)).tracking(0.28)
+                        Text(remote?.profile?.farmName ?? "오이").font(CampusStyle.medium(14)).tracking(0.28)
                             .lineLimit(1).padding(.leading, 24).padding(.trailing, 15).padding(.vertical, 2)
                             .background(.white, in: Capsule())
                     }.shadow(color: CampusStyle.mapAction.opacity(0.4), radius: 7, y: 3)
                         .frame(minHeight: 44)
-                }.buttonStyle(.plain).accessibilityLabel("\(myDemo.nickname)의 농부 프로필")
+                }.buttonStyle(.plain).accessibilityLabel("\(remote?.profile?.farmName ?? "오이")의 농부 프로필")
                     .accessibilityIdentifier("campus.profile")
                 Button(action: onOpenProfile) {
                     CampusMyHouseButtonArtwork()

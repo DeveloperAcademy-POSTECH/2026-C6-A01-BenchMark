@@ -342,6 +342,8 @@ struct OiSettingsHeader: View {
     let title: String
     let back: () -> Void
     var close: (() -> Void)? = nil
+    var backgroundColor: Color = .white
+    var titleColor: Color = Color(red: 117 / 255, green: 75 / 255, blue: 0)
 
     var body: some View {
         HStack(spacing: 12) {
@@ -356,7 +358,7 @@ struct OiSettingsHeader: View {
             .accessibilityLabel("이전 화면")
             Text(title)
                 .font(.custom(close == nil ? "Paperlogy-7Bold" : "Paperlogy-6SemiBold", size: close == nil ? 30 : 26, relativeTo: .title))
-                .foregroundStyle(Color(red: 117 / 255, green: 75 / 255, blue: 0))
+                .foregroundStyle(titleColor)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
                 .accessibilityAddTraits(.isHeader)
@@ -373,7 +375,7 @@ struct OiSettingsHeader: View {
         .padding(.horizontal, 20)
         .padding(.top, 4)
         .padding(.bottom, 13)
-        .background(.white)
+        .background(backgroundColor)
     }
 }
 
