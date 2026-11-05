@@ -231,7 +231,7 @@ struct OiStoryEditor: View {
         }
     }
 
-    private var usesNavigationBar: Bool { !restored || (!submitted && step == .location) }
+    private var usesNavigationBar: Bool { !restored }
 
     private func reviewIssue(_ title: String, destination: OiCreationStep) -> some View {
         Button {

@@ -155,7 +155,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                                        id: second, owner: OiTestBackend.owner)
         for variant in variants {
             for step in [OiCreationStep.photos, .location] {
-                // The actual UIKit navigation bar and map matter more than a mocked form wrapper.
+                // Capture the production editor route rather than a mocked form wrapper.
                 if step == .location && variant.dynamicTypeSize == .accessibility5 { continue }
                 var draft = Self.draft; draft.id = UUID()
                 draft.latitude = 36.01261057021347; draft.longitude = 129.3197268697784
@@ -164,7 +164,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 let editor = NavigationStack {
                     OiStoryEditor(remote: store, localID: local.id).environment(\.scenePhase, .active)
                 }
-                try await capture(editor, name: step == .photos ? "photo-populated" : "location-direct-3d",
+                try await capture(editor, name: step == .photos ? "photo-populated" : "location-search-entry",
                                   variant: variant, defaults: fixture.defaults, delay: .seconds(3), attach: true)
             }
         }
@@ -253,10 +253,20 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testLocationSearchFirstCapture() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        for variant in variants {
+            let picker = OiLocationPicker(latitude: .constant(nil), longitude: .constant(nil))
+            try await capture(picker, name: "location-search-first", variant: variant,
+                defaults: fixture.defaults, attach: true)
+        }
+    }
+
     func testThreeDimensionalLocationPickerCapture() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
-        let picker = OiLocationPicker(latitude: .constant(36.01261057021347), longitude: .constant(129.3197268697784))
+        let picker = OiLocationPicker(latitude: .constant(36.01261057021347), longitude: .constant(129.3197268697784), focusPlaceID: "53")
             .environment(\.scenePhase, .active)
         try await capture(picker, name: "location-3D-picker", variant: try XCTUnwrap(variants.first),
             defaults: fixture.defaults, delay: .seconds(3), attach: true)
@@ -586,9 +596,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertFalse(places.contains { $0.name.localizedCaseInsensitiveContains(query) })
 
         for variant in variants {
-            let location = CreationCapturePage(step: OiCreationStep.location.progress) {
-                OiStoryLocationStep(draft: .constant(Self.draft), regions: [], initialQuery: query, choose: { _ in })
-            }
+            let location = OiStoryLocationStep(initialQuery: query, choose: { _ in })
             try await capture(location, name: "location-search-no-matches", variant: variant,
                 defaults: fixture.defaults, attach: true)
         }
