@@ -283,6 +283,37 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testSchoolSearchEmptyResultCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        XCTAssertNotNil(UIImage(named: "CampusSearchNoResults"))
+        for variant in variants {
+            let screen = CampusSchoolSearchView(initialQuery: "없는 학교") {
+                XCTFail("A school with no matching result must not be selected")
+            }
+            let png = try await capture(screen, name: "school-search-no-matches", variant: variant,
+                defaults: fixture.defaults, attach: true)
+            if variant.name == "402x874" {
+                let bitmap = try renderedBitmap(png, size: variant.size)
+                let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: bitmap.width * bitmap.height * 4)
+                var greenPixels = 0
+                for y in 280..<610 {
+                    for x in 100..<302 {
+                        let i = (y * bitmap.width + x) * 4
+                        let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
+                        if g > r + 12 && g > b + 25 { greenPixels += 1 }
+                    }
+                }
+                XCTAssertGreaterThan(greenPixels, 2500, "The school empty state must render its original cucumber illustration")
+            }
+        }
+        let reference = try XCTUnwrap(variants.first)
+        for (name, query) in [("initial", ""), ("matched", "postech")] {
+            try await capture(CampusSchoolSearchView(initialQuery: query, onSelect: {}),
+                name: "school-search-\(name)", variant: reference, defaults: fixture.defaults, attach: true)
+        }
+    }
+
     func testLocationSearchEmptyResultCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }

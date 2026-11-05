@@ -212,31 +212,94 @@ private struct CampusSearchEmptyResult: View {
 struct CampusSchoolSearchView: View {
     let onSelect: () -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var query = ""
+    @Environment(\.colorSchemeContrast) private var contrast
+    @ScaledMetric(relativeTo: .body) private var messageLineHeight = 27.0
+    @State private var query: String
+    @FocusState private var focused: Bool
+
+    init(initialQuery: String = "", onSelect: @escaping () -> Void) {
+        self.onSelect = onSelect
+        _query = State(initialValue: initialQuery)
+    }
+
+    private var showsSchool: Bool {
+        let term = CampusSearchQuery.normalized(query)
+        return term.isEmpty || CampusSearchQuery.normalized("POSTECH 포스텍 포항공과대학교").contains(term)
+    }
+
     var body: some View {
-        NavigationStack {
+        GeometryReader { viewport in
             ScrollView {
-                VStack(spacing: 15) {
-                    HStack {
-                        TextField("검색", text: $query).font(CampusStyle.semibold(18))
-                            .autocorrectionDisabled().textInputAutocapitalization(.never).submitLabel(.search)
-                            .accessibilityIdentifier("campus.school.query")
-                        Image(systemName: "magnifyingglass").foregroundStyle(.gray)
-                    }.padding(.horizontal, 22).frame(height: 57)
-                        .background(Color(white: 217/255).opacity(0.3), in: Capsule())
-                    let term = CampusSearchQuery.normalized(query)
-                    if term.isEmpty || CampusSearchQuery.normalized("POSTECH 포스텍 포항공과대학교").contains(term) {
-                        Button(action: onSelect) { schoolCard }
+                VStack(spacing: 0) {
+                    searchField
+                    if showsSchool {
+                        Button { focused = false; onSelect() } label: { schoolCard }
                             .buttonStyle(.plain)
                             .accessibilityLabel("POSTECH 포항공과대학교 지도 열기")
                             .accessibilityIdentifier("campus.school.postech")
+                            .padding(.top, 15)
                     } else {
-                        ContentUnavailableView.search(text: query)
+                        noMatches
+                            .frame(maxHeight: .infinity)
                     }
-                }.padding(20)
-            }.background(.white).navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("닫기") { dismiss() }.tint(.gray) } }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 14)
+                .padding(.bottom, showsSchool ? 20 : 0)
+                .frame(minHeight: viewport.size.height, alignment: .top)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .scrollIndicators(.hidden)
+            .scrollEdgeEffectHidden()
         }
+        .background(Color(uiColor: .systemBackground))
+        .presentationDetents([.large])
+        // The design has no navigation row. Preserve native sheet dismissal
+        // and expose the same action to VoiceOver without shifting the search field.
+        .accessibilityAction(.escape) { dismiss() }
+        .accessibilityAction(named: Text("학교 검색 닫기")) { dismiss() }
+        .accessibilityIdentifier("campus.school.search")
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 10) {
+            TextField("검색", text: $query,
+                      prompt: Text("검색").foregroundStyle(Color.primary.opacity(0.5)))
+                .font(CampusStyle.semibold(18))
+                .focused($focused)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .submitLabel(.search)
+                .onSubmit { focused = false }
+                .accessibilityLabel("학교 이름 검색")
+                .accessibilityIdentifier("campus.school.query")
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Color.primary.opacity(0.5))
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, 22)
+        .frame(minHeight: 57)
+        .background(Color(white: 248 / 255), in: Capsule())
+    }
+
+    private var noMatches: some View {
+        VStack(spacing: 16) {
+            Image("CampusSearchNoResults")
+                .resizable().scaledToFit()
+                .frame(width: 192, height: 300)
+                .accessibilityHidden(true)
+            Text("해당 이름을 가진 학교가 없습니다\n학교이름이 정확한지 한번 더 확인해주세요")
+                .font(CampusStyle.medium(18))
+                .tracking(0.36)
+                .lineHeight(.exact(points: messageLineHeight))
+                .foregroundStyle(contrast == .increased ? CampusStyle.sectionGreen : Color("OiGreen"))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("campus.school.noMatches")
     }
 
     private var schoolCard: some View {

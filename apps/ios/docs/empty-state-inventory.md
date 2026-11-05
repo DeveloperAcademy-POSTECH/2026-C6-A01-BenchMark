@@ -1,6 +1,6 @@
 # iOS·App Clip 빈 화면 확인 — 2026-11-04
 
-실제 실행 경로를 [Figma 프로토타입 ver.2](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=2339-2109)의 지도, 이야기 작성, MY, AR 섹션과 대조했다. 기존 미정 14개 항목 중 5개 항목에 새 시안 7개를 적용했다. 2026-11-05 검색 진입 안내 보완 후 아직 시안이 필요한 조건이 있는 항목은 11개다. 실패·권한·인증은 마지막 표에서 구분한다.
+실제 실행 경로를 [Figma 프로토타입 ver.2](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=2339-2109)의 지도, 이야기 작성, MY, AR 섹션과 대조했다. 기존 미정 14개 항목 중 6개 항목에 새 시안 8개를 적용했다. 2026-11-05 검색 진입 안내와 학교 검색 0건 보완 후 아직 시안이 필요한 조건이 있는 항목은 10개다. 실패·권한·인증은 마지막 표에서 구분한다.
 
 ## Figma에서 빈 상태를 정의한 곳
 
@@ -15,6 +15,7 @@
 | --- | --- |
 | 받은 카드 요청 | 조회 성공 후 대기 요청 0건. [요청함 0건](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=4228-11025)의 문구와 배치를 반영했다. 2026-11-05 반투명 녹색(70%), 모서리 35pt, 좌우·상단 20pt 여백과 본문 중앙 정렬을 보완했다. 사용자 결정에 따라 30일 보관 안내·자동 삭제는 제외한다. 해당 안내 자리에는 작은 제목과 닫기 버튼을 유지한다. |
 | 오이 검색 | 입력 전에는 같은 캐릭터와 입력 안내를 표시한다. 이름·학교/학과/학번/이름·코드 검색 성공 후 0건이면 Figma 문구를 표시한다. [이름](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=4240-11126), [기부자](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=4240-11140), [코드](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=4240-11171) |
+| 학교 검색 | 검색어가 POSTECH·포스텍·포항공과대학교에 일치하지 않을 때 [학교 검색 0건](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=4340-13281)의 물음표 오이·두 줄 안내를 표시한다. 입력 전에는 기존 POSTECH 카드를 표시한다. |
 | MY 도감 · 전체 | 계정 및 App Clip 카드가 모두 0개. [전체 0개](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=4240-11327) |
 | MY 도감 · 학교별 | 상위 학교별 목록에서 학교 폴더가 0개. [학교 폴더 0개](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=4240-11357) |
 | 이야기 작성 · 위치 | 검색어 입력 후 일치하는 캠퍼스 장소가 0건. [장소 검색 0건](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=4240-11725) |
@@ -25,7 +26,6 @@
 | --- | --- | --- |
 | 캠퍼스 전체 지도 | 공개 오이 0개 | 3D 지도와 지역별 개수. 전체 0개 전용 화면이 없다. [Figma 전체 지도](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=3294-3164) |
 | 선택 지역·이 지역 재검색 | 지역 또는 현재 지도 범위의 이야기 0건 | 목록에 0건 안내를 표시한다. [Figma 지역 목록](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=2379-4041) |
-| 학교 검색 | POSTECH과 일치하는 검색 결과 0건 | 시스템 검색 결과 없음. [Figma 학교 검색](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=2544-9010) |
 | MY 도감 · 즐겨찾기 | 고정한 카드 0개 | 즐겨찾기 안내. 학교 필터가 적용돼도 별도 전용 화면은 없다. |
 | MY 도감 · 학교별 | 선택한 학교 내부의 카드 0개 | 도감의 공통 안내. [학교 내부](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=2558-10110) |
 | 이야기 작성 · 사진 | 선택한 사진 0장 | 사진 선택 안내와 사진 추가 동작. [Figma 이야기 사진](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=3504-13187)은 사진을 고른 상태다. |
