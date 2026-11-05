@@ -21,6 +21,7 @@ struct MYSettingsView: View {
     @State private var settingsError = false
     @State private var showingAcademicEditor = false
     @State private var permissionValues: [MYPermission: PermissionStatus] = [:]
+    @State private var showingOperator = false
     @State private var farmNameOwner: UUID?
     @State private var farmNameInput = ""
     @State private var farmNameError: String?
@@ -93,6 +94,15 @@ struct MYSettingsView: View {
                             }
                         }
                     }
+                    if let remote, remote.isOperator, !remote.needsReauthentication {
+                        section("운영자") {
+                            Button { showingOperator = true } label: {
+                                settingsCard(action: "열기") {
+                                    Label("운영자 관리", systemImage: "person.badge.shield.checkmark")
+                                }
+                            }.accessibilityIdentifier("my.settings.operator")
+                        }
+                    }
                     section("내 농장 이름", detail: "띄어쓰기 포함 6자 이내") {
                         farmNameRow
                             .accessibilityIdentifier("my.settings.farm")
@@ -126,7 +136,11 @@ struct MYSettingsView: View {
             OiSettingsHeader(title: "설정", back: { dismiss() })
         }
         .task(id: scenePhase) { if scenePhase == .active { await refreshPermissions() } }
+        .sheet(isPresented: $showingOperator) {
+            if let remote { OiOperatorHomeView(remote: remote) }
+        }
         .onChange(of: remote?.account?.id) { _, _ in
+            showingOperator = false
             resetFarmNameEditor()
             showingAcademicEditor = false
         }

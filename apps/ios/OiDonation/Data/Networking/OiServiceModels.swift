@@ -126,8 +126,10 @@ struct OiEvidence: Codable, Identifiable, Equatable {
     let objectPath: String?
     let reviewNote: String?
     var storageOwnerId: UUID? = nil
-    var submittedAt: String? = nil
     var createdAt: String? = nil
+    var submittedAt: String? = nil
+    var reviewedAt: String? = nil
+    var reviewerId: UUID? = nil
 }
 
 struct OiDonationEvidenceSummary: Decodable, Equatable {
