@@ -1,7 +1,9 @@
-import { AnalysisError, analyzeDocument, DEFAULT_MODEL, MAX_FILE_BYTES, PROMPT_VERSION, readBounded } from "../_shared/document-analysis.ts";
+import { AnalysisError, DEFAULT_MODEL, MAX_FILE_BYTES, readBounded } from "../_shared/document-analysis.ts";
+import { analyzeDonationDocument, assessDonation, DONATION_PROMPT_VERSION, semanticDigest, semanticReference } from "./donation-assessment.ts";
+import type { DuplicateCheck } from "./donation-assessment.ts";
 
 type Configuration = {
-  supabaseUrl: string; supabaseKey: string; openaiKey: string; model?: string;
+  supabaseUrl: string; supabaseKey: string; serviceKey: string; openaiKey: string; model?: string;
 };
 type Evidence = { id: string; user_id: string; storage_owner_id?: string; status: string; object_path: string; submitted_at: string };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -18,7 +20,7 @@ export function createDonationHandler(config: Configuration, fetcher: typeof fet
     if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
     const authorization = request.headers.get("authorization") ?? "";
     if (!/^Bearer [^\s]+$/i.test(authorization)) return json({ error: "authentication_required" }, 401);
-    if (!config.supabaseUrl || !config.supabaseKey || !config.openaiKey.trim()) {
+    if (!config.supabaseUrl || !config.supabaseKey || !config.serviceKey?.trim() || !config.openaiKey.trim()) {
       return json({ error: "analysis_not_configured" }, 503);
     }
     const timeout = AbortSignal.timeout(60_000);
@@ -39,6 +41,14 @@ export function createDonationHandler(config: Configuration, fetcher: typeof fet
       const user = await readJSON(await call("/auth/v1/user"), "authentication_failed");
       if (typeof user?.id !== "string" || !uuid.test(user.id)) throw new AnalysisError(401, "authentication_failed");
       if (user.is_anonymous === true) throw new AnalysisError(401, "authentication_failed");
+      const accountContext = async () => {
+        const context = await readJSON(await call("/rest/v1/rpc/oi_account_context", { method: "POST", body: "{}" }), "authorization_unavailable");
+        if (typeof context?.id !== "string" || !uuid.test(context.id) || context.auth_user_id !== user.id) {
+          throw new AnalysisError(401, "authentication_failed");
+        }
+        return context.id as string;
+      };
+      const owner = await accountContext();
       if (request.headers.get("content-type")?.split(";")[0].trim() !== "application/json") {
         throw new AnalysisError(415, "json_required");
       }
@@ -58,12 +68,12 @@ export function createDonationHandler(config: Configuration, fetcher: typeof fet
       if (active.has(id) || active.size >= 3) throw new AnalysisError(429, "analysis_busy");
       const now = Date.now();
       for (const [actor, entry] of attempts) if (entry.expires <= now) attempts.delete(actor);
-      const entry = attempts.get(user.id) ?? { count: 0, expires: now + 60_000 };
-      if (entry.count >= 5 || (!attempts.has(user.id) && attempts.size >= 1000)) {
+      const entry = attempts.get(owner) ?? { count: 0, expires: now + 60_000 };
+      if (entry.count >= 5 || (!attempts.has(owner) && attempts.size >= 1000)) {
         throw new AnalysisError(429, "analysis_rate_limited");
       }
       entry.count += 1;
-      attempts.set(user.id, entry);
+      attempts.set(owner, entry);
       active.add(id);
       lockedId = id;
       const loadEvidence = async (): Promise<Evidence> => {
@@ -73,7 +83,7 @@ export function createDonationHandler(config: Configuration, fetcher: typeof fet
         if (row.status !== "pending" || typeof row.object_path !== "string" || !row.submitted_at) {
           throw new AnalysisError(409, "evidence_not_pending");
         }
-        if (row.user_id !== user.id) throw new AnalysisError(404, "evidence_not_found");
+        if (row.user_id !== owner) throw new AnalysisError(404, "evidence_not_found");
         const storageOwner = row.storage_owner_id ?? row.user_id;
         if (row.id !== id || typeof row.user_id !== "string" || !uuid.test(row.user_id)
           || typeof storageOwner !== "string" || !uuid.test(storageOwner)
@@ -93,21 +103,51 @@ export function createDonationHandler(config: Configuration, fetcher: typeof fet
       const bytes = await readBounded(file, MAX_FILE_BYTES, signal);
       const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)))
         .map((value) => value.toString(16).padStart(2, "0")).join("");
-      const assessment = await analyzeDocument({ bytes, contentType: file.headers.get("content-type") ?? "",
+      const facts = await analyzeDonationDocument({ bytes, contentType: file.headers.get("content-type") ?? "",
         apiKey: config.openaiKey, model: config.model, signal, fetcher });
       const currentUser = await readJSON(await call("/auth/v1/user"), "authentication_failed");
       if (currentUser?.id !== user.id || currentUser.is_anonymous === true) {
         throw new AnalysisError(401, "authentication_failed");
       }
+      if (await accountContext() !== owner) throw new AnalysisError(409, "account_changed");
       const current = await loadEvidence();
       if (current.object_path !== evidence.object_path || current.submitted_at !== evidence.submitted_at) {
         throw new AnalysisError(409, "evidence_changed");
       }
+      // Only trusted server credentials can register hashes; never expose the ledger to submitters.
+      // The RPC rechecks ownership/version and serializes concurrent duplicate registration.
+      const serverHeaders = { apikey: config.serviceKey, Authorization: `Bearer ${config.serviceKey}`, "Content-Type": "application/json" };
+      let referenceDigest: string | null = null;
+      if (semanticReference(facts)) {
+        const keyResponse = await fetcher(`${config.supabaseUrl.replace(/\/$/, "")}/rest/v1/rpc/oi_evidence_fingerprint_key`, {
+          method: "POST", body: "{}", signal, redirect: "error", headers: serverHeaders,
+        });
+        const key = await readJSON(keyResponse, "duplicate_check_unavailable");
+        if (typeof key !== "string" || !/^[0-9a-f]{64}$/.test(key)) throw new AnalysisError(503, "duplicate_check_unavailable");
+        referenceDigest = await semanticDigest(facts, key);
+      }
+      const registration = await fetcher(`${config.supabaseUrl.replace(/\/$/, "")}/rest/v1/rpc/oi_register_evidence_fingerprint`, {
+        method: "POST", signal, redirect: "error",
+        headers: serverHeaders,
+        body: JSON.stringify({ p_evidence_id: id, p_user_id: owner, p_object_path: evidence.object_path,
+          p_submitted_at: evidence.submitted_at, p_sha256: digest, p_semantic_digest: referenceDigest }),
+      });
+      if (!registration.ok) {
+        const status = registration.status;
+        await registration.body?.cancel();
+        throw new AnalysisError(status === 409 ? 409 : 503, status === 409 ? "evidence_changed" : "duplicate_check_unavailable");
+      }
+      const duplicate: DuplicateCheck = await readJSON(registration, "duplicate_check_unavailable");
+      if (!duplicate || typeof duplicate.exact_duplicate !== "boolean" || typeof duplicate.semantic_duplicate !== "boolean"
+        || typeof duplicate.same_request !== "boolean") throw new AnalysisError(503, "duplicate_check_unavailable");
+      signal.throwIfAborted();
+      const summary = assessDonation(facts, duplicate);
       return json({ review_type: "donation_evidence", evidence_id: id, submitted_at: evidence.submitted_at, sha256: digest,
         analyzed_at: new Date().toISOString(), model: config.model ?? DEFAULT_MODEL,
-        prompt_version: PROMPT_VERSION, human_review_required: true, authenticity_verified: false,
-        notice: "AI의 시각적 참고 분석입니다. 원본 진위·실제 납입·학교 확인을 보증하지 않으며 운영자 검토가 필요합니다.",
-        assessment });
+        prompt_version: DONATION_PROMPT_VERSION, human_review_required: true, authenticity_verified: false,
+        writing_permission_granted: false,
+        notice: "문자도 기부 증빙으로 판단해요. 증빙 충족은 원본 진위·제출자 본인·학교 납입 확인의 보증이 아니며, 글 작성은 운영자 승인 후 가능해요.",
+        assessment: facts.visual_review, summary });
     } catch (error) {
       if (signal.aborted) return json({ error: "analysis_timeout" }, 504);
       if (error instanceof AnalysisError) return json({ error: error.code }, error.status);
