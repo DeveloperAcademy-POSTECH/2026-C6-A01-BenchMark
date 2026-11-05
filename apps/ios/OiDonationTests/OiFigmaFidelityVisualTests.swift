@@ -29,6 +29,63 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         ]
     }
 
+    func testDonationEvidenceCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        let previous = OiStoreURLProtocol.handle
+        let backend = OiTestBackend()
+        backend.install()
+        let fallback = OiStoreURLProtocol.handle
+        let statuses = ["approved", "pending", "changes_requested", "rejected"]
+        let rows: [[String: Any]] = statuses.enumerated().map { index, status in
+            ["id": UUID().uuidString, "user_id": OiTestBackend.owner.uuidString, "status": status,
+             "object_path": "synthetic-private.png", "submitted_at": "2026-11-0\(index + 1)T10:56:00Z",
+             "review_note": status == "changes_requested" ? "기부처와 이체 완료 상태가 보이도록 다시 제출해 주세요." : ""]
+        }
+        let bytes = try JSONSerialization.data(withJSONObject: rows)
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.path == "/rest/v1/oi_evidence_requests" { client.respond(200, bytes) }
+            else { fallback?(request, client) }
+        }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: config)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("DonationEvidence-\(UUID())")
+        defer {
+            session.invalidateAndCancel(); OiStoreURLProtocol.handle = previous
+            fixture.defaults.removePersistentDomain(forName: fixture.name)
+            withExtendedLifetime(backend) {}
+            if FileManager.default.fileExists(atPath: directory.path) { try? FileManager.default.removeItem(at: directory) }
+        }
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let remote = OiRemoteStore(api: api, drafts: OiDraftVault(directory: directory), vault: OiMemorySession())
+        await remote.start()
+        XCTAssertEqual(remote.evidence.count, 4)
+        XCTAssertNotNil(UIImage(named: "DonationSeed"))
+        XCTAssertNotNil(UIImage(named: "DonationApprovalBackground"))
+        for variant in variants {
+            let view = NavigationStack { OiDonationEvidenceView(remote: remote) }
+            try await capture(view, name: "donation-evidence", variant: variant, defaults: fixture.defaults, attach: true)
+            let attached = OiDonationEvidenceContent(evidence: [], attachmentName: "synthetic-proof.pdf",
+                canSubmit: true, message: "파일은 아직 전송되지 않았어요")
+            try await capture(attached, name: "donation-evidence-attached", variant: variant,
+                defaults: fixture.defaults, attach: true)
+            if variant.name == "402x874" {
+                let review = OiDonationEvidenceReview(reviewType: "donation_evidence", evidenceId: UUID(),
+                    submittedAt: "2026-11-05T00:00:00Z", analyzedAt: "2026-11-05T00:01:00Z",
+                    humanReviewRequired: true, authenticityVerified: false, notice: "운영자 검토 후 작성 승인이 부여됩니다.",
+                    assessment: .init(verdict: .inconclusive, readability: .limited, findings: [],
+                        limitations: ["원본 진위와 실제 납입을 확인하지 못했어요."], manualChecks: ["기부처와 이체 완료 상태를 확인해 주세요."]))
+                let result = OiDonationEvidenceContent(evidence: [], review: review)
+                try await capture(result, name: "donation-evidence-ai-result", variant: variant,
+                    defaults: fixture.defaults, attach: true)
+                let failed = OiDonationEvidenceContent(evidence: remote.evidence,
+                    message: "증빙은 접수됐지만 AI 검사를 완료하지 못했어요. AI 검사만 다시 시도해 주세요.")
+                try await capture(failed, name: "donation-evidence-ai-error", variant: variant,
+                    defaults: fixture.defaults, attach: true)
+            }
+        }
+    }
+
     func testMYHouseArtworkDoesNotRevealImageMatte() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }

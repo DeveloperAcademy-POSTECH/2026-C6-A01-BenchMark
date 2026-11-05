@@ -1512,3 +1512,51 @@ extension OiRemoteStoreTests {
     }
 
 }
+
+extension OiRemoteStoreTests {
+    @MainActor func testDonationAIResultRejectsOtherSubmissionAndApprovalClaims() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let previous = OiStoreURLProtocol.handle
+        defer { session.invalidateAndCancel(); OiStoreURLProtocol.handle = previous }
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let request = OiEvidence(id: UUID(), userId: OiTestBackend.owner, status: "pending",
+            objectPath: "private.png", reviewNote: nil, submittedAt: "2026-11-05T00:00:00Z")
+        let base: [String: Any] = [
+            "review_type": "donation_evidence", "evidence_id": request.id.uuidString,
+            "submitted_at": request.submittedAt ?? "", "analyzed_at": "2026-11-05T00:01:00Z",
+            "human_review_required": true, "authenticity_verified": false, "notice": "운영자 검토 필요",
+            "assessment": ["verdict": "no_obvious_signs", "readability": "readable", "findings": [],
+                "limitations": ["진위 및 납입 미확인"], "manual_checks": ["원본 확인"]]
+        ]
+        for field in ["valid", "evidence_id", "submitted_at", "human_review_required", "authenticity_verified"] {
+            var response = base
+            if field == "evidence_id" { response[field] = UUID().uuidString }
+            if field == "submitted_at" { response[field] = "2026-11-05T00:02:00Z" }
+            if field == "human_review_required" { response[field] = false }
+            if field == "authenticity_verified" { response[field] = true }
+            let bytes = try JSONSerialization.data(withJSONObject: response)
+            OiStoreURLProtocol.handle = { input, client in
+                XCTAssertEqual(input.url?.path, "/functions/v1/analyze-donation-evidence")
+                XCTAssertEqual(input.httpMethod, "POST")
+                XCTAssertEqual(input.timeoutInterval, 70)
+                let payload = try? JSONSerialization.jsonObject(with: OiTestBackend.body(input)) as? [String: String]
+                XCTAssertEqual(payload, ["evidence_id": request.id.uuidString])
+                client.respond(200, bytes)
+            }
+            do {
+                let review = try await api.reviewDonationEvidence(request, token: "synthetic-session")
+                XCTAssertEqual(field, "valid")
+                XCTAssertEqual(review.assessment.verdict, .noObviousSigns)
+            } catch { XCTAssertNotEqual(field, "valid", "The matching non-authoritative result must be accepted") }
+        }
+    }
+
+    @MainActor func testDonationEvidenceDatesAndUnknownStatesAreNotFabricated() throws {
+        XCTAssertEqual(OiDonationEvidenceContent.dateLabel("2026-11-05T00:00:00.000Z"), "2026년 11월 5일 목요일 09:00")
+        XCTAssertEqual(OiDonationEvidenceContent.dateLabel(nil), "접수일 확인 중")
+        XCTAssertEqual(OiDonationEvidenceContent.statusTitle("new_server_status"), "상태 확인 필요")
+        XCTAssertEqual(OiDonationEvidenceContent.statusTitle("approved"), "작성 승인")
+    }
+}
