@@ -139,6 +139,19 @@ struct OiStoryEditor: View {
                         OiStoryConsentView(clauses: OiStoryConsentClause.figmaDrafts,
                             onContinue: advance, onExit: { choosingExit = true },
                             showsHeader: false, state: $consentState)
+                    } else if step == .cucumber {
+                        VStack(spacing: 0) {
+                            editorStatus.padding(.horizontal, 20)
+                            stepContent
+                            if !wardrobePhotoEditing {
+                                Text(saveLabel).font(.caption2).foregroundStyle(.secondary)
+                                    .accessibilityIdentifier("oi.draft.saveState")
+                                if !customizationReady {
+                                    Button("기기에 보관하거나 나가기") { choosingExit = true }
+                                        .font(.footnote).padding(.vertical, 8)
+                                }
+                            }
+                        }
                     } else {
                         ScrollViewReader { scroll in
                             ScrollView { editorScrollContent }

@@ -376,9 +376,11 @@ MY 설정이 실제 Apple·Google 인증, 로그아웃, 닉네임, 학교, 기�
 
 ## 사진 의상 시트와 작성 하단 배경 — 2026-11-05
 
-Figma `4158:9340`에 맞춰 `OiCucumberCustomizationStep`이 하나의 `OiWardrobeScene`을 소유하고, 462pt 기본 높이의 사진 편집 시트와 배경 미리보기가 같은 씬을 사용한다. 모델을 새 뷰로 옮기지 않으며, 시트 닫힘에서 저장 또는 기존 외형을 다시 적용한다. 시트는 크게 펼칠 수 있고 기본 높이에서 모델을 직접 돌려볼 수 있다. 사진 편집 중에는 배경의 작성 단계 이동을 막는다. 일시적인 `.inactive`는 렌더러를 유지하고 `.background`와 화면 이탈에서 해제한다.
+Figma `4134:8770`/`4158:9340`의 구성과 후속 축소 요청에 따라 `OiCucumberCustomizationStep`이 하나의 `OiWardrobeScene`을 유지한 채 하단 인라인 사진 패널을 표시한다. 후속 Figma `4158:9340` 정합 요청으로 패널 기본 높이는 462pt이며 가용 높이가 작으면 줄이고 내부를 스크롤한다. 나머지 공간은 기존 3D 미리보기에 배정한다. 상위 `OiStoryEditor`의 오이 단계는 ScrollView 대신 높이가 정해진 컨테이너를 사용하고 사진 편집 중 하단 이동/저장 상태 행을 숨긴다. 패널 배경만 하단 안전 영역까지 확장한다. 완료는 편집본을 저장하고 헤더/캔버스의 변경 취소 메뉴는 진입 전 재질로 복구한다. 사진 편집 중 작성 단계 이동은 막고, 움직임 줄이기 설정에서는 열기/닫기 전환을 생략한다. 일시적인 `.inactive`는 렌더러를 유지하고 `.background`와 화면 이탈에서 해제한다.
 
-사진 보관함만 `PHPickerViewController`로 표시하여 기존 작성 cover → 편집 sheet → SwiftUI PhotosPicker의 모달 상태 결합을 피한다. 선택 가능한 수는 보관함을 열 때 고정하고, 선택 종료 후 압축·검증하여 레이어를 추가한다. `OiPhotoEditingLimit`은 면당 2장의 UI 추가/복제/이동 한도를 담당한다. 기존 8레이어 데이터 검증과 보관본은 유지하여 구버전 초안을 손상시키지 않는다. 원본 사진은 수정하지 않고 계정별 초안·공개 API의 기존 경계를 유지한다.
+사진 보관함만 `PHPickerViewController`로 표시하여 작성 cover → SwiftUI PhotosPicker의 모달 결합을 피한다. 선택 종료 후 압축·검증하여 레이어를 추가한다. `OiPhotoEditingLimit`은 면당 2장의 UI 추가/복제/이동 한도를 담당한다. 기존 8레이어 데이터 검증과 보관본은 유지한다. 원본 사진과 계정별 초안·공개 API 경계는 보존한다.
+
+세트는 `costume-<id>`, 개별 과잠은 `top-postech`를 artwork 키로 사용한다. `prepare_costume_photo_uv.py`가 각 모델의 앞뒤 몸판에서만 인쇄용 메시와 UV 윤곽을 만든다. 원본 몸체/재질 위에 투명 아틀라스를 적용한 인쇄 메시를 덧붙이며 얼굴·손·소품에는 추가하지 않는다. 기존 흰 의상은 불투명 바탕 교체 방식 그대로다. 원본 교체 시 `costume-photo-manifest.json`의 해시와 인쇄 영역을 재생성·렌더 검토한다. 사진 추가 화면은 중앙 캔버스와 하단 가로 추가 버튼을 사용한다. 앞뒤 전환은 Paperlogy 글꼴을 지정한 UISegmentedControl로 기존 side 상태에 바인딩한다. 추가 작업은 캔버스 contextMenu와 접근성 동작에 두며 사진 가져오기/저장은 기존 경로를 재사용한다. 상세 제약/검증은 [의상 커스텀](wardrobe-customization.md)을 따른다.
 
 `OiCreationNavigationBar`는 `safeAreaInset` 안에 배치하고 배경만 하단 안전 영역 밖까지 확장한다. iOS 26은 `glassEffect(.regular)`, 이전 버전은 Material을 사용한다. 투명도 줄이기에서는 불투명 배경을 제공한다. 사진 자르기에는 어두운 색상 환경과 흰 tint를 명시하여 부모 화면의 검정 tint가 버튼에 전파되지 않게 한다.
 
@@ -393,3 +395,10 @@ Figma `2935:1210`의 세 약관은 `OiStoryConsentClause.figmaDrafts`에서 순�
 `oi_profiles`에 `public_name`, `department`, `admission_year`를 빈 문자열 기본값으로 추가한다. 기존 프로필 PATCH API와 소유자 UPDATE RLS를 재사용한다. 본인·운영자 및 공개 이야기 작성자에 대한 기존 SELECT 범위를 확대하지 않는다. 인증 증빙과 Auth 메타데이터는 연결하지 않는다. iOS의 세 필드는 하위 호환 optional이며 설정의 기부자 검색 정보 편집기로 등록·삭제한다.
 
 `HomeView`는 작성자의 공개 학교·학과·입학연도·이름을 검색 항목으로 투영한다. 오이가 배치된 캠퍼스를 작성자 학교로 추정하지 않으며 닉네임을 이름의 대체값으로 쓰지 않는다. 입학연도는 26·2026·26학번 검색을 지원한다. `CampusSearchContentState`는 입력 전, 로딩, 실패, 결과, 조회 성공 0건을 구분한다. 운영 DB 마이그레이션 적용과 기존 이용자의 검색용 정보 입력이 있어야 새 항목으로 실제 검색된다.
+
+
+## 완성 의상 세트 확장 — 2026-11-05 (#160)
+
+`OiWardrobeLook.Costume`에 로컬 제작 세트 9종을 추가했다. 기존 ID를 유지해 초안/카드 복원 계약은 바뀌지 않는다. 목록은 256px 실제 모델 썸네일을 사용하고, 선택된 USDZ 한 개만 기존 `OiWardrobeAsset`/`OiWardrobeScene` 경로에서 로딩한다. 모델의 추가/최적화는 본 앱 리소스에만 적용하며 App Clip과 서버의 공개 외형 계약은 변경하지 않는다.
+
+앱용 사본은 `prepare_mobile_costumes.py`에서 UV 경계를 보호하며 약 10만 삼각형·1024px 텍스처로 만든다. 원본, 부위별 의상 및 사진 UV 에셋은 유지한다. 수치·소스 해시·검증 방법은 [옷장 문서](wardrobe-customization.md#추가-세트와-모바일-모델-경량화--2026-11-05-160)와 `tools/wardrobe/mobile-costumes-manifest.json`에 기록한다.

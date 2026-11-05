@@ -341,7 +341,7 @@ struct OiServiceChecks {
         invalidLayer = front; invalidLayer.source = "../../private.jpg"
         precondition(!OiPhotoDesign(layers: [invalidLayer]).isValid)
         do {
-            try look.artwork.set(design, for: "top-postech")
+            try look.artwork.set(design, for: "retired-garment")
             preconditionFailure("Unsupported garment accepted")
         } catch OiPhotoDataError.limit { }
         print("PASS: photo layer bounds, invalid transforms, atomic rejection, deduplicated source lifecycle")
@@ -351,7 +351,9 @@ struct OiServiceChecks {
         for costume in OiWardrobeLook.Costume.allCases {
             var dressed = look; dressed.costume = costume
             precondition(dressed.modelName == costume.modelName && dressed.title == costume.title)
-            precondition(!OiPhotoSlot.top.supports(dressed) && !OiPhotoSlot.bottom.supports(dressed), "A complete costume must not receive individual garment overlays")
+            precondition(OiPhotoSlot.top.supports(dressed) && !OiPhotoSlot.bottom.supports(dressed), "A complete costume exposes one front/back clothing print surface")
+            precondition(OiPhotoSlot.top.preservesOriginalMaterial(in: dressed))
+            precondition(OiPhotoSlot.top.itemID(in: dressed) == "costume-" + costume.rawValue)
             let restored = try JSONDecoder().decode(OiWardrobeLook.self, from: JSONEncoder().encode(dressed))
             precondition(restored == dressed)
             var individual = restored; individual.costume = nil

@@ -268,6 +268,10 @@ struct OiWardrobeLook: Codable, Equatable {
         case dinosaur, raincoat, bee, cat
         case astronaut, scientist
         case catBear = "cat-bear", postechSelfie = "postech-selfie"
+        case baseball, cowboy, farmer, sportswear
+        case martialArts = "martial-arts"
+        case schoolUniform = "school-uniform", schoolUniformTrousers = "school-uniform-trousers"
+        case astronautNavy = "astronaut-navy", scientistGoggles = "scientist-goggles"
         var id: String { rawValue }
         var title: String {
             switch self {
@@ -275,6 +279,10 @@ struct OiWardrobeLook: Codable, Equatable {
             case .bee: "꿀벌 의상"; case .cat: "고양이 잠옷"
             case .astronaut: "우주복"; case .scientist: "연구원"
             case .catBear: "곰돌이 고양이"; case .postechSelfie: "과잠 셀카"
+            case .baseball: "야구복"; case .cowboy: "카우보이"; case .farmer: "농부"
+            case .sportswear: "운동복"; case .martialArts: "도복"
+            case .schoolUniform: "리본 교복"; case .schoolUniformTrousers: "바지 교복"
+            case .astronautNavy: "남색 우주복"; case .scientistGoggles: "고글 연구원"
             }
         }
         var modelName: String { "wardrobe-costume-" + rawValue }
@@ -320,11 +328,15 @@ enum OiPhotoSlot: String, CaseIterable, Identifiable {
     case top, bottom
     var id: String { rawValue }
     var role: String { self == .top ? "Top" : "Bottom" }
-    func itemID(in look: OiWardrobeLook) -> String { rawValue + "-" + (self == .top ? look.top.rawValue : look.bottom.rawValue) }
-    func title(in look: OiWardrobeLook) -> String { self == .top ? look.top.title : look.bottom.title }
+    func itemID(in look: OiWardrobeLook) -> String {
+        if let costume = look.costume { return "costume-" + costume.rawValue }
+        return rawValue + "-" + (self == .top ? look.top.rawValue : look.bottom.rawValue)
+    }
+    func title(in look: OiWardrobeLook) -> String { look.costume?.title ?? (self == .top ? look.top.title : look.bottom.title) }
     func color(in look: OiWardrobeLook) -> UInt32 { self == .top ? look.topColor : look.bottomColor }
-    func supports(_ look: OiWardrobeLook) -> Bool { look.costume == nil && (self != .top || look.top != .postech) }
-    func fabric(in look: OiWardrobeLook) -> OiDenim? { look.fabrics[itemID(in: look)] }
+    func supports(_ look: OiWardrobeLook) -> Bool { look.costume == nil || self == .top }
+    func preservesOriginalMaterial(in look: OiWardrobeLook) -> Bool { look.costume != nil || (self == .top && look.top == .postech) }
+    func fabric(in look: OiWardrobeLook) -> OiDenim? { preservesOriginalMaterial(in: look) ? nil : look.fabrics[itemID(in: look)] }
     func resource(in look: OiWardrobeLook) -> String { "photo-" + look.modelName + "-" + rawValue }
 }
 struct OiPhotoPlacement: Codable, Equatable {
@@ -363,7 +375,8 @@ struct OiPhotoDesign: Codable, Equatable {
 struct OiWardrobeArtwork: Codable, Equatable {
     static let maximumBytes = 8 * 1024 * 1024
     static let maximumSourceBytes = 1024 * 1024
-    static let itemIDs: Set<String> = ["top-tshirt", "top-hoodie", "top-cardigan", "bottom-long", "bottom-shorts"]
+    static let itemIDs: Set<String> = Set(["top-tshirt", "top-hoodie", "top-cardigan", "top-postech", "bottom-long", "bottom-shorts"])
+        .union(OiWardrobeLook.Costume.allCases.map { "costume-" + $0.rawValue })
     var designs: [String: OiPhotoDesign] = [:]
     var sources: [String: Data] = [:]
     var byteCount: Int { sources.values.reduce(0) { $0 + $1.count } }

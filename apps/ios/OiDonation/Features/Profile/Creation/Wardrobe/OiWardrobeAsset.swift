@@ -19,11 +19,11 @@ import UIKit
             else {
                 let draft = try OiPhotoRenderer.load(design ?? OiPhotoDesign(), sources: look.artwork.sources)
                 let image = OiPhotoRenderer.atlas(layers: draft.layers, assets: draft.assets, panelSize: 1024,
-                    color: slot.color(in: look), fabric: slot.fabric(in: look))
+                    color: slot.color(in: look), fabric: slot.fabric(in: look), transparent: slot.preservesOriginalMaterial(in: look))
                 guard let cg = image.cgImage else { throw OiPhotoDataError.unreadable }
                 texture = try await TextureResource(image: cg, options: .init(semantic: .color))
             }
-            applyPhoto(texture, to: garment); overlays[slot] = garment
+            applyPhoto(texture, to: garment, transparent: slot.preservesOriginalMaterial(in: look)); overlays[slot] = garment
             try Task.checkCancellation()
         }
         return (root, overlays)
@@ -31,7 +31,9 @@ import UIKit
 
     static func assemble(_ look: OiWardrobeLook, root: Entity, overlays: [OiPhotoSlot: Entity]) {
         if look.costume == nil { applyColors(look, to: root) }
-        for slot in OiPhotoSlot.allCases { setRole(slot.role, visible: overlays[slot] == nil, in: root) }
+        for slot in OiPhotoSlot.allCases where !slot.preservesOriginalMaterial(in: look) {
+            setRole(slot.role, visible: overlays[slot] == nil, in: root)
+        }
         for node in overlays.values { root.addChild(node) }
     }
 
@@ -58,17 +60,18 @@ import UIKit
         if node.name == role { node.isEnabled = visible; return }
         for child in node.children { setRole(role, visible: visible, in: child) }
     }
-    static func applyPhoto(_ texture: TextureResource, to node: Entity) {
+    static func applyPhoto(_ texture: TextureResource, to node: Entity, transparent: Bool = false) {
         if var component = node.components[ModelComponent.self] {
             var material = PhysicallyBasedMaterial()
             material.baseColor = .init(tint: .white, texture: .init(texture))
             material.roughness = .init(floatLiteral: 0.9)
             material.metallic = .init(floatLiteral: 0)
-            material.faceCulling = .none
+            material.faceCulling = transparent ? .back : .none
+            if transparent { material.blending = .transparent(opacity: .init(floatLiteral: 1)) }
             component.materials = component.materials.map { _ in material }
             node.components.set(component)
         }
-        for child in node.children { applyPhoto(texture, to: child) }
+        for child in node.children { applyPhoto(texture, to: child, transparent: transparent) }
     }
     static func applyColors(_ look: OiWardrobeLook, to root: Entity) {
         func visit(_ node: Entity, part: String?) {

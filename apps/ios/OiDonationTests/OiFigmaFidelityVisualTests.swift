@@ -119,6 +119,25 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testExpandedCostumeSetCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        var customization = Self.customization
+        var look = OiWardrobeLook(); look.costume = .baseball
+        customization.wardrobe = look
+        for variant in variants.prefix(2) {
+            for bottom in [false, true] {
+                let page = CreationCapturePage(step: 3, anchor: bottom ? .bottom : .top) {
+                    OiCucumberCustomizationStep(draft: .constant(Self.draft), customization: .constant(customization),
+                        assets: Self.assets, canContinue: true, onContinue: {})
+                        .environment(\.scenePhase, .active)
+                }
+                try await capture(page, name: bottom ? "costume-set-bottom" : "costume-set-top",
+                                  variant: variant, defaults: fixture.defaults, delay: .seconds(3), attach: true)
+            }
+        }
+    }
+
     func testCustomizationCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
@@ -782,10 +801,15 @@ private struct CreationCapturePage<Content: View>: View {
         VStack(spacing: 0) {
             OiCreationProgressHeader(step: step, onPrevious: {})
                 .padding(.horizontal, 20).padding(.top, 1).padding(.bottom, 29)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) { content() }
-                    .padding(.horizontal, 20).padding(.bottom, 24)
-            }.defaultScrollAnchor(anchor)
+            Group {
+                if step == 3 { content() }
+                else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) { content() }
+                            .padding(.horizontal, 20).padding(.bottom, 24)
+                    }.defaultScrollAnchor(anchor)
+                }
+            }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     if step == 2 || showsNavigation {
                         OiCreationNavigationBar(onPrevious: {}, onNext: {}, onSaveAndExit: {})

@@ -64,7 +64,7 @@ final class OiWardrobeScene {
                 for node in photoNodes.values { node.removeFromParent() }
                 OiWardrobeAsset.assemble(look, root: prepared, overlays: overlays)
                 if let editingSlot, let previewTexture, let node = overlays[editingSlot] {
-                    OiWardrobeAsset.applyPhoto(previewTexture, to: node)
+                    OiWardrobeAsset.applyPhoto(previewTexture, to: node, transparent: editingSlot.preservesOriginalMaterial(in: look))
                 }
                 if model !== prepared { model?.removeFromParent(); anchor.addChild(prepared) }
                 photoNodes = overlays
@@ -95,7 +95,7 @@ final class OiWardrobeScene {
             try Task.checkCancellation()
             guard version == previewVersion else { return }
             previewTexture = texture; photoPreviewError = nil
-            if let node = photoNodes[editingSlot] { OiWardrobeAsset.applyPhoto(texture, to: node) }
+            if let node = photoNodes[editingSlot] { OiWardrobeAsset.applyPhoto(texture, to: node, transparent: request.map { editingSlot.preservesOriginalMaterial(in: $0) } ?? false) }
         } catch is CancellationError { }
         catch {
             guard version == previewVersion, !Task.isCancelled else { return }
