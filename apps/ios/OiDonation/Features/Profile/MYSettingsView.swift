@@ -298,7 +298,7 @@ struct MYSettingsView: View {
                 OiSchoolEvidenceView(remote: remote)
             } label: {
                 VStack(spacing: 4) {
-                    Text("학교 인증하기")
+                    Text("학교 자료 확인하기")
                         .font(CampusStyle.semibold(18))
                         .tracking(0.36)
                         .foregroundStyle(CampusStyle.green)
@@ -455,7 +455,7 @@ struct OiSettingsHeader: View {
                 Button(action: close) {
                     Image(systemName: "xmark").font(.system(size: 20))
                         .frame(width: 50, height: 50, alignment: .trailing).contentShape(Rectangle())
-                }.buttonStyle(.plain).accessibilityLabel("학교 인증 닫기")
+                }.buttonStyle(.plain).accessibilityLabel("학교 자료 확인 닫기")
             } else {
                 Color.clear.frame(width: 50, height: 50).accessibilityHidden(true)
             }

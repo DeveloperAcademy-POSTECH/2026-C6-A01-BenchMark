@@ -70,6 +70,23 @@ struct OiServiceChecks {
         let otherAccount = try await reopened.schoolEvidenceReview(owner: UUID())
         precondition(restored?.outcome == original.outcome)
         precondition(restored?.reviewedAt == original.reviewedAt && otherAccount == nil)
+        // A new analysis must not collapse distinct follow-up actions into legacy rejection.
+        let responses: [(String, OiSchoolEvidenceOutcome)] = [
+            ("school_evidence_visible", .completed), ("school_document_needed", .documentNeeded),
+            ("retake_needed", .retakeNeeded), ("manual_review_needed", .manualReviewNeeded)
+        ]
+        for (raw, expected) in responses {
+            guard let outcome = OiSchoolEvidenceOutcome(reviewOutcome: raw) else { preconditionFailure(raw) }
+            precondition(outcome == expected)
+            try await reopened.saveSchoolEvidenceReview(.init(outcome: outcome, reviewedAt: original.reviewedAt), owner: owner)
+            let reloaded = try await OiDraftVault(directory: directory).schoolEvidenceReview(owner: owner)
+            precondition(reloaded?.outcome == expected)
+        }
+        for raw in ["completed", "rejected"] {
+            let legacy = Data("{\"outcome\":\"\(raw)\",\"reviewedAt\":0}".utf8)
+            let receipt = try JSONDecoder().decode(OiSavedSchoolEvidenceReview.self, from: legacy)
+            precondition(receipt.outcome == OiSchoolEvidenceOutcome(rawValue: raw))
+        }
         print("PASS: school evidence summary survives reopening and is scoped to its account")
     }
 

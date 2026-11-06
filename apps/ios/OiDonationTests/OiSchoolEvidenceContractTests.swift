@@ -24,8 +24,8 @@ final class OiSchoolEvidenceContractTests: XCTestCase {
             "summary": ["outcome": "school_evidence_visible"]
         ]
         let outcomes: [(String, OiSchoolEvidenceOutcome?)] = [
-            ("school_evidence_visible", .completed), ("school_document_needed", .rejected),
-            ("retake_needed", .rejected), ("manual_review_needed", .rejected), ("unknown_outcome", nil),
+            ("school_evidence_visible", .completed), ("school_document_needed", .documentNeeded),
+            ("retake_needed", .retakeNeeded), ("manual_review_needed", .manualReviewNeeded), ("unknown_outcome", nil),
             ("missing_summary", nil), ("human_review_required", nil),
             ("affiliation_verified", nil), ("authenticity_verified", nil)
         ]

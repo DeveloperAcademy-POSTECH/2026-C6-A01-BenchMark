@@ -368,13 +368,39 @@ nonisolated struct OiSchoolEvidenceReview: Decodable, Sendable {
 }
 
 nonisolated enum OiSchoolEvidenceOutcome: String, Codable, Sendable {
+    // Keep the two legacy raw values so existing device receipts remain readable.
     case completed, rejected
+    case documentNeeded = "school_document_needed"
+    case retakeNeeded = "retake_needed"
+    case manualReviewNeeded = "manual_review_needed"
 
     init?(reviewOutcome: String) {
         switch reviewOutcome {
         case "school_evidence_visible": self = .completed
-        case "school_document_needed", "retake_needed", "manual_review_needed": self = .rejected
+        case "school_document_needed": self = .documentNeeded
+        case "retake_needed": self = .retakeNeeded
+        case "manual_review_needed": self = .manualReviewNeeded
         default: return nil
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .completed: "AI 자료 확인 완료"
+        case .rejected: "추가 확인 필요"
+        case .documentNeeded: "학교 증빙 자료 필요"
+        case .retakeNeeded: "재촬영 필요"
+        case .manualReviewNeeded: "사람의 확인 필요"
+        }
+    }
+
+    var guidance: String {
+        switch self {
+        case .completed: "자료에서 학교 관련 표기를 확인했어요."
+        case .rejected: "이전에 저장한 결과에는 세부 사유가 없어요. 자료를 다시 확인해 주세요."
+        case .documentNeeded: "학교명과 소속을 확인할 수 있는 자료를 첨부해 주세요."
+        case .retakeNeeded: "자료의 글자가 잘 보이도록 다시 촬영해 주세요."
+        case .manualReviewNeeded: "AI만으로 판단하기 어려워요. 운영팀에 확인 방법을 문의해 주세요. 자동으로 검토가 접수되지는 않아요."
         }
     }
 }
