@@ -14,7 +14,7 @@ enum CampusStyle {
     static let coral = Color(red: 0.784, green: 0.376, blue: 0.365)
     static let gold = Color(red: 0.831, green: 0.714, blue: 0.345)
     static let action = LinearGradient(colors: [coral, gold], startPoint: .leading, endPoint: .trailing)
-    static func characterTitle(_ size: CGFloat) -> Font { .custom("PearToucan-Bold", size: size, relativeTo: .headline) }
+    static func characterTitle(_ size: CGFloat) -> Font { .custom("Paperlogy-7Bold", size: size, relativeTo: .headline) }
     static func heading(_ size: CGFloat) -> Font { .custom("Paperlogy-9Black", size: size, relativeTo: .title) }
     static func body(_ size: CGFloat) -> Font { .custom("Paperlogy-4Regular", size: size, relativeTo: .body) }
     static func hand(_ size: CGFloat) -> Font { .custom("GriunOMIRI-Regular", size: size, relativeTo: .body) }

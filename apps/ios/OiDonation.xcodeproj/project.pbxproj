@@ -89,12 +89,11 @@
 				Domain/Routing/AppClipLink.swift,
 				Domain/Routing/PublicLinkParser.swift,
 				"Resources/Fonts/Paperlogy-2ExtraLight.ttf",
+				"Resources/Fonts/Paperlogy-3Light.ttf",
 				"Resources/Fonts/Paperlogy-4Regular.ttf",
 				"Resources/Fonts/Paperlogy-6SemiBold.ttf",
 				"Resources/Fonts/Paperlogy-7Bold.ttf",
-				"Resources/Fonts/PearToucan-Regular.ttf",
-				"Resources/Fonts/PearToucan-Light.ttf",
-				"Resources/Fonts/PearToucan-Bold.ttf",
+				"Resources/Fonts/Paperlogy-OFL.txt",
 				"Resources/ARCollectionAssets.xcassets",
 				"Resources/OiStoryCardAssets.xcassets",
 				"Shared/Components/ARCollectionResultView.swift",
@@ -430,7 +429,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = OiDonationClip/OiDonationClip.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20261106;
+				CURRENT_PROJECT_VERSION = 20261107;
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -467,7 +466,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = OiDonationClip/OiDonationClip.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20261106;
+				CURRENT_PROJECT_VERSION = 20261107;
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -625,7 +624,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = OiDonation/OiDonation.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20261106;
+				CURRENT_PROJECT_VERSION = 20261107;
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -664,7 +663,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = OiDonation/OiDonation.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20261106;
+				CURRENT_PROJECT_VERSION = 20261107;
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
