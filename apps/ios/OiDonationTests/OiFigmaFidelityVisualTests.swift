@@ -42,8 +42,10 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
              "review_note": status == "changes_requested" ? "기부처와 이체 완료 상태가 보이도록 다시 제출해 주세요." : ""]
         }
         let bytes = try JSONSerialization.data(withJSONObject: rows)
+        let emptyEvidence = Data("[]".utf8)
+        let evidencePath = "/rest/v1/oi_evidence_requests"
         OiStoreURLProtocol.handle = { request, client in
-            if request.url?.path == "/rest/v1/oi_evidence_requests" { client.respond(200, bytes) }
+            if request.url?.path == evidencePath { client.respond(200, bytes) }
             else { fallback?(request, client) }
         }
         let config = URLSessionConfiguration.ephemeral
@@ -84,6 +86,20 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                     defaults: fixture.defaults, attach: true)
             }
         }
+
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.path == evidencePath || request.url?.path == "/rest/v1/oi_writing_grants" {
+                client.respond(200, emptyEvidence)
+            } else { fallback?(request, client) }
+        }
+        await remote.refresh()
+        XCTAssertTrue(remote.hasLoadedRemote)
+        XCTAssertNil(remote.loadError)
+        XCTAssertTrue(remote.evidence.isEmpty)
+        XCTAssertFalse(remote.canStartStory)
+        let empty = NavigationStack { OiDonationEvidenceView(remote: remote) }
+        try await capture(empty, name: "donation-evidence-empty", variant: try XCTUnwrap(variants.first),
+                          defaults: fixture.defaults, attach: true)
     }
 
     func testDonationSemanticResultCaptures() async throws {
@@ -445,15 +461,6 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             onReload: {}, onDecision: { _, _ in }, onRetryDecision: {})
         try await capture(unconfirmed, name: "card-requests-unconfirmed-decision",
             variant: reference, defaults: fixture.defaults, attach: true)
-    }
-
-    func testEvidenceDesignPreviewCapture() async throws {
-        let fixture = try isolatedDefaults()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
-        for variant in variants {
-            try await capture(NavigationStack { OiEvidenceDesignPreview() },
-                              name: "evidence-preview", variant: variant, defaults: fixture.defaults, attach: true)
-        }
     }
 
     func testMYScreenCapturesWithoutRemoteStore() async throws {

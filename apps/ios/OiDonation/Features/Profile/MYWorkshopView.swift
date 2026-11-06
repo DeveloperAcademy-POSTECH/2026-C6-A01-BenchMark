@@ -113,11 +113,15 @@ struct MYWorkshopView: View {
     }
 
     private var addSeedLink: some View {
-        NavigationLink { OiEvidenceDesignPreview() } label: {
-            OiSeedBalanceLabel(count: 0)
+        Group {
+            if let remote {
+                NavigationLink { OiDonationEvidenceView(remote: remote) } label: {
+                    OiSeedBalanceLabel(count: 0)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("my.workshop.addSeed")
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("my.workshop.addSeed")
     }
 
     private var workshopTitle: some View {
