@@ -2958,6 +2958,10 @@ extension OiRemoteStoreTests {
 /// A valid ZIP alone cannot catch unsupported materials or missing bundled textures.
 @MainActor
 final class OiWardrobeAssetTests: XCTestCase {
+    @MainActor func testCardRotationSymbolExists() {
+        XCTAssertNotNil(UIImage(systemName: "rotate.3d"))
+    }
+
     func testCompleteCostumesLoadWithThumbnailsAndGroundedBounds() async throws {
         for costume in OiWardrobeLook.Costume.allCases {
             var look = OiWardrobeLook()

@@ -15,6 +15,7 @@ struct OiCardCustomizationStep: View {
     var canContinue = true
     var isFinished = false
     var onContinue: (() -> Void)?
+    var onSizeEditingChanged: ((Bool) -> Void)? = nil
     @State private var tab: OiCardTab = .content
     @State private var portrait: UIImage?
     @State private var wardrobeKey: String?
@@ -28,11 +29,16 @@ struct OiCardCustomizationStep: View {
     private var design: OiCardDesign { customization.card ?? OiCardDesign() }
     private var needsPortrait: Bool { portraitKey != nil && (design.portraitKey != portraitKey || design.portraitPNG == nil) }
 
+    private var isSizeEditing: Bool { tab == .size && !isFinished }
+
     var body: some View {
         GeometryReader { geometry in
-            let previewHeight = min(308.0, max(205.0, geometry.size.height * 0.47))
+            let previewHeight = isSizeEditing
+                ? min(268.0, max(64.0, geometry.size.height * 0.38))
+                : min(308.0, max(205.0, geometry.size.height * 0.47))
             VStack(spacing: 0) {
-                preview(height: previewHeight).padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 24)
+                preview(height: previewHeight).padding(.horizontal, 20)
+                    .padding(.top, isSizeEditing ? 8 : 14).padding(.bottom, isSizeEditing ? 12 : 24)
                 if isFinished {
                     ScrollView {
                         VStack(spacing: 16) {
@@ -43,12 +49,24 @@ struct OiCardCustomizationStep: View {
                     }
                 } else {
                     tabs.padding(.horizontal, 20).padding(.bottom, 8)
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 20) {
-                            controls
-                            storageDetails.padding(.horizontal, tab == .size ? 20 : 0)
-                        }.padding(.horizontal, tab == .size ? 0 : 20).padding(.bottom, 20)
-                    }.scrollDismissesKeyboard(.interactively)
+                    if isSizeEditing {
+                        GeometryReader { editor in
+                            // Fit the card's real aspect ratio into the remaining space.
+                            // No ScrollView owns gestures over the character editor.
+                            let height = max(1, min(editor.size.height - 56,
+                                                    (editor.size.width - 40) * 472 / 332))
+                            placementEditor(height: height)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                                .background(Color("OiBorder").opacity(0.75).ignoresSafeArea(edges: .bottom))
+                        }
+                    } else {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 20) {
+                                controls
+                                storageDetails
+                            }.padding(.horizontal, 20).padding(.bottom, 20)
+                        }.scrollDismissesKeyboard(.interactively)
+                    }
                 }
             }
         }
@@ -59,10 +77,11 @@ struct OiCardCustomizationStep: View {
                 .presentationCornerRadius(35)
                 .presentationBackground(Color("OiLight"))
         }
-        .onAppear { refreshPortrait(); nameInput = baseName }
+        .onAppear { refreshPortrait(); nameInput = baseName; onSizeEditingChanged?(isSizeEditing) }
         .onChange(of: customization.wardrobe) { _, _ in refreshPortrait() }
         .onChange(of: tab) { _, _ in saveOrientation() }
-        .onDisappear { saveOrientation() }
+        .onChange(of: isSizeEditing) { _, editing in onSizeEditingChanged?(editing) }
+        .onDisappear { saveOrientation(); onSizeEditingChanged?(false) }
         .onChange(of: editingName) { _, focused in if !focused { commitName() } }
         .onChange(of: isFinished) { _, finished in if finished { editingName = false; commitName() } }
     }
@@ -128,11 +147,14 @@ struct OiCardCustomizationStep: View {
         case .content: contentEditor
         case .background, .border: paletteEditor(border: tab == .border)
         case .pattern: patterns
-        case .size:
-            OiCardPlacementEditor(image: portrait, placement: designBinding(\.characterPlacement),
-                look: customization.wardrobe, orientation: customization.wardrobe == nil ? nil : $orientation,
-                portraitKey: portraitKey ?? "", onCapture: acceptPortrait, onInteractionEnded: saveOrientation)
+        case .size: EmptyView() // The non-scrolling, height-constrained editor above owns this tab.
         }
+    }
+    private func placementEditor(height: CGFloat) -> some View {
+        OiCardPlacementEditor(image: portrait, placement: designBinding(\.characterPlacement),
+            frameHeight: height, compact: true,
+            look: customization.wardrobe, orientation: customization.wardrobe == nil ? nil : $orientation,
+            portraitKey: portraitKey ?? "", onCapture: acceptPortrait, onInteractionEnded: saveOrientation)
     }
     private var contentEditor: some View {
         VStack(alignment: .leading, spacing: 30) {

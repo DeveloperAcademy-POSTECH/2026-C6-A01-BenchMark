@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 
 struct OiDraftCardPreview: View {
     let draft: OiStoryDraft
@@ -105,6 +106,7 @@ struct OiCardPlacementEditor: View {
     @Binding var placement: OiCardPlacement
     var title = "캐릭터를 눌러 선택한 뒤\n드래그·핀치로 배치하세요."
     var frameHeight: CGFloat = 232.3
+    var compact = false
     var emptyMessage = "오이 이미지를 준비하고 있어요"
     var look: OiWardrobeLook? = nil
     var orientation: Binding<OiCardOrientation>? = nil
@@ -115,17 +117,28 @@ struct OiCardPlacementEditor: View {
     @State private var portraitFailed = false
     var body: some View {
         VStack(spacing: 8) {
-            HStack(alignment: .top) {
-                Text(look == nil ? title : "한 손가락으로 이동 · 핀치로 크기 조절\n두 손가락을 함께 드래그해 3D 회전")
-                    .font(CampusStyle.body(10)).foregroundStyle(Color("OiGreen"))
-                Spacer()
+            HStack(spacing: 8) {
+                if orientation != nil {
+                    Label("360°", systemImage: "rotate.3d")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(Color("OiGreen"))
+                        .accessibilityLabel("두 손가락 드래그로 3D 회전")
+                } else {
+                    Text(title).font(CampusStyle.body(10)).foregroundStyle(Color("OiGreen"))
+                }
+                Spacer(minLength: 0)
+                if compact {
+                    Text("이동 · 회전 · 핀치")
+                        .font(CampusStyle.body(11)).foregroundStyle(.secondary)
+                }
                 Button("초기화") {
                     placement = OiCardPlacement()
                     orientation?.wrappedValue = OiCardOrientation()
                     onInteractionEnded?()
                 }.font(CampusStyle.body(12)).tint(Color("OiGreen"))
+                    .frame(minWidth: 44, minHeight: compact ? 32 : 24)
                     .accessibilityIdentifier("oi.card.placement.reset")
-            }
+            }.frame(height: compact ? 32 : nil)
             ZStack {
                 RoundedRectangle(cornerRadius: 5).fill(.white)
                 if let look, let orientation, let onCapture {
@@ -149,6 +162,15 @@ struct OiCardPlacementEditor: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(look == nil ? "카드 이미지 위치와 크기" : "오이 3D 방향과 카드 위치, 크기")
                 .accessibilityValue("\(Int(placement.normalized.scale * 100))퍼센트")
+                .accessibilityHint(orientation == nil ? "드래그로 이동, 핀치로 크기 조절" : "한 손가락으로 이동, 두 손가락 드래그로 회전, 핀치로 크기 조절")
+                .accessibilityActions {
+                    if let orientation {
+                        Button("왼쪽 회전") { rotate(orientation, dx: -25, dy: 0) }
+                        Button("오른쪽 회전") { rotate(orientation, dx: 25, dy: 0) }
+                        Button("위에서 보기") { rotate(orientation, dx: 0, dy: 15) }
+                        Button("아래에서 보기") { rotate(orientation, dx: 0, dy: -15) }
+                    }
+                }
                 .accessibilityAdjustableAction { direction in
                     placement.scale += direction == .increment ? 0.1 : -0.1
                     placement = placement.normalized
@@ -157,35 +179,25 @@ struct OiCardPlacementEditor: View {
                 .accessibilityAction(named: "아래로 이동") { placement.y += 0.05; placement = placement.normalized }
                 .accessibilityAction(named: "왼쪽으로 이동") { placement.x -= 0.05; placement = placement.normalized }
                 .accessibilityAction(named: "오른쪽으로 이동") { placement.x += 0.05; placement = placement.normalized }
-            if portraitFailed {
-                Button("오이 이미지 다시 불러오기") { portraitFailed = false; renderAttempt += 1 }
-                    .font(.caption).tint(Color("OiGreen"))
-            }
-            if let orientation {
-                HStack(spacing: 12) {
-                    angleButton("왼쪽 회전", symbol: "rotate.left", dx: -25, dy: 0, orientation: orientation)
-                    angleButton("오른쪽 회전", symbol: "rotate.right", dx: 25, dy: 0, orientation: orientation)
-                    angleButton("위에서 보기", symbol: "arrow.up", dx: 0, dy: 15, orientation: orientation)
-                    angleButton("아래에서 보기", symbol: "arrow.down", dx: 0, dy: -15, orientation: orientation)
+        }.padding(.horizontal, 20).padding(.vertical, compact ? 8 : 20)
+            .frame(maxWidth: .infinity)
+            .background(compact ? Color.clear : Color("OiBorder").opacity(0.75))
+            .overlay(alignment: .bottom) {
+                if portraitFailed {
+                    Button("오이 다시 불러오기") { portraitFailed = false; renderAttempt += 1 }
+                        .font(.caption).padding(10).background(.regularMaterial, in: Capsule())
+                        .tint(Color("OiGreen")).padding(.bottom, 12)
                 }
-                Text("손을 놓으면 카드에 같은 각도로 반영돼요.")
-                    .font(CampusStyle.body(10)).foregroundStyle(.secondary)
             }
-        }.padding(20).frame(maxWidth: .infinity)
-            .background(Color("OiBorder").opacity(0.75))
     }
-    private func angleButton(_ label: String, symbol: String, dx: Double, dy: Double,
-                             orientation: Binding<OiCardOrientation>) -> some View {
-        Button {
-            orientation.wrappedValue = orientation.wrappedValue.rotated(horizontal: dx, vertical: dy)
-            onInteractionEnded?()
-        } label: { Image(systemName: symbol).frame(width: 44, height: 44) }
-            .buttonStyle(.plain).tint(Color("OiGreen")).accessibilityLabel(label)
+    private func rotate(_ orientation: Binding<OiCardOrientation>, dx: Double, dy: Double) {
+        orientation.wrappedValue = orientation.wrappedValue.rotated(horizontal: dx, vertical: dy)
+        onInteractionEnded?()
     }
 }
 
-/// UIKit keeps pinch and pan simultaneous and prevents the surrounding controls
-/// from scrolling while the user is intentionally moving the framed image.
+/// A single recognizer owns each complete touch sequence. It avoids pan/pinch
+/// recognizers independently translating when a second finger lands or lifts.
 private struct OiCardPlacementGestures: UIViewRepresentable {
     @Binding var placement: OiCardPlacement
     var orientation: Binding<OiCardOrientation>?
@@ -196,14 +208,8 @@ private struct OiCardPlacementGestures: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let view = UIView(); view.backgroundColor = .clear; view.isMultipleTouchEnabled = true
         view.accessibilityIdentifier = "oi.card.placement.canvas"
-        let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pan(_:)))
-        pan.maximumNumberOfTouches = 1
-        let orbit = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.orbit(_:)))
-        orbit.minimumNumberOfTouches = 2; orbit.maximumNumberOfTouches = 2
-        let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pinch(_:)))
-        for gesture in [pan, orbit, pinch] {
-            gesture.delegate = context.coordinator; view.addGestureRecognizer(gesture)
-        }
+        view.addGestureRecognizer(OiCardTouchRecognizer(target: context.coordinator,
+                                                       action: #selector(Coordinator.update(_:))))
         return view
     }
     func updateUIView(_ view: UIView, context: Context) {
@@ -211,45 +217,43 @@ private struct OiCardPlacementGestures: UIViewRepresentable {
         context.coordinator.orientation = orientation
         context.coordinator.onInteractionEnded = onInteractionEnded
     }
-    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+    final class Coordinator: NSObject {
         var placement: Binding<OiCardPlacement>
         var orientation: Binding<OiCardOrientation>?
         var onInteractionEnded: (() -> Void)?
+        private var session = OiCardGestureState()
         init(placement: Binding<OiCardPlacement>, orientation: Binding<OiCardOrientation>?, onInteractionEnded: (() -> Void)?) {
             self.placement = placement; self.orientation = orientation; self.onInteractionEnded = onInteractionEnded
         }
-        func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-            gesture.view === other.view
-        }
-        @objc func pan(_ gesture: UIPanGestureRecognizer) {
-            defer { gesture.setTranslation(.zero, in: gesture.view) }
-            guard gesture.numberOfTouches == 1, gesture.state == .began || gesture.state == .changed,
-                  let view = gesture.view, view.bounds.width > 0, view.bounds.height > 0 else { return }
-            let delta = gesture.translation(in: view)
+        @objc func update(_ gesture: OiCardTouchRecognizer) {
+            guard let view = gesture.view else { return }
             var p = placement.wrappedValue
-            p.x += delta.x / view.bounds.width; p.y += delta.y / view.bounds.height
-            placement.wrappedValue = p.normalized
-        }
-        @objc func orbit(_ gesture: UIPanGestureRecognizer) {
-            defer { gesture.setTranslation(.zero, in: gesture.view) }
-            if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
-                onInteractionEnded?(); return
-            }
-            guard gesture.numberOfTouches == 2, gesture.state == .began || gesture.state == .changed else { return }
-            let delta = gesture.translation(in: gesture.view)
-            if let orientation {
-                orientation.wrappedValue = orientation.wrappedValue.rotated(horizontal: delta.x, vertical: delta.y)
-            } else if let view = gesture.view, view.bounds.width > 0, view.bounds.height > 0 {
-                // Background photos still translate with two fingers while pinching.
-                var p = placement.wrappedValue
-                p.x += delta.x / view.bounds.width; p.y += delta.y / view.bounds.height
-                placement.wrappedValue = p.normalized
-            }
-        }
-        @objc func pinch(_ gesture: UIPinchGestureRecognizer) {
-            guard gesture.state == .began || gesture.state == .changed else { return }
-            var p = placement.wrappedValue; p.scale *= gesture.scale
-            placement.wrappedValue = p.normalized; gesture.scale = 1
+            var angle = orientation?.wrappedValue
+            session.update(points: gesture.points, bounds: view.bounds.size, placement: &p, orientation: &angle)
+            if p != placement.wrappedValue { placement.wrappedValue = p }
+            if let angle, angle != orientation?.wrappedValue { orientation?.wrappedValue = angle }
+            if gesture.state == .ended || gesture.state == .cancelled { onInteractionEnded?() }
         }
     }
+}
+
+private final class OiCardTouchRecognizer: UIGestureRecognizer {
+    private var active: [UITouch: Int] = [:]
+    private var nextID = 0
+    var points: [Int: CGPoint] {
+        Dictionary(uniqueKeysWithValues: active.map { ($0.value, $0.key.location(in: view)) })
+    }
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        for touch in touches { active[touch] = nextID; nextID += 1 }
+        state = state == .possible ? .began : .changed
+    }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) { state = .changed }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        for touch in touches { active.removeValue(forKey: touch) }
+        state = active.isEmpty ? .ended : .changed
+    }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        active.removeAll(); state = .cancelled
+    }
+    override func reset() { super.reset(); active.removeAll(); nextID = 0 }
 }

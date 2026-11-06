@@ -129,7 +129,51 @@ struct OiServiceChecks {
         print("PASS: card request auth, timestamp, RPC payload and verified decision receipt")
     }
 
+    static func checkCardGestures() {
+        var session = OiCardGestureState()
+        var p = OiCardPlacement()
+        var angle: OiCardOrientation? = .init()
+        func input(_ points: [Int: CGPoint]) {
+            session.update(points: points, bounds: CGSize(width: 200, height: 300), placement: &p, orientation: &angle)
+        }
+        input([0: CGPoint(x: 50, y: 100)])
+        input([0: CGPoint(x: 70, y: 130)])
+        precondition(abs(p.x - 0.6) < 0.0001 && abs(p.y - 0.6) < 0.0001)
+        input([0: CGPoint(x: 70, y: 130), 1: CGPoint(x: 130, y: 130)])
+        let position = p
+        // Symmetric pinch changes size only, around the character's fixed center.
+        input([0: CGPoint(x: 40, y: 130), 1: CGPoint(x: 160, y: 130)])
+        precondition(p.x == position.x && p.y == position.y && p.scale == 2)
+        precondition(angle == OiCardOrientation())
+        // Translating both fingers rotates the model without moving the card layer.
+        input([0: CGPoint(x: 60, y: 140), 1: CGPoint(x: 180, y: 140)])
+        precondition(p.x == position.x && p.y == position.y && p.scale == 2)
+        precondition(abs((angle?.yaw ?? 0) + 0.2) < 0.0001)
+        let rotated = angle
+        // A remaining finger after pinch/orbit must NOT become a move gesture.
+        input([0: CGPoint(x: 60, y: 140)])
+        input([0: CGPoint(x: 90, y: 200)])
+        precondition(p.x == position.x && p.y == position.y && angle == rotated)
+        input([:])
+        input([2: CGPoint(x: 10, y: 10)])
+        input([2: CGPoint(x: 30, y: 10)])
+        precondition(abs(p.x - position.x - 0.1) < 0.0001)
+        // Third finger and a replaced finger rebase without a jump.
+        input([2: CGPoint(x: 30, y: 10), 3: CGPoint(x: 80, y: 10), 4: CGPoint(x: 90, y: 90)])
+        let beforeReplacement = p
+        input([3: CGPoint(x: 80, y: 10), 4: CGPoint(x: 90, y: 90)])
+        precondition(p == beforeReplacement && angle == rotated)
+        input([:])
+        angle = nil
+        input([0: CGPoint(x: 20, y: 50), 1: CGPoint(x: 80, y: 50)])
+        let background = p
+        input([0: CGPoint(x: 40, y: 80), 1: CGPoint(x: 100, y: 80)])
+        precondition(abs(p.x - background.x - 0.1) < 0.0001 && abs(p.y - background.y - 0.1) < 0.0001)
+        print("PASS: card one-finger move, pinch scale, two-finger orbit, 2→1 lock, touch replacement and background pan")
+    }
+
     @MainActor static func main() async throws {
+        checkCardGestures()
         try checkFieldTrial()
         try await checkSchoolReviewRecovery()
         for key in ["", "sb_secret_test", "$(UNSET)", "sb_publishable_bad\nheader"] {

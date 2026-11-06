@@ -48,6 +48,8 @@ struct OiStoryEditor: View {
     @State private var choosingExit = false
     @State private var customizationReady = false
     @State private var wardrobePhotoEditing = false
+    @State private var cardSizeEditing = false
+    private var fillsCardEditor: Bool { step == .card && cardSizeEditing && !customizationReady }
     @State private var serverRevisionToReplace: Int?
     @State private var replacingServerDraft = false
     @State private var pendingSave: Task<Void, Never>?
@@ -150,7 +152,7 @@ struct OiStoryEditor: View {
                         VStack(spacing: 0) {
                             editorStatus.padding(.horizontal, 20)
                             stepContent
-                            if !wardrobePhotoEditing {
+                            if !wardrobePhotoEditing && !fillsCardEditor {
                                 Text(saveLabel).font(.caption2).foregroundStyle(.secondary)
                                     .accessibilityIdentifier("oi.draft.saveState")
                                 if !customizationReady {
@@ -159,6 +161,7 @@ struct OiStoryEditor: View {
                                 }
                             }
                         }
+                        .ignoresSafeArea(.container, edges: fillsCardEditor ? .bottom : [])
                     } else {
                         ScrollViewReader { scroll in
                             ScrollView { editorScrollContent }
@@ -659,7 +662,8 @@ struct OiStoryEditor: View {
         case .card:
             OiCardCustomizationStep(draft: $draft, customization: $customization, assets: remote.assets,
                 donorName: remote.profile?.publicName ?? "",
-                canContinue: true, isFinished: customizationReady, onContinue: toggleCustomizationReady)
+                canContinue: true, isFinished: customizationReady, onContinue: toggleCustomizationReady,
+                onSizeEditingChanged: { cardSizeEditing = $0 })
 
         }
     }
