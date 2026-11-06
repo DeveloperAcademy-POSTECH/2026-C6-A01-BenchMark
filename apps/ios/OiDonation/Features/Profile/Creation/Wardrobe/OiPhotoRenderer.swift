@@ -77,9 +77,14 @@ enum OiPhotoRenderer {
             }
         }
     }
-    static func load(_ design: OiPhotoDesign, sources: [String: Data]) throws -> OiPhotoDraft {
+    static func load(_ design: OiPhotoDesign, sources: [String: Data], layout: OiPhotoPrintLayout? = nil) throws -> OiPhotoDraft {
         guard design.isValid else { throw OiPhotoDataError.unreadable }
         var draft = OiPhotoDraft(layers: design.layers)
+        if (design.frameRevision ?? 1) < 2, let layout {
+            for index in draft.layers.indices {
+                draft.layers[index].placement = layout.relocate(draft.layers[index].placement, on: draft.layers[index].side)
+            }
+        }
         for id in Set(design.layers.map(\.source)) {
             guard let data = sources[id], data.count <= OiWardrobeArtwork.maximumSourceBytes,
                   SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == id else { throw OiPhotoDataError.unreadable }

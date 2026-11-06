@@ -3181,6 +3181,40 @@ final class OiCostumePhotoTests: XCTestCase {
         }
     }
 
+    func testLegacyPhotosFollowRaisedFrameOnceAndKeepSources() throws {
+        let photo = try OiPhotoRenderer.asset(UIImage(cgImage: canvas { cg in
+            cg.setFillColor(UIColor.orange.cgColor); cg.fill(CGRect(x: 0, y: 0, width: 1024, height: 512))
+        }))
+        let migrationLooks = looks + OiWardrobeLook.Top.allCases.map { top in
+            var look = OiWardrobeLook(); look.top = top; return look
+        }
+        for look in migrationLooks {
+            let layout = try OiPhotoPrintLayout.load(resource: OiPhotoSlot.top.resource(in: look))
+            let layers = try OiPhotoSide.allCases.map { side in
+                let old = try XCTUnwrap(side == .front ? layout.legacyFront : layout.legacyBack)
+                var placement = old.placement(for: photo.image); placement.rotation = 23
+                return OiPhotoLayer(source: photo.id, side: side, placement: placement)
+            }
+            let encoded = try JSONEncoder().encode(OiPhotoDesign(frameRevision: nil, layers: layers))
+            let oldDesign = try JSONDecoder().decode(OiPhotoDesign.self, from: encoded)
+            XCTAssertNil(oldDesign.frameRevision); XCTAssertTrue(oldDesign.isValid)
+            let draft = try OiPhotoRenderer.load(oldDesign, sources: [photo.id: photo.data], layout: layout)
+            for layer in draft.layers {
+                let frame = layout[layer.side]
+                XCTAssertEqual(layer.placement.x, frame.x+frame.width/2, accuracy: 0.00001)
+                XCTAssertEqual(layer.placement.y, frame.y+frame.height/2, accuracy: 0.00001)
+                XCTAssertEqual(layer.placement.rotation, 23)
+                XCTAssertTrue(layer.isValid)
+            }
+            XCTAssertEqual(oldDesign.layers, layers, "Opening/cancelling must not modify the saved draft")
+            let saved = OiPhotoDesign(layers: draft.layers)
+            let reopened = try OiPhotoRenderer.load(JSONDecoder().decode(OiPhotoDesign.self, from: JSONEncoder().encode(saved)),
+                sources: [photo.id: photo.data], layout: layout)
+            XCTAssertEqual(reopened.layers, draft.layers, "Apply the frame move only once")
+            XCTAssertEqual(reopened.assets[photo.id]?.data, photo.data)
+        }
+    }
+
     func testCostumePhotoVisualProof() async throws {
         let ink = canvas { cg in
             for y in 0..<8 { for x in 0..<16 {
@@ -3197,9 +3231,16 @@ final class OiCostumePhotoTests: XCTestCase {
         controller.view = view; window.rootViewController = controller; window.makeKeyAndVisible()
         defer { scene.release(); window.isHidden = true }
         let requested = ProcessInfo.processInfo.environment["OI_PHOTO_PROOF_SET"].flatMap(OiWardrobeLook.Costume.init(rawValue:))
-        for costume in requested.map({ [$0] }) ?? OiWardrobeLook.Costume.allCases {
-            let detailed = [.dinosaur, .farmer, .catBear].contains(costume)
-            var look = OiWardrobeLook(); look.costume = costume
+        var proofLooks = (requested.map({ [$0] }) ?? OiWardrobeLook.Costume.allCases).map { costume in
+            var look = OiWardrobeLook(); look.costume = costume; return (costume.rawValue, look)
+        }
+        if requested == nil {
+            proofLooks += OiWardrobeLook.Top.allCases.map { top in
+                var look = OiWardrobeLook(); look.top = top; return ("plain-" + top.rawValue, look)
+            }
+        }
+        for (name, look) in proofLooks {
+            let detailed = ["dinosaur", "farmer", "cat-bear"].contains(name)
             scene.editPhotos(in: nil, look: look)
             for _ in 0..<300 where scene.loading { try await Task.sleep(for: .milliseconds(50)) }
             XCTAssertNil(scene.error); XCTAssertFalse(scene.loading)
@@ -3207,7 +3248,7 @@ final class OiCostumePhotoTests: XCTestCase {
                 scene.angle(0); try await Task.sleep(for: .milliseconds(700))
                 let baseline: UIImage? = await withCheckedContinuation { c in view.snapshot(saveToHDR: false) { c.resume(returning: $0) } }
                 let original = XCTAttachment(image: try XCTUnwrap(baseline))
-                original.name = "original-\(costume.rawValue)-front"; original.lifetime = .keepAlways; add(original)
+                original.name = "original-\(name)-front"; original.lifetime = .keepAlways; add(original)
             }
             scene.editPhotos(in: .top, look: look)
             for _ in 0..<300 where scene.loading { try await Task.sleep(for: .milliseconds(50)) }
@@ -3216,14 +3257,14 @@ final class OiCostumePhotoTests: XCTestCase {
             let layout = try OiPhotoPrintLayout.load(resource: OiPhotoSlot.top.resource(in: look))
             let layers = OiPhotoSide.allCases.map { OiPhotoLayer(source: photo.id, side: $0, placement: layout[$0].placement(for: photo.image)) }
             let framed = OiPhotoRenderer.atlas(layers: layers, assets: [photo.id: photo], panelSize: 512,
-                color: 0xFFFFFF, transparent: true, layout: layout)
+                color: 0xFFFFFF, transparent: OiPhotoSlot.top.preservesOriginalMaterial(in: look), layout: layout)
             await scene.setPhotoPreview(try XCTUnwrap(framed.cgImage)); XCTAssertNil(scene.photoPreviewError)
-            for (name, angle) in [("front", Float(0)), ("side", .pi/3), ("back", .pi)] {
-                if name == "side" && !detailed { continue }
+            for (direction, angle) in [("front", Float(0)), ("side", .pi/3), ("back", .pi)] {
+                if direction == "side" && !detailed { continue }
                 scene.angle(angle); try await Task.sleep(for: .milliseconds(700))
                 let image: UIImage? = await withCheckedContinuation { c in view.snapshot(saveToHDR: false) { c.resume(returning: $0) } }
                 let screenshot = try XCTUnwrap(image)
-                let attachment = XCTAttachment(image: screenshot); attachment.name = "photo-\(costume.rawValue)-\(name)"; attachment.lifetime = .keepAlways
+                let attachment = XCTAttachment(image: screenshot); attachment.name = "photo-\(name)-\(direction)"; attachment.lifetime = .keepAlways
                 add(attachment)
             }
         }

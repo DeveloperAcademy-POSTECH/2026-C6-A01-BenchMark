@@ -21,7 +21,7 @@ import UIKit
                 let image: CGImage
                 if editingSlot == slot, let previewImage { image = previewImage }
                 else {
-                    let draft = try OiPhotoRenderer.load(design ?? OiPhotoDesign(), sources: look.artwork.sources)
+                    let draft = try OiPhotoRenderer.load(design ?? OiPhotoDesign(), sources: look.artwork.sources, layout: layout)
                     guard let cg = OiPhotoRenderer.atlas(layers: draft.layers, assets: draft.assets, panelSize: 1024,
                         color: 0xFFFFFF, transparent: true, layout: layout).cgImage else { throw OiPhotoDataError.unreadable }
                     image = cg
@@ -35,7 +35,7 @@ import UIKit
             let texture: TextureResource
             if editingSlot == slot, let previewTexture { texture = previewTexture }
             else {
-                let draft = try OiPhotoRenderer.load(design ?? OiPhotoDesign(), sources: look.artwork.sources)
+                let draft = try OiPhotoRenderer.load(design ?? OiPhotoDesign(), sources: look.artwork.sources, layout: layout)
                 let image = OiPhotoRenderer.atlas(layers: draft.layers, assets: draft.assets, panelSize: 1024,
                     color: slot.color(in: look), fabric: slot.fabric(in: look), layout: layout)
                 guard let cg = image.cgImage else { throw OiPhotoDataError.unreadable }

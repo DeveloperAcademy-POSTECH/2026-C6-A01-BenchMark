@@ -2,12 +2,26 @@
   "photo-wardrobe-costume-dinosaur-top": {
     "front": {
       "x": 0.158,
+      "y": 0.14,
+      "width": 0.684,
+      "height": 0.495,
+      "radius": 0.0693
+    },
+    "back": {
+      "x": 0.202609,
+      "y": 0.108696,
+      "width": 0.594783,
+      "height": 0.430435,
+      "radius": 0.060261
+    },
+    "legacyFront": {
+      "x": 0.158,
       "y": 0.167,
       "width": 0.684,
       "height": 0.666,
       "radius": 0.09324
     },
-    "back": {
+    "legacyBack": {
       "x": 0.158,
       "y": 0.167,
       "width": 0.684,
@@ -19,12 +33,26 @@
   "photo-wardrobe-costume-raincoat-top": {
     "front": {
       "x": 0.158,
+      "y": 0.131818,
+      "width": 0.684,
+      "height": 0.45,
+      "radius": 0.063
+    },
+    "back": {
+      "x": 0.1656,
+      "y": 0.11,
+      "width": 0.6688,
+      "height": 0.44,
+      "radius": 0.0616
+    },
+    "legacyFront": {
+      "x": 0.158,
       "y": 0.189705,
       "width": 0.684,
       "height": 0.620591,
       "radius": 0.086883
     },
-    "back": {
+    "legacyBack": {
       "x": 0.158,
       "y": 0.189705,
       "width": 0.684,
@@ -36,12 +64,26 @@
   "photo-wardrobe-costume-bee-top": {
     "front": {
       "x": 0.158,
+      "y": 0.285227,
+      "width": 0.684,
+      "height": 0.347727,
+      "radius": 0.048682
+    },
+    "back": {
+      "x": 0.158,
+      "y": 0.367045,
+      "width": 0.684,
+      "height": 0.347727,
+      "radius": 0.048682
+    },
+    "legacyFront": {
+      "x": 0.158,
       "y": 0.325932,
       "width": 0.684,
       "height": 0.348136,
       "radius": 0.048739
     },
-    "back": {
+    "legacyBack": {
       "x": 0.158,
       "y": 0.325932,
       "width": 0.684,
@@ -53,12 +95,26 @@
   "photo-wardrobe-costume-cat-top": {
     "front": {
       "x": 0.158,
+      "y": 0.14,
+      "width": 0.684,
+      "height": 0.495,
+      "radius": 0.0693
+    },
+    "back": {
+      "x": 0.189091,
+      "y": 0.111364,
+      "width": 0.621818,
+      "height": 0.45,
+      "radius": 0.063
+    },
+    "legacyFront": {
+      "x": 0.158,
       "y": 0.167,
       "width": 0.684,
       "height": 0.666,
       "radius": 0.09324
     },
-    "back": {
+    "legacyBack": {
       "x": 0.158,
       "y": 0.167,
       "width": 0.684,
@@ -69,13 +125,27 @@
   },
   "photo-wardrobe-costume-astronaut-top": {
     "front": {
+      "x": 0.199707,
+      "y": 0.115854,
+      "width": 0.600585,
+      "height": 0.439024,
+      "radius": 0.061463
+    },
+    "back": {
+      "x": 0.206857,
+      "y": 0.114286,
+      "width": 0.586286,
+      "height": 0.428571,
+      "radius": 0.06
+    },
+    "legacyFront": {
       "x": 0.167243,
       "y": 0.167,
       "width": 0.665514,
       "height": 0.666,
       "radius": 0.093172
     },
-    "back": {
+    "legacyBack": {
       "x": 0.167243,
       "y": 0.167,
       "width": 0.665514,
@@ -86,13 +156,27 @@
   },
   "photo-wardrobe-costume-scientist-top": {
     "front": {
+      "x": 0.206857,
+      "y": 0.114286,
+      "width": 0.586286,
+      "height": 0.471429,
+      "radius": 0.066
+    },
+    "back": {
+      "x": 0.238043,
+      "y": 0.107447,
+      "width": 0.523915,
+      "height": 0.421277,
+      "radius": 0.058979
+    },
+    "legacyFront": {
       "x": 0.184308,
       "y": 0.167,
       "width": 0.631385,
       "height": 0.666,
       "radius": 0.088394
     },
-    "back": {
+    "legacyBack": {
       "x": 0.184308,
       "y": 0.167,
       "width": 0.631385,
@@ -104,12 +188,26 @@
   "photo-wardrobe-costume-cat-bear-top": {
     "front": {
       "x": 0.32045,
+      "y": 0.14,
+      "width": 0.3591,
+      "height": 0.495,
+      "radius": 0.050274
+    },
+    "back": {
+      "x": 0.197767,
+      "y": 0.112791,
+      "width": 0.604465,
+      "height": 0.460465,
+      "radius": 0.064465
+    },
+    "legacyFront": {
+      "x": 0.32045,
       "y": 0.167,
       "width": 0.3591,
       "height": 0.666,
       "radius": 0.050274
     },
-    "back": {
+    "legacyBack": {
       "x": 0.1751,
       "y": 0.167,
       "width": 0.6498,
@@ -121,12 +219,26 @@
   "photo-wardrobe-costume-postech-selfie-top": {
     "front": {
       "x": 0.158,
+      "y": 0.3375,
+      "width": 0.684,
+      "height": 0.4,
+      "radius": 0.056
+    },
+    "back": {
+      "x": 0.158,
+      "y": 0.2,
+      "width": 0.684,
+      "height": 0.4,
+      "radius": 0.056
+    },
+    "legacyFront": {
+      "x": 0.158,
       "y": 0.26875,
       "width": 0.684,
       "height": 0.4625,
       "radius": 0.06475
     },
-    "back": {
+    "legacyBack": {
       "x": 0.158,
       "y": 0.26875,
       "width": 0.684,
@@ -137,13 +249,27 @@
   },
   "photo-wardrobe-costume-baseball-top": {
     "front": {
+      "x": 0.20075,
+      "y": 0.1625,
+      "width": 0.5985,
+      "height": 0.525,
+      "radius": 0.0735
+    },
+    "back": {
+      "x": 0.158,
+      "y": 0.275,
+      "width": 0.684,
+      "height": 0.35,
+      "radius": 0.049
+    },
+    "legacyFront": {
       "x": 0.173545,
       "y": 0.167,
       "width": 0.652909,
       "height": 0.666,
       "radius": 0.091407
     },
-    "back": {
+    "legacyBack": {
       "x": 0.158,
       "y": 0.2965,
       "width": 0.684,
@@ -155,12 +281,26 @@
   "photo-wardrobe-costume-cowboy-top": {
     "front": {
       "x": 0.158,
+      "y": 0.225,
+      "width": 0.684,
+      "height": 0.4,
+      "radius": 0.056
+    },
+    "back": {
+      "x": 0.158,
+      "y": 0.15,
+      "width": 0.684,
+      "height": 0.4,
+      "radius": 0.056
+    },
+    "legacyFront": {
+      "x": 0.158,
       "y": 0.278,
       "width": 0.684,
       "height": 0.444,
       "radius": 0.06216
     },
-    "back": {
+    "legacyBack": {
       "x": 0.158,
       "y": 0.278,
       "width": 0.684,
@@ -172,12 +312,26 @@
   "photo-wardrobe-costume-farmer-top": {
     "front": {
       "x": 0.158,
+      "y": 0.15,
+      "width": 0.684,
+      "height": 0.4,
+      "radius": 0.056
+    },
+    "back": {
+      "x": 0.158,
+      "y": 0.15,
+      "width": 0.684,
+      "height": 0.4,
+      "radius": 0.056
+    },
+    "legacyFront": {
+      "x": 0.158,
       "y": 0.2225,
       "width": 0.684,
       "height": 0.555,
       "radius": 0.0777
     },
-    "back": {
+    "legacyBack": {
       "x": 0.158,
       "y": 0.2225,
       "width": 0.684,
@@ -189,12 +343,26 @@
   "photo-wardrobe-costume-sportswear-top": {
     "front": {
       "x": 0.158,
+      "y": 0.25,
+      "width": 0.684,
+      "height": 0.4,
+      "radius": 0.056
+    },
+    "back": {
+      "x": 0.158,
+      "y": 0.225,
+      "width": 0.684,
+      "height": 0.4,
+      "radius": 0.056
+    },
+    "legacyFront": {
+      "x": 0.158,
       "y": 0.2965,
       "width": 0.684,
       "height": 0.407,
       "radius": 0.05698
     },
-    "back": {
+    "legacyBack": {
       "x": 0.158,
       "y": 0.2965,
       "width": 0.684,
@@ -205,13 +373,27 @@
   },
   "photo-wardrobe-costume-martial-arts-top": {
     "front": {
+      "x": 0.1922,
+      "y": 0.1175,
+      "width": 0.6156,
+      "height": 0.36,
+      "radius": 0.0504
+    },
+    "back": {
+      "x": 0.220182,
+      "y": 0.111364,
+      "width": 0.559636,
+      "height": 0.327273,
+      "radius": 0.045818
+    },
+    "legacyFront": {
       "x": 0.158,
       "y": 0.21325,
       "width": 0.684,
       "height": 0.5735,
       "radius": 0.08029
     },
-    "back": {
+    "legacyBack": {
       "x": 0.158,
       "y": 0.21325,
       "width": 0.684,
@@ -223,12 +405,26 @@
   "photo-wardrobe-costume-school-uniform-top": {
     "front": {
       "x": 0.158,
+      "y": 0.25,
+      "width": 0.684,
+      "height": 0.4,
+      "radius": 0.056
+    },
+    "back": {
+      "x": 0.158,
+      "y": 0.225,
+      "width": 0.684,
+      "height": 0.4,
+      "radius": 0.056
+    },
+    "legacyFront": {
+      "x": 0.158,
       "y": 0.2965,
       "width": 0.684,
       "height": 0.407,
       "radius": 0.05698
     },
-    "back": {
+    "legacyBack": {
       "x": 0.158,
       "y": 0.2965,
       "width": 0.684,
@@ -240,12 +436,26 @@
   "photo-wardrobe-costume-school-uniform-trousers-top": {
     "front": {
       "x": 0.158,
+      "y": 0.2,
+      "width": 0.684,
+      "height": 0.45,
+      "radius": 0.063
+    },
+    "back": {
+      "x": 0.158,
+      "y": 0.1375,
+      "width": 0.684,
+      "height": 0.45,
+      "radius": 0.063
+    },
+    "legacyFront": {
+      "x": 0.158,
       "y": 0.2965,
       "width": 0.684,
       "height": 0.407,
       "radius": 0.05698
     },
-    "back": {
+    "legacyBack": {
       "x": 0.158,
       "y": 0.2965,
       "width": 0.684,
@@ -256,13 +466,27 @@
   },
   "photo-wardrobe-costume-astronaut-navy-top": {
     "front": {
+      "x": 0.199707,
+      "y": 0.115854,
+      "width": 0.600585,
+      "height": 0.439024,
+      "radius": 0.061463
+    },
+    "back": {
+      "x": 0.206857,
+      "y": 0.114286,
+      "width": 0.586286,
+      "height": 0.428571,
+      "radius": 0.06
+    },
+    "legacyFront": {
       "x": 0.167243,
       "y": 0.167,
       "width": 0.665514,
       "height": 0.666,
       "radius": 0.093172
     },
-    "back": {
+    "legacyBack": {
       "x": 0.167243,
       "y": 0.167,
       "width": 0.665514,
@@ -274,12 +498,26 @@
   "photo-wardrobe-costume-scientist-goggles-top": {
     "front": {
       "x": 0.158,
+      "y": 0.1625,
+      "width": 0.684,
+      "height": 0.5,
+      "radius": 0.07
+    },
+    "back": {
+      "x": 0.199707,
+      "y": 0.115854,
+      "width": 0.600585,
+      "height": 0.439024,
+      "radius": 0.061463
+    },
+    "legacyFront": {
+      "x": 0.158,
       "y": 0.204,
       "width": 0.684,
       "height": 0.592,
       "radius": 0.08288
     },
-    "back": {
+    "legacyBack": {
       "x": 0.158,
       "y": 0.204,
       "width": 0.684,
@@ -291,12 +529,26 @@
   "photo-wardrobe-postech-long-top": {
     "front": {
       "x": 0.158,
+      "y": 0.3625,
+      "width": 0.684,
+      "height": 0.4,
+      "radius": 0.056
+    },
+    "back": {
+      "x": 0.158,
+      "y": 0.25,
+      "width": 0.684,
+      "height": 0.4,
+      "radius": 0.056
+    },
+    "legacyFront": {
+      "x": 0.158,
       "y": 0.28725,
       "width": 0.684,
       "height": 0.4255,
       "radius": 0.05957
     },
-    "back": {
+    "legacyBack": {
       "x": 0.158,
       "y": 0.28725,
       "width": 0.684,
@@ -308,12 +560,26 @@
   "photo-wardrobe-postech-shorts-top": {
     "front": {
       "x": 0.158,
+      "y": 0.3625,
+      "width": 0.684,
+      "height": 0.4,
+      "radius": 0.056
+    },
+    "back": {
+      "x": 0.158,
+      "y": 0.25,
+      "width": 0.684,
+      "height": 0.4,
+      "radius": 0.056
+    },
+    "legacyFront": {
+      "x": 0.158,
       "y": 0.28725,
       "width": 0.684,
       "height": 0.4255,
       "radius": 0.05957
     },
-    "back": {
+    "legacyBack": {
       "x": 0.158,
       "y": 0.28725,
       "width": 0.684,
@@ -337,17 +603,45 @@
       "height": 0.251646,
       "radius": 0.032714
     },
+    "legacyFront": {
+      "x": 0.160154,
+      "y": 0.229794,
+      "width": 0.233671,
+      "height": 0.251646,
+      "radius": 0.032714
+    },
+    "legacyBack": {
+      "x": 0.606175,
+      "y": 0.229794,
+      "width": 0.233671,
+      "height": 0.251646,
+      "radius": 0.032714
+    },
     "sourceSHA256": "91581276e54fdd69754714735c6bedb37ff9ae51653547ac403256fcb24f21d0"
   },
   "photo-wardrobe-cardigan-long-top": {
     "front": {
+      "x": 0.32523,
+      "y": 0.412756,
+      "width": 0.349181,
+      "height": 0.232787,
+      "radius": 0.03259
+    },
+    "back": {
+      "x": 0.325589,
+      "y": 0.33516,
+      "width": 0.349181,
+      "height": 0.232787,
+      "radius": 0.03259
+    },
+    "legacyFront": {
       "x": 0.32523,
       "y": 0.373958,
       "width": 0.349181,
       "height": 0.284518,
       "radius": 0.039832
     },
-    "back": {
+    "legacyBack": {
       "x": 0.325589,
       "y": 0.373958,
       "width": 0.349181,
@@ -371,17 +665,45 @@
       "height": 0.266338,
       "radius": 0.034624
     },
+    "legacyFront": {
+      "x": 0.139057,
+      "y": 0.354801,
+      "width": 0.247313,
+      "height": 0.266338,
+      "radius": 0.034624
+    },
+    "legacyBack": {
+      "x": 0.613629,
+      "y": 0.354801,
+      "width": 0.247313,
+      "height": 0.266338,
+      "radius": 0.034624
+    },
     "sourceSHA256": "1d481aaf356e2c3f357163f9d161d9b9e1b28ec43a7fb1a194c3d072d1f44e2e"
   },
   "photo-wardrobe-cardigan-shorts-top": {
     "front": {
+      "x": 0.32523,
+      "y": 0.412756,
+      "width": 0.349181,
+      "height": 0.232787,
+      "radius": 0.03259
+    },
+    "back": {
+      "x": 0.325589,
+      "y": 0.33516,
+      "width": 0.349181,
+      "height": 0.232787,
+      "radius": 0.03259
+    },
+    "legacyFront": {
       "x": 0.32523,
       "y": 0.373958,
       "width": 0.349181,
       "height": 0.284518,
       "radius": 0.039832
     },
-    "back": {
+    "legacyBack": {
       "x": 0.325589,
       "y": 0.373958,
       "width": 0.349181,
@@ -405,17 +727,45 @@
       "height": 0.255087,
       "radius": 0.033161
     },
+    "legacyFront": {
+      "x": 0.146524,
+      "y": 0.215306,
+      "width": 0.236866,
+      "height": 0.255087,
+      "radius": 0.033161
+    },
+    "legacyBack": {
+      "x": 0.61661,
+      "y": 0.215306,
+      "width": 0.236866,
+      "height": 0.255087,
+      "radius": 0.033161
+    },
     "sourceSHA256": "debbdc74357078e7c0623b932b69d86bcd0c467267ec0c8af2ecfe58c15c00a6"
   },
   "photo-wardrobe-hoodie-long-top": {
     "front": {
+      "x": 0.326752,
+      "y": 0.413939,
+      "width": 0.347685,
+      "height": 0.23179,
+      "radius": 0.032451
+    },
+    "back": {
+      "x": 0.325563,
+      "y": 0.388185,
+      "width": 0.347685,
+      "height": 0.23179,
+      "radius": 0.032451
+    },
+    "legacyFront": {
       "x": 0.326752,
       "y": 0.401062,
       "width": 0.347685,
       "height": 0.283299,
       "radius": 0.039662
     },
-    "back": {
+    "legacyBack": {
       "x": 0.325563,
       "y": 0.401062,
       "width": 0.347685,
@@ -439,17 +789,45 @@
       "height": 0.266338,
       "radius": 0.034624
     },
+    "legacyFront": {
+      "x": 0.139057,
+      "y": 0.346228,
+      "width": 0.247313,
+      "height": 0.266338,
+      "radius": 0.034624
+    },
+    "legacyBack": {
+      "x": 0.613629,
+      "y": 0.346228,
+      "width": 0.247313,
+      "height": 0.266338,
+      "radius": 0.034624
+    },
     "sourceSHA256": "c059537dac58a6da4e69abe0ee84ff3278676c033d65ea9a219186f733ae3c7a"
   },
   "photo-wardrobe-hoodie-shorts-top": {
     "front": {
+      "x": 0.326752,
+      "y": 0.413939,
+      "width": 0.347685,
+      "height": 0.23179,
+      "radius": 0.032451
+    },
+    "back": {
+      "x": 0.325563,
+      "y": 0.388185,
+      "width": 0.347685,
+      "height": 0.23179,
+      "radius": 0.032451
+    },
+    "legacyFront": {
       "x": 0.326752,
       "y": 0.401062,
       "width": 0.347685,
       "height": 0.283299,
       "radius": 0.039662
     },
-    "back": {
+    "legacyBack": {
       "x": 0.325563,
       "y": 0.401062,
       "width": 0.347685,
@@ -473,6 +851,20 @@
       "height": 0.253318,
       "radius": 0.032931
     },
+    "legacyFront": {
+      "x": 0.151869,
+      "y": 0.227567,
+      "width": 0.235224,
+      "height": 0.253318,
+      "radius": 0.032931
+    },
+    "legacyBack": {
+      "x": 0.612908,
+      "y": 0.227567,
+      "width": 0.235224,
+      "height": 0.253318,
+      "radius": 0.032931
+    },
     "sourceSHA256": "8ab754cdd5e804634162d46c5f98376ad52fbcad3850478e60da2cd2b6ddb005"
   },
   "photo-wardrobe-postech-shorts-bottom": {
@@ -484,6 +876,20 @@
       "radius": 0.034624
     },
     "back": {
+      "x": 0.613629,
+      "y": 0.351659,
+      "width": 0.247313,
+      "height": 0.266338,
+      "radius": 0.034624
+    },
+    "legacyFront": {
+      "x": 0.139057,
+      "y": 0.351659,
+      "width": 0.247313,
+      "height": 0.266338,
+      "radius": 0.034624
+    },
+    "legacyBack": {
       "x": 0.613629,
       "y": 0.351659,
       "width": 0.247313,
@@ -507,17 +913,45 @@
       "height": 0.253289,
       "radius": 0.032928
     },
+    "legacyFront": {
+      "x": 0.151857,
+      "y": 0.23162,
+      "width": 0.235197,
+      "height": 0.253289,
+      "radius": 0.032928
+    },
+    "legacyBack": {
+      "x": 0.612947,
+      "y": 0.23162,
+      "width": 0.235197,
+      "height": 0.253289,
+      "radius": 0.032928
+    },
     "sourceSHA256": "f53491e011d9cbcb504793382495abd2fabdb7ddd7445d36ff61c43a201feb00"
   },
   "photo-wardrobe-tshirt-long-top": {
     "front": {
+      "x": 0.303964,
+      "y": 0.410805,
+      "width": 0.392372,
+      "height": 0.261581,
+      "radius": 0.036621
+    },
+    "back": {
+      "x": 0.303664,
+      "y": 0.367208,
+      "width": 0.392372,
+      "height": 0.261581,
+      "radius": 0.036621
+    },
+    "legacyFront": {
       "x": 0.303964,
       "y": 0.367208,
       "width": 0.392372,
       "height": 0.319711,
       "radius": 0.044759
     },
-    "back": {
+    "legacyBack": {
       "x": 0.303664,
       "y": 0.367208,
       "width": 0.392372,
@@ -541,17 +975,45 @@
       "height": 0.26646,
       "radius": 0.03464
     },
+    "legacyFront": {
+      "x": 0.138964,
+      "y": 0.347149,
+      "width": 0.247427,
+      "height": 0.26646,
+      "radius": 0.03464
+    },
+    "legacyBack": {
+      "x": 0.613609,
+      "y": 0.347149,
+      "width": 0.247427,
+      "height": 0.26646,
+      "radius": 0.03464
+    },
     "sourceSHA256": "4a083b14df98ef53425b67e8f5246ae74ba3e32c63c2fe5224c04fe0e2a987f9"
   },
   "photo-wardrobe-tshirt-shorts-top": {
     "front": {
+      "x": 0.304586,
+      "y": 0.394056,
+      "width": 0.392045,
+      "height": 0.261363,
+      "radius": 0.036591
+    },
+    "back": {
+      "x": 0.303369,
+      "y": 0.350495,
+      "width": 0.392045,
+      "height": 0.261363,
+      "radius": 0.036591
+    },
+    "legacyFront": {
       "x": 0.304586,
       "y": 0.350495,
       "width": 0.392045,
       "height": 0.319444,
       "radius": 0.044722
     },
-    "back": {
+    "legacyBack": {
       "x": 0.303369,
       "y": 0.350495,
       "width": 0.392045,

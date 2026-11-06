@@ -25,6 +25,7 @@ REGIONS={
  'astronaut-navy':(-.18,.18,.38,.75), 'scientist-goggles':(-.18,.18,.38,.70)
 }
 BACK_OVERRIDES={'cat-bear':(-.19,.19,.32,.72),'baseball':(-.18,.18,.43,.65)}
+ANCHORS=json.loads((ROOT/'tools/wardrobe/photo-print-anchors.json').read_text())
 
 records = []
 sources = [(ROOT/'apps/ios/OiDonation/Resources/Wardrobe'/('wardrobe-costume-'+k+'.usdz'), k) for k in REGIONS]
@@ -71,6 +72,10 @@ for source, key in sources:
         if not excluded: group['paths'].append(str(prim.GetPath()).strip('/').split('/')[1:])
     name = 'photo-'+source.stem+'-top'
     regions = [REGIONS.get(key, (-.18,.18,.55,.78)), BACK_OVERRIDES.get(key, REGIONS.get(key, (-.18,.18,.55,.78)))]
+    # The fixed print starts 12cm below the reviewed neck/body landmark.
+    # Extend the bake window upward where needed; retain its protected side bounds.
+    regions = [(*r[:3], max(r[3], ANCHORS[key][side]-.12+.03))
+               for r, side in zip(regions, ['front', 'back'])]
     bindings=[]; stats=[]; guides=[[],[]]
     for index, group in enumerate(groups.values()):
         points=np.asarray(group['points']); triangles=np.asarray(group['triangles'])

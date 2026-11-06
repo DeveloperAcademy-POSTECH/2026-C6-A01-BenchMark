@@ -32,8 +32,23 @@ struct OiPhotoPrintFrame: Decodable, Equatable {
 struct OiPhotoPrintLayout: Decodable {
     let front: OiPhotoPrintFrame
     let back: OiPhotoPrintFrame
+    let legacyFront: OiPhotoPrintFrame?
+    let legacyBack: OiPhotoPrintFrame?
 
     subscript(_ side: OiPhotoSide) -> OiPhotoPrintFrame { side == .front ? front : back }
+
+    /// Move existing artwork with its frame while preserving image aspect and rotation.
+    /// The saved draft changes only when the user presses Done.
+    func relocate(_ placement: OiPhotoPlacement, on side: OiPhotoSide) -> OiPhotoPlacement {
+        guard let old = side == .front ? legacyFront : legacyBack else { return placement }
+        let new = self[side]
+        guard old != new else { return placement }
+        let scale = max(new.width / old.width, new.height / old.height)
+        return OiPhotoPlacement(
+            x: min(1, max(0, new.x + new.width/2 + (placement.x-old.x-old.width/2)*scale)),
+            y: min(1, max(0, new.y + new.height/2 + (placement.y-old.y-old.height/2)*scale)),
+            width: min(1.5, max(0.03, placement.width*scale)), rotation: placement.rotation)
+    }
 
     private static let layouts: [String: OiPhotoPrintLayout] = {
         guard let url = Bundle.main.url(forResource: "photo-print-frames", withExtension: "json", subdirectory: "WardrobePhotoUV")

@@ -49,3 +49,24 @@ for name,layout in layouts.items():
         assert 0<f['x']<f['x']+f['width']<1 and 0<f['y']<f['y']+f['height']<1
         assert 0<f['radius']<min(f['width'],f['height'])/2
 print(f'PASS: {len(layouts)} bounded rounded front/back print frames and source hashes')
+
+# Invert the shipped projection, not just the generator's intended rectangle.
+# These landmarks were reviewed on the unchanged 150cm models in front/back views.
+anchors=json.loads((root/'tools/wardrobe/photo-print-anchors.json').read_text())
+legacy=json.loads((root/'tools/wardrobe/photo-print-frames-v1.json').read_text())
+for record in records:
+    name=record['id']; key=name.removeprefix('photo-wardrobe-costume-').removesuffix('-top')
+    if key.startswith('photo-wardrobe-postech-'): key='postech-modular'
+    for side,r in zip(['front','back'],record['regions']):
+        f=layouts[name][side]; scale=.90/max(r[1]-r[0],r[3]-r[2])
+        top=(r[2]+r[3])/2+(.5-f['y'])/scale
+        bottom=top-f['height']/scale
+        assert abs(anchors[key][side]-top-.12)<.00001, (name,side,top)
+        assert abs((top-bottom)-anchors[key]['height'])<.00001
+        assert r[2]<bottom<top<r[3]
+for name,layout in layouts.items():
+    for side in ['front','back']:
+        assert layout['legacy'+side.title()]==legacy[name][side], 'Keep old draft coordinates stable'
+    if name.endswith('-bottom'):
+        assert all(layout[s]==legacy[name][s] for s in ['front','back']), 'Do not move trouser prints onto the torso'
+print('PASS: every costume frame starts 12cm below its neck landmark; old drafts and trouser frames preserved')

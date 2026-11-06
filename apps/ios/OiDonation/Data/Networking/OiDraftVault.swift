@@ -388,9 +388,11 @@ enum OiPhotoEditingLimit {
 struct OiPhotoDesign: Codable, Equatable {
     static let maximumLayers = 8
     var version = UUID().uuidString
+    // Missing in older drafts; their photos use the original, lower print frame.
+    var frameRevision: Int? = 2
     var layers: [OiPhotoLayer] = []
     var isValid: Bool {
-        UUID(uuidString: version) != nil && layers.count <= Self.maximumLayers &&
+        UUID(uuidString: version) != nil && (1...2).contains(frameRevision ?? 1) && layers.count <= Self.maximumLayers &&
         Set(layers.map(\.id)).count == layers.count && layers.allSatisfy(\.isValid)
     }
 }

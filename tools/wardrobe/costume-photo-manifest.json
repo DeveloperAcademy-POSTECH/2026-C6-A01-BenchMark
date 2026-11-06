@@ -13,15 +13,15 @@
         -0.2,
         0.2,
         0.32,
-        0.72
+        0.78
       ]
     ],
     "materials": [
       {
-        "mappedPixels": 386164,
-        "protectedOverlapPixels": 1083,
-        "selectedTriangles": 10605,
-        "compressedBytes": 1408877
+        "mappedPixels": 423945,
+        "protectedOverlapPixels": 1072,
+        "selectedTriangles": 11655,
+        "compressedBytes": 1530413
       }
     ]
   },
@@ -33,21 +33,21 @@
         -0.22,
         0.22,
         0.34,
-        0.75
+        0.76
       ],
       [
         -0.22,
         0.22,
         0.34,
-        0.75
+        0.79
       ]
     ],
     "materials": [
       {
-        "mappedPixels": 559784,
-        "protectedOverlapPixels": 3054,
-        "selectedTriangles": 14117,
-        "compressedBytes": 1870246
+        "mappedPixels": 595238,
+        "protectedOverlapPixels": 3005,
+        "selectedTriangles": 15607,
+        "compressedBytes": 1970948
       }
     ]
   },
@@ -59,7 +59,7 @@
         -0.22,
         0.22,
         0.4,
-        0.63
+        0.67
       ],
       [
         -0.22,
@@ -70,10 +70,10 @@
     ],
     "materials": [
       {
-        "mappedPixels": 242628,
-        "protectedOverlapPixels": 1132,
-        "selectedTriangles": 7044,
-        "compressedBytes": 889818
+        "mappedPixels": 264910,
+        "protectedOverlapPixels": 1437,
+        "selectedTriangles": 7798,
+        "compressedBytes": 967563
       }
     ]
   },
@@ -91,15 +91,15 @@
         -0.2,
         0.2,
         0.32,
-        0.72
+        0.76
       ]
     ],
     "materials": [
       {
-        "mappedPixels": 262069,
-        "protectedOverlapPixels": 1116,
-        "selectedTriangles": 8649,
-        "compressedBytes": 965983
+        "mappedPixels": 276608,
+        "protectedOverlapPixels": 1097,
+        "selectedTriangles": 9091,
+        "compressedBytes": 1010803
       }
     ]
   },
@@ -111,21 +111,21 @@
         -0.18,
         0.18,
         0.38,
-        0.75
+        0.79
       ],
       [
         -0.18,
         0.18,
         0.38,
-        0.75
+        0.8
       ]
     ],
     "materials": [
       {
-        "mappedPixels": 775678,
-        "protectedOverlapPixels": 2286,
-        "selectedTriangles": 22424,
-        "compressedBytes": 2729222
+        "mappedPixels": 863825,
+        "protectedOverlapPixels": 2396,
+        "selectedTriangles": 24469,
+        "compressedBytes": 3013943
       }
     ]
   },
@@ -137,21 +137,21 @@
         -0.18,
         0.18,
         0.38,
-        0.77
+        0.8
       ],
       [
         -0.18,
         0.18,
         0.38,
-        0.77
+        0.85
       ]
     ],
     "materials": [
       {
-        "mappedPixels": 428593,
-        "protectedOverlapPixels": 1596,
-        "selectedTriangles": 12221,
-        "compressedBytes": 1482809
+        "mappedPixels": 494081,
+        "protectedOverlapPixels": 1579,
+        "selectedTriangles": 13829,
+        "compressedBytes": 1699597
       }
     ]
   },
@@ -169,7 +169,7 @@
         -0.19,
         0.19,
         0.32,
-        0.72
+        0.75
       ]
     ],
     "materials": [
@@ -177,13 +177,13 @@
         "mappedPixels": 11493,
         "protectedOverlapPixels": 147,
         "selectedTriangles": 150,
-        "compressedBytes": 58043
+        "compressedBytes": 58015
       },
       {
-        "mappedPixels": 102498,
-        "protectedOverlapPixels": 763,
-        "selectedTriangles": 1953,
-        "compressedBytes": 392470
+        "mappedPixels": 109146,
+        "protectedOverlapPixels": 646,
+        "selectedTriangles": 2063,
+        "compressedBytes": 413597
       }
     ]
   },
@@ -201,15 +201,15 @@
         -0.18,
         0.18,
         0.53,
-        0.78
+        0.8300000000000001
       ]
     ],
     "materials": [
       {
-        "mappedPixels": 227600,
-        "protectedOverlapPixels": 1176,
-        "selectedTriangles": 8723,
-        "compressedBytes": 805561
+        "mappedPixels": 244818,
+        "protectedOverlapPixels": 1275,
+        "selectedTriangles": 8877,
+        "compressedBytes": 870313
       }
     ]
   },
@@ -221,21 +221,21 @@
         -0.16,
         0.05,
         0.43,
-        0.65
+        0.67
       ],
       [
         -0.18,
         0.18,
         0.43,
-        0.65
+        0.67
       ]
     ],
     "materials": [
       {
-        "mappedPixels": 137340,
-        "protectedOverlapPixels": 772,
-        "selectedTriangles": 5177,
-        "compressedBytes": 504709
+        "mappedPixels": 145421,
+        "protectedOverlapPixels": 800,
+        "selectedTriangles": 5308,
+        "compressedBytes": 534541
       }
     ]
   },
@@ -247,21 +247,21 @@
         -0.18,
         0.18,
         0.43,
-        0.67
+        0.7100000000000001
       ],
       [
         -0.18,
         0.18,
         0.43,
-        0.67
+        0.77
       ]
     ],
     "materials": [
       {
-        "mappedPixels": 397863,
-        "protectedOverlapPixels": 1370,
-        "selectedTriangles": 11837,
-        "compressedBytes": 1400486
+        "mappedPixels": 599722,
+        "protectedOverlapPixels": 1408,
+        "selectedTriangles": 16744,
+        "compressedBytes": 2104802
       }
     ]
   },
@@ -273,21 +273,21 @@
         -0.18,
         0.18,
         0.35,
-        0.65
+        0.6900000000000001
       ],
       [
         -0.18,
         0.18,
         0.35,
-        0.65
+        0.6900000000000001
       ]
     ],
     "materials": [
       {
-        "mappedPixels": 335331,
-        "protectedOverlapPixels": 2137,
-        "selectedTriangles": 12279,
-        "compressedBytes": 1181699
+        "mappedPixels": 424913,
+        "protectedOverlapPixels": 1757,
+        "selectedTriangles": 14187,
+        "compressedBytes": 1489766
       }
     ]
   },
@@ -299,21 +299,21 @@
         -0.18,
         0.18,
         0.43,
-        0.65
+        0.6900000000000001
       ],
       [
         -0.18,
         0.18,
         0.43,
-        0.65
+        0.7100000000000001
       ]
     ],
     "materials": [
       {
-        "mappedPixels": 214390,
-        "protectedOverlapPixels": 1145,
-        "selectedTriangles": 6173,
-        "compressedBytes": 777794
+        "mappedPixels": 263993,
+        "protectedOverlapPixels": 1120,
+        "selectedTriangles": 7319,
+        "compressedBytes": 954177
       }
     ]
   },
@@ -325,21 +325,21 @@
         -0.18,
         0.18,
         0.35,
-        0.66
+        0.75
       ],
       [
         -0.18,
         0.18,
         0.35,
-        0.66
+        0.79
       ]
     ],
     "materials": [
       {
-        "mappedPixels": 851263,
-        "protectedOverlapPixels": 1398,
-        "selectedTriangles": 28266,
-        "compressedBytes": 2992009
+        "mappedPixels": 950860,
+        "protectedOverlapPixels": 1382,
+        "selectedTriangles": 31100,
+        "compressedBytes": 3334790
       }
     ]
   },
@@ -351,21 +351,21 @@
         -0.18,
         0.18,
         0.43,
-        0.65
+        0.6900000000000001
       ],
       [
         -0.18,
         0.18,
         0.43,
-        0.65
+        0.7100000000000001
       ]
     ],
     "materials": [
       {
-        "mappedPixels": 167022,
-        "protectedOverlapPixels": 1056,
-        "selectedTriangles": 4464,
-        "compressedBytes": 608441
+        "mappedPixels": 241071,
+        "protectedOverlapPixels": 1313,
+        "selectedTriangles": 7204,
+        "compressedBytes": 854631
       }
     ]
   },
@@ -377,21 +377,21 @@
         -0.18,
         0.18,
         0.43,
-        0.65
+        0.73
       ],
       [
         -0.18,
         0.18,
         0.43,
-        0.65
+        0.78
       ]
     ],
     "materials": [
       {
-        "mappedPixels": 305593,
-        "protectedOverlapPixels": 744,
-        "selectedTriangles": 7867,
-        "compressedBytes": 1103464
+        "mappedPixels": 493448,
+        "protectedOverlapPixels": 944,
+        "selectedTriangles": 13757,
+        "compressedBytes": 1748757
       }
     ]
   },
@@ -403,21 +403,21 @@
         -0.18,
         0.18,
         0.38,
-        0.75
+        0.79
       ],
       [
         -0.18,
         0.18,
         0.38,
-        0.75
+        0.8
       ]
     ],
     "materials": [
       {
-        "mappedPixels": 594511,
-        "protectedOverlapPixels": 1145,
-        "selectedTriangles": 14932,
-        "compressedBytes": 2072845
+        "mappedPixels": 644614,
+        "protectedOverlapPixels": 1189,
+        "selectedTriangles": 16243,
+        "compressedBytes": 2236225
       }
     ]
   },
@@ -429,21 +429,21 @@
         -0.18,
         0.18,
         0.38,
-        0.7
+        0.7100000000000001
       ],
       [
         -0.18,
         0.18,
         0.38,
-        0.7
+        0.79
       ]
     ],
     "materials": [
       {
-        "mappedPixels": 627230,
-        "protectedOverlapPixels": 1755,
-        "selectedTriangles": 17941,
-        "compressedBytes": 2151037
+        "mappedPixels": 663730,
+        "protectedOverlapPixels": 1769,
+        "selectedTriangles": 18568,
+        "compressedBytes": 2276759
       }
     ]
   },
@@ -461,15 +461,15 @@
         -0.18,
         0.18,
         0.55,
-        0.78
+        0.81
       ]
     ],
     "materials": [
       {
-        "mappedPixels": 169984,
-        "protectedOverlapPixels": 743,
-        "selectedTriangles": 3394,
-        "compressedBytes": 609367
+        "mappedPixels": 178559,
+        "protectedOverlapPixels": 757,
+        "selectedTriangles": 3419,
+        "compressedBytes": 640899
       }
     ]
   },
@@ -487,15 +487,15 @@
         -0.18,
         0.18,
         0.55,
-        0.78
+        0.81
       ]
     ],
     "materials": [
       {
-        "mappedPixels": 169984,
-        "protectedOverlapPixels": 743,
-        "selectedTriangles": 3394,
-        "compressedBytes": 609367
+        "mappedPixels": 178559,
+        "protectedOverlapPixels": 757,
+        "selectedTriangles": 3419,
+        "compressedBytes": 640899
       }
     ]
   }

@@ -35,7 +35,7 @@ struct OiWardrobePhotoEditor: View {
         self.layout = try? OiPhotoPrintLayout.load(resource: slot.resource(in: look))
         if let design = look.artwork.designs[slot.itemID(in: look)] {
             do {
-                let restored = try OiPhotoRenderer.load(design, sources: look.artwork.sources)
+                let restored = try OiPhotoRenderer.load(design, sources: look.artwork.sources, layout: self.layout)
                 _draft = State(initialValue: restored)
                 _selectedID = State(initialValue: restored.layers.last?.id)
                 _side = State(initialValue: restored.layers.last?.side ?? .front)

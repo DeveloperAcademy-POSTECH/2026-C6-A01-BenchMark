@@ -1,0 +1,23 @@
+{
+  "dinosaur": {"front": 0.80, "back": 0.87, "height": 0.22},
+  "raincoat": {"front": 0.85, "back": 0.88, "height": 0.22},
+  "bee": {"front": 0.76, "back": 0.70, "height": 0.17},
+  "cat": {"front": 0.80, "back": 0.85, "height": 0.22},
+  "astronaut": {"front": 0.88, "back": 0.89, "height": 0.20},
+  "scientist": {"front": 0.89, "back": 0.94, "height": 0.22},
+  "cat-bear": {"front": 0.80, "back": 0.84, "height": 0.22},
+  "postech-selfie": {"front": 0.84, "back": 0.92, "height": 0.16},
+  "baseball": {"front": 0.76, "back": 0.76, "height": 0.14},
+  "cowboy": {"front": 0.80, "back": 0.86, "height": 0.16},
+  "farmer": {"front": 0.78, "back": 0.78, "height": 0.16},
+  "sportswear": {"front": 0.78, "back": 0.80, "height": 0.16},
+  "martial-arts": {"front": 0.84, "back": 0.88, "height": 0.16},
+  "school-uniform": {"front": 0.78, "back": 0.80, "height": 0.16},
+  "school-uniform-trousers": {"front": 0.82, "back": 0.87, "height": 0.18},
+  "astronaut-navy": {"front": 0.88, "back": 0.89, "height": 0.20},
+  "scientist-goggles": {"front": 0.80, "back": 0.88, "height": 0.20},
+  "postech-modular": {"front": 0.84, "back": 0.90, "height": 0.16},
+  "tshirt": {"front": 0.84, "back": 0.87, "height": 0.18},
+  "hoodie": {"front": 0.86, "back": 0.88, "height": 0.18},
+  "cardigan": {"front": 0.84, "back": 0.90, "height": 0.18}
+}
