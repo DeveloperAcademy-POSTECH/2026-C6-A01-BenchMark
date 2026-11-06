@@ -1502,8 +1502,12 @@ final class OiRemoteStoreTests: XCTestCase {
         backend.configure { $0.schoolProfileEnabled = true }
         await store.start()
         XCTAssertTrue(store.isSchoolProfileAvailable)
+        let readsBeforeWrite = backend.snapshot().schoolProfileReads
         await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2020, department: "  Computer Science  ")
         XCTAssertNil(store.error)
+        XCTAssertEqual(backend.snapshot().schoolProfileReads, readsBeforeWrite, "A valid write receipt must not wait for a full refresh")
+        XCTAssertEqual(store.profiles.first { $0.id == OiTestBackend.owner }?.schoolId, "postech")
+        XCTAssertNil(store.profiles.first { $0.id == OiTestBackend.owner }?.schoolAdmissionYear)
         XCTAssertEqual(store.profile?.schoolAdmissionYear, 2020)
         XCTAssertEqual(store.profile?.schoolDepartment, "Computer Science")
         await store.updateProfile(nickname: "Changed nickname")

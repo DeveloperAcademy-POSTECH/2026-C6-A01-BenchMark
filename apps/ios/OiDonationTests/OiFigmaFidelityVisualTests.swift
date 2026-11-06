@@ -746,9 +746,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
 
         let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
-        let signedIn = OiRemoteStore(api: api,
-            drafts: OiDraftVault(directory: directory.appendingPathComponent("signed-in", isDirectory: true)),
-            vault: OiMemorySession())
+        let signedInDrafts = OiDraftVault(directory: directory.appendingPathComponent("signed-in", isDirectory: true))
+        let signedIn = OiRemoteStore(api: api, drafts: signedInDrafts, vault: OiMemorySession())
         let emptySession = OiMemorySession()
         try emptySession.write(nil)
         let signedOut = OiRemoteStore(api: api,
@@ -805,6 +804,16 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                     OiSchoolEvidenceView(remote: signedIn, initialStep: step)
                 }
                 try await capture(screen, name: "school-evidence-" + name, variant: variant,
+                    defaults: fixture.defaults, delay: .milliseconds(450), attach: true)
+            }
+        }
+
+        for outcome in [OiSchoolEvidenceOutcome.completed, .rejected] {
+            let owner = try XCTUnwrap(signedIn.account?.id)
+            try await signedInDrafts.saveSchoolEvidenceReview(.init(outcome: outcome, reviewedAt: .now), owner: owner)
+            for variant in variants {
+                let screen = NavigationStack { OiSchoolEvidenceView(remote: signedIn) }
+                try await capture(screen, name: "school-evidence-result-\(outcome.rawValue)", variant: variant,
                     defaults: fixture.defaults, delay: .milliseconds(450), attach: true)
             }
         }
