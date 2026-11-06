@@ -36,3 +36,16 @@ for record in records:
         assert edges and all(len(edge)==2 and all(len(p)==2 for p in edge) for edge in edges)
     assert not (resources/'WardrobePhotoUV'/(name+'.usdz')).exists(), 'Do not ship the old offset overlay'
 print(f'PASS: {len(records)} source hashes, UV maps, protected texels and guides; {size/1024/1024:.2f} MiB bake data/base images')
+
+layouts=json.loads((resources/'WardrobePhotoUV/photo-print-frames.json').read_text())
+expected={r['id'] for r in records} | {p.stem for p in (resources/'WardrobePhotoUV').glob('*.usdz')}
+assert set(layouts)==expected
+for name,layout in layouts.items():
+    plain=resources/'WardrobePhotoUV'/(name+'.usdz')
+    source=plain if plain.exists() else resources/'Wardrobe'/(name.removeprefix('photo-').removesuffix('-top')+'.usdz')
+    assert hashlib.sha256(source.read_bytes()).hexdigest()==layout['sourceSHA256'], f'Regenerate print frame for {name}'
+    for side in ['front','back']:
+        f=layout[side]
+        assert 0<f['x']<f['x']+f['width']<1 and 0<f['y']<f['y']+f['height']<1
+        assert 0<f['radius']<min(f['width'],f['height'])/2
+print(f'PASS: {len(layouts)} bounded rounded front/back print frames and source hashes')

@@ -16,13 +16,14 @@ import UIKit
         for slot in OiPhotoSlot.allCases where slot.supports(look) {
             let design = look.artwork.designs[slot.itemID(in: look)]
             guard design != nil || slot.fabric(in: look) != nil || editingSlot == slot else { continue }
+            let layout = try OiPhotoPrintLayout.load(resource: slot.resource(in: look))
             if slot.preservesOriginalMaterial(in: look) {
                 let image: CGImage
                 if editingSlot == slot, let previewImage { image = previewImage }
                 else {
                     let draft = try OiPhotoRenderer.load(design ?? OiPhotoDesign(), sources: look.artwork.sources)
                     guard let cg = OiPhotoRenderer.atlas(layers: draft.layers, assets: draft.assets, panelSize: 1024,
-                        color: 0xFFFFFF, transparent: true).cgImage else { throw OiPhotoDataError.unreadable }
+                        color: 0xFFFFFF, transparent: true, layout: layout).cgImage else { throw OiPhotoDataError.unreadable }
                     image = cg
                 }
                 let prepared = try await OiCostumePhotoMaterial.prepare(image, resource: slot.resource(in: look))
@@ -36,7 +37,7 @@ import UIKit
             else {
                 let draft = try OiPhotoRenderer.load(design ?? OiPhotoDesign(), sources: look.artwork.sources)
                 let image = OiPhotoRenderer.atlas(layers: draft.layers, assets: draft.assets, panelSize: 1024,
-                    color: slot.color(in: look), fabric: slot.fabric(in: look))
+                    color: slot.color(in: look), fabric: slot.fabric(in: look), layout: layout)
                 guard let cg = image.cgImage else { throw OiPhotoDataError.unreadable }
                 texture = try await TextureResource(image: cg, options: .init(semantic: .color))
             }
