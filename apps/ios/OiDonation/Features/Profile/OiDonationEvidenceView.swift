@@ -100,19 +100,17 @@ struct OiDonationEvidenceView: View {
                 Button { dismiss() } label: { Image(systemName: "chevron.left").font(.system(size: 19, weight: .semibold)) }
                     .buttonBorderShape(.circle).controlSize(.large).accessibilityLabel("뒤로")
             }
-            if approvalCount > 0 {
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 10) {
-                        DonationSeedArtwork()
-                        Text("\(approvalCount)건")
-                            .font(.custom("Paperlogy-7Bold", size: 20, relativeTo: .title3))
-                    }.padding(.horizontal, 18).padding(.vertical, 8)
-                        .background(Color(red: 1, green: 254 / 255, blue: 228 / 255), in: Capsule())
-                        .overlay { Capsule().stroke(Color(red: 198 / 255, green: 191 / 255, blue: 91 / 255), lineWidth: 1.5) }
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("작성 승인된 증빙 \(approvalCount)건")
-                }.sharedBackgroundVisibility(.hidden)
-            }
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 10) {
+                    DonationSeedArtwork()
+                    Text("\(approvalCount)개")
+                        .font(.custom("Paperlogy-7Bold", size: 20, relativeTo: .title3))
+                }.padding(.horizontal, 18).padding(.vertical, 8)
+                    .background(Color(red: 1, green: 254 / 255, blue: 228 / 255), in: Capsule())
+                    .overlay { Capsule().stroke(Color(red: 198 / 255, green: 191 / 255, blue: 91 / 255), lineWidth: 1.5) }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("작성 승인된 증빙 \(approvalCount)건")
+            }.sharedBackgroundVisibility(.hidden)
         }
         .confirmationDialog("자료 첨부", isPresented: $choosingSource, titleVisibility: .visible) {
             Button("사진 보관함") { pickingPhoto = true }
