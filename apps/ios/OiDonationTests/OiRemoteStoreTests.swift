@@ -3267,13 +3267,17 @@ final class OiCostumePhotoTests: XCTestCase {
 
     func testRoundedFrameEditorSnapshot() async throws {
         var look = OiWardrobeLook(); look.costume = .raincoat
+        if let top = ProcessInfo.processInfo.environment["OI_PHOTO_PLAIN_SNAPSHOT"].flatMap(OiWardrobeLook.Top.init(rawValue:)) {
+            look.costume = nil; look.top = top
+        }
         let asset = try OiPhotoRenderer.asset(UIImage(cgImage: canvas { cg in
             cg.setFillColor(UIColor.systemTeal.cgColor); cg.fill(CGRect(x: 0, y: 0, width: 1024, height: 512))
             ("OI PHOTO" as NSString).draw(at: CGPoint(x: 180, y: 180), withAttributes: [.font: UIFont.boldSystemFont(ofSize: 90)])
         }))
-        let frame = try OiPhotoPrintLayout.load(resource: OiPhotoSlot.top.resource(in: look)).front
-        try look.artwork.set(OiPhotoDesign(layers: [OiPhotoLayer(source: asset.id, placement: frame.placement(for: asset.image))]),
-            sources: [asset.id: asset.data], for: "costume-raincoat")
+        let frame = try OiPhotoPrintLayout.load(for: .top, in: look).front
+        let placement = look.costume == nil ? OiPhotoPlacement() : frame.placement(for: asset.image)
+        try look.artwork.set(OiPhotoDesign(layers: [OiPhotoLayer(source: asset.id, placement: placement)]),
+            sources: [asset.id: asset.data], for: OiPhotoSlot.top.itemID(in: look))
         let empty = ProcessInfo.processInfo.environment["OI_PHOTO_EMPTY_SNAPSHOT"] == "1"
         if empty { look.artwork = OiWardrobeArtwork() }
         let scene = OiWardrobeScene(editingSlot: .top)
@@ -3290,7 +3294,7 @@ final class OiCostumePhotoTests: XCTestCase {
         defer { scene.release(); window.isHidden = true }
         try await Task.sleep(for: .seconds(3))
         let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) }
-        let attachment = XCTAttachment(image: image); attachment.name = "rounded-photo-editor-\(empty ? "empty" : "photo")"; attachment.lifetime = .keepAlways; add(attachment)
+        let attachment = XCTAttachment(image: image); attachment.name = "photo-editor-\(look.costume == nil ? "uv" : "rounded")-\(empty ? "empty" : "photo")"; attachment.lifetime = .keepAlways; add(attachment)
         if interactive {
             print("OI_PHOTO_DELETE_INTERACTION_READY")
             for _ in 0..<300 where saved == nil { try await Task.sleep(for: .seconds(1)) }
