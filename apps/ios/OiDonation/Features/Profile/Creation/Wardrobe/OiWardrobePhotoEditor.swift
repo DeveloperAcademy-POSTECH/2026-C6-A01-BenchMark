@@ -6,6 +6,7 @@ struct OiWardrobePhotoEditor: View {
     let slot: OiPhotoSlot
     let look: OiWardrobeLook
     let onSave: (OiWardrobeArtwork) -> Void
+    private let onClose: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var phase
     let scene: OiWardrobeScene
@@ -29,9 +30,10 @@ struct OiWardrobePhotoEditor: View {
     @State private var renderPending = false
     @State private var renderGeneration = UUID()
 
-    init(slot: OiPhotoSlot, look: OiWardrobeLook, scene: OiWardrobeScene, onSave: @escaping (OiWardrobeArtwork) -> Void) {
+    init(slot: OiPhotoSlot, look: OiWardrobeLook, scene: OiWardrobeScene, onClose: (() -> Void)? = nil,
+         onSave: @escaping (OiWardrobeArtwork) -> Void) {
         self.slot = slot; self.look = look; self.onSave = onSave
-        self.scene = scene
+        self.scene = scene; self.onClose = onClose
         self.layout = try? OiPhotoPrintLayout.load(resource: slot.resource(in: look))
         if let design = look.artwork.designs[slot.itemID(in: look)] {
             do {
@@ -62,7 +64,7 @@ struct OiWardrobePhotoEditor: View {
                     .font(CampusStyle.medium(20)).underline().foregroundStyle(Color(white: 0.44))
                     .disabled(!canApply).opacity(canApply ? 1 : 0.45)
                     .frame(minHeight: 44).accessibilityIdentifier("photo-apply")
-                Button { dismiss() } label: { Image(systemName: "xmark").font(.system(size: 15)) }
+                Button(action: closeEditor) { Image(systemName: "xmark").font(.system(size: 15)) }
                     .frame(width: 32, height: 44).accessibilityLabel("사진 디자인 취소")
                     .accessibilityIdentifier("photo-cancel").disabled(saving || importInProgress)
             }
@@ -362,12 +364,16 @@ struct OiWardrobePhotoEditor: View {
         renderTask = nil
         renderPending = false
     }
+    private func closeEditor() {
+        if let onClose { onClose() } else { dismiss() }
+    }
+
     private func save() {
         saving = true
         do {
             var artwork = look.artwork
             try artwork.set(OiPhotoDesign(layers: draft.layers), sources: draft.assets.mapValues(\.data), for: slot.itemID(in: look))
-            onSave(artwork); dismiss()
+            onSave(artwork); closeEditor()
         }
         catch { self.error = error.localizedDescription }
         saving = false
@@ -375,7 +381,7 @@ struct OiWardrobePhotoEditor: View {
 }
 
 /// Presents from the editing sheet without coupling Photos state to SwiftUI's modal bridge.
-private struct OiWardrobePhotoLibrary: UIViewControllerRepresentable {
+struct OiWardrobePhotoLibrary: UIViewControllerRepresentable {
     @Binding var isPresented: Bool
     let limit: Int
     let onSelection: ([PHPickerResult]) -> Void

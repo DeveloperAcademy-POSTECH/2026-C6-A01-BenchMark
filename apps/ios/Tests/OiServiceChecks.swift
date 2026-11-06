@@ -129,7 +129,51 @@ struct OiServiceChecks {
         print("PASS: card request auth, timestamp, RPC payload and verified decision receipt")
     }
 
+    static func checkCardGestures() {
+        var session = OiCardGestureState()
+        var p = OiCardPlacement()
+        var angle: OiCardOrientation? = .init()
+        func input(_ points: [Int: CGPoint]) {
+            session.update(points: points, bounds: CGSize(width: 200, height: 300), placement: &p, orientation: &angle)
+        }
+        input([0: CGPoint(x: 50, y: 100)])
+        input([0: CGPoint(x: 70, y: 130)])
+        precondition(abs(p.x - 0.6) < 0.0001 && abs(p.y - 0.6) < 0.0001)
+        input([0: CGPoint(x: 70, y: 130), 1: CGPoint(x: 130, y: 130)])
+        let position = p
+        // Symmetric pinch changes size only, around the character's fixed center.
+        input([0: CGPoint(x: 40, y: 130), 1: CGPoint(x: 160, y: 130)])
+        precondition(p.x == position.x && p.y == position.y && p.scale == 2)
+        precondition(angle == OiCardOrientation())
+        // Translating both fingers rotates the model without moving the card layer.
+        input([0: CGPoint(x: 60, y: 140), 1: CGPoint(x: 180, y: 140)])
+        precondition(p.x == position.x && p.y == position.y && p.scale == 2)
+        precondition(abs((angle?.yaw ?? 0) + 0.2) < 0.0001)
+        let rotated = angle
+        // A remaining finger after pinch/orbit must NOT become a move gesture.
+        input([0: CGPoint(x: 60, y: 140)])
+        input([0: CGPoint(x: 90, y: 200)])
+        precondition(p.x == position.x && p.y == position.y && angle == rotated)
+        input([:])
+        input([2: CGPoint(x: 10, y: 10)])
+        input([2: CGPoint(x: 30, y: 10)])
+        precondition(abs(p.x - position.x - 0.1) < 0.0001)
+        // Third finger and a replaced finger rebase without a jump.
+        input([2: CGPoint(x: 30, y: 10), 3: CGPoint(x: 80, y: 10), 4: CGPoint(x: 90, y: 90)])
+        let beforeReplacement = p
+        input([3: CGPoint(x: 80, y: 10), 4: CGPoint(x: 90, y: 90)])
+        precondition(p == beforeReplacement && angle == rotated)
+        input([:])
+        angle = nil
+        input([0: CGPoint(x: 20, y: 50), 1: CGPoint(x: 80, y: 50)])
+        let background = p
+        input([0: CGPoint(x: 40, y: 80), 1: CGPoint(x: 100, y: 80)])
+        precondition(abs(p.x - background.x - 0.1) < 0.0001 && abs(p.y - background.y - 0.1) < 0.0001)
+        print("PASS: card one-finger move, pinch scale, two-finger orbit, 2→1 lock, touch replacement and background pan")
+    }
+
     @MainActor static func main() async throws {
+        checkCardGestures()
         try checkFieldTrial()
         try await checkSchoolReviewRecovery()
         for key in ["", "sb_secret_test", "$(UNSET)", "sb_publishable_bad\nheader"] {
@@ -312,7 +356,7 @@ struct OiServiceChecks {
         // Old customization records have no wardrobe key and must still recover.
         let oldCustomization = try JSONEncoder().encode(record.customization!)
         let oldRecovered = try JSONDecoder().decode(OiDraftCustomization.self, from: oldCustomization)
-        precondition(oldRecovered.wardrobe == nil)
+        precondition(oldRecovered.wardrobe == nil && oldRecovered.card == nil)
         let future = try JSONDecoder().decode(OiWardrobeLook.self, from: Data(#"{"top":"future-garment","bottom":"retired-pants","topColor":4294967295}"#.utf8))
         precondition(future.top == .tshirt && future.bottom == .long && future.topColor == 0xFFFFFF)
         precondition(future.fabrics.isEmpty, "Legacy looks have no fabric override")
@@ -380,6 +424,7 @@ struct OiServiceChecks {
             precondition(OiPhotoSlot.top.supports(dressed) && !OiPhotoSlot.bottom.supports(dressed))
             precondition(OiPhotoSlot.top.preservesOriginalMaterial(in: dressed))
             let itemID = OiPhotoSlot.top.itemID(in: dressed)
+            precondition(itemID == "costume-" + costume.rawValue)
             try dressed.artwork.set(design, for: itemID)
             precondition(dressed.artwork.sources.count == 1, "Sets share existing source bytes")
             let restored = try JSONDecoder().decode(OiWardrobeLook.self, from: JSONEncoder().encode(dressed))
@@ -391,6 +436,29 @@ struct OiServiceChecks {
         look.costume = .dinosaur
         print("PASS: complete costume persistence, unsupported ID fallback and individual-look restoration")
         record.customization?.wardrobe = look
+        var card = OiCardDesign()
+        card.borderFill = .gradient; card.borderFirst = 0xF9F2E5; card.borderSecond = 0xE4E7EB
+        card.caption = "함께한 캠퍼스"; card.anonymous = true; card.pattern = 3
+        card.characterPlacement = OiCardPlacement(x: 0.31, y: 0.68, scale: 2.4)
+        card.backgroundPlacement = OiCardPlacement(x: 0.44, y: 0.62, scale: 1.8)
+        // New optional pose must decode old card drafts and survive account-vault reopening.
+        let legacyCardBytes = try JSONEncoder().encode(card)
+        let legacyCard = try JSONDecoder().decode(OiCardDesign.self, from: legacyCardBytes)
+        precondition(legacyCard.characterOrientation == nil)
+        card.characterOrientation = OiCardOrientation(yaw: .pi / 2, pitch: 0.3)
+        let invalidAngle = OiCardOrientation(yaw: .infinity, pitch: .nan).normalized
+        precondition(invalidAngle == OiCardOrientation())
+        let wrappedAngle = OiCardOrientation(yaw: 5 * .pi, pitch: 8).normalized
+        precondition(abs(wrappedAngle.yaw) <= .pi && wrappedAngle.pitch == .pi / 3)
+        let movedAngle = OiCardOrientation().rotated(horizontal: 50, vertical: 30)
+        precondition(movedAngle == OiCardOrientation(yaw: -0.5, pitch: 0.3))
+        precondition(movedAngle.cacheIdentity != OiCardOrientation().cacheIdentity)
+        precondition(OiCardOrientation(yaw: 2 * .pi).cacheIdentity == OiCardOrientation().cacheIdentity)
+        card.backgroundPhoto = Data([1,2,3]); card.portraitPNG = Data([4,5,6]); card.portraitKey = "test-look"
+        record.customization?.card = card
+        let bounded = OiCardPlacement(x: .infinity, y: -8, scale: 100).normalized
+        precondition(bounded.x == 0.5 && bounded.y == -0.25 && bounded.scale == 4)
+        precondition(OiCardPlacement(x: 0.2, y: 0.8, scale: 1.7).normalized == OiCardPlacement(x: 0.2, y: 0.8, scale: 1.7))
         record.removedMediaPaths = [oldPath]
         record.removedPhotoIDs = [removedPhoto]
         try await vault.saveAttachment(Data([1,2,3]), owner: owner, id: photoID)
@@ -404,6 +472,9 @@ struct OiServiceChecks {
         precondition(recovered?.customization?.firstColor == 0xABCDEF && recovered?.customization?.garmentColors["모자"] == 0x445566)
         precondition(recovered?.customization?.showsCharacter == false && recovered?.removedMediaPaths == [oldPath])
         precondition(recovered?.removedPhotoIDs == [removedPhoto], "Removal intent must survive reopening after a lost receipt")
+        precondition(recovered?.customization?.card == card, "Card framing, portrait, background, caption and privacy choice must survive vault reopening")
+        precondition(recovered?.customization?.card?.characterOrientation == card.characterOrientation)
+        print("PASS: card framing, 3D orientation and artwork survive draft recovery; legacy cards and public payload unchanged")
         precondition(recovered?.customization?.wardrobe == look, "Garments and all three colors must survive reopening the account draft")
         precondition(recovered?.customization?.wardrobe?.artwork == look.artwork)
         precondition(recovered?.customization?.wardrobe?.fabrics == look.fabrics)
