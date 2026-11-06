@@ -219,7 +219,7 @@ struct MYFarmerCustomizationView: View {
     private var categorySelector: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 20) {
-                ForEach(MYFarmerSlot.allCases) { slot in
+                ForEach(MYFarmerSlot.allCases.filter(\.isAvailable)) { slot in
                     Button { category = slot } label: {
                         Text(slot.title)
                             .font(.custom(category == slot ? "Paperlogy-7Bold" : "Paperlogy-5Medium", size: 16, relativeTo: .body))

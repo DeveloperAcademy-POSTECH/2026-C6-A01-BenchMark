@@ -294,20 +294,7 @@ struct MYCollectionView: View {
                 .frame(minWidth: 44, minHeight: 44)
         }.buttonStyle(.plain).accessibilityLabel("고정한 카드만 보기")
             .accessibilityAddTraits(pinnedOnly ? .isSelected : []).accessibilityIdentifier("my.pinned")
-        Button {} label: {
-            Text("MY")
-                .font(.custom("Paperlogy-5Medium", size: 14, relativeTo: .body))
-                .tracking(-0.56)
-                .foregroundStyle(.black)
-                .padding(.horizontal, 12).padding(.vertical, 5)
-                .frame(minWidth: 47, minHeight: 29)
-                .background(Color(white: 231 / 255), in: Capsule())
-                .frame(minHeight: 44)
-        }
-        .buttonStyle(.plain)
-        .disabled(true)
-        .accessibilityLabel("MY 필터")
-        .accessibilityIdentifier("my.collection.myFilter")
+
     }
 
     private var countBadge: some View {

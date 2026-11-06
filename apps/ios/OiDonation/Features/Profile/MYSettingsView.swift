@@ -52,20 +52,6 @@ struct MYSettingsView: View {
                     }
                 }
                 if remote?.account != nil || demo != nil {
-                    section("본인인증") {
-                        Button {} label: {
-                            Text("본인 인증하기")
-                                .font(CampusStyle.semibold(18))
-                                .tracking(0.36)
-                                .foregroundStyle(CampusStyle.green)
-                                .padding(.vertical, 20)
-                                .frame(maxWidth: .infinity, minHeight: 69)
-                                .background(Color(white: 243 / 255), in: RoundedRectangle(cornerRadius: 15))
-                                .overlay { RoundedRectangle(cornerRadius: 15).stroke(Color(white: 205 / 255), lineWidth: 1) }
-                        }
-                        .disabled(true)
-                        .accessibilityIdentifier("my.settings.identity")
-                    }
                     section("학적정보") {
                         schoolRow
                         if let remote, let owner = remote.account?.id, remote.hasLoadedRemote {
