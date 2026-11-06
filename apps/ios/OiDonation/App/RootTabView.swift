@@ -14,6 +14,7 @@ struct RootTabView: View {
     @State private var collectionStory: CampusStory?
     @State private var collectionReturnsToAR = false
     @State private var pendingStoryList = false
+    @State private var showingSample = false
     @Environment(\.scenePhase) private var scenePhase
 
     init(container: AppContainer = .pilot) {
@@ -30,7 +31,8 @@ struct RootTabView: View {
                 onOpenProfile: { path.append(MYDestination.workshop) },
                 onOpenStory: { path.append(CampusDestination.summary($0)) },
                 remote: remote,
-                onCreateStory: { showingStoryList = true }
+                onCreateStory: { showingStoryList = true },
+                onOpenSample: { isCameraCoverActive = true; showingSample = true }
             )
             .navigationDestination(isPresented: $showingStoryList) {
                 OiStoryListScreen(remote: remote)
@@ -102,6 +104,9 @@ struct RootTabView: View {
             }
         }
         .preferredColorScheme(.light)
+        .fullScreenCover(isPresented: $showingSample, onDismiss: { isCameraCoverActive = false }) {
+            OiSampleExperienceView()
+        }
         .fullScreenCover(isPresented: $isARPresented, onDismiss: {
             // Restore the map only after the camera's dismissal has finished.
             isCameraCoverActive = false
@@ -152,6 +157,7 @@ struct RootTabView: View {
 
     private func handlePublicLink(_ url: URL) {
         if AppClipLink.matches(url) {
+            showingSample = false
             path = NavigationPath()
             pendingStoryList = false
             isARPresented = false
@@ -160,6 +166,7 @@ struct RootTabView: View {
         }
         if let host = container.approvedLinkHost,
                   let destination = PublicLinkParser(allowedHost: host).parse(url) {
+            showingSample = false
             path = NavigationPath()
             path.append(destination)
         }

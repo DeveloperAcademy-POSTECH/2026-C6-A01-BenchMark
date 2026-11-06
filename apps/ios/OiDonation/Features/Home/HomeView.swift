@@ -9,6 +9,7 @@ struct HomeView: View {
     let onOpenStory: (String) -> Void
     var remote: OiRemoteStore? = nil
     var onCreateStory: (() -> Void)? = nil
+    var onOpenSample: (() -> Void)? = nil
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var scene = CampusExploreScene()
@@ -60,6 +61,7 @@ struct HomeView: View {
                 if let error = scene.error {
                     ContentUnavailableView { Label("지도를 불러올 수 없어요", systemImage: "map") } description: { Text(error) } actions: {
                         Button("다시 시도") { Task { await scene.load() } }
+                        if let onOpenSample { Button("이야기·AR 체험", action: onOpenSample) }
                     }.background(.regularMaterial)
                 }
             }
@@ -262,6 +264,13 @@ struct HomeView: View {
                 .buttonStyle(.plain).glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 20))
                 .accessibilityLabel("캠퍼스 선택").accessibilityIdentifier("campus.school")
                 Spacer()
+                if let onOpenSample {
+                    Button(action: onOpenSample) {
+                        Text("체험하기").font(CampusStyle.medium(14))
+                            .padding(.horizontal, 12).frame(minHeight: 44)
+                    }.buttonStyle(.plain).glassEffect(.regular.interactive(), in: Capsule())
+                        .accessibilityLabel("이야기·AR 체험 열기").accessibilityIdentifier("campus.sample")
+                }
             }
         }
         .overlay(alignment: .top) {

@@ -43,6 +43,8 @@ final class StoryCollectionStore {
 
     @discardableResult
     func collect(_ storyCard: StoryCard, at collectedAt: Date = .now) -> Bool {
+        // Defense in depth: a bundled sample must never be imported as a real Clip card.
+        guard storyCard.storyID != OiSampleStory.id else { return false }
         guard var current = readForMutation() else { return false }
         guard !current.contains(where: { $0.storyID == storyCard.storyID }) else { return false }
         current.append(CollectedStoryCard(storyID: storyCard.storyID, cardID: storyCard.cardID, collectedAt: collectedAt))

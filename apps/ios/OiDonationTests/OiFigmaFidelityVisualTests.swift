@@ -986,6 +986,20 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testSampleExperienceCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        XCTAssertNotNil(UIImage(named: "OiStoryCardCats"))
+        for variant in variants {
+            try await capture(OiSampleExperienceView(), name: "sample-story", variant: variant,
+                defaults: fixture.defaults, attach: true)
+            for collected in [false, true] {
+                try await capture(OiSampleCollectionResult(isCollected: collected, onCollect: {}, onClose: {}),
+                    name: "sample-collection-\(collected)", variant: variant, defaults: fixture.defaults, attach: true)
+            }
+        }
+    }
+
     func testCampusSummaryShowsActionForVerifiedLocation() async throws {
         let fixture = try isolatedDefaults()
         let previousHandler = OiStoreURLProtocol.handle

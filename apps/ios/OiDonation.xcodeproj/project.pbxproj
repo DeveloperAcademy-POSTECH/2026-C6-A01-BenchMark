@@ -86,6 +86,7 @@
 				Domain/Models/Story.swift,
 				Domain/Models/OiContentSafetyStore.swift,
 				Domain/Models/StoryCard.swift,
+				Domain/Models/OiSampleStory.swift,
 				Domain/Repositories/StoryRepository.swift,
 				Domain/Routing/AppClipLink.swift,
 				Domain/Routing/PublicLinkParser.swift,
@@ -101,6 +102,7 @@
 				"Shared/Components/OiStoryCardArtwork.swift",
 				"Shared/Components/OiContentSafetyView.swift",
 				"Shared/Components/OiSupportView.swift",
+				"Shared/Components/OiSampleExperienceView.swift",
 			);
 			target = 87169564307CB1CF0090D456 /* OiDonationClip */;
 		};
