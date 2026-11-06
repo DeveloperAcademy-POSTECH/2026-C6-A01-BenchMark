@@ -821,7 +821,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
             error = OiServiceError.invalidInput.localizedDescription; return
         }
         isBusy = true; error = nil
-        defer { isBusy = false }
+        defer { if started == generation { isBusy = false } }
         do {
             let accessToken = try await token()
             try Task.checkCancellation()
@@ -830,7 +830,11 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
                 admissionYear: admissionYear, department: cleanedDepartment, token: accessToken)
             guard started == generation, self.account?.id == owner else { return }
             loadSequence += 1
-            profile = saved; revision += 1; await refreshAfterCommit()
+            profile = saved
+            if let index = profiles.firstIndex(where: { $0.id == owner }) {
+                profiles[index].schoolId = saved.schoolId
+            }
+            revision += 1
         } catch {
             if started == generation { noteAuthenticationFailure(error); self.error = error.localizedDescription }
         }
@@ -1062,7 +1066,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         }
     }
 
-    func reviewSchoolEvidence(_ data: Data, contentType: String) async throws -> OiSchoolEvidenceReview {
+    func reviewSchoolEvidence(_ data: Data, contentType: String) async throws -> OiSchoolEvidenceOutcome {
         guard let api else { throw OiServiceError.configuration }
         guard account != nil, !needsReauthentication else { throw OiServiceError.signInRequired }
         let started = generation

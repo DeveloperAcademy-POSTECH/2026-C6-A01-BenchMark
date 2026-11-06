@@ -356,17 +356,8 @@ struct OiStoryDraft: Codable, Equatable {
 }
 
 nonisolated struct OiSchoolEvidenceReview: Decodable, Sendable {
-    nonisolated struct Summary: Codable, Sendable {
-        nonisolated struct Reference: Codable, Sendable {
-            let title: String
-            let url: URL
-        }
-
+    nonisolated struct Summary: Decodable, Sendable {
         let outcome: String
-        let title: String
-        let detail: String
-        let nextStep: String
-        let reference: Reference?
     }
 
     let reviewType: String
@@ -376,9 +367,49 @@ nonisolated struct OiSchoolEvidenceReview: Decodable, Sendable {
     let summary: Summary?
 }
 
+nonisolated enum OiSchoolEvidenceOutcome: String, Codable, Sendable {
+    case completed, rejected
+
+    init?(reviewOutcome: String) {
+        switch reviewOutcome {
+        case "school_evidence_visible": self = .completed
+        case "school_document_needed", "retake_needed", "manual_review_needed": self = .rejected
+        default: return nil
+        }
+    }
+}
+
 nonisolated struct OiSavedSchoolEvidenceReview: Codable, Sendable {
-    let summary: OiSchoolEvidenceReview.Summary
+    let outcome: OiSchoolEvidenceOutcome
     let reviewedAt: Date
+
+    private enum CodingKeys: String, CodingKey { case outcome, reviewedAt, summary }
+
+    init(outcome: OiSchoolEvidenceOutcome, reviewedAt: Date) {
+        self.outcome = outcome
+        self.reviewedAt = reviewedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        reviewedAt = try values.decode(Date.self, forKey: .reviewedAt)
+        if let outcome = try values.decodeIfPresent(OiSchoolEvidenceOutcome.self, forKey: .outcome) {
+            self.outcome = outcome
+        } else {
+            let previous = try values.decode(OiSchoolEvidenceReview.Summary.self, forKey: .summary)
+            guard let outcome = OiSchoolEvidenceOutcome(reviewOutcome: previous.outcome) else {
+                throw DecodingError.dataCorruptedError(forKey: .summary, in: values,
+                    debugDescription: "Unknown school evidence outcome")
+            }
+            self.outcome = outcome
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(outcome, forKey: .outcome)
+        try values.encode(reviewedAt, forKey: .reviewedAt)
+    }
 }
 
 enum OiServiceError: LocalizedError {

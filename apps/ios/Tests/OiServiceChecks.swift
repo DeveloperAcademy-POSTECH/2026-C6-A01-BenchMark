@@ -60,8 +60,7 @@ struct OiServiceChecks {
         defer { try? FileManager.default.removeItem(at: directory) }
         let owner = UUID()
         let original = OiSavedSchoolEvidenceReview(
-            summary: .init(outcome: "school_document_needed", title: "학교 발급 증빙 필요",
-                           detail: "프로필 캡처가 제출됐어요.", nextStep: "학생증 앞면을 제출해 주세요.", reference: nil),
+            outcome: .rejected,
             reviewedAt: Date(timeIntervalSince1970: 1_760_000_000)
         )
         try await OiDraftVault(directory: directory).saveSchoolEvidenceReview(original, owner: owner)
@@ -69,7 +68,7 @@ struct OiServiceChecks {
         let reopened = OiDraftVault(directory: directory)
         let restored = try await reopened.schoolEvidenceReview(owner: owner)
         let otherAccount = try await reopened.schoolEvidenceReview(owner: UUID())
-        precondition(restored?.summary.outcome == original.summary.outcome)
+        precondition(restored?.outcome == original.outcome)
         precondition(restored?.reviewedAt == original.reviewedAt && otherAccount == nil)
         print("PASS: school evidence summary survives reopening and is scoped to its account")
     }

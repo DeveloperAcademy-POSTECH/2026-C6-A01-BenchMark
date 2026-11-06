@@ -114,7 +114,7 @@ struct OiServiceAPI {
         return review
     }
 
-    func reviewSchoolEvidence(_ data: Data, contentType: String, token: String) async throws -> OiSchoolEvidenceReview {
+    func reviewSchoolEvidence(_ data: Data, contentType: String, token: String) async throws -> OiSchoolEvidenceOutcome {
         let response: Data
         do {
             response = try await request("functions/v1/analyze-school-evidence", method: "POST", token: token,
@@ -124,10 +124,11 @@ struct OiServiceAPI {
         }
         let review = try decoder.decode(OiSchoolEvidenceReview.self, from: response)
         guard review.reviewType == "school_affiliation", review.humanReviewRequired,
-              !review.affiliationVerified, !review.authenticityVerified else {
-            throw OiServiceError.server("학교 증빙 검토 응답을 확인할 수 없어요.")
+              !review.affiliationVerified, !review.authenticityVerified,
+              let summary = review.summary, let outcome = OiSchoolEvidenceOutcome(reviewOutcome: summary.outcome) else {
+            throw OiServiceError.server("인증 결과를 확인하지 못했어요. 다시 시도해 주세요.")
         }
-        return review
+        return outcome
     }
 
     func rows<Value: Decodable & Identifiable>(_ table: String, query: String = "", token: String? = nil, as type: Value.Type) async throws -> [Value] {
