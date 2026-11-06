@@ -1,0 +1,27 @@
+name: Wardrobe photo assets
+on:
+  pull_request:
+    paths:
+      - 'apps/ios/OiDonation/Resources/Wardrobe/**'
+      - 'apps/ios/OiDonation/Resources/WardrobePhotoUV/**'
+      - 'tools/wardrobe/**'
+      - '.github/workflows/wardrobe-photo-assets.yml'
+  push:
+    branches: [develop]
+    paths:
+      - 'apps/ios/OiDonation/Resources/Wardrobe/**'
+      - 'apps/ios/OiDonation/Resources/WardrobePhotoUV/**'
+      - 'tools/wardrobe/**'
+      - '.github/workflows/wardrobe-photo-assets.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 tools/wardrobe/verify_costume_photo_assets.py

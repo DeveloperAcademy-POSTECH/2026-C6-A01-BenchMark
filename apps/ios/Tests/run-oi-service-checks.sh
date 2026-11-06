@@ -14,5 +14,6 @@ xcrun swiftc -parse-as-library \
   "$IOS_ROOT/OiDonation/Features/Operator/OiOperatorEvidenceSupplement.swift" \
   "$IOS_ROOT/OiDonation/Features/Operator/OiOperatorAuditModel.swift" \
   "$IOS_ROOT/OiDonation/Features/Profile/Creation/OiCreationPresentation.swift" \
+  "$IOS_ROOT/OiDonation/Features/Profile/Creation/OiCardGestureState.swift" \
   "$IOS_ROOT/Tests/OiServiceChecks.swift" -o "$CHECK_DIR/checks"
 "$CHECK_DIR/checks"

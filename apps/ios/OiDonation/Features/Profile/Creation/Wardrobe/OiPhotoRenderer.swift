@@ -10,6 +10,14 @@ struct OiPhotoImageAsset {
 struct OiPhotoDraft {
     var layers: [OiPhotoLayer] = []
     var assets: [String: OiPhotoImageAsset] = [:]
+
+    /// Keep shared sources until their last layer is removed; never touch saved artwork here.
+    mutating func remove(_ id: String, on side: OiPhotoSide) -> String? {
+        layers.removeAll { $0.id == id }
+        let used = Set(layers.map(\.source))
+        assets = assets.filter { used.contains($0.key) }
+        return layers.last { $0.side == side }?.id
+    }
 }
 
 enum OiPhotoRenderer {
@@ -42,17 +50,20 @@ enum OiPhotoRenderer {
         return OiPhotoImageAsset(id: hash, image: image, data: data)
     }
 
-    // Front/back each receive a complete square texture, clipped separately at their seam.
-    static func atlas(layers: [OiPhotoLayer], assets: [String: OiPhotoImageAsset], panelSize: Int, color: UInt32, fabric: OiDenim? = nil) -> UIImage {
+    // Only photos are clipped. Garment color/fabric still covers the complete UV texture.
+    static func atlas(layers: [OiPhotoLayer], assets: [String: OiPhotoImageAsset], panelSize: Int, color: UInt32, fabric: OiDenim? = nil, transparent: Bool = false, layout: OiPhotoPrintLayout) -> UIImage {
         let edge = CGFloat(panelSize)
-        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = !transparent
         return UIGraphicsImageRenderer(size: CGSize(width: edge * 2, height: edge), format: format).image { context in
-            UIColor(wardrobeRGB: color).setFill(); context.fill(CGRect(x: 0, y: 0, width: edge * 2, height: edge))
+            if !transparent {
+                UIColor(wardrobeRGB: color).setFill(); context.fill(CGRect(x: 0, y: 0, width: edge * 2, height: edge))
+            }
             let cg = context.cgContext
             for side in OiPhotoSide.allCases {
                 cg.saveGState(); cg.translateBy(x: side == .front ? 0 : edge, y: 0)
                 cg.clip(to: CGRect(x: 0, y: 0, width: edge, height: edge))
-                fabricImage(fabric)?.draw(in: CGRect(x: 0, y: 0, width: edge, height: edge))
+                if !transparent { fabricImage(fabric)?.draw(in: CGRect(x: 0, y: 0, width: edge, height: edge)) }
+                cg.addPath(layout[side].path(edge: edge)); cg.clip()
                 for layer in layers where layer.side == side {
                     guard let image = assets[layer.source]?.image else { continue }
                     let p = layer.placement
@@ -66,9 +77,14 @@ enum OiPhotoRenderer {
             }
         }
     }
-    static func load(_ design: OiPhotoDesign, sources: [String: Data]) throws -> OiPhotoDraft {
+    static func load(_ design: OiPhotoDesign, sources: [String: Data], layout: OiPhotoPrintLayout? = nil) throws -> OiPhotoDraft {
         guard design.isValid else { throw OiPhotoDataError.unreadable }
         var draft = OiPhotoDraft(layers: design.layers)
+        if (design.frameRevision ?? 1) < 2, let layout {
+            for index in draft.layers.indices {
+                draft.layers[index].placement = layout.relocate(draft.layers[index].placement, on: draft.layers[index].side)
+            }
+        }
         for id in Set(design.layers.map(\.source)) {
             guard let data = sources[id], data.count <= OiWardrobeArtwork.maximumSourceBytes,
                   SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == id else { throw OiPhotoDataError.unreadable }
