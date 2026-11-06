@@ -190,7 +190,7 @@ struct OiStoryListView: View {
 
     private func storyTitle(_ title: String) -> some View {
         Text(title)
-            .font(.custom("PearToucan-Bold", size: 20, relativeTo: .title3))
+            .font(.custom("Paperlogy-7Bold", size: 20, relativeTo: .title3))
             .tracking(0.8)
             .lineSpacing(usesAccessibilityLayout ? titleLineSpacing : 0)
             .lineLimit(usesAccessibilityLayout ? nil : 1)

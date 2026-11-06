@@ -830,7 +830,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         addSubview(panel)
 
         icon.contentMode = .scaleAspectFit
-        number.font = UIFont(name: "PearToucan-Bold", size: 26) ?? .systemFont(ofSize: 26, weight: .bold)
+        number.font = UIFont(name: "Paperlogy-7Bold", size: 26) ?? .systemFont(ofSize: 26, weight: .bold)
         number.textColor = UIColor(red: 84 / 255, green: 105 / 255, blue: 48 / 255, alpha: 1)
         number.textAlignment = .center
         content.addArrangedSubview(icon); content.addArrangedSubview(number)

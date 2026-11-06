@@ -33,7 +33,7 @@ struct ARGameHUD: View {
             Image(systemName: "clock.fill")
                 .font(.system(size: 30))
             Text("\(remainingSeconds)")
-                .font(.custom("PearToucan-Regular", fixedSize: 30))
+                .font(.custom("Paperlogy-4Regular", fixedSize: 30))
                 .monospacedDigit()
         }
         .foregroundStyle(.white)

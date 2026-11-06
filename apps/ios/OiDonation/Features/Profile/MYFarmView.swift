@@ -42,7 +42,7 @@ struct MYFarmView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if hasPlots {
                     Text("* 내가 등록한 오이를 확인해보세요!")
-                        .font(.custom("PearToucan-Regular", size: 20, relativeTo: .body))
+                        .font(.custom("Paperlogy-4Regular", size: 20, relativeTo: .body))
                         .foregroundStyle(CampusStyle.sectionGreen)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 28).padding(.vertical, 4)
@@ -66,7 +66,7 @@ struct MYFarmView: View {
 
     private var farmTitle: some View {
         Text("\(remote?.profile?.farmName ?? "오이") 밭")
-            .font(.custom("PearToucan-Regular", size: 35, relativeTo: .title))
+            .font(.custom("Paperlogy-4Regular", size: 35, relativeTo: .title))
             .foregroundStyle(Color(red: 126 / 255, green: 88 / 255, blue: 48 / 255))
             .lineLimit(1).minimumScaleFactor(0.6).accessibilityAddTraits(.isHeader)
     }
