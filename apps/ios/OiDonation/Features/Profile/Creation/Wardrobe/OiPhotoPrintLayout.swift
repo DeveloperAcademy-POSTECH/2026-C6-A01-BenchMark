@@ -8,7 +8,7 @@
 import UIKit
 
 /// Coordinates use the same square, top-left origin as persisted photo placements.
-/// The editor, live atlas and saved look all clip to this one authored print area.
+/// The editor, live atlas and saved look share the same photo area.
 struct OiPhotoPrintFrame: Decodable, Equatable {
     let x: Double
     let y: Double
@@ -50,6 +50,17 @@ struct OiPhotoPrintLayout: Decodable {
     let back: OiPhotoPrintFrame
     let legacyFront: OiPhotoPrintFrame?
     let legacyBack: OiPhotoPrintFrame?
+
+    // Individual garments keep their original front/back UV panels. Only full
+    // costumes use an authored rounded frame and legacy-frame relocation.
+    private static let fullPanel = OiPhotoPrintFrame(x: 0, y: 0, width: 1, height: 1, radius: 0)
+    private static let fullUV = OiPhotoPrintLayout(front: fullPanel, back: fullPanel,
+        legacyFront: nil, legacyBack: nil)
+
+    static func load(for slot: OiPhotoSlot, in look: OiWardrobeLook) throws -> OiPhotoPrintLayout {
+        guard look.costume != nil else { return fullUV }
+        return try load(resource: slot.resource(in: look))
+    }
 
     subscript(_ side: OiPhotoSide) -> OiPhotoPrintFrame { side == .front ? front : back }
 

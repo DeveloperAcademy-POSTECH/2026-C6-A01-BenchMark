@@ -3094,18 +3094,13 @@ final class OiCostumePhotoTests: XCTestCase {
         let (_, plainOverlays) = try await OiWardrobeAsset.prepare(look)
         XCTAssertNotNil(plainOverlays[.top])
     }
-    func testRoundedFramesClipMovedRotatedPhotosOnEveryGarment() throws {
-        let resources = looks.map { OiPhotoSlot.top.resource(in: $0) } + OiWardrobeLook.Top.allCases.flatMap { top in
-            OiWardrobeLook.Bottom.allCases.flatMap { bottom -> [String] in
-                var look = OiWardrobeLook(); look.top = top; look.bottom = bottom
-                return OiPhotoSlot.allCases.map { $0.resource(in: look) }
-            }
-        }
+    func testRoundedFramesClipMovedRotatedPhotosOnEveryCostume() throws {
         let solid = try OiPhotoRenderer.asset(UIImage(cgImage: canvas { cg in
             cg.setFillColor(UIColor.magenta.cgColor); cg.fill(CGRect(x: 0, y: 0, width: 1024, height: 512))
         }))
-        for resource in Set(resources) {
-            let layout = try OiPhotoPrintLayout.load(resource: resource)
+        for look in looks where look.costume != nil {
+            let resource = OiPhotoSlot.top.resource(in: look)
+            let layout = try OiPhotoPrintLayout.load(for: .top, in: look)
             // Extreme scale/rotation/translation must never escape the fixed print area.
             let layers = OiPhotoSide.allCases.map { OiPhotoLayer(source: solid.id, side: $0,
                 placement: OiPhotoPlacement(x: 0.52, y: 0.45, width: 1.5, rotation: 32)) }
@@ -3126,6 +3121,50 @@ final class OiCostumePhotoTests: XCTestCase {
                         XCTAssertEqual(alpha(CGFloat(x), CGFloat(y)), 0, resource)
                     }
                 }}
+            }
+        }
+    }
+
+    func testIndividualGarmentsKeepFullUVAndSavedPlacements() throws {
+        let square = try XCTUnwrap(canvas { cg in
+            cg.setFillColor(UIColor.red.cgColor); cg.fill(CGRect(x: 0, y: 0, width: 1024, height: 512))
+        }.cropping(to: CGRect(x: 0, y: 0, width: 512, height: 512)))
+        let photo = try OiPhotoRenderer.asset(UIImage(cgImage: square))
+        for top in OiWardrobeLook.Top.allCases {
+            for bottom in OiWardrobeLook.Bottom.allCases {
+                var look = OiWardrobeLook(); look.top = top; look.bottom = bottom
+                for slot in OiPhotoSlot.allCases {
+                    let layout = try OiPhotoPrintLayout.load(for: slot, in: look)
+                    let layers = OiPhotoSide.allCases.map { OiPhotoLayer(source: photo.id, side: $0,
+                        placement: OiPhotoPlacement(x: 0.42, y: 0.56, width: 0.72, rotation: 27)) }
+                    for revision in [nil, 1, 2] as [Int?] {
+                        let design = OiPhotoDesign(frameRevision: revision, layers: layers)
+                        let restored = try OiPhotoRenderer.load(design, sources: [photo.id: photo.data], layout: layout)
+                        XCTAssertEqual(restored.layers, layers, "Individual garments must not relocate saved photos")
+                        XCTAssertEqual(restored.assets[photo.id]?.data, photo.data)
+                    }
+                    // A photo spanning the UV panel must paint beyond the small
+                    // costume frame, including all four corners on both sides.
+                    let fill = OiPhotoSide.allCases.map { OiPhotoLayer(source: photo.id, side: $0,
+                        placement: OiPhotoPlacement(width: 1.5)) }
+                    let atlas = try XCTUnwrap(OiPhotoRenderer.atlas(layers: fill, assets: [photo.id: photo],
+                        panelSize: 64, color: 0xFFFFFF, transparent: true, layout: layout).cgImage)
+                    for (index, side) in OiPhotoSide.allCases.enumerated() {
+                        let panel = try XCTUnwrap(atlas.cropping(to: CGRect(x: index*64, y: 0, width: 64, height: 64)))
+                        let pixels = rgba(panel, size: 64)
+                        for y in [0, 32, 63] { for x in [0, 32, 63] {
+                            let offset = (y*64+x)*4
+                            XCTAssertGreaterThan(pixels[offset], 250)
+                            XCTAssertLessThan(pixels[offset+1], 5)
+                            XCTAssertEqual(pixels[offset+3], 255)
+                        }}
+                        let name = slot.resource(in: look) + "-" + side.rawValue
+                        let guide = try XCTUnwrap(Bundle.main.url(forResource: name, withExtension: "json", subdirectory: "WardrobePhotoUV")
+                            ?? Bundle.main.url(forResource: name, withExtension: "json"))
+                        let edges = try JSONDecoder().decode([[[Double]]].self, from: Data(contentsOf: guide))
+                        XCTAssertFalse(edges.isEmpty, "Both UV outlines must remain available")
+                    }
+                }
             }
         }
     }
@@ -3262,11 +3301,8 @@ final class OiCostumePhotoTests: XCTestCase {
         let photo = try OiPhotoRenderer.asset(UIImage(cgImage: canvas { cg in
             cg.setFillColor(UIColor.orange.cgColor); cg.fill(CGRect(x: 0, y: 0, width: 1024, height: 512))
         }))
-        let migrationLooks = looks + OiWardrobeLook.Top.allCases.map { top in
-            var look = OiWardrobeLook(); look.top = top; return look
-        }
-        for look in migrationLooks {
-            let layout = try OiPhotoPrintLayout.load(resource: OiPhotoSlot.top.resource(in: look))
+        for look in looks where look.costume != nil {
+            let layout = try OiPhotoPrintLayout.load(for: .top, in: look)
             let layers = try OiPhotoSide.allCases.map { side in
                 let old = try XCTUnwrap(side == .front ? layout.legacyFront : layout.legacyBack)
                 var placement = old.placement(for: photo.image); placement.rotation = 23
@@ -3331,8 +3367,9 @@ final class OiCostumePhotoTests: XCTestCase {
             for _ in 0..<300 where scene.loading { try await Task.sleep(for: .milliseconds(50)) }
             XCTAssertNil(scene.error); XCTAssertFalse(scene.loading)
             let photo = try OiPhotoRenderer.asset(UIImage(cgImage: ink))
-            let layout = try OiPhotoPrintLayout.load(resource: OiPhotoSlot.top.resource(in: look))
-            let layers = OiPhotoSide.allCases.map { OiPhotoLayer(source: photo.id, side: $0, placement: layout[$0].placement(for: photo.image)) }
+            let layout = try OiPhotoPrintLayout.load(for: .top, in: look)
+            let layers = OiPhotoSide.allCases.map { OiPhotoLayer(source: photo.id, side: $0,
+                placement: look.costume == nil ? OiPhotoPlacement() : layout[$0].placement(for: photo.image)) }
             let framed = OiPhotoRenderer.atlas(layers: layers, assets: [photo.id: photo], panelSize: 512,
                 color: 0xFFFFFF, transparent: OiPhotoSlot.top.preservesOriginalMaterial(in: look), layout: layout)
             await scene.setPhotoPreview(try XCTUnwrap(framed.cgImage)); XCTAssertNil(scene.photoPreviewError)
