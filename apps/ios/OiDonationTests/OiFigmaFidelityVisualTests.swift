@@ -306,6 +306,64 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testCardBackgroundAndBorderColorRegions() throws {
+        let size = CGSize(width: 362, height: 502)
+        func render(_ style: OiDraftCustomization, name: String) throws -> Data {
+            let renderer = ImageRenderer(content:
+                OiDraftCardPreview(draft: Self.draft, customization: style)
+                    .frame(width: size.width, height: size.height).environment(\.colorScheme, .light))
+            renderer.scale = 1
+            let png = try XCTUnwrap(renderer.uiImage?.pngData())
+            let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+            return png
+        }
+        func rgb(_ data: Data, x: Int, y: Int) throws -> [Int] {
+            let bitmap = try renderedBitmap(data, size: size)
+            let bytes = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: 362 * 502 * 4)
+            let offset = (y * 362 + x) * 4
+            return (0..<3).map { Int(bytes[offset + $0]) }
+        }
+        func distance(_ a: [Int], _ b: [Int]) -> Int { zip(a, b).reduce(0) { $0 + abs($1.0 - $1.1) } }
+
+        var style = OiDraftCustomization()
+        style.showsCharacter = false
+        style.firstColor = 0xD9D9D9
+        style.card = OiCardDesign(borderFirst: 0xFFFFFF)
+        let reference = try render(style, name: "card-regions-gray-white")
+        style.firstColor = 0x285DB0
+        let background = try render(style, name: "card-regions-blue-white")
+        style.card?.borderFirst = 0xCE4068
+        let border = try render(style, name: "card-regions-blue-pink")
+
+        // Background includes the outside margin and the interior. Changing only
+        // the border must not recolor either region (the former implementation did).
+        for point in [CGPoint(x: 7, y: 180), CGPoint(x: 180, y: 180)] {
+            let a = try rgb(reference, x: Int(point.x), y: Int(point.y))
+            let b = try rgb(background, x: Int(point.x), y: Int(point.y))
+            let c = try rgb(border, x: Int(point.x), y: Int(point.y))
+            XCTAssertGreaterThan(distance(a, b), 80)
+            XCTAssertLessThan(distance(b, c), 6)
+        }
+        // Sample the two header areas away from glyphs and the left frame line.
+        for point in [CGPoint(x: 30, y: 22), CGPoint(x: 130, y: 22), CGPoint(x: 15, y: 180)] {
+            let a = try rgb(reference, x: Int(point.x), y: Int(point.y))
+            let b = try rgb(background, x: Int(point.x), y: Int(point.y))
+            let c = try rgb(border, x: Int(point.x), y: Int(point.y))
+            // Figma's name strip is translucent. It must respond primarily to
+            // border tint while retaining that deliberate background show-through.
+            XCTAssertLessThan(Double(distance(a, b)), Double(distance(b, c)) * 0.4,
+                              "Background dominates the border tint at \(point)")
+            XCTAssertGreaterThan(distance(b, c), 60, "Border/header stayed white at \(point)")
+        }
+        style.fill = .gradient; style.firstColor = 0xD3DBC4; style.secondColor = 0xF3F7E6
+        style.card?.borderFill = .gradient
+        style.card?.borderFirst = 0x102841; style.card?.borderSecond = 0x6BA3C9
+        _ = try render(style, name: "card-regions-gradient")
+        style.card?.pattern = 3; style.showsCharacter = true
+        _ = try render(style, name: "card-regions-pattern-character")
+    }
+
     func testCardPatternsRemainVisibleAcrossBackgrounds() throws {
         let size = CGSize(width: 166, height: 236)
         func render<V: View>(_ view: V, size: CGSize) throws -> Data {
