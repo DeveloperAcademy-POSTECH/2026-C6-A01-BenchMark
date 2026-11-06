@@ -47,6 +47,7 @@ struct OiDonationEvidenceView: View {
     @State private var error: String?
 
     private var ownEvidence: [OiEvidence] { remote.evidence.filter { $0.userId == remote.account?.id } }
+    private var approvalCount: Int { ownEvidence.filter { $0.status == "approved" }.count }
     private var selected: OiEvidence? { ownEvidence.first { $0.id == selectedID } }
     private var replacing: OiEvidence? {
         guard let selected, ["changes_requested", "rejected"].contains(selected.status) else { return nil }
@@ -102,13 +103,13 @@ struct OiDonationEvidenceView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 10) {
                     DonationSeedArtwork()
-                    Text("\(ownEvidence.filter { $0.status == "approved" }.count)건")
+                    Text("\(approvalCount)개")
                         .font(.custom("Paperlogy-7Bold", size: 20, relativeTo: .title3))
                 }.padding(.horizontal, 18).padding(.vertical, 8)
                     .background(Color(red: 1, green: 254 / 255, blue: 228 / 255), in: Capsule())
                     .overlay { Capsule().stroke(Color(red: 198 / 255, green: 191 / 255, blue: 91 / 255), lineWidth: 1.5) }
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("작성 승인된 증빙 \(ownEvidence.filter { $0.status == "approved" }.count)건")
+                    .accessibilityLabel("작성 승인된 증빙 \(approvalCount)건")
             }.sharedBackgroundVisibility(.hidden)
         }
         .confirmationDialog("자료 첨부", isPresented: $choosingSource, titleVisibility: .visible) {

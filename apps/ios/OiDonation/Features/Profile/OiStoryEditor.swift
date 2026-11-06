@@ -10,6 +10,11 @@ import PhotosUI
 import SwiftUI
 
 struct OiStoryEditor: View {
+    private enum SupplementaryScreen: String, Identifiable {
+        case completion, evidence
+        var id: String { rawValue }
+    }
+
     let remote: OiRemoteStore
     var onFinish: (() -> Void)?
     @State private var draft: OiStoryDraft
@@ -44,7 +49,7 @@ struct OiStoryEditor: View {
     @State private var publishing = false
     @State private var showingPreview = false
     @State private var consentState = OiStoryConsentState()
-    @State private var supplementaryScreen: OiCreationSupplementaryScreen?
+    @State private var supplementaryScreen: SupplementaryScreen?
     @State private var choosingExit = false
     @State private var customizationReady = false
     @State private var wardrobePhotoEditing = false
@@ -237,7 +242,7 @@ struct OiStoryEditor: View {
                 Group {
                     switch screen {
                     case .completion: completionContent(isPreview: true)
-                    case .evidence: OiEvidenceDesignPreview()
+                    case .evidence: OiDonationEvidenceView(remote: remote)
                     }
                 }
                 .toolbar { ToolbarItem(placement: .cancellationAction) {
