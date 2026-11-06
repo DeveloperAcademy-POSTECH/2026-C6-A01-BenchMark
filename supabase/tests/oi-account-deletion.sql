@@ -18,6 +18,18 @@ insert into public.oi_stories(id,user_id,storage_owner_id,region_id,title,body,t
  ('d1690000-0000-4000-8000-000000000033','d1690000-0000-4000-8000-000000000003','d1690000-0000-4000-8000-000000000003','pond','Unrelated','Body','theme','emotion','other','OiCats','MYBasicCard',36,129,'published');
 insert into public.oi_collections(user_id,story_id) values
  ('d1690000-0000-4000-8000-000000000003','d1690000-0000-4000-8000-000000000031');
+-- Retention policy: reports, restrictions, fingerprints and related audit rows
+-- follow deletion of their owning account/story/evidence, including linked logins.
+insert into benchmark_private.oi_content_reports(story_id,reporter_member_id,reason,detail) values
+ ('d1690000-0000-4000-8000-000000000031','d1690000-0000-4000-8000-000000000003','other','Synthetic report about deleted story'),
+ ('d1690000-0000-4000-8000-000000000033','d1690000-0000-4000-8000-000000000002','other','Synthetic report by deleted member');
+insert into benchmark_private.oi_content_restrictions(member_id,note) values
+ ('d1690000-0000-4000-8000-000000000002','Synthetic restriction');
+insert into benchmark_private.oi_evidence_fingerprints(evidence_id,submitted_at,sha256) values
+ ('d1690000-0000-4000-8000-000000000021',now(),repeat('0',64));
+insert into benchmark_private.oi_audit(actor_id,action,target_id) values
+ ('d1690000-0000-4000-8000-000000000003','content:hidden','d1690000-0000-4000-8000-000000000031'),
+ ('d1690000-0000-4000-8000-000000000003','content:dismissed','d1690000-0000-4000-8000-000000000033');
 insert into storage.objects(bucket_id,name,owner_id) values
  ('oi-evidence','d1690000-0000-4000-8000-000000000002/d1690000-0000-4000-8000-000000000021/proof.png','d1690000-0000-4000-8000-000000000002'),
  ('oi-evidence','d1690000-0000-4000-8000-000000000003/other/photo.png','d1690000-0000-4000-8000-000000000003');
@@ -78,6 +90,13 @@ begin
     or not exists(select 1 from public.oi_stories where id='d1690000-0000-4000-8000-000000000033')
     or not exists(select 1 from storage.objects where owner_id='d1690000-0000-4000-8000-000000000003')
     then raise exception 'data was retained or unrelated data was deleted'; end if;
+ if exists(select 1 from benchmark_private.oi_content_reports where story_id='d1690000-0000-4000-8000-000000000031'
+      or reporter_member_id='d1690000-0000-4000-8000-000000000002')
+    or exists(select 1 from benchmark_private.oi_content_restrictions where member_id='d1690000-0000-4000-8000-000000000002')
+    or exists(select 1 from benchmark_private.oi_evidence_fingerprints where evidence_id='d1690000-0000-4000-8000-000000000021')
+    or exists(select 1 from benchmark_private.oi_audit where target_id='d1690000-0000-4000-8000-000000000031')
+    or not exists(select 1 from benchmark_private.oi_audit where target_id='d1690000-0000-4000-8000-000000000033')
+    then raise exception 'retention cleanup failed or unrelated audit was deleted'; end if;
 end;
 $$;
 rollback;
