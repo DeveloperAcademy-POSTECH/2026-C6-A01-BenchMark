@@ -24,3 +24,7 @@
 - `sh apps/ios/Tests/run-content-safety-checks.sh`: 재실행 복원, 본 앱·Clip 저장소 재조회, 차단 해제, 손상 자료 보존·복구.
 - `python3 supabase/tests/run-account-merge-db-checks.py`: 모든 마이그레이션, 기존 회귀·동시성 검사와 `oi-content-safety.sql`의 비공개 권한, 중복 신고, 조치, 공개 RLS, 수집 우회 차단, 계정 통합 후 제한 및 해제 검사. 격리된 가상 데이터만 사용한다.
 - 본 앱과 Clip의 Release Simulator 빌드, 기존 App Clip·MY·서비스 검사.
+
+## 통합 실행 확인
+
+PR #200·#201·#202를 포함한 #203의 통합 코드 `f6d925a`에서 본 앱·Clip Release Simulator 빌드와 포함된 Clip을 확인했다. iOS 27.2 시뮬레이터에서 실제 서버 공개 목록의 빈 상태, 문의 이메일 표시, 차단 관리 메뉴 진입을 확인했다. 공개 이야기가 없어 실제 콘텐츠 기반 AR 완료는 검증하지 못했다. 기존 Clip 최소 지원 버전은 iOS 27.0(본 앱 26.2)이며, iOS 26.5 시뮬레이터 설치는 이 조건으로 거부된다. 해당 지원 버전 정책은 이번 네 이슈에서 변경하지 않았다. GitHub에 해당 변경용 자동 검사 결과는 없으며 검증 결과는 로컬 실행 기준이다.

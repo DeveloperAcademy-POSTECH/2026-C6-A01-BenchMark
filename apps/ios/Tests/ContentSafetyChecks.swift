@@ -1,6 +1,6 @@
 //
 //  ContentSafetyChecks.swift
-//  OiDonationChecks
+//  OiDonation
 //
 //  Created by 이돈혁 on 11/6/26.
 //
