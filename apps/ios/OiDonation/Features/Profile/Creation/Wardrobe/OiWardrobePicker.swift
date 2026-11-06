@@ -13,85 +13,45 @@ struct OiCucumberCustomizationStep: View {
     var isFinished = false
     var onContinue: (() -> Void)?
     var onPhotoEditingChanged: (Bool) -> Void = { _ in }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var photoScene = OiWardrobeScene()
     @State private var tab: OiWardrobeTab = .top
     @State private var photoSlot: OiPhotoSlot?
     private var look: OiWardrobeLook { customization.wardrobe ?? OiWardrobeLook() }
 
     var body: some View {
-        VStack(spacing: 16) {
-            ZStack(alignment: .bottomTrailing) {
-                OiWardrobePreview(look: look, controls: photoSlot == nil, scene: photoScene)
-                    .frame(height: photoSlot != nil ? 200 : isFinished ? 350 : 270)
-                    .overlay(alignment: .topTrailing) {
-                        if photoSlot != nil {
-                            Text("실시간 미리보기").font(.caption2).foregroundStyle(Color("OiGreen")).padding(8)
+        GeometryReader { geometry in
+            let panelHeight = min(462.0, max(300.0, geometry.size.height - 180))
+            VStack(spacing: 0) {
+                // Keep one RealityKit surface mounted while opening/closing the tools.
+                preview(height: photoSlot != nil ? max(160, geometry.size.height - panelHeight)
+                    : min(isFinished ? 350 : 270, geometry.size.height * 0.52))
+                    .padding(.horizontal, 20)
+                if let slot = photoSlot {
+                    OiWardrobePhotoEditor(slot: slot, look: look, scene: photoScene,
+                        onClose: closePhotoEditor) { artwork in
+                            change { $0.artwork = artwork }
                         }
+                        .frame(height: panelHeight)
+                        .background {
+                            UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35)
+                                .fill(CampusStyle.mapSheet)
+                                .ignoresSafeArea(.container, edges: .bottom)
+                        }
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else {
+                    ScrollView {
+                        VStack(spacing: 16) {
+                            if isFinished {
+                                Text("오이 꾸미기를 마쳤어요").font(CampusStyle.semibold(20))
+                                Text("다음을 눌러 카드와 오이 이름을 설정해 주세요.")
+                                    .font(.subheadline).foregroundStyle(.secondary)
+                            } else {
+                                wardrobeControls
+                            }
+                        }.padding(.horizontal, 20).padding(.vertical, 16)
                     }
-                if photoSlot == nil, let onContinue {
-                    OiCreationDoneButton(enabled: canContinue, title: isFinished ? "다시 꾸미기" : "완료", action: onContinue)
-                        .accessibilityIdentifier("oi.customization.done")
-                        .accessibilityHint(isFinished ? "의상 선택을 다시 열어요" : "코디를 확인하고 이전·다음 버튼을 표시해요")
                 }
-            }
-            if isFinished {
-                Text("오이 꾸미기를 마쳤어요").font(CampusStyle.semibold(20))
-                Text("다음을 눌러 카드와 오이 이름을 설정해 주세요.")
-                    .font(.subheadline).foregroundStyle(.secondary)
-            } else if photoSlot == nil {
-                ScrollView(.horizontal, showsIndicators: false) {
-                  HStack(spacing: 20) {
-                    ForEach(OiWardrobeTab.allCases, id: \.self) { category in
-                        Button { tab = category } label: {
-                            Text(category.rawValue).font(tab == category ? CampusStyle.semibold(16) : CampusStyle.medium(16))
-                                .frame(minHeight: 44)
-                                .overlay(alignment: .bottom) {
-                                    if tab == category { Rectangle().fill(Color("OiGreen")).frame(height: 2) }
-                                }
-                        }.buttonStyle(OiCreationPressStyle()).foregroundStyle(tab == category ? Color("OiGreen") : .secondary)
-                            .accessibilityIdentifier("oi.wardrobe.tab.\(category.rawValue)")
-                            .accessibilityAddTraits(tab == category ? .isSelected : [])
-                    }
-                  }
-                }
-                items.id(tab).padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color("OiSoft"), in: RoundedRectangle(cornerRadius: 14))
-                if look.costume != nil && tab.isAvailable && tab != .set {
-                    Text("한 벌 의상을 입고 있어요. 아이템을 고르면 개별 코디로 돌아가요.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                if tab.isAvailable && tab != .set && look.costume == nil {
-                    if tab == .top && look.top == .postech {
-                        Text("포스텍 과잠은 원래 색상과 로고를 유지해요.").font(.footnote).foregroundStyle(Color("OiDark"))
-                    } else { colorPicker }
-                }
-                Text("드래그로 돌려보세요. 옷에 맞는 오이가 함께 선택돼요.")
-                    .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-                Text("꾸민 모습은 이 기기의 초안·카드 미리보기에 보관돼요. 지도·AR 공개에는 기존 오이 프리셋이 사용돼요.")
-                    .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-                if !assets.filter({ $0.kind == "cucumber" }).isEmpty {
-                    DisclosureGroup("지도·AR 공개 프리셋") {
-                        Picker("공개 오이", selection: $draft.cucumberAsset) {
-                            ForEach(assets.filter { $0.kind == "cucumber" }) { asset in Text(asset.name).tag(asset.id) }
-                        }.pickerStyle(.menu)
-                    }.font(.footnote).tint(Color("OiGreen"))
-                }
-                if let slot = selectedPhotoSlot { photoControls(slot) }
-            }
-        }
-        .sheet(item: $photoSlot, onDismiss: {
-            photoScene.editPhotos(in: nil, look: look)
-            onPhotoEditingChanged(false)
-        }) { slot in
-            Group {
-                OiWardrobePhotoEditor(slot: slot, look: look, scene: photoScene) { artwork in
-                    change { $0.artwork = artwork }
-                }
-                .presentationDetents([.height(462), .large])
-                .presentationCornerRadius(35)
-                .presentationDragIndicator(.hidden)
-                .presentationBackground(Color(red: 234 / 255, green: 238 / 255, blue: 226 / 255))
-                .presentationBackgroundInteraction(.enabled(upThrough: .height(462)))
             }
         }
         .onAppear {
@@ -100,8 +60,72 @@ struct OiCucumberCustomizationStep: View {
         }
     }
 
+    private func preview(height: CGFloat) -> some View {
+        ZStack(alignment: .bottomTrailing) {
+            OiWardrobePreview(look: look, controls: photoSlot == nil, scene: photoScene)
+                .frame(height: height)
+                .overlay(alignment: .topTrailing) {
+                    if photoSlot != nil {
+                        Text("실시간 미리보기").font(.caption2).foregroundStyle(Color("OiGreen")).padding(8)
+                    }
+                }
+            if photoSlot == nil, let onContinue {
+                OiCreationDoneButton(enabled: canContinue, title: isFinished ? "다시 꾸미기" : "완료", action: onContinue)
+                    .accessibilityIdentifier("oi.customization.done")
+                    .accessibilityHint(isFinished ? "의상 선택을 다시 열어요" : "코디를 확인하고 이전·다음 버튼을 표시해요")
+            }
+        }
+    }
+
+    private func closePhotoEditor() {
+        photoScene.editPhotos(in: nil, look: look)
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { photoSlot = nil }
+        onPhotoEditingChanged(false)
+    }
+
+    @ViewBuilder private var wardrobeControls: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+          HStack(spacing: 20) {
+            ForEach(OiWardrobeTab.allCases, id: \.self) { category in
+                Button { tab = category } label: {
+                    Text(category.rawValue).font(tab == category ? CampusStyle.semibold(16) : CampusStyle.medium(16))
+                        .frame(minHeight: 44)
+                        .overlay(alignment: .bottom) {
+                            if tab == category { Rectangle().fill(Color("OiGreen")).frame(height: 2) }
+                        }
+                }.buttonStyle(OiCreationPressStyle()).foregroundStyle(tab == category ? Color("OiGreen") : .secondary)
+                    .accessibilityIdentifier("oi.wardrobe.tab.\(category.rawValue)")
+                    .accessibilityAddTraits(tab == category ? .isSelected : [])
+            }
+          }
+        }
+        items.id(tab).padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color("OiSoft"), in: RoundedRectangle(cornerRadius: 14))
+        if look.costume != nil && tab.isAvailable && tab != .set {
+            Text("한 벌 의상을 입고 있어요. 아이템을 고르면 개별 코디로 돌아가요.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        if tab.isAvailable && tab != .set && look.costume == nil {
+            if tab == .top && look.top == .postech {
+                Text("포스텍 과잠은 원래 색상과 로고를 유지해요.").font(.footnote).foregroundStyle(Color("OiDark"))
+            } else { colorPicker }
+        }
+        Text("드래그로 돌려보세요. 옷에 맞는 오이가 함께 선택돼요.")
+            .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+        Text("꾸민 모습은 이 기기의 초안·카드 미리보기에 보관돼요. 지도·AR 공개에는 기존 오이 프리셋이 사용돼요.")
+            .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+        if !assets.filter({ $0.kind == "cucumber" }).isEmpty {
+            DisclosureGroup("지도·AR 공개 프리셋") {
+                Picker("공개 오이", selection: $draft.cucumberAsset) {
+                    ForEach(assets.filter { $0.kind == "cucumber" }) { asset in Text(asset.name).tag(asset.id) }
+                }.pickerStyle(.menu)
+            }.font(.footnote).tint(Color("OiGreen"))
+        }
+        if let slot = selectedPhotoSlot { photoControls(slot) }
+    }
+
     private var selectedPhotoSlot: OiPhotoSlot? {
-        let slot: OiPhotoSlot? = tab == .top ? .top : tab == .bottom ? .bottom : nil
+        let slot: OiPhotoSlot? = tab == .top || tab == .set ? .top : tab == .bottom ? .bottom : nil
         return slot?.supports(look) == true ? slot : nil
     }
     private func photoControls(_ slot: OiPhotoSlot) -> some View {
@@ -111,7 +135,7 @@ struct OiCucumberCustomizationStep: View {
                 Button {
                     photoScene.editPhotos(in: slot, look: look)
                     onPhotoEditingChanged(true)
-                    photoSlot = slot
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { photoSlot = slot }
                 } label: {
                     Label(design == nil ? "사진으로 옷 꾸미기" : "사진 디자인 수정 · \(design?.layers.count ?? 0)장", systemImage: "photo.badge.plus")
                         .font(CampusStyle.semibold(15)).frame(maxWidth: .infinity, minHeight: 36)
@@ -122,7 +146,9 @@ struct OiCucumberCustomizationStep: View {
                     }.font(.caption).accessibilityIdentifier("oi.wardrobe.photo.remove")
                 }
             }
-            Text("앞·뒷면에 각각 최대 2장을 놓고, 드래그와 핀치로 조절해 보세요.")
+            Text(slot.preservesOriginalMaterial(in: look)
+                ? "얼굴·손·소품을 제외한 옷의 앞뒤 몸판에 각각 최대 2장을 넣어요. 원래 무늬는 유지돼요."
+                : "앞·뒷면에 각각 최대 2장을 놓고, 드래그와 핀치로 조절해 보세요.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

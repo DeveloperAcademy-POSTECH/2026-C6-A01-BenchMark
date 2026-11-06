@@ -6,6 +6,7 @@ struct OiWardrobePhotoEditor: View {
     let slot: OiPhotoSlot
     let look: OiWardrobeLook
     let onSave: (OiWardrobeArtwork) -> Void
+    let onClose: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var phase
     let scene: OiWardrobeScene
@@ -30,9 +31,9 @@ struct OiWardrobePhotoEditor: View {
     @State private var renderGeneration = UUID()
     @State private var guideEdges: [OiPhotoSide: [[[Double]]]] = [:]
 
-    init(slot: OiPhotoSlot, look: OiWardrobeLook, scene: OiWardrobeScene, onSave: @escaping (OiWardrobeArtwork) -> Void) {
+    init(slot: OiPhotoSlot, look: OiWardrobeLook, scene: OiWardrobeScene, onClose: (() -> Void)? = nil, onSave: @escaping (OiWardrobeArtwork) -> Void) {
         self.slot = slot; self.look = look; self.onSave = onSave
-        self.scene = scene
+        self.scene = scene; self.onClose = onClose
         if let design = look.artwork.designs[slot.itemID(in: look)] {
             do {
                 let restored = try OiPhotoRenderer.load(design, sources: look.artwork.sources)
@@ -56,29 +57,47 @@ struct OiWardrobePhotoEditor: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack {
-                Text("이미지 디자인").font(CampusStyle.semibold(26)).foregroundStyle(Color("OiDark"))
+                Text("이미지 디자인")
+                    .font(CampusStyle.semibold(26)).tracking(0.52)
+                    .foregroundStyle(CampusStyle.sectionGreen)
                 Spacer(minLength: 8)
                 Button("완료", action: save)
-                    .font(CampusStyle.medium(20)).underline().foregroundStyle(Color(white: 0.44))
+                    .font(CampusStyle.medium(20)).tracking(0.4).underline()
+                    .foregroundStyle(Color(white: 112 / 255))
+                    .padding(.vertical, 9).padding(.leading, 8)
+                    .contentShape(Rectangle())
+                    .padding(.vertical, -9)
                     .disabled(!canApply).opacity(canApply ? 1 : 0.45)
-                    .frame(minHeight: 44).accessibilityIdentifier("photo-apply")
-                Button { dismiss() } label: { Image(systemName: "xmark").font(.system(size: 15)) }
-                    .frame(width: 32, height: 44).accessibilityLabel("사진 디자인 취소")
-                    .accessibilityIdentifier("photo-cancel").disabled(saving || importInProgress)
+                    .accessibilityIdentifier("photo-apply")
             }
+            .frame(minHeight: 26)
+            .contentShape(Rectangle())
+            .contextMenu {
+                Button("변경 취소", role: .cancel, action: close)
+                    .disabled(saving || importInProgress)
+            }
+            .accessibilityAction(named: "사진 디자인 취소", close)
             ScrollView {
-                VStack(spacing: 16) {
-                    Picker("편집할 면", selection: $side) {
-                        ForEach(OiPhotoSide.allCases) { Text($0.title).tag($0) }
-                    }.pickerStyle(.segmented).accessibilityIdentifier("photo-side")
-                        .disabled(importInProgress)
-                    uvCanvas.frame(width: 236, height: 236)
-                    photoControls
-                    Text("사진을 눌러 선택한 뒤 드래그·핀치로 배치하세요.\n두 손가락으로 회전하면 3D 옷에도 바로 반영돼요!")
-                        .font(CampusStyle.body(10)).foregroundStyle(Color(white: 0.48))
+                VStack(spacing: 0) {
+                    OiPhotoSidePicker(selection: $side, isEnabled: !importInProgress)
+                        .frame(height: 36)
+                    uvCanvas.frame(width: 236, height: 237)
+                        .padding(.top, 16)
+                        .contextMenu {
+                            if selectedLayer != nil { transformControls }
+                            Toggle("옷 윤곽 보기", isOn: $showGuide)
+                            Button("변경 취소", role: .cancel, action: close)
+                                .disabled(saving || importInProgress)
+                        }
+                    photoControls.padding(.top, 16)
+                    Text("사진을 눌러 선택한 뒤 드래그∙핀치로 배치하세요.\n주름에도 이미지가 이어지고, 3D 옷에 바로 반영돼요!")
+                        .font(CampusStyle.body(10)).tracking(0.2).lineSpacing(3)
+                        .foregroundStyle(Color(white: 164 / 255))
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 12)
                     if let message = error ?? scene.error ?? scene.photoPreviewError {
-                        Text(message).font(.caption).foregroundStyle(.red).accessibilityIdentifier("photo-editor-error")
+                        Text(message).font(.caption).foregroundStyle(.red)
+                            .padding(.top, 8).accessibilityIdentifier("photo-editor-error")
                     }
                     if !restoreFailed && (scene.error != nil || scene.photoPreviewError != nil) {
                         Button("미리보기 다시 시도") {
@@ -87,25 +106,16 @@ struct OiWardrobePhotoEditor: View {
                         }.disabled(scene.loading || renderTask != nil)
                     }
                     if importInProgress { ProgressView().accessibilityLabel("사진을 불러오는 중…") }
-                    if !draft.layers.isEmpty {
-                        layerPicker
-                        if selectedLayer != nil {
-                            DisclosureGroup("선택한 사진 편집") { transformControls.padding(.top, 12) }
-                                .font(.subheadline).accessibilityIdentifier("photo-layer-controls")
-                        }
-                    }
-                    Text("앞·뒷면 각각 최대 2장 · 완료하면 이 기기의 초안에 저장돼요.")
-                        .font(.caption2).foregroundStyle(.secondary)
                 }.padding(.bottom, 20)
-            }.accessibilityIdentifier("photo-editor-scroll")
+            }.scrollIndicators(.hidden).accessibilityIdentifier("photo-editor-scroll")
         }
-        .padding(.horizontal, 20).padding(.top, 12)
+        .padding(.horizontal, 20).padding(.top, 20)
         .foregroundStyle(Color("OiDark"))
         .tint(Color("OiGreen"))
         .preferredColorScheme(.light).environment(\.colorScheme, .light)
         .interactiveDismissDisabled(saving || importInProgress)
         // UIKit owns only the library picker. This avoids SwiftUI SheetBridge
-        // dismissing both the editing sheet and PhotosPicker in a creation cover.
+        // dismissing the creation cover while the inline editing panel is active.
         .background {
             OiWardrobePhotoLibrary(isPresented: $isPhotoPickerPresented, limit: pickerSelectionLimit) { results in
                 selection = results; importID = UUID()
@@ -148,65 +158,36 @@ struct OiWardrobePhotoEditor: View {
             HStack(spacing: 20) {
                 Label("사진 추가", systemImage: "photo.badge.plus")
                 Text("\(draft.layers.filter { $0.side == side }.count)/2")
-            }.font(CampusStyle.body(16))
-                .frame(maxWidth: .infinity, minHeight: 40)
-                .foregroundStyle(Color(white: 0.35))
+            }.font(CampusStyle.body(16)).tracking(0.32)
+                .frame(maxWidth: .infinity, minHeight: 38)
+                .foregroundStyle(Color(white: 89 / 255))
                 .background(.white, in: Capsule())
-                .shadow(color: .black.opacity(0.14), radius: 3)
+                .shadow(color: .black.opacity(0.25), radius: 3)
+                .padding(.vertical, 3).contentShape(Rectangle()).padding(.vertical, -3)
         }.buttonStyle(OiCreationPressStyle()).disabled(remaining == 0 || importInProgress || restoreFailed)
             .accessibilityIdentifier("photo-import")
     }
-    private var layerPicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack { Text("사진 목록").font(.subheadline.bold()); Spacer(); Text("나중 사진이 위에 놓여요").font(.caption2).foregroundStyle(.secondary) }
-            ScrollView(.horizontal) {
-                HStack(spacing: 10) {
-                    ForEach(Array(draft.layers.enumerated()), id: \.element.id) { index, layer in
-                        Button {
-                            selectedID = layer.id; side = layer.side
-                        } label: {
-                            VStack(spacing: 4) {
-                                if let image = draft.assets[layer.source]?.image {
-                                    Image(uiImage: image).resizable().scaledToFill().frame(width: 52, height: 52).clipped().clipShape(RoundedRectangle(cornerRadius: 8))
-                                }
-                                Text("\(index + 1) · \(layer.side.title)").font(.caption2)
-                            }.padding(5).background(selectedID == layer.id ? Color("OiGreen").opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 10))
-                        }.buttonStyle(.plain).accessibilityLabel("사진 \(index + 1), \(layer.side.title)")
-                            .accessibilityIdentifier("photo-layer-\(index)")
-                    }
-                }
-            }
-        }
-    }
-    private var transformControls: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Button("다른 면으로") {
-                    guard let index = selectedIndex, OiPhotoEditingLimit.remaining(on: oppositeSide, in: draft.layers) > 0 else { return }
-                    draft.layers[index].side = side == .front ? .back : .front
-                    side = draft.layers[index].side
-                }.disabled(OiPhotoEditingLimit.remaining(on: oppositeSide, in: draft.layers) == 0).accessibilityIdentifier("photo-move-side")
-                Spacer()
-                Button("복제") {
-                    guard var layer = selectedLayer, remaining > 0 else { return }
-                    layer.id = UUID().uuidString; layer.placement.x = min(0.95, layer.placement.x + 0.06)
-                    draft.layers.append(layer); selectedID = layer.id
-                }.disabled(remaining == 0).accessibilityIdentifier("photo-duplicate")
-                Button("삭제", role: .destructive) { deleteSelected() }.accessibilityIdentifier("photo-delete")
-            }.font(.caption.bold())
-            HStack {
-                Button("뒤로 보내기") { reorder(forward: false) }.disabled(selectedIndex == 0).accessibilityIdentifier("photo-send-back")
-                Spacer()
-                Button("앞으로 가져오기") { reorder(forward: true) }.disabled(selectedIndex == draft.layers.count - 1).accessibilityIdentifier("photo-bring-front")
-            }.font(.caption)
-            Button("선택한 사진 배치 초기화") { editSelected { $0.placement = OiPhotoPlacement() } }.font(.subheadline).accessibilityIdentifier("photo-reset")
-        }
+    @ViewBuilder private var transformControls: some View {
+        Button("다른 면으로") {
+            guard let index = selectedIndex, OiPhotoEditingLimit.remaining(on: oppositeSide, in: draft.layers) > 0 else { return }
+            draft.layers[index].side = oppositeSide
+            side = draft.layers[index].side
+        }.disabled(OiPhotoEditingLimit.remaining(on: oppositeSide, in: draft.layers) == 0).accessibilityIdentifier("photo-move-side")
+        Button("복제") {
+            guard var layer = selectedLayer, remaining > 0 else { return }
+            layer.id = UUID().uuidString; layer.placement.x = min(0.95, layer.placement.x + 0.06)
+            draft.layers.append(layer); selectedID = layer.id
+        }.disabled(remaining == 0).accessibilityIdentifier("photo-duplicate")
+        Button("뒤로 보내기") { reorder(forward: false) }.disabled(selectedIndex == 0).accessibilityIdentifier("photo-send-back")
+        Button("앞으로 가져오기") { reorder(forward: true) }.disabled(selectedIndex == draft.layers.count - 1).accessibilityIdentifier("photo-bring-front")
+        Button("배치 초기화") { editSelected { $0.placement = OiPhotoPlacement() } }.accessibilityIdentifier("photo-reset")
+        Button("삭제", role: .destructive) { deleteSelected() }.accessibilityIdentifier("photo-delete")
     }
     private var uvCanvas: some View {
         GeometryReader { geometry in
             let edge = geometry.size.width
             ZStack(alignment: .topLeading) {
-                Color(UIColor(wardrobeRGB: slot.color(in: look)))
+                slot.preservesOriginalMaterial(in: look) ? Color.white : Color(UIColor(wardrobeRGB: slot.color(in: look)))
                 if let image = OiPhotoRenderer.fabricImage(slot.fabric(in: look)) {
                     Image(uiImage: image).resizable().frame(width: edge, height: edge).allowsHitTesting(false)
                 }
@@ -214,7 +195,7 @@ struct OiWardrobePhotoEditor: View {
                     if let image = draft.assets[layer.source]?.image {
                         Image(uiImage: image).resizable()
                             .frame(width: edge * layer.placement.width, height: edge * layer.placement.width * image.size.height / max(image.size.width, 1))
-                            .overlay { if layer.id == selectedID { Rectangle().stroke(Color("OiGreen"), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])) } }
+                            .overlay { if layer.id == selectedID && (isDragging || isTransforming) { Rectangle().stroke(Color("OiGreen"), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])) } }
                             .rotationEffect(.degrees(layer.placement.rotation))
                             .position(x: edge * layer.placement.x, y: edge * layer.placement.y)
                             .allowsHitTesting(false)
@@ -246,12 +227,12 @@ struct OiWardrobePhotoEditor: View {
             }.onEnded { _ in previousDrag = .zero })
             .simultaneousGesture(SpatialTapGesture().onEnded { select(at: $0.location, edge: edge) })
             .simultaneousGesture(photoTransformGesture)
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color("OiGreen").opacity(0.25)))
-            .clipShape(RoundedRectangle(cornerRadius: 12)).accessibilityElement(children: .ignore)
+            .clipShape(RoundedRectangle(cornerRadius: 20)).accessibilityElement(children: .ignore)
             .accessibilityLabel("\(side.title) 사진 배치용 UV 맵")
             .accessibilityHint("사진을 선택하고 한 손가락으로 이동하세요. 두 손가락을 벌리거나 오므려 크기를 조절하고, 비틀어 회전하세요.")
             .accessibilityActions {
                 if selectedLayer != nil {
+                    Button("사진 삭제", action: deleteSelected)
                     Button("사진 확대") { editSelected { $0.placement.width = min(1.5, $0.placement.width * 1.1) } }
                     Button("사진 축소") { editSelected { $0.placement.width = max(0.03, $0.placement.width / 1.1) } }
                     Button("사진 시계 방향 회전") { editSelected { $0.placement.rotation = wrappedRotation($0.placement.rotation + 15) } }
@@ -351,7 +332,7 @@ struct OiWardrobePhotoEditor: View {
             defer { if renderGeneration == generation { renderTask = nil } }
             while renderPending && !Task.isCancelled {
                 renderPending = false
-                let image = OiPhotoRenderer.atlas(layers: draft.layers, assets: draft.assets, panelSize: 512, color: slot.color(in: look), fabric: slot.fabric(in: look))
+                let image = OiPhotoRenderer.atlas(layers: draft.layers, assets: draft.assets, panelSize: 512, color: slot.color(in: look), fabric: slot.fabric(in: look), transparent: slot.preservesOriginalMaterial(in: look))
                 if let cg = image.cgImage { await scene.setPhotoPreview(cg) }
                 try? await Task.sleep(for: .milliseconds(50))
             }
@@ -363,20 +344,23 @@ struct OiWardrobePhotoEditor: View {
         renderTask = nil
         renderPending = false
     }
+    private func close() {
+        if let onClose { onClose() } else { dismiss() }
+    }
     private func save() {
         saving = true
         do {
             var artwork = look.artwork
             try artwork.set(OiPhotoDesign(layers: draft.layers), sources: draft.assets.mapValues(\.data), for: slot.itemID(in: look))
-            onSave(artwork); dismiss()
+            onSave(artwork); close()
         }
         catch { self.error = error.localizedDescription }
         saving = false
     }
 }
 
-/// Presents from the editing sheet without coupling Photos state to SwiftUI's modal bridge.
-private struct OiWardrobePhotoLibrary: UIViewControllerRepresentable {
+/// Presents from the editing panel without coupling Photos state to SwiftUI's modal bridge.
+struct OiWardrobePhotoLibrary: UIViewControllerRepresentable {
     @Binding var isPresented: Bool
     let limit: Int
     let onSelection: ([PHPickerResult]) -> Void
@@ -404,6 +388,46 @@ private struct OiWardrobePhotoLibrary: UIViewControllerRepresentable {
                 parent.isPresented = false
                 parent.onSelection(results)
             }
+        }
+    }
+}
+
+/// Native segmented interaction, using the Figma typography and 36pt pill.
+private struct OiPhotoSidePicker: UIViewRepresentable {
+    @Binding var selection: OiPhotoSide
+    var isEnabled: Bool
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+    func makeUIView(context: Context) -> UISegmentedControl {
+        let control = UISegmentedControl(items: OiPhotoSide.allCases.map(\.title))
+        control.backgroundColor = UIColor(white: 223 / 255, alpha: 1)
+        control.selectedSegmentTintColor = .white
+        control.layer.cornerRadius = 18
+        control.clipsToBounds = true
+        control.setTitleTextAttributes([
+            .font: UIFont(name: "Paperlogy-4Regular", size: 16) ?? .systemFont(ofSize: 16),
+            .foregroundColor: UIColor.black
+        ], for: .normal)
+        control.setTitleTextAttributes([
+            .font: UIFont(name: "Paperlogy-6SemiBold", size: 16) ?? .systemFont(ofSize: 16, weight: .semibold),
+            .foregroundColor: UIColor.black
+        ], for: .selected)
+        control.accessibilityLabel = "편집할 면"
+        control.accessibilityIdentifier = "photo-side"
+        control.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .valueChanged)
+        return control
+    }
+    func updateUIView(_ control: UISegmentedControl, context: Context) {
+        context.coordinator.parent = self
+        control.selectedSegmentIndex = OiPhotoSide.allCases.firstIndex(of: selection) ?? 0
+        control.isEnabled = isEnabled
+    }
+    final class Coordinator: NSObject {
+        var parent: OiPhotoSidePicker
+        init(parent: OiPhotoSidePicker) { self.parent = parent }
+        @objc func changed(_ control: UISegmentedControl) {
+            guard OiPhotoSide.allCases.indices.contains(control.selectedSegmentIndex) else { return }
+            parent.selection = OiPhotoSide.allCases[control.selectedSegmentIndex]
         }
     }
 }

@@ -43,11 +43,13 @@ enum OiPhotoRenderer {
     }
 
     // Front/back each receive a complete square texture, clipped separately at their seam.
-    static func atlas(layers: [OiPhotoLayer], assets: [String: OiPhotoImageAsset], panelSize: Int, color: UInt32, fabric: OiDenim? = nil) -> UIImage {
+    static func atlas(layers: [OiPhotoLayer], assets: [String: OiPhotoImageAsset], panelSize: Int, color: UInt32, fabric: OiDenim? = nil, transparent: Bool = false) -> UIImage {
         let edge = CGFloat(panelSize)
-        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = !transparent
         return UIGraphicsImageRenderer(size: CGSize(width: edge * 2, height: edge), format: format).image { context in
-            UIColor(wardrobeRGB: color).setFill(); context.fill(CGRect(x: 0, y: 0, width: edge * 2, height: edge))
+            if !transparent {
+                UIColor(wardrobeRGB: color).setFill(); context.fill(CGRect(x: 0, y: 0, width: edge * 2, height: edge))
+            }
             let cg = context.cgContext
             for side in OiPhotoSide.allCases {
                 cg.saveGState(); cg.translateBy(x: side == .front ? 0 : edge, y: 0)

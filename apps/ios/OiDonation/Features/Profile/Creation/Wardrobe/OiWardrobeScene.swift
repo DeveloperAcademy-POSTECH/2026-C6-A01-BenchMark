@@ -24,6 +24,7 @@ final class OiWardrobeScene {
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var yaw: Float = 0
     @ObservationIgnored private var distance: Float = 2.75
+    @ObservationIgnored private var cardPitch: Float = 0
 
     func install() -> RealityKit.ARView {
         if let canvas { return canvas }
@@ -64,7 +65,7 @@ final class OiWardrobeScene {
                 for node in photoNodes.values { node.removeFromParent() }
                 OiWardrobeAsset.assemble(look, root: prepared, overlays: overlays)
                 if let editingSlot, let previewTexture, let node = overlays[editingSlot] {
-                    OiWardrobeAsset.applyPhoto(previewTexture, to: node)
+                    OiWardrobeAsset.applyPhoto(previewTexture, to: node, transparent: editingSlot.preservesOriginalMaterial(in: look))
                 }
                 if model !== prepared { model?.removeFromParent(); anchor.addChild(prepared) }
                 photoNodes = overlays
@@ -95,7 +96,7 @@ final class OiWardrobeScene {
             try Task.checkCancellation()
             guard version == previewVersion else { return }
             previewTexture = texture; photoPreviewError = nil
-            if let node = photoNodes[editingSlot] { OiWardrobeAsset.applyPhoto(texture, to: node) }
+            if let node = photoNodes[editingSlot] { OiWardrobeAsset.applyPhoto(texture, to: node, transparent: request.map { editingSlot.preservesOriginalMaterial(in: $0) } ?? false) }
         } catch is CancellationError { }
         catch {
             guard version == previewVersion, !Task.isCancelled else { return }
@@ -103,12 +104,34 @@ final class OiWardrobeScene {
         }
     }
 
+    func transparentCardBackground() {
+        guard let canvas else { return }
+        canvas.isOpaque = false
+        canvas.backgroundColor = .clear
+        canvas.environment.background = .color(.clear)
+    }
+
+    func cardPortrait() async -> UIImage? {
+        guard let canvas, !loading, error == nil, model != nil else { return nil }
+        return await withCheckedContinuation { continuation in
+            canvas.snapshot(saveToHDR: false) { continuation.resume(returning: $0) }
+        }
+    }
+
+    func cardOrientation(_ orientation: OiCardOrientation) {
+        let value = orientation.normalized
+        yaw = Float(value.yaw); cardPitch = Float(value.pitch)
+        updateCamera()
+    }
+
     func orbit(_ dx: Float) { yaw -= dx * 0.01; updateCamera() }
     func angle(_ angle: Float) { yaw = angle; updateCamera() }
     func zoom(_ scale: Float) { distance = min(4, max(1.85, distance / scale)); updateCamera() }
     private func updateCamera() {
         let target = SIMD3<Float>(0, 0.75, 0)
-        camera.look(at: target, from: target + SIMD3(sin(yaw) * distance, 0.07, cos(yaw) * distance), relativeTo: nil)
+        camera.look(at: target, from: target + SIMD3(sin(yaw) * cos(cardPitch) * distance,
+                                              0.07 + sin(cardPitch) * distance,
+                                              cos(yaw) * cos(cardPitch) * distance), relativeTo: nil)
     }
     func release() {
         generation += 1; task?.cancel(); task = nil
