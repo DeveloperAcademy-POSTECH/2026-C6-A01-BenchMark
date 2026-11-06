@@ -29,6 +29,22 @@ struct OiPhotoPrintFrame: Decodable, Equatable {
     }
 }
 
+/// A zoomed editor window onto the print frame. Saved placements and the 3D
+/// texture still use the full square panel; only display/touch coordinates change.
+struct OiPhotoPrintViewport {
+    let panelEdge: CGFloat
+    let rect: CGRect
+
+    init(frame: OiPhotoPrintFrame, width: CGFloat) {
+        panelEdge = width / frame.width
+        rect = frame.rect(edge: panelEdge)
+    }
+
+    func panelPoint(_ point: CGPoint) -> CGPoint {
+        CGPoint(x: point.x + rect.minX, y: point.y + rect.minY)
+    }
+}
+
 struct OiPhotoPrintLayout: Decodable {
     let front: OiPhotoPrintFrame
     let back: OiPhotoPrintFrame

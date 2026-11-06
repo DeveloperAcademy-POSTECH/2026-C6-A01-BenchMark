@@ -3167,14 +3167,15 @@ final class OiCostumePhotoTests: XCTestCase {
         let layerID = UUID().uuidString, secondID = UUID().uuidString
         func content(_ layers: [OiPhotoLayer], side: OiPhotoSide) -> some View {
             OiPhotoLayerCanvas(layers: layers, assets: assets, side: side,
-                selectedID: nil, frame: layout[side], edge: edge)
-                .frame(width: edge, height: edge).background(.white)
+                selectedID: nil, frame: layout[side], width: edge).background(.white)
         }
         let controller = UIHostingController(rootView: content([], side: .front))
         window.rootViewController = controller; window.makeKeyAndVisible()
         defer { window.isHidden = true }
         for side in OiPhotoSide.allCases {
             let initial = layout[side].placement(for: asset.image)
+            let viewport = OiPhotoPrintViewport(frame: layout[side], width: edge)
+            let size = viewport.rect.size
             for count in 1...2 {
                 var firstPixels: [UInt8]?
                 for (step, delta) in [(0, CGPoint.zero), (1, CGPoint(x: -0.06, y: 0.10)),
@@ -3193,15 +3194,21 @@ final class OiCostumePhotoTests: XCTestCase {
                     try await Task.sleep(for: .milliseconds(100))
                     // Capture the live hosting view, retaining photo IDs across successive updates.
                     let bounds = controller.view.bounds, insets = controller.view.safeAreaInsets
-                    let image = UIGraphicsImageRenderer(size: CGSize(width: edge, height: edge), format: format).image { context in
-                        context.cgContext.translateBy(x: -(bounds.width-edge+insets.left-insets.right)/2,
-                            y: -(bounds.height-edge+insets.top-insets.bottom)/2)
+                    let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+                        context.cgContext.translateBy(x: -(bounds.width-size.width+insets.left-insets.right)/2,
+                            y: -(bounds.height-size.height+insets.top-insets.bottom)/2)
                         controller.view.drawHierarchy(in: bounds, afterScreenUpdates: true)
                     }
-                    let atlas = try XCTUnwrap(OiPhotoRenderer.atlas(layers: layers, assets: assets, panelSize: 256,
-                        color: 0xFFFFFF, layout: layout).cgImage)
-                    let expectedImage = try XCTUnwrap(atlas.cropping(to: CGRect(x: side == .front ? 0 : 256, y: 0, width: 256, height: 256)))
-                    let actual = rgba(try XCTUnwrap(image.cgImage), size: 256), expected = rgba(expectedImage, size: 256)
+                    let atlas = OiPhotoRenderer.atlas(layers: layers, assets: assets, panelSize: 512,
+                        color: 0xFFFFFF, layout: layout)
+                    // Enlarge only the authored print region from the actual 3D atlas.
+                    // This catches display zoom that changes saved placements or the crop.
+                    let expectedImage = UIGraphicsImageRenderer(size: size, format: format).image { context in
+                        context.cgContext.translateBy(x: -viewport.rect.minX, y: -viewport.rect.minY)
+                        context.cgContext.scaleBy(x: viewport.panelEdge/512, y: viewport.panelEdge/512)
+                        atlas.draw(at: CGPoint(x: side == .front ? 0 : -512, y: 0))
+                    }
+                    let actual = rgba(try XCTUnwrap(image.cgImage), size: 256), expected = rgba(try XCTUnwrap(expectedImage.cgImage), size: 256)
                     var mismatches = 0
                     // Permit small antialiasing differences between SwiftUI and the print renderer.
                     for y in stride(from: 4, to: 252, by: 4) { for x in stride(from: 4, to: 252, by: 4) {
@@ -3227,6 +3234,8 @@ final class OiCostumePhotoTests: XCTestCase {
         let frame = try OiPhotoPrintLayout.load(resource: OiPhotoSlot.top.resource(in: look)).front
         try look.artwork.set(OiPhotoDesign(layers: [OiPhotoLayer(source: asset.id, placement: frame.placement(for: asset.image))]),
             sources: [asset.id: asset.data], for: "costume-raincoat")
+        let empty = ProcessInfo.processInfo.environment["OI_PHOTO_EMPTY_SNAPSHOT"] == "1"
+        if empty { look.artwork = OiWardrobeArtwork() }
         let scene = OiWardrobeScene(editingSlot: .top)
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let window = UIWindow(windowScene: windowScene)
@@ -3241,7 +3250,7 @@ final class OiCostumePhotoTests: XCTestCase {
         defer { scene.release(); window.isHidden = true }
         try await Task.sleep(for: .seconds(3))
         let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) }
-        let attachment = XCTAttachment(image: image); attachment.name = "rounded-photo-editor"; attachment.lifetime = .keepAlways; add(attachment)
+        let attachment = XCTAttachment(image: image); attachment.name = "rounded-photo-editor-\(empty ? "empty" : "photo")"; attachment.lifetime = .keepAlways; add(attachment)
         if interactive {
             print("OI_PHOTO_DELETE_INTERACTION_READY")
             for _ in 0..<300 where saved == nil { try await Task.sleep(for: .seconds(1)) }

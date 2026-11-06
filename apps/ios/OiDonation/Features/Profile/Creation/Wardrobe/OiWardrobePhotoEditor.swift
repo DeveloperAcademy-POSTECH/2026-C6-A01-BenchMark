@@ -72,7 +72,13 @@ struct OiWardrobePhotoEditor: View {
                         ForEach(OiPhotoSide.allCases) { Text($0.title).tag($0) }
                     }.pickerStyle(.segmented).accessibilityIdentifier("photo-side")
                         .disabled(importInProgress)
-                    uvCanvas.frame(width: 204, height: 204)
+                    uvCanvas
+                    if !draft.layers.contains(where: { $0.side == side }) {
+                        Text("아래 사진 추가 버튼으로 \(side.title)에 사진을 넣어 주세요.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("photo-empty-instruction")
+                    }
                     if !draft.layers.isEmpty { layerPicker }
                     Text("둥근 프레임 안에만 사진이 들어가요.\n드래그로 이동 · 두 손가락으로 크기와 회전 조절")
                         .font(CampusStyle.body(10)).foregroundStyle(Color(white: 0.48))
@@ -210,32 +216,30 @@ struct OiWardrobePhotoEditor: View {
             }.font(.subheadline).accessibilityIdentifier("photo-reset")
         }
     }
-    private var uvCanvas: some View {
-        GeometryReader { geometry in
-            let edge = geometry.size.width
-            ZStack(alignment: .topLeading) {
-                Color(UIColor(wardrobeRGB: slot.color(in: look)))
-                if let image = OiPhotoRenderer.fabricImage(slot.fabric(in: look)) {
-                    Image(uiImage: image).resizable().frame(width: edge, height: edge).allowsHitTesting(false)
+    @ViewBuilder private var uvCanvas: some View {
+        if let frame = layout?[side] {
+            Color.clear.aspectRatio(frame.width / frame.height, contentMode: .fit)
+                .overlay {
+                    GeometryReader { geometry in
+                        photoCanvas(frame: frame, width: geometry.size.width)
+                    }
                 }
-                if let frame = layout?[side] {
-                    OiPhotoLayerCanvas(layers: draft.layers, assets: draft.assets, side: side,
-                        selectedID: selectedID, frame: frame, edge: edge)
-                }
-                if let frame = layout?[side] {
-                    Path { path in
-                        path.addRect(CGRect(x: 0, y: 0, width: edge, height: edge))
-                        path.addPath(Path(frame.path(edge: edge)))
-                    }.fill(Color(white: 0.94).opacity(0.9), style: FillStyle(eoFill: true)).allowsHitTesting(false)
-                    Path(frame.path(edge: edge)).stroke(Color("OiGreen"), lineWidth: 1.5).allowsHitTesting(false)
-                }
-                if !draft.layers.contains(where: { $0.side == side }) {
-                    Text("\(side.title)에 사진을 추가하세요").font(.caption.bold()).padding(10).background(.regularMaterial, in: Capsule()).position(x: edge / 2, y: edge / 2)
-                }
-            }
-            .clipped().contentShape(Rectangle())
+                .frame(maxHeight: 240)
+                .frame(maxWidth: .infinity)
+        }
+    }
+    private func photoCanvas(frame: OiPhotoPrintFrame, width: CGFloat) -> some View {
+        let viewport = OiPhotoPrintViewport(frame: frame, width: width)
+        let edge = viewport.panelEdge
+        let shape = RoundedRectangle(cornerRadius: frame.radius * edge, style: .circular)
+        return OiPhotoLayerCanvas(layers: draft.layers, assets: draft.assets, side: side,
+            selectedID: selectedID, frame: frame, width: width,
+            background: Color(UIColor(wardrobeRGB: slot.color(in: look))),
+            fabric: OiPhotoRenderer.fabricImage(slot.fabric(in: look)))
+            .overlay(shape.strokeBorder(Color("OiGreen"), lineWidth: 1.5).allowsHitTesting(false))
+            .contentShape(shape)
             .gesture(DragGesture(minimumDistance: 2).updating($isDragging) { _, active, _ in active = true }.onChanged { value in
-                if previousDrag == .zero && !isTransforming { select(at: value.startLocation, edge: edge) }
+                if previousDrag == .zero && !isTransforming { select(at: viewport.panelPoint(value.startLocation), edge: edge) }
                 defer { previousDrag = value.translation }
                 guard !isTransforming else { return }
                 editSelected {
@@ -243,10 +247,9 @@ struct OiWardrobePhotoEditor: View {
                     $0.placement.y = min(1, max(0, $0.placement.y + (value.translation.height - previousDrag.height) / edge))
                 }
             }.onEnded { _ in previousDrag = .zero })
-            .simultaneousGesture(SpatialTapGesture().onEnded { select(at: $0.location, edge: edge) })
+            .simultaneousGesture(SpatialTapGesture().onEnded { select(at: viewport.panelPoint($0.location), edge: edge) })
             .simultaneousGesture(photoTransformGesture)
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color("OiGreen").opacity(0.25)))
-            .clipShape(RoundedRectangle(cornerRadius: 12)).accessibilityElement(children: .ignore)
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(side.title) 둥근 사진 프레임")
             .accessibilityHint("사진을 선택하고 한 손가락으로 이동하세요. 두 손가락을 벌리거나 오므려 크기를 조절하고, 비틀어 회전하세요.")
             .accessibilityActions {
@@ -262,7 +265,6 @@ struct OiWardrobePhotoEditor: View {
                 }
             }
             .accessibilityIdentifier("photo-uv-canvas")
-        }
     }
     private var photoTransformGesture: some Gesture {
         MagnifyGesture().simultaneously(with: RotateGesture())
@@ -413,21 +415,29 @@ struct OiPhotoLayerCanvas: View {
     let side: OiPhotoSide
     let selectedID: String?
     let frame: OiPhotoPrintFrame
-    let edge: CGFloat
+    let width: CGFloat
+    var background: Color = .clear
+    var fabric: UIImage?
 
     var body: some View {
-        Canvas { context, size in
+        let viewport = OiPhotoPrintViewport(frame: frame, width: width)
+        let edge = viewport.panelEdge
+        Canvas { context, _ in
+            context.translateBy(x: -viewport.rect.minX, y: -viewport.rect.minY)
             // Set the clip before any photo transform, as OiPhotoRenderer.atlas does.
-            context.clip(to: Path(frame.path(edge: size.width)))
+            context.clip(to: Path(frame.path(edge: edge)))
+            let panel = CGRect(x: 0, y: 0, width: edge, height: edge)
+            context.fill(Path(panel), with: .color(background))
+            if let fabric { context.draw(Image(uiImage: fabric), in: panel) }
             for layer in layers where layer.side == side {
                 guard let image = assets[layer.source]?.image else { continue }
                 let placement = layer.placement
-                let width = size.width * placement.width
+                let width = edge * placement.width
                 let height = width * image.size.height / max(image.size.width, 1)
                 let bounds = CGRect(x: -width / 2, y: -height / 2, width: width, height: height)
                 // A fresh context keeps both the frame and other photos stationary.
                 var photo = context
-                photo.translateBy(x: size.width * placement.x, y: size.width * placement.y)
+                photo.translateBy(x: edge * placement.x, y: edge * placement.y)
                 photo.rotate(by: .degrees(placement.rotation))
                 photo.draw(Image(uiImage: image), in: bounds)
                 if layer.id == selectedID {
@@ -436,7 +446,6 @@ struct OiPhotoLayerCanvas: View {
                 }
             }
         }
-        .frame(width: edge, height: edge)
-        .allowsHitTesting(false)
+        .frame(width: viewport.rect.width, height: viewport.rect.height)
     }
 }
