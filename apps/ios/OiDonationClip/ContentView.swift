@@ -12,6 +12,7 @@ struct ContentView: View {
 
     @State private var viewModel: AppClipViewModel
     @State private var invocation: Invocation?
+    @State private var isPlaying = false
 
     private struct Invocation {
         let id = UUID()
@@ -34,27 +35,63 @@ struct ContentView: View {
             /// 1-3. 현재 상태에 따라 화면이 변경되도록 관리
             switch viewModel.state {
             case .welcome:
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
+                List {
+                    Section {
                         Text("오이기부").font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
-                        Text(viewModel.state.description).font(.title2)
-                        Text("캠퍼스의 오이를 찾아 수집하고, 그곳에 남겨진 이야기를 만나 보세요.")
-                        Button("전체 앱 보기", action: onRequestFullApp)
-                            .frame(minHeight: 44)
+                        Text("공개 이야기를 읽고 AR에서 오이 카드를 모아 보세요.")
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
+                    Section("공개 이야기") {
+                        ForEach(viewModel.publicStories) { story in
+                            Button {
+                                invocation = Invocation(url: AppClipLink.storyURL(story.id))
+                            } label: {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(story.cucumberName).font(.headline)
+                                    Text(story.title).font(.subheadline).foregroundStyle(.secondary)
+                                }.frame(minHeight: 44)
+                            }
+                        }
+                        if viewModel.isLoadingStories { ProgressView("이야기 불러오는 중") }
+                        else if let error = viewModel.listError {
+                            Text(error)
+                            Button("다시 시도") { Task { await viewModel.loadPublicStories(reset: true) } }
+                        } else if viewModel.publicStories.isEmpty {
+                            Text("아직 공개된 이야기가 없어요. 운영팀이 검토한 이야기가 공개되면 이곳에서 만날 수 있어요.")
+                            Button("새로고침") { Task { await viewModel.loadPublicStories(reset: true) } }
+                        } else if viewModel.hasMoreStories {
+                            Button("더 보기") { Task { await viewModel.loadPublicStories() } }
+                        }
+                    }
+                    Button("전체 앱 보기", action: onRequestFullApp).frame(minHeight: 44)
                 }
+                .refreshable { await viewModel.loadPublicStories(reset: true) }
             case .loading:
                 ProgressView()
                     .accessibilityLabel(viewModel.state.description)
             case .ready:
                 if let experience = viewModel.experience {
-                    ARGameFlowView(
-                        experience: experience,
-                        onBack: { viewModel.showWelcome() },
-                        onRequestFullApp: onRequestFullApp
-                    )
+                    if isPlaying {
+                        ARGameFlowView(
+                            experience: experience,
+                            onBack: { isPlaying = false },
+                            onRequestFullApp: onRequestFullApp,
+                            validateCollection: { await viewModel.canCollectCurrentStory() }
+                        )
+                    } else {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 20) {
+                                Button("이야기 목록") { viewModel.showWelcome() }
+                                Text(experience.story.title).font(.title.bold())
+                                Text(experience.story.donorDisplayName + " · " + experience.story.location.displayName)
+                                    .font(.subheadline).foregroundStyle(.secondary)
+                                Text(experience.story.content).textSelection(.enabled)
+                                Button("AR에서 오이 찾기") { isPlaying = true }
+                                    .buttonStyle(.borderedProminent).frame(minHeight: 44)
+                                Text("카메라를 사용해 오이 3개를 찾으면 카드를 이 기기에 보관할 수 있어요. 기부·방문 인증이나 작성 승인이 아닙니다.")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                            }.frame(maxWidth: .infinity, alignment: .leading).padding()
+                        }
+                    }
                 } else {
                     Text(viewModel.state.description)
                 }
@@ -70,6 +107,11 @@ struct ContentView: View {
                 .padding()
             }
         }
+        .task(id: viewModel.state) {
+            if viewModel.state == .welcome { await viewModel.loadPublicStories(reset: true) }
+        }
+        .onChange(of: invocation?.id) { _, _ in isPlaying = false }
+        .onChange(of: viewModel.state) { _, state in if state != .ready { isPlaying = false } }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { userActivity in
             invocation = Invocation(url: userActivity.webpageURL)
         }

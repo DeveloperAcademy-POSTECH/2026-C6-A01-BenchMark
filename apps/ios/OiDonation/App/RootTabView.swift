@@ -148,6 +148,7 @@ struct RootTabView: View {
             path = NavigationPath()
             pendingStoryList = false
             isARPresented = false
+            if let id = AppClipLink.storyID(in: url) { path.append(PublicLinkParser.Destination.story(id)) }
             return
         }
         if let host = container.approvedLinkHost,
