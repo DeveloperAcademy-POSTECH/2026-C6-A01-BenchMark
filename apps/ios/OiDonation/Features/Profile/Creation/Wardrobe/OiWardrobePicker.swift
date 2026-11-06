@@ -16,6 +16,7 @@ struct OiCucumberCustomizationStep: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var photoScene = OiWardrobeScene()
     @State private var tab: OiWardrobeTab = .top
+    @State private var wardrobeScrollPosition = ScrollPosition()
     @State private var photoSlot: OiPhotoSlot?
     private var look: OiWardrobeLook { customization.wardrobe ?? OiWardrobeLook() }
 
@@ -51,6 +52,8 @@ struct OiCucumberCustomizationStep: View {
                             }
                         }.padding(.horizontal, 20).padding(.vertical, 16)
                     }
+                    .scrollPosition($wardrobeScrollPosition)
+                    .onChange(of: tab) { _, _ in wardrobeScrollPosition.scrollTo(edge: .top) }
                 }
             }
         }

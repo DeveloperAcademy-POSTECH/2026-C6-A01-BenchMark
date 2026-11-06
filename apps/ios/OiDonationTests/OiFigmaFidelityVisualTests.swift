@@ -42,8 +42,10 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
              "review_note": status == "changes_requested" ? "기부처와 이체 완료 상태가 보이도록 다시 제출해 주세요." : ""]
         }
         let bytes = try JSONSerialization.data(withJSONObject: rows)
+        let emptyEvidence = Data("[]".utf8)
+        let evidencePath = "/rest/v1/oi_evidence_requests"
         OiStoreURLProtocol.handle = { request, client in
-            if request.url?.path == "/rest/v1/oi_evidence_requests" { client.respond(200, bytes) }
+            if request.url?.path == evidencePath { client.respond(200, bytes) }
             else { fallback?(request, client) }
         }
         let config = URLSessionConfiguration.ephemeral
@@ -65,6 +67,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         for variant in variants {
             let view = NavigationStack { OiDonationEvidenceView(remote: remote) }
             try await capture(view, name: "donation-evidence", variant: variant, defaults: fixture.defaults, attach: true)
+            let attachmentSources = NavigationStack {
+                OiDonationEvidenceView(remote: remote, showsAttachmentSourcesInitially: true)
+            }
+            try await capture(attachmentSources, name: "donation-evidence-attachment-sheet", variant: variant,
+                defaults: fixture.defaults, delay: .milliseconds(600), attach: true, checksBottomSheet: true)
             let attached = OiDonationEvidenceContent(evidence: [], attachmentName: "synthetic-proof.pdf",
                 canSubmit: true, message: "파일은 아직 전송되지 않았어요")
             try await capture(attached, name: "donation-evidence-attached", variant: variant,
@@ -84,6 +91,20 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                     defaults: fixture.defaults, attach: true)
             }
         }
+
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.path == evidencePath || request.url?.path == "/rest/v1/oi_writing_grants" {
+                client.respond(200, emptyEvidence)
+            } else { fallback?(request, client) }
+        }
+        await remote.refresh()
+        XCTAssertTrue(remote.hasLoadedRemote)
+        XCTAssertNil(remote.loadError)
+        XCTAssertTrue(remote.evidence.isEmpty)
+        XCTAssertFalse(remote.canStartStory)
+        let empty = NavigationStack { OiDonationEvidenceView(remote: remote) }
+        try await capture(empty, name: "donation-evidence-empty", variant: try XCTUnwrap(variants.first),
+                          defaults: fixture.defaults, attach: true)
     }
 
     func testDonationSemanticResultCaptures() async throws {
@@ -573,15 +594,6 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             onReload: {}, onDecision: { _, _ in }, onRetryDecision: {})
         try await capture(unconfirmed, name: "card-requests-unconfirmed-decision",
             variant: reference, defaults: fixture.defaults, attach: true)
-    }
-
-    func testEvidenceDesignPreviewCapture() async throws {
-        let fixture = try isolatedDefaults()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
-        for variant in variants {
-            try await capture(NavigationStack { OiEvidenceDesignPreview() },
-                              name: "evidence-preview", variant: variant, defaults: fixture.defaults, attach: true)
-        }
     }
 
     func testMYScreenCapturesWithoutRemoteStore() async throws {
@@ -1095,7 +1107,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     @discardableResult
     private func capture<V: View>(_ view: V, name: String, variant: Variant, defaults: UserDefaults,
                                  includesSafeArea: Bool = true,
-                                 delay: Duration = .milliseconds(180), attach: Bool = false) async throws -> Data {
+                                 delay: Duration = .milliseconds(180), attach: Bool = false,
+                                 checksBottomSheet: Bool = false) async throws -> Data {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first, "The isolated simulator test host must have a window scene")
@@ -1120,6 +1133,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         // Showing this owned window without making it key preserves all existing windows.
         window.isHidden = false
         defer {
+            if checksBottomSheet { root.dismiss(animated: false) }
             releaseCampusRenderers(in: host.view)
             host.willMove(toParent: nil)
             host.view.removeFromSuperview()
@@ -1140,6 +1154,16 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         host.view.setNeedsLayout()
         try await Task.sleep(for: delay)
         host.view.layoutIfNeeded()
+        if checksBottomSheet {
+            let presented = try XCTUnwrap(root.presentedViewController ?? host.presentedViewController)
+            let sheet = try XCTUnwrap(presented.presentationController)
+            XCTAssertTrue(sheet is UISheetPresentationController)
+            let frame = sheet.frameOfPresentedViewInContainerView
+            let bounds = try XCTUnwrap(sheet.containerView?.bounds)
+            XCTAssertGreaterThan(frame.minY, bounds.minY)
+            XCTAssertEqual(frame.maxY, bounds.maxY, accuracy: 1)
+        }
+        let renderView: UIView = checksBottomSheet ? window : host.view
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
@@ -1147,7 +1171,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let png = UIGraphicsImageRenderer(size: variant.size, format: format).pngData { context in
             UIColor.white.setFill()
             context.fill(CGRect(origin: .zero, size: variant.size))
-            rendered = host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+            rendered = renderView.drawHierarchy(in: renderView.bounds, afterScreenUpdates: true)
         }
         XCTAssertTrue(rendered, "The attached production view must draw its hierarchy")
         try assertNonemptyRender(png, size: variant.size)
