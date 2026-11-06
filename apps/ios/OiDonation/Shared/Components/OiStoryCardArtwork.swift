@@ -52,7 +52,7 @@ struct OiStoryCardArtwork: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Spacer(minLength: 0)
                     Text(introduction)
-                        .font(.custom("PearToucan-Regular", size: 16))
+                        .font(.custom("Paperlogy-4Regular", size: 16))
                         .tracking(0.48).lineSpacing(3).lineLimit(3)
                         .foregroundStyle(.white)
                         .shadow(color: .black.opacity(0.8), radius: 1, y: 1)
@@ -82,10 +82,10 @@ struct OiStoryCardArtwork: View {
 
                 Image("OiStoryCardHeader").resizable().frame(width: 268, height: 36)
                 Image("OiStoryCardFrame").resizable().frame(width: 332, height: 472)
-                Text("STORY").font(.custom("PearToucan-Bold", size: 11))
+                Text("STORY").font(.custom("Paperlogy-7Bold", size: 11))
                     .foregroundStyle(Color(red: 128 / 255, green: 110 / 255, blue: 63 / 255))
                     .frame(width: 62, height: 36)
-                Text(name).font(.custom("PearToucan-Light", size: 19)).tracking(1.52)
+                Text(name).font(.custom("Paperlogy-3Light", size: 19)).tracking(1.52)
                     .lineLimit(1).minimumScaleFactor(0.55)
                     .frame(width: 180, height: 36, alignment: .leading).offset(x: 77)
             }

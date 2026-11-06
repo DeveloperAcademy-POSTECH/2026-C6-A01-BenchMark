@@ -29,7 +29,7 @@ struct ARGameFailureView: View {
                         Spacer()
                         Button(action: onRetry) {
                             Text("재도전")
-                                .font(.custom("PearToucan-Regular", size: 30, relativeTo: .title))
+                                .font(.custom("Paperlogy-4Regular", size: 30, relativeTo: .title))
                                 .tracking(0.6)
                                 .minimumScaleFactor(0.5)
                                 .lineLimit(1)

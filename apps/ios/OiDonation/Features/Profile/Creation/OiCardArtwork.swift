@@ -51,7 +51,7 @@ struct OiDraftCardPreview: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Spacer()
                     Text(cardCaption)
-                        .font(.custom("PearToucan-Regular", size: 17)).lineSpacing(3).lineLimit(3)
+                        .font(.custom("Paperlogy-4Regular", size: 17)).lineSpacing(3).lineLimit(3)
                         .foregroundStyle(.white).shadow(color: .black.opacity(0.7), radius: 1, y: 1)
                     HStack(spacing: 5) {
                         ForEach(Array([draft.theme, draft.emotion].filter { !$0.isEmpty }.enumerated()), id: \.offset) { _, tag in
@@ -80,10 +80,10 @@ struct OiDraftCardPreview: View {
                             Image("OiCardEditableFrame").resizable().frame(width: 332, height: 472)
                         }
                     }
-                Text("NORMAL").font(.custom("PearToucan-Bold", size: 14))
+                Text("NORMAL").font(.custom("Paperlogy-7Bold", size: 14))
                     .foregroundStyle(headerInk).frame(width: 64, height: 48).offset(x: 4)
                 Text(draft.cucumberName.isEmpty ? "나의 오이" : draft.cucumberName)
-                    .font(.custom("PearToucan-Light", size: 21)).lineLimit(1).minimumScaleFactor(0.55)
+                    .font(.custom("Paperlogy-3Light", size: 21)).lineLimit(1).minimumScaleFactor(0.55)
                     .foregroundStyle(headerInk)
                     .frame(width: 184, height: 48, alignment: .leading).offset(x: 82)
             }.frame(width: 332, height: 472).clipShape(RoundedRectangle(cornerRadius: 9)).offset(x: 15, y: 15)
