@@ -84,6 +84,7 @@
 				Data/Networking/APIClient.swift,
 				Domain/Models/CollectedStoryCard.swift,
 				Domain/Models/Story.swift,
+				Domain/Models/OiContentSafetyStore.swift,
 				Domain/Models/StoryCard.swift,
 				Domain/Repositories/StoryRepository.swift,
 				Domain/Routing/AppClipLink.swift,
@@ -98,6 +99,7 @@
 				"Resources/OiStoryCardAssets.xcassets",
 				"Shared/Components/ARCollectionResultView.swift",
 				"Shared/Components/OiStoryCardArtwork.swift",
+				"Shared/Components/OiContentSafetyView.swift",
 			);
 			target = 87169564307CB1CF0090D456 /* OiDonationClip */;
 		};

@@ -118,6 +118,11 @@ struct MYCollectionView: View {
         }) { card in
             cardOverlay(card)
         }
+        .onChange(of: OiContentSafetyStore.shared.authors) { _, _ in
+            if let item = selectedCollectedCard, OiContentSafetyStore.shared.isBlocked(item.story.donorID) {
+                selectedCollectedCard = nil
+            }
+        }
         .sheet(item: $selectedCollectedCard) { item in
             collectedCardOverlay(item)
         }
@@ -171,8 +176,7 @@ struct MYCollectionView: View {
     }
 
     private var isLoadingCollectedSection: Bool {
-        shouldShowCollectedSection && (collectedLibrary.isLoading ||
-            (collectedLibrary.items.isEmpty && collectedLibrary.unavailableRecords.isEmpty))
+        shouldShowCollectedSection && collectedLibrary.isLoading
     }
 
     private var collectedSection: some View {
@@ -219,14 +223,14 @@ struct MYCollectionView: View {
                     ForEach(collectedLibrary.unavailableRecords) { _ in
                         VStack(spacing: 8) {
                             Image(systemName: "arrow.triangle.2.circlepath").font(.title3)
-                            Text("연결 대기").font(.caption).multilineTextAlignment(.center)
+                            Text("표시할 수 없음").font(.caption).multilineTextAlignment(.center)
                         }
                         .foregroundStyle(.secondary)
                         .padding(10)
                         .frame(width: cardWidth, height: cardHeight)
                         .background(Color(.secondarySystemBackground), in: cardShape)
                         .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("서버 연결을 기다리는 수집 카드")
+                        .accessibilityLabel("공개 상태, 차단 설정 또는 연결 상태로 표시할 수 없는 수집 카드")
                     }
                 }
             }
@@ -464,6 +468,10 @@ struct MYCollectionView: View {
                     .font(.custom("Paperlogy-8ExtraBold", size: 28, relativeTo: .title))
                 Text(item.story.content)
                     .font(.body)
+                if let id = UUID(uuidString: item.story.storyID) {
+                    OiStorySafetyButton(storyID: id, authorID: item.story.donorID, authorName: item.story.donorDisplayName,
+                        onBlock: { selectedCollectedCard = nil })
+                }
                 if let remote {
                     Button("내 계정 도감에 저장") {
                         guard let owner = remote.account?.id else { return }

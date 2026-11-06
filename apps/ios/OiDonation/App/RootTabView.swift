@@ -61,6 +61,12 @@ struct RootTabView: View {
             .navigationDestination(for: PublicLinkParser.Destination.self) { publicDestination($0) }
         }
         .tint(.black)
+        .onChange(of: OiContentSafetyStore.shared.authors) { _, _ in
+            synchronizeRemote()
+            if let author = collectionStory?.authorID, OiContentSafetyStore.shared.isBlocked(author) {
+                isARPresented = false
+            }
+        }
         .onChange(of: remote.revision) { _, _ in synchronizeRemote() }
         .onChange(of: remote.account?.id) { _, _ in myDemo.resetFilters() }
         .onReceive(NotificationCenter.default.publisher(for: ASAuthorizationAppleIDProvider.credentialRevokedNotification)) { _ in
@@ -69,6 +75,7 @@ struct RootTabView: View {
         }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
+            OiContentSafetyStore.shared.reload()
             store.collectAction = { story in
                 guard collectionStory == nil else { return }
                 collectionReturnsToAR = isARPresented

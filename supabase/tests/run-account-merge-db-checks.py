@@ -112,6 +112,7 @@ grant execute on function auth.jwt() to anon,authenticated;
         run(connection + ['-f', 'supabase/tests/oi-operator-workflow.sql'])
         run(connection + ['-f', 'supabase/tests/oi-unapproved-drafts.sql'])
         run(connection + ['-f', 'supabase/tests/oi-account-deletion.sql'])
+        run(connection + ['-f', 'supabase/tests/oi-content-safety.sql'])
         run(connection + ['-f', 'supabase/tests/oi-school-profile.sql'])
         run(connection + ['-f', 'supabase/tests/oi-farmer-outfit.sql'])
         run(connection + ['-f', 'supabase/tests/oi-evidence-fingerprints.sql'])

@@ -13,6 +13,9 @@ struct ContentView: View {
     @State private var viewModel: AppClipViewModel
     @State private var invocation: Invocation?
     @State private var isPlaying = false
+    @State private var showingSafety = false
+    @State private var showingBlocked = false
+    @Environment(\.scenePhase) private var phase
 
     private struct Invocation {
         let id = UUID()
@@ -29,6 +32,10 @@ struct ContentView: View {
         _viewModel = State(initialValue: AppClipViewModel(linkParser: linkParser, storyRepository: storyRepository))
     }
     
+    private var visibleStories: [PublicStorySummary] {
+        viewModel.publicStories.filter { !OiContentSafetyStore.shared.isBlocked($0.userId) }
+    }
+
     var body: some View {
         
         Group {
@@ -41,7 +48,7 @@ struct ContentView: View {
                         Text("공개 이야기를 읽고 AR에서 오이 카드를 모아 보세요.")
                     }
                     Section("공개 이야기") {
-                        ForEach(viewModel.publicStories) { story in
+                        ForEach(visibleStories) { story in
                             Button {
                                 invocation = Invocation(url: AppClipLink.storyURL(story.id))
                             } label: {
@@ -55,10 +62,11 @@ struct ContentView: View {
                         else if let error = viewModel.listError {
                             Text(error)
                             Button("다시 시도") { Task { await viewModel.loadPublicStories(reset: true) } }
-                        } else if viewModel.publicStories.isEmpty {
-                            Text("아직 공개된 이야기가 없어요. 운영팀이 검토한 이야기가 공개되면 이곳에서 만날 수 있어요.")
+                        } else if visibleStories.isEmpty {
+                            Text("표시할 공개 이야기가 없어요. 새로고침하거나 차단한 작성자 목록을 확인해 주세요.")
                             Button("새로고침") { Task { await viewModel.loadPublicStories(reset: true) } }
-                        } else if viewModel.hasMoreStories {
+                        }
+                        if !viewModel.isLoadingStories && viewModel.hasMoreStories {
                             Button("더 보기") { Task { await viewModel.loadPublicStories() } }
                         }
                     }
@@ -85,6 +93,7 @@ struct ContentView: View {
                                 Text(experience.story.donorDisplayName + " · " + experience.story.location.displayName)
                                     .font(.subheadline).foregroundStyle(.secondary)
                                 Text(experience.story.content).textSelection(.enabled)
+                                Button("신고 및 차단") { showingSafety = true }
                                 Button("AR에서 오이 찾기") { isPlaying = true }
                                     .buttonStyle(.borderedProminent).frame(minHeight: 44)
                                 Text("카메라를 사용해 오이 3개를 찾으면 카드를 이 기기에 보관할 수 있어요. 기부·방문 인증이나 작성 승인이 아닙니다.")
@@ -107,6 +116,23 @@ struct ContentView: View {
                 .padding()
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            Button("차단한 작성자") { showingBlocked = true }
+                .font(.footnote).frame(maxWidth: .infinity, minHeight: 44).background(.regularMaterial)
+        }
+        .sheet(isPresented: $showingBlocked) { OiBlockedAuthorsView() }
+        .sheet(isPresented: $showingSafety) {
+            if let story = viewModel.story, let id = UUID(uuidString: story.storyID) {
+                OiContentSafetyView(storyID: id, authorID: story.donorID, authorName: story.donorDisplayName,
+                    onBlock: { isPlaying = false; viewModel.showWelcome() })
+            }
+        }
+        .onChange(of: OiContentSafetyStore.shared.authors) { _, _ in
+            if let story = viewModel.story, OiContentSafetyStore.shared.isBlocked(story.donorID) {
+                isPlaying = false; viewModel.showWelcome()
+            }
+        }
+        .onChange(of: phase) { _, phase in if phase == .active { OiContentSafetyStore.shared.reload() } }
         .task(id: viewModel.state) {
             if viewModel.state == .welcome { await viewModel.loadPublicStories(reset: true) }
         }

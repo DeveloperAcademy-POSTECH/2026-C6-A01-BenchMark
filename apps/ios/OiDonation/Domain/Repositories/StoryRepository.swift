@@ -97,11 +97,13 @@ struct RealStoryRepository: StoryRepository {
         guard let id = UUID(uuidString: storyID) else { return nil }
         guard let row = try await rows("oi_stories", id: id.uuidString, as: Record.self).first else { return nil }
         guard row.id == id, row.status == "published" else { throw Failure.invalidResponse }
+        guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
         let profiles = try await rows("oi_profiles", id: row.userId.uuidString, as: Profile.self)
         let regions = try await rows("oi_regions", id: row.regionId, as: Region.self)
         let parser = ISO8601DateFormatter(); parser.formatOptions = [.withInternetDateTime,.withFractionalSeconds]
         let fractional = parser.date(from: row.createdAt); parser.formatOptions = [.withInternetDateTime]
         guard let date = fractional ?? parser.date(from: row.createdAt) else { throw Failure.invalidResponse }
+        guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
         return Story(storyID: id.uuidString, donorID: row.userId, donorDisplayName: profiles.first?.nickname ?? "농부",
             title: row.title, content: row.body, publishedAt: date,
             location: StoryLocation(locationID: row.regionId, displayName: regions.first?.name ?? "장소 확인 중"),

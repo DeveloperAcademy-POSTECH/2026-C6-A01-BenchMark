@@ -19,6 +19,7 @@ struct MYSettingsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var settingsError = false
+    @State private var showingBlockedAuthors = false
     @State private var showingAcademicEditor = false
     @State private var permissionValues: [MYPermission: PermissionStatus] = [:]
     @State private var showingOperator = false
@@ -46,6 +47,9 @@ struct MYSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 40) {
+                section("콘텐츠 보호") {
+                    Button("차단한 작성자") { showingBlockedAuthors = true }.frame(minHeight: 44)
+                }
                 section("소셜 로그인") {
                     if let remote {
                         OiSignInView(remote: remote, presentation: .settings)
@@ -138,6 +142,7 @@ struct MYSettingsView: View {
                 }
             }.buttonStyle(.plain).padding(.horizontal, 20).padding(.top, 17).padding(.bottom, 40)
         }
+        .sheet(isPresented: $showingBlockedAuthors) { OiBlockedAuthorsView() }
         .background(Color.white.ignoresSafeArea()).foregroundStyle(.black)
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .top, spacing: 0) {
