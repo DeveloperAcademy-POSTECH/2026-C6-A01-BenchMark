@@ -510,7 +510,7 @@ private struct MYSchoolFolder: View {
                     .offset(x: -8 * scale, y: 30.7 * scale)
                 HStack(alignment: .bottom, spacing: 3 * scale) {
                     Text("\(cards.count)")
-                        .font(.custom("PearToucan-Bold", size: 50 * scale, relativeTo: .title))
+                        .font(.custom("Paperlogy-7Bold", size: 50 * scale, relativeTo: .title))
                         .tracking(2 * scale).frame(height: 35 * scale)
                     Text("card")
                         .font(.custom("Paperlogy-4Regular", size: 25 * scale, relativeTo: .title2))

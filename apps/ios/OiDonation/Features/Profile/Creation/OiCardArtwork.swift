@@ -46,7 +46,7 @@ struct OiDraftCardPreview: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Spacer()
                     Text(cardCaption)
-                        .font(.custom("PearToucan-Regular", size: 17)).lineSpacing(3).lineLimit(3)
+                        .font(.custom("Paperlogy-4Regular", size: 17)).lineSpacing(3).lineLimit(3)
                         .foregroundStyle(.white).shadow(color: .black.opacity(0.7), radius: 1, y: 1)
                     HStack(spacing: 5) {
                         ForEach(Array([draft.theme, draft.emotion].filter { !$0.isEmpty }.enumerated()), id: \.offset) { _, tag in
@@ -66,10 +66,10 @@ struct OiDraftCardPreview: View {
                 }.padding(14).frame(width: 332, height: 472)
                 Image("OiStoryCardHeader").resizable().frame(width: 268, height: 36)
                 Image("OiStoryCardFrame").resizable().frame(width: 332, height: 472)
-                Text("NORMAL").font(.custom("PearToucan-Bold", size: 11))
+                Text("NORMAL").font(.custom("Paperlogy-7Bold", size: 11))
                     .foregroundStyle(Color(white: 0.45)).frame(width: 64, height: 36)
                 Text(draft.cucumberName.isEmpty ? "나의 오이" : draft.cucumberName)
-                    .font(.custom("PearToucan-Light", size: 21)).lineLimit(1).minimumScaleFactor(0.55)
+                    .font(.custom("Paperlogy-3Light", size: 21)).lineLimit(1).minimumScaleFactor(0.55)
                     .frame(width: 184, height: 36, alignment: .leading).offset(x: 77)
             }.frame(width: 332, height: 472).clipShape(RoundedRectangle(cornerRadius: 9)).offset(x: 15, y: 15)
         }.clipShape(RoundedRectangle(cornerRadius: 15)).dynamicTypeSize(.medium)

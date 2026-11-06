@@ -148,8 +148,8 @@ struct ARGameIntroView: View {
         bold: Bool
     ) -> Font {
         let font = dynamicTypeSize.isAccessibilitySize
-            ? Font.custom("PearToucan-Regular", size: size, relativeTo: textStyle)
-            : Font.custom("PearToucan-Regular", fixedSize: size)
+            ? Font.custom("Paperlogy-4Regular", size: size, relativeTo: textStyle)
+            : Font.custom("Paperlogy-4Regular", fixedSize: size)
         return bold ? font.weight(.bold) : font
     }
 

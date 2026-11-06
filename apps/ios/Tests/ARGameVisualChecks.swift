@@ -37,8 +37,8 @@ private final class ARGameVisualScene: UIResponder, UIWindowSceneDelegate {
         do {
             let output = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-            let fontNames = ["PearToucan-Regular", "PearToucan-Bold", "PearToucan-Light", "Paperlogy-7Bold",
-                             "Paperlogy-4Regular", "Paperlogy-6SemiBold", "Paperlogy-2ExtraLight"]
+            let fontNames = ["Paperlogy-2ExtraLight", "Paperlogy-3Light", "Paperlogy-4Regular",
+                             "Paperlogy-6SemiBold", "Paperlogy-7Bold"]
             for name in fontNames {
                 guard let url = Bundle.main.url(forResource: name, withExtension: "ttf") else {
                     preconditionFailure("Missing packaged font: \(name)")

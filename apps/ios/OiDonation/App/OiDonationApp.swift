@@ -12,7 +12,7 @@ import CoreText
 struct OiDonationApp: App {
     @UIApplicationDelegateAdaptor(ARRecordingOrientation.self) private var appDelegate
     init() {
-        for name in ["Griun_OMIRI-Rg", "Paperlogy-3Light", "Paperlogy-4Regular", "Paperlogy-5Medium", "Paperlogy-6SemiBold", "Paperlogy-7Bold", "Paperlogy-8ExtraBold", "Paperlogy-9Black", "Mona12TextKR", "Pretendard-Regular", "Pretendard-Bold", "PearToucan-Regular", "PearToucan-Light", "PearToucan-Bold", "KIM-WILDgag-Bold"] {
+        for name in ["Griun_OMIRI-Rg", "Paperlogy-3Light", "Paperlogy-4Regular", "Paperlogy-5Medium", "Paperlogy-6SemiBold", "Paperlogy-7Bold", "Paperlogy-8ExtraBold", "Paperlogy-9Black", "Mona12TextKR", "Pretendard-Regular", "Pretendard-Bold"] {
             let ext = name.hasPrefix("Pretendard") ? "otf" : "ttf"
             if let url = Bundle.main.url(forResource: name, withExtension: ext)
                 ?? Bundle.main.url(forResource: name, withExtension: ext, subdirectory: "Fonts") {
