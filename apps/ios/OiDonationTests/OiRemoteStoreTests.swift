@@ -3150,6 +3150,74 @@ final class OiCostumePhotoTests: XCTestCase {
         XCTAssertTrue(restored.designs.isEmpty); XCTAssertTrue(restored.sources.isEmpty)
     }
 
+    func testMovingEditorPhotoKeepsFrameFixedAndMatchesPrintedPixels() async throws {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let source = UIGraphicsImageRenderer(size: CGSize(width: 200, height: 300), format: format).image { context in
+            UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 200, height: 300))
+            UIColor.blue.setFill(); context.fill(CGRect(x: 100, y: 0, width: 100, height: 150))
+        }
+        let accent = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 50), format: format).image { context in
+            UIColor.green.setFill(); context.fill(CGRect(x: 0, y: 0, width: 100, height: 50))
+        }
+        let asset = try OiPhotoRenderer.asset(source), second = try OiPhotoRenderer.asset(accent)
+        let assets = [asset.id: asset, second.id: second]
+        let layout = try OiPhotoPrintLayout.load(resource: "photo-wardrobe-costume-astronaut-top")
+        let window = UIWindow(windowScene: try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene))
+        let edge: CGFloat = 256
+        let layerID = UUID().uuidString, secondID = UUID().uuidString
+        func content(_ layers: [OiPhotoLayer], side: OiPhotoSide) -> some View {
+            OiPhotoLayerCanvas(layers: layers, assets: assets, side: side,
+                selectedID: nil, frame: layout[side], edge: edge)
+                .frame(width: edge, height: edge).background(.white)
+        }
+        let controller = UIHostingController(rootView: content([], side: .front))
+        window.rootViewController = controller; window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        for side in OiPhotoSide.allCases {
+            let initial = layout[side].placement(for: asset.image)
+            for count in 1...2 {
+                var firstPixels: [UInt8]?
+                for (step, delta) in [(0, CGPoint.zero), (1, CGPoint(x: -0.06, y: 0.10)),
+                                      (2, CGPoint(x: 0.12, y: -0.08)), (3, CGPoint.zero)] {
+                    var placement = initial; placement.x += delta.x; placement.y += delta.y
+                    if step == 2 { placement.rotation = 28; placement.width *= 0.75 }
+                    var layers = [OiPhotoLayer(id: layerID, source: asset.id, side: side, placement: placement)]
+                    if count == 2 {
+                        layers.append(OiPhotoLayer(id: secondID, source: second.id, side: side,
+                            placement: OiPhotoPlacement(x: initial.x + 0.18, y: initial.y, width: 0.18, rotation: -18)))
+                    }
+                    // A design on the other side must not bleed into this preview.
+                    layers.append(OiPhotoLayer(source: second.id, side: side == .front ? .back : .front))
+                    controller.rootView = content(layers, side: side)
+                    controller.view.layoutIfNeeded()
+                    try await Task.sleep(for: .milliseconds(100))
+                    // Capture the live hosting view, retaining photo IDs across successive updates.
+                    let bounds = controller.view.bounds, insets = controller.view.safeAreaInsets
+                    let image = UIGraphicsImageRenderer(size: CGSize(width: edge, height: edge), format: format).image { context in
+                        context.cgContext.translateBy(x: -(bounds.width-edge+insets.left-insets.right)/2,
+                            y: -(bounds.height-edge+insets.top-insets.bottom)/2)
+                        controller.view.drawHierarchy(in: bounds, afterScreenUpdates: true)
+                    }
+                    let atlas = try XCTUnwrap(OiPhotoRenderer.atlas(layers: layers, assets: assets, panelSize: 256,
+                        color: 0xFFFFFF, layout: layout).cgImage)
+                    let expectedImage = try XCTUnwrap(atlas.cropping(to: CGRect(x: side == .front ? 0 : 256, y: 0, width: 256, height: 256)))
+                    let actual = rgba(try XCTUnwrap(image.cgImage), size: 256), expected = rgba(expectedImage, size: 256)
+                    var mismatches = 0
+                    // Permit small antialiasing differences between SwiftUI and the print renderer.
+                    for y in stride(from: 4, to: 252, by: 4) { for x in stride(from: 4, to: 252, by: 4) {
+                        let i = (y*256+x)*4
+                        if (0..<3).contains(where: { abs(Int(actual[i+$0])-Int(expected[i+$0])) > 30 }) { mismatches += 1 }
+                    }}
+                    XCTAssertLessThan(mismatches, 45, "\(side), \(count) photos, step \(step): editor must match printed crop")
+                    if step == 0 { firstPixels = actual }
+                    if step == 3 { XCTAssertEqual(actual, firstPixels, "Returning to the original position must restore every cropped edge") }
+                    let attachment = XCTAttachment(image: image)
+                    attachment.name = "fixed-frame-\(side)-\(count)-\(step)"; attachment.lifetime = .keepAlways; add(attachment)
+                }
+            }
+        }
+    }
+
     func testRoundedFrameEditorSnapshot() async throws {
         var look = OiWardrobeLook(); look.costume = .raincoat
         let asset = try OiPhotoRenderer.asset(UIImage(cgImage: canvas { cg in

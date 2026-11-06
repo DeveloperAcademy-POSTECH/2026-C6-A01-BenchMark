@@ -218,19 +218,10 @@ struct OiWardrobePhotoEditor: View {
                 if let image = OiPhotoRenderer.fabricImage(slot.fabric(in: look)) {
                     Image(uiImage: image).resizable().frame(width: edge, height: edge).allowsHitTesting(false)
                 }
-                ZStack(alignment: .topLeading) {
-                    ForEach(draft.layers.filter { $0.side == side }) { layer in
-                        if let image = draft.assets[layer.source]?.image {
-                            Image(uiImage: image).resizable()
-                                .frame(width: edge * layer.placement.width, height: edge * layer.placement.width * image.size.height / max(image.size.width, 1))
-                                .overlay { if layer.id == selectedID { Rectangle().stroke(Color("OiGreen"), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])) } }
-                                .rotationEffect(.degrees(layer.placement.rotation))
-                                .position(x: edge * layer.placement.x, y: edge * layer.placement.y)
-                                .allowsHitTesting(false)
-                        }
-                    }
-                }.frame(width: edge, height: edge)
-                    .mask { if let frame = layout?[side] { Path(frame.path(edge: edge)).fill(.white) } }
+                if let frame = layout?[side] {
+                    OiPhotoLayerCanvas(layers: draft.layers, assets: draft.assets, side: side,
+                        selectedID: selectedID, frame: frame, edge: edge)
+                }
                 if let frame = layout?[side] {
                     Path { path in
                         path.addRect(CGRect(x: 0, y: 0, width: edge, height: edge))
@@ -411,5 +402,41 @@ private struct OiWardrobePhotoLibrary: UIViewControllerRepresentable {
                 parent.onSelection(results)
             }
         }
+    }
+}
+
+/// Draw from the source on each update. The print clip belongs to the canvas,
+/// never to a photo's moving/scaling view or a previously clipped bitmap.
+struct OiPhotoLayerCanvas: View {
+    let layers: [OiPhotoLayer]
+    let assets: [String: OiPhotoImageAsset]
+    let side: OiPhotoSide
+    let selectedID: String?
+    let frame: OiPhotoPrintFrame
+    let edge: CGFloat
+
+    var body: some View {
+        Canvas { context, size in
+            // Set the clip before any photo transform, as OiPhotoRenderer.atlas does.
+            context.clip(to: Path(frame.path(edge: size.width)))
+            for layer in layers where layer.side == side {
+                guard let image = assets[layer.source]?.image else { continue }
+                let placement = layer.placement
+                let width = size.width * placement.width
+                let height = width * image.size.height / max(image.size.width, 1)
+                let bounds = CGRect(x: -width / 2, y: -height / 2, width: width, height: height)
+                // A fresh context keeps both the frame and other photos stationary.
+                var photo = context
+                photo.translateBy(x: size.width * placement.x, y: size.width * placement.y)
+                photo.rotate(by: .degrees(placement.rotation))
+                photo.draw(Image(uiImage: image), in: bounds)
+                if layer.id == selectedID {
+                    photo.stroke(Path(bounds), with: .color(Color("OiGreen")),
+                        style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                }
+            }
+        }
+        .frame(width: edge, height: edge)
+        .allowsHitTesting(false)
     }
 }
