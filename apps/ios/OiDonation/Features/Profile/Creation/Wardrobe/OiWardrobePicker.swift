@@ -89,7 +89,7 @@ struct OiCucumberCustomizationStep: View {
     @ViewBuilder private var wardrobeControls: some View {
         ScrollView(.horizontal, showsIndicators: false) {
           HStack(spacing: 20) {
-            ForEach(OiWardrobeTab.allCases, id: \.self) { category in
+            ForEach(OiWardrobeTab.allCases.filter(\.isAvailable), id: \.self) { category in
                 Button { tab = category } label: {
                     Text(category.rawValue).font(tab == category ? CampusStyle.semibold(16) : CampusStyle.medium(16))
                         .frame(minHeight: 44)
