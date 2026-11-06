@@ -15,7 +15,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
     private(set) var assets: [OiAsset] = []
     private(set) var account: OiAccount?
     private(set) var profile: OiProfile?
-    private(set) var stories: [OiLiveStory] = []
+    private var loadedStories: [OiLiveStory] = []
+    var stories: [OiLiveStory] { loadedStories.filter { !OiContentSafetyStore.shared.isBlocked($0.userId) } }
     private(set) var ownStories: [OiLiveStory] = []
     private(set) var reviewStories: [OiLiveStory] = []
     private(set) var profiles: [OiProfile] = []
@@ -280,7 +281,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
     private func resetAccountState() {
         generation = UUID(); loadSequence += 1; refreshTask?.cancel(); refreshTask = nil
         profile = nil; ownStories = []; reviewStories = []; profiles = []; media = []; evidence = []; grants = []
-        stories = []; collections = []; favorites = []; collectionCounts = [:]; evidenceOperation = nil; committedMediaPaths = [:]
+        loadedStories = []; collections = []; favorites = []; collectionCounts = [:]; evidenceOperation = nil; committedMediaPaths = [:]
         unapprovedDraftsEnabled = false
         isAccountDeletionPending = false; isOperator = false; hasLoadedRemote = false; needsReauthentication = false; isRefreshing = false
         isAccountMergeAvailable = false; accountMemberIDs = []; accountProviders = []; localRecoveryWarning = nil
@@ -388,7 +389,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
             applyReceipt(receipt, action: "review_evidence", payload: [:])
             if review.decision == .revoked {
                 // Remove affected cached entries even if synchronization fails.
-                stories.removeAll { $0.grantId.map(revokedGrantIDs.contains) == true }
+                loadedStories.removeAll { $0.grantId.map(revokedGrantIDs.contains) == true }
                 reviewStories.removeAll { $0.grantId.map(revokedGrantIDs.contains) == true }
                 ownStories.removeAll { $0.grantId.map(revokedGrantIDs.contains) == true }
                 grants.removeAll { revokedGrantIDs.contains($0.id) }
@@ -492,6 +493,19 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         }
     }
 
+    func reportContent(story: UUID, reason: String, detail: String) async throws -> String {
+        try await withCardRequestSession { api, token in
+            try await api.reportContent(story: story, reason: reason, detail: detail, token: token).status
+        }
+    }
+    func contentReports(offset: Int) async throws -> [OiContentReport] {
+        try await withCardRequestSession { api, token in try await api.contentReports(offset: offset, token: token) }
+    }
+    func reviewContent(report: UUID, action: String, note: String) async throws {
+        try await withCardRequestSession { api, token in try await api.reviewContent(report: report, action: action, note: note, token: token) }
+        await refresh()
+    }
+
     func cardRequests() async throws -> [OiCardRequest] {
         try await withCardRequestSession { api, token in try await api.cardRequests(token: token) }
     }
@@ -547,12 +561,14 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
     /// Always query as the public role so even an owner cannot render a hidden story in AR.
     func publishedStory(_ id: UUID) async throws -> OiLiveStory {
         guard let api else { throw OiServiceError.configuration }
-        return try await api.publishedStory(id)
+        let story = try await api.publishedStory(id)
+        guard !OiContentSafetyStore.shared.isBlocked(story.userId) else { throw OiServiceError.unavailable }
+        return story
     }
 
     func publishedStories() async throws -> [OiLiveStory] {
         guard let api else { throw OiServiceError.configuration }
-        return try await api.publishedStories()
+        return try await api.publishedStories().filter { !OiContentSafetyStore.shared.isBlocked($0.userId) }
     }
 
     func campusStory(_ item: OiLiveStory, order: Int = 0) -> CampusStory {
@@ -561,6 +577,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
             donor: profiles.first { $0.id == item.userId }?.nickname ?? "작성자 정보 확인 중",
             location: regions.first { $0.id == item.regionId }?.name ?? "POSTECH",
             date: item.createdDateLabel, order: order, popularity: collectionCounts[item.id] ?? 0, palette: 0)
+        story.authorID = item.userId
         story.remoteBody = item.body
         story.remoteMediaPaths = mediaPaths(storyID: item.id)
         story.latitude = item.latitude; story.longitude = item.longitude
@@ -637,7 +654,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
             resetAccountState(); session = current; account = resolved
         }
         schools = fetchedSchools; regions = fetchedRegions; assets = fetchedAssets
-        stories = fetched.filter { $0.status == "published" }
+        loadedStories = fetched.filter { $0.status == "published" }
         ownStories = fetched.filter { $0.userId == account?.id && $0.status != "deleted" }
         reviewStories = capabilities?.operator == true ? fetched.filter { ["pending","published","hidden"].contains($0.status) } : []
         profile = ownProfile
@@ -672,9 +689,9 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
     private func applyReceipt<Value>(_ value: Value, action: String, payload: [String: Any]) {
         loadSequence += 1
         if let story = value as? OiLiveStory {
-            ownStories.removeAll { $0.id == story.id }; stories.removeAll { $0.id == story.id }; reviewStories.removeAll { $0.id == story.id }
+            ownStories.removeAll { $0.id == story.id }; loadedStories.removeAll { $0.id == story.id }; reviewStories.removeAll { $0.id == story.id }
             if story.userId == account?.id && story.status != "deleted" { ownStories.insert(story, at: 0) }
-            if story.status == "published" { stories.insert(story, at: 0) }
+            if story.status == "published" { loadedStories.insert(story, at: 0) }
             if isOperator && ["pending","published","hidden"].contains(story.status) { reviewStories.insert(story, at: 0) }
         }
         if let request = value as? OiEvidence { evidence.removeAll { $0.id == request.id }; evidence.insert(request, at: 0) }
@@ -821,7 +838,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
             error = OiServiceError.invalidInput.localizedDescription; return
         }
         isBusy = true; error = nil
-        defer { isBusy = false }
+        defer { if started == generation { isBusy = false } }
         do {
             let accessToken = try await token()
             try Task.checkCancellation()
@@ -830,7 +847,11 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
                 admissionYear: admissionYear, department: cleanedDepartment, token: accessToken)
             guard started == generation, self.account?.id == owner else { return }
             loadSequence += 1
-            profile = saved; revision += 1; await refreshAfterCommit()
+            profile = saved
+            if let index = profiles.firstIndex(where: { $0.id == owner }) {
+                profiles[index].schoolId = saved.schoolId
+            }
+            revision += 1
         } catch {
             if started == generation { noteAuthenticationFailure(error); self.error = error.localizedDescription }
         }
@@ -1062,7 +1083,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         }
     }
 
-    func reviewSchoolEvidence(_ data: Data, contentType: String) async throws -> OiSchoolEvidenceReview {
+    func reviewSchoolEvidence(_ data: Data, contentType: String) async throws -> OiSchoolEvidenceOutcome {
         guard let api else { throw OiServiceError.configuration }
         guard account != nil, !needsReauthentication else { throw OiServiceError.signInRequired }
         let started = generation

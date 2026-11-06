@@ -21,12 +21,22 @@ final class OiSchoolEvidenceContractTests: XCTestCase {
         let base: [String: Any] = [
             "review_type": "school_affiliation", "human_review_required": true,
             "affiliation_verified": false, "authenticity_verified": false,
-            "summary": ["outcome": "manual_review", "title": "추가 확인 필요", "detail": "가상 자료",
-                        "next_step": "자료를 확인해 주세요."]
+            "summary": ["outcome": "school_evidence_visible"]
         ]
-        for field in ["valid", "human_review_required", "affiliation_verified", "authenticity_verified"] {
+        let outcomes: [(String, OiSchoolEvidenceOutcome?)] = [
+            ("school_evidence_visible", .completed), ("school_document_needed", .rejected),
+            ("retake_needed", .rejected), ("manual_review_needed", .rejected), ("unknown_outcome", nil),
+            ("missing_summary", nil), ("human_review_required", nil),
+            ("affiliation_verified", nil), ("authenticity_verified", nil)
+        ]
+        for (field, expected) in outcomes {
             var response = base
-            if field != "valid" { response[field] = field != "human_review_required" }
+            switch field {
+            case "missing_summary": response.removeValue(forKey: "summary")
+            case "human_review_required": response[field] = false
+            case "affiliation_verified", "authenticity_verified": response[field] = true
+            default: response["summary"] = ["outcome": field]
+            }
             let bytes = try JSONSerialization.data(withJSONObject: response)
             OiStoreURLProtocol.handle = { request, client in
                 XCTAssertEqual(request.url?.path, "/functions/v1/analyze-school-evidence")
@@ -38,11 +48,10 @@ final class OiSchoolEvidenceContractTests: XCTestCase {
                 client.respond(200, bytes)
             }
             do {
-                let review = try await api.reviewSchoolEvidence(document, contentType: "application/pdf", token: "synthetic-token")
-                XCTAssertEqual(field, "valid", "A review must never certify identity, authenticity, or affiliation")
-                XCTAssertEqual(review.summary?.outcome, "manual_review")
+                let outcome = try await api.reviewSchoolEvidence(document, contentType: "application/pdf", token: "synthetic-token")
+                XCTAssertEqual(outcome, expected, field)
             } catch {
-                XCTAssertNotEqual(field, "valid", "The supported review contract must decode")
+                XCTAssertNil(expected, "Supported review must decode: \(field)")
             }
         }
     }
@@ -99,7 +108,7 @@ final class OiSchoolEvidenceContractTests: XCTestCase {
         }
     }
 
-    func testSavedSummaryRestoresOnlyForItsOwner() async throws {
+    func testSavedOutcomeRestoresLegacyAndCurrentReceiptsOnlyForTheirOwner() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("SchoolSummary-\(UUID())")
         defer {
             if FileManager.default.fileExists(atPath: directory.path) {
@@ -107,16 +116,27 @@ final class OiSchoolEvidenceContractTests: XCTestCase {
             }
         }
         let owner = UUID(), other = UUID()
-        let summary = OiSchoolEvidenceReview.Summary(outcome: "manual_review", title: "추가 확인 필요",
-            detail: "가상 자료", nextStep: "확인해 주세요.", reference: nil)
-        let saved = OiSavedSchoolEvidenceReview(summary: summary, reviewedAt: Date(timeIntervalSince1970: 1_800_000_000))
+        let saved = OiSavedSchoolEvidenceReview(outcome: .rejected, reviewedAt: Date(timeIntervalSince1970: 1_800_000_000))
         try await OiDraftVault(directory: directory).saveSchoolEvidenceReview(saved, owner: owner)
         let restored = try await OiDraftVault(directory: directory).schoolEvidenceReview(owner: owner)
         let unrelated = try await OiDraftVault(directory: directory).schoolEvidenceReview(owner: other)
-        XCTAssertEqual(restored?.summary.title, saved.summary.title)
+        XCTAssertEqual(restored?.outcome, saved.outcome)
         XCTAssertEqual(restored?.reviewedAt, saved.reviewedAt)
         XCTAssertNil(unrelated)
-        let files = try FileManager.default.subpathsOfDirectory(atPath: directory.path)
-        XCTAssertEqual(files.filter { $0.hasSuffix(".json") }.count, 1, "The vault saves only the summary receipt")
+        let files = try FileManager.default.subpathsOfDirectory(atPath: directory.path).filter { $0.hasSuffix(".json") }
+        XCTAssertEqual(files.count, 1)
+        let receipt = directory.appendingPathComponent(try XCTUnwrap(files.first))
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: receipt)) as? [String: Any])
+        XCTAssertEqual(Set(body.keys), ["outcome", "reviewedAt"])
+
+        let legacy: [String: Any] = [
+            "summary": ["outcome": "school_evidence_visible", "title": "Legacy title", "detail": "Legacy detail",
+                        "nextStep": "Legacy guidance", "reference": ["title": "Legacy link", "url": "https://example.com"]],
+            "reviewedAt": saved.reviewedAt.timeIntervalSinceReferenceDate
+        ]
+        try JSONSerialization.data(withJSONObject: legacy).write(to: receipt, options: .atomic)
+        let migrated = try await OiDraftVault(directory: directory).schoolEvidenceReview(owner: owner)
+        XCTAssertEqual(migrated?.outcome, .completed)
+        XCTAssertEqual(migrated?.reviewedAt, saved.reviewedAt)
     }
 }

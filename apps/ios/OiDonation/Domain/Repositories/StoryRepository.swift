@@ -2,9 +2,21 @@
 
 import Foundation
 
+struct PublicStorySummary: Identifiable, Decodable, Sendable {
+    let id: UUID
+    let userId: UUID
+    let title: String
+    let cucumberName: String
+}
+
 protocol StoryRepository: Sendable {
+    func fetchPublicStories(offset: Int) async throws -> [PublicStorySummary]
     func fetchPublicStory(storyID: String) async throws -> Story?
     func fetchPublicStoryCard(storyID: String) async throws -> StoryCard?
+}
+
+extension StoryRepository {
+    func fetchPublicStories(offset: Int) async throws -> [PublicStorySummary] { [] }
 }
 
 /// Public reads deliberately never use an owner or operator session.
@@ -61,15 +73,37 @@ struct RealStoryRepository: StoryRepository {
         return try decoder.decode([T].self, from: data)
     }
 
+    func fetchPublicStories(offset: Int) async throws -> [PublicStorySummary] {
+        guard offset >= 0 else { throw Failure.invalidResponse }
+        var components = URLComponents(string: "https://kfzfzarslqdqmrazohej.supabase.co/rest/v1/oi_stories")!
+        components.queryItems = [
+            URLQueryItem(name: "select", value: "id,user_id,title,cucumber_name"),
+            URLQueryItem(name: "status", value: "eq.published"),
+            URLQueryItem(name: "order", value: "created_at.desc,id.asc"),
+            URLQueryItem(name: "limit", value: "20"),
+            URLQueryItem(name: "offset", value: String(offset))
+        ]
+        var request = URLRequest(url: components.url!); request.timeoutInterval = 30
+        let key = try publicKey()
+        request.setValue(key, forHTTPHeaderField: "apikey")
+        if key.hasPrefix("ey") { request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization") }
+        let data = try await transport.send(request)
+        try Task.checkCancellation()
+        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode([PublicStorySummary].self, from: data)
+    }
+
     func fetchPublicStory(storyID: String) async throws -> Story? {
         guard let id = UUID(uuidString: storyID) else { return nil }
         guard let row = try await rows("oi_stories", id: id.uuidString, as: Record.self).first else { return nil }
         guard row.id == id, row.status == "published" else { throw Failure.invalidResponse }
+        guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
         let profiles = try await rows("oi_profiles", id: row.userId.uuidString, as: Profile.self)
         let regions = try await rows("oi_regions", id: row.regionId, as: Region.self)
         let parser = ISO8601DateFormatter(); parser.formatOptions = [.withInternetDateTime,.withFractionalSeconds]
         let fractional = parser.date(from: row.createdAt); parser.formatOptions = [.withInternetDateTime]
         guard let date = fractional ?? parser.date(from: row.createdAt) else { throw Failure.invalidResponse }
+        guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
         return Story(storyID: id.uuidString, donorID: row.userId, donorDisplayName: profiles.first?.nickname ?? "농부",
             title: row.title, content: row.body, publishedAt: date,
             location: StoryLocation(locationID: row.regionId, displayName: regions.first?.name ?? "장소 확인 중"),

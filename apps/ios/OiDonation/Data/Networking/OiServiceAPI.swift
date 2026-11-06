@@ -80,6 +80,25 @@ struct OiServiceAPI {
         }
     }
 
+    func reportContent(story: UUID, reason: String, detail: String, token: String) async throws -> OiContentReportReceipt {
+        let body = try JSONSerialization.data(withJSONObject: ["p_story": story.uuidString, "p_reason": reason, "p_detail": detail])
+        let data = try await request("rest/v1/rpc/oi_report_content", method: "POST", token: token, body: body)
+        return try decoder.decode(OiContentReportReceipt.self, from: data)
+    }
+
+    func contentReports(offset: Int, token: String) async throws -> [OiContentReport] {
+        let data = try await request("rest/v1/rpc/oi_content_reports", method: "POST", token: token,
+            body: JSONSerialization.data(withJSONObject: ["p_offset": offset]))
+        return try decoder.decode([OiContentReport].self, from: data)
+    }
+
+    func reviewContent(report: UUID, action: String, note: String, token: String) async throws {
+        let data = try await request("rest/v1/rpc/oi_review_content", method: "POST", token: token,
+            body: JSONSerialization.data(withJSONObject: ["p_report": report.uuidString, "p_action": action, "p_note": note]))
+        let receipt = try decoder.decode(OiContentReportReceipt.self, from: data)
+        guard receipt.id == report, receipt.status == action else { throw OiServiceError.conflict }
+    }
+
     func accountDeletionStatus(token: String) async throws -> OiAccountDeletionStatus {
         let data = try await request("rest/v1/rpc/oi_account_deletion_status", method: "POST", token: token, body: Data("{}".utf8))
         return try decoder.decode(OiAccountDeletionStatus.self, from: data)
@@ -114,7 +133,7 @@ struct OiServiceAPI {
         return review
     }
 
-    func reviewSchoolEvidence(_ data: Data, contentType: String, token: String) async throws -> OiSchoolEvidenceReview {
+    func reviewSchoolEvidence(_ data: Data, contentType: String, token: String) async throws -> OiSchoolEvidenceOutcome {
         let response: Data
         do {
             response = try await request("functions/v1/analyze-school-evidence", method: "POST", token: token,
@@ -124,10 +143,11 @@ struct OiServiceAPI {
         }
         let review = try decoder.decode(OiSchoolEvidenceReview.self, from: response)
         guard review.reviewType == "school_affiliation", review.humanReviewRequired,
-              !review.affiliationVerified, !review.authenticityVerified else {
-            throw OiServiceError.server("학교 증빙 검토 응답을 확인할 수 없어요.")
+              !review.affiliationVerified, !review.authenticityVerified,
+              let summary = review.summary, let outcome = OiSchoolEvidenceOutcome(reviewOutcome: summary.outcome) else {
+            throw OiServiceError.server("인증 결과를 확인하지 못했어요. 다시 시도해 주세요.")
         }
-        return review
+        return outcome
     }
 
     func rows<Value: Decodable & Identifiable>(_ table: String, query: String = "", token: String? = nil, as type: Value.Type) async throws -> [Value] {

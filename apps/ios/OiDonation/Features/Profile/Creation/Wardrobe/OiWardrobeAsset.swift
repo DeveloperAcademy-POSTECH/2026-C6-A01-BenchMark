@@ -16,7 +16,7 @@ import UIKit
         for slot in OiPhotoSlot.allCases where slot.supports(look) {
             let design = look.artwork.designs[slot.itemID(in: look)]
             guard design != nil || slot.fabric(in: look) != nil || editingSlot == slot else { continue }
-            let layout = try OiPhotoPrintLayout.load(resource: slot.resource(in: look))
+            let layout = try OiPhotoPrintLayout.load(for: slot, in: look)
             if slot.preservesOriginalMaterial(in: look) {
                 let image: CGImage
                 if editingSlot == slot, let previewImage { image = previewImage }

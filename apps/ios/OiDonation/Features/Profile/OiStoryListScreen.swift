@@ -18,23 +18,25 @@ struct OiStoryListScreen: View {
     }
     @State private var selectedStoryID: UUID?
     @State private var showingConsent = false
-    @State private var showingApprovalNotice = false
-    @State private var showingSeedNotice = false
-    @State private var showingEvidencePreview = false
     @State private var showingEvidence = false
 
     var body: some View {
         OiStoryListView(
             state: state,
-            seedCount: 0, // Display only until a server-owned seed balance is available.
+            seedCount: nil,
             notices: OiStoryListView.listNotices,
             guidance: OiStoryListView.listGuidance,
             onRetry: { Task { await remote.refresh(); await loadLocalDrafts() } },
-            onAddSeed: { showingEvidencePreview = true },
+            onAddSeed: nil,
             onSelectStory: selectStory,
             onCreateStory: beginCreatingStory,
-            onUseSeed: { showingSeedNotice = true }
+            onUseSeed: nil
         )
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("기부 자료 제출") { showingEvidence = true }
+            }
+        }
         .task(id: DraftLoadKey(owner: remote.account?.id, revision: remote.revision)) {
             await loadLocalDrafts()
         }
@@ -42,9 +44,6 @@ struct OiStoryListScreen: View {
             selectedLocalID = nil
             selectedStoryID = nil
             showingConsent = false
-            showingApprovalNotice = false
-            showingSeedNotice = false
-            showingEvidencePreview = false
             showingEvidence = false
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -67,7 +66,6 @@ struct OiStoryListScreen: View {
             }
         }
         .navigationDestination(isPresented: $showingSettings) { MYSettingsView(remote: remote) }
-        .navigationDestination(isPresented: $showingEvidencePreview) { OiEvidenceDesignPreview() }
         .navigationDestination(isPresented: $showingEvidence) { OiDonationEvidenceView(remote: remote) }
         .navigationDestination(item: $selectedLocalID) { id in
             OiStoryEditor(remote: remote, localID: id, onFinish: { selectedLocalID = nil })
@@ -78,17 +76,7 @@ struct OiStoryListScreen: View {
         .navigationDestination(isPresented: $showingConsent) {
             OiStoryCreationConsentFlow(remote: remote, onFinish: { showingConsent = false })
         }
-        .alert("씨앗 기능을 준비하고 있어요", isPresented: $showingSeedNotice) {
-            Button("확인", role: .cancel) {}
-        } message: {
-            Text("씨앗 개수 확인과 사용은 추후 제공할 예정이에요. 지금은 ‘오이 만들기’로 이야기를 작성할 수 있어요.")
-        }
-        .alert("작성 승인이 필요해요", isPresented: $showingApprovalNotice) {
-            Button("기부 인증하기") { showingEvidence = true }
-            Button("닫기", role: .cancel) {}
-        } message: {
-            Text("작성 승인을 받은 계정에서 오이와 이야기를 만들 수 있어요.")
-        }
+
     }
 
     private var state: OiStoryListState {
@@ -156,7 +144,7 @@ struct OiStoryListScreen: View {
         if remote.canStartStory {
             showingConsent = true
         } else {
-            showingApprovalNotice = true
+            showingEvidence = true
         }
     }
 

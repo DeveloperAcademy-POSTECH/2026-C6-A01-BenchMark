@@ -14,6 +14,7 @@ struct CampusStory: Identifiable, Hashable {
     let order: Int
     let popularity: Int
     let palette: Int
+    var authorID: UUID? = nil
     var remoteBody: String? = nil
     var remoteMediaPaths: [String] = []
     var latitude: Double? = nil

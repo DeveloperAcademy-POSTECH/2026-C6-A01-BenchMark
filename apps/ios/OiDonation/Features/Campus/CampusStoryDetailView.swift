@@ -7,6 +7,7 @@ struct CampusStoryDetailView: View {
     @State private var selectedImage: CampusImageSelection?
     @State private var showingCard = false
     @State private var showingAllRelated = false
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         GeometryReader { geometry in
@@ -18,6 +19,9 @@ struct CampusStoryDetailView: View {
                     .background(CampusStyle.background(story.palette))
                     .allowsHitTesting(false)
                 VStack(alignment: .leading, spacing: 50) {
+                    if let author = story.authorID, let id = UUID(uuidString: story.id) {
+                        OiStorySafetyButton(storyID: id, authorID: author, authorName: story.donor, onBlock: { dismiss() })
+                    }
                     heading
                     donor
                     storyBlock

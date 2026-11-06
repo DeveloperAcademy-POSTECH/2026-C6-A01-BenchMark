@@ -19,6 +19,8 @@ struct MYSettingsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var settingsError = false
+    @State private var showingBlockedAuthors = false
+    @State private var showingSupport = false
     @State private var showingAcademicEditor = false
     @State private var permissionValues: [MYPermission: PermissionStatus] = [:]
     @State private var showingOperator = false
@@ -46,26 +48,20 @@ struct MYSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 40) {
+                section("콘텐츠 보호") {
+                    Button("차단한 작성자") { showingBlockedAuthors = true }.frame(minHeight: 44)
+                }
+                section("도움말") {
+                    Button("개인정보 및 지원") { showingSupport = true }
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("my.settings.support")
+                }
                 section("소셜 로그인") {
                     if let remote {
                         OiSignInView(remote: remote, presentation: .settings)
                     }
                 }
                 if remote?.account != nil || demo != nil {
-                    section("본인인증") {
-                        Button {} label: {
-                            Text("본인 인증하기")
-                                .font(CampusStyle.semibold(18))
-                                .tracking(0.36)
-                                .foregroundStyle(CampusStyle.green)
-                                .padding(.vertical, 20)
-                                .frame(maxWidth: .infinity, minHeight: 69)
-                                .background(Color(white: 243 / 255), in: RoundedRectangle(cornerRadius: 15))
-                                .overlay { RoundedRectangle(cornerRadius: 15).stroke(Color(white: 205 / 255), lineWidth: 1) }
-                        }
-                        .disabled(true)
-                        .accessibilityIdentifier("my.settings.identity")
-                    }
                     section("학적정보") {
                         schoolRow
                         if let remote, let owner = remote.account?.id, remote.hasLoadedRemote {
@@ -138,6 +134,8 @@ struct MYSettingsView: View {
                 }
             }.buttonStyle(.plain).padding(.horizontal, 20).padding(.top, 17).padding(.bottom, 40)
         }
+        .sheet(isPresented: $showingBlockedAuthors) { OiBlockedAuthorsView() }
+        .sheet(isPresented: $showingSupport) { OiSupportView() }
         .background(Color.white.ignoresSafeArea()).foregroundStyle(.black)
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .top, spacing: 0) {

@@ -13,6 +13,10 @@ struct ARGameFlowView: View {
     let experience: AppClipExperience
     let onBack: () -> Void
     let onRequestFullApp: () -> Void
+    var validateCollection: (() async -> Bool)? = nil
+    @State private var validating = false
+    @State private var validationError: String?
+    @State private var saveTask: Task<Void, Never>?
 
     @State private var collectionStore = StoryCollectionStore()
 
@@ -27,14 +31,26 @@ struct ARGameFlowView: View {
                 experience: experience,
                 isCollected: collectionStore.contains(storyID: experience.story.storyID),
                 cancelTitle: persistenceError == nil ? "삭제" : "닫기",
-                notice: persistenceError,
+                notice: validationError ?? persistenceError,
                 onCollect: {
-                    let saved = collectionStore.collect(experience.storyCard)
-                    guard collectionStore.persistenceError == nil,
-                          saved || collectionStore.contains(storyID: experience.story.storyID) else { return }
-                    onRequestFullApp()
+                    guard !validating else { return }
+                    validating = true; validationError = nil
+                    saveTask = Task {
+                        defer { validating = false }
+                        if let validateCollection, !(await validateCollection()) {
+                            guard !Task.isCancelled else { return }
+                            validationError = "이야기의 공개 상태를 확인하지 못했어요. 목록으로 돌아가 다시 확인해 주세요."
+                            return
+                        }
+                        guard !Task.isCancelled else { return }
+                        let saved = collectionStore.collect(experience.storyCard)
+                        guard collectionStore.persistenceError == nil,
+                              saved || collectionStore.contains(storyID: experience.story.storyID) else { return }
+                        onRequestFullApp()
+                    }
                 },
                 onCancel: {
+                    saveTask?.cancel()
                     if persistenceError != nil {
                         onBack()
                         return
@@ -43,7 +59,9 @@ struct ARGameFlowView: View {
                     retry()
                 }
             )
+            .disabled(validating)
         }
+        .onDisappear { saveTask?.cancel(); saveTask = nil }
     }
 }
 
