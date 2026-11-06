@@ -6,6 +6,7 @@
 //
 
 import XCTest
+import RealityKit
 import SwiftUI
 import UIKit
 import RealityKit
@@ -3382,5 +3383,131 @@ final class OiCostumePhotoTests: XCTestCase {
                 add(attachment)
             }
         }
+    }
+}
+
+/// Load the shipped USDZs with the same RealityKit path as customization/cards.
+/// A valid ZIP alone cannot catch unsupported materials or missing bundled textures.
+@MainActor
+final class OiWardrobeAssetTests: XCTestCase {
+    @MainActor func testCardRotationSymbolExists() {
+        XCTAssertNotNil(UIImage(systemName: "rotate.3d"))
+    }
+
+    func testCompleteCostumesLoadWithThumbnailsAndGroundedBounds() async throws {
+        for costume in OiWardrobeLook.Costume.allCases {
+            var look = OiWardrobeLook()
+            look.costume = costume
+            let url = try OiWardrobeAsset.url(look.modelName, folder: "Wardrobe")
+            let bytes = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            XCTAssertGreaterThan(bytes, 0, costume.rawValue)
+            XCTAssertLessThan(bytes, 12 * 1_024 * 1_024, "Costume exceeds the mobile asset budget: \(costume.rawValue)")
+            let thumbnail = try XCTUnwrap(Bundle.main.url(forResource: costume.thumbnailName, withExtension: "png"), costume.rawValue)
+            XCTAssertNotNil(UIImage(contentsOfFile: thumbnail.path), "Missing/invalid thumbnail: \(costume.rawValue)")
+
+            let (model, overlays) = try await OiWardrobeAsset.prepare(look)
+            OiWardrobeAsset.assemble(look, root: model, overlays: overlays)
+            XCTAssertTrue(overlays.isEmpty, "Complete costumes must retain their authored materials")
+            let bounds = model.visualBounds(relativeTo: nil)
+            XCTAssertEqual(bounds.extents.y, 1.5, accuracy: 0.005, costume.rawValue)
+            XCTAssertEqual(bounds.min.y, 0, accuracy: 0.005, costume.rawValue)
+            XCTAssertGreaterThan(bounds.extents.x, 0.1, costume.rawValue)
+            XCTAssertGreaterThan(bounds.extents.z, 0.1, costume.rawValue)
+            XCTAssertGreaterThan(materialCount(in: model), 0, "No renderable materials: \(costume.rawValue)")
+        }
+    }
+
+    func testNewCostumesRenderInWardrobePreview() async throws {
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let controller = UIViewController()
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 500)
+        window.rootViewController = controller
+        window.isHidden = false
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+        }
+        let scene = OiWardrobeScene()
+        let view = scene.install()
+        view.frame = window.bounds
+        controller.view.addSubview(view)
+        defer { scene.release(); view.removeFromSuperview() }
+        for costume: OiWardrobeLook.Costume in [.baseball, .farmer, .astronautNavy, .postechSelfie] {
+            var look = OiWardrobeLook(); look.costume = costume
+            scene.update(look)
+            for _ in 0..<200 {
+                if !scene.loading { break }
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            XCTAssertFalse(scene.loading, costume.rawValue)
+            XCTAssertNil(scene.error, costume.rawValue)
+            try await Task.sleep(for: .seconds(1))
+            // UIKit drawHierarchy omits Metal contents; capture the actual RealityKit render.
+            let image: UIImage? = await withCheckedContinuation { continuation in
+                view.snapshot(saveToHDR: false) { continuation.resume(returning: $0) }
+            }
+            let rendered = try XCTUnwrap(image, costume.rawValue)
+            let attachment = XCTAttachment(image: rendered)
+            attachment.name = "wardrobe-render-" + costume.rawValue
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+    }
+
+    func testCostumePhotosKeepBaseAndRoundTripPerOutfit() async throws {
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32)).image { context in
+            UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+        }
+        let asset = try OiPhotoRenderer.asset(image)
+        var looks = OiWardrobeLook.Costume.allCases.map { costume in
+            var look = OiWardrobeLook(); look.costume = costume; return look
+        }
+        for bottom in [OiWardrobeLook.Bottom.long, .shorts] {
+            var look = OiWardrobeLook(); look.top = .postech; look.bottom = bottom; looks.append(look)
+        }
+        for var look in looks {
+            let slot = OiPhotoSlot.top
+            let layers = [OiPhotoLayer(source: asset.id), OiPhotoLayer(source: asset.id, side: .back)]
+            try look.artwork.set(OiPhotoDesign(layers: layers), sources: [asset.id: asset.data], for: slot.itemID(in: look))
+            let restored = try JSONDecoder().decode(OiWardrobeLook.self, from: JSONEncoder().encode(look))
+            XCTAssertEqual(restored, look)
+            let (root, prints) = try await OiWardrobeAsset.prepare(restored)
+            let before = materialCount(in: root)
+            XCTAssertNil(prints[.top], "Complete costumes bake photos into the existing materials")
+            OiWardrobeAsset.assemble(restored, root: root, overlays: prints)
+            XCTAssertEqual(materialCount(in: root), before)
+            if look.costume == nil {
+                XCTAssertTrue(root.findEntity(named: "Top")?.isEnabled ?? false, "The varsity jacket must remain visible under the photo")
+            }
+            XCTAssertEqual(root.visualBounds(relativeTo: nil).extents.y, 1.5, accuracy: 0.005)
+        }
+    }
+
+    func testCostumePhotoAtlasKeepsUnprintedPixelsTransparent() throws {
+        let red = UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).image { c in
+            UIColor.red.setFill(); c.fill(CGRect(x: 0, y: 0, width: 10, height: 10))
+        }
+        let asset = try OiPhotoRenderer.asset(red)
+        let layout = try OiPhotoPrintLayout.load(resource: "photo-wardrobe-costume-astronaut-top")
+        let center = layout.front.rect(edge: 64)
+        let layer = OiPhotoLayer(source: asset.id, placement: layout.front.placement(for: red))
+        let atlas = OiPhotoRenderer.atlas(layers: [layer], assets: [asset.id: asset],
+                                          panelSize: 64, color: 0xFFFFFF, transparent: true, layout: layout)
+        let cg = try XCTUnwrap(atlas.cgImage)
+        var rgba = [UInt8](repeating: 0, count: 128 * 64 * 4)
+        let context = try XCTUnwrap(CGContext(data: &rgba, width: 128, height: 64, bitsPerComponent: 8,
+            bytesPerRow: 128 * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: 128, height: 64))
+        XCTAssertEqual(rgba[(Int(center.midY) * 128 + Int(center.midX)) * 4 + 3], 255, "Front photo is opaque")
+        XCTAssertEqual(rgba[(1 * 128 + 1) * 4 + 3], 0, "Original cloth remains visible outside the photo")
+        XCTAssertEqual(rgba[(32 * 128 + 96) * 4 + 3], 0, "An empty back must not acquire a white coating")
+    }
+
+    private func materialCount(in entity: Entity) -> Int {
+        (entity.components[ModelComponent.self]?.materials.count ?? 0)
+            + entity.children.reduce(0) { $0 + materialCount(in: $1) }
     }
 }
