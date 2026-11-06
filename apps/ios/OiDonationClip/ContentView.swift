@@ -12,6 +12,7 @@ struct ContentView: View {
 
     @State private var viewModel: AppClipViewModel
     @State private var invocation: Invocation?
+    @State private var showingSupport = false
 
     private struct Invocation {
         let id = UUID()
@@ -70,6 +71,12 @@ struct ContentView: View {
                 .padding()
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            Button("개인정보 및 지원") { showingSupport = true }
+                .font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
+                .background(.regularMaterial)
+        }
+        .sheet(isPresented: $showingSupport) { OiSupportView() }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { userActivity in
             invocation = Invocation(url: userActivity.webpageURL)
         }

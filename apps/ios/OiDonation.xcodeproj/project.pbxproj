@@ -98,6 +98,7 @@
 				"Resources/OiStoryCardAssets.xcassets",
 				"Shared/Components/ARCollectionResultView.swift",
 				"Shared/Components/OiStoryCardArtwork.swift",
+				"Shared/Components/OiSupportView.swift",
 			);
 			target = 87169564307CB1CF0090D456 /* OiDonationClip */;
 		};
