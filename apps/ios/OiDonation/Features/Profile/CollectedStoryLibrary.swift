@@ -16,7 +16,8 @@ final class CollectedStoryLibrary {
     private let repository: any StoryRepository
     private let collectionStore: StoryCollectionStore
 
-    private(set) var items: [CollectedStoryLibraryItem] = []
+    private var loadedItems: [CollectedStoryLibraryItem] = []
+    var items: [CollectedStoryLibraryItem] { loadedItems.filter { !OiContentSafetyStore.shared.isBlocked($0.story.donorID) } }
     private(set) var unavailableRecords: [CollectedStoryCard] = []
     private(set) var isLoading = false
 
@@ -32,7 +33,7 @@ final class CollectedStoryLibrary {
     @discardableResult
     func removeImported(storyID: String) -> Bool {
         guard collectionStore.remove(storyID: storyID) else { return false }
-        items.removeAll { $0.id == storyID }
+        loadedItems.removeAll { $0.id == storyID }
         unavailableRecords.removeAll { $0.storyID == storyID }
         return true
     }
@@ -74,7 +75,7 @@ final class CollectedStoryLibrary {
         guard !Task.isCancelled else { return }
         // The user can import a card while its preview is being refreshed.
         let remainingIDs = Set(records.map(\.storyID))
-        items = loadedItems.filter { remainingIDs.contains($0.id) }
+        self.loadedItems = loadedItems.filter { remainingIDs.contains($0.id) }
         unavailableRecords = unavailable.filter { remainingIDs.contains($0.storyID) }
     }
 }

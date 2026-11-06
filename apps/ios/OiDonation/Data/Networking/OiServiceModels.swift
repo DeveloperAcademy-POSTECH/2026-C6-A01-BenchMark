@@ -452,3 +452,18 @@ extension String {
         }
     }
 }
+
+
+struct OiContentReport: Decodable, Identifiable, Sendable {
+    let id: UUID
+    let storyId: UUID
+    let authorId: UUID
+    let title: String
+    let body: String
+    let reason: String
+    let detail: String
+    let status: String
+    let restricted: Bool
+    let reviewNote: String?
+}
+struct OiContentReportReceipt: Decodable { let id: UUID; let status: String }

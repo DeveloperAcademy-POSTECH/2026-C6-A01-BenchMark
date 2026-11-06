@@ -52,10 +52,10 @@ struct OiStoryListView: View {
             }
 
             ToolbarItem(placement: .topBarTrailing) {
-                optionalButton(action: onAddSeed) {
-                    OiSeedBalanceLabel(count: seedCount)
+                if let onAddSeed {
+                    Button(action: onAddSeed) { OiSeedBalanceLabel(count: seedCount) }
+                        .accessibilityIdentifier("storyList.seedBalance")
                 }
-                .accessibilityIdentifier("storyList.seedBalance")
             }
             .sharedBackgroundVisibility(.hidden)
         }

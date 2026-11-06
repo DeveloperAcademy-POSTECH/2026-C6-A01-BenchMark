@@ -15,7 +15,7 @@ final class AppRouter {
     func open(_ url: URL) {
         if AppClipLink.matches(url) {
             selectedTab = .home
-            storyPath = []
+            storyPath = AppClipLink.storyID(in: url).map { [.story($0)] } ?? []
             isARPresented = false
             return
         }

@@ -14,6 +14,32 @@ final class AppClipViewModel {
     private let storyRepository: any StoryRepository
     private let linkParser: PublicLinkParser?
     private var invocationID = UUID()
+    private var listRequestID = UUID()
+    private var nextOffset = 0
+    private(set) var publicStories: [PublicStorySummary] = []
+    private(set) var isLoadingStories = false
+    private(set) var listError: String?
+    private(set) var hasMoreStories = false
+
+    func loadPublicStories(reset: Bool = false) async {
+        guard state == .welcome, reset || !isLoadingStories else { return }
+        let request = UUID(); listRequestID = request
+        let offset = reset ? 0 : nextOffset
+        isLoadingStories = true; listError = nil
+        defer { if listRequestID == request { isLoadingStories = false } }
+        do {
+            let page = try await storyRepository.fetchPublicStories(offset: offset)
+            guard listRequestID == request, state == .welcome, !Task.isCancelled else { return }
+            let existing = reset ? [] : publicStories
+            var ids = Set(existing.map(\.id))
+            publicStories = existing + page.filter { ids.insert($0.id).inserted }
+            nextOffset = offset + page.count
+            hasMoreStories = page.count == 20
+        } catch {
+            guard listRequestID == request, state == .welcome, !Task.isCancelled else { return }
+            listError = "공개 이야기를 불러오지 못했어요. 연결을 확인하고 다시 시도해 주세요."
+        }
+    }
 
     enum State: Equatable {
         case welcome
@@ -57,15 +83,21 @@ final class AppClipViewModel {
             state = .invalidLink
             return
         }
+        let id: String
         if AppClipLink.matches(invocationURL) {
-            state = .welcome
-            return
-        }
-        guard case .story(let id) = linkParser?.parse(invocationURL) else {
+            guard let selected = AppClipLink.storyID(in: invocationURL) else {
+                state = .welcome
+                return
+            }
+            id = selected
+        } else if case .story(let selected) = linkParser?.parse(invocationURL) {
+            id = selected
+        } else {
             state = .invalidLink
             return
         }
 
+        listRequestID = UUID(); isLoadingStories = false
         storyID = id
         state = .loading
         do {
@@ -91,6 +123,15 @@ final class AppClipViewModel {
             guard invocationID == currentInvocation, !Task.isCancelled else { return }
             state = .loadFailed
         }
+    }
+
+    func canCollectCurrentStory() async -> Bool {
+        guard let id = storyID, state == .ready else { return false }
+        let current = invocationID
+        do {
+            let story = try await storyRepository.fetchPublicStory(storyID: id)
+            return !Task.isCancelled && invocationID == current && state == .ready && story != nil
+        } catch { return false }
     }
 
     func showWelcome() {

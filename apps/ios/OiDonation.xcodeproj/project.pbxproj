@@ -84,6 +84,7 @@
 				Data/Networking/APIClient.swift,
 				Domain/Models/CollectedStoryCard.swift,
 				Domain/Models/Story.swift,
+				Domain/Models/OiContentSafetyStore.swift,
 				Domain/Models/StoryCard.swift,
 				Domain/Repositories/StoryRepository.swift,
 				Domain/Routing/AppClipLink.swift,
@@ -98,6 +99,8 @@
 				"Resources/OiStoryCardAssets.xcassets",
 				"Shared/Components/ARCollectionResultView.swift",
 				"Shared/Components/OiStoryCardArtwork.swift",
+				"Shared/Components/OiContentSafetyView.swift",
+				"Shared/Components/OiSupportView.swift",
 			);
 			target = 87169564307CB1CF0090D456 /* OiDonationClip */;
 		};
@@ -429,7 +432,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = OiDonationClip/OiDonationClip.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20261107;
+				CURRENT_PROJECT_VERSION = 20261108;
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -466,7 +469,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = OiDonationClip/OiDonationClip.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20261107;
+				CURRENT_PROJECT_VERSION = 20261108;
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -624,7 +627,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = OiDonation/OiDonation.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20261107;
+				CURRENT_PROJECT_VERSION = 20261108;
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -663,7 +666,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = OiDonation/OiDonation.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20261107;
+				CURRENT_PROJECT_VERSION = 20261108;
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
