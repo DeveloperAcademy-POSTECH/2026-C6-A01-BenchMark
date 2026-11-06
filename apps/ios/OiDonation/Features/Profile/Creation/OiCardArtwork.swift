@@ -24,14 +24,8 @@ struct OiDraftCardPreview: View {
         ZStack(alignment: .topLeading) {
             OiCardGradient(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond)
             ZStack(alignment: .topLeading) {
-                OiCardGradient(fill: customization.fill, first: customization.firstColor, second: customization.secondColor)
-                if let bytes = design.backgroundPhoto, let photo = UIImage(data: bytes) {
-                    OiCardPlacedImage(image: photo, placement: design.backgroundPlacement)
-                }
-                if let pattern = design.pattern {
-                    Image("OiCardPattern\(pattern)").resizable().scaledToFill()
-                        .frame(width: 332, height: 472).blendMode(.softLight).opacity(0.65)
-                }
+                OiCardBackground(customization: customization, pattern: design.pattern)
+                    .frame(width: 332, height: 472)
                 if customization.showsCharacter {
                     if let portrait {
                         OiCardPlacedImage(image: portrait, placement: design.characterPlacement)
@@ -73,6 +67,31 @@ struct OiDraftCardPreview: View {
                     .frame(width: 184, height: 36, alignment: .leading).offset(x: 77)
             }.frame(width: 332, height: 472).clipShape(RoundedRectangle(cornerRadius: 9)).offset(x: 15, y: 15)
         }.clipShape(RoundedRectangle(cornerRadius: 15)).dynamicTypeSize(.medium)
+    }
+}
+
+/// Shared by the card and its pattern swatches so a selection previews the actual
+/// background color/photo. Isolate blending from the portrait, text and border.
+struct OiCardBackground: View {
+    let customization: OiDraftCustomization
+    let pattern: Int?
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                OiCardGradient(fill: customization.fill, first: customization.firstColor,
+                               second: customization.secondColor)
+                if let design = customization.card, let bytes = design.backgroundPhoto,
+                   let photo = UIImage(data: bytes) {
+                    OiCardPlacedImage(image: photo, placement: design.backgroundPlacement)
+                }
+                if let pattern, let image = OiCardPatternTexture.image(for: pattern) {
+                    Image(uiImage: image).resizable().scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .blendMode(.luminosity).opacity(0.62)
+                }
+            }.frame(width: geometry.size.width, height: geometry.size.height)
+                .clipped().compositingGroup()
+        }.allowsHitTesting(false)
     }
 }
 

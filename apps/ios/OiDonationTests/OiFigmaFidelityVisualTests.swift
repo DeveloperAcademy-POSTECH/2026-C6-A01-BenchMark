@@ -285,6 +285,76 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testCardPatternsRemainVisibleAcrossBackgrounds() throws {
+        let size = CGSize(width: 166, height: 236)
+        func render<V: View>(_ view: V, size: CGSize) throws -> Data {
+            let renderer = ImageRenderer(content: view.frame(width: size.width, height: size.height))
+            renderer.scale = 1
+            return try XCTUnwrap(renderer.uiImage?.pngData())
+        }
+        func luminance(_ png: Data) throws -> [Double] {
+            let context = try renderedBitmap(png, size: size)
+            let pixels = try XCTUnwrap(context.data).bindMemory(to: UInt8.self, capacity: 166 * 236 * 4)
+            return (0..<(166 * 236)).map { i in
+                let offset = i * 4
+                return (0.2126 * Double(pixels[offset]) + 0.7152 * Double(pixels[offset + 1])
+                    + 0.0722 * Double(pixels[offset + 2])) / 255
+            }
+        }
+        let portraitURL = try XCTUnwrap(Bundle.main.url(forResource: OiWardrobeLook.Costume.farmer.thumbnailName,
+                                                        withExtension: "png"))
+        let portrait = try XCTUnwrap(UIImage(contentsOfFile: portraitURL.path))
+        for (name, color): (String, UInt32) in [("white", 0xFFFFFF), ("sage", 0xD3DBC4), ("charcoal", 0x101010)] {
+            var customization = OiDraftCustomization()
+            customization.firstColor = color
+            let baseline = try luminance(render(OiCardBackground(customization: customization, pattern: nil), size: size))
+            for number in 1...8 {
+                let tones = try luminance(render(OiCardBackground(customization: customization, pattern: number), size: size))
+                let mean = tones.reduce(0, +) / Double(tones.count)
+                let deviation = sqrt(tones.reduce(0) { $0 + pow($1 - mean, 2) } / Double(tones.count))
+                let change = zip(tones, baseline).reduce(0) { $0 + abs($1.0 - $1.1) } / Double(tones.count)
+                XCTAssertGreaterThan(deviation, 0.025, "Pattern \(number) lost its detail on \(name)")
+                XCTAssertGreaterThan(change, 0.05, "Pattern \(number) is barely visible on \(name)")
+            }
+            let sheet = VStack(spacing: 12) {
+                ForEach(0..<3) { row in
+                    HStack(spacing: 12) {
+                        ForEach(0..<3) { column in
+                            let number = row * 3 + column
+                            var example = customization
+                            let _ = { example.card = OiCardDesign(pattern: number == 0 ? nil : number) }()
+                            VStack(spacing: 4) {
+                                Text(number == 0 ? "패턴 없음" : "패턴 \(number)").font(.caption)
+                                OiDraftCardPreview(draft: Self.draft, customization: example, portrait: portrait)
+                                    .frame(width: 166, height: 230)
+                            }
+                        }
+                    }
+                }
+            }.padding(12).background(.white)
+            let png = try render(sheet, size: CGSize(width: 546, height: 798))
+            let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            attachment.name = "card-patterns-\(name)"; attachment.lifetime = .keepAlways; add(attachment)
+        }
+
+        // A photo must remain recognizable, but each texture still has to change
+        // its background. Neither a pattern nor removing one mutates saved bytes.
+        var photoDesign = OiDraftCustomization()
+        let photo = UIGraphicsImageRenderer(size: size).image { context in
+            UIColor.systemBlue.setFill(); context.fill(CGRect(origin: .zero, size: size))
+            UIColor.systemOrange.setFill(); context.fill(CGRect(x: 0, y: 0, width: 83, height: 236))
+        }
+        photoDesign.card = OiCardDesign(backgroundPhoto: try XCTUnwrap(photo.pngData()))
+        let original = photoDesign
+        let baseline = try render(OiCardBackground(customization: photoDesign, pattern: nil), size: size)
+        for number in 1...8 {
+            let patterned = try render(OiCardBackground(customization: photoDesign, pattern: number), size: size)
+            XCTAssertNotEqual(patterned, baseline)
+        }
+        XCTAssertEqual(try render(OiCardBackground(customization: photoDesign, pattern: nil), size: size), baseline)
+        XCTAssertEqual(photoDesign, original)
+    }
+
     func testCustomizationCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
