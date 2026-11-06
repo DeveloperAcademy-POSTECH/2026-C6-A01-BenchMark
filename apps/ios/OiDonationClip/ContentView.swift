@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var showingSafety = false
     @State private var showingBlocked = false
     @Environment(\.scenePhase) private var phase
+    @State private var showingSupport = false
 
     private struct Invocation {
         let id = UUID()
@@ -117,9 +118,12 @@ struct ContentView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            Button("차단한 작성자") { showingBlocked = true }
-                .font(.footnote).frame(maxWidth: .infinity, minHeight: 44).background(.regularMaterial)
+            HStack {
+                Button("개인정보 및 지원") { showingSupport = true }.frame(maxWidth: .infinity, minHeight: 44)
+                Button("차단한 작성자") { showingBlocked = true }.frame(maxWidth: .infinity, minHeight: 44)
+            }.font(.footnote).background(.regularMaterial)
         }
+        .sheet(isPresented: $showingSupport) { OiSupportView() }
         .sheet(isPresented: $showingBlocked) { OiBlockedAuthorsView() }
         .sheet(isPresented: $showingSafety) {
             if let story = viewModel.story, let id = UUID(uuidString: story.storyID) {

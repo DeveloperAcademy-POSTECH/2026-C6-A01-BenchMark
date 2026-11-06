@@ -20,6 +20,7 @@ struct MYSettingsView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var settingsError = false
     @State private var showingBlockedAuthors = false
+    @State private var showingSupport = false
     @State private var showingAcademicEditor = false
     @State private var permissionValues: [MYPermission: PermissionStatus] = [:]
     @State private var showingOperator = false
@@ -49,6 +50,11 @@ struct MYSettingsView: View {
             VStack(alignment: .leading, spacing: 40) {
                 section("콘텐츠 보호") {
                     Button("차단한 작성자") { showingBlockedAuthors = true }.frame(minHeight: 44)
+                }
+                section("도움말") {
+                    Button("개인정보 및 지원") { showingSupport = true }
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("my.settings.support")
                 }
                 section("소셜 로그인") {
                     if let remote {
@@ -143,6 +149,7 @@ struct MYSettingsView: View {
             }.buttonStyle(.plain).padding(.horizontal, 20).padding(.top, 17).padding(.bottom, 40)
         }
         .sheet(isPresented: $showingBlockedAuthors) { OiBlockedAuthorsView() }
+        .sheet(isPresented: $showingSupport) { OiSupportView() }
         .background(Color.white.ignoresSafeArea()).foregroundStyle(.black)
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .top, spacing: 0) {
