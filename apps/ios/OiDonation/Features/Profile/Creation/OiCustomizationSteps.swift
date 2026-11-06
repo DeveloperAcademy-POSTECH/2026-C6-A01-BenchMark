@@ -296,10 +296,9 @@ struct OiCardCustomizationStep: View {
                 ForEach(1...8, id: \.self) { number in
                     Button { change { $0.pattern = $0.pattern == number ? nil : number } } label: {
                         GeometryReader { geometry in
-                            Image("OiCardPattern\(number)").resizable().scaledToFill()
+                            OiCardBackground(customization: customization, pattern: number)
                                 .frame(width: max(1, geometry.size.width - 6), height: 103).clipped()
-                                .opacity([2, 3, 5].contains(number) ? 0.7 : 1)
-                                .padding(3).background(.black).clipShape(RoundedRectangle(cornerRadius: 10))
+                                .padding(3).background(Color("OiBorder")).clipShape(RoundedRectangle(cornerRadius: 10))
                                 .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(design.pattern == number ? Color("OiGreen") : .clear, lineWidth: 3))
                         }.frame(height: 109)
                     }.buttonStyle(.plain).accessibilityLabel("패턴 \(number)")
