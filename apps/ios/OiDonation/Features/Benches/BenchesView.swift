@@ -146,16 +146,27 @@ struct PublicDestinationView: View {
     let destination: PublicLinkParser.Destination
     let benches: any BenchRepository
     let stories: any StoryRepository
+    @State private var loadedStory: Story?
     @State private var title = ""
     @State private var text = ""
     @State private var isLoading = true
     var body: some View {
         ScrollView {
             if isLoading { ProgressView() }
-            else { VStack(alignment: .leading, spacing: 16) { Text(title).font(.title2); Text(text) }.padding(24) }
+            else {
+                VStack(alignment: .leading, spacing: 16) {
+                    if let story = loadedStory, let id = UUID(uuidString: story.storyID) {
+                        if OiContentSafetyStore.shared.isBlocked(story.donorID) { Text("차단한 작성자의 이야기입니다.") }
+                        else {
+                            Text(title).font(.title2); Text(text)
+                            OiStorySafetyButton(storyID: id, authorID: story.donorID, authorName: story.donorDisplayName)
+                        }
+                    } else { Text(title).font(.title2); Text(text) }
+                }.padding(24)
+            }
         }
         .navigationTitle("이야기 벤치").task(id: destination) {
-            isLoading = true
+            isLoading = true; loadedStory = nil
             defer { isLoading = false }
             do {
                 switch destination {
@@ -165,7 +176,7 @@ struct PublicDestinationView: View {
                     } else { title = "벤치를 확인할 수 없어요"; text = "공개된 벤치인지 확인해 주세요." }
                 case .story(let id):
                     if let story = try await stories.fetchPublicStory(storyID: id) {
-                        title = story.title; text = story.content
+                        loadedStory = story; title = story.title; text = story.content
                     } else { title = "이야기를 확인할 수 없어요"; text = "삭제되었거나 아직 공개되지 않은 이야기입니다." }
                 }
             } catch { title = "불러오지 못했어요"; text = "잠시 후 다시 시도해 주세요." }

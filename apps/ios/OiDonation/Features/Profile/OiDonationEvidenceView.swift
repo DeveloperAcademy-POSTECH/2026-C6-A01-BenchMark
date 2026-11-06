@@ -13,6 +13,7 @@ struct OiDonationEvidenceView: View {
     let remote: OiRemoteStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private struct Attachment {
         let owner: UUID
         let data: Data
@@ -20,6 +21,7 @@ struct OiDonationEvidenceView: View {
         let name: String
         var fileExtension: String { mime == "application/pdf" ? "pdf" : mime == "image/png" ? "png" : "jpg" }
     }
+    private enum AttachmentPicker { case photo, file }
     private enum Source { case photo(PhotosPickerItem), file(URL) }
     private struct Selection: Identifiable {
         let id = UUID()
@@ -37,7 +39,8 @@ struct OiDonationEvidenceView: View {
     @State private var job: Job?
     @State private var photo: PhotosPickerItem?
     @State private var pickerOwner: UUID?
-    @State private var choosingSource = false
+    @State private var choosingSource: Bool
+    @State private var pendingPicker: AttachmentPicker?
     @State private var pickingPhoto = false
     @State private var importing = false
     @State private var confirming = false
@@ -46,7 +49,14 @@ struct OiDonationEvidenceView: View {
     @State private var review: OiDonationEvidenceReview?
     @State private var error: String?
 
+    init(remote: OiRemoteStore, showsAttachmentSourcesInitially: Bool = false) {
+        self.remote = remote
+        _choosingSource = State(initialValue: showsAttachmentSourcesInitially)
+        _pickerOwner = State(initialValue: showsAttachmentSourcesInitially ? remote.account?.id : nil)
+    }
+
     private var ownEvidence: [OiEvidence] { remote.evidence.filter { $0.userId == remote.account?.id } }
+    private var approvalCount: Int { ownEvidence.filter { $0.status == "approved" }.count }
     private var selected: OiEvidence? { ownEvidence.first { $0.id == selectedID } }
     private var replacing: OiEvidence? {
         guard let selected, ["changes_requested", "rejected"].contains(selected.status) else { return nil }
@@ -71,7 +81,7 @@ struct OiDonationEvidenceView: View {
                     attachmentImage: attachment.flatMap { $0.mime == "application/pdf" ? nil : UIImage(data: $0.data) },
                     isProcessing: processing || remote.isBusy, canSubmit: canAct && attachment != nil && !canRetryUpload,
                     selectedID: selectedID, review: review, message: error,
-                    onAttach: { pickerOwner = remote.account?.id; choosingSource = true },
+                    onAttach: showAttachmentSources,
                     onSubmit: { if let attachment { request(.submit(attachment)) } },
                     onSelect: { selectedID = $0.id; review = nil; error = nil })
                 .refreshable { await remote.refresh() }
@@ -102,18 +112,21 @@ struct OiDonationEvidenceView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 10) {
                     DonationSeedArtwork()
-                    Text("\(ownEvidence.filter { $0.status == "approved" }.count)건")
+                    Text("\(approvalCount)개")
                         .font(.custom("Paperlogy-7Bold", size: 20, relativeTo: .title3))
                 }.padding(.horizontal, 18).padding(.vertical, 8)
                     .background(Color(red: 1, green: 254 / 255, blue: 228 / 255), in: Capsule())
                     .overlay { Capsule().stroke(Color(red: 198 / 255, green: 191 / 255, blue: 91 / 255), lineWidth: 1.5) }
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("작성 승인된 증빙 \(ownEvidence.filter { $0.status == "approved" }.count)건")
+                    .accessibilityLabel("작성 승인된 증빙 \(approvalCount)건")
             }.sharedBackgroundVisibility(.hidden)
         }
-        .confirmationDialog("자료 첨부", isPresented: $choosingSource, titleVisibility: .visible) {
-            Button("사진 보관함") { pickingPhoto = true }
-            Button("파일 선택 · JPEG / PNG / PDF") { importing = true }
+        .sheet(isPresented: $choosingSource, onDismiss: openPendingPicker) {
+            attachmentSourceSheet
+                .dynamicTypeSize(dynamicTypeSize)
+                .presentationDetents([dynamicTypeSize.isAccessibilitySize ? .medium : .height(252), .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(Color(uiColor: .systemBackground))
         }
         .photosPicker(isPresented: $pickingPhoto, selection: $photo, matching: .images)
         .fileImporter(isPresented: $importing, allowedContentTypes: [.jpeg, .png, .pdf]) { result in
@@ -143,13 +156,74 @@ struct OiDonationEvidenceView: View {
                 self.review = nil
             }
         }
-        .onDisappear { clear() }
+        .onDisappear {
+            if !choosingSource && pendingPicker == nil && !pickingPhoto && !importing { clear() }
+        }
+    }
+
+    private var attachmentSourceSheet: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("자료 첨부").font(.headline).accessibilityAddTraits(.isHeader)
+                VStack(spacing: 0) {
+                    Button { selectPicker(.photo) } label: {
+                        Label("사진 보관함", systemImage: "photo.on.rectangle")
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    Divider()
+                    Button { selectPicker(.file) } label: {
+                        Label {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("파일 선택")
+                                Text("JPEG / PNG / PDF").font(.footnote).foregroundStyle(.secondary)
+                            }
+                        } icon: { Image(systemName: "folder") }
+                        .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                }
+                Button(role: .cancel) { choosingSource = false } label: {
+                    Text("취소")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+    }
+
+    private func showAttachmentSources() {
+        guard canAct, let owner = remote.account?.id else { return }
+        pickerOwner = owner
+        choosingSource = true
+    }
+
+    private func selectPicker(_ picker: AttachmentPicker) {
+        pendingPicker = picker
+        choosingSource = false
+    }
+
+    private func openPendingPicker() {
+        defer { pendingPicker = nil }
+        guard let pendingPicker, let owner = pickerOwner, owner == remote.account?.id,
+              !remote.needsReauthentication else {
+            pickerOwner = nil
+            return
+        }
+        switch pendingPicker {
+        case .photo: pickingPhoto = true
+        case .file: importing = true
+        }
     }
 
     private func clear() {
         attachment = nil; selection = nil; job = nil; photo = nil; pickerOwner = nil; requestedOperation = nil
         selectedID = nil; review = nil; error = nil
-        choosingSource = false; pickingPhoto = false; importing = false; confirming = false
+        choosingSource = false; pendingPicker = nil; pickingPhoto = false; importing = false; confirming = false
     }
 
     private func request(_ operation: Operation) {

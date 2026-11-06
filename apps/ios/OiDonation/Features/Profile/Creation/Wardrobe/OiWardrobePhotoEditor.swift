@@ -29,12 +29,15 @@ struct OiWardrobePhotoEditor: View {
     @State private var renderTask: Task<Void, Never>?
     @State private var renderPending = false
     @State private var renderGeneration = UUID()
+    @State private var guideEdges: [OiPhotoSide: [[[Double]]]] = [:]
+
+    private var usesCostumeFrame: Bool { look.costume != nil }
 
     init(slot: OiPhotoSlot, look: OiWardrobeLook, scene: OiWardrobeScene, onClose: (() -> Void)? = nil,
          onSave: @escaping (OiWardrobeArtwork) -> Void) {
         self.slot = slot; self.look = look; self.onSave = onSave
         self.scene = scene; self.onClose = onClose
-        self.layout = try? OiPhotoPrintLayout.load(resource: slot.resource(in: look))
+        self.layout = try? OiPhotoPrintLayout.load(for: slot, in: look)
         if let design = look.artwork.designs[slot.itemID(in: look)] {
             do {
                 let restored = try OiPhotoRenderer.load(design, sources: look.artwork.sources, layout: self.layout)
@@ -82,7 +85,9 @@ struct OiWardrobePhotoEditor: View {
                             .accessibilityIdentifier("photo-empty-instruction")
                     }
                     if !draft.layers.isEmpty { layerPicker }
-                    Text("둥근 프레임 안에만 사진이 들어가요.\n드래그로 이동 · 두 손가락으로 크기와 회전 조절")
+                    Text(usesCostumeFrame
+                         ? "둥근 프레임 안에만 사진이 들어가요.\n드래그로 이동 · 두 손가락으로 크기와 회전 조절"
+                         : "옷의 윤곽을 보며 사진을 배치하세요.\n드래그로 이동 · 두 손가락으로 크기와 회전 조절")
                         .font(CampusStyle.body(10)).foregroundStyle(Color(white: 0.48))
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if let message = error ?? scene.error ?? scene.photoPreviewError {
@@ -119,6 +124,7 @@ struct OiWardrobePhotoEditor: View {
         }
         .onAppear {
             if layout == nil { error = "사진 프레임을 불러오지 못했어요. 취소 후 다시 열어 주세요." }
+            if !usesCostumeFrame { loadUVGuide() }
             scene.angle(side == .front ? 0 : .pi); requestPreview()
         }
         .onDisappear { stopPreview() }
@@ -212,23 +218,51 @@ struct OiWardrobePhotoEditor: View {
                 Spacer()
                 Button("앞으로 가져오기") { reorder(forward: true) }.disabled(selectedIndex == draft.layers.count - 1).accessibilityIdentifier("photo-bring-front")
             }.font(.caption)
-            Button("프레임에 사진 채우기") {
+            Button(usesCostumeFrame ? "프레임에 사진 채우기" : "선택한 사진 배치 초기화") {
                 guard let layer = selectedLayer, let image = draft.assets[layer.source]?.image, let layout else { return }
-                editSelected { $0.placement = layout[side].placement(for: image) }
+                editSelected { $0.placement = usesCostumeFrame ? layout[side].placement(for: image) : OiPhotoPlacement() }
             }.font(.subheadline).accessibilityIdentifier("photo-reset")
         }
     }
     @ViewBuilder private var uvCanvas: some View {
         if let frame = layout?[side] {
-            Color.clear.aspectRatio(frame.width / frame.height, contentMode: .fit)
-                .overlay {
-                    GeometryReader { geometry in
-                        photoCanvas(frame: frame, width: geometry.size.width)
+            if usesCostumeFrame {
+                Color.clear.aspectRatio(frame.width / frame.height, contentMode: .fit)
+                    .overlay {
+                        GeometryReader { geometry in
+                            photoCanvas(frame: frame, width: geometry.size.width)
+                        }
                     }
-                }
-                .frame(maxHeight: 240)
-                .frame(maxWidth: .infinity)
+                    .frame(maxHeight: 240)
+                    .frame(maxWidth: .infinity)
+            } else {
+                photoCanvas(frame: frame, width: 236)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
         }
+    }
+
+    private func loadUVGuide() {
+        for face in OiPhotoSide.allCases {
+            let name = slot.resource(in: look) + "-" + face.rawValue
+            if let url = Bundle.main.url(forResource: name, withExtension: "json", subdirectory: "WardrobePhotoUV")
+                ?? Bundle.main.url(forResource: name, withExtension: "json"),
+               let data = try? Data(contentsOf: url),
+               let edges = try? JSONDecoder().decode([[[Double]]].self, from: data) {
+                guideEdges[face] = edges
+            }
+        }
+    }
+
+    private var uvGuide: some View {
+        Canvas { context, size in
+            var path = Path()
+            for line in guideEdges[side] ?? [] where line.count == 2 && line.allSatisfy({ $0.count == 2 }) {
+                path.move(to: CGPoint(x: line[0][0] * size.width, y: line[0][1] * size.height))
+                path.addLine(to: CGPoint(x: line[1][0] * size.width, y: line[1][1] * size.height))
+            }
+            context.stroke(path, with: .color(Color("OiGreen").opacity(0.45)), lineWidth: 0.6)
+        }.allowsHitTesting(false)
     }
     private func photoCanvas(frame: OiPhotoPrintFrame, width: CGFloat) -> some View {
         let viewport = OiPhotoPrintViewport(frame: frame, width: width)
@@ -238,7 +272,15 @@ struct OiWardrobePhotoEditor: View {
             selectedID: selectedID, frame: frame, width: width,
             background: Color(UIColor(wardrobeRGB: slot.color(in: look))),
             fabric: OiPhotoRenderer.fabricImage(slot.fabric(in: look)))
-            .overlay(shape.strokeBorder(Color("OiGreen"), lineWidth: 1.5).allowsHitTesting(false))
+            .overlay {
+                if usesCostumeFrame {
+                    shape.strokeBorder(Color("OiGreen"), lineWidth: 1.5).allowsHitTesting(false)
+                } else {
+                    uvGuide
+                    RoundedRectangle(cornerRadius: 12).strokeBorder(Color("OiGreen").opacity(0.25))
+                        .allowsHitTesting(false)
+                }
+            }
             .contentShape(shape)
             .gesture(DragGesture(minimumDistance: 2).updating($isDragging) { _, active, _ in active = true }.onChanged { value in
                 if previousDrag == .zero && !isTransforming { select(at: viewport.panelPoint(value.startLocation), edge: edge) }
@@ -252,7 +294,7 @@ struct OiWardrobePhotoEditor: View {
             .simultaneousGesture(SpatialTapGesture().onEnded { select(at: viewport.panelPoint($0.location), edge: edge) })
             .simultaneousGesture(photoTransformGesture)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(side.title) 둥근 사진 프레임")
+            .accessibilityLabel(usesCostumeFrame ? "\(side.title) 둥근 사진 프레임" : "\(side.title) 사진 배치용 UV 맵")
             .accessibilityHint("사진을 선택하고 한 손가락으로 이동하세요. 두 손가락을 벌리거나 오므려 크기를 조절하고, 비틀어 회전하세요.")
             .accessibilityActions {
                 if selectedLayer != nil {
@@ -309,7 +351,8 @@ struct OiWardrobePhotoEditor: View {
     private func add(_ asset: OiPhotoImageAsset) {
         guard remaining > 0, let frame = layout?[side] else { return }
         draft.assets[asset.id] = asset
-        let layer = OiPhotoLayer(source: asset.id, side: side, placement: frame.placement(for: asset.image))
+        let layer = OiPhotoLayer(source: asset.id, side: side,
+            placement: usesCostumeFrame ? frame.placement(for: asset.image) : OiPhotoPlacement())
         draft.layers.append(layer); selectedID = layer.id; error = nil
     }
     private func deleteSelected() {

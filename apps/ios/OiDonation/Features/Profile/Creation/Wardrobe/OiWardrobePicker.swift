@@ -16,6 +16,7 @@ struct OiCucumberCustomizationStep: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var photoScene = OiWardrobeScene()
     @State private var tab: OiWardrobeTab = .top
+    @State private var wardrobeScrollPosition = ScrollPosition()
     @State private var photoSlot: OiPhotoSlot?
     private var look: OiWardrobeLook { customization.wardrobe ?? OiWardrobeLook() }
 
@@ -51,6 +52,8 @@ struct OiCucumberCustomizationStep: View {
                             }
                         }.padding(.horizontal, 20).padding(.vertical, 16)
                     }
+                    .scrollPosition($wardrobeScrollPosition)
+                    .onChange(of: tab) { _, _ in wardrobeScrollPosition.scrollTo(edge: .top) }
                 }
             }
         }
@@ -86,7 +89,7 @@ struct OiCucumberCustomizationStep: View {
     @ViewBuilder private var wardrobeControls: some View {
         ScrollView(.horizontal, showsIndicators: false) {
           HStack(spacing: 20) {
-            ForEach(OiWardrobeTab.allCases, id: \.self) { category in
+            ForEach(OiWardrobeTab.allCases.filter(\.isAvailable), id: \.self) { category in
                 Button { tab = category } label: {
                     Text(category.rawValue).font(tab == category ? CampusStyle.semibold(16) : CampusStyle.medium(16))
                         .frame(minHeight: 44)

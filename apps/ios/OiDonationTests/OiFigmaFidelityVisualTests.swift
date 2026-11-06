@@ -42,8 +42,10 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
              "review_note": status == "changes_requested" ? "기부처와 이체 완료 상태가 보이도록 다시 제출해 주세요." : ""]
         }
         let bytes = try JSONSerialization.data(withJSONObject: rows)
+        let emptyEvidence = Data("[]".utf8)
+        let evidencePath = "/rest/v1/oi_evidence_requests"
         OiStoreURLProtocol.handle = { request, client in
-            if request.url?.path == "/rest/v1/oi_evidence_requests" { client.respond(200, bytes) }
+            if request.url?.path == evidencePath { client.respond(200, bytes) }
             else { fallback?(request, client) }
         }
         let config = URLSessionConfiguration.ephemeral
@@ -65,6 +67,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         for variant in variants {
             let view = NavigationStack { OiDonationEvidenceView(remote: remote) }
             try await capture(view, name: "donation-evidence", variant: variant, defaults: fixture.defaults, attach: true)
+            let attachmentSources = NavigationStack {
+                OiDonationEvidenceView(remote: remote, showsAttachmentSourcesInitially: true)
+            }
+            try await capture(attachmentSources, name: "donation-evidence-attachment-sheet", variant: variant,
+                defaults: fixture.defaults, delay: .milliseconds(600), attach: true, checksBottomSheet: true)
             let attached = OiDonationEvidenceContent(evidence: [], attachmentName: "synthetic-proof.pdf",
                 canSubmit: true, message: "파일은 아직 전송되지 않았어요")
             try await capture(attached, name: "donation-evidence-attached", variant: variant,
@@ -84,6 +91,20 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                     defaults: fixture.defaults, attach: true)
             }
         }
+
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.path == evidencePath || request.url?.path == "/rest/v1/oi_writing_grants" {
+                client.respond(200, emptyEvidence)
+            } else { fallback?(request, client) }
+        }
+        await remote.refresh()
+        XCTAssertTrue(remote.hasLoadedRemote)
+        XCTAssertNil(remote.loadError)
+        XCTAssertTrue(remote.evidence.isEmpty)
+        XCTAssertFalse(remote.canStartStory)
+        let empty = NavigationStack { OiDonationEvidenceView(remote: remote) }
+        try await capture(empty, name: "donation-evidence-empty", variant: try XCTUnwrap(variants.first),
+                          defaults: fixture.defaults, attach: true)
     }
 
     func testDonationSemanticResultCaptures() async throws {
@@ -285,6 +306,134 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testCardBackgroundAndBorderColorRegions() throws {
+        let size = CGSize(width: 362, height: 502)
+        func render(_ style: OiDraftCustomization, name: String) throws -> Data {
+            let renderer = ImageRenderer(content:
+                OiDraftCardPreview(draft: Self.draft, customization: style)
+                    .frame(width: size.width, height: size.height).environment(\.colorScheme, .light))
+            renderer.scale = 1
+            let png = try XCTUnwrap(renderer.uiImage?.pngData())
+            let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+            return png
+        }
+        func rgb(_ data: Data, x: Int, y: Int) throws -> [Int] {
+            let bitmap = try renderedBitmap(data, size: size)
+            let bytes = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: 362 * 502 * 4)
+            let offset = (y * 362 + x) * 4
+            return (0..<3).map { Int(bytes[offset + $0]) }
+        }
+        func distance(_ a: [Int], _ b: [Int]) -> Int { zip(a, b).reduce(0) { $0 + abs($1.0 - $1.1) } }
+
+        var style = OiDraftCustomization()
+        style.showsCharacter = false
+        style.firstColor = 0xD9D9D9
+        style.card = OiCardDesign(borderFirst: 0xFFFFFF)
+        let reference = try render(style, name: "card-regions-gray-white")
+        style.firstColor = 0x285DB0
+        let background = try render(style, name: "card-regions-blue-white")
+        style.card?.borderFirst = 0xCE4068
+        let border = try render(style, name: "card-regions-blue-pink")
+
+        // Background includes the outside margin and the interior. Changing only
+        // the border must not recolor either region (the former implementation did).
+        for point in [CGPoint(x: 7, y: 180), CGPoint(x: 180, y: 180)] {
+            let a = try rgb(reference, x: Int(point.x), y: Int(point.y))
+            let b = try rgb(background, x: Int(point.x), y: Int(point.y))
+            let c = try rgb(border, x: Int(point.x), y: Int(point.y))
+            XCTAssertGreaterThan(distance(a, b), 80)
+            XCTAssertLessThan(distance(b, c), 6)
+        }
+        // Sample the two header areas away from glyphs and the left frame line.
+        for point in [CGPoint(x: 30, y: 22), CGPoint(x: 130, y: 22), CGPoint(x: 15, y: 180)] {
+            let a = try rgb(reference, x: Int(point.x), y: Int(point.y))
+            let b = try rgb(background, x: Int(point.x), y: Int(point.y))
+            let c = try rgb(border, x: Int(point.x), y: Int(point.y))
+            // Figma's name strip is translucent. It must respond primarily to
+            // border tint while retaining that deliberate background show-through.
+            XCTAssertLessThan(Double(distance(a, b)), Double(distance(b, c)) * 0.4,
+                              "Background dominates the border tint at \(point)")
+            XCTAssertGreaterThan(distance(b, c), 60, "Border/header stayed white at \(point)")
+        }
+        style.fill = .gradient; style.firstColor = 0xD3DBC4; style.secondColor = 0xF3F7E6
+        style.card?.borderFill = .gradient
+        style.card?.borderFirst = 0x102841; style.card?.borderSecond = 0x6BA3C9
+        _ = try render(style, name: "card-regions-gradient")
+        style.card?.pattern = 3; style.showsCharacter = true
+        _ = try render(style, name: "card-regions-pattern-character")
+    }
+
+    func testCardPatternsRemainVisibleAcrossBackgrounds() throws {
+        let size = CGSize(width: 166, height: 236)
+        func render<V: View>(_ view: V, size: CGSize) throws -> Data {
+            let renderer = ImageRenderer(content: view.frame(width: size.width, height: size.height))
+            renderer.scale = 1
+            return try XCTUnwrap(renderer.uiImage?.pngData())
+        }
+        func luminance(_ png: Data) throws -> [Double] {
+            let context = try renderedBitmap(png, size: size)
+            let pixels = try XCTUnwrap(context.data).bindMemory(to: UInt8.self, capacity: 166 * 236 * 4)
+            return (0..<(166 * 236)).map { i in
+                let offset = i * 4
+                return (0.2126 * Double(pixels[offset]) + 0.7152 * Double(pixels[offset + 1])
+                    + 0.0722 * Double(pixels[offset + 2])) / 255
+            }
+        }
+        let portraitURL = try XCTUnwrap(Bundle.main.url(forResource: OiWardrobeLook.Costume.farmer.thumbnailName,
+                                                        withExtension: "png"))
+        let portrait = try XCTUnwrap(UIImage(contentsOfFile: portraitURL.path))
+        for (name, color): (String, UInt32) in [("white", 0xFFFFFF), ("sage", 0xD3DBC4), ("charcoal", 0x101010)] {
+            var customization = OiDraftCustomization()
+            customization.firstColor = color
+            let baseline = try luminance(render(OiCardBackground(customization: customization, pattern: nil), size: size))
+            for number in 1...8 {
+                let tones = try luminance(render(OiCardBackground(customization: customization, pattern: number), size: size))
+                let mean = tones.reduce(0, +) / Double(tones.count)
+                let deviation = sqrt(tones.reduce(0) { $0 + pow($1 - mean, 2) } / Double(tones.count))
+                let change = zip(tones, baseline).reduce(0) { $0 + abs($1.0 - $1.1) } / Double(tones.count)
+                XCTAssertGreaterThan(deviation, 0.025, "Pattern \(number) lost its detail on \(name)")
+                XCTAssertGreaterThan(change, 0.05, "Pattern \(number) is barely visible on \(name)")
+            }
+            let sheet = VStack(spacing: 12) {
+                ForEach(0..<3) { row in
+                    HStack(spacing: 12) {
+                        ForEach(0..<3) { column in
+                            let number = row * 3 + column
+                            var example = customization
+                            let _ = { example.card = OiCardDesign(pattern: number == 0 ? nil : number) }()
+                            VStack(spacing: 4) {
+                                Text(number == 0 ? "패턴 없음" : "패턴 \(number)").font(.caption)
+                                OiDraftCardPreview(draft: Self.draft, customization: example, portrait: portrait)
+                                    .frame(width: 166, height: 230)
+                            }
+                        }
+                    }
+                }
+            }.padding(12).background(.white)
+            let png = try render(sheet, size: CGSize(width: 546, height: 798))
+            let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            attachment.name = "card-patterns-\(name)"; attachment.lifetime = .keepAlways; add(attachment)
+        }
+
+        // A photo must remain recognizable, but each texture still has to change
+        // its background. Neither a pattern nor removing one mutates saved bytes.
+        var photoDesign = OiDraftCustomization()
+        let photo = UIGraphicsImageRenderer(size: size).image { context in
+            UIColor.systemBlue.setFill(); context.fill(CGRect(origin: .zero, size: size))
+            UIColor.systemOrange.setFill(); context.fill(CGRect(x: 0, y: 0, width: 83, height: 236))
+        }
+        photoDesign.card = OiCardDesign(backgroundPhoto: try XCTUnwrap(photo.pngData()))
+        let original = photoDesign
+        let baseline = try render(OiCardBackground(customization: photoDesign, pattern: nil), size: size)
+        for number in 1...8 {
+            let patterned = try render(OiCardBackground(customization: photoDesign, pattern: number), size: size)
+            XCTAssertNotEqual(patterned, baseline)
+        }
+        XCTAssertEqual(try render(OiCardBackground(customization: photoDesign, pattern: nil), size: size), baseline)
+        XCTAssertEqual(photoDesign, original)
+    }
+
     func testCustomizationCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
@@ -445,15 +594,6 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             onReload: {}, onDecision: { _, _ in }, onRetryDecision: {})
         try await capture(unconfirmed, name: "card-requests-unconfirmed-decision",
             variant: reference, defaults: fixture.defaults, attach: true)
-    }
-
-    func testEvidenceDesignPreviewCapture() async throws {
-        let fixture = try isolatedDefaults()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
-        for variant in variants {
-            try await capture(NavigationStack { OiEvidenceDesignPreview() },
-                              name: "evidence-preview", variant: variant, defaults: fixture.defaults, attach: true)
-        }
     }
 
     func testMYScreenCapturesWithoutRemoteStore() async throws {
@@ -746,9 +886,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
 
         let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
-        let signedIn = OiRemoteStore(api: api,
-            drafts: OiDraftVault(directory: directory.appendingPathComponent("signed-in", isDirectory: true)),
-            vault: OiMemorySession())
+        let signedInDrafts = OiDraftVault(directory: directory.appendingPathComponent("signed-in", isDirectory: true))
+        let signedIn = OiRemoteStore(api: api, drafts: signedInDrafts, vault: OiMemorySession())
         let emptySession = OiMemorySession()
         try emptySession.write(nil)
         let signedOut = OiRemoteStore(api: api,
@@ -805,6 +944,16 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                     OiSchoolEvidenceView(remote: signedIn, initialStep: step)
                 }
                 try await capture(screen, name: "school-evidence-" + name, variant: variant,
+                    defaults: fixture.defaults, delay: .milliseconds(450), attach: true)
+            }
+        }
+
+        for outcome in [OiSchoolEvidenceOutcome.completed, .rejected] {
+            let owner = try XCTUnwrap(signedIn.account?.id)
+            try await signedInDrafts.saveSchoolEvidenceReview(.init(outcome: outcome, reviewedAt: .now), owner: owner)
+            for variant in variants {
+                let screen = NavigationStack { OiSchoolEvidenceView(remote: signedIn) }
+                try await capture(screen, name: "school-evidence-result-\(outcome.rawValue)", variant: variant,
                     defaults: fixture.defaults, delay: .milliseconds(450), attach: true)
             }
         }
@@ -958,7 +1107,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     @discardableResult
     private func capture<V: View>(_ view: V, name: String, variant: Variant, defaults: UserDefaults,
                                  includesSafeArea: Bool = true,
-                                 delay: Duration = .milliseconds(180), attach: Bool = false) async throws -> Data {
+                                 delay: Duration = .milliseconds(180), attach: Bool = false,
+                                 checksBottomSheet: Bool = false) async throws -> Data {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first, "The isolated simulator test host must have a window scene")
@@ -983,6 +1133,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         // Showing this owned window without making it key preserves all existing windows.
         window.isHidden = false
         defer {
+            if checksBottomSheet { root.dismiss(animated: false) }
             releaseCampusRenderers(in: host.view)
             host.willMove(toParent: nil)
             host.view.removeFromSuperview()
@@ -1003,6 +1154,16 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         host.view.setNeedsLayout()
         try await Task.sleep(for: delay)
         host.view.layoutIfNeeded()
+        if checksBottomSheet {
+            let presented = try XCTUnwrap(root.presentedViewController ?? host.presentedViewController)
+            let sheet = try XCTUnwrap(presented.presentationController)
+            XCTAssertTrue(sheet is UISheetPresentationController)
+            let frame = sheet.frameOfPresentedViewInContainerView
+            let bounds = try XCTUnwrap(sheet.containerView?.bounds)
+            XCTAssertGreaterThan(frame.minY, bounds.minY)
+            XCTAssertEqual(frame.maxY, bounds.maxY, accuracy: 1)
+        }
+        let renderView: UIView = checksBottomSheet ? window : host.view
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
@@ -1010,7 +1171,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let png = UIGraphicsImageRenderer(size: variant.size, format: format).pngData { context in
             UIColor.white.setFill()
             context.fill(CGRect(origin: .zero, size: variant.size))
-            rendered = host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+            rendered = renderView.drawHierarchy(in: renderView.bounds, afterScreenUpdates: true)
         }
         XCTAssertTrue(rendered, "The attached production view must draw its hierarchy")
         try assertNonemptyRender(png, size: variant.size)

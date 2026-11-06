@@ -57,6 +57,7 @@ xcrun swiftc -parse-as-library -swift-version 5 -default-isolation MainActor \
   "$GAME_DIR/ARGameIntroView.swift" "$GAME_DIR/ARGameFailureView.swift" \
   "$GAME_DIR/ARGameHUD.swift" "$GAME_DIR/ARGameStartOverlay.swift" "$GAME_DIR/ARGameSuccessView.swift" \
   "$GAME_DIR/CucumberCharacterImage.swift" "$GAME_DIR/CucumberArtwork.swift" \
+  "$IOS_ROOT/OiDonation/Domain/Models/OiContentSafetyStore.swift" \
   "$IOS_ROOT/OiDonation/Data/Networking/APIClient.swift" \
   "$IOS_ROOT/OiDonation/Domain/Repositories/StoryRepository.swift" \
   "$IOS_ROOT/Tests/AppClipPublicStoryChecks.swift" \

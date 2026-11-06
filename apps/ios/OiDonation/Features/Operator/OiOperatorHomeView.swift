@@ -39,6 +39,7 @@ struct OiOperatorHomeView: View {
                 if canAccess {
                     if section == .stories { OiOperatorStoriesView(remote: remote) }
                     else if section == .evidence { OiOperatorEvidenceListView(remote: remote) }
+                    else if section == .content { OiOperatorContentView(remote: remote) }
                     else { OiOperatorAuditView(remote: remote) }
                 } else { accessStatus }
             }
@@ -68,6 +69,7 @@ struct OiOperatorHomeView: View {
                     .font(.subheadline).foregroundStyle(.secondary)
             }
             Section("검토 업무") {
+                menuLink(.content)
                 menuLink(.stories)
                 menuLink(.evidence)
             }
@@ -118,18 +120,19 @@ struct OiOperatorHomeView: View {
 }
 
 enum OiOperatorSection: String, Hashable {
-    case stories, evidence, audit
+    case stories, evidence, audit, content
     var title: String {
-        switch self { case .stories: "이야기 검토"; case .evidence: "기부 증빙 검토"; case .audit: "운영 감사 기록" }
+        switch self { case .content: "콘텐츠 신고"; case .stories: "이야기 검토"; case .evidence: "기부 증빙 검토"; case .audit: "운영 감사 기록" }
     }
     var detail: String {
         switch self {
+        case .content: "신고 검토·게시물 비공개·작성자 제한"
         case .stories: "이야기 내용 확인 및 공개·비공개 관리"
         case .evidence: "증빙 확인 및 작성 권한 검토"
         case .audit: "운영 처리 내역 확인"
         }
     }
     var symbol: String {
-        switch self { case .stories: "text.book.closed"; case .evidence: "doc.text.magnifyingglass"; case .audit: "clock.arrow.circlepath" }
+        switch self { case .content: "flag"; case .stories: "text.book.closed"; case .evidence: "doc.text.magnifyingglass"; case .audit: "clock.arrow.circlepath" }
     }
 }

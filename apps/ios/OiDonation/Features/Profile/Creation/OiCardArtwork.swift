@@ -20,18 +20,23 @@ struct OiDraftCardPreview: View {
         if let caption = design.caption, !caption.isEmpty { return caption }
         return draft.title.isEmpty ? "오래 남는 나의 이야기" : draft.title
     }
+    private var headerInk: Color {
+        // The header occupies the top of a diagonal gradient, close to its first stop.
+        let second = design.borderFill == .solid ? design.borderFirst : design.borderSecond
+        func channel(_ shift: UInt32) -> Double {
+            let value = (Double((design.borderFirst >> shift) & 255) * 0.9
+                         + Double((second >> shift) & 255) * 0.1) / 255
+            return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        let luminance = 0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0)
+        return luminance > 0.179 ? .black : .white
+    }
     private var composition: some View {
         ZStack(alignment: .topLeading) {
-            OiCardGradient(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond)
+            OiCardGradient(fill: customization.fill, first: customization.firstColor, second: customization.secondColor)
             ZStack(alignment: .topLeading) {
-                OiCardGradient(fill: customization.fill, first: customization.firstColor, second: customization.secondColor)
-                if let bytes = design.backgroundPhoto, let photo = UIImage(data: bytes) {
-                    OiCardPlacedImage(image: photo, placement: design.backgroundPlacement)
-                }
-                if let pattern = design.pattern {
-                    Image("OiCardPattern\(pattern)").resizable().scaledToFill()
-                        .frame(width: 332, height: 472).blendMode(.softLight).opacity(0.65)
-                }
+                OiCardBackground(customization: customization, pattern: design.pattern, gradientInset: 15)
+                    .frame(width: 332, height: 472)
                 if customization.showsCharacter {
                     if let portrait {
                         OiCardPlacedImage(image: portrait, placement: design.characterPlacement)
@@ -64,15 +69,55 @@ struct OiDraftCardPreview: View {
                         Image(systemName: "wave.3.right").font(.system(size: 20)).foregroundStyle(.white)
                     }
                 }.padding(14).frame(width: 332, height: 472)
-                Image("OiStoryCardHeader").resizable().frame(width: 268, height: 36)
-                Image("OiStoryCardFrame").resizable().frame(width: 332, height: 472)
-                Text("NORMAL").font(.custom("Paperlogy-7Bold", size: 11))
-                    .foregroundStyle(Color(white: 0.45)).frame(width: 64, height: 36)
+                // One gradient paints the Figma outline and both header sections.
+                // The outer margin belongs to the background, not the border.
+                OiCardGradient(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond)
+                    .frame(width: 332, height: 472)
+                    .mask(alignment: .topLeading) {
+                        ZStack(alignment: .topLeading) {
+                            Image("OiCardEditableHeader").resizable()
+                                .frame(width: 332 * 180.301 / 205, height: 472 * 29.639 / 291.446)
+                            Image("OiCardEditableFrame").resizable().frame(width: 332, height: 472)
+                        }
+                    }
+                Text("NORMAL").font(.custom("Paperlogy-7Bold", size: 14))
+                    .foregroundStyle(headerInk).frame(width: 64, height: 48).offset(x: 4)
                 Text(draft.cucumberName.isEmpty ? "나의 오이" : draft.cucumberName)
                     .font(.custom("Paperlogy-3Light", size: 21)).lineLimit(1).minimumScaleFactor(0.55)
-                    .frame(width: 184, height: 36, alignment: .leading).offset(x: 77)
+                    .foregroundStyle(headerInk)
+                    .frame(width: 184, height: 48, alignment: .leading).offset(x: 82)
             }.frame(width: 332, height: 472).clipShape(RoundedRectangle(cornerRadius: 9)).offset(x: 15, y: 15)
         }.clipShape(RoundedRectangle(cornerRadius: 15)).dynamicTypeSize(.medium)
+    }
+}
+
+/// Shared by the card and its pattern swatches so a selection previews the actual
+/// background color/photo. Isolate blending from the portrait, text and border.
+struct OiCardBackground: View {
+    let customization: OiDraftCustomization
+    let pattern: Int?
+    var gradientInset: CGFloat = 0
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                OiCardGradient(fill: customization.fill, first: customization.firstColor,
+                               second: customization.secondColor)
+                    // Match the full-card gradient through the inset content area.
+                    .frame(width: geometry.size.width + gradientInset * 2,
+                           height: geometry.size.height + gradientInset * 2)
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                if let design = customization.card, let bytes = design.backgroundPhoto,
+                   let photo = UIImage(data: bytes) {
+                    OiCardPlacedImage(image: photo, placement: design.backgroundPlacement)
+                }
+                if let pattern, let image = OiCardPatternTexture.image(for: pattern) {
+                    Image(uiImage: image).resizable().scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .blendMode(.luminosity).opacity(0.62)
+                }
+            }.frame(width: geometry.size.width, height: geometry.size.height)
+                .clipped().compositingGroup()
+        }.allowsHitTesting(false)
     }
 }
 

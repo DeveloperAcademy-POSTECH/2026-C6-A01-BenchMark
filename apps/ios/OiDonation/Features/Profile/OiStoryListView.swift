@@ -52,10 +52,10 @@ struct OiStoryListView: View {
             }
 
             ToolbarItem(placement: .topBarTrailing) {
-                optionalButton(action: onAddSeed) {
-                    OiSeedBalanceLabel(count: seedCount)
+                if let onAddSeed {
+                    Button(action: onAddSeed) { OiSeedBalanceLabel(count: seedCount) }
+                        .accessibilityIdentifier("storyList.seedBalance")
                 }
-                .accessibilityIdentifier("storyList.seedBalance")
             }
             .sharedBackgroundVisibility(.hidden)
         }
@@ -397,7 +397,7 @@ struct OiSeedBalanceLabel: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("씨앗 추가")
         .accessibilityValue(count.map { "\($0)개" } ?? "개수 확인 준비 중")
-        .accessibilityHint("기부 인증 미리보기 열기")
+        .accessibilityHint("기부 인증 화면 열기")
     }
 
     private var seedBalanceBorderColor: Color {
