@@ -410,9 +410,10 @@ struct OiServiceChecks {
         invalidLayer = front; invalidLayer.source = "../../private.jpg"
         precondition(!OiPhotoDesign(layers: [invalidLayer]).isValid)
         do {
-            try look.artwork.set(design, for: "retired-garment")
+            try look.artwork.set(design, for: "top-unknown")
             preconditionFailure("Unsupported garment accepted")
         } catch OiPhotoDataError.limit { }
+        try look.artwork.set(design, for: "top-postech")
         print("PASS: photo layer bounds, invalid transforms, atomic rejection, deduplicated source lifecycle")
         precondition(future.costume == nil)
         let unsupportedCostume = try JSONDecoder().decode(OiWardrobeLook.self, from: Data(#"{"costume":"retired-dinosaur-bear"}"#.utf8))
@@ -420,12 +421,16 @@ struct OiServiceChecks {
         for costume in OiWardrobeLook.Costume.allCases {
             var dressed = look; dressed.costume = costume
             precondition(dressed.modelName == costume.modelName && dressed.title == costume.title)
-            precondition(OiPhotoSlot.top.supports(dressed) && !OiPhotoSlot.bottom.supports(dressed), "A complete costume exposes one front/back clothing print surface")
+            precondition(OiPhotoSlot.top.supports(dressed) && !OiPhotoSlot.bottom.supports(dressed))
             precondition(OiPhotoSlot.top.preservesOriginalMaterial(in: dressed))
-            precondition(OiPhotoSlot.top.itemID(in: dressed) == "costume-" + costume.rawValue)
+            let itemID = OiPhotoSlot.top.itemID(in: dressed)
+            precondition(itemID == "costume-" + costume.rawValue)
+            try dressed.artwork.set(design, for: itemID)
+            precondition(dressed.artwork.sources.count == 1, "Sets share existing source bytes")
             let restored = try JSONDecoder().decode(OiWardrobeLook.self, from: JSONEncoder().encode(dressed))
             precondition(restored == dressed)
             var individual = restored; individual.costume = nil
+            try individual.artwork.set(nil, for: itemID)
             precondition(individual == look, "Returning to individual items preserves colors, denim and photos")
         }
         look.costume = .dinosaur

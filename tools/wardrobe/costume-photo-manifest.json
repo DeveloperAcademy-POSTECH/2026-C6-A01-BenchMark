@@ -2,419 +2,501 @@
   {
     "id": "photo-wardrobe-costume-dinosaur-top",
     "sourceSHA256": "dddcb66b5d9e9f5230e3c1dc18ba93287d545be364ff64b517df244664ffe624",
-    "frontRegionMeters": [
-      -0.2,
-      0.2,
-      0.32,
-      0.72
+    "regions": [
+      [
+        -0.2,
+        0.2,
+        0.32,
+        0.72
+      ],
+      [
+        -0.2,
+        0.2,
+        0.32,
+        0.78
+      ]
     ],
-    "backRegionMeters": [
-      -0.2,
-      0.2,
-      0.32,
-      0.72
-    ],
-    "trianglesBySide": [
-      4189,
-      3979
-    ],
-    "offsetMeters": 0.0015,
-    "bytes": 233773
+    "materials": [
+      {
+        "mappedPixels": 423945,
+        "protectedOverlapPixels": 1072,
+        "selectedTriangles": 11655,
+        "compressedBytes": 1530413
+      }
+    ]
   },
   {
     "id": "photo-wardrobe-costume-raincoat-top",
     "sourceSHA256": "752a9d903863b64206aaa5be9b5de37e3e9b00f01aed91207dfe104cdf8f0c51",
-    "frontRegionMeters": [
-      -0.22,
-      0.22,
-      0.34,
-      0.75
+    "regions": [
+      [
+        -0.22,
+        0.22,
+        0.34,
+        0.76
+      ],
+      [
+        -0.22,
+        0.22,
+        0.34,
+        0.79
+      ]
     ],
-    "backRegionMeters": [
-      -0.22,
-      0.22,
-      0.34,
-      0.75
-    ],
-    "trianglesBySide": [
-      4658,
-      4331
-    ],
-    "offsetMeters": 0.0015,
-    "bytes": 368577
+    "materials": [
+      {
+        "mappedPixels": 595238,
+        "protectedOverlapPixels": 3005,
+        "selectedTriangles": 15607,
+        "compressedBytes": 1970948
+      }
+    ]
   },
   {
     "id": "photo-wardrobe-costume-bee-top",
     "sourceSHA256": "c1bc09c0b20bf360188165c601db71ee026d35b128f5b66b35efa8c1cead1477",
-    "frontRegionMeters": [
-      -0.22,
-      0.22,
-      0.4,
-      0.63
+    "regions": [
+      [
+        -0.22,
+        0.22,
+        0.4,
+        0.67
+      ],
+      [
+        -0.22,
+        0.22,
+        0.4,
+        0.63
+      ]
     ],
-    "backRegionMeters": [
-      -0.22,
-      0.22,
-      0.4,
-      0.63
-    ],
-    "trianglesBySide": [
-      2921,
-      2945
-    ],
-    "offsetMeters": 0.0015,
-    "bytes": 172716
+    "materials": [
+      {
+        "mappedPixels": 264910,
+        "protectedOverlapPixels": 1437,
+        "selectedTriangles": 7798,
+        "compressedBytes": 967563
+      }
+    ]
   },
   {
     "id": "photo-wardrobe-costume-cat-top",
     "sourceSHA256": "19e59c7aadce5a267bc7f08fb299e5053dc4a206b5f008ee303a458bd70056de",
-    "frontRegionMeters": [
-      -0.2,
-      0.2,
-      0.32,
-      0.72
+    "regions": [
+      [
+        -0.2,
+        0.2,
+        0.32,
+        0.72
+      ],
+      [
+        -0.2,
+        0.2,
+        0.32,
+        0.76
+      ]
     ],
-    "backRegionMeters": [
-      -0.2,
-      0.2,
-      0.32,
-      0.72
-    ],
-    "trianglesBySide": [
-      4054,
-      2360
-    ],
-    "offsetMeters": 0.0015,
-    "bytes": 190053
+    "materials": [
+      {
+        "mappedPixels": 276608,
+        "protectedOverlapPixels": 1097,
+        "selectedTriangles": 9091,
+        "compressedBytes": 1010803
+      }
+    ]
   },
   {
     "id": "photo-wardrobe-costume-astronaut-top",
     "sourceSHA256": "53099c428a47129ce5aaab3432cc01b7054538d0ef5a4444948999994c220d61",
-    "frontRegionMeters": [
-      -0.18,
-      0.18,
-      0.38,
-      0.75
+    "regions": [
+      [
+        -0.18,
+        0.18,
+        0.38,
+        0.79
+      ],
+      [
+        -0.18,
+        0.18,
+        0.38,
+        0.8
+      ]
     ],
-    "backRegionMeters": [
-      -0.18,
-      0.18,
-      0.38,
-      0.75
-    ],
-    "trianglesBySide": [
-      9822,
-      6979
-    ],
-    "offsetMeters": 0.0015,
-    "bytes": 412105
+    "materials": [
+      {
+        "mappedPixels": 863825,
+        "protectedOverlapPixels": 2396,
+        "selectedTriangles": 24469,
+        "compressedBytes": 3013943
+      }
+    ]
   },
   {
     "id": "photo-wardrobe-costume-scientist-top",
     "sourceSHA256": "c882dc3c226d219216538fd5a8eab1732b1a24e0eca682b8ccbc219c3e2a79d6",
-    "frontRegionMeters": [
-      -0.18,
-      0.18,
-      0.38,
-      0.77
+    "regions": [
+      [
+        -0.18,
+        0.18,
+        0.38,
+        0.8
+      ],
+      [
+        -0.18,
+        0.18,
+        0.38,
+        0.85
+      ]
     ],
-    "backRegionMeters": [
-      -0.18,
-      0.18,
-      0.38,
-      0.77
-    ],
-    "trianglesBySide": [
-      6367,
-      2682
-    ],
-    "offsetMeters": 0.0015,
-    "bytes": 227813
+    "materials": [
+      {
+        "mappedPixels": 494081,
+        "protectedOverlapPixels": 1579,
+        "selectedTriangles": 13829,
+        "compressedBytes": 1699597
+      }
+    ]
   },
   {
     "id": "photo-wardrobe-costume-cat-bear-top",
     "sourceSHA256": "9f73fb57a3d72a2a1017485b96c14a9aa6f94eb8a9d97b6853c323676a28f24f",
-    "frontRegionMeters": [
-      -0.19,
-      0.02,
-      0.32,
-      0.72
+    "regions": [
+      [
+        -0.19,
+        0.02,
+        0.32,
+        0.72
+      ],
+      [
+        -0.19,
+        0.19,
+        0.32,
+        0.75
+      ]
     ],
-    "backRegionMeters": [
-      -0.19,
-      0.19,
-      0.32,
-      0.72
-    ],
-    "trianglesBySide": [
-      1094,
-      1506
-    ],
-    "offsetMeters": 0.0015,
-    "bytes": 79004
+    "materials": [
+      {
+        "mappedPixels": 11493,
+        "protectedOverlapPixels": 147,
+        "selectedTriangles": 150,
+        "compressedBytes": 58015
+      },
+      {
+        "mappedPixels": 109146,
+        "protectedOverlapPixels": 646,
+        "selectedTriangles": 2063,
+        "compressedBytes": 413597
+      }
+    ]
   },
   {
     "id": "photo-wardrobe-costume-postech-selfie-top",
     "sourceSHA256": "3232941a9a1b392a4ed0a48a3c105e0e750c73368a5177a84ced4b7ea6c4d92e",
-    "frontRegionMeters": [
-      -0.18,
-      0.18,
-      0.53,
-      0.78
+    "regions": [
+      [
+        -0.18,
+        0.18,
+        0.53,
+        0.78
+      ],
+      [
+        -0.18,
+        0.18,
+        0.53,
+        0.8300000000000001
+      ]
     ],
-    "backRegionMeters": [
-      -0.18,
-      0.18,
-      0.53,
-      0.78
-    ],
-    "trianglesBySide": [
-      5301,
-      2102
-    ],
-    "offsetMeters": 0.0015,
-    "bytes": 167837
+    "materials": [
+      {
+        "mappedPixels": 244818,
+        "protectedOverlapPixels": 1275,
+        "selectedTriangles": 8877,
+        "compressedBytes": 870313
+      }
+    ]
   },
   {
     "id": "photo-wardrobe-costume-baseball-top",
     "sourceSHA256": "d03975a81f288f81b1a58acda94015a5f7c765ef6358f36bbbeb1ebdde2b8366",
-    "frontRegionMeters": [
-      -0.16,
-      0.05,
-      0.43,
-      0.65
+    "regions": [
+      [
+        -0.16,
+        0.05,
+        0.43,
+        0.67
+      ],
+      [
+        -0.18,
+        0.18,
+        0.43,
+        0.67
+      ]
     ],
-    "backRegionMeters": [
-      -0.18,
-      0.18,
-      0.43,
-      0.65
-    ],
-    "trianglesBySide": [
-      1981,
-      2467
-    ],
-    "offsetMeters": 0.0015,
-    "bytes": 121494
+    "materials": [
+      {
+        "mappedPixels": 145421,
+        "protectedOverlapPixels": 800,
+        "selectedTriangles": 5308,
+        "compressedBytes": 534541
+      }
+    ]
   },
   {
     "id": "photo-wardrobe-costume-cowboy-top",
     "sourceSHA256": "8df8b76e676c68f88a916ac1e58ce9021ed4c453c5725818bfb291df875eafd5",
-    "frontRegionMeters": [
-      -0.18,
-      0.18,
-      0.43,
-      0.67
+    "regions": [
+      [
+        -0.18,
+        0.18,
+        0.43,
+        0.7100000000000001
+      ],
+      [
+        -0.18,
+        0.18,
+        0.43,
+        0.77
+      ]
     ],
-    "backRegionMeters": [
-      -0.18,
-      0.18,
-      0.43,
-      0.67
-    ],
-    "trianglesBySide": [
-      6787,
-      3065
-    ],
-    "offsetMeters": 0.0015,
-    "bytes": 233397
+    "materials": [
+      {
+        "mappedPixels": 599722,
+        "protectedOverlapPixels": 1408,
+        "selectedTriangles": 16744,
+        "compressedBytes": 2104802
+      }
+    ]
   },
   {
     "id": "photo-wardrobe-costume-farmer-top",
     "sourceSHA256": "14b8b329487860b4670b61821a4f09e33ecd90e92f7b63e58b5d1090f2163e04",
-    "frontRegionMeters": [
-      -0.18,
-      0.18,
-      0.35,
-      0.65
+    "regions": [
+      [
+        -0.18,
+        0.18,
+        0.35,
+        0.6900000000000001
+      ],
+      [
+        -0.18,
+        0.18,
+        0.35,
+        0.6900000000000001
+      ]
     ],
-    "backRegionMeters": [
-      -0.18,
-      0.18,
-      0.35,
-      0.65
-    ],
-    "trianglesBySide": [
-      6295,
-      5811
-    ],
-    "offsetMeters": 0.0015,
-    "bytes": 293622
+    "materials": [
+      {
+        "mappedPixels": 424913,
+        "protectedOverlapPixels": 1757,
+        "selectedTriangles": 14187,
+        "compressedBytes": 1489766
+      }
+    ]
   },
   {
     "id": "photo-wardrobe-costume-sportswear-top",
     "sourceSHA256": "1ccdd1102fd88f2d3b78d78f06d220ef89b8c70182e3a9bdd74121f5e9ee0806",
-    "frontRegionMeters": [
-      -0.18,
-      0.18,
-      0.43,
-      0.65
+    "regions": [
+      [
+        -0.18,
+        0.18,
+        0.43,
+        0.6900000000000001
+      ],
+      [
+        -0.18,
+        0.18,
+        0.43,
+        0.7100000000000001
+      ]
     ],
-    "backRegionMeters": [
-      -0.18,
-      0.18,
-      0.43,
-      0.65
-    ],
-    "trianglesBySide": [
-      2841,
-      2164
-    ],
-    "offsetMeters": 0.0015,
-    "bytes": 128062
+    "materials": [
+      {
+        "mappedPixels": 263993,
+        "protectedOverlapPixels": 1120,
+        "selectedTriangles": 7319,
+        "compressedBytes": 954177
+      }
+    ]
   },
   {
     "id": "photo-wardrobe-costume-martial-arts-top",
     "sourceSHA256": "8bae51994b0f04f8f8725a552b0c20fe63ec154216c5d2d3a824e67e1d9d3b82",
-    "frontRegionMeters": [
-      -0.18,
-      0.18,
-      0.35,
-      0.66
+    "regions": [
+      [
+        -0.18,
+        0.18,
+        0.35,
+        0.75
+      ],
+      [
+        -0.18,
+        0.18,
+        0.35,
+        0.79
+      ]
     ],
-    "backRegionMeters": [
-      -0.18,
-      0.18,
-      0.35,
-      0.66
-    ],
-    "trianglesBySide": [
-      13627,
-      11873
-    ],
-    "offsetMeters": 0.0015,
-    "bytes": 568319
+    "materials": [
+      {
+        "mappedPixels": 950860,
+        "protectedOverlapPixels": 1382,
+        "selectedTriangles": 31100,
+        "compressedBytes": 3334790
+      }
+    ]
   },
   {
     "id": "photo-wardrobe-costume-school-uniform-top",
     "sourceSHA256": "c422eba5312aa4365245b0e57a75e4612af2fdfe543f920de898e9016af154cf",
-    "frontRegionMeters": [
-      -0.18,
-      0.18,
-      0.43,
-      0.65
+    "regions": [
+      [
+        -0.18,
+        0.18,
+        0.43,
+        0.6900000000000001
+      ],
+      [
+        -0.18,
+        0.18,
+        0.43,
+        0.7100000000000001
+      ]
     ],
-    "backRegionMeters": [
-      -0.18,
-      0.18,
-      0.43,
-      0.65
-    ],
-    "trianglesBySide": [
-      2562,
-      811
-    ],
-    "offsetMeters": 0.0015,
-    "bytes": 89276
+    "materials": [
+      {
+        "mappedPixels": 241071,
+        "protectedOverlapPixels": 1313,
+        "selectedTriangles": 7204,
+        "compressedBytes": 854631
+      }
+    ]
   },
   {
     "id": "photo-wardrobe-costume-school-uniform-trousers-top",
     "sourceSHA256": "ec3bf74f36fb41048d62b81353a1fab753c34194e55e45c4b87f3db67107790f",
-    "frontRegionMeters": [
-      -0.18,
-      0.18,
-      0.43,
-      0.65
+    "regions": [
+      [
+        -0.18,
+        0.18,
+        0.43,
+        0.73
+      ],
+      [
+        -0.18,
+        0.18,
+        0.43,
+        0.78
+      ]
     ],
-    "backRegionMeters": [
-      -0.18,
-      0.18,
-      0.43,
-      0.65
-    ],
-    "trianglesBySide": [
-      5772,
-      339
-    ],
-    "offsetMeters": 0.0015,
-    "bytes": 145336
+    "materials": [
+      {
+        "mappedPixels": 493448,
+        "protectedOverlapPixels": 944,
+        "selectedTriangles": 13757,
+        "compressedBytes": 1748757
+      }
+    ]
   },
   {
     "id": "photo-wardrobe-costume-astronaut-navy-top",
     "sourceSHA256": "7b22f27792d33d30f12110f5b58b15063233e6b46173fece007622833d0cfe16",
-    "frontRegionMeters": [
-      -0.18,
-      0.18,
-      0.38,
-      0.75
+    "regions": [
+      [
+        -0.18,
+        0.18,
+        0.38,
+        0.79
+      ],
+      [
+        -0.18,
+        0.18,
+        0.38,
+        0.8
+      ]
     ],
-    "backRegionMeters": [
-      -0.18,
-      0.18,
-      0.38,
-      0.75
-    ],
-    "trianglesBySide": [
-      8703,
-      4196
-    ],
-    "offsetMeters": 0.0015,
-    "bytes": 297882
+    "materials": [
+      {
+        "mappedPixels": 644614,
+        "protectedOverlapPixels": 1189,
+        "selectedTriangles": 16243,
+        "compressedBytes": 2236225
+      }
+    ]
   },
   {
     "id": "photo-wardrobe-costume-scientist-goggles-top",
     "sourceSHA256": "93a68a4080671a8b35fc5a6af516329d35cae274b2c65f7c3dd787612bd61576",
-    "frontRegionMeters": [
-      -0.18,
-      0.18,
-      0.38,
-      0.7
+    "regions": [
+      [
+        -0.18,
+        0.18,
+        0.38,
+        0.7100000000000001
+      ],
+      [
+        -0.18,
+        0.18,
+        0.38,
+        0.79
+      ]
     ],
-    "backRegionMeters": [
-      -0.18,
-      0.18,
-      0.38,
-      0.7
-    ],
-    "trianglesBySide": [
-      10674,
-      5907
-    ],
-    "offsetMeters": 0.0015,
-    "bytes": 406485
+    "materials": [
+      {
+        "mappedPixels": 663730,
+        "protectedOverlapPixels": 1769,
+        "selectedTriangles": 18568,
+        "compressedBytes": 2276759
+      }
+    ]
   },
   {
     "id": "photo-wardrobe-postech-long-top",
     "sourceSHA256": "8a239d40b7a6edcc7bbef57c354db9536b425ad5204b8c100bad808526b1a9c0",
-    "frontRegionMeters": [
-      -0.18,
-      0.18,
-      0.55,
-      0.78
+    "regions": [
+      [
+        -0.18,
+        0.18,
+        0.55,
+        0.78
+      ],
+      [
+        -0.18,
+        0.18,
+        0.55,
+        0.81
+      ]
     ],
-    "backRegionMeters": [
-      -0.18,
-      0.18,
-      0.55,
-      0.78
-    ],
-    "trianglesBySide": [
-      1724,
-      563
-    ],
-    "offsetMeters": 0.0015,
-    "bytes": 59516
+    "materials": [
+      {
+        "mappedPixels": 178559,
+        "protectedOverlapPixels": 757,
+        "selectedTriangles": 3419,
+        "compressedBytes": 640899
+      }
+    ]
   },
   {
     "id": "photo-wardrobe-postech-shorts-top",
     "sourceSHA256": "76d48204926ae066dc0dd22d3753ef1920c502a118dd4777b17377e21e227929",
-    "frontRegionMeters": [
-      -0.18,
-      0.18,
-      0.55,
-      0.78
+    "regions": [
+      [
+        -0.18,
+        0.18,
+        0.55,
+        0.78
+      ],
+      [
+        -0.18,
+        0.18,
+        0.55,
+        0.81
+      ]
     ],
-    "backRegionMeters": [
-      -0.18,
-      0.18,
-      0.55,
-      0.78
-    ],
-    "trianglesBySide": [
-      1724,
-      563
-    ],
-    "offsetMeters": 0.0015,
-    "bytes": 59516
+    "materials": [
+      {
+        "mappedPixels": 178559,
+        "protectedOverlapPixels": 757,
+        "selectedTriangles": 3419,
+        "compressedBytes": 640899
+      }
+    ]
   }
 ]

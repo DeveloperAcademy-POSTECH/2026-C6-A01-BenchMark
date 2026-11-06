@@ -12,6 +12,7 @@ final class OiWardrobeScene {
     private(set) var editingSlot: OiPhotoSlot?
     init(editingSlot: OiPhotoSlot? = nil) { self.editingSlot = editingSlot }
     @ObservationIgnored private var photoNodes: [OiPhotoSlot: Entity] = [:]
+    @ObservationIgnored private var previewImage: CGImage?
     @ObservationIgnored private var previewTexture: TextureResource?
     @ObservationIgnored private var previewVersion = 0
     @ObservationIgnored private var canvas: RealityKit.ARView?
@@ -58,19 +59,22 @@ final class OiWardrobeScene {
             do {
                 let (prepared, overlays) = try await OiWardrobeAsset.prepare(look,
                     existing: loadedName == look.modelName ? model : nil,
-                    editingSlot: editingSlot, previewTexture: previewTexture)
+                    editingSlot: editingSlot, previewTexture: previewTexture, previewImage: previewImage)
                 try Task.checkCancellation()
                 guard generation == token, request == look else { return }
                 // Publish only a complete assembly; pending color/photo changes cannot flash stale layers.
                 for node in photoNodes.values { node.removeFromParent() }
                 OiWardrobeAsset.assemble(look, root: prepared, overlays: overlays)
                 if let editingSlot, let previewTexture, let node = overlays[editingSlot] {
-                    OiWardrobeAsset.applyPhoto(previewTexture, to: node, transparent: editingSlot.preservesOriginalMaterial(in: look))
+                    OiWardrobeAsset.applyPhoto(previewTexture, to: node)
                 }
                 if model !== prepared { model?.removeFromParent(); anchor.addChild(prepared) }
                 photoNodes = overlays
                 model = prepared; loadedName = look.modelName
                 height = prepared.visualBounds(relativeTo: prepared).extents.y
+                if let slot = editingSlot, slot.preservesOriginalMaterial(in: look), let image = previewImage {
+                    await setPhotoPreview(image)
+                }
                 print("OI_WARDROBE_READY \(look.modelName) body=\(look.bodySource) height=\(height ?? 0)")
             } catch is CancellationError { }
             catch {
@@ -83,23 +87,36 @@ final class OiWardrobeScene {
 
     func editPhotos(in slot: OiPhotoSlot?, look: OiWardrobeLook) {
         editingSlot = slot
-        previewTexture = nil; previewVersion += 1
+        previewTexture = nil; previewImage = nil; previewVersion += 1
         request = nil
         update(look)
     }
 
     func setPhotoPreview(_ image: CGImage) async {
-        guard let editingSlot else { return }
+        guard let editingSlot, let look = request else { return }
+        previewImage = image
         previewVersion += 1; let version = previewVersion
+        let token = generation
         do {
+            if editingSlot.preservesOriginalMaterial(in: look) {
+                // Keep the latest image while the selected model is loading; update()
+                // reapplies it after publishing that model, never onto the previous set.
+                guard loadedName == look.modelName, model != nil else { return }
+                let prepared = try await OiCostumePhotoMaterial.prepare(image, resource: editingSlot.resource(in: look))
+                try Task.checkCancellation()
+                guard version == previewVersion, token == generation, let model else { return }
+                try OiCostumePhotoMaterial.apply(prepared, to: model)
+                photoPreviewError = nil
+                return
+            }
             let texture = try await TextureResource(image: image, options: .init(semantic: .color))
             try Task.checkCancellation()
-            guard version == previewVersion else { return }
+            guard version == previewVersion, token == generation else { return }
             previewTexture = texture; photoPreviewError = nil
-            if let node = photoNodes[editingSlot] { OiWardrobeAsset.applyPhoto(texture, to: node, transparent: request.map { editingSlot.preservesOriginalMaterial(in: $0) } ?? false) }
+            if let node = photoNodes[editingSlot] { OiWardrobeAsset.applyPhoto(texture, to: node) }
         } catch is CancellationError { }
         catch {
-            guard version == previewVersion, !Task.isCancelled else { return }
+            guard version == previewVersion, token == generation, !Task.isCancelled else { return }
             photoPreviewError = "사진 미리보기를 만들지 못했어요. 다시 시도해 주세요."
         }
     }
@@ -136,7 +153,7 @@ final class OiWardrobeScene {
     func release() {
         generation += 1; task?.cancel(); task = nil
         model?.removeFromParent(); model = nil; loadedName = nil; request = nil
-        photoNodes.removeAll(); previewTexture = nil; previewVersion += 1
+        photoNodes.removeAll(); previewTexture = nil; previewImage = nil; previewVersion += 1
         canvas?.scene.anchors.removeAll(); canvas = nil
         for child in Array(anchor.children) { child.removeFromParent() }
     }

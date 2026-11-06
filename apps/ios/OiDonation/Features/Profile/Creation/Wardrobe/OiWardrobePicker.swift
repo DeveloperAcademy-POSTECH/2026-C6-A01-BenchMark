@@ -125,7 +125,7 @@ struct OiCucumberCustomizationStep: View {
     }
 
     private var selectedPhotoSlot: OiPhotoSlot? {
-        let slot: OiPhotoSlot? = tab == .top || tab == .set ? .top : tab == .bottom ? .bottom : nil
+        let slot: OiPhotoSlot? = tab == .top ? .top : tab == .bottom ? .bottom : tab == .set && look.costume != nil ? .top : nil
         return slot?.supports(look) == true ? slot : nil
     }
     private func photoControls(_ slot: OiPhotoSlot) -> some View {
