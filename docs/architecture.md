@@ -541,3 +541,7 @@ MY 설정에서 기존 Apple·Google 로그인으로 본인을 다시 확인한�
 ## 개인정보·지원 접근 — 2026-11-06 / #196
 
 공유 `OiSupportView`가 공개 처리방침·지원 URL과 팀 이메일을 제공한다. 본 앱 설정은 계정 분기 밖, Clip은 모든 상태의 하단에서 접근한다. URL 실행 실패 안내와 이메일 복사를 제공하며 계정·증빙을 문의 메일에 자동 첨부하지 않는다. 원격 문서는 main 반영 뒤 신규 연락처와 일치한다.
+
+## 공개 체험 경로 — 2026-11-07 / #207
+
+사용자가 승인한 Figma 예시를 `OiSampleStory`로 공유하며 기존 `CampusStoryExamples`도 같은 본문을 참조한다. `OiSampleExperienceView`는 본 앱 지도와 Clip 목록에서 열리고, 실제 `ARCollectionGameView`의 카메라·타이머·성공 흐름과 기존 카드 디자인을 재사용한다. 수집 완료는 뷰의 `@State`에만 반영한다. 실제 저장을 담당하는 `ARGameFlowView`나 `CampusCollectionGameHost`를 체험 저장 경로로 사용하지 않으며, 공유 보관함도 예시 ID 저장을 방어적으로 거부한다. 본 앱은 체험 화면 표시 중 기존 3D 지도 렌더러를 중지한다. [경로와 검증](verification/sample-experience-207.md).

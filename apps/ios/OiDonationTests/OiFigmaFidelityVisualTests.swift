@@ -948,7 +948,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             }
         }
 
-        for outcome in [OiSchoolEvidenceOutcome.completed, .rejected] {
+        for outcome in [OiSchoolEvidenceOutcome.completed, .rejected, .documentNeeded, .retakeNeeded, .manualReviewNeeded] {
             let owner = try XCTUnwrap(signedIn.account?.id)
             try await signedInDrafts.saveSchoolEvidenceReview(.init(outcome: outcome, reviewedAt: .now), owner: owner)
             for variant in variants {
@@ -983,6 +983,20 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             }
             try await capture(summary, name: "campus-summary", variant: variant,
                 defaults: fixture.defaults, delay: .seconds(2))
+        }
+    }
+
+    func testSampleExperienceCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        XCTAssertNotNil(UIImage(named: "OiStoryCardCats"))
+        for variant in variants {
+            try await capture(OiSampleExperienceView(), name: "sample-story", variant: variant,
+                defaults: fixture.defaults, attach: true)
+            for collected in [false, true] {
+                try await capture(OiSampleCollectionResult(isCollected: collected, onCollect: {}, onClose: {}),
+                    name: "sample-collection-\(collected)", variant: variant, defaults: fixture.defaults, attach: true)
+            }
         }
     }
 

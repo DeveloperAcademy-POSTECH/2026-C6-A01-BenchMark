@@ -79,6 +79,7 @@ struct OiSchoolEvidenceView: View {
     @State private var reviewLoadedOwner: UUID?
     @State private var historyError: String?
     @State private var error: String?
+    @State private var showingSupport = false
 
     init(remote: OiRemoteStore, initialStep: Step = .profile) {
         self.remote = remote
@@ -107,7 +108,7 @@ struct OiSchoolEvidenceView: View {
             VStack(alignment: .leading, spacing: 16) {
                 if let owner = remote.account?.id {
                     if reviewLoadedOwner != owner {
-                        ProgressView("인증 결과 불러오는 중")
+                        ProgressView("자료 확인 결과 불러오는 중")
                     } else if case .result(let outcome) = step {
                         resultView(outcome)
                     } else {
@@ -120,7 +121,7 @@ struct OiSchoolEvidenceView: View {
                         case .attachment:
                             if pendingReview == nil { attachmentForm }
                             if reviewRequest != nil {
-                                ProgressView(pendingReview == nil ? "학교 증빙 확인 중" : "인증 결과 저장 중")
+                                ProgressView(pendingReview == nil ? "학교 증빙 확인 중" : "자료 확인 결과 저장 중")
                             }
                         case .result: EmptyView()
                         }
@@ -130,7 +131,7 @@ struct OiSchoolEvidenceView: View {
                         }
                     }
                 } else {
-                    Text("로그인한 뒤 학교 인증을 시작해 주세요.")
+                    Text("로그인한 뒤 학교 자료 확인을 시작해 주세요.")
                         .font(CampusStyle.body(16))
                 }
             }
@@ -145,7 +146,7 @@ struct OiSchoolEvidenceView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .top, spacing: 0) {
-            OiSettingsHeader(title: "학교 인증", back: goBack, close: { clearTransient(); dismiss() })
+            OiSettingsHeader(title: "학교 자료 확인", back: goBack, close: { clearTransient(); dismiss() })
         }
         .accessibilityAction(.escape, goBack)
         .confirmationDialog("첨부 방법 선택", isPresented: $choosingSource, titleVisibility: .visible) {
@@ -326,28 +327,30 @@ struct OiSchoolEvidenceView: View {
 
     private var affiliationChoices: some View {
         VStack(alignment: .leading, spacing: 16) {
-            sectionTitle("인증 방식 선택")
-            choice("졸업생 인증", detail: "학생증 또는 졸업증명서를 첨부해주세요") { step = .document(.graduate) }
-            choice("재학생 인증", detail: "학생증 또는 재학증명서를 첨부해주세요") { step = .document(.student) }
+            sectionTitle("학교 자료 유형 선택")
+            choice("졸업생 자료 확인", detail: "학생증 또는 졸업증명서를 첨부해주세요") { step = .document(.graduate) }
+            choice("재학생 자료 확인", detail: "학생증 또는 재학증명서를 첨부해주세요") { step = .document(.student) }
         }
     }
 
     private func documentChoices(_ affiliation: Affiliation) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            sectionTitle("인증 수단 선택")
-            choice("학생증", detail: "학생증을 스캔∙촬영∙캡처 후 첨부하여 인증하기") { step = .attachment(affiliation, .studentID) }
+            sectionTitle("자료 종류 선택")
+            choice("학생증", detail: "학생증을 스캔∙촬영∙캡처 후 첨부하기") { step = .attachment(affiliation, .studentID) }
             if affiliation == .graduate {
-                choice("졸업 증명서", detail: "학교에서 발급해 준 졸업 증명서를 첨부하여 인증하기") { step = .attachment(affiliation, .diploma) }
-                choice("학교 웹메일", detail: "학교에서 사용하는 웹메일 화면을 촬영∙캡처 후 첨부하여 인증하기") { step = .attachment(affiliation, .webmail) }
+                choice("졸업 증명서", detail: "학교에서 발급해 준 졸업 증명서를 첨부하기") { step = .attachment(affiliation, .diploma) }
+                choice("학교 웹메일", detail: "학교에서 사용하는 웹메일 화면을 촬영∙캡처 후 첨부하기") { step = .attachment(affiliation, .webmail) }
             } else {
-                choice("재학 증명서", detail: "학교에서 발급해 준 재학 증명서를 첨부하여 인증") { step = .attachment(affiliation, .enrollment) }
+                choice("재학 증명서", detail: "학교에서 발급해 준 재학 증명서를 첨부하기") { step = .attachment(affiliation, .enrollment) }
             }
         }
     }
 
     private var attachmentForm: some View {
         VStack(alignment: .leading, spacing: 16) {
-            sectionTitle("인증 자료 첨부")
+            sectionTitle("학교 자료 첨부")
+            Text("AI가 자료의 학교 관련 표기를 살펴봐요. 학교의 공식 소속·신원 인증이나 문서 진위 확인은 아니에요.")
+                .font(.footnote).foregroundStyle(.secondary)
             Button { choosingSource = true } label: {
                 VStack(spacing: 4) {
                     Text(attachment?.name ?? "파일 첨부하기").font(CampusStyle.body(16)).tracking(0.32)
@@ -374,15 +377,22 @@ struct OiSchoolEvidenceView: View {
     }
 
     private func resultView(_ outcome: OiSchoolEvidenceOutcome) -> some View {
-        Label(outcome == .completed ? "인증 완료" : "반려",
-              systemImage: outcome == .completed ? "checkmark.circle.fill" : "xmark.circle")
-            .font(CampusStyle.semibold(24))
-            .foregroundStyle(outcome == .completed ? CampusStyle.sectionGreen : .black)
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityIdentifier("oi.schoolEvidence.outcome")
-            .padding(24)
-            .frame(maxWidth: .infinity)
-            .background(Color(white: 243 / 255), in: RoundedRectangle(cornerRadius: 20))
+        VStack(alignment: .leading, spacing: 16) {
+            Label(outcome.title, systemImage: outcome == .completed ? "doc.text.magnifyingglass" : "info.circle")
+                .font(CampusStyle.semibold(24))
+                .foregroundStyle(outcome == .completed ? CampusStyle.sectionGreen : .black)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("oi.schoolEvidence.outcome")
+            Text(outcome.guidance).font(CampusStyle.body(16))
+            Text("AI 참고 결과이며 실제 소속·신원이나 문서의 진위를 보증하지 않아요. 기부 납입 확인·글 작성 승인과도 별개예요.")
+                .font(.footnote).foregroundStyle(.secondary)
+            Button("운영팀 문의 방법") { showingSupport = true }
+                .font(.body).foregroundStyle(CampusStyle.green).frame(minHeight: 44)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(white: 243 / 255), in: RoundedRectangle(cornerRadius: 20))
+        .sheet(isPresented: $showingSupport) { OiSupportView() }
     }
 
     @ViewBuilder private var bottomAction: some View {
@@ -404,7 +414,7 @@ struct OiSchoolEvidenceView: View {
                             reviewRequest = ReviewRequest(action: .save(pendingReview))
                         }
                     } else {
-                        primaryButton("인증 요청하기",
+                        primaryButton("AI 자료 확인 요청",
                                       disabled: attachment == nil || !acknowledged || isProcessing || remote.isBusy || remote.needsReauthentication) {
                             guard let attachment, attachment.owner == owner, acknowledged else { return }
                             error = nil
@@ -414,8 +424,8 @@ struct OiSchoolEvidenceView: View {
                 }
             case .result(.completed):
                 primaryButton("확인", disabled: false) { dismiss() }
-            case .result(.rejected):
-                primaryButton("다시 인증하기", disabled: false) { step = .profile }
+            case .result:
+                primaryButton("자료 다시 확인하기", disabled: false) { step = .profile }
             default: EmptyView()
             }
         }
@@ -608,7 +618,7 @@ struct OiSchoolEvidenceView: View {
             step = .result(pending.result.outcome)
         } catch {
             guard isCurrentReview(request, owner: pending.owner) else { return }
-            self.error = "인증 결과를 기기에 저장하지 못했어요. 다시 저장해 주세요."
+            self.error = "자료 확인 결과를 기기에 저장하지 못했어요. 다시 저장해 주세요."
         }
     }
 
@@ -626,7 +636,7 @@ struct OiSchoolEvidenceView: View {
             if let saved { step = .result(saved.outcome) }
         } catch {
             guard !Task.isCancelled, remote.account?.id == owner else { return }
-            historyError = "이전 인증 결과를 불러오지 못했어요. 화면을 다시 열어 주세요."
+            historyError = "이전 자료 확인 결과를 불러오지 못했어요. 화면을 다시 열어 주세요."
         }
     }
 

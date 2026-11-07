@@ -53,4 +53,23 @@ select public.oi_review_content((current_setting('test.report')::jsonb->>'id')::
 set local role anon;
 select set_config('request.jwt.claim.sub','',true);
 select pg_temp.check_true((select count(*)=1 from public.oi_stories where user_id='19700000-0000-4000-8000-000000000004'),'restoration never republishes explicitly hidden story');
+reset role;
+select set_config('request.jwt.claim.sub','',true);
+insert into public.oi_stories(id,user_id,storage_owner_id,grant_id,region_id,title,body,theme,emotion,cucumber_name,cucumber_asset,card_asset,latitude,longitude,status)
+select id::uuid,'19700000-0000-4000-8000-000000000004','19700000-0000-4000-8000-000000000004',null,'pond','Synthetic story','Synthetic content','감사','기쁨','검사 오이','OiCats','MYBlueCard',36.01261,129.31972,'published'
+from (values('19700000-0000-4000-8000-000000000013'),('19700000-0000-4000-8000-000000000014')) t(id);
+set local role authenticated;
+select set_config('request.jwt.claim.sub','19700000-0000-4000-8000-000000000002',true);
+select set_config('test.hidden',public.oi_report_content('19700000-0000-4000-8000-000000000013','privacy','Synthetic report')::text,true);
+select set_config('test.dismissed',public.oi_report_content('19700000-0000-4000-8000-000000000014','other','Synthetic report')::text,true);
+select set_config('request.jwt.claim.sub','19700000-0000-4000-8000-000000000003',true);
+select public.oi_review_content((current_setting('test.hidden')::jsonb->>'id')::uuid,'hidden','Synthetic privacy review');
+select public.oi_review_content((current_setting('test.dismissed')::jsonb->>'id')::uuid,'dismissed','Synthetic report closed');
+set local role anon;
+select set_config('request.jwt.claim.sub','',true);
+select pg_temp.check_true((select count(*)=0 from public.oi_stories where id='19700000-0000-4000-8000-000000000013'),'hide removes only the reported story');
+select pg_temp.check_true((select count(*)=1 from public.oi_stories where id='19700000-0000-4000-8000-000000000014'),'dismissal keeps the story public');
+reset role;
+select pg_temp.check_true((select count(*)=4 from benchmark_private.oi_audit where actor_id='19700000-0000-4000-8000-000000000003' and action like 'content:%'),'all moderation decisions are audited');
+select 'PASS: content safety roles, duplicate reporting, suspension, merge, restoration, hide, dismissal and audit; synthetic changes rolled back' as result;
 rollback;
