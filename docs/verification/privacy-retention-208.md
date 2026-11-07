@@ -11,11 +11,11 @@
 | 서버 탈퇴 | `supabase/functions/delete-account/handler.ts`: 현재·최근 OAuth 본인 확인, `prepare`의 소유 파일 목록을 Storage API로 삭제, 파일이 없어진 뒤 `finish`. 실패 시 완료 응답을 주지 않는다. |
 | 계정 데이터 | `20261105164932_oi_account_deletion.sql`: 해당 계정과 연결된 로그인, 이야기·사진·수집·증빙 이력·작성 승인·관련 감사 기록을 삭제. 무관한 사용자 자료는 유지한다. 일반 `delete_story`는 `status=deleted`의 논리 삭제이므로 공개 중단과 탈퇴의 물리적 행 삭제를 안내에서 구분한다. |
 | 증빙 해시 | `20261105131031_oi_evidence_fingerprints.sql`: 증빙 요청 삭제에 따라 해시가 cascade 삭제된다. 재제출로 원본 경로·제출 시각이 바뀌면 이전 해시도 제거한다. |
-| 콘텐츠 신고·제재 | `20261106150000_oi_content_safety.sql`: 신고자 member 또는 대상 이야기 삭제에 따라 신고 삭제, 대상 member 삭제에 따라 제한 삭제. 탈퇴한 검토자의 다른 신고 처리자 FK는 null 처리한다. |
+| 콘텐츠 신고·제재 | `20261106150000_oi_content_safety.sql`: 신고자 member 또는 대상 이야기 행의 물리 삭제에 따라 신고 삭제, 대상 member 삭제에 따라 제한 삭제. 일반 이야기 삭제의 `status=deleted` 변경은 신고를 삭제하지 않는다. 탈퇴한 검토자의 다른 신고 처리자 FK는 null 처리한다. |
 | 학교 자료 | `analyze-school-evidence/handler.ts`: 이미지/PDF는 요청 처리 중 분석. DB·Storage 저장 호출 없음. 결과는 클라이언트가 계정별 기기 요약으로 저장하며 공식 소속 인증·자동 운영자 접수가 아니다. |
 | AI 전송 | `_shared/document-analysis.ts`: OpenAI Responses API에 `store: false`. 이 설정은 외부 사업자의 오남용 방지 로그까지 즉시 삭제하는 보장이 아니다. |
 | 기기 계정 자료 | `OiRemoteStore.clearDeletedAccount` → `OiDraftVault.purgeAccounts`: 탈퇴 영수증의 모든 연결 계정 폴더와 외형 설정, 세션을 삭제. 기기 자료 삭제 실패 시 재시도 기록을 유지한다. 다른 기기의 로컬 사본을 원격 삭제하지 않는다. |
-| 기기 독립 자료 | `StoryCollectionStore`, `OiContentSafetyStore`: 계정과 별개인 App Group 카드/차단 목록. 각 삭제·차단 해제 UI로 관리하며 계정 탈퇴에 자동 연동된 것으로 안내하지 않는다. |
+| 기기 독립 자료 | `StoryCollectionStore`, `OiContentSafetyStore`: 계정과 별개인 App Group 카드/차단 목록. Clip 카드 삭제는 공개 이야기에 진입한 AR 수집 결과 화면에서 제공한다. 비공개·삭제된 이야기는 본 앱에서도 표시 불가 항목으로 남으며 현재 직접 삭제 UI가 없다. 차단 목록은 차단 관리에서 해제한다. 계정 탈퇴에 자동 연동된 것으로 안내하지 않는다. |
 | 위치 | 기기의 위치는 주변 판정·AR에 사용. 이야기 배치 시 선택 좌표는 서버 저장 대상. 카드 요청 RPC에는 story/request ID를 보내며 현재 GPS 좌표를 보내지 않는다. |
 
 ## 검증
