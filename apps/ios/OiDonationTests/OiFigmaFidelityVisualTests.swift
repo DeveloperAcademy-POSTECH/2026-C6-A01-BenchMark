@@ -991,12 +991,56 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         XCTAssertNotNil(UIImage(named: "OiStoryCardCats"))
         for variant in variants {
-            try await capture(OiSampleExperienceView(), name: "sample-story", variant: variant,
+            try await capture(OiSampleExperienceView(), name: "sample-map", variant: variant,
                 defaults: fixture.defaults, attach: true)
+            try await capture(NavigationStack { OiSampleMapView(isExpanded: true).modifier(OiSampleNoticeModifier()) }, name: "sample-list", variant: variant,
+                defaults: fixture.defaults, attach: true)
+            for expanded in [false, true] {
+                let bottomList = NavigationStack {
+                    OiSampleMapView(isExpanded: expanded)
+                        .defaultScrollAnchor(.bottom, for: .initialOffset)
+                        .modifier(OiSampleNoticeModifier())
+                }
+                try await capture(bottomList, name: "sample-\(expanded ? "list" : "map")-bottom", variant: variant,
+                    defaults: fixture.defaults, attach: true)
+            }
+            let story = CampusStoryExamples.stories[0]
+            try await capture(NavigationStack { OiSampleSummaryView(story: story, onCollect: {}).modifier(OiSampleNoticeModifier()) },
+                name: "sample-summary", variant: variant, defaults: fixture.defaults, attach: true)
+            try await capture(NavigationStack { OiSampleStoryDetailView(story: story, onCollect: {}).modifier(OiSampleNoticeModifier()) },
+                name: "sample-detail", variant: variant, defaults: fixture.defaults, attach: true)
             for collected in [false, true] {
                 try await capture(OiSampleCollectionResult(isCollected: collected, onCollect: {}, onClose: {}),
                     name: "sample-collection-\(collected)", variant: variant, defaults: fixture.defaults, attach: true)
             }
+        }
+    }
+
+    func testSampleARArtworkAndCollectionOutline() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let loaded = await CucumberArtwork.load(imageURL: nil, assetName: "OiStoryCardCats")
+        let image = try XCTUnwrap(loaded)
+        let outline = try XCTUnwrap(CucumberArtwork.collectionOutline(image))
+        XCTAssertEqual(image.size, outline.size, "Empty and filled slots must fit the same normalized AR texture")
+        let source = try XCTUnwrap(image.cgImage)
+        let edge = try XCTUnwrap(outline.cgImage)
+        XCTAssertEqual(source.width, edge.width)
+        XCTAssertEqual(source.height, edge.height)
+        let sourceBytes = try XCTUnwrap(source.dataProvider?.data) as Data
+        let edgeBytes = try XCTUnwrap(edge.dataProvider?.data) as Data
+        XCTAssertNotEqual(sourceBytes, edgeBytes, "The slot is an outline, not the original photograph")
+        for collected in [0, 1, 3] {
+            let hud = ZStack {
+                Color(white: 0.25)
+                ARGameHUD(remainingSeconds: 30, collectedCount: collected, targetCount: 3, artwork: image)
+            }
+            try await capture(hud, name: "sample-ar-slots-\(collected)", variant: variants[0],
+                defaults: fixture.defaults, delay: .milliseconds(600), attach: true)
+        }
+        for name in ["OiSampleMap", "OiSampleSummaryMap", "OiCatsPortrait", "OiCatsExampleCard",
+                     "OiFarmer", "OiStoryLocation", "OiMakgeolli", "OiPoka"] + (1...11).map({ String(format: "OiSampleGallery%02d", $0) }) {
+            XCTAssertNotNil(UIImage(named: name), name)
         }
     }
 

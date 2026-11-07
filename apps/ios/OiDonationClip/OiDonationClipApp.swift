@@ -18,6 +18,7 @@ struct OiDonationClipApp: App {
             "Paperlogy-2ExtraLight",
             "Paperlogy-3Light",
             "Paperlogy-4Regular",
+            "Paperlogy-5Medium",
             "Paperlogy-6SemiBold",
             "Paperlogy-7Bold"
         ] {

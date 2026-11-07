@@ -87,6 +87,9 @@
 				Domain/Models/OiContentSafetyStore.swift,
 				Domain/Models/StoryCard.swift,
 				Domain/Models/OiSampleStory.swift,
+				Features/Campus/CampusStory.swift,
+				Features/Campus/CampusStoryExamples.swift,
+				Features/Campus/CampusStyle.swift,
 				Domain/Repositories/StoryRepository.swift,
 				Domain/Routing/AppClipLink.swift,
 				Domain/Routing/PublicLinkParser.swift,
@@ -103,6 +106,10 @@
 				"Shared/Components/OiContentSafetyView.swift",
 				"Shared/Components/OiSupportView.swift",
 				"Shared/Components/OiSampleExperienceView.swift",
+				"Shared/Components/OiSampleMapView.swift",
+				"Shared/Components/OiSampleStoryDetailView.swift",
+				"Resources/OiSampleAssets.xcassets",
+				"Resources/Fonts/Paperlogy-5Medium.ttf",
 			);
 			target = 87169564307CB1CF0090D456 /* OiDonationClip */;
 		};

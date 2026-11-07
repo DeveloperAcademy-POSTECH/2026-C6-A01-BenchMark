@@ -75,7 +75,7 @@ private final class ARGameVisualScene: UIResponder, UIWindowSceneDelegate {
             for seconds in [30, 9] {
                 try await snapshot(ZStack {
                     Color.gray
-                    ARGameHUD(remainingSeconds: seconds, collectedCount: 1, targetCount: 3, cucumberImageURL: nil)
+                    ARGameHUD(remainingSeconds: seconds, collectedCount: 1, targetCount: 3, artwork: UIImage(named: "ARGameIntroCucumber").flatMap(CucumberArtwork.normalized))
                 }.ignoresSafeArea(), size: sizes[0].1,
                    output: output.appendingPathComponent("hud-\(seconds).png"), delay: 0.2)
             }
@@ -91,7 +91,7 @@ private final class ARGameVisualScene: UIResponder, UIWindowSceneDelegate {
                                output: output.appendingPathComponent("success.png"), delay: 1)
             try await snapshot(ZStack {
                 Color.gray
-                ARGameHUD(remainingSeconds: 30, collectedCount: 0, targetCount: 3, cucumberImageURL: nil)
+                ARGameHUD(remainingSeconds: 30, collectedCount: 0, targetCount: 3, artwork: UIImage(named: "ARGameIntroCucumber").flatMap(CucumberArtwork.normalized))
                 ARGameStartOverlay(onFinished: {})
             }.ignoresSafeArea(), size: sizes[0].1,
                                output: output.appendingPathComponent("start-assembled.png"), delay: UIAccessibility.isReduceMotionEnabled ? 0.1 : 0.82)
