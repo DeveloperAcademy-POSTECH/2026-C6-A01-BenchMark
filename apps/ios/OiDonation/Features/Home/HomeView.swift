@@ -268,6 +268,7 @@ struct HomeView: View {
                     Button(action: onOpenSample) {
                         Text("체험하기").font(CampusStyle.medium(14))
                             .padding(.horizontal, 12).frame(minHeight: 44)
+                            .contentShape(Capsule())
                     }.buttonStyle(.plain).glassEffect(.regular.interactive(), in: Capsule())
                         .accessibilityLabel("이야기·AR 체험 열기").accessibilityIdentifier("campus.sample")
                 }
