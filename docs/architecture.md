@@ -545,3 +545,9 @@ MY 설정에서 기존 Apple·Google 로그인으로 본인을 다시 확인한�
 ## 공개 체험 경로 — 2026-11-07 / #207
 
 사용자가 승인한 Figma 예시를 `OiSampleStory`로 공유하며 기존 `CampusStoryExamples`도 같은 본문을 참조한다. `OiSampleExperienceView`는 본 앱 지도와 Clip 목록에서 열리고, 실제 `ARCollectionGameView`의 카메라·타이머·성공 흐름과 기존 카드 디자인을 재사용한다. 수집 완료는 뷰의 `@State`에만 반영한다. 실제 저장을 담당하는 `ARGameFlowView`나 `CampusCollectionGameHost`를 체험 저장 경로로 사용하지 않으며, 공유 보관함도 예시 ID 저장을 방어적으로 거부한다. 본 앱은 체험 화면 표시 중 기존 3D 지도 렌더러를 중지한다. [경로와 검증](verification/sample-experience-207.md).
+
+### 체험 탐색 화면과 AR 이미지 공유 — 2026-11-07 / #214
+
+본 앱·App Clip의 `OiSampleExperienceView`가 `NavigationStack`으로 오프라인 지도/목록 → 요약 → 이야기 상세를 연결한다. 기존 `CampusStory`, `CampusStoryExamples`, `CampusStyle`을 공유하지만 체험은 `CampusStoryStore`나 원격 저장소를 생성하지 않는다. 예시 UI와 최적화된 이미지 카탈로그만 App Clip에 포함하고 캠퍼스 렌더러·서비스 의존성은 추가하지 않는다.
+
+AR 게임 시작 시 정규화된 캐릭터를 한 번 로드하여 카메라와 HUD가 같은 `UIImage`를 사용한다. 빈 수집 칸은 해당 이미지 알파의 윤곽으로 생성한다. 게임 시간·수집 판정·저장 승인 규칙은 변경하지 않는다. [설계 적용 및 검증](verification/sample-figma-214.md).

@@ -19,8 +19,7 @@ final class ARGameCameraController: NSObject, ARSessionDelegate {
     let view = RealityKit.ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
 
     private let targetCount: Int
-    private let cucumberImageURL: URL?
-    private let cucumberAssetName: String?
+    private let artwork: UIImage
     private let onCollect: () -> Void
     private let onUnavailable: () -> Void
     private(set) var isReady = false
@@ -38,14 +37,12 @@ final class ARGameCameraController: NSObject, ARSessionDelegate {
 
     init(
         targetCount: Int,
-        cucumberImageURL: URL?,
-        cucumberAssetName: String? = nil,
+        artwork: UIImage,
         onUnavailable: @escaping () -> Void,
         onCollect: @escaping () -> Void
     ) {
         self.targetCount = targetCount
-        self.cucumberImageURL = cucumberImageURL
-        self.cucumberAssetName = cucumberAssetName
+        self.artwork = artwork
         self.onCollect = onCollect
         self.onUnavailable = onUnavailable
         super.init()
@@ -124,8 +121,7 @@ final class ARGameCameraController: NSObject, ARSessionDelegate {
             }
         }
         guard isRunning, !Task.isCancelled else { return }
-        if let image = await CucumberArtwork.load(imageURL: cucumberImageURL, assetName: cucumberAssetName),
-           let cgImage = image.cgImage {
+        if let cgImage = artwork.cgImage {
             guard isRunning, !Task.isCancelled else { return }
             characterAspect = Float(cgImage.width) / Float(cgImage.height)
             cucumberTexture = try? await TextureResource(

@@ -11,47 +11,35 @@ import SwiftUI
 /// No remote store, account, App Group storage or donation approval is involved.
 struct OiSampleExperienceView: View {
     @Environment(\.dismiss) private var dismiss
+    @State private var path: [CampusDestination] = []
     @State private var isPlaying = false
     @State private var isCollected = false
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    Text(OiSampleStory.notice).font(.callout)
-                        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
-                    OiSampleCardArtwork().frame(maxWidth: 320).frame(maxWidth: .infinity)
-                    Text("6냥이").font(.custom("Paperlogy-7Bold", size: 28, relativeTo: .title))
-                    Text("#즐거움  #우정 · 체험용 이야기")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                    VStack(alignment: .leading, spacing: 20) {
-                        Text(OiSampleStory.introduction)
-                            .font(.custom("Paperlogy-6SemiBold", size: 18, relativeTo: .headline))
-                        Text(OiSampleStory.body)
-                            .font(.custom("Paperlogy-4Regular", size: 16, relativeTo: .body))
-                            .lineSpacing(6).textSelection(.enabled)
-                    }.padding(20).background(Color(white: 0.96), in: RoundedRectangle(cornerRadius: 20))
-                    Text("카메라로 주변을 비추며 오이 3개를 찾은 뒤 체험 카드를 모아 보세요. 캠퍼스 방문이나 위치 권한 없이 체험할 수 있어요.")
-                        .font(.callout).foregroundStyle(.secondary)
-                    Text("Figma 예시 이야기를 사용한 체험 콘텐츠입니다.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }.padding(20)
-            }
-            .navigationTitle("이야기·AR 체험")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("닫기") { dismiss() }.accessibilityIdentifier("sample.close")
+        NavigationStack(path: $path) {
+            OiSampleMapView()
+                .modifier(OiSampleNoticeModifier())
+                .navigationTitle("체험 지도")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("닫기") { dismiss() }.accessibilityIdentifier("sample.close")
+                    }
                 }
-            }
-            .safeAreaInset(edge: .bottom) {
-                Button { isPlaying = true } label: {
-                    Label(isCollected ? "AR 다시 체험하기" : "AR 체험 시작", systemImage: "arkit")
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                }.buttonStyle(.borderedProminent).padding().background(.regularMaterial)
-                    .accessibilityIdentifier("sample.startAR")
-            }
+                .navigationDestination(for: CampusDestination.self) { destination in
+                    switch destination {
+                    case .summary(let id):
+                        if let story = CampusStoryExamples.stories.first(where: { $0.id == id }) {
+                            OiSampleSummaryView(story: story, onCollect: { isPlaying = true })
+                                .modifier(OiSampleNoticeModifier())
+                        }
+                    case .story(let id):
+                        if let story = CampusStoryExamples.stories.first(where: { $0.id == id }) {
+                            OiSampleStoryDetailView(story: story, onCollect: { isPlaying = true })
+                                .modifier(OiSampleNoticeModifier())
+                        }
+                    }
+                }
         }
         .fullScreenCover(isPresented: $isPlaying) {
             ARCollectionGameView(cucumberName: OiSampleStory.name,
@@ -93,5 +81,22 @@ private struct OiSampleCardArtwork: View {
     var body: some View {
         OiStoryCardArtwork(name: OiSampleStory.name, introduction: OiSampleStory.introduction,
             donor: "체험용 예시", date: "예시 이야기", tags: ["즐거움", "우정"], assetName: "OiStoryCardCats")
+    }
+}
+
+/// Place the persistent disclosure in navigation chrome so it cannot cover a screen's actions.
+struct OiSampleNoticeModifier: ViewModifier {
+    @State private var showsNotice = false
+    func body(content: Content) -> some View {
+        content.toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showsNotice = true } label: {
+                    Text("체험용").font(.caption)
+                }.accessibilityIdentifier("sample.notice")
+            }
+        }
+        .alert("이야기·AR 체험", isPresented: $showsNotice) {
+            Button("확인", role: .cancel) {}
+        } message: { Text(OiSampleStory.notice) }
     }
 }
