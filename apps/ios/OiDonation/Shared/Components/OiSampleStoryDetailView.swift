@@ -49,7 +49,12 @@ struct OiSampleStoryDetailView: View {
                 }.buttonStyle(.plain).accessibilityIdentifier("sample.donationInfo")
                 OiSampleCollectButton(story: story, onCollect: onCollect)
             }.padding(.horizontal, 20).padding(.vertical, 12)
-                .background(.regularMaterial, in: UnevenRoundedRectangle(topLeadingRadius: 25, topTrailingRadius: 25))
+                .background {
+                    // Extend only the panel background below the home indicator.
+                    UnevenRoundedRectangle(topLeadingRadius: 25, topTrailingRadius: 25)
+                        .fill(.regularMaterial)
+                        .ignoresSafeArea(.container, edges: .bottom)
+                }
         }
         .alert("체험용 이야기예요", isPresented: $showingDonationNotice) {
             Button("확인", role: .cancel) {}

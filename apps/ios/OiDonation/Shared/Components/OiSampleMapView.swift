@@ -81,7 +81,12 @@ struct OiSampleMapView: View {
                 }.padding(.bottom, 20)
             }.scrollIndicators(.hidden)
         }.padding(20)
-            .background(.regularMaterial, in: UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35))
+            .background {
+                // Extend only the panel background below the home indicator.
+                UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35)
+                    .fill(.regularMaterial)
+                    .ignoresSafeArea(.container, edges: .bottom)
+            }
     }
 
     private func markers(in size: CGSize) -> some View {

@@ -44,3 +44,11 @@
 실기기 카메라로 움직이며 3마리를 수집하는 AR 과정과 실기기 App Clip 실행, Apple 배포 검증은 이번에 실행하지 않았다. Simulator의 AR 미지원 안내까지 확인했으며 서명 없는 Simulator의 계정 키체인 오류는 계정 기능 검증에 사용하지 않았다. App Store 업로드나 develop/main 병합은 하지 않는다.
 
 대표 캡처: [지도](sample-214/sample-map-402x874.png), [목록](sample-214/sample-list-402x874.png), [요약](sample-214/sample-summary-402x874.png), [상세](sample-214/sample-detail-402x874.png), [AR 윤곽과 수집](sample-214/sample-ar-slots-1-402x874.png).
+
+### 2026-11-07 하단 안전 영역 후속 수정
+
+체험 지도 목록과 이야기 상세의 하단 버튼 배경이 안전 영역 위에서 끝나 지도·본문이 홈 인디케이터 아래로 그대로 보이던 틈을 수정했다. 둥근 Material 배경에만 하단 컨테이너 안전 영역 확장을 적용한다. 버튼과 스크롤 콘텐츠의 배치, 위쪽 둥근 모서리, 목록 펼침 동작은 유지한다. 본 앱과 App Clip이 같은 뷰를 사용한다.
+
+`OiFlowChecks`의 `testSampleExperienceCaptures`를 재실행하여 24개 캡처를 생성했다. 375×667 / 402×874 / 440×956 / 최대 Dynamic Type에서 목록과 상세 하단의 배경이 화면 끝까지 이어지는지 확인했다. 기존 402×874 지도·목록·상세 캡처를 수정 후 결과로 갱신했다. 새 테스트를 추가하거나 개인 서명 설정을 변경하지 않았다.
+
+후속 실기기 확인: 기존 수동 서명으로 본 앱·내장 App Clip의 iPhone Debug 빌드와 서명 검증을 통과했다. Jun iPhone(iOS 26.7.2)에 수정 앱을 업데이트 설치하고 실행했다. 이 기기의 App Clip 실행과 실제 AR 플레이는 이번 하단 배경 수정의 검증에 포함하지 않았다.
