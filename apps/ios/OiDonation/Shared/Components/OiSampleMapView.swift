@@ -35,17 +35,20 @@ struct OiSampleMapView: View {
                             .background(.white, in: Capsule())
                     }.buttonStyle(.plain).accessibilityIdentifier("sample.toggleList")
                     }
-                    list
-                        .frame(height: isExpanded || typeSize.isAccessibilitySize
+                    list(bottomInset: geometry.safeAreaInsets.bottom)
+                        .frame(height: (isExpanded || typeSize.isAccessibilitySize
                                ? max(200, geometry.size.height - 64) : geometry.size.height * 0.43)
+                               + geometry.safeAreaInsets.bottom)
                 }
+                // Extend the list viewport, leaving the map's safe-area layout unchanged.
+                .ignoresSafeArea(.container, edges: .bottom)
             }
         }
         .toolbarBackground(.hidden, for: .navigationBar)
         .foregroundStyle(.black)
     }
 
-    private var list: some View {
+    private func list(bottomInset: CGFloat) -> some View {
         VStack(spacing: 20) {
             let headerLayout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
                 : AnyLayout(HStackLayout(spacing: 8))
@@ -78,14 +81,12 @@ struct OiSampleMapView: View {
                             CampusStoryRow(story: story)
                         }.buttonStyle(.plain).accessibilityIdentifier("sample.row.\(story.id)")
                     }
-                }.padding(.bottom, 20)
+                }.padding(.bottom, bottomInset + 20)
             }.scrollIndicators(.hidden)
-        }.padding(20)
+        }.padding(.horizontal, 20).padding(.top, 20)
             .background {
-                // Extend only the panel background below the home indicator.
                 UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35)
                     .fill(.regularMaterial)
-                    .ignoresSafeArea(.container, edges: .bottom)
             }
     }
 

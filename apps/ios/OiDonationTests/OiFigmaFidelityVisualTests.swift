@@ -995,6 +995,15 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 defaults: fixture.defaults, attach: true)
             try await capture(NavigationStack { OiSampleMapView(isExpanded: true).modifier(OiSampleNoticeModifier()) }, name: "sample-list", variant: variant,
                 defaults: fixture.defaults, attach: true)
+            for expanded in [false, true] {
+                let bottomList = NavigationStack {
+                    OiSampleMapView(isExpanded: expanded)
+                        .defaultScrollAnchor(.bottom, for: .initialOffset)
+                        .modifier(OiSampleNoticeModifier())
+                }
+                try await capture(bottomList, name: "sample-\(expanded ? "list" : "map")-bottom", variant: variant,
+                    defaults: fixture.defaults, attach: true)
+            }
             let story = CampusStoryExamples.stories[0]
             try await capture(NavigationStack { OiSampleSummaryView(story: story, onCollect: {}).modifier(OiSampleNoticeModifier()) },
                 name: "sample-summary", variant: variant, defaults: fixture.defaults, attach: true)
