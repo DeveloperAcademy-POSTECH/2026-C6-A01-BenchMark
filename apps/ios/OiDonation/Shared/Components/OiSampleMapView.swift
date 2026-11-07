@@ -20,9 +20,21 @@ struct OiSampleMapView: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let panelHeight = isExpanded || typeSize.isAccessibilitySize
+                ? max(200, geometry.size.height - 64) : geometry.size.height * 0.43
             ZStack(alignment: .bottom) {
                 OiSampleMapBackdrop()
                 markers(in: geometry.size)
+                // Anchor the backdrop to the screen independently of the scroll viewport.
+                Color.clear
+                    .frame(height: panelHeight)
+                    .background {
+                        UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35)
+                            .fill(.regularMaterial)
+                            .ignoresSafeArea(.container, edges: .bottom)
+                    }
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
                 VStack(spacing: 12) {
                     if typeSize.isAccessibilitySize {
                         Text("체험 이야기").font(.headline).padding(8).background(.regularMaterial, in: Capsule())
@@ -36,12 +48,10 @@ struct OiSampleMapView: View {
                     }.buttonStyle(.plain).accessibilityIdentifier("sample.toggleList")
                     }
                     list(bottomInset: geometry.safeAreaInsets.bottom)
-                        .frame(height: (isExpanded || typeSize.isAccessibilitySize
-                               ? max(200, geometry.size.height - 64) : geometry.size.height * 0.43)
-                               + geometry.safeAreaInsets.bottom)
+                        .frame(height: panelHeight + geometry.safeAreaInsets.bottom)
                 }
-                // Extend the list viewport, leaving the map's safe-area layout unchanged.
-                .ignoresSafeArea(.container, edges: .bottom)
+                // Keep the panel's top aligned with its backdrop as it extends below the safe area.
+                .padding(.bottom, -geometry.safeAreaInsets.bottom)
             }
         }
         .toolbarBackground(.hidden, for: .navigationBar)
@@ -84,10 +94,6 @@ struct OiSampleMapView: View {
                 }.padding(.bottom, bottomInset + 20)
             }.scrollIndicators(.hidden)
         }.padding(.horizontal, 20).padding(.top, 20)
-            .background {
-                UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35)
-                    .fill(.regularMaterial)
-            }
     }
 
     private func markers(in size: CGSize) -> some View {
