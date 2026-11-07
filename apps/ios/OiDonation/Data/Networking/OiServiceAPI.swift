@@ -145,7 +145,7 @@ struct OiServiceAPI {
         guard review.reviewType == "school_affiliation", review.humanReviewRequired,
               !review.affiliationVerified, !review.authenticityVerified,
               let summary = review.summary, let outcome = OiSchoolEvidenceOutcome(reviewOutcome: summary.outcome) else {
-            throw OiServiceError.server("인증 결과를 확인하지 못했어요. 다시 시도해 주세요.")
+            throw OiServiceError.server("AI 자료 확인 결과를 읽지 못했어요. 다시 시도해 주세요.")
         }
         return outcome
     }

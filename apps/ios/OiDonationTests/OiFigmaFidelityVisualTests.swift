@@ -948,7 +948,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             }
         }
 
-        for outcome in [OiSchoolEvidenceOutcome.completed, .rejected] {
+        for outcome in [OiSchoolEvidenceOutcome.completed, .rejected, .documentNeeded, .retakeNeeded, .manualReviewNeeded] {
             let owner = try XCTUnwrap(signedIn.account?.id)
             try await signedInDrafts.saveSchoolEvidenceReview(.init(outcome: outcome, reviewedAt: .now), owner: owner)
             for variant in variants {
