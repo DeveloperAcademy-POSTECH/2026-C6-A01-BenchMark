@@ -186,6 +186,7 @@ struct ARCollectionGameView<SuccessContent: View>: View {
                 )
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(stageAnimation, value: viewModel.state)
         .overlay(alignment: .topLeading) {
             if viewModel.state != .intro && viewModel.state != .introBackground && viewModel.state != .storyCard {
