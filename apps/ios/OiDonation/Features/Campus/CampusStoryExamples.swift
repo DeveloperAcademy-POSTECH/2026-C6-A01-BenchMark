@@ -16,7 +16,7 @@ enum CampusStoryExamples {
     // do not copy decorative map characters into invented donor stories/counts.
     static let stories: [CampusStory] = [
         CampusStory(id: "example-six-cats", regionID: "pond", title: "6냥이오이", image: "OiCats",
-            tags: ["즐거움", "우정"], donor: "26학번 디벨로퍼학과 신서연",
+            tags: ["즐거움", "우정"], donor: "26학번 디벨로퍼학과 신수리",
             location: "포항공과대학교 지곡회관 옆 연못길", date: "2026년 10월 23일 (금)",
             order: 0, popularity: 0, palette: 0,
             example: CampusStoryExample(
