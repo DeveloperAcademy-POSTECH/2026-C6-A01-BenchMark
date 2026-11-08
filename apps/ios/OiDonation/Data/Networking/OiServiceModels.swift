@@ -86,8 +86,8 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
     let revision: Int
     let createdAt: String
     var storageOwnerId: UUID? = nil
-    var heightMeters: Double? = nil
-    var headingDegrees: Double? = nil
+    @OiStoryPlacementNumber var heightMeters: Double? = nil
+    @OiStoryPlacementNumber var headingDegrees: Double? = nil
 
     var isRegisteredOnCampus: Bool { status == "pending" || status == "published" }
 
@@ -103,6 +103,32 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
         formatter.timeZone = TimeZone(identifier: "Asia/Seoul")
         formatter.dateFormat = "yyyy.MM.dd"
         return formatter.string(from: date)
+    }
+}
+
+/// Older servers can omit geometry or serialize a non-finite PostgreSQL value as a string.
+@propertyWrapper
+struct OiStoryPlacementNumber: Codable, Equatable {
+    var wrappedValue: Double?
+
+    init(wrappedValue: Double?) {
+        self.wrappedValue = wrappedValue.flatMap { $0.isFinite ? $0 : nil }
+    }
+
+    init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer()
+        self.init(wrappedValue: try? value.decode(Double.self))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var value = encoder.singleValueContainer()
+        try value.encode(wrappedValue)
+    }
+}
+
+private extension KeyedDecodingContainer {
+    func decode(_ type: OiStoryPlacementNumber.Type, forKey key: Key) throws -> OiStoryPlacementNumber {
+        try decodeIfPresent(type, forKey: key) ?? OiStoryPlacementNumber(wrappedValue: nil)
     }
 }
 

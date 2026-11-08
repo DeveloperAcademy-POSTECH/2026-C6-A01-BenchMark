@@ -8,9 +8,22 @@ alter table public.oi_stories
 do $patch$
 declare
   definition text := pg_get_functiondef('benchmark_private.oi_mutate(text,jsonb)'::regprocedure);
+  insert_anchor constant text := '    insert into public.oi_stories(id,user_id,storage_owner_id,grant_id,';
+  geometry_check constant text := $check$    if (payload->>'height_meters')::float8 in ('NaN'::float8,'Infinity'::float8,'-Infinity'::float8)
+      or (payload->>'heading_degrees')::float8 in ('NaN'::float8,'Infinity'::float8,'-Infinity'::float8) then
+      raise exception 'Story placement geometry must be finite' using errcode='22023';
+    end if;
+$check$;
   change record;
 begin
+  if position(geometry_check in definition)=0 then
+    if length(definition)-length(replace(definition,insert_anchor,''))<>length(insert_anchor) then
+      raise exception 'oi_mutate drift requires review before validating story placement geometry';
+    end if;
+    definition := replace(definition,insert_anchor,geometry_check||insert_anchor);
+  end if;
   if position('height_meters=excluded.height_meters,heading_degrees=excluded.heading_degrees' in definition)>0 then
+    execute definition;
     return;
   end if;
   for change in
