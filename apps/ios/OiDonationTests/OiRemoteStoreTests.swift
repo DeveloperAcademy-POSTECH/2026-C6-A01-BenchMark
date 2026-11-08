@@ -36,7 +36,8 @@ final class OiTestBackend {
     static let grant = UUID(uuidString: "b1000000-0000-4000-8000-000000000010") ?? UUID()
     private let lock = NSLock()
     struct State {
-        var unapprovedDraftsEnabled: Bool?
+        var unapprovedDraftsEnabled: Bool? = true
+        var independentStoryCreation: Bool? = true
         var hasWritingGrant = true
         var nickname = "Owner A"
         var farmName: String? = "오이"
@@ -211,9 +212,6 @@ final class OiTestBackend {
                 state.evidence?["review_note"] = payload["review_note"]
                 state.evidence?["reviewed_at"] = "2026-11-04T02:00:00Z"
                 state.evidence?["reviewer_id"] = owner.uuidString
-                if wanted == "revoked", state.story?["grant_id"] as? String == Self.grant.uuidString {
-                    state.story?["status"] = "hidden"
-                }
                 result = state.evidence ?? [:]
                 if state.failAfterReview { state.failReads = true }
                 if state.loseReviewResponse { status = 503; state.loseReviewResponse = false }
@@ -223,6 +221,8 @@ final class OiTestBackend {
             let action = body["p_action"] as? String ?? ""
             if action == "save_story" {
                 var story = payload
+                story["grant_id"] = state.story?["id"] as? String == payload["id"] as? String
+                    ? state.story?["grant_id"] ?? NSNull() : NSNull()
                 story["user_id"] = owner.uuidString
                 story["status"] = "draft"
                 story["revision"] = (payload["revision"] as? Int ?? 0)+1
@@ -302,6 +302,7 @@ final class OiTestBackend {
             if state.failCapabilities { status = 503 }
             var capabilities: [String:Any] = ["operator":state.isOperator,"coins_enabled":false]
             if let enabled = state.unapprovedDraftsEnabled { capabilities["unapproved_drafts_enabled"] = enabled }
+            if let independent = state.independentStoryCreation { capabilities["independent_story_creation"] = independent }
             if let canonical = state.canonicalAccountID {
                 capabilities["account_id"] = canonical.uuidString
                 capabilities["account_merge_enabled"] = true
@@ -887,7 +888,7 @@ final class OiRemoteStoreTests: XCTestCase {
             backend.configure { $0.evidence = evidenceFixture(status: decision == .revoked ? "approved" : "pending") }
             await model.load(OiTestBackend.grant, using: store)
             let snapshot = try XCTUnwrap(model.detail?.evidence)
-            let review = try OiEvidenceReview(snapshot: snapshot, decision: decision, note: "가상 자료 검토 의견", count: "3")
+            let review = try OiEvidenceReview(snapshot: snapshot, decision: decision, note: "가상 자료 검토 의견")
             let result = await model.review(review, using: store)
             let receipt = try XCTUnwrap(result)
             XCTAssertEqual(receipt.status, decision.rawValue)
@@ -905,14 +906,11 @@ final class OiRemoteStoreTests: XCTestCase {
     @MainActor func testOperatorEvidenceValidationAndDocumentFormats() throws {
         let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
         let row = try decoder.decode(OiEvidence.self, from: JSONSerialization.data(withJSONObject: evidenceFixture()))
-        for count in ["", "0", "-1", "1.5", "999999999999", "１２"] {
-            XCTAssertThrowsError(try OiEvidenceReview(snapshot: row, decision: .approved, note: "", count: count))
-        }
-        XCTAssertNoThrow(try OiEvidenceReview(snapshot: row, decision: .approved, note: "", count: "2"))
+        XCTAssertNoThrow(try OiEvidenceReview(snapshot: row, decision: .approved, note: ""))
         for decision in [OiEvidenceDecision.changesRequested, .rejected, .revoked] {
-            XCTAssertThrowsError(try OiEvidenceReview(snapshot: row, decision: decision, note: " \n", count: ""))
+            XCTAssertThrowsError(try OiEvidenceReview(snapshot: row, decision: decision, note: " \n"))
         }
-        XCTAssertThrowsError(try OiEvidenceReview(snapshot: row, decision: .approved, note: String(repeating: "a", count: 2001), count: "1"))
+        XCTAssertThrowsError(try OiEvidenceReview(snapshot: row, decision: .approved, note: String(repeating: "a", count: 2001)))
         XCTAssertThrowsError(try OiEvidenceDocument(data: Data("<html>error</html>".utf8)))
         XCTAssertThrowsError(try OiEvidenceDocument(data: Data(repeating: 0, count: OiEvidenceDocument.maximumBytes + 1)))
         XCTAssertEqual(try OiEvidenceDocument(data: Data("%PDF-synthetic".utf8)).kind, .pdf)
@@ -938,7 +936,7 @@ final class OiRemoteStoreTests: XCTestCase {
         await model.load(row.id, using: store)
         let current = try XCTUnwrap(model.detail?.evidence)
         backend.configure { $0.evidence?["submitted_at"] = "2026-11-04T01:02:00Z" }
-        let review = try OiEvidenceReview(snapshot: current, decision: .approved, note: "", count: "2")
+        let review = try OiEvidenceReview(snapshot: current, decision: .approved, note: "")
         let receipt = await model.review(review, using: store)
         XCTAssertNil(receipt); XCTAssertTrue(model.requiresReload); XCTAssertNotNil(model.error)
         XCTAssertEqual(backend.snapshot().evidence?["status"] as? String, "pending")
@@ -954,7 +952,7 @@ final class OiRemoteStoreTests: XCTestCase {
             backend.configure { $0.evidence = evidenceFixture(); $0.evidenceRPCMissing = missing; $0.loseReviewResponse = !missing }
             await model.load(OiTestBackend.grant, using: store)
             let row = try XCTUnwrap(model.detail?.evidence)
-            let review = try OiEvidenceReview(snapshot: row, decision: .approved, note: "", count: "2")
+            let review = try OiEvidenceReview(snapshot: row, decision: .approved, note: "")
             let result = await model.review(review, using: store)
             XCTAssertNil(result); XCTAssertTrue(model.requiresReload)
             let count = backend.snapshot().evidenceReviewCount
@@ -973,8 +971,9 @@ final class OiRemoteStoreTests: XCTestCase {
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
         backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture(status: "approved") }
         await store.start()
-        let savedResult = await store.save(draft(title: "철회 시 비공개 전환할 가상 이야기"))
+        let savedResult = await store.save(draft(title: "이전 증빙 연결이 있는 가상 이야기"))
         let saved = try XCTUnwrap(savedResult)
+        backend.configure { $0.story?["grant_id"] = OiTestBackend.grant.uuidString }
         let pendingResult = await store.submitStory(saved)
         let pending = try XCTUnwrap(pendingResult)
         _ = try await store.reviewOperatorStory(pending, publish: true)
@@ -982,12 +981,13 @@ final class OiRemoteStoreTests: XCTestCase {
         let model = OiOperatorEvidenceModel()
         await model.load(OiTestBackend.grant, using: store)
         let row = try XCTUnwrap(model.detail?.evidence)
-        let review = try OiEvidenceReview(snapshot: row, decision: .revoked, note: "가상 철회 사유", count: "")
+        let review = try OiEvidenceReview(snapshot: row, decision: .revoked, note: "가상 철회 사유")
         backend.configure { $0.failAfterReview = true }
         let result = await model.review(review, using: store)
         XCTAssertEqual(result?.status, "revoked"); XCTAssertNotNil(model.warning)
         XCTAssertEqual(store.evidence.first?.status, "revoked")
-        XCTAssertTrue(store.stories.isEmpty); XCTAssertTrue(store.reviewStories.isEmpty)
+        XCTAssertEqual(store.stories.map(\.id), [saved.id])
+        XCTAssertEqual(store.reviewStories.map(\.id), [saved.id])
         backend.configure { $0.failReads = false; $0.isOperator = false }
         do { _ = try await store.operatorEvidenceList(); XCTFail("Permission required") }
         catch OiOperatorStoryError.accessDenied {}
@@ -1010,7 +1010,7 @@ final class OiRemoteStoreTests: XCTestCase {
         let pending = try XCTUnwrap(submitResult)
         _ = try await store.reviewOperatorStory(pending, publish: true)
         let evidence = try await store.operatorEvidence(OiTestBackend.grant).evidence
-        let review = try OiEvidenceReview(snapshot: evidence, decision: .revoked, note: "Synthetic revocation", count: "")
+        let review = try OiEvidenceReview(snapshot: evidence, decision: .revoked, note: "Synthetic revocation")
         backend.configure { $0.failAfterReview = true }
         let result = try await store.reviewOperatorEvidence(review)
         XCTAssertEqual(result.evidence.status, "revoked")
@@ -1028,7 +1028,7 @@ final class OiRemoteStoreTests: XCTestCase {
         let model = OiOperatorEvidenceModel()
         await model.load(OiTestBackend.grant, using: store)
         let row = try XCTUnwrap(model.detail?.evidence)
-        let review = try OiEvidenceReview(snapshot: row, decision: .approved, note: "", count: "2")
+        let review = try OiEvidenceReview(snapshot: row, decision: .approved, note: "")
         let held = expectation(description: "evidence response held")
         backend.configure { $0.holdReviewResponse = true; $0.didHold = { held.fulfill() } }
         let first = Task { await model.review(review, using: store) }
@@ -2145,13 +2145,13 @@ final class OiRemoteStoreTests: XCTestCase {
         return value
     }
 
-    @MainActor func testTemporaryWritingFlagPreservesStoryAndPhotoWhenDisabled() async throws {
+    @MainActor func testWritingPausePreservesStoryAndPhotoWithoutRequiringEvidence() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { clean(session, directory: directory) }
-        backend.configure { $0.hasWritingGrant = false }
+        backend.configure { $0.hasWritingGrant = false; $0.independentStoryCreation = nil }
         await store.start()
-        XCTAssertFalse(store.canStartStory, "Old servers with no flag must require approval")
-        backend.configure { $0.unapprovedDraftsEnabled = true }
+        XCTAssertFalse(store.canStartStory, "The old writing flag alone does not prove the new policy is active")
+        backend.configure { $0.independentStoryCreation = true }
         await store.refresh()
         XCTAssertTrue(store.canStartStory)
         var temporary = draft(); temporary.grantId = nil
@@ -2164,24 +2164,21 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertTrue(store.stories.isEmpty, "Saving must not publish")
         let paths = store.mediaPaths(storyID: saved.id)
         XCTAssertEqual(paths.count, 1)
-        backend.configure { $0.unapprovedDraftsEnabled = false }
+        backend.configure { $0.unapprovedDraftsEnabled = false; $0.hasWritingGrant = true }
         await store.refresh()
         XCTAssertFalse(store.canStartStory)
-        XCTAssertFalse(store.canWriteStory(grantID: nil))
         XCTAssertEqual(store.ownStories.first?.body, temporary.body)
         XCTAssertEqual(store.mediaPaths(storyID: saved.id), paths)
         let denied = await store.save(OiStoryDraft(story: withPhoto))
         XCTAssertNil(denied)
         XCTAssertEqual(backend.snapshot().uploads.count, 1)
-        backend.configure { $0.hasWritingGrant = true }
-        await store.refresh()
-        var resumed = OiStoryDraft(story: withPhoto); resumed.grantId = OiTestBackend.grant
-        let approved = await store.save(resumed)
-        XCTAssertEqual(approved?.id, saved.id)
-        XCTAssertEqual(approved?.grantId, OiTestBackend.grant)
-        XCTAssertEqual(store.mediaPaths(storyID: saved.id), paths)
         backend.configure { $0.unapprovedDraftsEnabled = true }
         await store.refresh()
+        var resumed = OiStoryDraft(story: withPhoto); resumed.grantId = OiTestBackend.grant
+        let reopened = await store.save(resumed)
+        XCTAssertEqual(reopened?.id, saved.id)
+        XCTAssertNil(reopened?.grantId)
+        XCTAssertEqual(store.mediaPaths(storyID: saved.id), paths)
         XCTAssertTrue(store.unapprovedDraftsEnabled)
         await store.signOut()
         XCTAssertFalse(store.unapprovedDraftsEnabled)
@@ -2581,8 +2578,7 @@ extension OiRemoteStoreTests {
         XCTAssertEqual(vault.value?.user.id, OiTestBackend.owner)
         XCTAssertEqual(vault.value?.appAccount?.id, OiTestBackend.other)
         XCTAssertEqual(store.profile?.id, OiTestBackend.other)
-        XCTAssertFalse(store.grants.isEmpty)
-        XCTAssertEqual(backend.snapshot().grantOwnerQueries.last, "eq.\(OiTestBackend.other.uuidString)")
+        XCTAssertTrue(backend.snapshot().grantOwnerQueries.isEmpty, "Writing does not load donation grants")
         guard let saved = await store.save(draft()) else { XCTFail("Canonical story save failed"); return }
         XCTAssertEqual(saved.userId, OiTestBackend.other)
         XCTAssertEqual(store.ownStories.first?.id, saved.id)
@@ -2868,7 +2864,7 @@ extension OiRemoteStoreTests {
         XCTAssertEqual(OiDonationEvidenceContent.dateLabel("2026-11-05T00:00:00.000Z"), "2026년 11월 5일 목요일 09:00")
         XCTAssertEqual(OiDonationEvidenceContent.dateLabel(nil), "접수일 확인 중")
         XCTAssertEqual(OiDonationEvidenceContent.statusTitle("new_server_status"), "상태 확인 필요")
-        XCTAssertEqual(OiDonationEvidenceContent.statusTitle("approved"), "작성 승인")
+        XCTAssertEqual(OiDonationEvidenceContent.statusTitle("approved"), "검토 완료")
     }
 
     @MainActor func testDonationSemanticSummaryAcceptsSMSAndSeparatesOtherOutcomes() async throws {

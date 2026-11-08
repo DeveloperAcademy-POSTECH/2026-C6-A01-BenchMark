@@ -27,7 +27,6 @@ struct OiStoryManagement: View {
                         Button("수정 시작") { Task { await remote.perform("reopen_story", payload: ["id":story.id.uuidString,"revision":story.revision]) } }
                     }
                     Button("이야기 삭제", role: .destructive) { confirmingDelete = true }
-                    Text("삭제해도 작성 승인 수량이 자동으로 복구되지는 않습니다.").font(.footnote).foregroundStyle(.secondary)
                 }
                 .confirmationDialog("이야기를 비공개·삭제 상태로 바꿀까요?", isPresented: $confirmingDelete, titleVisibility: .visible) {
                     Button("삭제", role: .destructive) { Task { await remote.perform("delete_story", payload: ["id":story.id.uuidString,"revision":story.revision]) } }

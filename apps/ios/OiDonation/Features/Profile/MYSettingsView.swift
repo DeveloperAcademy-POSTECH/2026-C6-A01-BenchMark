@@ -78,10 +78,10 @@ struct MYSettingsView: View {
                         }
                     }
                     if let remote {
-                        section("기부 인증") {
+                        section("기부 자료 · 선택") {
                             NavigationLink { OiDonationEvidenceView(remote: remote) } label: {
                                 settingsCard(action: "확인") {
-                                    profileValue("기부 자료 제출 · 인증 진척도")
+                                    profileValue("자료 제출과 검토 상태")
                                 }
                             }.accessibilityIdentifier("my.settings.donationEvidence")
                         }

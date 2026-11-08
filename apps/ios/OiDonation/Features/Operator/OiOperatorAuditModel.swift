@@ -32,7 +32,7 @@ struct OiAuditRecord: Decodable, Identifiable, Equatable {
     let createdAt: String
     var title: String {
         switch action {
-        case "review_evidence:approved": "증빙 작성 승인"
+        case "review_evidence:approved": "기부 자료 검토 완료"
         case "review_evidence:changes_requested": "증빙 보완 요청"
         case "review_evidence:rejected": "증빙 반려"
         case "review_evidence:revoked": "증빙 승인 철회"

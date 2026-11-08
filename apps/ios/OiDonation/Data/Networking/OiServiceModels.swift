@@ -296,20 +296,13 @@ struct OiCapabilities: Decodable {
     let `operator`: Bool
     let coinsEnabled: Bool
     let unapprovedDraftsEnabled: Bool?
+    let independentStoryCreation: Bool?
     let accountId: UUID?
     let accountMergeEnabled: Bool?
     let accountMemberIds: [UUID]?
     let accountProviders: [String]?
     let schoolProfileEnabled: Bool?
     let farmerOutfitEnabled: Bool?
-}
-
-/// Content validation is separate from permission. The server remains authoritative.
-enum OiWritingAccess {
-    static func canWrite(grantID: UUID?, grants: [OiWritingGrant], unapprovedDraftsEnabled: Bool) -> Bool {
-        if let grantID { return grants.contains { $0.id == grantID && $0.revokedAt == nil } }
-        return unapprovedDraftsEnabled
-    }
 }
 
 struct OiStoryDraft: Codable, Equatable {
@@ -348,7 +341,7 @@ struct OiStoryDraft: Codable, Equatable {
 
     func payload() throws -> [String: Any] {
         guard valid, let latitude, let longitude else { throw OiServiceError.invalidDraft }
-        return ["id": id.uuidString, "grant_id": grantId.map { $0.uuidString as Any } ?? NSNull(), "revision": revision,
+        return ["id": id.uuidString, "revision": revision,
                 "region_id": regionId, "title": title, "body": body, "theme": theme,
                 "emotion": emotion, "cucumber_name": cucumberName, "cucumber_asset": cucumberAsset,
                 "card_asset": cardAsset, "latitude": latitude, "longitude": longitude]
@@ -439,7 +432,7 @@ nonisolated struct OiSavedSchoolEvidenceReview: Codable, Sendable {
 }
 
 enum OiServiceError: LocalizedError {
-    case configuration, signInRequired, writingApprovalRequired, invalidDraft, invalidCallback, unavailable, accountChanged, authenticationFailed
+    case configuration, signInRequired, storyCreationUnavailable, invalidDraft, invalidCallback, unavailable, accountChanged, authenticationFailed
     case server(String)
     case invalidInput, conflict
     case secureStorage(Int32)
@@ -450,7 +443,7 @@ enum OiServiceError: LocalizedError {
         case .configuration: "Supabase 연결 설정이 없습니다. 개발용 공개 키를 설정한 빌드를 사용해 주세요."
         case .signInRequired: "로그인이 필요합니다."
         case .authenticationFailed: "로그인을 완료하지 못했습니다. 계정과 로그인 설정을 확인한 뒤 다시 시도해 주세요."
-        case .writingApprovalRequired: "서버 저장·검토 요청에는 작성 승인이 필요해요. 기존 글과 사진은 보관됩니다."
+        case .storyCreationUnavailable: "지금은 이야기를 서버에 저장하거나 공개 검토를 요청할 수 없어요. 기기에 저장한 글과 사진은 보관돼요."
         case .invalidDraft: "모든 입력 항목과 캠퍼스의 야외 위치를 확인해 주세요."
         case .invalidCallback: "로그인 응답을 확인할 수 없습니다. 다시 로그인해 주세요."
         case .unavailable: "지금은 연결할 수 없습니다. 잠시 후 다시 시도해 주세요."
@@ -467,10 +460,10 @@ extension String {
         switch self {
         case "draft": "작성 중"
         case "pending": "운영자 검토 대기"
-        case "approved": "작성 승인"
+        case "approved": "검토 완료"
         case "rejected": "반려"
         case "changes_requested": "보완 요청"
-        case "revoked": "승인 취소"
+        case "revoked": "검토 결과 철회"
         case "published": "공개 중"
         case "hidden": "비공개"
         case "deleted": "삭제됨"

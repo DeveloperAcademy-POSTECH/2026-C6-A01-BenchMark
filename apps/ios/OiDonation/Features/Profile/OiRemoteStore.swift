@@ -25,17 +25,10 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
     private(set) var profiles: [OiProfile] = []
     private(set) var media: [OiMedia] = []
     private(set) var evidence: [OiEvidence] = []
-    private(set) var grants: [OiWritingGrant] = []
     private(set) var unapprovedDraftsEnabled = false
 
     var canStartStory: Bool {
-        account != nil && !needsReauthentication &&
-            (unapprovedDraftsEnabled || grants.contains { $0.revokedAt == nil })
-    }
-
-    func canWriteStory(grantID: UUID?) -> Bool {
-        account != nil && !needsReauthentication && OiWritingAccess.canWrite(
-            grantID: grantID, grants: grants, unapprovedDraftsEnabled: unapprovedDraftsEnabled)
+        account != nil && !needsReauthentication && hasLoadedRemote && unapprovedDraftsEnabled
     }
     private(set) var collections: [OiOwnedStory] = []
     private(set) var favorites: Set<UUID> = []
@@ -283,7 +276,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
 
     private func resetAccountState() {
         generation = UUID(); loadSequence += 1; refreshTask?.cancel(); refreshTask = nil
-        profile = nil; ownStories = []; reviewStories = []; profiles = []; media = []; evidence = []; grants = []
+        profile = nil; ownStories = []; reviewStories = []; profiles = []; media = []; evidence = []
         loadedStories = []; collections = []; favorites = []; collectionCounts = [:]; evidenceOperation = nil; committedMediaPaths = [:]
         unapprovedDraftsEnabled = false
         isAccountDeletionPending = false; isOperator = false; hasLoadedRemote = false; needsReauthentication = false; isRefreshing = false
@@ -380,23 +373,14 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         isBusy = true
         defer { isBusy = false }
         do {
-            let (receipt, revokedGrantIDs) = try await withOperatorSession { api, token in
-                let grants = review.decision == .revoked
-                    ? try await api.rows("oi_writing_grants", query: "evidence_id=eq.\(review.snapshot.id.uuidString)", token: token, as: OiWritingGrant.self) : []
-                return (try await api.reviewEvidence(review, token: token), Set(grants.map(\.id)))
+            let receipt = try await withOperatorSession { api, token in
+                try await api.reviewEvidence(review, token: token)
             }
             guard started == generation else { throw OiServiceError.accountChanged }
             guard receipt.id == review.snapshot.id, receipt.status == review.decision.rawValue,
                   receipt.objectPath == review.snapshot.objectPath, receipt.userId == review.snapshot.userId,
                   receipt.reviewedAt != nil else { throw OiOperatorStoryError.unconfirmedResult }
             applyReceipt(receipt, action: "review_evidence", payload: [:])
-            if review.decision == .revoked {
-                // Remove affected cached entries even if synchronization fails.
-                loadedStories.removeAll { $0.grantId.map(revokedGrantIDs.contains) == true }
-                reviewStories.removeAll { $0.grantId.map(revokedGrantIDs.contains) == true }
-                ownStories.removeAll { $0.grantId.map(revokedGrantIDs.contains) == true }
-                grants.removeAll { revokedGrantIDs.contains($0.id) }
-            }
             await refreshAfterCommit()
             guard started == generation else { throw OiServiceError.accountChanged }
             return OiEvidenceReviewResult(evidence: receipt, warning: syncWarning)
@@ -621,11 +605,10 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         }
         let fetchedMedia = try await api.rows("oi_story_media", query: "order=position.asc,id.asc", token: accessToken, as: OiMedia.self)
         let metrics = try await api.collectionMetrics(token: accessToken)
-        var requests: [OiEvidence] = []; var permissions: [OiWritingGrant] = []
+        var requests: [OiEvidence] = []
         var collected: [OiOwnedStory] = []; var starred: [OiOwnedStory] = []
         if let accessToken {
             requests = try await api.rows("oi_evidence_requests", query: "order=created_at.desc", token: accessToken, as: OiEvidence.self)
-            permissions = try await api.rows("oi_writing_grants", query: "user_id=eq.\(resolvedOwner?.uuidString ?? "")", token: accessToken, as: OiWritingGrant.self)
             collected = try await api.rows("oi_collections", query: "order=created_at.desc,story_id.asc", token: accessToken, as: OiOwnedStory.self)
             starred = try await api.rows("oi_favorites", token: accessToken, as: OiOwnedStory.self)
         }
@@ -661,9 +644,9 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         ownStories = fetched.filter { $0.userId == account?.id && $0.status != "deleted" }
         reviewStories = capabilities?.operator == true ? fetched.filter { ["pending","published","hidden"].contains($0.status) } : []
         profile = ownProfile
-        profiles = fetchedProfiles; media = fetchedMedia; evidence = requests; grants = permissions; committedMediaPaths = [:]
+        profiles = fetchedProfiles; media = fetchedMedia; evidence = requests; committedMediaPaths = [:]
         collections = collected; favorites = Set(starred.map(\.storyId)); isOperator = capabilities?.operator == true
-        unapprovedDraftsEnabled = capabilities?.unapprovedDraftsEnabled == true
+        unapprovedDraftsEnabled = capabilities?.independentStoryCreation == true && capabilities?.unapprovedDraftsEnabled == true
         isAccountMergeAvailable = capabilities?.accountMergeEnabled == true; accountMemberIDs = members
         isSchoolProfileAvailable = capabilities?.schoolProfileEnabled == true
         isFarmerOutfitAvailable = capabilities?.farmerOutfitEnabled == true; farmerOutfit = fetchedFarmerOutfit
@@ -734,13 +717,13 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
     }
 
     func save(_ draft: OiStoryDraft) async -> OiLiveStory? {
-        guard canWriteStory(grantID: draft.grantId) else { error = OiServiceError.writingApprovalRequired.localizedDescription; return nil }
+        guard canStartStory else { error = OiServiceError.storyCreationUnavailable.localizedDescription; return nil }
         do { return await change("save_story", payload: try draft.payload(), as: OiLiveStory.self) }
         catch { self.error = error.localizedDescription; return nil }
     }
 
     func submitStory(_ story: OiLiveStory) async -> OiLiveStory? {
-        guard canWriteStory(grantID: story.grantId) else { error = OiServiceError.writingApprovalRequired.localizedDescription; return nil }
+        guard canStartStory else { error = OiServiceError.storyCreationUnavailable.localizedDescription; return nil }
         return await change("submit_story", payload: ["id":story.id.uuidString,"revision":story.revision], as: OiLiveStory.self)
     }
 

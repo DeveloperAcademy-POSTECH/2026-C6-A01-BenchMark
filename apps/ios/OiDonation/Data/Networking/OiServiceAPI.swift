@@ -68,7 +68,7 @@ struct OiServiceAPI {
         catch APIError.httpStatus(let status) {
             switch status {
             case 401: throw OiServiceError.signInRequired
-            case 403: throw OiServiceError.server("요청 권한·작성 승인·임시 작성 모드 상태를 새로고침해 확인해 주세요. 기존 글과 사진은 보관됩니다.")
+            case 403: throw OiServiceError.server("현재 계정에서 이 요청을 처리할 수 없어요. 새로고침해 상태를 다시 확인해 주세요.")
             case 404 where path == "rest/v1/rpc/\(Self.resolveCardRequestRPC)": throw OiServiceError.conflict
             case 404 where path == "rest/v1/rpc/oi_review_evidence": throw OiEvidenceReviewError.serverNotReady
             case 404 where path == "rest/v1/rpc/oi_operator_audit": throw OiAuditError.notDeployed
@@ -218,13 +218,15 @@ struct OiServiceAPI {
     }
 
     func reviewEvidence(_ review: OiEvidenceReview, token: String) async throws -> OiEvidence {
+        guard try await capabilities(token: token).independentStoryCreation == true else {
+            throw OiEvidenceReviewError.serverNotReady
+        }
         let row = review.snapshot
-        var payload: [String: Any] = ["id": row.id.uuidString, "status": review.decision.rawValue,
+        let payload: [String: Any] = ["id": row.id.uuidString, "status": review.decision.rawValue,
             "review_note": review.note, "expected_status": row.status,
             "expected_object_path": row.objectPath as Any? ?? NSNull(),
             "expected_submitted_at": row.submittedAt as Any? ?? NSNull(),
             "expected_reviewed_at": row.reviewedAt as Any? ?? NSNull()]
-        if let limit = review.storyLimit { payload["story_limit"] = limit }
         let body = try JSONSerialization.data(withJSONObject: ["p_payload": payload])
         let data = try await request("rest/v1/rpc/oi_review_evidence", method: "POST", token: token, body: body)
         return try decoder.decode(OiEvidence.self, from: data)

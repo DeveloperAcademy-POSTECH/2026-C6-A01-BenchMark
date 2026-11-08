@@ -1,4 +1,4 @@
-> 과거 PR #66의 구현·검증 기록입니다. 현재 소스는 `apps/oi-web`, 운영 기준은 `docs/SITES-CUTOVER.md`입니다. 아래 Railway 주소와 명령은 과거 기록입니다.
+> 과거 PR #66의 구현·검증 기록입니다. 현재 소스는 `apps/oi-web`, 운영 기준은 `docs/SITES-CUTOVER.md`입니다. 아래 Railway 주소와 명령은 과거 기록입니다. #234에서 웹의 앱 소개와 공식 기부 안내를 [최신 출시 정책](app-store/submission-copy.md)에 맞췄습니다. 돗자리 파일럿 이야기는 별도 링크로 유지합니다.
 
 # 오이기부 웹 — 로그인·기부 안내
 

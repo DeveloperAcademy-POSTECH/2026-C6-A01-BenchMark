@@ -128,7 +128,7 @@ struct OiOperatorStoryDetailView: View {
             Button("취소", role: .cancel) { confirmation = nil }
         } message: { story in
             Text(story.status == "published"
-                 ? "‘\(story.title)’을 공개 목록에서 내립니다. 이야기를 삭제하거나 작성 승인을 철회하지는 않습니다."
+                 ? "‘\(story.title)’을 공개 목록에서 내리고 숨김 상태로 보관합니다."
                  : "‘\(story.title)’의 내용과 사진·위치를 확인했나요? 공개 후 다른 이용자가 볼 수 있습니다.")
         }
         .interactiveDismissDisabled(model.isProcessing)
@@ -181,7 +181,7 @@ struct OiOperatorStoryDetailView: View {
             .buttonStyle(.borderedProminent)
             .disabled(!model.canReview || remote.isBusy || !remote.isOperator || remote.needsReauthentication)
             .accessibilityIdentifier("operator.story.review")
-            Text("이야기 공개 승인은 증빙 검토·글 작성 승인·학교 공식 납입 확인과 별개입니다.")
+            Text("이야기 내용을 검토해 공개 여부를 결정합니다.")
                 .font(.footnote).foregroundStyle(.secondary)
         }
     }
