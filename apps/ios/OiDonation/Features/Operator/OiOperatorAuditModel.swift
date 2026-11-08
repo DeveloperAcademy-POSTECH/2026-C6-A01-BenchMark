@@ -95,6 +95,9 @@ enum OiAuditError: LocalizedError {
 }
 
 @MainActor @Observable final class OiOperatorAuditModel {
+    // Avoid the synthesized isolated deinit crash on early iOS 26 (Swift #88036).
+    nonisolated deinit {}
+
     private(set) var records: [OiAuditRecord] = []
     private(set) var query: OiAuditQuery?
     private(set) var nextCursor: OiAuditCursor?
