@@ -17,6 +17,7 @@ struct OiDonationEvidenceContent: View {
     var selectedID: UUID?
     var review: OiDonationEvidenceReview?
     var message: String?
+    var writingGuidance = OiWritingGuidance.overview
     var onAttach: () -> Void = {}
     var onSubmit: () -> Void = {}
     var onSelect: (OiEvidence) -> Void = { _ in }
@@ -86,7 +87,7 @@ struct OiDonationEvidenceContent: View {
                     }
                 }
                 if let review { OiDonationEvidenceResult(review: review) }
-                Text("AI 검사는 참고 결과예요. 글 작성 승인은 운영자 검토 후 부여되며, 학교의 공식 납입 확인이나 영수증 발급과는 달라요.")
+                Text("\(writingGuidance) \(OiWritingGuidance.publication)\n\nAI 검사는 참고 결과예요. 공식 납입 확인과 영수증 발급은 수납처에 문의해 주세요.")
                     .font(CampusStyle.body(13)).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 20).padding(.top, 50).padding(.bottom, 30)
@@ -204,7 +205,7 @@ struct OiDonationEvidenceResult: View {
             Text(summary.title).font(CampusStyle.medium(18))
             ForEach(Array(summary.reasons.enumerated()), id: \.offset) { _, reason in Text(reason) }
             if summary.sufficientEvidence {
-                Text("문자도 기부 완료 근거가 충분하면 증빙으로 인정해요. 글 작성은 운영자의 최종 승인 후 가능해요.")
+                Text("기부 완료 근거가 충분한 문자도 증빙 자료로 검토해요. 작성 승인은 운영자가 판단해요.")
                     .font(CampusStyle.medium(14))
             }
             if !summary.checks.isEmpty {

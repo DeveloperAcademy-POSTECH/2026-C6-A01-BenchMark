@@ -4,6 +4,9 @@ import Observation
 /// Discards responses from a dismissed screen or a previous account.
 @MainActor @Observable
 final class OiOperatorAccess {
+    // Avoid the synthesized isolated deinit crash on early iOS 26 (Swift #88036).
+    nonisolated deinit {}
+
     enum State: Equatable { case checking, allowed, denied, failed }
     private(set) var state: State = .checking
     private var requestID = UUID()

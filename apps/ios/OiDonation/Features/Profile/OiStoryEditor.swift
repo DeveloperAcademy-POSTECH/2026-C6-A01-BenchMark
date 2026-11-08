@@ -594,7 +594,7 @@ struct OiStoryEditor: View {
         OiConnectionStatus(remote: remote)
         if let error = localError ?? remote.error { Text(error).font(.footnote).foregroundStyle(.red) }
         if !canWrite {
-            Text("서버 저장·검토 요청에는 작성 승인이 필요해요. 기존 글과 사진은 보관됩니다.")
+            Text("서버에 저장하거나 공개 검토를 요청하려면 작성 권한을 확인해 주세요. 기존 글과 사진은 보관돼요.")
                 .font(.footnote).foregroundStyle(.orange)
             Button("작성 권한 새로고침") {
                 Task {

@@ -97,6 +97,9 @@ extension OiEvidence {
 }
 
 @MainActor @Observable final class OiOperatorEvidenceListModel {
+    // Avoid the synthesized isolated deinit crash on early iOS 26 (Swift #88036).
+    nonisolated deinit {}
+
     var filter: OiEvidenceFilter = .pending
     private(set) var rows: [OiEvidence] = []
     private(set) var isLoading = false
@@ -129,6 +132,9 @@ extension OiEvidence {
 }
 
 @MainActor @Observable final class OiOperatorEvidenceModel {
+    // Avoid the synthesized isolated deinit crash on early iOS 26 (Swift #88036).
+    nonisolated deinit {}
+
     private(set) var detail: OiOperatorEvidenceDetail?
     private(set) var isLoading = false
     private(set) var isProcessing = false

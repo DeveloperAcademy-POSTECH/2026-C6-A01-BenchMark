@@ -1,5 +1,17 @@
 import Foundation
 
+enum OiWritingGuidance {
+    static let temporaryMode = "임시 작성 모드에서는 작성 승인 없이 이야기와 사진을 저장하고 공개 검토를 요청할 수 있어요."
+    static let approvalRequired = "이야기와 사진을 서버에 저장하고 공개 검토를 요청하려면 유효한 작성 승인이 필요해요."
+    static let publication = "이야기는 운영자가 공개를 승인한 뒤 지도에 표시돼요."
+    static let overview = "\(temporaryMode) 모드가 꺼져 있으면 유효한 작성 승인이 필요해요."
+
+    static func message(unapprovedDraftsEnabled: Bool?) -> String {
+        guard let unapprovedDraftsEnabled else { return overview }
+        return unapprovedDraftsEnabled ? temporaryMode : approvalRequired
+    }
+}
+
 struct OiStoryConsentClause: Identifiable, Equatable, Sendable {
     enum ID: String, CaseIterable, Identifiable, Sendable {
         case storyWriting
@@ -64,7 +76,7 @@ extension OiStoryConsentClause {
             id: .donationVerification,
             title: "[필수] 기부 인증 규정",
             paragraphs: [
-                Paragraph(id: "evidence", heading: "1. 기부 인증 자료를 명확하게 제출해 주세요.", body: "기부처, 기부일, 금액 등 인증에 필요한 정보가 확인되어야 합니다. 자료가 불명확하거나 작성한 내용과 다른 경우 추가 자료 제출 또는 재인증을 요청할 수 있으며, 확인이 완료될 때까지 인증이 보류될 수 있습니다. 인증에 불필요한 개인정보는 가려 주세요."),
+                Paragraph(id: "evidence", heading: "1. 기부 인증 자료를 제출할 때 확인해 주세요.", body: "자료를 제출할 때는 기부처, 기부일, 금액 등 인증에 필요한 정보가 확인되어야 합니다. 자료가 불명확하거나 작성한 내용과 다른 경우 추가 자료 제출 또는 재인증을 요청할 수 있으며, 확인이 완료될 때까지 인증이 보류될 수 있습니다. 인증에 불필요한 개인정보는 가려 주세요."),
                 Paragraph(id: "documents", heading: "2. 제출 가능한 인증 자료", body: "■ 선택 항목\n기부인증서, 기부금영수증, 기부확인문자, 기부확인서, 기부입금내역")
             ],
             agreementText: "위 안내를 확인했으며, 기부 인증 규정에 동의합니다"
