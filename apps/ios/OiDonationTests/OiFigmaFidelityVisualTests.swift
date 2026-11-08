@@ -444,7 +444,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             try await capture(cucumber, name: "cucumber-customization", variant: variant, defaults: fixture.defaults, delay: .seconds(2))
             let card = CreationCapturePage(step: 4) {
                 OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
-                    assets: Self.assets, canContinue: true, onContinue: {})
+                    canContinue: true, onContinue: {})
             }
             try await capture(card, name: "card-customization", variant: variant, defaults: fixture.defaults)
         }
@@ -506,7 +506,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             try await capture(cucumber, name: "cucumber-finished", variant: variant, defaults: fixture.defaults, delay: .seconds(2), attach: true)
             let card = CreationCapturePage(step: 4, showsNavigation: true) {
                 OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
-                    assets: Self.assets, isFinished: true, onContinue: {})
+                    isFinished: true, onContinue: {})
             }
             try await capture(card, name: "card-finished", variant: variant, defaults: fixture.defaults, attach: true)
             try await capture(NavigationStack { OiStoryConsentView(clauses: OiStoryConsentClause.writingClauses) },
@@ -1301,9 +1301,6 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         customization.secondColor = 0xF3F7E6
         return customization
     }
-
-    private static let assets = [OiAsset(id: "OiCats", kind: "cucumber", name: "기본 세트"),
-                                 OiAsset(id: "MYBasicCard", kind: "card", name: "기본 카드")]
 
     private static var card: MYCard {
         MYCard(id: "figma132-visual-fixture", title: draft.cucumberName, image: "OiCats", school: .postech,
