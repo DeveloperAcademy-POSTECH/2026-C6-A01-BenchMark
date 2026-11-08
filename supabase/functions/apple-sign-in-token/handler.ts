@@ -1,6 +1,7 @@
 import { type AppleConfiguration, encryptAppleToken, exchangeAppleCode, isAppleCode } from "../_shared/apple-credentials.ts";
 
 type Config = { url: string; publicKey: string; serviceKey: string; apple?: AppleConfiguration };
+type AuthUser = { id?: string; is_anonymous?: boolean; identities?: Array<{ provider?: string; identity_data?: { sub?: string } }> };
 
 function reply(error: string, status: number) {
   return Response.json({ error }, { status, headers: { "Cache-Control": "no-store" } });
@@ -23,7 +24,7 @@ export function createHandler(config: Config, fetcher: typeof fetch = fetch) {
         await userResponse.body?.cancel();
         return reply("authentication_failed", userResponse.status >= 500 ? 503 : 401);
       }
-      const user = await userResponse.json();
+      const user: AuthUser = await userResponse.json();
       const subjects = Array.isArray(user.identities) ? user.identities.flatMap(identity =>
         identity?.provider === "apple" && typeof identity.identity_data?.sub === "string" ? [identity.identity_data.sub] : []) : [];
       if (typeof user.id !== "string" || user.is_anonymous === true || !subjects.length) return reply("apple_identity_required", 403);
