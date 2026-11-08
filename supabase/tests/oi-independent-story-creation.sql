@@ -46,7 +46,21 @@ select set_config('request.jwt.claim.sub','d2340000-0000-4000-8000-000000000001'
 select pg_temp.assert_true(public.oi_capabilities()->>'unapproved_drafts_enabled'='true','writing opens by default');
 select pg_temp.assert_true(public.oi_capabilities()->>'independent_story_creation'='true','client can verify independent writing policy');
 select pg_temp.assert_true(not exists(select 1 from public.oi_evidence_requests),'writer has no evidence');
-select public.oi_mutate('save_story',pg_temp.draft('d2340000-0000-4000-8000-000000000011',0));
+do $geometry$
+declare
+  invalid jsonb;
+begin
+  foreach invalid in array array['{"height_meters":"NaN"}'::jsonb,'{"heading_degrees":"Infinity"}'::jsonb]
+  loop
+    begin
+      perform public.oi_mutate('save_story',pg_temp.draft('d2340000-0000-4000-8000-000000000011',0)||invalid);
+      raise exception 'Accepted non-finite story placement: %',invalid;
+    exception when invalid_parameter_value then null;
+    end;
+  end loop;
+end; $geometry$;
+select public.oi_mutate('save_story',pg_temp.draft('d2340000-0000-4000-8000-000000000011',0)
+ ||'{"height_meters":1.35,"heading_degrees":263.5}');
 select pg_temp.assert_true((select grant_id is null and status='draft' from public.oi_stories
  where id='d2340000-0000-4000-8000-000000000011'),'draft is independent of evidence');
 insert into storage.objects(bucket_id,name) values
@@ -79,8 +93,8 @@ select pg_temp.assert_true((select revoked_at is not null from public.oi_writing
  where id='d2340000-0000-4000-8000-000000000021'),'legacy grant history is preserved');
 
 select set_config('request.jwt.claim.sub','d2340000-0000-4000-8000-000000000002',true);
-select pg_temp.assert_true((select status='published' from public.oi_stories
- where id='d2340000-0000-4000-8000-000000000011'),'only operator publication makes the new story visible');
+select pg_temp.assert_true((select status='published' and height_meters=1.35 and heading_degrees=263.5 from public.oi_stories
+ where id='d2340000-0000-4000-8000-000000000011'),'publication preserves the author placement sent to AR');
 select public.oi_mutate('save_story',pg_temp.draft('d2340000-0000-4000-8000-000000000013',0)
  ||'{"grant_id":"d2340000-0000-4000-8000-000000000021"}');
 select pg_temp.assert_true((select grant_id is null from public.oi_stories

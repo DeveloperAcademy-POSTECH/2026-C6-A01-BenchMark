@@ -27,6 +27,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
     private(set) var evidence: [OiEvidence] = []
     private(set) var unapprovedDraftsEnabled = false
 
+    var canPlaceOi: Bool { account != nil && !needsReauthentication && !isAccountDeletionPending }
+
     var canStartStory: Bool {
         account != nil && !needsReauthentication && hasLoadedRemote && unapprovedDraftsEnabled
     }
@@ -42,6 +44,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
     private(set) var loadError: String?
     private(set) var syncWarning: String?
     private(set) var revision = 0
+    private(set) var localPlacementRevision = 0
     private(set) var isConfigured = false
     private(set) var isAccountMergeAvailable = false
     private(set) var isSchoolProfileAvailable = false
@@ -1018,8 +1021,22 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         guard account?.id == owner else { throw OiServiceError.accountChanged }
     }
 
+    func savePersonalPlacement(_ record: OiLocalDraft, owner: UUID) async throws {
+        guard canPlaceOi, account?.id == owner else { throw OiServiceError.signInRequired }
+        guard record.personalPlacement != nil else { throw OiServiceError.invalidInput }
+        let started = generation
+        guard try await drafts.save(record, owner: owner) else { throw OiServiceError.conflict }
+        guard started == generation, canPlaceOi, account?.id == owner else { throw OiServiceError.accountChanged }
+        localPlacementRevision += 1
+    }
+
     func discardLocalDraft(id: UUID, owner: UUID) async throws {
-        guard account?.id == owner else { throw OiServiceError.accountChanged }; try await drafts.discard(owner: owner, id: id)
+        guard account?.id == owner else { throw OiServiceError.accountChanged }
+        let started = generation
+        defer {
+            if started == generation { localPlacementRevision += 1 }
+        }
+        try await drafts.discard(owner: owner, id: id)
     }
 
     func saveLocalPhoto(_ data: Data, id: UUID, owner: UUID) async throws {

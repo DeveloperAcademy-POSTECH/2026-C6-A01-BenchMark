@@ -37,6 +37,13 @@ struct CampusMapProjection {
         return CGPoint(x: x, y: y)
     }
 
+    func ray(through point: CGPoint) -> (origin: SIMD3<Float>, direction: SIMD3<Float>)? {
+        guard focalLength > 0, point.x.isFinite, point.y.isFinite else { return nil }
+        let x = Float((point.x - center.x) / focalLength)
+        let y = Float((center.y - point.y) / focalLength)
+        return (eye, simd_normalize(forward + right * x + up * y))
+    }
+
     /// Ground-plane spacing foreshortens at a shallow camera angle. Measure it
     /// in the camera plane so group boundaries depend on angle, not on panning.
     func planeSeparation(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {

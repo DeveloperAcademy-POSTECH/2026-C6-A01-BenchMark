@@ -221,14 +221,17 @@ struct OiServiceChecks {
         precondition(profiles.allSatisfy { $0.publicName == nil && $0.department == nil && $0.admissionYear == nil }, "Pre-migration profile responses remain readable")
 
         let publicID = UUID()
-        func publicFixture(status: String, id: UUID) throws -> Data {
-            try JSONSerialization.data(withJSONObject: [[
+        func publicRow(status: String, id: UUID) -> [String: Any] {
+            [
                 "id": id.uuidString, "user_id": UUID().uuidString, "grant_id": UUID().uuidString,
                 "region_id": "pond", "title": "Test", "body": "Test story", "theme": "Test", "emotion": "Test",
                 "cucumber_name": "Test", "cucumber_asset": "OiCats", "card_asset": "MYBasicCard",
                 "latitude": 36.012, "longitude": 129.32, "status": status, "revision": 1,
                 "created_at": "2026-10-28T00:00:00Z"
-            ]])
+            ]
+        }
+        func publicFixture(status: String, id: UUID) throws -> Data {
+            try JSONSerialization.data(withJSONObject: [publicRow(status: status, id: id)])
         }
         let publicData = try publicFixture(status: "published", id: publicID)
         OiURLProtocol.handler = { request in
@@ -240,7 +243,7 @@ struct OiServiceChecks {
             return (200, publicData)
         }
         let publicStory = try await api.publishedStory(publicID)
-        precondition(publicStory.id == publicID)
+        precondition(publicStory.id == publicID && publicStory.heightMeters == nil && publicStory.headingDegrees == nil)
         for invalid in [Data("[]".utf8), try publicFixture(status: "hidden", id: publicID), try publicFixture(status: "published", id: UUID())] {
             OiURLProtocol.handler = { _ in (200, invalid) }
             do { _ = try await api.publishedStory(publicID); preconditionFailure("Non-public or mismatched AR story accepted") }
@@ -255,6 +258,19 @@ struct OiServiceChecks {
         }
         let nearby = try await api.publishedStories()
         precondition(nearby.map(\.id) == [publicID])
+        let finiteID = UUID()
+        var legacyGeometry = publicRow(status: "published", id: publicID)
+        legacyGeometry["height_meters"] = "NaN"
+        legacyGeometry["heading_degrees"] = "Infinity"
+        var finiteGeometry = publicRow(status: "published", id: finiteID)
+        finiteGeometry["height_meters"] = 1.35
+        finiteGeometry["heading_degrees"] = 263.5
+        let mixedGeometry = try JSONSerialization.data(withJSONObject: [legacyGeometry, finiteGeometry])
+        OiURLProtocol.handler = { _ in (200, mixedGeometry) }
+        let mixedStories = try await api.publishedStories()
+        precondition(mixedStories.map(\.id) == [publicID, finiteID])
+        precondition(mixedStories[0].heightMeters == nil && mixedStories[0].headingDegrees == nil)
+        precondition(mixedStories[1].heightMeters == 1.35 && mixedStories[1].headingDegrees == 263.5)
         let hiddenData = try publicFixture(status: "hidden", id: publicID)
         OiURLProtocol.handler = { _ in (200, hiddenData) }
         let hiddenNearby = try await api.publishedStories()

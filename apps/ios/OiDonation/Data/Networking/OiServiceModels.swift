@@ -86,6 +86,10 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
     let revision: Int
     let createdAt: String
     var storageOwnerId: UUID? = nil
+    @OiStoryPlacementNumber var heightMeters: Double? = nil
+    @OiStoryPlacementNumber var headingDegrees: Double? = nil
+
+    var isRegisteredOnCampus: Bool { status == "pending" || status == "published" }
 
     var createdDateLabel: String {
         let parser = ISO8601DateFormatter()
@@ -99,6 +103,32 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
         formatter.timeZone = TimeZone(identifier: "Asia/Seoul")
         formatter.dateFormat = "yyyy.MM.dd"
         return formatter.string(from: date)
+    }
+}
+
+/// Older servers can omit geometry or serialize a non-finite PostgreSQL value as a string.
+@propertyWrapper
+struct OiStoryPlacementNumber: Codable, Equatable {
+    var wrappedValue: Double?
+
+    init(wrappedValue: Double?) {
+        self.wrappedValue = wrappedValue.flatMap { $0.isFinite ? $0 : nil }
+    }
+
+    init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer()
+        self.init(wrappedValue: try? value.decode(Double.self))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var value = encoder.singleValueContainer()
+        try value.encode(wrappedValue)
+    }
+}
+
+private extension KeyedDecodingContainer {
+    func decode(_ type: OiStoryPlacementNumber.Type, forKey key: Key) throws -> OiStoryPlacementNumber {
+        try decodeIfPresent(type, forKey: key) ?? OiStoryPlacementNumber(wrappedValue: nil)
     }
 }
 
@@ -319,6 +349,8 @@ struct OiStoryDraft: Codable, Equatable {
     var cardAsset = "MYBasicCard"
     var latitude: Double?
     var longitude: Double?
+    var heightMeters: Double?
+    var headingDegrees: Double?
 
     init() {}
 
@@ -328,6 +360,7 @@ struct OiStoryDraft: Codable, Equatable {
         theme = story.theme; emotion = story.emotion; cucumberName = story.cucumberName
         cucumberAsset = story.cucumberAsset; cardAsset = story.cardAsset
         latitude = story.latitude; longitude = story.longitude
+        heightMeters = story.heightMeters; headingDegrees = story.headingDegrees
     }
 
     var valid: Bool {
@@ -341,10 +374,13 @@ struct OiStoryDraft: Codable, Equatable {
 
     func payload() throws -> [String: Any] {
         guard valid, let latitude, let longitude else { throw OiServiceError.invalidDraft }
-        return ["id": id.uuidString, "revision": revision,
+        var fields: [String: Any] = ["id": id.uuidString, "revision": revision,
                 "region_id": regionId, "title": title, "body": body, "theme": theme,
                 "emotion": emotion, "cucumber_name": cucumberName, "cucumber_asset": cucumberAsset,
                 "card_asset": cardAsset, "latitude": latitude, "longitude": longitude]
+        if let heightMeters { fields["height_meters"] = heightMeters }
+        if let headingDegrees { fields["heading_degrees"] = headingDegrees }
+        return fields
     }
 }
 

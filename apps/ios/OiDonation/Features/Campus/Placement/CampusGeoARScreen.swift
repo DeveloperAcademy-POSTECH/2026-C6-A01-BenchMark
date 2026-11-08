@@ -28,8 +28,8 @@ struct CampusGeoARScreen: View {
 
     private func currentPlacement() async throws -> CampusPlacement {
         let story = try await remote.publishedStory(placement.id)
-        return try CampusPlacement(id: story.id, storyID: story.id.uuidString,
-            latitude: story.latitude, longitude: story.longitude).validated()
+        guard let placement = story.campusPlacement else { throw CampusPlacementError.invalid }
+        return placement
     }
 
     var body: some View {
@@ -43,6 +43,9 @@ struct CampusGeoARScreen: View {
                 }
                 VStack(alignment: .leading, spacing: 6) {
                     if controller.mode != .preparing { Text(controller.mode.rawValue).font(.headline) }
+                    if let livePlacement {
+                        Text("오이 높이 \(livePlacement.heightCentimeters)cm").font(.caption)
+                    }
                     if let message = sharedError ?? controller.message {
                         Text(message).font(.subheadline)
                     } else if controller.mode == .preparing {

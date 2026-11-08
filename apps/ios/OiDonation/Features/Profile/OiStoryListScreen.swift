@@ -15,31 +15,31 @@ struct OiStoryListScreen: View {
     private struct DraftLoadKey: Equatable {
         let owner: UUID?
         let revision: Int
+        let placementRevision: Int
     }
     @State private var selectedStoryID: UUID?
     @State private var showingConsent = false
-    @State private var showingCreationUnavailable = false
 
     var body: some View {
         OiStoryListView(
             state: state,
             seedCount: nil,
             notices: OiStoryListView.listNotices,
-            guidance: writingGuidance,
+            guidance: OiWritingGuidance.available,
             onRetry: { Task { await remote.refresh(); await loadLocalDrafts() } },
             onAddSeed: nil,
             onSelectStory: selectStory,
             onCreateStory: beginCreatingStory,
             onUseSeed: nil
         )
-        .task(id: DraftLoadKey(owner: remote.account?.id, revision: remote.revision)) {
+        .task(id: DraftLoadKey(owner: remote.account?.id, revision: remote.revision,
+                               placementRevision: remote.localPlacementRevision)) {
             await loadLocalDrafts()
         }
         .onChange(of: remote.account?.id) { _, _ in
             selectedLocalID = nil
             selectedStoryID = nil
             showingConsent = false
-            showingCreationUnavailable = false
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             if let owner = remote.account?.id, loadedDraftOwner == owner, unreadableDraftCount > 0 || pendingDiscardCount > 0 {
@@ -61,12 +61,6 @@ struct OiStoryListScreen: View {
             }
         }
         .navigationDestination(isPresented: $showingSettings) { MYSettingsView(remote: remote) }
-        .alert("오이 만들기를 시작할 수 없어요", isPresented: $showingCreationUnavailable) {
-            Button("다시 확인") { Task { await remote.refresh() } }
-            Button("닫기", role: .cancel) {}
-        } message: {
-            Text(OiWritingGuidance.unavailable)
-        }
         .navigationDestination(item: $selectedLocalID) { id in
             OiStoryEditor(remote: remote, localID: id, onFinish: { selectedLocalID = nil })
         }
@@ -79,16 +73,6 @@ struct OiStoryListScreen: View {
 
     }
 
-    private var writingGuidance: String {
-        guard remote.account != nil, !remote.needsReauthentication else {
-            return OiWritingGuidance.available
-        }
-        guard remote.hasLoadedRemote, remote.loadError == nil else {
-            return OiStoryListView.listGuidance
-        }
-        return remote.canStartStory ? OiWritingGuidance.available : OiWritingGuidance.unavailable
-    }
-
     private var state: OiStoryListState {
         guard remote.account != nil else { return .empty }
         let drafts = (loadedDraftOwner == remote.account?.id ? localDrafts : []).filter { record in
@@ -98,12 +82,16 @@ struct OiStoryListScreen: View {
         if !remote.hasLoadedRemote && drafts.isEmpty { return .loading }
         let donorName = remote.profile?.nickname.nonEmpty ?? "익명"
         let serverItems = remote.ownStories.map { story in
-            OiStoryListItem(story: story, donorDisplayName: donorName, locationDisplayName: locationDisplayName(for: story.regionId))
+            let location = locationDisplayName(for: story.regionId)
+            return OiStoryListItem(story: story, donorDisplayName: donorName,
+                locationDisplayName: story.status == "pending" ? "공개 검토 중 · \(location)" : location)
         }
         let localItems = drafts.map { record in
-            OiStoryListItem(id: record.id, cucumberName: record.draft.cucumberName.nonEmpty ?? "작성 중인 오이",
+            OiStoryListItem(id: record.id, cucumberName: record.personalPlacement?.name ?? record.draft.cucumberName.nonEmpty ?? "작성 중인 오이",
                 cucumberAsset: record.draft.cucumberAsset, donorDisplayName: donorName,
-                locationDisplayName: "이 기기에 보관한 초안", tags: [record.draft.emotion, record.draft.theme].filter { !$0.isEmpty }, dateLabel: "작성 중")
+                locationDisplayName: record.personalPlacement == nil ? "이 기기에 보관한 초안" : "내 지도에 배치됨",
+                tags: [record.draft.emotion, record.draft.theme].filter { !$0.isEmpty },
+                dateLabel: record.personalPlacement == nil ? "작성 중" : "나만 보기")
         }
         let items = localItems + serverItems
         return items.isEmpty ? .empty : .content(items)
@@ -150,12 +138,8 @@ struct OiStoryListScreen: View {
     }
 
     private func beginCreatingStory() {
-        guard remote.account != nil, !remote.needsReauthentication else { showingSettings = true; return }
-        if remote.canStartStory {
-            showingConsent = true
-        } else {
-            showingCreationUnavailable = true
-        }
+        guard remote.canPlaceOi else { showingSettings = true; return }
+        showingConsent = true
     }
 
     private func locationDisplayName(for regionID: String) -> String {

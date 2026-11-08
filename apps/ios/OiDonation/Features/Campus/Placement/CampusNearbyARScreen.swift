@@ -95,8 +95,7 @@ struct CampusNearbyARScreen: View {
                 let records = try await remote.publishedStories()
                 try Task.checkCancellation()
                 publicItems = records.compactMap { story in
-                    guard let placement = try? CampusPlacement(id: story.id, storyID: story.id.uuidString,
-                        latitude: story.latitude, longitude: story.longitude).validated() else { return nil }
+                    guard let placement = story.campusPlacement else { return nil }
                     return CampusNearbyOi(placement: placement, source: .shared)
                 }
                 sharedNotice = "공개 오이 \(publicItems.count)개 · 30초마다 갱신 · 공통 AR 모델로 표시"
