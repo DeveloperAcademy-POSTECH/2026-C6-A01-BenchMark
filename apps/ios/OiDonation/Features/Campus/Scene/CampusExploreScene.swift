@@ -64,6 +64,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var oiTemplate: Entity?
     @ObservationIgnored private var oiTemplateHeight: Float = 1
     @ObservationIgnored private var previewDragPoint: CGPoint?
+    @ObservationIgnored private var previewTouchState = CampusPlacementGestureState()
+    @ObservationIgnored private var previewRecognizer: OiTouchSequenceRecognizer?
     @ObservationIgnored private var placementLayer = Entity()
     @ObservationIgnored private var authoredLayer = Entity()
     @ObservationIgnored private var authoredPlacements: [String: CampusAuthoredPlacement] = [:]
@@ -133,6 +135,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         tap.delegate = self
         for gesture in navigationGestures { tap.require(toFail: gesture) }
         canvas.addGestureRecognizer(tap)
+        if placementPreview != nil { installPreviewGestures(on: canvas) }
         canvas.didLayout = { [weak self] in
             self?.updateCamera()
             if self?.activeNavigation.isEmpty == true, self?.cameraMotion == nil {
@@ -475,6 +478,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         guard let data else { return }
         stopNavigation()
         placementPreview = placement
+        if let canvas { installPreviewGestures(on: canvas) }
         let point = data.world(latitude: placement.latitude, longitude: placement.longitude)
         if let region = nearestRegion(to: point) { focus(region, stories: [], placement: placement) }
         syncPlacements(records: [placement])
@@ -484,6 +488,61 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         guard let placement = placementPreview, let data else { return }
         let point = data.world(latitude: placement.latitude, longitude: placement.longitude)
         onPreviewChange?(placement, nearestRegion(to: point))
+    }
+
+    private func installPreviewGestures(on canvas: CampusMapCanvas) {
+        guard previewRecognizer == nil else { return }
+        navigationGestures.forEach { $0.isEnabled = false }
+        canvas.isMultipleTouchEnabled = true
+        let recognizer = OiTouchSequenceRecognizer(target: self, action: #selector(handlePreviewTouches(_:)))
+        canvas.addGestureRecognizer(recognizer)
+        previewRecognizer = recognizer
+    }
+
+    @objc private func handlePreviewTouches(_ recognizer: OiTouchSequenceRecognizer) {
+        updatePlacementPreviewTouches(recognizer.points)
+    }
+
+    func updatePlacementPreviewTouches(_ points: [Int: CGPoint]) {
+        let change = previewTouchState.update(points)
+        if points.isEmpty {
+            previewDragPoint = nil
+            commitPlacementPreview()
+            return
+        }
+        guard let change, let placement = placementPreview, let data, let view = canvas?.map else { return }
+        switch change {
+        case .move(let delta):
+            movePlacementPreview(placement, by: delta, data: data, viewport: view.bounds)
+        case .transform(let horizontal, let scale, let rotation):
+            guard view.bounds.width > 0 else { return }
+            let range = CampusPlacement.heightRange
+            let height = min(range.upperBound, max(range.lowerBound, placement.heightMeters * Double(scale)))
+            let degrees = -360 * Double(horizontal / view.bounds.width) - rotation * 180 / .pi
+            let heading = CampusPlacement.wrappedHeading(placement.headingDegrees + degrees)
+            guard height != placement.heightMeters || heading != placement.headingDegrees else { return }
+            updatePlacementPreview(placement, latitude: placement.latitude, longitude: placement.longitude,
+                                   height: height, heading: heading)
+        }
+    }
+
+    private func movePlacementPreview(_ placement: CampusPlacement, by delta: CGPoint,
+                                      data: CampusMapData, viewport: CGRect) {
+        let projection = mapProjection(in: viewport)
+        let foot = data.world(latitude: placement.latitude, longitude: placement.longitude)
+        guard let previous = previewDragPoint ?? projection.point(foot) else { return }
+        let next = CGPoint(x: previous.x + delta.x, y: previous.y + delta.y)
+        previewDragPoint = next
+        guard viewport.contains(next), let ray = projection.ray(through: next),
+              let hit = data.surface?.intersect(origin: ray.origin, direction: ray.direction) else {
+            previewMovementError = "지도에 보이는 캠퍼스 바닥으로 옮겨 주세요."
+            return
+        }
+        previewMovementError = data.placementError(at: hit)
+        guard previewMovementError == nil else { return }
+        let coordinate = data.coordinate(hit)
+        updatePlacementPreview(placement, latitude: coordinate.latitude, longitude: coordinate.longitude,
+                               height: placement.heightMeters, heading: placement.headingDegrees)
     }
 
     private func updatePlacementPreview(_ placement: CampusPlacement, latitude: Double, longitude: Double,
@@ -678,7 +737,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
 
     @objc private func selectPlacement(_ gesture: UITapGestureRecognizer) {
-        guard !selectingCenterLocation else { return }
+        guard !selectingCenterLocation, placementPreview == nil else { return }
         guard gesture.state == .ended, let view = canvas?.map, let data else { return }
         let point = gesture.location(in: view)
         if editingPlacement {
@@ -884,6 +943,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         panReleaseVelocity = .zero
         panTouchCount = 0
         previewDragPoint = nil
+        previewTouchState = CampusPlacementGestureState()
     }
 
     private func updateNavigation(_ gesture: UIGestureRecognizer) -> Bool {
@@ -905,10 +965,6 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
 
     @objc private func pan(_ gesture: UIPanGestureRecognizer) {
-        if let placement = placementPreview {
-            panPlacementPreview(gesture, placement: placement)
-            return
-        }
         if gesture.state == .ended, panTouchCount == 1, let panInput {
             let velocity = gesture.velocity(in: canvas)
             let right = SIMD3<Float>(cos(yaw), 0, -sin(yaw))
@@ -948,54 +1004,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         updateCamera()
     }
 
-    private func panPlacementPreview(_ gesture: UIPanGestureRecognizer, placement: CampusPlacement) {
-        defer { gesture.setTranslation(.zero, in: canvas) }
-        if gesture.state == .ended || gesture.state == .cancelled {
-            panTouchCount = 0
-            previewDragPoint = nil
-            commitPlacementPreview()
-            return
-        }
-        let touches = gesture.numberOfTouches
-        guard gesture.state == .changed, touches == panTouchCount else {
-            panTouchCount = touches
-            previewDragPoint = nil
-            return
-        }
-        guard let data, let view = canvas?.map else { return }
-        let delta = gesture.translation(in: canvas)
-        if touches == 2, view.bounds.width > 0 {
-            rotatePlacementPreview(placement, by: -360 * Double(delta.x / view.bounds.width))
-        } else if touches == 1 {
-            let projection = mapProjection(in: view.bounds)
-            let foot = data.world(latitude: placement.latitude, longitude: placement.longitude)
-            guard let previous = previewDragPoint ?? projection.point(foot) else { return }
-            let next = CGPoint(x: previous.x + delta.x, y: previous.y + delta.y)
-            previewDragPoint = next
-            guard view.bounds.contains(next), let ray = projection.ray(through: next),
-                  let hit = data.surface?.intersect(origin: ray.origin, direction: ray.direction) else {
-                previewMovementError = "지도에 보이는 캠퍼스 바닥으로 옮겨 주세요."
-                return
-            }
-            previewMovementError = data.placementError(at: hit)
-            guard previewMovementError == nil else { return }
-            let coordinate = data.coordinate(hit)
-            updatePlacementPreview(placement, latitude: coordinate.latitude, longitude: coordinate.longitude,
-                                   height: placement.heightMeters, heading: placement.headingDegrees)
-        }
-    }
-
     @objc private func pinch(_ gesture: UIPinchGestureRecognizer) {
-        if let placement = placementPreview {
-            defer { gesture.scale = 1 }
-            if gesture.state == .ended || gesture.state == .cancelled { commitPlacementPreview() }
-            guard gesture.state == .changed, gesture.scale.isFinite, gesture.scale > 0 else { return }
-            let range = CampusPlacement.heightRange
-            let height = min(range.upperBound, max(range.lowerBound, placement.heightMeters * Double(gesture.scale)))
-            updatePlacementPreview(placement, latitude: placement.latitude, longitude: placement.longitude,
-                                   height: height, heading: placement.headingDegrees)
-            return
-        }
         guard updateNavigation(gesture) else {
             pinchLogRadius = nil
             return
@@ -1014,12 +1023,6 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         updateCamera()
     }
     @objc private func rotate(_ gesture: UIRotationGestureRecognizer) {
-        if let placement = placementPreview {
-            defer { gesture.rotation = 0 }
-            if gesture.state == .ended || gesture.state == .cancelled { commitPlacementPreview() }
-            if gesture.state == .changed { rotatePlacementPreview(placement, by: -Double(gesture.rotation) * 180 / .pi) }
-            return
-        }
         guard updateNavigation(gesture) else { return }
         // Positive UIKit rotation is clockwise. Increasing the orbit yaw turns
         // the visible map clockwise too, so it follows the fingers on screen.
@@ -1029,11 +1032,6 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         updateCamera()
     }
 
-    private func rotatePlacementPreview(_ placement: CampusPlacement, by degrees: Double) {
-        guard degrees.isFinite, degrees != 0 else { return }
-        updatePlacementPreview(placement, latitude: placement.latitude, longitude: placement.longitude,
-            height: placement.heightMeters, heading: CampusPlacement.wrappedHeading(placement.headingDegrees + degrees))
-    }
     func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer

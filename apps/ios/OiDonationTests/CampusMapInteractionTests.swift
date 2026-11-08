@@ -235,53 +235,56 @@ final class CampusMapInteractionTests: XCTestCase {
         var committed: CampusPlacement?
         scene.onPreviewChange = { value, _ in committed = value }
 
-        let pan = TestTilt()
-        let panAction = NSSelectorFromString("pan:")
-        pan.touches = 1; pan.state = .began
-        scene.perform(panAction, with: pan)
-        pan.state = .changed; pan.delta = CGPoint(x: 12, y: 0)
-        scene.perform(panAction, with: pan)
+        let a = CGPoint(x: 80, y: 100)
+        scene.updatePlacementPreviewTouches([0: a])
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: 82, y: 100)])
+        XCTAssertEqual(scene.placementPreview, placement, "A small motion while setting down a finger does not drag")
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: 92, y: 100)])
         let moved = try XCTUnwrap(scene.placementPreview)
         XCTAssertGreaterThan(moved.longitude, placement.longitude)
         let ground = data.world(latitude: moved.latitude, longitude: moved.longitude)
         XCTAssertLessThan(simd_distance(model.position(relativeTo: nil), ground), 0.001)
-        pan.delta = CGPoint(x: canvas.bounds.width * 2, y: 0)
-        scene.perform(panAction, with: pan)
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: canvas.bounds.width * 2, y: 100)])
         XCTAssertNotNil(scene.previewMovementError)
         XCTAssertEqual(scene.placementPreview, moved)
 
-        pan.touches = 2; pan.delta = CGPoint(x: 100, y: 0)
-        scene.perform(panAction, with: pan)
+        scene.updatePlacementPreviewTouches([0: a, 1: CGPoint(x: 120, y: 100)])
         XCTAssertEqual(scene.placementPreview, moved, "Touch centroid changes do not move or rotate the model")
-        pan.delta = CGPoint(x: canvas.bounds.width / 2, y: 0)
-        scene.perform(panAction, with: pan)
+        let centerX = 100 + canvas.bounds.width / 2
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX - 20, y: 100), 1: CGPoint(x: centerX + 20, y: 100)])
         XCTAssertEqual(scene.placementPreview?.headingDegrees, 190)
-        let rotation = TestRotation()
-        rotation.state = .changed; rotation.rotation = .pi / 2
-        scene.perform(NSSelectorFromString("rotate:"), with: rotation)
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX, y: 80), 1: CGPoint(x: centerX, y: 120)])
         XCTAssertEqual(try XCTUnwrap(scene.placementPreview?.headingDegrees), 100, accuracy: 0.001)
 
-        let pinch = TestPinch()
-        let pinchAction = NSSelectorFromString("pinch:")
-        pinch.state = .changed; pinch.scale = 1.25
-        scene.perform(pinchAction, with: pinch)
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX, y: 75), 1: CGPoint(x: centerX, y: 125)])
         XCTAssertEqual(scene.placementPreview?.heightCentimeters, 150)
         XCTAssertEqual(model.visualBounds(relativeTo: nil).extents.y, initialHeight * 1.25, accuracy: 0.001)
-        pinch.scale = 100
-        scene.perform(pinchAction, with: pinch)
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX, y: 0), 1: CGPoint(x: centerX, y: 200)])
         XCTAssertEqual(scene.placementPreview?.heightCentimeters, 200)
-        pinch.scale = 0.001
-        scene.perform(pinchAction, with: pinch)
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX, y: 98), 1: CGPoint(x: centerX, y: 102)])
         XCTAssertEqual(scene.placementPreview?.heightCentimeters, 40)
-        pinch.state = .ended
-        scene.perform(pinchAction, with: pinch)
+        let adjusted = try XCTUnwrap(scene.placementPreview)
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX, y: 98)])
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX + 28, y: 98)])
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX + 50, y: 98)])
+        XCTAssertEqual(scene.placementPreview, adjusted, "Lifting one finger must not turn rotation into a move")
+        XCTAssertNil(committed, "The sequence ends only after all fingers lift")
+        scene.updatePlacementPreviewTouches([:])
         XCTAssertEqual(committed, scene.placementPreview)
         XCTAssertEqual(committed?.latitude, moved.latitude)
         XCTAssertEqual(committed?.longitude, moved.longitude)
+
+        scene.updatePlacementPreviewTouches([2: a])
+        scene.updatePlacementPreviewTouches([2: CGPoint(x: 92, y: 100)])
+        let movedAgain = try XCTUnwrap(scene.placementPreview)
+        XCTAssertGreaterThan(movedAgain.longitude, moved.longitude, "A fresh one-finger drag can move the model")
+        scene.updatePlacementPreviewTouches([:])
+        XCTAssertEqual(committed, movedAgain)
         XCTAssertEqual(camera.position(relativeTo: nil), cameraStart)
         scene.suspendForARCamera(); scene.setVisible(true)
         let restored = try XCTUnwrap(canvas.map?.scene.findEntity(named: modelName))
-        XCTAssertLessThan(simd_distance(restored.position(relativeTo: nil), ground), 0.001)
+        let restoredGround = data.world(latitude: movedAgain.latitude, longitude: movedAgain.longitude)
+        XCTAssertLessThan(simd_distance(restored.position(relativeTo: nil), restoredGround), 0.001)
         XCTAssertEqual(restored.scale, model.scale)
     }
 
@@ -720,19 +723,6 @@ private final class TestPinch: UIPinchGestureRecognizer {
     override var scale: CGFloat {
         get { testScale }
         set { testScale = newValue }
-    }
-}
-
-private final class TestRotation: UIRotationGestureRecognizer {
-    private var testState: State = .possible
-    private var testRotation: CGFloat = 0
-    override var state: State {
-        get { testState }
-        set { testState = newValue }
-    }
-    override var rotation: CGFloat {
-        get { testRotation }
-        set { testRotation = newValue }
     }
 }
 

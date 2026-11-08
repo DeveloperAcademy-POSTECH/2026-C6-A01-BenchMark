@@ -253,7 +253,7 @@ private struct OiCardPlacementGestures: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let view = UIView(); view.backgroundColor = .clear; view.isMultipleTouchEnabled = true
         view.accessibilityIdentifier = "oi.card.placement.canvas"
-        view.addGestureRecognizer(OiCardTouchRecognizer(target: context.coordinator,
+        view.addGestureRecognizer(OiTouchSequenceRecognizer(target: context.coordinator,
                                                        action: #selector(Coordinator.update(_:))))
         return view
     }
@@ -270,7 +270,7 @@ private struct OiCardPlacementGestures: UIViewRepresentable {
         init(placement: Binding<OiCardPlacement>, orientation: Binding<OiCardOrientation>?, onInteractionEnded: (() -> Void)?) {
             self.placement = placement; self.orientation = orientation; self.onInteractionEnded = onInteractionEnded
         }
-        @objc func update(_ gesture: OiCardTouchRecognizer) {
+        @objc func update(_ gesture: OiTouchSequenceRecognizer) {
             guard let view = gesture.view else { return }
             var p = placement.wrappedValue
             var angle = orientation?.wrappedValue
@@ -282,7 +282,7 @@ private struct OiCardPlacementGestures: UIViewRepresentable {
     }
 }
 
-private final class OiCardTouchRecognizer: UIGestureRecognizer {
+final class OiTouchSequenceRecognizer: UIGestureRecognizer {
     private var active: [UITouch: Int] = [:]
     private var nextID = 0
     var points: [Int: CGPoint] {
