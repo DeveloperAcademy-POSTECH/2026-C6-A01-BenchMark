@@ -2070,12 +2070,14 @@ final class OiRemoteStoreTests: XCTestCase {
         let freelyExplore = mode == "all-screens"
         let checkMovement = mode == "placement-gestures"
         let checkReview = mode == "review"
-        let checkPlacement = mode == "placement" || checkMovement || checkReview
+        let checkPersonal = mode == "personal-placement"
+        let checkPlacement = mode == "placement" || checkMovement || checkReview || checkPersonal
         guard mode == "1" || freelyExplore || checkPlacement else {
             throw XCTSkip("Opt in to drive the editor with simulator UI automation")
         }
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        if checkPersonal { backend.configure { $0.hasWritingGrant = false; $0.unapprovedDraftsEnabled = false } }
         await store.start()
         var look = OiDraftCustomization()
         look.wardrobe = OiWardrobeLook()
@@ -2091,6 +2093,8 @@ final class OiRemoteStoreTests: XCTestCase {
             expectedGround = point
             input.latitude = coordinate.latitude; input.longitude = coordinate.longitude
             look.wardrobe?.topColor = 0x6A4194
+        }
+        if checkPlacement && !checkPersonal {
             let photo = UUID()
             let image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32)).jpegData(withCompressionQuality: 0.8) { context in
                 UIColor.green.setFill()
@@ -2122,18 +2126,22 @@ final class OiRemoteStoreTests: XCTestCase {
                                      for: OiPhotoSlot.top.itemID(in: wardrobe))
             look.wardrobe = wardrobe
         }
-        let initialStep: OiCreationStep = checkPlacement ? .card : freelyExplore ? .consent : .cucumber
+        if checkPersonal {
+            input.grantId = nil; input.title = ""; input.body = ""; input.theme = ""; input.emotion = ""
+        }
+        let initialStep: OiCreationStep = checkPersonal || freelyExplore ? .consent : checkPlacement ? .card : .cucumber
         let local = OiLocalDraft(draft: input, photos: photos, version: 1,
             creationStep: initialStep.rawValue, customization: look,
-            agreedConsentClauseIDs: checkPlacement ? Set(OiStoryConsentClause.writingClauses.map(\.id.rawValue)) : nil)
+            agreedConsentClauseIDs: checkPlacement && !checkPersonal ? Set(OiStoryConsentClause.writingClauses.map(\.id.rawValue)) : nil)
         try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousKey = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
         window.frame = scene.coordinateSpace.bounds
-        let controller = UIHostingController(rootView: NavigationStack {
-            OiStoryEditor(remote: store, localID: local.id).environment(\.scenePhase, .active)
-        }.preferredColorScheme(.light))
+        let controller = UIHostingController(rootView: Group {
+            if checkPersonal { RootTabView(container: .preview, remote: store) }
+            else { NavigationStack { OiStoryEditor(remote: store, localID: local.id) } }
+        }.environment(\.scenePhase, .active).preferredColorScheme(.light))
         window.rootViewController = controller
         window.makeKeyAndVisible()
         if checkPlacement { previousKey?.isHidden = true }
@@ -2153,6 +2161,15 @@ final class OiRemoteStoreTests: XCTestCase {
             }
             var sawPlacement = false
             var sawMovement = false
+            var sawPersonalMap = false
+            func modelOnHomeMap(in view: UIView) -> Entity? {
+                guard !view.isHidden else { return nil }
+                if let canvas = view as? CampusMapCanvas {
+                    let visibleMarker = canvas.subviews.contains { !$0.isHidden && $0.accessibilityIdentifier == "campus.authored." + local.id.uuidString }
+                    return visibleMarker ? canvas.map?.scene.findEntity(named: "authored:" + local.id.uuidString) : nil
+                }
+                return view.subviews.lazy.compactMap { modelOnHomeMap(in: $0) }.first
+            }
             for _ in 0..<180 {
                 try await Task.sleep(for: .seconds(1))
                 let backendState = backend.snapshot()
@@ -2186,7 +2203,18 @@ final class OiRemoteStoreTests: XCTestCase {
                     attachment.name = "draft-oi-after-drag"; attachment.lifetime = .keepAlways; add(attachment)
                     sawMovement = true
                 }
-                if !checkReview, sawPlacement, (!checkMovement || sawMovement), controller.presentedViewController != nil {
+                if checkPersonal, sawPlacement, !sawPersonalMap, let model = modelOnHomeMap(in: window) {
+                    let saved = try await store.localDraft(id: local.id, owner: OiTestBackend.owner)
+                    XCTAssertLessThan(simd_distance(model.position(relativeTo: nil), expectedGround), 0.001)
+                    XCTAssertEqual(saved?.customization?.wardrobe, look.wardrobe)
+                    XCTAssertEqual(saved?.photos, [])
+                    XCTAssertNotNil(saved?.personalPlacement)
+                    XCTAssertTrue(saved?.agreedConsentClauseIDs?.isEmpty == true)
+                    XCTAssertTrue(backendState.uploads.isEmpty)
+                    sawPersonalMap = true
+                }
+                if checkPersonal, sawPersonalMap, controller.presentedViewController != nil { return }
+                if !checkReview, !checkPersonal, sawPlacement, (!checkMovement || sawMovement), controller.presentedViewController != nil {
                     let saved = try await store.localDraft(id: local.id, owner: OiTestBackend.owner)
                     XCTAssertEqual(saved?.customization?.wardrobe, look.wardrobe)
                     XCTAssertEqual(saved?.photos, photos)
@@ -2244,6 +2272,43 @@ final class OiRemoteStoreTests: XCTestCase {
         value.title = title; value.body = "Current body"; value.theme = "감사"; value.emotion = "기쁨"
         value.cucumberName = "테스트오이"; value.latitude = 36.01261057021347; value.longitude = 129.3197268697784
         return value
+    }
+
+    @MainActor func testPersonalPlacementStaysInTheAccountVaultWhenPublicationIsPaused() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { clean(session, directory: directory) }
+        backend.configure { $0.hasWritingGrant = false; $0.unapprovedDraftsEnabled = false }
+        await store.start()
+        XCTAssertTrue(store.canPlaceOi)
+        XCTAssertFalse(store.canStartStory)
+
+        let owner = OiTestBackend.owner
+        var record = OiLocalDraft(draft: OiStoryDraft(), version: 2, creationStep: OiCreationStep.card.rawValue)
+        record.personalPlacement = OiPersonalPlacement(regionID: "pond", name: "내 오이", latitude: 36.0126,
+            longitude: 129.3197, heightMeters: 1.35, headingDegrees: 230)
+        try await store.savePersonalPlacement(record, owner: owner)
+        var stale = record
+        stale.personalPlacement = nil
+        stale.version -= 1
+        try await store.saveLocalDraft(stale, owner: owner)
+
+        let reopenedVault = OiDraftVault(directory: directory)
+        let reopened = try await reopenedVault.load(owner: owner, id: record.id)
+        let otherAccountCopy = try await reopenedVault.load(owner: UUID(), id: record.id)
+        XCTAssertEqual(reopened, record)
+        XCTAssertNil(otherAccountCopy)
+        XCTAssertNil(backend.snapshot().story)
+        XCTAssertTrue(backend.snapshot().uploads.isEmpty)
+        XCTAssertTrue(store.stories.isEmpty)
+        XCTAssertTrue(store.ownStories.isEmpty)
+
+        let placementRevision = store.localPlacementRevision
+        try await store.discardLocalDraft(id: record.id, owner: owner)
+        let discarded = try await reopenedVault.load(owner: owner, id: record.id)
+        XCTAssertNil(discarded)
+        XCTAssertGreaterThan(store.localPlacementRevision, placementRevision)
+        await store.signOut()
+        XCTAssertFalse(store.canPlaceOi)
     }
 
     @MainActor func testWritingPausePreservesStoryAndPhotoWithoutRequiringEvidence() async throws {

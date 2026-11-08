@@ -8,7 +8,7 @@ struct RootTabView: View {
     @State private var myDemo = MYLibraryStore()
     @State private var isARPresented = false
     @State private var isCameraCoverActive = false
-    @State private var remote = OiRemoteStore()
+    @State private var remote: OiRemoteStore
     @State private var showingStoryList = false
     @State private var authoredPlacementToReveal: UUID?
     @State private var geoPlacement: CampusPlacement?
@@ -18,8 +18,9 @@ struct RootTabView: View {
     @State private var showingSample = false
     @Environment(\.scenePhase) private var scenePhase
 
-    init(container: AppContainer = .pilot) {
+    init(container: AppContainer = .pilot, remote: OiRemoteStore? = nil) {
         self.container = container
+        _remote = State(initialValue: remote ?? OiRemoteStore())
     }
 
     var body: some View {
@@ -104,9 +105,8 @@ struct RootTabView: View {
                 } else { showingStoryList = true }
             }
             store.showAuthoredPlacementAction = { id in
-                guard let owner = remote.account?.id, !remote.needsReauthentication,
-                      remote.ownStories.contains(where: { $0.id == id && $0.userId == owner && $0.isRegisteredOnCampus })
-                else { return }
+                // Home resolves this navigation intent against the current account's placements.
+                guard remote.canPlaceOi else { return }
                 authoredPlacementToReveal = id
                 showingStoryList = false
                 path = NavigationPath()

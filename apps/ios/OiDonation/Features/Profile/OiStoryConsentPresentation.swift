@@ -1,9 +1,9 @@
 import Foundation
 
 enum OiWritingGuidance {
-    static let available = "로그인하면 기부 여부와 관계없이 오이와 카드를 꾸미고, 위치를 정해 이야기의 공개 검토를 요청할 수 있어요."
-    static let unavailable = "지금은 이야기를 서버에 저장하거나 공개 검토를 요청할 수 없어요. 잠시 후 다시 확인해 주세요."
-    static let publication = "이야기는 운영자가 공개를 승인한 뒤 지도에 표시돼요."
+    static let available = "로그인하면 기부 증빙 없이 오이를 꾸미고 내 지도에 바로 배치할 수 있어요."
+    static let unavailable = "지금은 공개 검토 요청을 받지 않아요. 내 지도에는 오이를 배치할 수 있어요."
+    static let publication = "다른 사람의 지도와 현장 AR에 공개하려면 이야기와 사진의 검토를 요청해 주세요."
 }
 
 struct OiStoryConsentClause: Identifiable, Equatable, Sendable {

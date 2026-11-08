@@ -26,6 +26,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
     let error: String?
     let canSubmit: Bool
     let isSubmitting: Bool
+    let onClose: () -> Void
     let onEdit: (OiCreationStep) -> Void
     let onSubmit: () -> Void
     let storyPhoto: (OiEditingPhoto, Bool) -> StoryPhoto
@@ -77,7 +78,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Label("운영팀이 확인한 뒤 이야기가 공개돼요.", systemImage: "checkmark.shield")
+                    Label("운영팀이 이야기와 사진을 승인하면 다른 사람의 지도와 현장 AR에 공개돼요.", systemImage: "checkmark.shield")
                         .font(CampusStyle.body(14)).foregroundStyle(CampusStyle.sectionGreen)
                         .padding(.horizontal, 4)
                     OiConnectionStatus(remote: remote)
@@ -98,9 +99,9 @@ struct OiStoryReview<StoryPhoto: View>: View {
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("돌아가기", systemImage: "chevron.left") { onEdit(.card) }
+                    Button("돌아가기", systemImage: "chevron.left", action: onClose)
                         .labelStyle(.iconOnly).disabled(isSubmitting)
-                        .accessibilityLabel("카드 꾸미기로 돌아가기")
+                        .accessibilityLabel("배치 미리보기로 돌아가기")
                 }
             }
         }
@@ -275,7 +276,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
                 Label(error, systemImage: "exclamationmark.circle")
                     .font(.footnote).foregroundStyle(.red)
             }
-            OiCreationNextButton(title: isSubmitting ? "검토 요청 중…" : "검토 요청하기",
+            OiCreationNextButton(title: isSubmitting ? "공개 검토 요청 중…" : "공개 검토 요청하기",
                                  enabled: canSubmit && !isSubmitting, action: onSubmit)
                 .accessibilityIdentifier("oi.story.confirmSubmit")
         }

@@ -181,8 +181,11 @@ struct OiDraftPlacementPreview: View {
     let draft: OiStoryDraft
     let wardrobe: OiWardrobeLook?
     let isShowingReview: Bool
+    let savedPlacement: OiPersonalPlacement?
+    let error: String?
     let onEdit: () -> Void
     let onEditLocation: () -> Void
+    let onPlace: (CampusPlacement) -> Void
     let onReview: () -> Void
     let onPlacementChange: (CampusPlacement, CampusRegion?) -> Void
 
@@ -190,6 +193,8 @@ struct OiDraftPlacementPreview: View {
     @State private var scene = CampusExploreScene()
     @State private var retry = 0
     @State private var locationError: String?
+
+    private var canUsePlacement: Bool { scene.placementReady && scene.placementPreview != nil && locationError == nil }
 
     private var placement: CampusPlacement? {
         guard let latitude = draft.latitude, let longitude = draft.longitude else { return nil }
@@ -256,7 +261,7 @@ struct OiDraftPlacementPreview: View {
                     .font(CampusStyle.semibold(16))
                     .foregroundStyle(Color("OiDark"))
                 if let placement = scene.placementPreview {
-                    Label("현장 AR 높이 \(placement.heightCentimeters)cm", systemImage: "ruler")
+                    Label("공개 시 현장 AR 높이 \(placement.heightCentimeters)cm", systemImage: "ruler")
                         .font(CampusStyle.semibold(17))
                         .accessibilityIdentifier("oi.creation.placementHeight")
                     Text("한 손가락으로 이동 · 핀치로 높이 조절\n두 손가락을 좌우로 움직이거나 비틀어 회전")
@@ -264,11 +269,24 @@ struct OiDraftPlacementPreview: View {
                     Text("사진 속 크기는 촬영 거리와 각도에 따라 달라져요.")
                         .font(CampusStyle.body(12)).foregroundStyle(.secondary)
                 }
-                OiCreationNextButton(title: "검토 요청 계속하기") {
+                if let error { Text(error).font(.footnote).foregroundStyle(.red) }
+                Label("내 지도 배치는 이 기기에서 나만 볼 수 있어요.", systemImage: "lock")
+                    .font(CampusStyle.body(13)).foregroundStyle(.secondary)
+                OiCreationNextButton(title: savedPlacement == nil ? "내 지도에 배치하기" : "내 지도 배치 저장하기",
+                                     enabled: canUsePlacement) {
+                    guard let placement = scene.placementPreview else { return }
+                    scene.commitPlacementPreview()
+                    onPlace(placement)
+                }
+                .accessibilityIdentifier("oi.creation.placeOnMyMap")
+                Button("공개 검토 요청") {
                     scene.commitPlacementPreview()
                     onReview()
                 }
-                    .accessibilityIdentifier("oi.creation.reviewPlacement")
+                .font(CampusStyle.medium(15)).tint(CampusStyle.sectionGreen)
+                .frame(minHeight: 44).disabled(!canUsePlacement)
+                .accessibilityIdentifier("oi.creation.reviewPlacement")
+                .accessibilityHint("이야기와 사진을 다른 사람에게 공개하기 위한 검토 화면으로 이동해요.")
             }
             .multilineTextAlignment(.center)
             .padding(.horizontal, 20).padding(.vertical, 12)

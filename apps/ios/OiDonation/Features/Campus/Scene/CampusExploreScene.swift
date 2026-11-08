@@ -11,9 +11,30 @@ extension OiLiveStory {
 }
 
 struct CampusAuthoredPlacement: Identifiable, Equatable {
+    enum Visibility: Equatable {
+        case personal, pending, published
+
+        var title: String {
+            switch self {
+            case .personal: "나만 보기"
+            case .pending: "검토 중 · 나만 보기"
+            case .published: "공개 중 · 내 오이"
+            }
+        }
+
+        init(story: OiLiveStory?) {
+            switch story?.status {
+            case "pending": self = .pending
+            case "published": self = .published
+            default: self = .personal
+            }
+        }
+    }
+
     let placement: CampusPlacement
+    let regionID: String
     let title: String
-    let isPending: Bool
+    let visibility: Visibility
     let wardrobe: OiWardrobeLook?
     var id: String { placement.storyID }
 
@@ -21,18 +42,27 @@ struct CampusAuthoredPlacement: Identifiable, Equatable {
         guard story.userId == owner, story.isRegisteredOnCampus,
               let placement = story.campusPlacement else { return nil }
 
-        // Compare the server fields without the revision, which also advances on approval.
-        var snapshot = OiStoryDraft(story: story)
-        snapshot.revision = localDraft?.draft.revision ?? snapshot.revision
-        snapshot.heightMeters = localDraft?.draft.heightMeters
-        snapshot.headingDegrees = localDraft?.draft.headingDegrees
-        let wardrobe = localDraft?.draft == snapshot ? localDraft?.customization?.wardrobe : nil
-        let isPending = story.status == "pending"
-        guard isPending || wardrobe != nil else { return nil }
+        // The private look belongs to the story ID, even if server normalization changes a field.
+        let wardrobe = localDraft?.id == story.id ? localDraft?.customization?.wardrobe : nil
+        let visibility = Visibility(story: story)
+        guard visibility == .pending || wardrobe != nil else { return nil }
         self.placement = placement
+        self.regionID = story.regionId
         self.title = story.cucumberName
-        self.isPending = isPending
+        self.visibility = visibility
         self.wardrobe = wardrobe
+    }
+
+    /// Records read from the signed-in account's vault are private to the home map.
+    init?(personal record: OiLocalDraft, story: OiLiveStory?) {
+        guard let saved = record.personalPlacement,
+              let placement = CampusPlacement.story(id: record.id, latitude: saved.latitude, longitude: saved.longitude,
+                  heightMeters: saved.heightMeters, headingDegrees: saved.headingDegrees) else { return nil }
+        self.placement = placement
+        self.regionID = saved.regionID
+        self.title = saved.name
+        self.visibility = Visibility(story: story)
+        self.wardrobe = record.customization?.wardrobe
     }
 }
 
@@ -357,8 +387,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         focus(region, stories: []); radius = 38; pitch = 0.9; updateCamera()
     }
 
-    func retainAuthoredPlacements(_ ids: Set<UUID>) {
-        setAuthoredPlacements(authoredPlacements.values.filter { ids.contains($0.placement.id) })
+    func authoredPlacement(id: UUID) -> CampusAuthoredPlacement? {
+        authoredPlacements[id.uuidString]
     }
 
     func setAuthoredPlacements(_ placements: [CampusAuthoredPlacement]) {
@@ -376,9 +406,11 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     func loadAuthoredModels() async {
         for item in authoredPlacements.values {
             guard !Task.isCancelled else { return }
-            guard let wardrobe = item.wardrobe, authoredModels[item.id] == nil else { continue }
+            guard authoredModels[item.id] == nil else { continue }
             do {
-                let model = try await OiWardrobeAsset.loadForPlacement(wardrobe)
+                let model: Entity
+                if let wardrobe = item.wardrobe { model = try await OiWardrobeAsset.loadForPlacement(wardrobe) }
+                else { model = try await CampusOiAsset.load() }
                 try Task.checkCancellation()
                 guard authoredPlacements[item.id] == item else { continue }
                 let bounds = model.visualBounds(relativeTo: model)
@@ -407,7 +439,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             let point = data.world(latitude: placement.latitude, longitude: placement.longitude)
             if let model = authoredModels[item.id] { attachAuthoredModel(item, template: model, data: data) }
 
-            let status = item.isPending ? "검토 대기 · 나만 보기" : "내 오이"
+            let status = item.visibility.title
             var configuration = UIButton.Configuration.filled()
             configuration.title = item.title
             configuration.subtitle = status
@@ -430,9 +462,9 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         let entity = template.clone(recursive: true)
         entity.name = "authored:" + item.id
         entity.position = data.world(latitude: placement.latitude, longitude: placement.longitude)
-        // Wardrobe assets are 1.5m tall before applying the story's saved AR height.
+        let templateHeight: Float = item.wardrobe == nil ? 1 : 1.5
         entity.scale = SIMD3(repeating: CampusPlacementGeometry.mapScale(unitsPerMeter: data.unitsPerMeter, editing: false)
-                            * Float(placement.heightMeters) / 1.5)
+                            * Float(placement.heightMeters) / templateHeight)
         entity.orientation = CampusOiAsset.heading(placement.headingDegrees)
         authoredLayer.addChild(entity)
     }

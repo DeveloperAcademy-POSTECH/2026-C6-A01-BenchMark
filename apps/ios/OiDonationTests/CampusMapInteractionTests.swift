@@ -12,7 +12,7 @@ import XCTest
 
 @MainActor
 final class CampusMapInteractionTests: XCTestCase {
-    func testAuthoredOiUsesSubmittedGroundAndKeepsPublicMarkerSeparate() async throws {
+    func testAuthoredOiShowsBeforeAndDuringReviewAndKeepsPublicMarkerSeparate() async throws {
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: windowScene)
         let controller = UIViewController()
@@ -53,24 +53,36 @@ final class CampusMapInteractionTests: XCTestCase {
         look.bottomColor = 0xA3BAD9
         var customization = OiDraftCustomization()
         customization.wardrobe = look
-        let local = OiLocalDraft(draft: OiStoryDraft(story: pending), submitted: true, customization: customization)
-        let authored = try XCTUnwrap(CampusAuthoredPlacement(story: pending, owner: owner, localDraft: local))
+        var local = OiLocalDraft(draft: OiStoryDraft(story: pending), customization: customization)
+        local.personalPlacement = OiPersonalPlacement(regionID: region.id, name: pending.cucumberName,
+            latitude: coordinate.latitude, longitude: coordinate.longitude, heightMeters: 1.2, headingDegrees: 135)
+        let personal = try XCTUnwrap(CampusAuthoredPlacement(personal: local, story: nil))
+        let markerID = "campus.authored." + storyID.uuidString
+        let modelName = "authored:" + storyID.uuidString
+        scene.setAuthoredPlacements([personal])
+        await scene.loadAuthoredModels()
+        XCTAssertEqual(personal.visibility, .personal)
+        XCTAssertEqual(personal.placement.headingDegrees, 135)
+        XCTAssertEqual(personal.wardrobe, look)
+        XCTAssertNotNil(canvas.map?.scene.findEntity(named: modelName), "The outfit loads on the campus overview")
+
+        let legacy = try XCTUnwrap(CampusAuthoredPlacement(story: pending, owner: owner, localDraft: local))
         XCTAssertNil(CampusAuthoredPlacement(story: pending, owner: UUID(), localDraft: local))
         XCTAssertNil(CampusAuthoredPlacement(story: story("hidden", revision: 4), owner: owner, localDraft: local))
         XCTAssertNil(CampusAuthoredPlacement(story: story("draft", revision: 4), owner: owner, localDraft: local))
         XCTAssertNil(CampusAuthoredPlacement(story: story("published", revision: 4), owner: owner, localDraft: nil))
-        var staleDraft = local
-        staleDraft.draft.latitude = coordinate.latitude + 0.001
-        XCTAssertNil(CampusAuthoredPlacement(story: pending, owner: owner, localDraft: staleDraft)?.wardrobe)
-        XCTAssertEqual(authored.wardrobe, look)
+        // Server receipts can normalize fields without changing the identity of the private outfit.
+        local.draft.latitude = coordinate.latitude + 0.001
+        XCTAssertEqual(CampusAuthoredPlacement(story: pending, owner: owner, localDraft: local)?.wardrobe, look)
+        XCTAssertEqual(legacy.wardrobe, look)
+        let authored = try XCTUnwrap(CampusAuthoredPlacement(personal: local, story: pending))
+        XCTAssertEqual(authored.placement, personal.placement, "Unconfirmed draft edits leave the saved position intact")
 
         scene.setAuthoredPlacements([authored])
         scene.focus(region, stories: [], placement: authored.placement)
         await scene.loadAuthoredModels()
-        let markerID = "campus.authored." + storyID.uuidString
-        let modelName = "authored:" + storyID.uuidString
         let marker = try XCTUnwrap(canvas.subviews.first { $0.accessibilityIdentifier == markerID } as? UIButton)
-        XCTAssertTrue(marker.accessibilityLabel?.contains("검토 대기 · 나만 보기") == true)
+        XCTAssertTrue(marker.accessibilityLabel?.contains("검토 중 · 나만 보기") == true)
         var opened: UUID?
         scene.onAuthoredPlacement = { opened = $0 }
         marker.sendActions(for: .touchUpInside)

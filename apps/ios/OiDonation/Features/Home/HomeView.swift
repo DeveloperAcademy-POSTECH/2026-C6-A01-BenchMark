@@ -27,23 +27,27 @@ struct HomeView: View {
     @State private var pendingStoryID: String?
     @State private var showingRequests = false
     @State private var listIsAtTop = true
-    @State private var authoredPlacementOwner: UUID?
-    @State private var selectedAuthoredStoryID: UUID?
+    @State private var loadedAuthoredSource: AuthoredPlacementSource?
+    @State private var selectedAuthoredDestination: AuthoredDestination?
+
+    private enum AuthoredDestination: Hashable {
+        case personal(UUID)
+        case story(UUID)
+    }
 
     private struct AuthoredPlacementSource: Equatable {
         let owner: UUID?
         let stories: [OiLiveStory]
-        let regionID: String?
+        let localRevision: Int
+        let hasLoadedRemote: Bool
     }
 
     private var authoredPlacementSource: AuthoredPlacementSource {
-        guard let remote, let owner = remote.account?.id, !remote.needsReauthentication else {
-            return AuthoredPlacementSource(owner: nil, stories: [], regionID: nil)
+        guard let remote, let owner = remote.account?.id, remote.canPlaceOi else {
+            return AuthoredPlacementSource(owner: nil, stories: [], localRevision: 0, hasLoadedRemote: false)
         }
-        let stories = remote.ownStories.filter {
-            $0.userId == owner && $0.isRegisteredOnCampus
-        }
-        return AuthoredPlacementSource(owner: owner, stories: stories, regionID: region?.id)
+        return AuthoredPlacementSource(owner: owner, stories: remote.ownStories.filter { $0.userId == owner },
+            localRevision: remote.localPlacementRevision, hasLoadedRemote: remote.hasLoadedRemote)
     }
 
     private var isLoadingStories: Bool {
@@ -106,8 +110,13 @@ struct HomeView: View {
             case .school(let school): MYCollectionView(demo: myDemo, school: school, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
             }
         }
-        .navigationDestination(item: $selectedAuthoredStoryID) { id in
-            if let remote { OiStoryManagement(remote: remote, storyID: id) }
+        .navigationDestination(item: $selectedAuthoredDestination) { destination in
+            if let remote, remote.canPlaceOi {
+                switch destination {
+                case .personal(let id): OiStoryEditor(remote: remote, localID: id)
+                case .story(let id): OiStoryManagement(remote: remote, storyID: id)
+                }
+            }
         }
         .sheet(isPresented: $showingSchools) {
             CampusSchoolSearchView {
@@ -149,7 +158,7 @@ struct HomeView: View {
         }
         .onChange(of: scene.ready) { _, _ in revealAuthoredPlacement() }
         .onChange(of: authoredPlacementToReveal.wrappedValue) { _, id in
-            if id != nil { selectedAuthoredStoryID = nil }
+            if id != nil { selectedAuthoredDestination = nil }
             revealAuthoredPlacement()
         }
         .onDisappear { isOnScreen = false; scene.suspendForARCamera() }
@@ -183,52 +192,57 @@ struct HomeView: View {
             openStory(id)
         }
         scene.onAuthoredPlacement = { id in
-            guard authoredPlacementSource.stories.contains(where: { $0.id == id }) else { return }
-            if store.story(id.uuidString) != nil {
+            let source = authoredPlacementSource
+            guard let owner = source.owner, loadedAuthoredSource?.owner == owner,
+                  let item = scene.authoredPlacement(id: id) else { return }
+            if item.visibility == .published, store.story(id.uuidString) != nil {
                 openStory(id.uuidString)
             } else {
                 scene.suspendForARCamera()
-                selectedAuthoredStoryID = id
+                selectedAuthoredDestination = source.stories.contains(where: { $0.id == id }) ? .story(id) : .personal(id)
             }
         }
     }
 
     private func pruneAuthoredPlacements(_ source: AuthoredPlacementSource) {
-        if authoredPlacementOwner != source.owner {
-            authoredPlacementOwner = source.owner
-            selectedAuthoredStoryID = nil
-            scene.setAuthoredPlacements([])
-        } else {
-            scene.retainAuthoredPlacements(Set(source.stories.map(\.id)))
-        }
+        guard loadedAuthoredSource?.owner != source.owner else { return }
+        loadedAuthoredSource = nil
+        selectedAuthoredDestination = nil
+        scene.setAuthoredPlacements([])
     }
 
     private func loadAuthoredPlacements(_ source: AuthoredPlacementSource) async {
         guard let remote, let owner = source.owner else { return }
-        var placements: [CampusAuthoredPlacement] = []
-        for story in source.stories {
-            guard !Task.isCancelled else { return }
-            // The overview only needs location labels; load 3D outfits for the open region.
-            let localDraft: OiLocalDraft? = if story.regionId == source.regionID {
-                try? await remote.localDraft(id: story.id, owner: owner)
-            } else {
-                nil
-            }
-            if let placement = CampusAuthoredPlacement(story: story, owner: owner, localDraft: localDraft) {
-                placements.append(placement)
-            }
-        }
+        let drafts = (try? await remote.localDraftListing())?.drafts ?? []
         guard !Task.isCancelled, authoredPlacementSource == source else { return }
+
+        let stories = source.stories.reduce(into: [UUID: OiLiveStory]()) { $0[$1.id] = $1 }
+        let records = drafts.reduce(into: [UUID: OiLocalDraft]()) { $0[$1.id] = $1 }
+        var placements = source.stories.compactMap { story in
+            CampusAuthoredPlacement(story: story, owner: owner, localDraft: records[story.id])
+        }
+        let personal = records.values.compactMap { record -> CampusAuthoredPlacement? in
+            let story = stories[record.id]
+            // A successfully submitted story that disappeared after sync was deleted.
+            guard !record.submitted || !source.hasLoadedRemote || story != nil else { return nil }
+            return CampusAuthoredPlacement(personal: record, story: story)
+        }
+        placements.append(contentsOf: personal) // A confirmed device position takes precedence on the owner's map.
         pruneAuthoredPlacements(source)
         scene.setAuthoredPlacements(placements)
+        loadedAuthoredSource = source
+        revealAuthoredPlacement()
         await scene.loadAuthoredModels()
     }
 
     private func revealAuthoredPlacement() {
-        guard isOnScreen, scene.ready, let id = authoredPlacementToReveal.wrappedValue,
-              let story = authoredPlacementSource.stories.first(where: { $0.id == id }),
-              let selectedRegion = CampusRegion.campus.first(where: { $0.id == story.regionId }) ?? scene.nearestRegion(),
-              let placement = story.campusPlacement
+        let source = authoredPlacementSource
+        guard isOnScreen, scene.ready, loadedAuthoredSource == source,
+              let id = authoredPlacementToReveal.wrappedValue else { return }
+        let item = scene.authoredPlacement(id: id)
+        let story = source.stories.first { $0.id == id && $0.isRegisteredOnCampus }
+        guard let placement = item?.placement ?? story?.campusPlacement,
+              let selectedRegion = CampusRegion.campus.first(where: { $0.id == (item?.regionID ?? story?.regionId) }) ?? scene.nearestRegion()
         else { return }
         region = selectedRegion; expanded = false; sort = .latest; searchResults = nil
         scene.focus(selectedRegion, stories: store.stories(in: selectedRegion.id, sortedBy: .latest), placement: placement)
@@ -414,7 +428,7 @@ struct HomeView: View {
                         Button("거리순") { sort = .distance; distances = scene.distances() }
                         Button("인기순") { sort = .popular }
                     } label: {
-                        Text("\(items.count)개").font(CampusStyle.medium(16)).tracking(0.32)
+                        Text("공개 \(items.count)개").font(CampusStyle.medium(16)).tracking(0.32)
                             .foregroundStyle(.black)
                             .padding(.horizontal, 16).frame(minWidth: 68).frame(height: 29)
                             .background(CampusStyle.secondaryAction, in: Capsule())
