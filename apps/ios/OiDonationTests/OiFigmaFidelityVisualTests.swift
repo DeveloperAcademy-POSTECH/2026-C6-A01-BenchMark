@@ -1039,7 +1039,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 defaults: fixture.defaults, delay: .milliseconds(600), attach: true)
         }
         for name in ["OiSampleMap", "OiSampleSummaryMap", "OiCatsPortrait", "OiCatsExampleCard",
-                     "OiFarmer", "OiStoryLocation", "OiMakgeolli", "OiPoka"] + (1...11).map({ String(format: "OiSampleGallery%02d", $0) }) {
+                     "OiFarmer", "OiStoryLocation", "OiPoka"] + (1...11).map({ String(format: "OiSampleGallery%02d", $0) }) {
             XCTAssertNotNil(UIImage(named: name), name)
         }
     }

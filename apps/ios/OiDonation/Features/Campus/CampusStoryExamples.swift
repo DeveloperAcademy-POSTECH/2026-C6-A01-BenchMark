@@ -12,10 +12,9 @@ struct CampusStoryExample: Hashable {
 
 enum CampusStoryExamples {
     // Source: Figma 메인 지도 뷰 (2876:8316), 요약 (3444:4276), 상세 (2450:4928).
-    // The list repeats the same three examples. Keep one record per cucumber;
-    // do not copy decorative map characters into invented donor stories/counts.
+    // Keep one record per cucumber; decorative map characters are not stories.
     static let stories: [CampusStory] = [
-        CampusStory(id: "example-six-cats", regionID: "pond", title: "6냥이오이", image: "OiCats",
+        CampusStory(id: OiSampleStory.id, regionID: "pond", title: "6냥이오이", image: "OiCats",
             tags: ["즐거움", "우정"], donor: "26학번 디벨로퍼학과 신수리",
             location: "포항공과대학교 지곡회관 옆 연못길", date: "2026년 10월 23일 (금)",
             order: 0, popularity: 0, palette: 0,
@@ -24,14 +23,10 @@ enum CampusStoryExamples {
                 body: OiSampleStory.body,
                 heroImage: "OiGallery02", cardImage: "OiCatsExampleCard",
                 galleryImages: (1...11).map { String(format: "OiGallery%02d", $0) },
-                relatedIDs: ["example-makgeolli", "example-poka"])),
-        CampusStory(id: "example-makgeolli", regionID: "pond", title: "막걸리마시오이", image: "OiMakgeolli",
-            tags: ["행복함", "우정"], donor: "26학번 반도체공학과 서수리",
-            location: "포항공과대학교 지곡회관 앞 연못길", date: "2026년 10월 23일 (금)",
-            order: 1, popularity: 0, palette: 1, example: CampusStoryExample()),
+                relatedIDs: ["example-poka"])),
         CampusStory(id: "example-poka", regionID: "pond", title: "포카전이겼오이", image: "OiPoka",
             tags: ["소름", "학교"], donor: "25학번 기계공학과 정수리",
             location: "포항공과대학교 지곡회관 뒤 주차장 중앙", date: "2026년 10월 21일 (수)",
-            order: 2, popularity: 0, palette: 2, example: CampusStoryExample())
+            order: 1, popularity: 0, palette: 2, example: CampusStoryExample())
     ]
 }
