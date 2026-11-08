@@ -89,9 +89,14 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
     @OiStoryPlacementNumber var heightMeters: Double? = nil
     @OiStoryPlacementNumber var headingDegrees: Double? = nil
     var cucumberAppearance: OiCucumberAppearance? = nil
+    var cardSnapshotId: UUID? = nil
 
     var cucumberArtwork: OiCucumberArtworkReference? {
         cucumberAppearance.map { .init(ownerID: storageOwnerId ?? userId, storyID: id, appearance: $0) }
+    }
+
+    var cardArtworkPath: String? {
+        cardSnapshotId.map { StoryCard.artworkPath(owner: storageOwnerId ?? userId, story: id, snapshot: $0) }
     }
 
     var isRegisteredOnCampus: Bool { status == "pending" || status == "published" }
@@ -375,6 +380,7 @@ struct OiCapabilities: Decodable {
     let schoolProfileEnabled: Bool?
     let farmerOutfitEnabled: Bool?
     let publicCucumberAppearance: Bool?
+    let publicStoryCard: Bool?
 }
 
 struct OiStoryDraft: Codable, Equatable {

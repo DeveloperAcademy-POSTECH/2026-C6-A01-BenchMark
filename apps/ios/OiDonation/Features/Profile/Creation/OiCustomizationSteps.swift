@@ -10,7 +10,6 @@ private enum OiCardTab: String, CaseIterable {
 struct OiCardCustomizationStep: View {
     @Binding var draft: OiStoryDraft
     @Binding var customization: OiDraftCustomization
-    let assets: [OiAsset]
     var donorName = ""
     var canContinue = true
     var isFinished = false
@@ -310,9 +309,8 @@ struct OiCardCustomizationStep: View {
     }
     private var storageDetails: some View {
         DisclosureGroup("저장·공개 안내") {
-            Text("공개 카드에는 꾸민 오이와 아래 카드 테두리를 사용해요. 배경, 문구, 익명 표시 등 내 카드 설정은 이 기기에 저장돼요.")
+            Text("꾸민 카드는 이 기기에 저장돼요. 공개 검토를 요청하면 카드 이미지도 검토하고, 승인된 모습을 다른 사람에게 보여줘요.")
                 .font(.caption).foregroundStyle(.secondary).padding(.vertical, 8)
-            OiCreationAssetPicker(assets: assets.filter { $0.kind == "card" }, selection: $draft.cardAsset, draft: draft)
         }.font(.caption).tint(Color("OiGreen"))
     }
     private var baseName: String { draft.cucumberName.hasSuffix("오이") ? String(draft.cucumberName.dropLast(2)) : draft.cucumberName }
@@ -424,36 +422,6 @@ struct OiCreationCharacterImage: View {
             Image(asset == "OiCats" ? "OiCatsPortrait" : asset).resizable().scaledToFit().accessibilityLabel("선택한 오이")
         } else {
             ContentUnavailableView("오이 미리보기를 불러올 수 없어요", systemImage: "leaf")
-        }
-    }
-}
-
-private struct OiCreationAssetPicker: View {
-    let assets: [OiAsset]
-    @Binding var selection: String
-    var draft: OiStoryDraft?
-    var body: some View {
-        if assets.isEmpty {
-            Text("선택할 수 있는 카드 세트가 없어요.").font(.footnote).foregroundStyle(.secondary)
-        } else {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 92))], spacing: 10) {
-                ForEach(assets) { asset in
-                    Button { selection = asset.id } label: {
-                        VStack(spacing: 6) {
-                            if asset.kind == "cucumber" { OiCreationCharacterImage(asset: asset.id).frame(height: 76) }
-                            else if let draft {
-                                MYCardArtwork(card: MYCard(id: draft.id.uuidString, title: draft.cucumberName,
-                                    image: draft.cucumberAsset, school: .postech, order: 0, body: draft.body,
-                                    donor: "", date: "", appearance: asset.id)).frame(height: 100)
-                            }
-                            Text(asset.name).font(.caption).lineLimit(2)
-                            if selection == asset.id { Image(systemName: "checkmark.circle.fill") }
-                        }.frame(maxWidth: .infinity).padding(10)
-                            .background(selection == asset.id ? Color("OiBorder") : Color("OiLight"), in: RoundedRectangle(cornerRadius: 14))
-                    }.buttonStyle(.plain).tint(Color("OiGreen"))
-                        .accessibilityAddTraits(selection == asset.id ? .isSelected : [])
-                }
-            }
         }
     }
 }

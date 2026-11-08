@@ -20,6 +20,7 @@ final class OiStoreURLProtocol: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() { Self.handle?(request, self) }
     override func stopLoading() { lock.lock(); stopped = true; lock.unlock() }
+    func timeOut() { client?.urlProtocol(self, didFailWithError: URLError(.timedOut)) }
     func respond(_ status: Int, _ data: Data) {
         lock.lock(); let canceled = stopped; lock.unlock()
         guard !canceled, let url = request.url,
@@ -39,7 +40,13 @@ final class OiTestBackend {
         var unapprovedDraftsEnabled: Bool? = true
         var independentStoryCreation: Bool? = true
         var publicCucumberAppearance = false
+        var publicStoryCard = false
         var failCucumberTextureUpload = false
+        var timeOutCardUploadAfterCommit = false
+        var timeOutSubmitAfterCommit = false
+        var timeOutSubmitBeforeCommit = false
+        var submitCount = 0
+        var artworkUploadAttempts = 0
         var hasWritingGrant = true
         var nickname = "Owner A"
         var farmName: String? = "오이"
@@ -195,7 +202,7 @@ final class OiTestBackend {
             else { result = ["error": state.analysisError] }
             if state.changeEvidenceAfterAnalysis { state.evidence?["submitted_at"] = "2026-11-04T03:00:00Z" }
             if state.revokeAfterAnalysis { state.isOperator = false }
-        } else if path.hasPrefix("/storage/v1/object/sign/") && path.contains("/appearance/") {
+        } else if path.hasPrefix("/storage/v1/object/sign/") && (path.contains("/appearance/") || path.contains("/card/")) {
             let key = String(path.dropFirst("/storage/v1/object/sign/".count))
             if let image = state.uploads[key] {
                 if request.httpMethod == "POST" { result = ["signedURL": String(path.dropFirst("/storage/v1".count)) + "?token=fixture"] }
@@ -203,9 +210,14 @@ final class OiTestBackend {
             } else { status = 404 }
         } else if path.contains("/storage/v1/object/") {
             let key = path.replacingOccurrences(of: "/storage/v1/object/", with: "")
+            if key.contains("/card/") || key.contains("/appearance/") { state.artworkUploadAttempts += 1 }
             if state.failCucumberTextureUpload && key.hasSuffix("/top.png") { status = 503 }
             else if state.uploads[key] != nil { status = 409 }
             else { state.uploads[key] = raw; result = ["Key":key] }
+            if status == 200, key.contains("/card/"), state.timeOutCardUploadAfterCommit {
+                state.timeOutCardUploadAfterCommit = false
+                lock.unlock(); client.timeOut(); return
+            }
         } else if path.hasSuffix("/rpc/oi_review_evidence") {
             let payload = body["p_payload"] as? [String: Any] ?? [:]
             let wanted = payload["status"] as? String ?? ""
@@ -236,6 +248,10 @@ final class OiTestBackend {
                 story["status"] = "draft"
                 story["revision"] = (payload["revision"] as? Int ?? 0)+1
                 story["created_at"] = "2026-10-28T00:00:00Z"
+                if state.story?["id"] as? String == payload["id"] as? String {
+                    story["card_snapshot_id"] = state.story?["card_snapshot_id"]
+                    story["cucumber_appearance"] = state.story?["cucumber_appearance"]
+                }
                 state.story = story; result = story
             } else if action == "attach_media" {
                 state.paths = payload["paths"] as? [String] ?? []
@@ -243,10 +259,25 @@ final class OiTestBackend {
                 state.story?["revision"] = nextRevision
                 result = state.story ?? [:]
             } else if action == "submit_story" {
+                state.submitCount += 1
+                if state.timeOutSubmitBeforeCommit {
+                    state.timeOutSubmitBeforeCommit = false
+                    lock.unlock(); client.timeOut(); return
+                }
                 state.submittedTitle = state.story?["title"] as? String
                 if let appearance = payload["cucumber_appearance"] { state.story?["cucumber_appearance"] = appearance }
+                if let card = payload["card_snapshot_id"] { state.story?["card_snapshot_id"] = card }
                 state.story?["status"] = "pending"
                 let nextRevision = (state.story?["revision"] as? Int ?? 0)+1
+                state.story?["revision"] = nextRevision
+                result = state.story ?? [:]
+                if state.timeOutSubmitAfterCommit {
+                    state.timeOutSubmitAfterCommit = false
+                    lock.unlock(); client.timeOut(); return
+                }
+            } else if action == "reopen_story" {
+                state.story?["status"] = "draft"
+                let nextRevision = (state.story?["revision"] as? Int ?? 0) + 1
                 state.story?["revision"] = nextRevision
                 result = state.story ?? [:]
             } else if action == "review_story" {
@@ -257,6 +288,8 @@ final class OiTestBackend {
                 else if !["published", "hidden"].contains(wanted) { status = 400 }
                 else if wanted == "published", let appearance = state.story?["cucumber_appearance"] as? [String: Any],
                         appearance["id"] as? String != payload["appearance_id"] as? String { status = 409 }
+                else if wanted == "published", let card = state.story?["card_snapshot_id"] as? String,
+                        card != payload["card_snapshot_id"] as? String { status = 409 }
                 else {
                     state.story?["status"] = wanted
                     let nextRevision = (state.story?["revision"] as? Int ?? 0) + 1
@@ -316,6 +349,7 @@ final class OiTestBackend {
             if let enabled = state.unapprovedDraftsEnabled { capabilities["unapproved_drafts_enabled"] = enabled }
             if let independent = state.independentStoryCreation { capabilities["independent_story_creation"] = independent }
             if state.publicCucumberAppearance { capabilities["public_cucumber_appearance"] = true }
+            if state.publicStoryCard { capabilities["public_story_card"] = true }
             if let canonical = state.canonicalAccountID {
                 capabilities["account_id"] = canonical.uuidString
                 capabilities["account_merge_enabled"] = true
@@ -2092,6 +2126,7 @@ final class OiRemoteStoreTests: XCTestCase {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
         if checkPersonal { backend.configure { $0.hasWritingGrant = false; $0.unapprovedDraftsEnabled = false } }
+        if checkReview { backend.configure { $0.publicCucumberAppearance = true; $0.publicStoryCard = true } }
         await store.start()
         var look = OiDraftCustomization()
         look.wardrobe = OiWardrobeLook()
@@ -2192,7 +2227,8 @@ final class OiRemoteStoreTests: XCTestCase {
                         XCTAssertTrue(sawPlacement)
                         XCTAssertEqual(backendState.submittedTitle, input.title)
                         XCTAssertEqual(backendState.paths.count, photos.count)
-                        XCTAssertNil(submitted["customization"], "Local costume and card photos stay on the device")
+                        XCTAssertNotNil(submitted["card_snapshot_id"], "Submit the reviewed card image with the story")
+                        XCTAssertNil(submitted["customization"], "Original photos and editing settings stay on the device")
                         return
                     }
                 } else {
@@ -2582,6 +2618,63 @@ final class OiRemoteStoreTests: XCTestCase {
         let clipStory = try await repository.fetchPublicStory(storyID: pending.id.uuidString)
         XCTAssertEqual(clipStory?.hasCustomCucumberImage, true)
         XCTAssertEqual(clipStory?.cucumberImageURL?.path, "/storage/v1/object/sign/oi-story-media/" + artwork.path(.portrait))
+    }
+
+    @MainActor func testAuthoredCardIsReviewedAndReusedWhenStoryIsResubmitted() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure {
+            $0.isOperator = true; $0.publicStoryCard = true; $0.publicCucumberAppearance = true
+            $0.timeOutCardUploadAfterCommit = true
+        }
+        await store.start()
+        let input = draft()
+        var customization = OiDraftCustomization()
+        customization.firstColor = 0x3F7DA4
+        var design = OiCardDesign(); design.caption = "검토용 카드 문구"; design.anonymous = true
+        customization.card = design
+        let preview = OiDraftCardPreview(draft: input, customization: customization, donorName: "Fixture")
+        let card = try preview.publication(colorScheme: .light)
+        XCTAssertEqual(try preview.publication(colorScheme: .light).id, card.id)
+        let image = try OiPublishedCucumberImage.decode(card.png, part: .portrait)
+        XCTAssertEqual(image.width, 724)
+        XCTAssertEqual(image.height, 1004)
+        let cucumber = try OiCucumberPublication(look: OiWardrobeLook(), portrait: card.png)
+
+        let draftReceipt = await store.save(input)
+        let saved = try XCTUnwrap(draftReceipt)
+        let pendingReceipt = await store.submitStory(saved, cucumber: cucumber, card: card)
+        let pending = try XCTUnwrap(pendingReceipt, "A committed image must survive a lost upload response")
+        let cardPath = try XCTUnwrap(pending.cardArtworkPath)
+        XCTAssertEqual(backend.snapshot().uploads["oi-story-media/" + cardPath], card.png)
+        let repository = RealStoryRepository(key: "sb_publishable_testing", session: session)
+        let privateCard = try await repository.fetchPublicStoryCard(storyID: saved.id.uuidString)
+        XCTAssertNil(privateCard)
+
+        let approved = try await store.reviewOperatorStory(pending, publish: true).story
+        let publicCard = try await repository.fetchPublicStoryCard(storyID: saved.id.uuidString)
+        XCTAssertEqual(publicCard?.imageURL?.path, "/storage/v1/object/sign/oi-story-media/" + cardPath)
+        XCTAssertEqual(store.campusStory(approved).cardArtworkPath, cardPath)
+        let uploadCount = backend.snapshot().artworkUploadAttempts
+
+        await store.perform("reopen_story", payload: ["id": approved.id.uuidString, "revision": approved.revision])
+        var edited = OiStoryDraft(story: try XCTUnwrap(store.ownStories.first { $0.id == approved.id }))
+        edited.body = "Edited after approval"
+        let editReceipt = await store.save(edited)
+        let resubmitting = try XCTUnwrap(editReceipt)
+        backend.configure { $0.timeOutSubmitBeforeCommit = true }
+        let unconfirmed = await store.submitStory(resubmitting, cucumber: cucumber, card: card)
+        XCTAssertNil(unconfirmed, "An uncommitted request must remain a draft")
+        XCTAssertEqual(store.ownStories.first?.status, "draft")
+        backend.configure { $0.timeOutSubmitAfterCommit = true }
+        let confirmed = await store.submitStory(resubmitting, cucumber: cucumber, card: card)
+        XCTAssertEqual(confirmed?.status, "pending", "Verify the committed revision without submitting twice")
+        XCTAssertEqual(confirmed?.body, edited.body)
+        XCTAssertEqual(confirmed?.cardArtworkPath, cardPath)
+        XCTAssertEqual(backend.snapshot().submitCount, 3)
+        XCTAssertEqual(backend.snapshot().artworkUploadAttempts, uploadCount)
+        let pendingCard = try await repository.fetchPublicStoryCard(storyID: saved.id.uuidString)
+        XCTAssertNil(pendingCard)
     }
 }
 

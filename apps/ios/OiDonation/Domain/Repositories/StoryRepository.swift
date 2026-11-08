@@ -36,6 +36,7 @@ struct RealStoryRepository: StoryRepository {
         let cucumberAsset: String?
         let storageOwnerId: UUID?
         let cucumberAppearance: Appearance?
+        let cardSnapshotId: UUID?
     }
     private struct Profile: Decodable { let id: UUID; let nickname: String }
     private struct Region: Decodable { let id: String; let name: String }
@@ -96,11 +97,17 @@ struct RealStoryRepository: StoryRepository {
         return try decoder.decode([PublicStorySummary].self, from: data)
     }
 
-    func fetchPublicStory(storyID: String) async throws -> Story? {
+    private func publishedRecord(storyID: String) async throws -> Record? {
         guard let id = UUID(uuidString: storyID) else { return nil }
         guard let row = try await rows("oi_stories", id: id.uuidString, as: Record.self).first else { return nil }
         guard row.id == id, row.status == "published" else { throw Failure.invalidResponse }
         guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
+        return row
+    }
+
+    func fetchPublicStory(storyID: String) async throws -> Story? {
+        guard let row = try await publishedRecord(storyID: storyID) else { return nil }
+        let id = row.id
         let profiles = try await rows("oi_profiles", id: row.userId.uuidString, as: Profile.self)
         let regions = try await rows("oi_regions", id: row.regionId, as: Region.self)
         let parser = ISO8601DateFormatter(); parser.formatOptions = [.withInternetDateTime,.withFractionalSeconds]
@@ -108,7 +115,8 @@ struct RealStoryRepository: StoryRepository {
         guard let date = fractional ?? parser.date(from: row.createdAt) else { throw Failure.invalidResponse }
         let portraitURL: URL?
         if let appearance = row.cucumberAppearance {
-            portraitURL = try? await publishedCucumberURL(story: id, owner: row.storageOwnerId ?? row.userId, appearance: appearance.id)
+            let path = "\((row.storageOwnerId ?? row.userId).uuidString.lowercased())/\(id.uuidString.lowercased())/appearance/\(appearance.id.uuidString.lowercased())/portrait.png"
+            portraitURL = try? await publishedArtworkURL(path: path)
         } else { portraitURL = cucumberImageURL(for: row.cucumberAsset) }
         try Task.checkCancellation()
         guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
@@ -119,9 +127,9 @@ struct RealStoryRepository: StoryRepository {
             cucumberImageURL: portraitURL, hasCustomCucumberImage: row.cucumberAppearance != nil)
     }
 
-    private func publishedCucumberURL(story: UUID, owner: UUID, appearance: UUID) async throws -> URL {
+    private func publishedArtworkURL(path: String) async throws -> URL {
         struct SignedResponse: Decodable { let signedURL: String }
-        let prefix = "/object/sign/oi-story-media/\(owner.uuidString.lowercased())/\(story.uuidString.lowercased())/appearance/\(appearance.uuidString.lowercased())/portrait.png"
+        let prefix = "/object/sign/oi-story-media/\(path)"
         let base = "https://\(transport.approvedHost)/storage/v1"
         guard let endpoint = URL(string: base + prefix) else { throw Failure.configuration }
         var request = URLRequest(url: endpoint); request.httpMethod = "POST"
@@ -150,7 +158,14 @@ struct RealStoryRepository: StoryRepository {
     }
 
     func fetchPublicStoryCard(storyID: String) async throws -> StoryCard? {
-        guard let story = try await fetchPublicStory(storyID: storyID) else { return nil }
-        return StoryCard(cardID: story.storyID, storyID: story.storyID, imageURL: nil)
+        guard let row = try await publishedRecord(storyID: storyID) else { return nil }
+        let imageURL: URL?
+        if let snapshot = row.cardSnapshotId {
+            let path = StoryCard.artworkPath(owner: row.storageOwnerId ?? row.userId, story: row.id, snapshot: snapshot)
+            imageURL = try await publishedArtworkURL(path: path)
+        } else { imageURL = nil }
+        try Task.checkCancellation()
+        guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
+        return StoryCard(cardID: row.id.uuidString, storyID: row.id.uuidString, imageURL: imageURL)
     }
 }
