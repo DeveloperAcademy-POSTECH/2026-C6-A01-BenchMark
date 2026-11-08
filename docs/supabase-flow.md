@@ -192,3 +192,11 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project app
 ![정상 로컬 서명에서 실제 로그인 진입](../apps/ios/docs/verification/mylive/account.png)
 
 기존 `campus.designExample.collectedIDs.v1` 예시 수집 캐시도 앱 시작 때 해당 키만 제거한다. 서버 수집·App Clip 기기 보관·다른 사용자 설정은 삭제하지 않는다. 격리된 UserDefaults 검사에서 예시 키 제거와 무관한 설정 보존을 확인했다.
+
+## Apple 로그인 토큰 철회 — #251
+
+본 앱의 Apple 로그인(`com.Spero.OiDonation`)에서 받은 일회용 코드는 `apple-sign-in-token`으로 보낸다. 함수는 Supabase의 사용자와 Apple 토큰 응답의 식별자를 대조한 뒤 갱신 토큰을 AES-256-GCM으로 암호화해 해당 Apple 로그인 식별자에 연결한다. 탈퇴 함수는 같은 계정의 재인증과 파일 정리가 끝나면 Apple로 다시 인증할 때 받은 코드 또는 저장한 토큰으로 연결된 Apple 토큰을 철회한다. 사용할 토큰이 없거나 Apple 요청에 실패해도 탈퇴를 완료하고 수동 연결 해제를 안내한다.
+
+1. 운영 서버에 `20261109004000_oi_apple_token_revocation.sql`을 적용한다.
+2. Apple Developer에서 본 앱의 Sign in with Apple 키를 준비한다. Supabase Edge Function 비밀 설정에 `APPLE_SIGN_IN_TEAM_ID`, `APPLE_SIGN_IN_KEY_ID`, `APPLE_SIGN_IN_PRIVATE_KEY`(PKCS#8 `.p8`), `APPLE_TOKEN_ENCRYPTION_KEY`(난수 32바이트를 Base64로 인코딩)를 넣는다. 동일한 암호화 키를 두 함수에서 사용하며 기존 암호문이 남아 있는 동안 해당 키를 유지한다.
+3. `apple-sign-in-token`과 `delete-account`를 JWT 검증을 유지한 채 배포한다. 시험 Apple 계정으로 로그인, 탈퇴, Apple 설정에서 앱 연결 해제를 확인하고 다시 가입한다. Apple·Google 통합 시험 계정은 Google로 재인증해도 이미 저장된 Apple 연결이 해제되는지 확인한다. [Apple의 토큰 철회 절차](https://developer.apple.com/documentation/technotes/tn3194-handling-account-deletions-and-revoking-tokens-for-sign-in-with-apple)

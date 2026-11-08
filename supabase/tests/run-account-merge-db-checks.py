@@ -93,7 +93,7 @@ try:
         run(connection, input="""create role service_role nologin bypassrls;
 alter table auth.users add column created_at timestamptz not null default now();
 create table auth.sessions(id uuid primary key,user_id uuid not null references auth.users(id) on delete cascade,created_at timestamptz not null default now());
-create table auth.identities(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users(id) on delete cascade,provider text not null);
+create table auth.identities(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users(id) on delete cascade,provider text not null,provider_id text);
 create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb; $$;
 grant execute on function auth.jwt() to anon,authenticated;
 """, text=True)
@@ -161,7 +161,7 @@ grant execute on function auth.jwt() to anon,authenticated;
         run(remote_connection, input=bootstrap, text=True)
         extra = """alter table auth.users add column created_at timestamptz not null default now();
 create table auth.sessions(id uuid primary key,user_id uuid not null references auth.users(id) on delete cascade,created_at timestamptz not null default now());
-create table auth.identities(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users(id) on delete cascade,provider text not null);
+create table auth.identities(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users(id) on delete cascade,provider text not null,provider_id text);
 create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb; $$;
 grant execute on function auth.jwt() to anon,authenticated;
 """

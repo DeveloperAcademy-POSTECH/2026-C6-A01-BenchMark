@@ -1,4 +1,6 @@
-type Config = { url: string; publicKey: string; serviceKey: string };
+import { type AppleConfiguration, decryptAppleToken, exchangeAppleCode, isAppleCode, revokeAppleToken } from "../_shared/apple-credentials.ts";
+
+type Config = { url: string; publicKey: string; serviceKey: string; apple?: AppleConfiguration };
 type ObjectEntry = { bucket: "oi-evidence" | "oi-story-media"; name: string };
 const uuid = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const tokenPattern = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
@@ -34,6 +36,23 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+async function revokeLinkedAppleTokens(config: AppleConfiguration, value: unknown, proofUser: string,
+  code: unknown, fetcher: typeof fetch, signal: AbortSignal): Promise<boolean> {
+  if (!Array.isArray(value) || !value.length) return false;
+  const identities = value.map(record);
+  const fresh = isAppleCode(code) && identities.some(identity => identity.user_id === proofUser)
+    ? await exchangeAppleCode(config, code, fetcher, signal).catch(() => undefined) : undefined;
+  const revoked = await Promise.all(identities.map(async identity => {
+    if (typeof identity.subject !== "string" || !identity.subject) return false;
+    try {
+      const token = fresh && identity.user_id === proofUser && identity.subject === fresh.subject ? fresh.refreshToken
+        : typeof identity.encrypted_token === "string" ? await decryptAppleToken(config, identity.subject, identity.encrypted_token) : null;
+      return token !== null && await revokeAppleToken(config, token, fetcher, signal);
+    } catch { return false; }
+  }));
+  return revoked.every(Boolean);
+}
+
 export function createHandler(config: Config, fetcher: typeof fetch = fetch, clock = Date.now) {
   return async (request: Request): Promise<Response> => {
     if (request.method !== "POST") return reply({ error: "method_not_allowed" }, 405);
@@ -51,7 +70,8 @@ export function createHandler(config: Config, fetcher: typeof fetch = fetch, clo
     catch (error) { return error instanceof DeleteFailure ? reply({ error: error.code }, error.status) : reply({ error: "invalid_request" }, 400); }
     if (typeof input.account_id !== "string" || !uuid.test(input.account_id) || input.consent !== true
       || typeof input.proof !== "string" || input.proof.length > 16384 || !tokenPattern.test(input.proof)
-      || Object.keys(input).some(key => !["account_id", "consent", "proof"].includes(key))) {
+      || ("apple_code" in input && !isAppleCode(input.apple_code))
+      || Object.keys(input).some(key => !["account_id", "consent", "proof", "apple_code"].includes(key))) {
       return reply({ error: "invalid_request" }, 400);
     }
     let prepared = false;
@@ -97,11 +117,24 @@ export function createHandler(config: Config, fetcher: typeof fetch = fetch, clo
           return { bucket: item.bucket, name: item.name };
         });
         if (!files.length) {
+          let appleRevoked = false;
+          if (config.apple) {
+            try {
+              const appleSignal = AbortSignal.any([signal, AbortSignal.timeout(6_000)]);
+              const response = await send("/rest/v1/rpc/oi_apple_revocation_credentials", { method: "POST",
+                headers: serviceHeaders, body: JSON.stringify({ p_account: input.account_id }) });
+              if (response.ok) {
+                appleRevoked = await revokeLinkedAppleTokens(config.apple, await readJSON(response.body, 256 * 1024),
+                  proof.user, input.apple_code, fetcher, appleSignal);
+              } else await response.body?.cancel();
+            } catch { /* Complete deletion and ask the user to disconnect Apple manually if needed. */ }
+          }
           const result = await rpc("finish");
           if (result.deleted !== true || typeof result.apple_revocation_required !== "boolean"
             || !Array.isArray(result.deleted_member_ids) || !result.deleted_member_ids.length
             || !result.deleted_member_ids.every(id => typeof id === "string" && uuid.test(id))) throw new Error("invalid_receipt");
-          return reply({ deleted: true, apple_revocation_required: result.apple_revocation_required, deleted_member_ids: result.deleted_member_ids });
+          return reply({ deleted: true, apple_revocation_required: result.apple_revocation_required && !appleRevoked,
+            deleted_member_ids: result.deleted_member_ids });
         }
         for (const bucket of ["oi-evidence", "oi-story-media"] as const) {
           const prefixes = files.filter(item => item.bucket === bucket).map(item => item.name);
