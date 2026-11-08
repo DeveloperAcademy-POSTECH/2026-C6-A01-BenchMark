@@ -102,6 +102,9 @@ enum OiEvidenceAnalysisError: LocalizedError {
 }
 
 @MainActor @Observable final class OiOperatorEvidenceHistoryModel {
+    // Avoid the synthesized isolated deinit crash on early iOS 26 (Swift #88036).
+    nonisolated deinit {}
+
     private(set) var rows: [OiEvidenceHistory] = []
     private(set) var isLoading = false
     private(set) var hasLoaded = false
@@ -119,6 +122,9 @@ enum OiEvidenceAnalysisError: LocalizedError {
 }
 
 @MainActor @Observable final class OiOperatorEvidenceAnalysisModel {
+    // Avoid the synthesized isolated deinit crash on early iOS 26 (Swift #88036).
+    nonisolated deinit {}
+
     private(set) var result: OiEvidenceAnalysis?
     private(set) var isLoading = false
     private(set) var error: String?
