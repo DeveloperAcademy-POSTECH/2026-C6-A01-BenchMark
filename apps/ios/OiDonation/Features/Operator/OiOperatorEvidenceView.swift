@@ -59,7 +59,6 @@ struct OiOperatorEvidenceDetailView: View {
     var onUpdated: (OiEvidence) -> Void = { _ in }
     @State private var model = OiOperatorEvidenceModel()
     @State private var decision: OiEvidenceDecision = .approved
-    @State private var count = ""
     @State private var note = ""
     @State private var inputError: String?
     @State private var original: OiEvidence?
@@ -85,7 +84,7 @@ struct OiOperatorEvidenceDetailView: View {
                     if row.reviewedAt != nil { LabeledContent("검토 시각", value: row.reviewedDateLabel) }
                     if let note = row.reviewNote, !note.isEmpty { Text("검토 의견: \(note)") }
                     ForEach(model.detail?.grants ?? []) { grant in
-                        LabeledContent(grant.revokedAt == nil ? "작성 승인" : "철회된 작성 승인", value: "이야기 \(grant.storyLimit)개")
+                        LabeledContent("이전 작성 승인 기록", value: "\(grant.storyLimit)개 · \(grant.revokedAt == nil ? "기록 보관" : "철회 기록")")
                     }
                 }
                 Section("비공개 증빙 원본") {
@@ -107,20 +106,14 @@ struct OiOperatorEvidenceDetailView: View {
                             Picker("처리", selection: $decision) {
                                 ForEach([OiEvidenceDecision.approved, .changesRequested, .rejected]) { Text($0.title).tag($0) }
                             }.pickerStyle(.menu)
-                            if decision == .approved {
-                                TextField("승인할 이야기 수 (직접 입력)", text: $count).keyboardType(.numberPad)
-                                Text("승인할 이야기 수는 운영 기준에 따라 직접 입력해 주세요.").font(.footnote).foregroundStyle(.secondary)
-                            }
-                        } else {
-                            Text("승인을 철회하면 연결된 작성 승인이 취소되고 해당 이야기들이 비공개로 전환됩니다.")
                         }
                         TextField("검토 의견 (보완·반려·철회 시 필수)", text: $note, axis: .vertical).lineLimit(3...8)
                         if let inputError { Text(inputError).foregroundStyle(.red) }
                         if model.isProcessing { ProgressView("검토 결과를 처리하는 중") }
-                        Button(row.status == "approved" ? "승인 철회 검토" : "검토 결과 확인") {
+                        Button(row.status == "approved" ? "검토 결과 철회" : "검토 결과 확인") {
                             do {
                                 confirmation = try OiEvidenceReview(snapshot: row, decision: row.status == "approved" ? .revoked : decision,
-                                                                    note: note, count: count)
+                                                                    note: note)
                                 inputError = nil; showingConfirmation = true
                             } catch { inputError = error.localizedDescription }
                         }
@@ -133,7 +126,7 @@ struct OiOperatorEvidenceDetailView: View {
                 Section { Button("최신 상태 다시 불러오기") { Task { await load() } }.disabled(model.isProcessing || remote.isBusy) }
             }
             Section {
-                Text("이 처리는 앱 내 글 작성 권한을 검토합니다. 학교의 공식 납입 확인·영수증 발급이나 이야기 공개 승인이 아닙니다.")
+                Text("이 화면은 기부 자료의 검토 결과를 기록해요. 이야기 공개는 콘텐츠 검토에서, 공식 납입 확인과 영수증 발급은 학교에서 처리해요.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
@@ -152,7 +145,7 @@ struct OiOperatorEvidenceDetailView: View {
                 Button("\(review.decision.title) 확정", role: review.decision == .revoked ? .destructive : nil) {
                     Task {
                         guard phase == .active else { return }
-                        if let saved = await model.review(review, using: remote) { onUpdated(saved); note = ""; count = "" }
+                        if let saved = await model.review(review, using: remote) { onUpdated(saved); note = "" }
                         viewed = nil; confirmation = nil
                     }
                 }
@@ -160,9 +153,7 @@ struct OiOperatorEvidenceDetailView: View {
             Button("취소", role: .cancel) { confirmation = nil }
         } message: {
             if let review = confirmation {
-                Text(review.decision == .approved ? "이야기 \(review.storyLimit ?? 0)개의 작성 권한을 승인합니다."
-                     : review.decision == .revoked ? "작성 승인을 철회하고 연결된 이야기들을 비공개로 전환합니다."
-                     : "‘\(review.decision.title)’ 상태와 검토 의견을 저장합니다.")
+                Text("‘\(review.decision.title)’ 상태와 검토 의견을 저장합니다.")
             }
         }
         .onChange(of: phase) { _, value in if value != .active { clearPrivateState() } }
@@ -178,7 +169,7 @@ struct OiOperatorEvidenceDetailView: View {
     }
     private func load() async {
         guard !model.isProcessing else { return }
-        clearPrivateState(); inputError = nil; note = ""; count = ""; decision = .approved
+        clearPrivateState(); inputError = nil; note = ""; decision = .approved
         await model.load(evidenceID, using: remote)
         if let row = model.detail?.evidence { onUpdated(row) }
     }

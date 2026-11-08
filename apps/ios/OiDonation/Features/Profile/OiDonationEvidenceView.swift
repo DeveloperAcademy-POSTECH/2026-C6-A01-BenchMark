@@ -56,7 +56,6 @@ struct OiDonationEvidenceView: View {
     }
 
     private var ownEvidence: [OiEvidence] { remote.evidence.filter { $0.userId == remote.account?.id } }
-    private var approvalCount: Int { ownEvidence.filter { $0.status == "approved" }.count }
     private var selected: OiEvidence? { ownEvidence.first { $0.id == selectedID } }
     private var replacing: OiEvidence? {
         guard let selected, ["changes_requested", "rejected"].contains(selected.status) else { return nil }
@@ -71,7 +70,7 @@ struct OiDonationEvidenceView: View {
             if remote.account == nil || remote.needsReauthentication {
                 ContentUnavailableView {
                     Label("로그인이 필요해요", systemImage: "person")
-                } description: { Text("본인 계정으로 기부 인증 자료를 제출해 주세요.") }
+                } description: { Text("로그인하면 원하는 경우 기부 자료를 제출하고 검토 상태를 확인할 수 있어요.") }
                 actions: { NavigationLink("로그인하기") { MYSettingsView(remote: remote) } }
             } else if !remote.hasLoadedRemote {
                 OiConnectionStatus(remote: remote)
@@ -81,9 +80,6 @@ struct OiDonationEvidenceView: View {
                     attachmentImage: attachment.flatMap { $0.mime == "application/pdf" ? nil : UIImage(data: $0.data) },
                     isProcessing: processing || remote.isBusy, canSubmit: canAct && attachment != nil && !canRetryUpload,
                     selectedID: selectedID, review: review, message: error,
-                    writingGuidance: OiWritingGuidance.message(
-                        unapprovedDraftsEnabled: remote.loadError == nil ? remote.unapprovedDraftsEnabled : nil
-                    ),
                     onAttach: showAttachmentSources,
                     onSubmit: { if let attachment { request(.submit(attachment)) } },
                     onSelect: { selectedID = $0.id; review = nil; error = nil })
@@ -112,17 +108,6 @@ struct OiDonationEvidenceView: View {
                 Button { dismiss() } label: { Image(systemName: "chevron.left").font(.system(size: 19, weight: .semibold)) }
                     .buttonBorderShape(.circle).controlSize(.large).accessibilityLabel("뒤로")
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 10) {
-                    DonationSeedArtwork()
-                    Text("\(approvalCount)개")
-                        .font(.custom("Paperlogy-7Bold", size: 20, relativeTo: .title3))
-                }.padding(.horizontal, 18).padding(.vertical, 8)
-                    .background(Color(red: 1, green: 254 / 255, blue: 228 / 255), in: Capsule())
-                    .overlay { Capsule().stroke(Color(red: 198 / 255, green: 191 / 255, blue: 91 / 255), lineWidth: 1.5) }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("작성 승인된 증빙 \(approvalCount)건")
-            }.sharedBackgroundVisibility(.hidden)
         }
         .sheet(isPresented: $choosingSource, onDismiss: openPendingPicker) {
             attachmentSourceSheet
@@ -147,7 +132,7 @@ struct OiDonationEvidenceView: View {
             Button("동의하고 요청") { startJob() }
             Button("취소", role: .cancel) { requestedOperation = nil }
         } message: {
-            Text("선택한 기부 증빙을 비공개로 제출하고 OpenAI에 전송해 시각적 수정을 검사해요. 불필요한 개인정보는 가려 주세요. AI 검사는 참고용이며, 실제 납입과 자료의 진위는 별도 확인이 필요해요. 작성 승인은 운영자가 판단해요.")
+            Text("기부 자료 제출은 선택이에요. 자료를 제출하려면 기부처, 기부일, 금액을 확인할 수 있는 영수증이나 입금 내역을 선택하고 불필요한 개인정보는 가려 주세요. 자료는 운영팀에 비공개로 제출되며 시각적 수정 여부를 참고로 검사하기 위해 OpenAI에 전송돼요. 공식 납입 확인과 영수증 발급은 수납처에 문의해 주세요.")
         }
         .task(id: selection?.id) { if let selection { await load(selection) } }
         .task(id: job?.id) { if let job { await perform(job) } }

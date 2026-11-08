@@ -84,7 +84,6 @@ struct MYWorkshopView: View {
                     if isSignedIn && !dynamicTypeSize.isAccessibilitySize {
                         workshopTitle.frame(maxWidth: max(0, geometry.size.width - 180))
                             .position(x: geometry.size.width / 2, y: 97.5 * scale)
-                        evidenceLink.position(x: geometry.size.width - 55 * scale, y: 97.5 * scale)
                     }
                 }.frame(width: geometry.size.width, height: sceneHeight).clipped()
             }.scrollBounceBehavior(.basedOnSize).scrollIndicators(.hidden)
@@ -97,7 +96,6 @@ struct MYWorkshopView: View {
             if dynamicTypeSize.isAccessibilitySize {
                 if isSignedIn {
                     workshopTitle
-                    evidenceLink
                 }
                 else {
                     Text("MY 페이지는 로그인 후 사용할 수 있습니다")
@@ -108,19 +106,6 @@ struct MYWorkshopView: View {
                     else { MYSettingsView(demo: demo, remote: remote) }
                 }
                     .font(.body).padding(12).background(.regularMaterial, in: Capsule()).padding(.bottom, 8)
-            }
-        }
-    }
-
-    private var evidenceLink: some View {
-        Group {
-            if let remote {
-                NavigationLink { OiDonationEvidenceView(remote: remote) } label: {
-                    Text("기부 자료 제출").font(.caption.bold())
-                        .padding(10).background(.regularMaterial, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("my.workshop.evidence")
             }
         }
     }

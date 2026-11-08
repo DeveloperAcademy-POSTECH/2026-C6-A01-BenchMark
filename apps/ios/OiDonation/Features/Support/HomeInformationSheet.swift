@@ -6,7 +6,7 @@ enum HomeDestination: String, Identifiable {
     var title: String {
         switch self {
         case .introduction: "오이기부 소개"
-        case .donation: "기부 시작"
+        case .donation: "기부 안내"
         case .receipt: "기부금영수증"
         case .benefits: "이벤트/혜택"
         case .news: "오이 소식"
@@ -19,11 +19,11 @@ enum HomeDestination: String, Identifiable {
     }
     var message: String {
         switch self {
-        case .introduction: "오래 남는 이야기 기부. 소액 기부로 캠퍼스의 장소에 오이와 이야기를 남기고, 다른 이용자가 3D 지도와 현장 AR에서 발견하는 경험입니다."
+        case .introduction: "캠퍼스에 이야기와 오이를 남기고, 3D 지도와 현장 AR에서 다른 이용자의 이야기를 발견해 보세요. \(OiWritingGuidance.available) \(OiWritingGuidance.publication)"
         case .donation, .recurring:
-            "기부는 안내된 정식 수납처의 기존 절차를 이용해 주세요. 운영자는 이체 내역 등 제출 자료를 검토해 앱의 작성 승인을 판단해요.\n\n\(OiWritingGuidance.overview) \(OiWritingGuidance.publication)\n\n공식 납입 확인과 세액공제용 영수증 발급은 수납처에 문의해 주세요."
+            "기부는 선택이에요. 기부를 원하면 POSTECH 공식 기부 사이트에서 진행해 주세요. \(OiWritingGuidance.available)\n\n공식 납입 확인과 세액공제용 영수증 발급은 수납처에 문의해 주세요."
         case .receipt: "기부금영수증은 POSTECH에서 발급합니다. 공식 발전기금 사이트에서 확인하거나 학교에 문의해 주세요."
-        case .benefits: "새로운 이벤트와 기부자 혜택이 준비되면 안내드릴게요."
+        case .benefits: "새로운 이벤트가 준비되면 안내드릴게요."
         case .news: "새로운 오이기부 소식이 준비되면 이곳에서 전해드릴게요."
         case .notifications: "아직 새로운 알림이 없어요."
         case .profile: "로그인 후 나의 정보와 이야기를 관리할 수 있어요."

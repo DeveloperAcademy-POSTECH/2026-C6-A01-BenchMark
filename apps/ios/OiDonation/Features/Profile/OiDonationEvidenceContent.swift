@@ -17,7 +17,6 @@ struct OiDonationEvidenceContent: View {
     var selectedID: UUID?
     var review: OiDonationEvidenceReview?
     var message: String?
-    var writingGuidance = OiWritingGuidance.overview
     var onAttach: () -> Void = {}
     var onSubmit: () -> Void = {}
     var onSelect: (OiEvidence) -> Void = { _ in }
@@ -55,7 +54,7 @@ struct OiDonationEvidenceContent: View {
                         actionButton("파일 재첨부하기", enabled: attachmentName != nil && !isProcessing,
                             background: Color(red: 211 / 255, green: 219 / 255, blue: 196 / 255),
                             foreground: Color(red: 112 / 255, green: 140 / 255, blue: 64 / 255), action: onAttach)
-                        actionButton("인증 요청", enabled: canSubmit && !isProcessing,
+                        actionButton("자료 검토 요청", enabled: canSubmit && !isProcessing,
                             background: Color(red: 176 / 255, green: 200 / 255, blue: 91 / 255),
                             foreground: Color(red: 247 / 255, green: 250 / 255, blue: 239 / 255), action: onSubmit)
                             .accessibilityIdentifier("donation.evidence.submit")
@@ -66,14 +65,14 @@ struct OiDonationEvidenceContent: View {
 
                 VStack(spacing: 10) {
                     HStack {
-                        Text("인증 진척도").font(.custom("Paperlogy-7Bold", size: 24, relativeTo: .title2))
+                        Text("제출 자료").font(.custom("Paperlogy-7Bold", size: 24, relativeTo: .title2))
                             .tracking(0.48).accessibilityAddTraits(.isHeader)
                         Spacer()
                         Text("\(evidence.filter { $0.status != "draft" }.count)건").font(CampusStyle.medium(20))
                             .foregroundStyle(Color(white: 62 / 255)).padding(.horizontal, 16)
                     }
                     if evidence.isEmpty {
-                        Text("아직 제출한 인증 자료가 없어요")
+                        Text("아직 제출한 기부 자료가 없어요")
                             .font(CampusStyle.body(16)).foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, minHeight: 72)
                     }
@@ -87,7 +86,7 @@ struct OiDonationEvidenceContent: View {
                     }
                 }
                 if let review { OiDonationEvidenceResult(review: review) }
-                Text("\(writingGuidance) \(OiWritingGuidance.publication)\n\nAI 검사는 참고 결과예요. 공식 납입 확인과 영수증 발급은 수납처에 문의해 주세요.")
+                Text("기부 자료 제출은 선택이에요. 운영팀은 제출 자료의 검토 결과를 안내해요. AI 검사는 참고 결과예요. 공식 납입 확인과 영수증 발급은 수납처에 문의해 주세요.")
                     .font(CampusStyle.body(13)).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 20).padding(.top, 50).padding(.bottom, 30)
@@ -130,26 +129,22 @@ struct OiDonationEvidenceContent: View {
         .accessibilityHint("검토 안내와 가능한 작업을 확인합니다")
     }
 
-    @ViewBuilder private func statusBadge(_ status: String) -> some View {
-        if status == "approved" {
-            DonationApprovalBadge()
-        } else {
-            Text(Self.statusTitle(status)).font(CampusStyle.body(16)).tracking(0.32)
-                .padding(.horizontal, 16).padding(.vertical, 8)
-                .background(status == "pending" ? Color(red: 231 / 255, green: 238 / 255, blue: 204 / 255)
-                    : ["changes_requested", "rejected", "revoked"].contains(status)
-                    ? Color(red: 1, green: 198 / 255, blue: 151 / 255) : Color(white: 234 / 255), in: Capsule())
-        }
+    private func statusBadge(_ status: String) -> some View {
+        Text(Self.statusTitle(status)).font(CampusStyle.body(16)).tracking(0.32)
+            .padding(.horizontal, 16).padding(.vertical, 8)
+            .background(status == "pending" ? Color(red: 231 / 255, green: 238 / 255, blue: 204 / 255)
+                : ["changes_requested", "rejected", "revoked"].contains(status)
+                ? Color(red: 1, green: 198 / 255, blue: 151 / 255) : Color(white: 234 / 255), in: Capsule())
     }
 
     static func statusTitle(_ status: String) -> String {
         switch status {
         case "draft": "접수 준비"
         case "pending": "검토중"
-        case "approved": "작성 승인"
+        case "approved": "검토 완료"
         case "changes_requested": "보완 요청"
         case "rejected": "미충족"
-        case "revoked": "승인 철회"
+        case "revoked": "검토 결과 철회"
         default: "상태 확인 필요"
         }
     }
@@ -205,7 +200,7 @@ struct OiDonationEvidenceResult: View {
             Text(summary.title).font(CampusStyle.medium(18))
             ForEach(Array(summary.reasons.enumerated()), id: \.offset) { _, reason in Text(reason) }
             if summary.sufficientEvidence {
-                Text("기부 완료 근거가 충분한 문자도 증빙 자료로 검토해요. 작성 승인은 운영자가 판단해요.")
+                Text("기부 완료 근거가 충분한 문자도 검토할 수 있어요. 최종 자료 검토는 운영팀에서 진행해요.")
                     .font(CampusStyle.medium(14))
             }
             if !summary.checks.isEmpty {
@@ -269,22 +264,6 @@ struct OiDonationEvidenceResult: View {
         case "public_report", "donor_report", "report": "참고 후기"
         default: "참고 자료"
         }
-    }
-}
-
-struct DonationSeedArtwork: View {
-    var body: some View {
-        Image("DonationSeed").resizable().frame(width: 37.9, height: 37.9)
-            .offset(x: -0.23, y: 0.35).frame(width: 24, height: 26).clipped().accessibilityHidden(true)
-    }
-}
-
-private struct DonationApprovalBadge: View {
-    var body: some View {
-        DonationSeedArtwork().padding(.horizontal, 20).padding(.vertical, 6)
-            .background { Image("DonationApprovalBackground").resizable().scaledToFill() }
-            .clipShape(Capsule()).shadow(color: Color(red: 246 / 255, green: 217 / 255, blue: 35 / 255), radius: 5)
-            .accessibilityLabel("작성 승인")
     }
 }
 

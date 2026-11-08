@@ -7,31 +7,35 @@
 
 import SwiftUI
 
-struct ContentView: View {
-    let onRequestFullApp: () -> Void
+struct AppClipInvocation: Hashable {
+    let id = UUID()
+    let url: URL?
+}
+
+struct AppClipExperienceView<SafetyButton: View>: View {
+    private let invocation: AppClipInvocation?
+    private let onRequestFullApp: (() -> Void)?
+    private let storySafetyButton: (Story, UUID) -> SafetyButton
 
     @State private var viewModel: AppClipViewModel
-    @State private var invocation: Invocation?
+    @State private var selection: AppClipInvocation?
     @State private var isPlaying = false
-    @State private var showingSafety = false
     @State private var showingBlocked = false
     @Environment(\.scenePhase) private var phase
     @State private var showingSupport = false
     @State private var showingSample = false
 
-    private struct Invocation {
-        let id = UUID()
-        let url: URL?
-    }
-    
-    /// 3-3. 전달받은 URL 파서와 StoryRepository로 ViewModel 생성
     init(
-        linkParser: PublicLinkParser? = nil,
         storyRepository: any StoryRepository,
-        onRequestFullApp: @escaping () -> Void = {}
+        invocation: AppClipInvocation? = nil,
+        onRequestFullApp: (() -> Void)? = nil,
+        @ViewBuilder storySafetyButton: @escaping (Story, UUID) -> SafetyButton
     ) {
+        self.invocation = invocation
         self.onRequestFullApp = onRequestFullApp
-        _viewModel = State(initialValue: AppClipViewModel(linkParser: linkParser, storyRepository: storyRepository))
+        self.storySafetyButton = storySafetyButton
+        _selection = State(initialValue: invocation)
+        _viewModel = State(initialValue: AppClipViewModel(storyRepository: storyRepository))
     }
     
     private var visibleStories: [PublicStorySummary] {
@@ -58,7 +62,7 @@ struct ContentView: View {
                     Section("공개 이야기") {
                         ForEach(visibleStories) { story in
                             Button {
-                                invocation = Invocation(url: AppClipLink.storyURL(story.id))
+                                selection = AppClipInvocation(url: AppClipLink.storyURL(story.id))
                             } label: {
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text(story.cucumberName).font(.headline)
@@ -78,7 +82,9 @@ struct ContentView: View {
                             Button("더 보기") { Task { await viewModel.loadPublicStories() } }
                         }
                     }
-                    Button("전체 앱 보기", action: onRequestFullApp).frame(minHeight: 44)
+                    if let onRequestFullApp {
+                        Button("전체 앱 보기", action: onRequestFullApp).frame(minHeight: 44)
+                    }
                 }
                 .refreshable { await viewModel.loadPublicStories(reset: true) }
             case .loading:
@@ -101,9 +107,12 @@ struct ContentView: View {
                                 Text(experience.story.donorDisplayName + " · " + experience.story.location.displayName)
                                     .font(.subheadline).foregroundStyle(.secondary)
                                 Text(experience.story.content).textSelection(.enabled)
-                                Button("신고 및 차단") { showingSafety = true }
+                                if let id = UUID(uuidString: experience.story.storyID) {
+                                    storySafetyButton(experience.story, id)
+                                }
                                 Button("AR에서 오이 찾기") { isPlaying = true }
                                     .buttonStyle(.borderedProminent).frame(minHeight: 44)
+                                    .accessibilityIdentifier("appclip.story.ar")
                                 Text("카메라를 사용해 오이 3개를 찾으면 카드를 이 기기에 보관할 수 있어요. 기부·방문 인증이나 작성 승인이 아닙니다.")
                                     .font(.footnote).foregroundStyle(.secondary)
                             }.frame(maxWidth: .infinity, alignment: .leading).padding()
@@ -116,7 +125,7 @@ struct ContentView: View {
                 VStack(spacing: 16) {
                     Text(viewModel.state.description).multilineTextAlignment(.center)
                     if viewModel.state == .loadFailed, let url = viewModel.invocationURL {
-                        Button("다시 시도") { invocation = Invocation(url: url) }
+                        Button("다시 시도") { selection = AppClipInvocation(url: url) }
                             .buttonStyle(.borderedProminent)
                     }
                     Button("처음으로") { viewModel.showWelcome() }
@@ -133,12 +142,6 @@ struct ContentView: View {
         .sheet(isPresented: $showingSupport) { OiSupportView() }
         .fullScreenCover(isPresented: $showingSample) { OiSampleExperienceView() }
         .sheet(isPresented: $showingBlocked) { OiBlockedAuthorsView() }
-        .sheet(isPresented: $showingSafety) {
-            if let story = viewModel.story, let id = UUID(uuidString: story.storyID) {
-                OiContentSafetyView(storyID: id, authorID: story.donorID, authorName: story.donorDisplayName,
-                    onBlock: { isPlaying = false; viewModel.showWelcome() })
-            }
-        }
         .onChange(of: OiContentSafetyStore.shared.authors) { _, _ in
             if let story = viewModel.story, OiContentSafetyStore.shared.isBlocked(story.donorID) {
                 isPlaying = false; viewModel.showWelcome()
@@ -148,22 +151,12 @@ struct ContentView: View {
         .task(id: viewModel.state) {
             if viewModel.state == .welcome { await viewModel.loadPublicStories(reset: true) }
         }
-        .onChange(of: invocation?.id) { _, _ in isPlaying = false; showingSample = false }
+        .onChange(of: invocation) { _, invocation in selection = invocation }
+        .onChange(of: selection?.id) { _, _ in isPlaying = false; showingSample = false }
         .onChange(of: viewModel.state) { _, state in if state != .ready { isPlaying = false } }
-        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { userActivity in
-            invocation = Invocation(url: userActivity.webpageURL)
-        }
-        .onOpenURL { url in
-            invocation = Invocation(url: url)
-        }
-        .task(id: invocation?.id) {
-            guard let invocation else { return }
-            await viewModel.handleInvocationURL(invocationURL: invocation.url)
+        .task(id: selection?.id) {
+            guard let selection else { return }
+            await viewModel.handleInvocationURL(invocationURL: selection.url)
         }
     }
-
-}
-
-#Preview {
-    ContentView(storyRepository: RealStoryRepository())
 }

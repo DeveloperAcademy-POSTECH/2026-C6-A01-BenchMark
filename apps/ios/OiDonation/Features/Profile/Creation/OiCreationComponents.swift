@@ -243,8 +243,6 @@ struct OiStoryWritingStep: View {
     enum Field: Hashable { case title, body }
 
     @Binding var draft: OiStoryDraft
-    let grants: [OiWritingGrant]
-    var canChangeGrant = false
     let focusedField: FocusState<Field?>.Binding
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private let fieldBackground = Color(white: 244 / 255)
@@ -260,12 +258,6 @@ struct OiStoryWritingStep: View {
             }
             OiCreationSection(title: "이야기 입력", hint: "(띄어쓰기 포함 \(textLimit)자 이내)") {
                 inputBox($draft.body, field: .body, label: "이야기 내용", identifier: "oi.draft.body")
-            }
-            if !grants.isEmpty && canChangeGrant {
-                Picker("사용할 작성 승인", selection: $draft.grantId) {
-                    Text("승인 미선택").tag(Optional<UUID>.none)
-                    ForEach(grants) { Text("승인 \($0.id.uuidString.prefix(8)) · 최대 \($0.storyLimit)개").tag(Optional($0.id)) }
-                }
             }
         }
         .font(.custom("Paperlogy-4Regular", size: 16, relativeTo: .body))
