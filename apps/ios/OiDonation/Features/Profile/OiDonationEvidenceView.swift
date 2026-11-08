@@ -81,6 +81,9 @@ struct OiDonationEvidenceView: View {
                     attachmentImage: attachment.flatMap { $0.mime == "application/pdf" ? nil : UIImage(data: $0.data) },
                     isProcessing: processing || remote.isBusy, canSubmit: canAct && attachment != nil && !canRetryUpload,
                     selectedID: selectedID, review: review, message: error,
+                    writingGuidance: OiWritingGuidance.message(
+                        unapprovedDraftsEnabled: remote.loadError == nil ? remote.unapprovedDraftsEnabled : nil
+                    ),
                     onAttach: showAttachmentSources,
                     onSubmit: { if let attachment { request(.submit(attachment)) } },
                     onSelect: { selectedID = $0.id; review = nil; error = nil })
@@ -144,7 +147,7 @@ struct OiDonationEvidenceView: View {
             Button("동의하고 요청") { startJob() }
             Button("취소", role: .cancel) { requestedOperation = nil }
         } message: {
-            Text("선택한 기부 증빙을 비공개로 제출하고 OpenAI에 전송해 시각적 수정을 검사해요. 불필요한 개인정보는 가려 주세요. AI 결과는 실제 납입이나 진위를 보증하지 않으며 글 작성은 운영자 승인 후 가능해요.")
+            Text("선택한 기부 증빙을 비공개로 제출하고 OpenAI에 전송해 시각적 수정을 검사해요. 불필요한 개인정보는 가려 주세요. AI 검사는 참고용이며, 실제 납입과 자료의 진위는 별도 확인이 필요해요. 작성 승인은 운영자가 판단해요.")
         }
         .task(id: selection?.id) { if let selection { await load(selection) } }
         .task(id: job?.id) { if let job { await perform(job) } }
