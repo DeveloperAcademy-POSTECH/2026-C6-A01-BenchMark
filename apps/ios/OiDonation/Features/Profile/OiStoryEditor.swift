@@ -142,6 +142,10 @@ struct OiStoryEditor: View {
                 OiLocationPicker(latitude: $draft.latitude, longitude: $draft.longitude,
                                  regionID: $draft.regionId,
                                  onFinish: { navigate(to: .story) })
+            } else if step == .card && customizationReady {
+                OiDraftPlacementPreview(draft: draft, wardrobe: customization.wardrobe,
+                    onEdit: { customizationReady = false },
+                    onEditLocation: { navigate(to: .location) }, onReview: advance)
             } else {
                 OiCreationProgressHeader(step: step.progress, onSelect: selectProgressStage,
                     canSelectStage: canSelectProgressStage)
@@ -258,6 +262,7 @@ struct OiStoryEditor: View {
     private func reviewIssue(_ title: String, destination: OiCreationStep) -> some View {
         Button {
             showingPreview = false
+            customizationReady = false
             navigate(to: destination)
         } label: {
             Label(title, systemImage: "exclamationmark.circle")
@@ -553,7 +558,14 @@ struct OiStoryEditor: View {
                         }.disabled(remote.isBusy || publishing || saving || !canSubmit).accessibilityIdentifier("oi.story.confirmSubmit")
                     }.padding(20)
                 }.navigationTitle("공개 검토 전 확인").navigationBarTitleDisplayMode(.inline)
-                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("수정으로 돌아가기") { showingPreview = false }.disabled(publishing) } }
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("수정으로 돌아가기") {
+                                showingPreview = false
+                                customizationReady = false
+                            }.disabled(publishing)
+                        }
+                    }
                     .interactiveDismissDisabled(publishing)
             }
     }
@@ -661,7 +673,7 @@ struct OiStoryEditor: View {
         case .card:
             OiCardCustomizationStep(draft: $draft, customization: $customization, assets: remote.assets,
                 donorName: remote.profile?.publicName ?? "",
-                canContinue: true, isFinished: customizationReady, onContinue: toggleCustomizationReady,
+                onContinue: { customizationReady = true },
                 onSizeEditingChanged: { cardSizeEditing = $0 })
 
         }

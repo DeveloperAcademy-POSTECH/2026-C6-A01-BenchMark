@@ -177,6 +177,109 @@ struct OiLocationPicker: View {
     }
 }
 
+struct OiDraftPlacementPreview: View {
+    let draft: OiStoryDraft
+    let wardrobe: OiWardrobeLook?
+    let onEdit: () -> Void
+    let onEditLocation: () -> Void
+    let onReview: () -> Void
+
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var scene = CampusExploreScene()
+    @State private var retry = 0
+    @State private var locationError: String?
+
+    private var placement: CampusPlacement? {
+        guard let latitude = draft.latitude, let longitude = draft.longitude else { return nil }
+        return try? CampusPlacement(id: draft.id, storyID: draft.id.uuidString, latitude: latitude,
+                                    longitude: longitude, headingDegrees: 180).validated()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text("오이 배치 미리보기")
+                .font(CampusStyle.semibold(20))
+                .foregroundStyle(Color("OiDark"))
+                .accessibilityAddTraits(.isHeader)
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .padding(.horizontal, 54)
+                .overlay(alignment: .leading) {
+                    Button(action: onEdit) {
+                        Image(systemName: "chevron.left").frame(width: 52, height: 48)
+                    }
+                    .foregroundStyle(Color("OiDark"))
+                    .accessibilityLabel("카드 꾸미기로 돌아가기")
+                }
+            if let placement {
+                CampusMapSurface(scene: scene)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityLabel("선택한 위치의 3D 캠퍼스 지도")
+                    .overlay {
+                        if let locationError {
+                            locationPrompt(locationError)
+                        } else if let error = scene.error ?? scene.placementError {
+                            ContentUnavailableView {
+                                Label("배치 미리보기를 불러올 수 없어요", systemImage: "map")
+                            } description: {
+                                Text(error)
+                            } actions: {
+                                Button("다시 시도") { retry += 1 }
+                            }.background(.regularMaterial)
+                        } else if !scene.placementReady {
+                            ProgressView("지도와 내 오이를 불러오는 중")
+                                .padding(16).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                        }
+                    }
+                    .task(id: retry) { await prepare(placement) }
+                    .onChange(of: scenePhase, initial: true) { _, phase in
+                        scene.setVisible(phase == .active)
+                    }
+                    .onDisappear { scene.suspendForARCamera() }
+            } else {
+                locationPrompt("내 오이를 놓을 캠퍼스 위치를 선택해 주세요.")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            VStack(spacing: 8) {
+                Text("포항공과대학교 · \(draft.cucumberName.isEmpty ? "내 오이" : draft.cucumberName)")
+                    .font(CampusStyle.semibold(16))
+                    .foregroundStyle(Color("OiDark"))
+                Text("검토 요청 전에 나만 보는 미리보기예요.")
+                    .font(CampusStyle.body(14)).foregroundStyle(.secondary)
+                OiCreationNextButton(title: "검토 요청 계속하기", action: onReview)
+                    .accessibilityIdentifier("oi.creation.reviewPlacement")
+            }
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 20).padding(.vertical, 12)
+        }
+    }
+
+    private func locationPrompt(_ message: String) -> some View {
+        ContentUnavailableView {
+            Label("오이 위치를 확인해 주세요", systemImage: "mappin.circle")
+        } description: {
+            Text(message)
+        } actions: {
+            Button("위치 다시 선택", action: onEditLocation)
+        }.background(.regularMaterial)
+    }
+
+    private func prepare(_ placement: CampusPlacement) async {
+        scene.setSharedMap(true)
+        await scene.load()
+        guard !Task.isCancelled, let data = scene.data else { return }
+        let point = data.world(latitude: placement.latitude, longitude: placement.longitude)
+        if let error = data.placementError(at: point) {
+            locationError = error
+            return
+        }
+        if let region = CampusRegion.campus.first(where: { $0.id == draft.regionId }) ?? scene.nearestRegion() {
+            scene.focus(region, stories: [], placement: placement)
+        }
+        scene.syncPlacements(records: [placement])
+        await scene.preparePlacements(wardrobe: wardrobe)
+    }
+}
+
 /// The bottom vertex sits exactly on the camera's center ray.
 private struct OiLocationPinShape: Shape {
     func path(in rect: CGRect) -> Path {

@@ -2068,8 +2068,9 @@ final class OiRemoteStoreTests: XCTestCase {
     @MainActor func testInteractiveCreationNavigation() async throws {
         let mode = ProcessInfo.processInfo.environment["OI_CREATION_INTERACTION_CHECK"]
         let freelyExplore = mode == "all-screens"
-        guard mode == "1" || freelyExplore else {
-            throw XCTSkip("Opt in to drive Done → Next → Previous → Previous with simulator UI automation")
+        let checkPlacement = mode == "placement"
+        guard mode == "1" || freelyExplore || checkPlacement else {
+            throw XCTSkip("Opt in to drive the editor with simulator UI automation")
         }
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
@@ -2077,9 +2078,29 @@ final class OiRemoteStoreTests: XCTestCase {
         var look = OiDraftCustomization()
         look.wardrobe = OiWardrobeLook()
         var input = draft(title: "화면 이동 검증용 이야기")
+        var expectedGround: SIMD3<Float>?
+        var photos: [UUID] = []
         if freelyExplore { input.body = ""; input.latitude = nil; input.longitude = nil; input.cucumberName = "" }
-        let local = OiLocalDraft(draft: input, version: 1,
-            creationStep: (freelyExplore ? OiCreationStep.consent : .cucumber).rawValue, customization: look)
+        if checkPlacement {
+            let map = try CampusMapData.load()
+            let point = try XCTUnwrap(map.graph.sorted { $0.key < $1.key }.map { map.world($0.value.p) }
+                .first { map.placementError(at: $0) == nil })
+            let coordinate = map.coordinate(point)
+            expectedGround = point
+            input.latitude = coordinate.latitude; input.longitude = coordinate.longitude
+            look.wardrobe?.topColor = 0x6A4194
+            let photo = UUID()
+            let image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32)).jpegData(withCompressionQuality: 0.8) { context in
+                UIColor.green.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+            }
+            try await store.saveLocalPhoto(image, id: photo, owner: OiTestBackend.owner)
+            photos = [photo]
+        }
+        let initialStep: OiCreationStep = checkPlacement ? .card : freelyExplore ? .consent : .cucumber
+        let local = OiLocalDraft(draft: input, photos: photos, version: 1,
+            creationStep: initialStep.rawValue, customization: look,
+            agreedConsentClauseIDs: checkPlacement ? Set(OiStoryConsentClause.writingClauses.map(\.id.rawValue)) : nil)
         try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousKey = scene.windows.first { $0.isKeyWindow }
@@ -2093,6 +2114,31 @@ final class OiRemoteStoreTests: XCTestCase {
         defer {
             window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
             previousKey?.makeKey()
+        }
+        if let expectedGround {
+            func placedOi(in view: UIView) -> Entity? {
+                if let canvas = view as? CampusMapCanvas {
+                    return canvas.map?.scene.findEntity(named: "placement:" + local.id.uuidString)
+                }
+                return view.subviews.lazy.compactMap { placedOi(in: $0) }.first
+            }
+            var sawPlacement = false
+            for _ in 0..<180 {
+                try await Task.sleep(for: .seconds(1))
+                XCTAssertNil(backend.snapshot().story, "Done and opening review never submit the draft")
+                if !sawPlacement, let model = placedOi(in: window) {
+                    XCTAssertLessThan(simd_distance(model.position(relativeTo: nil), expectedGround), 0.001)
+                    XCTAssertGreaterThan(model.visualBounds(relativeTo: nil).extents.y, 1)
+                    sawPlacement = true
+                }
+                if sawPlacement, controller.presentedViewController != nil {
+                    let saved = try await store.localDraft(id: local.id, owner: OiTestBackend.owner)
+                    XCTAssertEqual(saved?.customization?.wardrobe, look.wardrobe)
+                    XCTAssertEqual(saved?.photos, photos)
+                    return
+                }
+            }
+            return XCTFail("Done → placement preview → review did not complete")
         }
         var reachedCard = false
         var visited = Set<String>()
