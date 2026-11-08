@@ -12,6 +12,105 @@ import XCTest
 
 @MainActor
 final class CampusMapInteractionTests: XCTestCase {
+    func testAuthoredOiShowsBeforeAndDuringReviewAndKeepsPublicMarkerSeparate() async throws {
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        let scene = CampusExploreScene()
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controller.view.addSubview(canvas)
+        window.isHidden = false
+        defer {
+            scene.suspendForARCamera()
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+        }
+        await scene.load()
+        window.layoutIfNeeded()
+        canvas.layoutIfNeeded()
+
+        let data = try XCTUnwrap(scene.data)
+        let region = try XCTUnwrap(CampusRegion.campus.first { $0.id == "pond" })
+        let location = try XCTUnwrap(data.graph.sorted { $0.key < $1.key }.map { data.world($0.value.p) }
+            .first { data.placementError(at: $0) == nil })
+        let coordinate = data.coordinate(location)
+        let owner = UUID()
+        let storyID = UUID()
+        func story(_ status: String, revision: Int) -> OiLiveStory {
+            OiLiveStory(id: storyID, userId: owner, grantId: nil, regionId: region.id,
+                title: "검증용 이야기", body: "검증용 본문", theme: "우정", emotion: "즐거움",
+                cucumberName: "보라색 오이", cucumberAsset: "OiCats", cardAsset: "MYBasicCard",
+                latitude: coordinate.latitude, longitude: coordinate.longitude,
+                status: status, revision: revision, createdAt: "2026-11-08T00:00:00Z")
+        }
+        let pending = story("pending", revision: 3)
+        var look = OiWardrobeLook()
+        look.topColor = 0x6A4194
+        look.bottomColor = 0xA3BAD9
+        var customization = OiDraftCustomization()
+        customization.wardrobe = look
+        var local = OiLocalDraft(draft: OiStoryDraft(story: pending), customization: customization)
+        local.personalPlacement = OiPersonalPlacement(regionID: region.id, name: pending.cucumberName,
+            latitude: coordinate.latitude, longitude: coordinate.longitude, heightMeters: 1.2, headingDegrees: 135)
+        let personal = try XCTUnwrap(CampusAuthoredPlacement(personal: local, story: nil))
+        let markerID = "campus.authored." + storyID.uuidString
+        let modelName = "authored:" + storyID.uuidString
+        scene.setAuthoredPlacements([personal])
+        await scene.loadAuthoredModels()
+        XCTAssertEqual(personal.visibility, .personal)
+        XCTAssertEqual(personal.placement.headingDegrees, 135)
+        XCTAssertEqual(personal.wardrobe, look)
+        XCTAssertNotNil(canvas.map?.scene.findEntity(named: modelName), "The outfit loads on the campus overview")
+
+        let legacy = try XCTUnwrap(CampusAuthoredPlacement(story: pending, owner: owner, localDraft: local))
+        XCTAssertNil(CampusAuthoredPlacement(story: pending, owner: UUID(), localDraft: local))
+        XCTAssertNil(CampusAuthoredPlacement(story: story("hidden", revision: 4), owner: owner, localDraft: local))
+        XCTAssertNil(CampusAuthoredPlacement(story: story("draft", revision: 4), owner: owner, localDraft: local))
+        XCTAssertNil(CampusAuthoredPlacement(story: story("published", revision: 4), owner: owner, localDraft: nil))
+        // Server receipts can normalize fields without changing the identity of the private outfit.
+        local.draft.latitude = coordinate.latitude + 0.001
+        XCTAssertEqual(CampusAuthoredPlacement(story: pending, owner: owner, localDraft: local)?.wardrobe, look)
+        XCTAssertEqual(legacy.wardrobe, look)
+        let authored = try XCTUnwrap(CampusAuthoredPlacement(personal: local, story: pending))
+        XCTAssertEqual(authored.placement, personal.placement, "Unconfirmed draft edits leave the saved position intact")
+
+        scene.setAuthoredPlacements([authored])
+        scene.focus(region, stories: [], placement: authored.placement)
+        await scene.loadAuthoredModels()
+        let marker = try XCTUnwrap(canvas.subviews.first { $0.accessibilityIdentifier == markerID } as? UIButton)
+        XCTAssertTrue(marker.accessibilityLabel?.contains("검토 중 · 나만 보기") == true)
+        var opened: UUID?
+        scene.onAuthoredPlacement = { opened = $0 }
+        marker.sendActions(for: .touchUpInside)
+        XCTAssertEqual(opened, storyID)
+        let model = try XCTUnwrap(canvas.map?.scene.findEntity(named: modelName))
+        XCTAssertLessThan(simd_distance(model.position(relativeTo: nil), location), 0.001)
+        XCTAssertGreaterThan(model.visualBounds(relativeTo: nil).extents.y, 1)
+        try await capture("authored-oi-at-selected-location", in: canvas)
+
+        let published = try XCTUnwrap(CampusAuthoredPlacement(story: story("published", revision: 4), owner: owner, localDraft: local))
+        scene.setAuthoredPlacements([published])
+        let publicStory = CampusStory(id: storyID.uuidString, regionID: region.id, title: pending.cucumberName,
+            image: pending.cucumberAsset, tags: [], donor: "테스트 작성자", location: region.title, date: "",
+            order: 0, popularity: 0, palette: 0, latitude: coordinate.latitude, longitude: coordinate.longitude)
+        scene.focus(region, stories: [publicStory], placement: published.placement)
+        let publicPinID = "campus.pin." + storyID.uuidString
+        XCTAssertFalse(canvas.subviews.contains { $0.accessibilityIdentifier == publicPinID })
+        XCTAssertEqual(canvas.subviews.filter { $0.accessibilityIdentifier == markerID }.count, 1)
+        scene.suspendForARCamera()
+        scene.setVisible(true)
+        XCTAssertNotNil(canvas.map?.scene.findEntity(named: modelName))
+
+        scene.setAuthoredPlacements([])
+        XCTAssertNil(canvas.map?.scene.findEntity(named: modelName))
+        XCTAssertFalse(canvas.subviews.contains { $0.accessibilityIdentifier == markerID })
+        XCTAssertTrue(canvas.subviews.contains { $0.accessibilityIdentifier == publicPinID })
+    }
+
     func testCenterLocationTracksMapAndRejectsBuildings() async throws {
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: windowScene)
@@ -35,12 +134,18 @@ final class CampusMapInteractionTests: XCTestCase {
         window.layoutIfNeeded()
         canvas.layoutIfNeeded()
         let data = try XCTUnwrap(scene.data)
-        let point = try XCTUnwrap(data.graph.values.map { data.world($0.p) }.first { p in
+        let library = try XCTUnwrap(CampusRegion.campus.first { $0.id == "library" })
+        let libraryPOI = try XCTUnwrap(data.pois.first { $0.id == library.placeID })
+        let libraryCenter = data.world(libraryPOI.p)
+        let outdoors = data.graph.values.map { data.world($0.p) }.filter { p in
             [-1, 0, 1].allSatisfy { x in
                 [-1, 0, 1].allSatisfy { z in
                     data.placementError(at: p + SIMD3(Float(x), 0, Float(z))) == nil
                 }
             }
+        }
+        let point = try XCTUnwrap(outdoors.min {
+            simd_distance_squared($0, libraryCenter) < simd_distance_squared($1, libraryCenter)
         })
         let original = data.coordinate(point)
         scene.beginCenterLocation(latitude: original.latitude, longitude: original.longitude)
@@ -99,6 +204,100 @@ final class CampusMapInteractionTests: XCTestCase {
         let reopened = try XCTUnwrap(scene.confirmCenterLocation())
         XCTAssertEqual(reopened.latitude, original.latitude, accuracy: 0.000001)
         XCTAssertEqual(reopened.longitude, original.longitude, accuracy: 0.000001)
+        XCTAssertEqual(reopened.region?.id, library.id, "Save the confirmed pin's region instead of the default region")
+    }
+
+    func testPlacementPreviewGesturesChangeOiWithoutMovingCamera() async throws {
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        let scene = CampusExploreScene()
+        scene.setSharedMap(true)
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controller.view.addSubview(canvas)
+        window.isHidden = false
+        defer {
+            scene.suspendForARCamera()
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+        }
+        await scene.load()
+        window.layoutIfNeeded()
+        canvas.layoutIfNeeded()
+
+        let data = try XCTUnwrap(scene.data)
+        let start = try XCTUnwrap(data.graph.sorted { $0.key < $1.key }.map { data.world($0.value.p) }.first { point in
+            [0, 0.5, 1].allSatisfy { data.placementError(at: point + SIMD3($0, 0, 0)) == nil }
+        })
+        let coordinate = data.coordinate(start)
+        let placement = CampusPlacement(storyID: "gesture-check", latitude: coordinate.latitude,
+            longitude: coordinate.longitude, heightMeters: 1.2, headingDegrees: 10)
+        scene.beginPlacementPreview(placement)
+        await scene.preparePlacements(wardrobe: OiWardrobeLook())
+        let modelName = "placement:" + placement.id.uuidString
+        let map = try XCTUnwrap(canvas.map)
+        let model = try XCTUnwrap(map.scene.findEntity(named: modelName))
+        let camera = try XCTUnwrap(map.scene.anchors.flatMap { Array($0.children) }.compactMap { $0 as? PerspectiveCamera }.first)
+        let cameraStart = camera.position(relativeTo: nil)
+        let initialHeight = model.visualBounds(relativeTo: nil).extents.y
+        var committed: CampusPlacement?
+        scene.onPreviewChange = { value, _ in committed = value }
+
+        let a = CGPoint(x: 80, y: 100)
+        scene.updatePlacementPreviewTouches([0: a])
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: 82, y: 100)])
+        XCTAssertEqual(scene.placementPreview, placement, "A small motion while setting down a finger does not drag")
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: 92, y: 100)])
+        let moved = try XCTUnwrap(scene.placementPreview)
+        XCTAssertGreaterThan(moved.longitude, placement.longitude)
+        let ground = data.world(latitude: moved.latitude, longitude: moved.longitude)
+        XCTAssertLessThan(simd_distance(model.position(relativeTo: nil), ground), 0.001)
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: canvas.bounds.width * 2, y: 100)])
+        XCTAssertNotNil(scene.previewMovementError)
+        XCTAssertEqual(scene.placementPreview, moved)
+
+        scene.updatePlacementPreviewTouches([0: a, 1: CGPoint(x: 120, y: 100)])
+        XCTAssertEqual(scene.placementPreview, moved, "Touch centroid changes do not move or rotate the model")
+        let centerX = 100 + canvas.bounds.width / 2
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX - 20, y: 100), 1: CGPoint(x: centerX + 20, y: 100)])
+        XCTAssertEqual(scene.placementPreview?.headingDegrees, 190)
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX, y: 80), 1: CGPoint(x: centerX, y: 120)])
+        XCTAssertEqual(try XCTUnwrap(scene.placementPreview?.headingDegrees), 100, accuracy: 0.001)
+
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX, y: 75), 1: CGPoint(x: centerX, y: 125)])
+        XCTAssertEqual(scene.placementPreview?.heightCentimeters, 150)
+        XCTAssertEqual(model.visualBounds(relativeTo: nil).extents.y, initialHeight * 1.25, accuracy: 0.001)
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX, y: 0), 1: CGPoint(x: centerX, y: 200)])
+        XCTAssertEqual(scene.placementPreview?.heightCentimeters, 200)
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX, y: 98), 1: CGPoint(x: centerX, y: 102)])
+        XCTAssertEqual(scene.placementPreview?.heightCentimeters, 40)
+        let adjusted = try XCTUnwrap(scene.placementPreview)
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX, y: 98)])
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX + 28, y: 98)])
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX + 50, y: 98)])
+        XCTAssertEqual(scene.placementPreview, adjusted, "Lifting one finger must not turn rotation into a move")
+        XCTAssertNil(committed, "The sequence ends only after all fingers lift")
+        scene.updatePlacementPreviewTouches([:])
+        XCTAssertEqual(committed, scene.placementPreview)
+        XCTAssertEqual(committed?.latitude, moved.latitude)
+        XCTAssertEqual(committed?.longitude, moved.longitude)
+
+        scene.updatePlacementPreviewTouches([2: a])
+        scene.updatePlacementPreviewTouches([2: CGPoint(x: 92, y: 100)])
+        let movedAgain = try XCTUnwrap(scene.placementPreview)
+        XCTAssertGreaterThan(movedAgain.longitude, moved.longitude, "A fresh one-finger drag can move the model")
+        scene.updatePlacementPreviewTouches([:])
+        XCTAssertEqual(committed, movedAgain)
+        XCTAssertEqual(camera.position(relativeTo: nil), cameraStart)
+        scene.suspendForARCamera(); scene.setVisible(true)
+        let restored = try XCTUnwrap(canvas.map?.scene.findEntity(named: modelName))
+        let restoredGround = data.world(latitude: movedAgain.latitude, longitude: movedAgain.longitude)
+        XCTAssertLessThan(simd_distance(restored.position(relativeTo: nil), restoredGround), 0.001)
+        XCTAssertEqual(restored.scale, model.scale)
     }
 
     func testOverviewPinchReversalAndTilt() async throws {

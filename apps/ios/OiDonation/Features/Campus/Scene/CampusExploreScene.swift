@@ -3,6 +3,69 @@ import RealityKit
 import ARKit
 import Observation
 
+extension OiLiveStory {
+    var campusPlacement: CampusPlacement? {
+        CampusPlacement.story(id: id, latitude: latitude, longitude: longitude,
+                              heightMeters: heightMeters, headingDegrees: headingDegrees)
+    }
+}
+
+struct CampusAuthoredPlacement: Identifiable, Equatable {
+    enum Visibility: Equatable {
+        case personal, pending, published
+
+        var title: String {
+            switch self {
+            case .personal: "나만 보기"
+            case .pending: "검토 중 · 나만 보기"
+            case .published: "공개 중 · 내 오이"
+            }
+        }
+
+        init(story: OiLiveStory?) {
+            switch story?.status {
+            case "pending": self = .pending
+            case "published": self = .published
+            default: self = .personal
+            }
+        }
+    }
+
+    let placement: CampusPlacement
+    let regionID: String
+    let title: String
+    let visibility: Visibility
+    let wardrobe: OiWardrobeLook?
+    var id: String { placement.storyID }
+
+    init?(story: OiLiveStory, owner: UUID, localDraft: OiLocalDraft?) {
+        guard story.userId == owner, story.isRegisteredOnCampus,
+              let placement = story.campusPlacement else { return nil }
+
+        // The private look belongs to the story ID, even if server normalization changes a field.
+        let wardrobe = localDraft?.id == story.id ? localDraft?.customization?.wardrobe : nil
+        let visibility = Visibility(story: story)
+        guard visibility == .pending || wardrobe != nil else { return nil }
+        self.placement = placement
+        self.regionID = story.regionId
+        self.title = story.cucumberName
+        self.visibility = visibility
+        self.wardrobe = wardrobe
+    }
+
+    /// Records read from the signed-in account's vault are private to the home map.
+    init?(personal record: OiLocalDraft, story: OiLiveStory?) {
+        guard let saved = record.personalPlacement,
+              let placement = CampusPlacement.story(id: record.id, latitude: saved.latitude, longitude: saved.longitude,
+                  heightMeters: saved.heightMeters, headingDegrees: saved.headingDegrees) else { return nil }
+        self.placement = placement
+        self.regionID = saved.regionID
+        self.title = saved.name
+        self.visibility = Visibility(story: story)
+        self.wardrobe = record.customization?.wardrobe
+    }
+}
+
 /// Reuses the OiCampus mesh/height-field format. All camera work stays in RealityKit.
 @MainActor @Observable
 final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
@@ -14,6 +77,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     var onPlacement: ((UUID) -> Void)?
     private var sharedMap = false
     var onStory: ((String) -> Void)?
+    var onAuthoredPlacement: ((UUID) -> Void)?
     private(set) var data: CampusMapData?
     private(set) var placementReady = false
     private(set) var placementLoading = false
@@ -23,9 +87,20 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private(set) var draftPoint: SIMD3<Float>?
     private(set) var centerLocationError: String?
     private(set) var centerLocationName = "포항공과대학교"
+    private(set) var placementPreview: CampusPlacement?
+    private(set) var previewMovementError: String?
+    var onPreviewChange: ((CampusPlacement, CampusRegion?) -> Void)?
     var placementMessage = "지도에서 건물 밖의 바닥을 눌러 주세요."
     @ObservationIgnored private var oiTemplate: Entity?
+    @ObservationIgnored private var oiTemplateHeight: Float = 1
+    @ObservationIgnored private var previewDragPoint: CGPoint?
+    @ObservationIgnored private var previewTouchState = CampusPlacementGestureState()
+    @ObservationIgnored private var previewRecognizer: OiTouchSequenceRecognizer?
     @ObservationIgnored private var placementLayer = Entity()
+    @ObservationIgnored private var authoredLayer = Entity()
+    @ObservationIgnored private var authoredPlacements: [String: CampusAuthoredPlacement] = [:]
+    @ObservationIgnored private var authoredModels: [String: Entity] = [:]
+    @ObservationIgnored private var authoredPins: [(UIButton, SIMD3<Float>)] = []
     @ObservationIgnored private var draftEntity: Entity?
     @ObservationIgnored private var placementReticle: Entity?
     private var draftHeight = 1.0
@@ -68,6 +143,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         let canvas = CampusMapCanvas()
         self.canvas = canvas
         pins.forEach { canvas.addSubview($0.0) }
+        authoredPins.forEach { canvas.addSubview($0.0) }
         regionButtons.values.forEach { canvas.addSubview($0) }
         if let data { mapLabels.configure(data: data, in: canvas) }
         canvas.isHidden = !visible
@@ -89,6 +165,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         tap.delegate = self
         for gesture in navigationGestures { tap.require(toFail: gesture) }
         canvas.addGestureRecognizer(tap)
+        if placementPreview != nil { installPreviewGestures(on: canvas) }
         canvas.didLayout = { [weak self] in
             self?.updateCamera()
             if self?.activeNavigation.isEmpty == true, self?.cameraMotion == nil {
@@ -121,6 +198,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             self.data = data; ready = true
             if let canvas { mapLabels.configure(data: data, in: canvas) }
             if let region { focus(region, stories: stories) } else { showOverview() }
+            rebuildAuthoredPlacements()
+            updateCamera()
         } catch is CancellationError { }
         catch { self.error = "캠퍼스 지도를 불러오지 못했어요. 다시 시도해 주세요." }
     }
@@ -174,6 +253,9 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         placementLayer = Entity()
         root.addChild(placementLayer)
         syncPlacements(records: savedPlacements)
+        authoredLayer = Entity()
+        root.addChild(authoredLayer)
+        rebuildAuthoredPlacements()
         draftEntity = nil
         placementReticle = nil
         if editingPlacement, draftPoint != nil {
@@ -244,10 +326,16 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         }
     }
 
-    func focus(_ region: CampusRegion, stories: [CampusStory]) {
+    func focus(_ region: CampusRegion, stories: [CampusStory], placement: CampusPlacement? = nil) {
         self.region = region; self.stories = stories
-        guard let data, let place = data.pois.first(where: { $0.id == region.placeID }) else { return }
-        target = data.world(place.p); radius = 63; yaw = 0.1; pitch = 0.88
+        guard let data else { return }
+        if let placement {
+            target = data.world(latitude: placement.latitude, longitude: placement.longitude)
+            radius = 23; yaw = 0; pitch = 0.75
+        } else {
+            guard let place = data.pois.first(where: { $0.id == region.placeID }) else { return }
+            target = data.world(place.p); radius = 63; yaw = 0.1; pitch = 0.88
+        }
         makeStoryPins(stories)
         updateCamera()
     }
@@ -284,6 +372,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     private func attachStory(_ story: CampusStory, at point: SIMD3<Float>) {
         positions[story.id] = point
+        guard authoredPlacements[story.id] == nil else { return }
         let button = UIButton(type: .custom)
         button.setImage(UIImage(named: story.portraitImage), for: .normal)
         button.imageView?.contentMode = .scaleAspectFit
@@ -298,6 +387,88 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         focus(region, stories: []); radius = 38; pitch = 0.9; updateCamera()
     }
 
+    func authoredPlacement(id: UUID) -> CampusAuthoredPlacement? {
+        authoredPlacements[id.uuidString]
+    }
+
+    func setAuthoredPlacements(_ placements: [CampusAuthoredPlacement]) {
+        let updated = placements.reduce(into: [String: CampusAuthoredPlacement]()) { $0[$1.id] = $1 }
+        guard authoredPlacements != updated else { return }
+        authoredModels = authoredModels.filter { id, _ in
+            updated[id] != nil && updated[id]?.wardrobe == authoredPlacements[id]?.wardrobe
+        }
+        authoredPlacements = updated
+        if region != nil { makeStoryPins(stories) }
+        rebuildAuthoredPlacements()
+        updateCamera()
+    }
+
+    func loadAuthoredModels() async {
+        for item in authoredPlacements.values {
+            guard !Task.isCancelled else { return }
+            guard authoredModels[item.id] == nil else { continue }
+            do {
+                let model: Entity
+                if let wardrobe = item.wardrobe { model = try await OiWardrobeAsset.loadForPlacement(wardrobe) }
+                else { model = try await CampusOiAsset.load() }
+                try Task.checkCancellation()
+                guard authoredPlacements[item.id] == item else { continue }
+                let bounds = model.visualBounds(relativeTo: model)
+                let size = simd_max(bounds.extents, SIMD3(repeating: 0.05))
+                model.components.set(CollisionComponent(shapes: [
+                    .generateBox(size: size).offsetBy(translation: bounds.center)
+                ]))
+                authoredModels[item.id] = model
+                if let data { attachAuthoredModel(item, template: model, data: data) }
+            } catch is CancellationError {
+                return
+            } catch {
+                // The location label is usable even when a local wardrobe asset cannot load.
+                continue
+            }
+        }
+    }
+
+    private func rebuildAuthoredPlacements() {
+        authoredLayer.children.removeAll()
+        authoredPins.forEach { $0.0.removeFromSuperview() }
+        authoredPins.removeAll()
+        guard let data else { return }
+        for item in authoredPlacements.values.sorted(by: { $0.id < $1.id }) {
+            let placement = item.placement
+            let point = data.world(latitude: placement.latitude, longitude: placement.longitude)
+            if let model = authoredModels[item.id] { attachAuthoredModel(item, template: model, data: data) }
+
+            let status = item.visibility.title
+            var configuration = UIButton.Configuration.filled()
+            configuration.title = item.title
+            configuration.subtitle = status
+            configuration.titleLineBreakMode = .byTruncatingTail
+            configuration.cornerStyle = .medium
+            configuration.baseBackgroundColor = UIColor.systemBackground.withAlphaComponent(0.92)
+            configuration.baseForegroundColor = .label
+            let button = UIButton(configuration: configuration)
+            button.bounds.size = CGSize(width: 142, height: 50)
+            button.accessibilityLabel = "\(item.title), \(status)"
+            button.accessibilityIdentifier = "campus.authored.\(item.id)"
+            button.addAction(UIAction { [weak self] _ in self?.onAuthoredPlacement?(placement.id) }, for: .touchUpInside)
+            canvas?.addSubview(button)
+            authoredPins.append((button, point + SIMD3(0, 3.1, 0)))
+        }
+    }
+
+    private func attachAuthoredModel(_ item: CampusAuthoredPlacement, template: Entity, data: CampusMapData) {
+        let placement = item.placement
+        let entity = template.clone(recursive: true)
+        entity.name = "authored:" + item.id
+        entity.position = data.world(latitude: placement.latitude, longitude: placement.longitude)
+        let templateHeight: Float = item.wardrobe == nil ? 1 : 1.5
+        entity.scale = SIMD3(repeating: CampusPlacementGeometry.mapScale(unitsPerMeter: data.unitsPerMeter, editing: false)
+                            * Float(placement.heightMeters) / templateHeight)
+        entity.orientation = CampusOiAsset.heading(placement.headingDegrees)
+        authoredLayer.addChild(entity)
+    }
+
     func preparePlacements(wardrobe: OiWardrobeLook? = nil) async {
         guard !placementReady, !placementLoading else { return }
         placementLoading = true; placementError = nil
@@ -306,6 +477,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             if let wardrobe { oiTemplate = try await OiWardrobeAsset.loadForPlacement(wardrobe) }
             else { oiTemplate = try await CampusOiAsset.load() }
             try Task.checkCancellation()
+            oiTemplateHeight = wardrobe == nil ? 1 : 1.5
             root.addChild(placementLayer)
             placementReady = true
             syncPlacements(records: savedPlacements)
@@ -321,12 +493,100 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             let entity = oiTemplate.clone(recursive: true)
             entity.name = "placement:" + record.id.uuidString
             entity.isEnabled = record.id != editingPlacementID
-            entity.position = data.world(latitude: record.latitude, longitude: record.longitude)
-            // Map icons use a constant 1m reference; AR keeps the saved physical height.
-            entity.scale = SIMD3(repeating: CampusPlacementGeometry.mapScale(
-                unitsPerMeter: data.unitsPerMeter, editing: editingPlacement))
-            entity.orientation = CampusOiAsset.heading(record.headingDegrees)
+            positionPlacement(entity, record: record, data: data)
             placementLayer.addChild(entity)
+        }
+    }
+
+    private func positionPlacement(_ entity: Entity, record: CampusPlacement, data: CampusMapData) {
+        entity.position = data.world(latitude: record.latitude, longitude: record.longitude)
+        let mapScale = CampusPlacementGeometry.mapScale(unitsPerMeter: data.unitsPerMeter, editing: editingPlacement)
+        let heightScale = placementPreview == nil ? 1 : Float(record.heightMeters) / oiTemplateHeight
+        entity.scale = SIMD3(repeating: mapScale * heightScale)
+        entity.orientation = CampusOiAsset.heading(record.headingDegrees)
+    }
+
+    func beginPlacementPreview(_ placement: CampusPlacement) {
+        guard let data else { return }
+        stopNavigation()
+        placementPreview = placement
+        if let canvas { installPreviewGestures(on: canvas) }
+        let point = data.world(latitude: placement.latitude, longitude: placement.longitude)
+        if let region = nearestRegion(to: point) { focus(region, stories: [], placement: placement) }
+        syncPlacements(records: [placement])
+    }
+
+    func commitPlacementPreview() {
+        guard let placement = placementPreview, let data else { return }
+        let point = data.world(latitude: placement.latitude, longitude: placement.longitude)
+        onPreviewChange?(placement, nearestRegion(to: point))
+    }
+
+    private func installPreviewGestures(on canvas: CampusMapCanvas) {
+        guard previewRecognizer == nil else { return }
+        navigationGestures.forEach { $0.isEnabled = false }
+        canvas.isMultipleTouchEnabled = true
+        let recognizer = OiTouchSequenceRecognizer(target: self, action: #selector(handlePreviewTouches(_:)))
+        canvas.addGestureRecognizer(recognizer)
+        previewRecognizer = recognizer
+    }
+
+    @objc private func handlePreviewTouches(_ recognizer: OiTouchSequenceRecognizer) {
+        updatePlacementPreviewTouches(recognizer.points)
+    }
+
+    func updatePlacementPreviewTouches(_ points: [Int: CGPoint]) {
+        let change = previewTouchState.update(points)
+        if points.isEmpty {
+            previewDragPoint = nil
+            commitPlacementPreview()
+            return
+        }
+        guard let change, let placement = placementPreview, let data, let view = canvas?.map else { return }
+        switch change {
+        case .move(let delta):
+            movePlacementPreview(placement, by: delta, data: data, viewport: view.bounds)
+        case .transform(let horizontal, let scale, let rotation):
+            guard view.bounds.width > 0 else { return }
+            let range = CampusPlacement.heightRange
+            let height = min(range.upperBound, max(range.lowerBound, placement.heightMeters * Double(scale)))
+            let degrees = -360 * Double(horizontal / view.bounds.width) - rotation * 180 / .pi
+            let heading = CampusPlacement.wrappedHeading(placement.headingDegrees + degrees)
+            guard height != placement.heightMeters || heading != placement.headingDegrees else { return }
+            updatePlacementPreview(placement, latitude: placement.latitude, longitude: placement.longitude,
+                                   height: height, heading: heading)
+        }
+    }
+
+    private func movePlacementPreview(_ placement: CampusPlacement, by delta: CGPoint,
+                                      data: CampusMapData, viewport: CGRect) {
+        let projection = mapProjection(in: viewport)
+        let foot = data.world(latitude: placement.latitude, longitude: placement.longitude)
+        guard let previous = previewDragPoint ?? projection.point(foot) else { return }
+        let next = CGPoint(x: previous.x + delta.x, y: previous.y + delta.y)
+        previewDragPoint = next
+        guard viewport.contains(next), let ray = projection.ray(through: next),
+              let hit = data.surface?.intersect(origin: ray.origin, direction: ray.direction) else {
+            previewMovementError = "지도에 보이는 캠퍼스 바닥으로 옮겨 주세요."
+            return
+        }
+        previewMovementError = data.placementError(at: hit)
+        guard previewMovementError == nil else { return }
+        let coordinate = data.coordinate(hit)
+        updatePlacementPreview(placement, latitude: coordinate.latitude, longitude: coordinate.longitude,
+                               height: placement.heightMeters, heading: placement.headingDegrees)
+    }
+
+    private func updatePlacementPreview(_ placement: CampusPlacement, latitude: Double, longitude: Double,
+                                        height: Double, heading: Double) {
+        guard let data else { return }
+        let changed = CampusPlacement(id: placement.id, storyID: placement.storyID,
+            latitude: latitude, longitude: longitude, heightMeters: height, headingDegrees: heading)
+        placementPreview = changed
+        savedPlacements = [changed]
+        if let entity = placementLayer.children.first {
+            positionPlacement(entity, record: changed, data: data)
+            updateCamera()
         }
     }
 
@@ -362,13 +622,14 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         updateCamera()
     }
 
-    func confirmCenterLocation() -> (latitude: Double, longitude: Double)? {
+    func confirmCenterLocation() -> (latitude: Double, longitude: Double, region: CampusRegion?)? {
         guard selectingCenterLocation, ready, let data else { return nil }
         // Freeze any release animation and sample the displayed pose again.
         stopNavigation()
         updateCenterLocation()
         guard let point = draftPoint, data.placementError(at: point) == nil else { return nil }
-        return data.coordinate(point)
+        let coordinate = data.coordinate(point)
+        return (coordinate.latitude, coordinate.longitude, nearestRegion(to: point))
     }
 
     private func updateCenterLocation() {
@@ -508,7 +769,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
 
     @objc private func selectPlacement(_ gesture: UITapGestureRecognizer) {
-        guard !selectingCenterLocation else { return }
+        guard !selectingCenterLocation, placementPreview == nil else { return }
         guard gesture.state == .ended, let view = canvas?.map, let data else { return }
         let point = gesture.location(in: view)
         if editingPlacement {
@@ -531,6 +792,11 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         } else {
             var entity = view.entity(at: point)
             while let current = entity {
+                if current.name.hasPrefix("authored:"),
+                   let item = authoredPlacements[String(current.name.dropFirst("authored:".count))] {
+                    onAuthoredPlacement?(item.placement.id)
+                    return
+                }
                 if let record = savedPlacements.first(where: { current.name == "placement:" + $0.id.uuidString }) {
                     if let onPlacement { onPlacement(record.id) } else { onStory?(record.storyID) }; return
                 }
@@ -591,7 +857,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         guard visible, let view = canvas?.map else { return }
         let projection = mapProjection(in: view.bounds)
         let visibleBounds = view.bounds.insetBy(dx: -100, dy: -100)
-        for (button, world) in pins {
+        for (button, world) in pins + authoredPins {
             guard !editingPlacement, let screen = projection.point(world), visibleBounds.contains(screen) else {
                 button.isHidden = true
                 continue
@@ -604,7 +870,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         let markers = regionClustering?.markers(radius: radius, focalLength: projection.focalLength,
                                                 reduceMotion: UIAccessibility.isReduceMotionEnabled,
                                                 separation: projection.planeSeparation) ?? []
-        var visibleButtons = pins.map(\.0)
+        var visibleButtons = (pins + authoredPins).map(\.0)
         var shownRegionIDs: Set<String> = []
         if !editingPlacement {
             for marker in markers {
@@ -708,6 +974,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         panInput = nil
         panReleaseVelocity = .zero
         panTouchCount = 0
+        previewDragPoint = nil
+        previewTouchState = CampusPlacementGestureState()
     }
 
     private func updateNavigation(_ gesture: UIGestureRecognizer) -> Bool {
@@ -767,6 +1035,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         hasMovedFromOverview = true
         updateCamera()
     }
+
     @objc private func pinch(_ gesture: UIPinchGestureRecognizer) {
         guard updateNavigation(gesture) else {
             pinchLogRadius = nil
@@ -794,6 +1063,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         hasMovedFromOverview = true
         updateCamera()
     }
+
     func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer

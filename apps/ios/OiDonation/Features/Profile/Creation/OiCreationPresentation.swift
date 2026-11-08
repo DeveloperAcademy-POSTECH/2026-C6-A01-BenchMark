@@ -8,7 +8,7 @@ enum OiCreationStep: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .consent: "약관 동의"
+        case .consent: "공개 약관"
         case .story: "이야기 작성"
         case .photos: "이미지 선택"
         case .location: "위치 설정"
@@ -69,6 +69,8 @@ enum OiCreationAccess {
         guard story.status == "draft" else { return false }
         var serverDraft = OiStoryDraft(story: story)
         serverDraft.revision = draft.revision
+        if draft.heightMeters == nil { serverDraft.heightMeters = nil }
+        if draft.headingDegrees == nil { serverDraft.headingDegrees = nil }
         return serverDraft == draft
     }
 }

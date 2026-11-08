@@ -5,6 +5,7 @@ import simd
 
 /// Geographic placement for published stories and isolated device checks; not donation approval.
 struct CampusPlacement: Codable, Identifiable, Hashable {
+    static let heightRange = 0.4...2.0
     let id: UUID
     let storyID: String
     let latitude: Double
@@ -12,6 +13,8 @@ struct CampusPlacement: Codable, Identifiable, Hashable {
     let heightMeters: Double
     let headingDegrees: Double
     let model: String
+
+    var heightCentimeters: Int { Int((heightMeters * 100).rounded()) }
 
     init(id: UUID = UUID(), storyID: String, latitude: Double, longitude: Double,
          heightMeters: Double = 1, headingDegrees: Double = 0) {
@@ -25,9 +28,23 @@ struct CampusPlacement: Codable, Identifiable, Hashable {
         guard model == "helmet-oi", !storyID.isEmpty, storyID.count <= 100,
               [latitude, longitude, heightMeters, headingDegrees].allSatisfy(\.isFinite),
               (-90...90).contains(latitude), (-180...180).contains(longitude),
-              (0.4...2).contains(heightMeters), (0..<360).contains(headingDegrees)
+              Self.heightRange.contains(heightMeters), (0..<360).contains(headingDegrees)
         else { throw CampusPlacementError.invalid }
         return self
+    }
+
+    static func story(id: UUID, latitude: Double, longitude: Double,
+                      heightMeters: Double?, headingDegrees: Double?) -> Self? {
+        let height = heightMeters ?? 1
+        let allowedHeight = height.isFinite ? min(heightRange.upperBound, max(heightRange.lowerBound, height)) : 1
+        return try? Self(id: id, storyID: id.uuidString, latitude: latitude, longitude: longitude,
+                         heightMeters: allowedHeight, headingDegrees: wrappedHeading(headingDegrees ?? 0)).validated()
+    }
+
+    static func wrappedHeading(_ degrees: Double) -> Double {
+        guard degrees.isFinite else { return 0 }
+        let angle = degrees.truncatingRemainder(dividingBy: 360)
+        return angle < 0 ? angle + 360 : angle
     }
 
     func distance(latitude lat: Double, longitude lon: Double) -> Double {

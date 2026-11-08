@@ -3,6 +3,7 @@ import SwiftUI
 struct OiLocationPicker: View {
     @Binding var latitude: Double?
     @Binding var longitude: Double?
+    var regionID: Binding<String>? = nil
     var focusPlaceID: String? = nil
     var onFinish: (() -> Void)? = nil
     @State private var scene = CampusExploreScene()
@@ -154,6 +155,7 @@ struct OiLocationPicker: View {
         guard let coordinate = scene.confirmCenterLocation() else { return }
         latitude = coordinate.latitude
         longitude = coordinate.longitude
+        if let region = coordinate.region { regionID?.wrappedValue = region.id }
         close()
     }
 
@@ -172,6 +174,152 @@ struct OiLocationPicker: View {
         guard !Task.isCancelled, showingMap, scene.ready else { return }
         scene.beginCenterLocation(latitude: latitude, longitude: longitude)
         if let selectedPlaceID { scene.focusPlaceForPlacement(selectedPlaceID) }
+    }
+}
+
+struct OiDraftPlacementPreview: View {
+    let draft: OiStoryDraft
+    let wardrobe: OiWardrobeLook?
+    let isShowingReview: Bool
+    let savedPlacement: OiPersonalPlacement?
+    let error: String?
+    let onEdit: () -> Void
+    let onEditLocation: () -> Void
+    let onPlace: (CampusPlacement) -> Void
+    let onReview: () -> Void
+    let onPlacementChange: (CampusPlacement, CampusRegion?) -> Void
+
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var scene = CampusExploreScene()
+    @State private var retry = 0
+    @State private var locationError: String?
+
+    private var canUsePlacement: Bool { scene.placementReady && scene.placementPreview != nil && locationError == nil }
+
+    private var placement: CampusPlacement? {
+        guard let latitude = draft.latitude, let longitude = draft.longitude else { return nil }
+        return CampusPlacement.story(id: draft.id, latitude: latitude, longitude: longitude,
+            heightMeters: draft.heightMeters, headingDegrees: draft.headingDegrees ?? 180)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text("오이 배치 미리보기")
+                .font(CampusStyle.semibold(20))
+                .foregroundStyle(Color("OiDark"))
+                .accessibilityAddTraits(.isHeader)
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .padding(.horizontal, 54)
+                .overlay(alignment: .leading) {
+                    Button {
+                        scene.commitPlacementPreview()
+                        onEdit()
+                    } label: {
+                        Image(systemName: "chevron.left").frame(width: 52, height: 48)
+                    }
+                    .foregroundStyle(Color("OiDark"))
+                    .accessibilityLabel("카드 꾸미기로 돌아가기")
+                }
+            if let placement {
+                CampusMapSurface(scene: scene)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityLabel("선택한 위치의 3D 캠퍼스 지도")
+                    .accessibilityHint("한 손가락으로 오이를 이동하고, 두 손가락으로 높이와 방향을 조절해요.")
+                    .overlay {
+                        if let locationError {
+                            locationPrompt(locationError)
+                        } else if let error = scene.error ?? scene.placementError {
+                            ContentUnavailableView {
+                                Label("배치 미리보기를 불러올 수 없어요", systemImage: "map")
+                            } description: {
+                                Text(error)
+                            } actions: {
+                                Button("다시 시도") { retry += 1 }
+                            }.background(.regularMaterial)
+                        } else if !scene.placementReady {
+                            ProgressView("지도와 내 오이를 불러오는 중")
+                                .padding(16).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                        }
+                    }
+                    .overlay(alignment: .bottom) {
+                        if let error = scene.previewMovementError {
+                            Text(error).font(CampusStyle.body(13)).multilineTextAlignment(.center)
+                                .padding(10).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                                .padding(8).allowsHitTesting(false)
+                        }
+                    }
+                    .task(id: retry) { await prepare(placement) }
+                    .onChange(of: scenePhase, initial: true) { _, _ in updateVisibility() }
+                    .onChange(of: isShowingReview) { _, _ in updateVisibility() }
+                    .onDisappear { scene.suspendForARCamera() }
+            } else {
+                locationPrompt("내 오이를 놓을 캠퍼스 위치를 선택해 주세요.")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            VStack(spacing: 8) {
+                Text("포항공과대학교 · \(draft.cucumberName.isEmpty ? "내 오이" : draft.cucumberName)")
+                    .font(CampusStyle.semibold(16))
+                    .foregroundStyle(Color("OiDark"))
+                if let placement = scene.placementPreview {
+                    Label("공개 시 현장 AR 높이 \(placement.heightCentimeters)cm", systemImage: "ruler")
+                        .font(CampusStyle.semibold(17))
+                        .accessibilityIdentifier("oi.creation.placementHeight")
+                    Text("한 손가락으로 이동 · 핀치로 높이 조절\n두 손가락을 좌우로 움직이거나 비틀어 회전")
+                        .font(CampusStyle.body(13)).foregroundStyle(.secondary)
+                    Text("사진 속 크기는 촬영 거리와 각도에 따라 달라져요.")
+                        .font(CampusStyle.body(12)).foregroundStyle(.secondary)
+                }
+                if let error { Text(error).font(.footnote).foregroundStyle(.red) }
+                Label("내 지도 배치는 이 기기에서 나만 볼 수 있어요.", systemImage: "lock")
+                    .font(CampusStyle.body(13)).foregroundStyle(.secondary)
+                OiCreationNextButton(title: savedPlacement == nil ? "내 지도에 배치하기" : "내 지도 배치 저장하기",
+                                     enabled: canUsePlacement) {
+                    guard let placement = scene.placementPreview else { return }
+                    scene.commitPlacementPreview()
+                    onPlace(placement)
+                }
+                .accessibilityIdentifier("oi.creation.placeOnMyMap")
+                Button("공개 검토 요청") {
+                    scene.commitPlacementPreview()
+                    onReview()
+                }
+                .font(CampusStyle.medium(15)).tint(CampusStyle.sectionGreen)
+                .frame(minHeight: 44).disabled(!canUsePlacement)
+                .accessibilityIdentifier("oi.creation.reviewPlacement")
+                .accessibilityHint("이야기와 사진을 다른 사람에게 공개하기 위한 검토 화면으로 이동해요.")
+            }
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 20).padding(.vertical, 12)
+        }
+    }
+
+    private func locationPrompt(_ message: String) -> some View {
+        ContentUnavailableView {
+            Label("오이 위치를 확인해 주세요", systemImage: "mappin.circle")
+        } description: {
+            Text(message)
+        } actions: {
+            Button("위치 다시 선택", action: onEditLocation)
+        }.background(.regularMaterial)
+    }
+
+    private func prepare(_ placement: CampusPlacement) async {
+        scene.setSharedMap(true)
+        await scene.load()
+        guard !Task.isCancelled, let data = scene.data else { return }
+        let point = data.world(latitude: placement.latitude, longitude: placement.longitude)
+        if let error = data.placementError(at: point) {
+            locationError = error
+            return
+        }
+        scene.onPreviewChange = onPlacementChange
+        scene.beginPlacementPreview(placement)
+        await scene.preparePlacements(wardrobe: wardrobe)
+    }
+
+    private func updateVisibility() {
+        if isShowingReview || scenePhase == .background { scene.suspendForARCamera() }
+        else { scene.setVisible(scenePhase == .active) }
     }
 }
 
