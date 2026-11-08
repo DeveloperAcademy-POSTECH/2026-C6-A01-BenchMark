@@ -180,6 +180,7 @@ struct OiLocationPicker: View {
 struct OiDraftPlacementPreview: View {
     let draft: OiStoryDraft
     let wardrobe: OiWardrobeLook?
+    let isShowingReview: Bool
     let onEdit: () -> Void
     let onEditLocation: () -> Void
     let onReview: () -> Void
@@ -243,9 +244,8 @@ struct OiDraftPlacementPreview: View {
                         }
                     }
                     .task(id: retry) { await prepare(placement) }
-                    .onChange(of: scenePhase, initial: true) { _, phase in
-                        scene.setVisible(phase == .active)
-                    }
+                    .onChange(of: scenePhase, initial: true) { _, _ in updateVisibility() }
+                    .onChange(of: isShowingReview) { _, _ in updateVisibility() }
                     .onDisappear { scene.suspendForARCamera() }
             } else {
                 locationPrompt("내 오이를 놓을 캠퍼스 위치를 선택해 주세요.")
@@ -297,6 +297,11 @@ struct OiDraftPlacementPreview: View {
         scene.onPreviewChange = onPlacementChange
         scene.beginPlacementPreview(placement)
         await scene.preparePlacements(wardrobe: wardrobe)
+    }
+
+    private func updateVisibility() {
+        if isShowingReview || scenePhase == .background { scene.suspendForARCamera() }
+        else { scene.setVisible(scenePhase == .active) }
     }
 }
 

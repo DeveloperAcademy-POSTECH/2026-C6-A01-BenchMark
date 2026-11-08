@@ -143,7 +143,7 @@ struct OiStoryEditor: View {
                                  regionID: $draft.regionId,
                                  onFinish: { navigate(to: .story) })
             } else if step == .card && customizationReady {
-                OiDraftPlacementPreview(draft: draft, wardrobe: customization.wardrobe,
+                OiDraftPlacementPreview(draft: draft, wardrobe: customization.wardrobe, isShowingReview: showingPreview,
                     onEdit: { customizationReady = false },
                     onEditLocation: { navigate(to: .location) }, onReview: advance,
                     onPlacementChange: savePlacementPreview)
@@ -259,17 +259,6 @@ struct OiStoryEditor: View {
     }
 
     private var usesNavigationBar: Bool { !restored }
-
-    private func reviewIssue(_ title: String, destination: OiCreationStep) -> some View {
-        Button {
-            showingPreview = false
-            customizationReady = false
-            navigate(to: destination)
-        } label: {
-            Label(title, systemImage: "exclamationmark.circle")
-                .font(.subheadline).frame(minHeight: 44)
-        }
-    }
 
     private var photoEditorContent: some View {
         VStack(spacing: 0) {
@@ -528,70 +517,61 @@ struct OiStoryEditor: View {
     }
 
     private var reviewSheet: some View {
-            NavigationStack {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        OiDraftCardPreview(draft: draft, customization: customization,
-                            donorName: remote.profile?.publicName ?? "").frame(width: 222, height: 308)
-                        Text("내가 꾸민 카드 · 기기 초안").font(.caption).foregroundStyle(.secondary)
-                        MYCardArtwork(card: publicCard).frame(height: 280).frame(maxWidth: .infinity)
-                        Text("공개 예정 카드 프리셋").font(.caption).foregroundStyle(.secondary)
-                        Text("꾸민 오이 외형은 이 기기의 미리보기와 내 지도에 표시됩니다.").font(.caption)
-                        Text(draft.title).font(.title2.bold())
-                        Text(draft.body)
-                        Text("\(draft.theme) · \(draft.emotion) · \(draft.cucumberName)")
-                        if let latitude = draft.latitude, let longitude = draft.longitude {
-                            Text("\(latitude), \(longitude)").font(.caption)
-                        }
-                        if let height = draft.heightMeters {
-                            Text("현장 AR 높이 \(height * 100, specifier: "%.0f")cm").font(.caption)
-                        }
-                        ForEach(editingPhotos) { photo in reviewPhoto(photo).frame(height: 180) }
-                        if let error = localError ?? remote.error { Text(error).foregroundStyle(.red) }
-                        OiConnectionStatus(remote: remote)
-                        if !consentState.allRequiredClausesAreAgreed {
-                            reviewIssue("필수 약관 동의", destination: .consent)
-                        }
-                        if !OiCreationStep.story.canContinue(draft: draft) {
-                            reviewIssue("테마·감정을 선택하고 제목과 이야기를 각각 \(OiCreationStep.storyTextLimit)자 이내로 입력해 주세요", destination: .story)
-                        }
-                        if !OiCreationStep.location.canContinue(draft: draft) {
-                            reviewIssue("캠퍼스 위치를 선택해 주세요", destination: .location)
-                        }
-                        if !hasValidStoryPhotoCount {
-                            reviewIssue("사진을 1~\(OiCreationStep.storyPhotoLimit)장 선택해 주세요", destination: .photos)
-                        }
-                        if draft.cucumberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draft.cucumberName.count > 50 {
-                            reviewIssue("오이 이름을 1~50자로 입력해 주세요", destination: .card)
-                        }
-                        Button("이 내용으로 저장 후 검토 요청") {
-                            Task {
-                                publishing = true
-                                defer { publishing = false }
-                                if let saved = await saveCurrent(), let receipt = await remote.submitStory(saved) {
-                                    draft = OiStoryDraft(story: receipt); submitted = true; localVersion += 1
-                                    _ = await persist(); showingPreview = false
-                                }
-                            }
-                        }.disabled(remote.isBusy || publishing || saving || !canSubmit).accessibilityIdentifier("oi.story.confirmSubmit")
-                    }.padding(20)
-                }.navigationTitle("공개 검토 전 확인").navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("수정으로 돌아가기") {
-                                showingPreview = false
-                                customizationReady = false
-                            }.disabled(publishing)
-                        }
-                    }
-                    .interactiveDismissDisabled(publishing)
+        OiStoryReview(draft: draft, customization: customization, publicCard: publicCard,
+            donorName: remote.profile?.publicName ?? "",
+            location: OiCreationStep.location.canContinue(draft: draft) ? completionLocation : nil,
+            photos: editingPhotos, remote: remote, issues: reviewIssues, error: localError ?? remote.error,
+            canSubmit: canSubmit && !remote.isBusy && !saving, isSubmitting: publishing,
+            onEdit: { step in
+                showingPreview = false
+                customizationReady = false
+                navigate(to: step)
+            }, onSubmit: {
+                Task { await submitReview() }
+            }) { photo, thumbnail in
+                reviewPhoto(photo, allowsRetry: !thumbnail, contentMode: thumbnail ? .fill : .fit,
+                            maximumPixelSize: thumbnail ? 512 : 1600)
             }
     }
 
-    @ViewBuilder private func reviewPhoto(_ photo: OiEditingPhoto, allowsRetry: Bool = true, contentMode: ContentMode = .fit) -> some View {
+    private var reviewIssues: [OiStoryReviewIssue] {
+        var issues: [OiStoryReviewIssue] = []
+        if !consentState.allRequiredClausesAreAgreed {
+            issues.append(.init(step: .consent, message: "필수 약관에 동의해 주세요."))
+        }
+        if !OiCreationStep.story.canContinue(draft: draft) {
+            issues.append(.init(step: .story, message: "테마와 감정을 선택하고 제목과 이야기를 각각 \(OiCreationStep.storyTextLimit)자 이내로 입력해 주세요."))
+        }
+        if !OiCreationStep.location.canContinue(draft: draft) {
+            issues.append(.init(step: .location, message: "캠퍼스 위치를 선택해 주세요."))
+        }
+        if !hasValidStoryPhotoCount {
+            issues.append(.init(step: .photos, message: "이야기 사진을 1~\(OiCreationStep.storyPhotoLimit)장 선택해 주세요."))
+        }
+        if draft.cucumberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draft.cucumberName.count > 50 {
+            issues.append(.init(step: .card, message: "오이 이름을 1~50자로 입력해 주세요."))
+        }
+        return issues
+    }
+
+    private func submitReview() async {
+        guard !publishing, !remote.isBusy, !saving, canSubmit else { return }
+        publishing = true
+        defer { publishing = false }
+        if let saved = await saveCurrent(), let receipt = await remote.submitStory(saved) {
+            draft = OiStoryDraft(story: receipt); submitted = true; localVersion += 1
+            _ = await persist()
+            showingPreview = false
+        }
+    }
+
+    @ViewBuilder private func reviewPhoto(_ photo: OiEditingPhoto, allowsRetry: Bool = true,
+                                          contentMode: ContentMode = .fit, maximumPixelSize: Int = 512) -> some View {
         switch photo {
         case .local(let id):
-            if let owner { OiLocalPhoto(remote: remote, owner: owner, id: id, contentMode: contentMode) }
+            if let owner {
+                OiLocalPhoto(remote: remote, owner: owner, id: id, contentMode: contentMode, maximumPixelSize: maximumPixelSize)
+            }
         case .uploaded(let path):
             OiStoryMediaImage(path: path, allowsRetry: allowsRetry, contentMode: contentMode) { try await remote.mediaURL(bucket: "oi-story-media", path: $0) }
         }
@@ -848,6 +828,7 @@ struct OiLocalPhoto: View {
     let owner: UUID
     let id: UUID
     var contentMode: ContentMode = .fit
+    var maximumPixelSize = 512
     @State private var image: UIImage?
     @State private var error: String?
 
@@ -861,7 +842,7 @@ struct OiLocalPhoto: View {
                 guard let source = CGImageSourceCreateWithData(data as CFData, nil),
                       let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                         kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
-                        kCGImageSourceThumbnailMaxPixelSize: 512] as CFDictionary) else { throw OiServiceError.invalidInput }
+                        kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize] as CFDictionary) else { throw OiServiceError.invalidInput }
                 try Task.checkCancellation()
                 guard remote.account?.id == owner else { throw OiServiceError.accountChanged }
                 image = UIImage(cgImage: thumbnail)

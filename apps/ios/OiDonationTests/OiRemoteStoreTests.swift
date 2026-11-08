@@ -2069,7 +2069,8 @@ final class OiRemoteStoreTests: XCTestCase {
         let mode = ProcessInfo.processInfo.environment["OI_CREATION_INTERACTION_CHECK"]
         let freelyExplore = mode == "all-screens"
         let checkMovement = mode == "placement-gestures"
-        let checkPlacement = mode == "placement" || checkMovement
+        let checkReview = mode == "review"
+        let checkPlacement = mode == "placement" || checkMovement || checkReview
         guard mode == "1" || freelyExplore || checkPlacement else {
             throw XCTSkip("Opt in to drive the editor with simulator UI automation")
         }
@@ -2097,6 +2098,29 @@ final class OiRemoteStoreTests: XCTestCase {
             }
             try await store.saveLocalPhoto(image, id: photo, owner: OiTestBackend.owner)
             photos = [photo]
+        }
+        if checkReview {
+            input.title = "연못 옆에서 보낸 첫 학기"
+            input.body = "수업이 끝나면 친구와 연못을 걸었어요.\n그 산책이 오래 기억에 남아요."
+            input.cucumberName = "산책오이"
+            input.heightMeters = 1.35
+            photos = []
+            let images = try ["DonationCampus", "CampusSchoolMap"].map { name in
+                try OiPhotoProcessor.prepare(XCTUnwrap(UIImage(named: name)?.jpegData(compressionQuality: 0.84)))
+            }
+            for image in images {
+                let id = UUID()
+                try await store.saveLocalPhoto(image, id: id, owner: OiTestBackend.owner)
+                photos.append(id)
+            }
+            var wardrobe = OiWardrobeLook()
+            wardrobe.topColor = 0x748D43
+            let front = try OiPhotoRenderer.asset(images[0])
+            let back = try OiPhotoRenderer.asset(images[1])
+            let layers = [OiPhotoLayer(source: front.id, side: .front), OiPhotoLayer(source: back.id, side: .back)]
+            try wardrobe.artwork.set(OiPhotoDesign(layers: layers), sources: [front.id: front.data, back.id: back.data],
+                                     for: OiPhotoSlot.top.itemID(in: wardrobe))
+            look.wardrobe = wardrobe
         }
         let initialStep: OiCreationStep = checkPlacement ? .card : freelyExplore ? .consent : .cucumber
         let local = OiLocalDraft(draft: input, photos: photos, version: 1,
@@ -2131,7 +2155,18 @@ final class OiRemoteStoreTests: XCTestCase {
             var sawMovement = false
             for _ in 0..<180 {
                 try await Task.sleep(for: .seconds(1))
-                XCTAssertNil(backend.snapshot().story, "Done and opening review never submit the draft")
+                let backendState = backend.snapshot()
+                if checkReview {
+                    if let submitted = backendState.story, submitted["status"] as? String == "pending" {
+                        XCTAssertTrue(sawPlacement)
+                        XCTAssertEqual(backendState.submittedTitle, input.title)
+                        XCTAssertEqual(backendState.paths.count, photos.count)
+                        XCTAssertNil(submitted["customization"], "Local costume and card photos stay on the device")
+                        return
+                    }
+                } else {
+                    XCTAssertNil(backendState.story, "Done and opening review never submit the draft")
+                }
                 if !sawPlacement, let (_, model) = placedOi(in: window) {
                     XCTAssertLessThan(simd_distance(model.position(relativeTo: nil), expectedGround), 0.001)
                     XCTAssertGreaterThan(model.visualBounds(relativeTo: nil).extents.y, 1)
@@ -2151,7 +2186,7 @@ final class OiRemoteStoreTests: XCTestCase {
                     attachment.name = "draft-oi-after-drag"; attachment.lifetime = .keepAlways; add(attachment)
                     sawMovement = true
                 }
-                if sawPlacement, (!checkMovement || sawMovement), controller.presentedViewController != nil {
+                if !checkReview, sawPlacement, (!checkMovement || sawMovement), controller.presentedViewController != nil {
                     let saved = try await store.localDraft(id: local.id, owner: OiTestBackend.owner)
                     XCTAssertEqual(saved?.customization?.wardrobe, look.wardrobe)
                     XCTAssertEqual(saved?.photos, photos)
