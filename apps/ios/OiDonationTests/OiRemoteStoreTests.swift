@@ -307,6 +307,11 @@ final class OiTestBackend {
                 result = state.evidence ?? [:]
             } else if action == "submit_evidence" {
                 state.evidence?["status"] = "pending"; state.evidence?["object_path"] = payload["object_path"]
+                if payload["operator_ai_consent"] as? Bool == true {
+                    let submittedAt = "2026-11-09T00:00:00Z"
+                    state.evidence?["submitted_at"] = submittedAt
+                    state.evidence?["operator_ai_consented_at"] = submittedAt
+                }
                 result = state.evidence ?? [:]
                 if state.loseEvidenceResponse { status = 503; state.loseEvidenceResponse = false }
             } else { result = ["id":payload["id"] ?? ""] }
@@ -797,7 +802,8 @@ final class OiRemoteStoreTests: XCTestCase {
         for (status, code, expected) in [(404, "NOT_FOUND", "배포"), (503, "analysis_not_configured", "설정"),
                                          (429, "analysis_busy", "한도"), (504, "analysis_timeout", "초과"),
                                          (422, "analysis_refused", "자료"), (502, "invalid_analysis_response", "완료하지 못"),
-                                         (409, "evidence_changed", "새로고침")] {
+                                         (409, "evidence_changed", "새로고침"),
+                                         (403, "evidence_ai_consent_required", "동의")] {
             backend.configure { $0.analysisStatus = status; $0.analysisError = code }
             let count = backend.snapshot().analysisBodies.count
             await model.analyze(row, using: store)
@@ -2531,7 +2537,7 @@ final class OiRemoteStoreTests: XCTestCase {
         defer { clean(session, directory: directory) }
         await store.start()
         backend.configure { $0.loseEvidenceResponse = true }
-        await store.submitEvidence(data: Data([1,2,3]), contentType: "image/png", fileExtension: "png")
+        await store.submitEvidence(data: Data([1,2,3]), contentType: "image/png", fileExtension: "png", operatorAIConsent: true)
         let operation = store.evidenceOperation
         XCTAssertEqual(operation?.phase, "failed")
         let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
@@ -2540,6 +2546,8 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(restored.evidenceOperation?.requestID, operation?.requestID)
         XCTAssertEqual(restored.evidenceOperation?.uploadID, operation?.uploadID)
         XCTAssertEqual(restored.evidenceOperation?.phase, "pending")
+        XCTAssertEqual(restored.evidenceOperation?.operatorAIConsent, true)
+        XCTAssertEqual(restored.evidence.first?.hasOperatorAIConsent, true)
         XCTAssertEqual(backend.snapshot().requestIDs.count, 1)
         XCTAssertEqual(backend.snapshot().uploads.count, 1)
     }
