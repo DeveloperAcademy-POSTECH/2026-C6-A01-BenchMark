@@ -49,7 +49,7 @@ TestFlight의 App Clip 시험도 관리자가 새 빌드 → 테스트 정보 �
 
 ## 검증
 
-현재 도구는 Xcode 27.0이며 배포 대상은 본 앱 iOS 26.2·App Clip iOS 27.0, Swift 언어 모드는 5.0이다. 이번 작업에서 변경하지 않았다.
+#89 검증 당시 Xcode 27.0과 Swift 언어 모드 5.0을 사용했다. 배포 대상은 본 앱 iOS 26.2, App Clip iOS 27.0이었다.
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
@@ -84,3 +84,19 @@ CURRENT_PROJECT_VERSION=2 archive
 - [호출 URL 수신](https://developer.apple.com/documentation/appclip/responding-to-invocations)
 - [Xcode 호출 디버깅·로컬 경험·실물 NFC 시험](https://developer.apple.com/documentation/appclip/testing-the-launch-experience-of-your-app-clip)
 - [TestFlight App Clip 호출 설정](https://developer.apple.com/help/app-store-connect/test-a-beta-version/test-an-app-clip-experience/)
+
+## App Clip 용량과 지원 버전 — 2026-11-08 / #217
+
+App Clip의 Debug·Release 최소 지원 버전을 본 앱과 같은 iOS 26.2로 설정했다. 공용 체험·AR·카드 카탈로그의 래스터 이미지는 Xcode가 원본 해상도에서 손실 압축한다. 공개 이야기 프리셋 네 개는 `apps/ios/Resources/AppClipPresets`의 512px 투명 PNG로 제공한다. 각 파일은 본 앱 `Assets.xcassets`의 `OiCats`, `OiGardener`, `OiWizard`, `OiTraveler` 이미지에서 `sips --resampleHeightWidthMax 512 <원본> --out <사본>`으로 만든다.
+
+Xcode 27.2의 iPhone용 Release 아카이브에서 본 앱과 내장 Clip의 `MinimumOSVersion` 26.2, 1.0.0 (20261108), 개인정보 manifest를 확인했다. Clip의 Paperlogy 글꼴 6종과 OFL 전문, 프리셋 4개를 확인했다. 개발 서명으로 Clip을 로컬 내보낸 결과 기기별 변형 세 개의 최대 비압축 용량은 14,210,503바이트이며 전체 기기용 묶음은 14,357,438바이트다. 기존 기기별 용량은 22.4MB였다. [Apple의 App Clip 용량 기준](https://developer.apple.com/help/app-store-connect/reference/app-uploads/maximum-build-file-sizes).
+
+Release 아카이브에서 Clip을 선택하고 개발용 서명으로 모든 기기 변형을 내보낸다. 아카이브와 `app-thinning.plist`가 포함된 내보내기 폴더를 아래 검사에 전달한다.
+
+```sh
+python3 scripts/check-app-clip-release.py /path/to/OiDonation.xcarchive /path/to/ClipExport
+sh apps/ios/Tests/run-app-clip-font-checks.sh /path/to/OiDonationClip.app
+sh apps/ios/Tests/run-app-clip-checks.sh
+```
+
+링크·공개 이야기·수집 회귀 검사와 iOS 27.2 시뮬레이터의 체험 화면·AR 수집 윤곽 검사 두 개가 통과했다. iOS 26.2 계열 실기기의 NFC 호출과 카메라, 배포 서명과 Apple Validate App은 출시 전 확인 항목이다.

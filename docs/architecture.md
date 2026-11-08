@@ -551,3 +551,7 @@ MY 설정에서 기존 Apple·Google 로그인으로 본인을 다시 확인한�
 본 앱·App Clip의 `OiSampleExperienceView`가 `NavigationStack`으로 오프라인 지도/목록 → 요약 → 이야기 상세를 연결한다. 기존 `CampusStory`, `CampusStoryExamples`, `CampusStyle`을 공유하지만 체험은 `CampusStoryStore`나 원격 저장소를 생성하지 않는다. 예시 UI와 최적화된 이미지 카탈로그만 App Clip에 포함하고 캠퍼스 렌더러·서비스 의존성은 추가하지 않는다.
 
 AR 게임 시작 시 정규화된 캐릭터를 한 번 로드하여 카메라와 HUD가 같은 `UIImage`를 사용한다. 빈 수집 칸은 해당 이미지 알파의 윤곽으로 생성한다. 게임 시간·수집 판정·저장 승인 규칙은 변경하지 않는다. [설계 적용 및 검증](verification/sample-figma-214.md).
+
+### App Clip 출시 용량과 지원 버전 — 2026-11-08 / #217
+
+두 타깃의 최소 지원 버전은 iOS 26.2다. 공용 체험·AR·카드 이미지 카탈로그는 컴파일 압축을 적용하고, Clip의 공개 이야기 프리셋은 512px 사본을 사용한다. 파일 이름은 `RealStoryRepository`의 프리셋 매핑과 일치한다. [아카이브 용량과 검증](../apps/ios/docs/app-clip-launch.md#app-clip-용량과-지원-버전--2026-11-08--217).

@@ -2,7 +2,8 @@
   "images": [
     {
       "filename": "5eda0.png",
-      "idiom": "universal"
+      "idiom": "universal",
+      "compression-type": "lossy"
     }
   ],
   "info": {
