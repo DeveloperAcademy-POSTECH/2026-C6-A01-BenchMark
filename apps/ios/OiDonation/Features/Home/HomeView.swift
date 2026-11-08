@@ -181,6 +181,10 @@ struct HomeView: View {
     }
 
     private func configureSceneCallbacks() {
+        if let remote {
+            scene.loadCucumberPortrait = { try await remote.cucumberImage($0) }
+            scene.loadCucumberModel = { try await remote.cucumberModel($0) }
+        }
         scene.onRegion = { selected in
             region = selected; sort = .latest; expanded = false; searchResults = nil
             scene.focus(selected, stories: store.stories(in: selected.id, sortedBy: .latest))

@@ -111,6 +111,7 @@ grant execute on function auth.jwt() to anon,authenticated;
         # The backfill fixture belongs only to the farm migration test.
         run(connection, input="delete from benchmark_private.oi_account_members where auth_user_id='f1580000-0000-4000-8000-000000000001' and account_id=auth_user_id; delete from auth.users where id='f1580000-0000-4000-8000-000000000001';", text=True)
         run(connection + ['-f', 'supabase/tests/oi-independent-story-creation.sql'])
+        run(connection + ['-f', 'supabase/tests/oi-public-cucumber-appearance.sql'])
         run(connection + ['-f', 'supabase/tests/account-merge.sql'])
         run(connection + ['-f', 'supabase/tests/oi-card-requests.sql'])
         run(connection + ['-f', 'supabase/tests/oi-operator-audit.sql'])
@@ -184,6 +185,7 @@ grant execute on function auth.jwt() to anon,authenticated;
         run(remote_connection + ['-f', 'supabase/tests/account-merge.sql'])
         run(remote_connection + ['-f', 'supabase/tests/account-merge-campus-compat.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-independent-story-creation.sql'])
+        run(remote_connection + ['-f', 'supabase/tests/oi-public-cucumber-appearance.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-card-requests.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-operator-audit.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-account-deletion.sql'])

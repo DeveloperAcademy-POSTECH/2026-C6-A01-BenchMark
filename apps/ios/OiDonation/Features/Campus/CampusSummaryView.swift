@@ -22,7 +22,7 @@ struct CampusSummaryView: View {
                         let summaryLayout = expanded ? AnyLayout(VStackLayout(spacing: 12))
                             : AnyLayout(HStackLayout(alignment: .center, spacing: -14))
                         summaryLayout {
-                            Image(story.portraitImage).resizable().scaledToFit().scaleEffect(1.18)
+                            CampusCucumberPortrait(story: story).scaleEffect(1.18)
                                 .frame(width: max(100, (geometry.size.width - 40) * 0.46), height: expanded ? 190 : 307)
                                 .accessibilityHidden(true)
                             summary.frame(maxWidth: .infinity)

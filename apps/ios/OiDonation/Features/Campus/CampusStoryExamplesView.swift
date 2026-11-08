@@ -11,13 +11,15 @@ struct CampusExampleBadge: View {
 
 struct CampusStoryCardArtwork: View {
     let story: CampusStory
+    @Environment(\.campusCucumberPortraitLoader) private var loadPortrait
     var body: some View {
         if let image = story.example?.cardImage {
             Image(image).resizable().scaledToFit()
                 .accessibilityLabel("\(story.title) 예시 카드")
         } else {
             OiStoryCardArtwork(name: story.title, introduction: story.excerpt, donor: story.donor,
-                               date: story.date, tags: story.tags, assetName: story.image)
+                date: story.date, tags: story.tags, assetName: story.image, portraitPath: story.cucumberPortraitPath,
+                loadPortrait: loadPortrait)
         }
     }
 }

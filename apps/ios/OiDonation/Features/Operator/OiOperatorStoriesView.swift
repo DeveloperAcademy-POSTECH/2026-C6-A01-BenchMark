@@ -76,7 +76,21 @@ struct OiOperatorStoryDetailView: View {
     @State private var model = OiOperatorStoryModel()
     @State private var confirmation: OiLiveStory?
     @State private var showingConfirmation = false
+    @State private var checkedAppearance: OiCucumberArtworkReference?
+    @State private var appearanceImages: [OiCucumberArtworkReference.Part: UIImage] = [:]
+    @State private var appearanceError = false
+    @State private var imageAttempt = 0
+    @State private var selectedArtwork: ReviewArtwork?
     @Environment(\.scenePhase) private var phase
+
+    private struct ReviewArtwork: Identifiable {
+        let id: OiCucumberArtworkReference.Part
+        let title: String
+        let image: UIImage
+    }
+
+    private var artwork: OiCucumberArtworkReference? { model.detail?.story.cucumberArtwork }
+    private var appearanceReady: Bool { artwork == nil || checkedAppearance == artwork }
 
     var body: some View {
         List {
@@ -111,6 +125,10 @@ struct OiOperatorStoryDetailView: View {
             }
         }
         .task(id: storyID) { await loadLatest() }
+        .task(id: AppearanceLoad(artwork: artwork, attempt: imageAttempt)) { await loadAppearance(artwork) }
+        .fullScreenCover(item: $selectedArtwork) { selection in
+            CampusArtworkOverlay(title: selection.title) { Image(uiImage: selection.image).resizable().scaledToFit() }
+        }
         .refreshable {
             confirmation = nil; showingConfirmation = false
             await loadLatest()
@@ -120,7 +138,7 @@ struct OiOperatorStoryDetailView: View {
             let publish = story.status != "published"
             Button(publish ? "확인하고 공개" : "확인하고 비공개") {
                 Task {
-                    guard phase == .active else { return }
+                    guard phase == .active, !publish || appearanceReady else { return }
                     if let saved = await model.review(story, publish: publish, using: remote) { onUpdated(saved) }
                     confirmation = nil
                 }
@@ -129,7 +147,7 @@ struct OiOperatorStoryDetailView: View {
         } message: { story in
             Text(story.status == "published"
                  ? "‘\(story.title)’을 공개 목록에서 내리고 숨김 상태로 보관합니다."
-                 : "‘\(story.title)’의 내용과 사진·위치를 확인했나요? 공개 후 다른 이용자가 볼 수 있습니다.")
+                 : "‘\(story.title)’의 내용과 사진, 위치, 꾸민 오이를 확인했나요? 승인하면 다른 이용자가 볼 수 있습니다.")
         }
         .interactiveDismissDisabled(model.isProcessing)
         .privacySensitive()
@@ -169,6 +187,31 @@ struct OiOperatorStoryDetailView: View {
                 }
             }
         }
+        if let reference = story.cucumberArtwork {
+            Section("공개 오이 외형") {
+                if checkedAppearance == reference {
+                    ForEach(reference.parts, id: \.self) { part in
+                        if let image = appearanceImages[part] {
+                            let title = part == .portrait ? "지도와 카드에 표시할 오이" : (part == .top ? "상의 또는 세트" : "하의")
+                            Button {
+                                selectedArtwork = ReviewArtwork(id: part, title: title, image: image)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(title).font(.subheadline)
+                                    if part != .portrait { Text("왼쪽 앞면 · 오른쪽 뒷면").font(.caption).foregroundStyle(.secondary) }
+                                    Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 240)
+                                }
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                } else if appearanceError {
+                    Text("공개 오이의 외형을 확인하지 못했어요.")
+                    Button("외형 다시 불러오기") { imageAttempt += 1 }
+                } else {
+                    ProgressView("옷과 적용한 사진을 확인하는 중")
+                }
+            }
+        }
         Section("공개 검토") {
             if model.isProcessing { ProgressView("공개 상태를 처리하는 중") }
             Button {
@@ -179,9 +222,10 @@ struct OiOperatorStoryDetailView: View {
                     .frame(maxWidth: .infinity, minHeight: 44)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(!model.canReview || remote.isBusy || !remote.isOperator || remote.needsReauthentication)
+            .disabled(!model.canReview || remote.isBusy || !remote.isOperator || remote.needsReauthentication
+                      || (story.status != "published" && !appearanceReady))
             .accessibilityIdentifier("operator.story.review")
-            Text("이야기 내용을 검토해 공개 여부를 결정합니다.")
+            Text("이야기와 꾸민 오이의 외형을 검토해 공개 여부를 결정합니다.")
                 .font(.footnote).foregroundStyle(.secondary)
         }
     }
@@ -200,6 +244,27 @@ struct OiOperatorStoryDetailView: View {
     private func loadLatest() async {
         await model.load(storyID, using: remote)
         if let story = model.detail?.story { onUpdated(story) }
+    }
+
+    private struct AppearanceLoad: Hashable {
+        let artwork: OiCucumberArtworkReference?
+        let attempt: Int
+    }
+
+    private func loadAppearance(_ reference: OiCucumberArtworkReference?) async {
+        checkedAppearance = nil; appearanceImages = [:]; appearanceError = false
+        guard let reference else { return }
+        do {
+            var images: [OiCucumberArtworkReference.Part: UIImage] = [:]
+            for part in reference.parts {
+                images[part] = try await remote.cucumberImage(reference.path(part), part: part)
+                try Task.checkCancellation()
+            }
+            guard artwork == reference else { return }
+            appearanceImages = images; checkedAppearance = reference
+        } catch {
+            if !Task.isCancelled, artwork == reference { appearanceError = true }
+        }
     }
 }
 
