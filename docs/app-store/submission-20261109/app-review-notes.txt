@@ -1,0 +1,15 @@
+OI DONATION 1.0.0 — APP REVIEW NOTES (DRAFT)
+
+Before pasting: verify a working ordinary test login on a fresh iPhone, enter its credentials only in App Review Information, and add the verified App Clip invocation URL after a release build is selected. Provide a separate account if you want reviewers to complete deletion without losing the main review account. Keep the production service and the temporary story-writing mode available during review.
+
+Guest experience
+On the home map, tap “체험하기” (Try It), select “6냥이오이”, and tap “스토리 보기” (Read Story). To try AR, tap “수집하기” (Collect), then “시작” (Start). Allow camera access on an AR-capable iPhone. Find three cucumbers and tap “체험 카드 모으기” (Save Sample Card). No sign-in, donation, NFC tag, or campus visit is required for this sample. The sample is separate from the account's collection.
+
+Account features
+Use the review login provided in the private Sign-In Information section. From the map, tap “+” and “오이 만들기” to draft a story with an example photo and request publication. An operator approves public visibility; a donation is not required to draft or request review. To report or block, open the public test story identified in the review notes and tap “신고 및 차단”. To delete a test account, go to “MY” → “설정” → “회원 탈퇴” and confirm with the same sign-in provider. Provide the test story only after the operator has published it and the report path has been checked.
+
+App Clip
+Use the verified invocation URL recorded for this build. In the App Clip, tap “이야기·AR 체험” and follow the 6냥이오이 path above. A local developer NFC/QR test is not a public invocation URL for App Review. Record the actual invocation in the dedicated App Clip fields after the build is selected.
+
+Donations
+The app does not accept payments. Optional donations go through POSTECH’s official website. A sample story does not accept a donation.
