@@ -92,7 +92,10 @@ final class CampusMapInteractionTests: XCTestCase {
         XCTAssertGreaterThan(model.visualBounds(relativeTo: nil).extents.y, 1)
         try await capture("authored-oi-at-selected-location", in: canvas)
 
-        let published = try XCTUnwrap(CampusAuthoredPlacement(story: story("published", revision: 4), owner: owner, localDraft: local))
+        var publishedStory = story("published", revision: 4)
+        publishedStory.heightMeters = 2
+        publishedStory.headingDegrees = 35
+        let published = try XCTUnwrap(CampusAuthoredPlacement(story: publishedStory, owner: owner, localDraft: local))
         scene.setAuthoredPlacements([published])
         let publicStory = CampusStory(id: storyID.uuidString, regionID: region.id, title: pending.cucumberName,
             image: pending.cucumberAsset, tags: [], donor: "테스트 작성자", location: region.title, date: "",
@@ -101,6 +104,33 @@ final class CampusMapInteractionTests: XCTestCase {
         let publicPinID = "campus.pin." + storyID.uuidString
         XCTAssertFalse(canvas.subviews.contains { $0.accessibilityIdentifier == publicPinID })
         XCTAssertEqual(canvas.subviews.filter { $0.accessibilityIdentifier == markerID }.count, 1)
+        let publishedMarker = try XCTUnwrap(canvas.subviews.first { $0.accessibilityIdentifier == markerID } as? UIButton)
+        XCTAssertEqual(publishedMarker.accessibilityLabel, "보라색 오이, 공개 중 · 내 오이")
+        XCTAssertLessThan(publishedMarker.bounds.width, 120)
+        XCTAssertLessThan(publishedMarker.bounds.height, 40)
+
+        func assertLabelAboveModel() throws {
+            let map = try XCTUnwrap(canvas.map)
+            let entity = try XCTUnwrap(map.scene.findEntity(named: modelName))
+            let bounds = entity.visualBounds(relativeTo: nil)
+            let head = try XCTUnwrap(map.project(SIMD3(bounds.center.x, bounds.max.y, bounds.center.z)))
+            XCTAssertFalse(publishedMarker.isHidden)
+            XCTAssertLessThan(publishedMarker.frame.maxY, head.y, "Even the tallest model should clear its label")
+        }
+
+        try await capture("authored-oi-published-label", in: canvas)
+        try assertLabelAboveModel()
+        let tilt = TestTilt()
+        tilt.state = .began
+        scene.perform(NSSelectorFromString("pan:"), with: tilt)
+        tilt.state = .changed
+        tilt.delta = CGPoint(x: 80, y: 170)
+        scene.perform(NSSelectorFromString("pan:"), with: tilt)
+        try await capture("authored-oi-published-label-overhead", in: canvas)
+        try assertLabelAboveModel()
+        tilt.state = .ended
+        scene.perform(NSSelectorFromString("pan:"), with: tilt)
+
         scene.suspendForARCamera()
         scene.setVisible(true)
         XCTAssertNotNil(canvas.map?.scene.findEntity(named: modelName))

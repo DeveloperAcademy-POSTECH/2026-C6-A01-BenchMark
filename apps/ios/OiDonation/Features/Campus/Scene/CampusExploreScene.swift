@@ -108,8 +108,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var placementLayer = Entity()
     @ObservationIgnored private var authoredLayer = Entity()
     @ObservationIgnored private var authoredPlacements: [String: CampusAuthoredPlacement] = [:]
-    @ObservationIgnored private var authoredModels: [String: Entity] = [:]
-    @ObservationIgnored private var authoredPins: [(UIButton, SIMD3<Float>)] = []
+    @ObservationIgnored private var authoredModels: [String: AuthoredModel] = [:]
+    @ObservationIgnored private var authoredPins: [String: AuthoredPin] = [:]
     @ObservationIgnored private var draftEntity: Entity?
     @ObservationIgnored private var placementReticle: Entity?
     private var draftHeight = 1.0
@@ -147,12 +147,23 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private var visible = true
     private static var cachedMesh: Entity?
 
+    private struct AuthoredModel {
+        let template: Entity
+        let bounds: BoundingBox
+    }
+
+    private struct AuthoredPin {
+        let button: CampusAuthoredPinButton
+        let ground: SIMD3<Float>
+        var modelCorners: [SIMD3<Float>] = []
+    }
+
     func makeView() -> CampusMapCanvas {
         if let canvas { return canvas }
         let canvas = CampusMapCanvas()
         self.canvas = canvas
         pins.forEach { canvas.addSubview($0.0) }
-        authoredPins.forEach { canvas.addSubview($0.0) }
+        authoredPins.values.forEach { canvas.addSubview($0.button) }
         regionButtons.values.forEach { canvas.addSubview($0) }
         if let data { mapLabels.configure(data: data, in: canvas) }
         canvas.isHidden = !visible
@@ -444,8 +455,12 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                 model.components.set(CollisionComponent(shapes: [
                     .generateBox(size: size).offsetBy(translation: bounds.center)
                 ]))
-                authoredModels[item.id] = model
-                if let data { attachAuthoredModel(item, template: model, data: data) }
+                let authoredModel = AuthoredModel(template: model, bounds: bounds)
+                authoredModels[item.id] = authoredModel
+                if let data {
+                    attachAuthoredModel(item, model: authoredModel, data: data)
+                    updateCamera()
+                }
             } catch is CancellationError {
                 return
             } catch {
@@ -457,35 +472,24 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     private func rebuildAuthoredPlacements() {
         authoredLayer.children.removeAll()
-        authoredPins.forEach { $0.0.removeFromSuperview() }
+        authoredPins.values.forEach { $0.button.removeFromSuperview() }
         authoredPins.removeAll()
         guard let data else { return }
         for item in authoredPlacements.values.sorted(by: { $0.id < $1.id }) {
             let placement = item.placement
             let point = data.world(latitude: placement.latitude, longitude: placement.longitude)
-            if let model = authoredModels[item.id] { attachAuthoredModel(item, template: model, data: data) }
-
-            let status = item.visibility.title
-            var configuration = UIButton.Configuration.filled()
-            configuration.title = item.title
-            configuration.subtitle = status
-            configuration.titleLineBreakMode = .byTruncatingTail
-            configuration.cornerStyle = .medium
-            configuration.baseBackgroundColor = UIColor.systemBackground.withAlphaComponent(0.92)
-            configuration.baseForegroundColor = .label
-            let button = UIButton(configuration: configuration)
-            button.bounds.size = CGSize(width: 142, height: 50)
-            button.accessibilityLabel = "\(item.title), \(status)"
+            let button = CampusAuthoredPinButton(title: item.title, status: item.visibility.title)
             button.accessibilityIdentifier = "campus.authored.\(item.id)"
             button.addAction(UIAction { [weak self] _ in self?.onAuthoredPlacement?(placement.id) }, for: .touchUpInside)
             canvas?.addSubview(button)
-            authoredPins.append((button, point + SIMD3(0, 3.1, 0)))
+            authoredPins[item.id] = AuthoredPin(button: button, ground: point)
+            if let model = authoredModels[item.id] { attachAuthoredModel(item, model: model, data: data) }
         }
     }
 
-    private func attachAuthoredModel(_ item: CampusAuthoredPlacement, template: Entity, data: CampusMapData) {
+    private func attachAuthoredModel(_ item: CampusAuthoredPlacement, model: AuthoredModel, data: CampusMapData) {
         let placement = item.placement
-        let entity = template.clone(recursive: true)
+        let entity = model.template.clone(recursive: true)
         entity.name = "authored:" + item.id
         entity.position = data.world(latitude: placement.latitude, longitude: placement.longitude)
         let templateHeight: Float = item.wardrobe == nil && item.submittedArtwork == nil ? 1 : OiWardrobeAsset.placementHeight
@@ -493,6 +497,18 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                             * Float(placement.heightMeters) / templateHeight)
         entity.orientation = CampusOiAsset.heading(placement.headingDegrees)
         authoredLayer.addChild(entity)
+
+        // Cache the rotated bounds so camera gestures only reproject points.
+        let bounds = model.bounds
+        let transform = entity.transformMatrix(relativeTo: nil)
+        authoredPins[item.id]?.modelCorners = [bounds.min.x, bounds.max.x].flatMap { x in
+            [bounds.min.y, bounds.max.y].flatMap { y in
+                [bounds.min.z, bounds.max.z].map { z in
+                    let corner = transform * SIMD4<Float>(x, y, z, 1)
+                    return SIMD3(corner.x, corner.y, corner.z)
+                }
+            }
+        }
     }
 
     func preparePlacements(wardrobe: OiWardrobeLook? = nil) async {
@@ -885,7 +901,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         guard visible, let view = canvas?.map else { return }
         let projection = mapProjection(in: view.bounds)
         let visibleBounds = view.bounds.insetBy(dx: -100, dy: -100)
-        for (button, world) in pins + authoredPins {
+        for (button, world) in pins {
             guard !editingPlacement, let screen = projection.point(world), visibleBounds.contains(screen) else {
                 button.isHidden = true
                 continue
@@ -894,11 +910,22 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             button.isHidden = false
         }
 
+        var visibleButtons = pins.map(\.0)
+        for pin in authoredPins.values {
+            guard !editingPlacement, let screen = projection.point(pin.ground), visibleBounds.contains(screen) else {
+                pin.button.isHidden = true
+                continue
+            }
+            let top = pin.modelCorners.lazy.compactMap(projection.point).map(\.y).min() ?? screen.y
+            pin.button.center = CGPoint(x: screen.x, y: top - pin.button.bounds.height / 2 - 4)
+            pin.button.isHidden = false
+            visibleButtons.append(pin.button)
+        }
+
         let panelOpacity = CampusMapProjection.panelOpacity(pitch: pitch)
         let markers = regionClustering?.markers(radius: radius, focalLength: projection.focalLength,
                                                 reduceMotion: UIAccessibility.isReduceMotionEnabled,
                                                 separation: projection.planeSeparation) ?? []
-        var visibleButtons = (pins + authoredPins).map(\.0)
         var shownRegionIDs: Set<String> = []
         if !editingPlacement {
             for marker in markers {
@@ -1099,6 +1126,45 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         navigationGestures.contains { $0 === gestureRecognizer }
             && navigationGestures.contains { $0 === otherGestureRecognizer }
     }
+}
+
+@MainActor private final class CampusAuthoredPinButton: UIButton {
+    init(title: String, status: String) {
+        super.init(frame: .zero)
+        var style = UIButton.Configuration.plain()
+        style.attributedTitle = Self.mapText(title, font: .systemFont(ofSize: 12, weight: .semibold))
+        style.attributedSubtitle = Self.mapText(status, font: .systemFont(ofSize: 10, weight: .medium))
+        style.titleAlignment = .center
+        style.titleLineBreakMode = .byTruncatingTail
+        style.subtitleLineBreakMode = .byTruncatingTail
+        style.titlePadding = 0
+        style.contentInsets = .init(top: 2, leading: 4, bottom: 2, trailing: 4)
+        configuration = style
+
+        let maximumWidth: CGFloat = 112
+        let fitted = sizeThatFits(CGSize(width: maximumWidth, height: .greatestFiniteMagnitude))
+        bounds.size = CGSize(width: min(maximumWidth, max(44, ceil(fitted.width))), height: ceil(fitted.height))
+        accessibilityLabel = "\(title), \(status)"
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        let verticalPadding = max(0, (44 - bounds.height) / 2)
+        return bounds.insetBy(dx: 0, dy: -verticalPadding).contains(point)
+    }
+
+    private static func mapText(_ title: String, font: UIFont) -> AttributedString {
+        let halo = NSShadow()
+        halo.shadowColor = UIColor.white
+        halo.shadowBlurRadius = 1.5
+        halo.shadowOffset = .zero
+        return AttributedString(NSAttributedString(string: title, attributes: [
+            .font: font,
+            .foregroundColor: UIColor(red: 0.19, green: 0.25, blue: 0.15, alpha: 1),
+            .shadow: halo
+        ]))
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 }
 
 @MainActor private final class CampusRegionButton: UIButton {
