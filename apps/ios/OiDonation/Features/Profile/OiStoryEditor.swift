@@ -59,6 +59,7 @@ struct OiStoryEditor: View {
     @State private var replacingServerDraft = false
     @State private var pendingSave: Task<Void, Never>?
     @Environment(\.dismiss) private var dismiss
+    @Environment(CampusStoryStore.self) private var campusStore: CampusStoryStore?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -139,6 +140,7 @@ struct OiStoryEditor: View {
                 photoEditorContent
             } else if step == .location {
                 OiLocationPicker(latitude: $draft.latitude, longitude: $draft.longitude,
+                                 regionID: $draft.regionId,
                                  onFinish: { navigate(to: .story) })
             } else {
                 OiCreationProgressHeader(step: step.progress, onSelect: selectProgressStage,
@@ -516,7 +518,7 @@ struct OiStoryEditor: View {
                         Text("내가 꾸민 카드 · 기기 초안").font(.caption).foregroundStyle(.secondary)
                         MYCardArtwork(card: publicCard).frame(height: 280).frame(maxWidth: .infinity)
                         Text("공개 예정 카드 프리셋").font(.caption).foregroundStyle(.secondary)
-                        Text("커스텀 색상과 의상 설정은 이 기기의 미리보기에만 보관됩니다.").font(.caption)
+                        Text("꾸민 오이 외형은 이 기기의 미리보기와 내 지도에 표시됩니다.").font(.caption)
                         Text(draft.title).font(.title2.bold())
                         Text(draft.body)
                         Text("\(draft.theme) · \(draft.emotion) · \(draft.cucumberName)")
@@ -689,8 +691,18 @@ struct OiStoryEditor: View {
                         if !publicCard.date.isEmpty { completionMetadata("날짜", value: publicCard.date) }
                     }
                     Text(isPreview ? "접수 후에는 이렇게 보여요" : "이야기 검토 요청이 접수됐어요").font(CampusStyle.semibold(16))
-                    Text("운영자가 공개 승인하면 캠퍼스 지도와 현장 AR에서 볼 수 있어요.")
+                    Text("운영자가 공개 승인하면 다른 사람도 캠퍼스 지도와 현장 AR에서 이야기를 볼 수 있어요.")
                         .font(CampusStyle.body(14)).foregroundStyle(.secondary)
+                    if !isPreview, let owner, owner == remote.account?.id, !remote.needsReauthentication,
+                       let registered = remote.ownStories.first(where: { $0.id == draft.id && $0.userId == owner && $0.isRegisteredOnCampus }),
+                       let showPlacement = campusStore?.showAuthoredPlacementAction {
+                        if registered.status == "pending" {
+                            Text("지금은 선택한 위치에서 나만 내 오이를 볼 수 있어요.")
+                                .font(CampusStyle.body(14)).foregroundStyle(.secondary)
+                        }
+                        OiCreationNextButton(title: "지도에서 내 오이 보기") { showPlacement(draft.id) }
+                            .accessibilityIdentifier("oi.creation.showAuthoredPlacement")
+                    }
                     OiCreationNextButton(title: isPreview ? "작성으로 돌아가기" : "이야기 목록으로 돌아가기") {
                         if isPreview { supplementaryScreen = nil } else { finish() }
                     }

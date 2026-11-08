@@ -2340,6 +2340,8 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(receipt?.status, "pending")
         XCTAssertEqual(backend.snapshot().submittedTitle, "Latest corrected title")
         XCTAssertEqual(receipt?.revision, 3)
+        XCTAssertEqual(store.ownStories.first(where: { $0.id == current.id })?.isRegisteredOnCampus, true)
+        XCTAssertTrue(store.stories.isEmpty, "A pending placement must stay out of the public map and search")
     }
 }
 

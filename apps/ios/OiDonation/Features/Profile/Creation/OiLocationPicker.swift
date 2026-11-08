@@ -3,6 +3,7 @@ import SwiftUI
 struct OiLocationPicker: View {
     @Binding var latitude: Double?
     @Binding var longitude: Double?
+    var regionID: Binding<String>? = nil
     var focusPlaceID: String? = nil
     var onFinish: (() -> Void)? = nil
     @State private var scene = CampusExploreScene()
@@ -154,6 +155,7 @@ struct OiLocationPicker: View {
         guard let coordinate = scene.confirmCenterLocation() else { return }
         latitude = coordinate.latitude
         longitude = coordinate.longitude
+        if let region = coordinate.region { regionID?.wrappedValue = region.id }
         close()
     }
 

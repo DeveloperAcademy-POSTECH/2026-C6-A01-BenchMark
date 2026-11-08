@@ -11,6 +11,7 @@ struct OiStoryManagement: View {
     let remote: OiRemoteStore
     let storyID: UUID
     @State private var confirmingDelete = false
+    @Environment(CampusStoryStore.self) private var campusStore: CampusStoryStore?
 
     var body: some View {
         Group {
@@ -20,6 +21,10 @@ struct OiStoryManagement: View {
                     Text(story.status.oiStatusTitle)
                     Text(story.body)
                     if let error = remote.error { Text(error).foregroundStyle(.red) }
+                    if story.isRegisteredOnCampus, !remote.needsReauthentication,
+                       let showPlacement = campusStore?.showAuthoredPlacementAction {
+                        Button("지도에서 내 오이 보기") { showPlacement(story.id) }
+                    }
                     if story.status == "draft" {
                         NavigationLink("초안 수정·미리보기·검토 요청") { OiStoryEditor(remote: remote, story: story) }
                     } else {

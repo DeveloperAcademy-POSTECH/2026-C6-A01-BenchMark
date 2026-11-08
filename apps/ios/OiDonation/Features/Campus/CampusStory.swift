@@ -52,6 +52,7 @@ final class CampusStoryStore {
     private(set) var stories: [CampusStory]
     var collectAction: ((CampusStory) -> Void)?
     var createStoryAction: (() -> Void)?
+    var showAuthoredPlacementAction: ((UUID) -> Void)?
     var mediaURL: ((String) async throws -> URL)?
     private(set) var collected: Set<String>
 

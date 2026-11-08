@@ -10,6 +10,7 @@ struct RootTabView: View {
     @State private var isCameraCoverActive = false
     @State private var remote = OiRemoteStore()
     @State private var showingStoryList = false
+    @State private var authoredPlacementToReveal: UUID?
     @State private var geoPlacement: CampusPlacement?
     @State private var collectionStory: CampusStory?
     @State private var collectionReturnsToAR = false
@@ -32,7 +33,8 @@ struct RootTabView: View {
                 onOpenStory: { path.append(CampusDestination.summary($0)) },
                 remote: remote,
                 onCreateStory: { showingStoryList = true },
-                onOpenSample: { isCameraCoverActive = true; showingSample = true }
+                onOpenSample: { isCameraCoverActive = true; showingSample = true },
+                authoredPlacementToReveal: $authoredPlacementToReveal
             )
             .navigationDestination(isPresented: $showingStoryList) {
                 OiStoryListScreen(remote: remote)
@@ -77,7 +79,10 @@ struct RootTabView: View {
             }
         }
         .onChange(of: remote.revision) { _, _ in synchronizeRemote() }
-        .onChange(of: remote.account?.id) { _, _ in myDemo.resetFilters() }
+        .onChange(of: remote.account?.id) { _, _ in
+            authoredPlacementToReveal = nil
+            myDemo.resetFilters()
+        }
         .onReceive(NotificationCenter.default.publisher(for: ASAuthorizationAppleIDProvider.credentialRevokedNotification)) { _ in
             guard remote.accountProviders.contains("apple") else { return }
             Task { await remote.signOut() }
@@ -97,6 +102,14 @@ struct RootTabView: View {
                     pendingStoryList = true
                     isARPresented = false
                 } else { showingStoryList = true }
+            }
+            store.showAuthoredPlacementAction = { id in
+                guard let owner = remote.account?.id, !remote.needsReauthentication,
+                      remote.ownStories.contains(where: { $0.id == id && $0.userId == owner && $0.isRegisteredOnCampus })
+                else { return }
+                authoredPlacementToReveal = id
+                showingStoryList = false
+                path = NavigationPath()
             }
             store.mediaURL = { path in try await remote.mediaURL(bucket: "oi-story-media", path: path) }
             myDemo.campusStore = store
@@ -135,6 +148,7 @@ struct RootTabView: View {
             if let url = activity.webpageURL { handlePublicLink(url) }
         }
         .environment(remote)
+        .environment(store)
     }
 
     private func openGeoStory(_ story: CampusStory) {

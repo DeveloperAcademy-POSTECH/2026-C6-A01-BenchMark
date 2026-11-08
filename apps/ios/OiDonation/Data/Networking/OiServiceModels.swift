@@ -87,6 +87,8 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
     let createdAt: String
     var storageOwnerId: UUID? = nil
 
+    var isRegisteredOnCampus: Bool { status == "pending" || status == "published" }
+
     var createdDateLabel: String {
         let parser = ISO8601DateFormatter()
         parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
