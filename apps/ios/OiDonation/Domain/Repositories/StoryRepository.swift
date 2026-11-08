@@ -29,10 +29,13 @@ struct RealStoryRepository: StoryRepository {
     }
 
     private struct Record: Decodable {
+        struct Appearance: Decodable { let id: UUID }
         let id: UUID; let userId: UUID; let regionId: String
         let title: String; let body: String; let theme: String; let emotion: String
         let cucumberName: String; let status: String; let createdAt: String
         let cucumberAsset: String?
+        let storageOwnerId: UUID?
+        let cucumberAppearance: Appearance?
     }
     private struct Profile: Decodable { let id: UUID; let nickname: String }
     private struct Region: Decodable { let id: String; let name: String }
@@ -103,12 +106,34 @@ struct RealStoryRepository: StoryRepository {
         let parser = ISO8601DateFormatter(); parser.formatOptions = [.withInternetDateTime,.withFractionalSeconds]
         let fractional = parser.date(from: row.createdAt); parser.formatOptions = [.withInternetDateTime]
         guard let date = fractional ?? parser.date(from: row.createdAt) else { throw Failure.invalidResponse }
+        let portraitURL: URL?
+        if let appearance = row.cucumberAppearance {
+            portraitURL = try? await publishedCucumberURL(story: id, owner: row.storageOwnerId ?? row.userId, appearance: appearance.id)
+        } else { portraitURL = cucumberImageURL(for: row.cucumberAsset) }
+        try Task.checkCancellation()
         guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
         return Story(storyID: id.uuidString, donorID: row.userId, donorDisplayName: profiles.first?.nickname ?? "농부",
             title: row.title, content: row.body, publishedAt: date,
             location: StoryLocation(locationID: row.regionId, displayName: regions.first?.name ?? "장소 확인 중"),
             tags: [row.theme,row.emotion], cucumberID: id.uuidString, cucumberName: row.cucumberName,
-            cucumberImageURL: cucumberImageURL(for: row.cucumberAsset))
+            cucumberImageURL: portraitURL, hasCustomCucumberImage: row.cucumberAppearance != nil)
+    }
+
+    private func publishedCucumberURL(story: UUID, owner: UUID, appearance: UUID) async throws -> URL {
+        struct SignedResponse: Decodable { let signedURL: String }
+        let prefix = "/object/sign/oi-story-media/\(owner.uuidString.lowercased())/\(story.uuidString.lowercased())/appearance/\(appearance.uuidString.lowercased())/portrait.png"
+        let base = "https://\(transport.approvedHost)/storage/v1"
+        guard let endpoint = URL(string: base + prefix) else { throw Failure.configuration }
+        var request = URLRequest(url: endpoint); request.httpMethod = "POST"
+        let key = try publicKey()
+        request.setValue(key, forHTTPHeaderField: "apikey")
+        if key.hasPrefix("ey") { request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{\"expiresIn\":300}".utf8)
+        let data = try await transport.send(request)
+        let response = try JSONDecoder().decode(SignedResponse.self, from: data)
+        guard response.signedURL.hasPrefix(prefix + "?"), let url = URL(string: base + response.signedURL) else { throw Failure.invalidResponse }
+        return url
     }
 
     private func cucumberImageURL(for asset: String?) -> URL? {

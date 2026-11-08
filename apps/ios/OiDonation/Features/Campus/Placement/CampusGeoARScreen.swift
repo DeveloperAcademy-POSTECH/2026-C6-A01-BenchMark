@@ -26,10 +26,24 @@ struct CampusGeoARScreen: View {
         let image: UIImage
     }
 
-    private func currentPlacement() async throws -> CampusPlacement {
+    private struct PublishedPlacement: Equatable {
+        let placement: CampusPlacement
+        let artwork: OiCucumberArtworkReference?
+    }
+
+    private func currentPlacement() async throws -> PublishedPlacement {
         let story = try await remote.publishedStory(placement.id)
         guard let placement = story.campusPlacement else { throw CampusPlacementError.invalid }
-        return placement
+        return .init(placement: placement, artwork: story.cucumberArtwork)
+    }
+
+    private func render(_ current: PublishedPlacement) async {
+        livePlacement = current.placement
+        if let artwork = current.artwork {
+            await controller.start(current.placement, location: location) { try await remote.cucumberModel(artwork) }
+        } else {
+            await controller.start(current.placement, location: location)
+        }
     }
 
     var body: some View {
@@ -94,19 +108,18 @@ struct CampusGeoARScreen: View {
             }
             sharedError = nil
             do {
-                let current = try await currentPlacement()
+                var current = try await currentPlacement()
                 guard isCurrent(request) else { return }
-                livePlacement = current
-                await controller.start(current, location: location)
+                await render(current)
                 // Refresh publication and coordinates while AR is visible. Hidden/deleted stories stop rendering.
                 while isCurrent(request) {
                     try await Task.sleep(for: .seconds(30))
                     guard isCurrent(request) else { return }
                     let updated = try await currentPlacement()
                     guard isCurrent(request) else { return }
-                    if updated != target {
-                        livePlacement = updated
-                        await controller.start(updated, location: location)
+                    if updated != current {
+                        current = updated
+                        await render(current)
                     }
                 }
             } catch {

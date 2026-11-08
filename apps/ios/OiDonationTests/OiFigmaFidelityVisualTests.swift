@@ -296,8 +296,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         for variant in variants.prefix(2) {
             for bottom in [false, true] {
                 let page = CreationCapturePage(step: 3, anchor: bottom ? .bottom : .top) {
-                    OiCucumberCustomizationStep(draft: .constant(Self.draft), customization: .constant(customization),
-                        assets: Self.assets, canContinue: true, onContinue: {})
+                    OiCucumberCustomizationStep(customization: .constant(customization), canContinue: true, onContinue: {})
                         .environment(\.scenePhase, .active)
                 }
                 try await capture(page, name: bottom ? "costume-set-bottom" : "costume-set-top",
@@ -439,8 +438,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         for variant in variants {
             let cucumber = CreationCapturePage(step: 3) {
-                OiCucumberCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
-                    assets: Self.assets, canContinue: true, onContinue: {})
+                OiCucumberCustomizationStep(customization: .constant(Self.customization), canContinue: true, onContinue: {})
                     .environment(\.scenePhase, .active)
             }
             try await capture(cucumber, name: "cucumber-customization", variant: variant, defaults: fixture.defaults, delay: .seconds(2))
@@ -502,8 +500,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         for variant in variants {
             let cucumber = CreationCapturePage(step: 3, showsNavigation: true) {
-                OiCucumberCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
-                    assets: Self.assets, isFinished: true, onContinue: {})
+                OiCucumberCustomizationStep(customization: .constant(Self.customization), isFinished: true, onContinue: {})
                     .environment(\.scenePhase, .active)
             }
             try await capture(cucumber, name: "cucumber-finished", variant: variant, defaults: fixture.defaults, delay: .seconds(2), attach: true)

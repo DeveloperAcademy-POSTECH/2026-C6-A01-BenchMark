@@ -445,4 +445,10 @@ struct OiServiceAPI {
               url.host == Self.projectHost, url.scheme == "https" else { throw OiServiceError.unavailable }
         return url
     }
+
+    func downloadSignedObject(bucket: String, path: String, token: String?) async throws -> Data {
+        let url = try await signedURL(bucket: bucket, path: path, token: token)
+        let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
+        return try await transport.send(request)
+    }
 }

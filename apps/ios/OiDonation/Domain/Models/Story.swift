@@ -25,6 +25,7 @@ struct Story: Identifiable, Sendable {
     let cucumberID: String
     let cucumberName: String
     let cucumberImageURL: URL?
+    let hasCustomCucumberImage: Bool
 
     init(
         storyID: String,
@@ -37,7 +38,8 @@ struct Story: Identifiable, Sendable {
         tags: [String],
         cucumberID: String,
         cucumberName: String,
-        cucumberImageURL: URL? = nil
+        cucumberImageURL: URL? = nil,
+        hasCustomCucumberImage: Bool = false
     ) {
         self.storyID = storyID
         self.donorID = donorID
@@ -50,5 +52,6 @@ struct Story: Identifiable, Sendable {
         self.cucumberID = cucumberID
         self.cucumberName = cucumberName
         self.cucumberImageURL = cucumberImageURL
+        self.hasCustomCucumberImage = hasCustomCucumberImage
     }
 }
