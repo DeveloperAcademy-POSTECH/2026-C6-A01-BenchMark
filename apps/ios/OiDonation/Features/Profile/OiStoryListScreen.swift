@@ -25,7 +25,7 @@ struct OiStoryListScreen: View {
             state: state,
             seedCount: nil,
             notices: OiStoryListView.listNotices,
-            guidance: OiStoryListView.listGuidance,
+            guidance: writingGuidance,
             onRetry: { Task { await remote.refresh(); await loadLocalDrafts() } },
             onAddSeed: nil,
             onSelectStory: selectStory,
@@ -77,6 +77,16 @@ struct OiStoryListScreen: View {
             OiStoryCreationConsentFlow(remote: remote, onFinish: { showingConsent = false })
         }
 
+    }
+
+    private var writingGuidance: String {
+        guard remote.account != nil, !remote.needsReauthentication else {
+            return "로그인 후 이야기 작성 조건을 확인할 수 있어요."
+        }
+        guard remote.hasLoadedRemote, remote.loadError == nil else {
+            return OiStoryListView.listGuidance
+        }
+        return OiWritingGuidance.message(unapprovedDraftsEnabled: remote.unapprovedDraftsEnabled)
     }
 
     private var state: OiStoryListState {
