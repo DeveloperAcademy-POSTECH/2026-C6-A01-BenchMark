@@ -14,10 +14,17 @@ struct CampusGeoARScreen: View {
     @State private var controller = CampusGeoARController()
     @State private var location = CampusGeoLocation()
     @State private var showingStory = false
+    @State private var photo: Photo?
+    @State private var showingPhotoError = false
     @State private var isVisible = false
     @State private var restartID = UUID()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+
+    private struct Photo: Identifiable {
+        let id = UUID()
+        let image: UIImage
+    }
 
     private func currentPlacement() async throws -> CampusPlacement {
         let story = try await remote.publishedStory(placement.id)
@@ -66,6 +73,7 @@ struct CampusGeoARScreen: View {
                             if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                         }
                     }.font(.caption)
+                    photoButton
                 }.buttonStyle(.bordered)
             }
             .padding(16)
@@ -78,7 +86,7 @@ struct CampusGeoARScreen: View {
             guard isCurrent(request) else { return }
             controller.stop()
             controller.onStory = {
-                guard isCurrent(request) else { return }
+                guard isCurrent(request), photo == nil else { return }
                 showingStory = true
             }
             sharedError = nil
@@ -117,6 +125,12 @@ struct CampusGeoARScreen: View {
             restartID = UUID()
             if showing { controller.stop() }
         }
+        .sheet(item: $photo) { ARPhotoResultView(image: $0.image) }
+        .alert("사진을 찍지 못했어요", isPresented: $showingPhotoError) {
+            Button("확인", role: .cancel) { }
+        } message: {
+            Text("오이가 화면에 보일 때 다시 찍어 주세요.")
+        }
         .sheet(isPresented: $showingStory) {
             NavigationStack {
                 Group {
@@ -139,6 +153,37 @@ struct CampusGeoARScreen: View {
                 }
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("AR로 돌아가기") { showingStory = false } } }
             }
+        }
+    }
+
+    private var photoButton: some View {
+        Button(action: takePhoto) {
+            Group {
+                if controller.isTakingPhoto {
+                    ProgressView().tint(.black)
+                } else {
+                    Image(systemName: "camera.fill").font(.title2)
+                }
+            }
+            .frame(width: 56, height: 56)
+            .foregroundStyle(.black)
+            .background(.white, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .opacity(controller.canTakePhoto || controller.isTakingPhoto ? 1 : 0.5)
+        .disabled(!controller.canTakePhoto)
+        .accessibilityLabel("AR 사진 촬영")
+        .accessibilityHint("배치된 오이와 카메라 배경을 함께 찍습니다.")
+        .accessibilityIdentifier("campus.geoAR.takePhoto")
+    }
+
+    private func takePhoto() {
+        let request = restartID
+        guard isCurrent(request), photo == nil else { return }
+        controller.takePhoto { image in
+            guard isCurrent(request), photo == nil else { return }
+            if let image { photo = Photo(image: image) }
+            else { showingPhotoError = true }
         }
     }
 
