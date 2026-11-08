@@ -88,6 +88,11 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
     var storageOwnerId: UUID? = nil
     @OiStoryPlacementNumber var heightMeters: Double? = nil
     @OiStoryPlacementNumber var headingDegrees: Double? = nil
+    var cucumberAppearance: OiCucumberAppearance? = nil
+
+    var cucumberArtwork: OiCucumberArtworkReference? {
+        cucumberAppearance.map { .init(ownerID: storageOwnerId ?? userId, storyID: id, appearance: $0) }
+    }
 
     var isRegisteredOnCampus: Bool { status == "pending" || status == "published" }
 
@@ -103,6 +108,42 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
         formatter.timeZone = TimeZone(identifier: "Asia/Seoul")
         formatter.dateFormat = "yyyy.MM.dd"
         return formatter.string(from: date)
+    }
+}
+
+/// Only model choices and references to rendered PNGs leave the device.
+struct OiCucumberAppearance: Codable, Hashable {
+    let id: UUID
+    let top: String
+    let bottom: String
+    let costume: String?
+    let topColor: UInt32
+    let bottomColor: UInt32
+    let shoeColor: UInt32
+    let topTexture: Bool
+    let bottomTexture: Bool
+
+    var payload: [String: Any] {
+        var result: [String: Any] = ["id": id.uuidString.lowercased(), "top": top, "bottom": bottom,
+            "topColor": topColor, "bottomColor": bottomColor, "shoeColor": shoeColor,
+            "topTexture": topTexture, "bottomTexture": bottomTexture]
+        if let costume { result["costume"] = costume }
+        return result
+    }
+}
+
+struct OiCucumberArtworkReference: Hashable {
+    enum Part: String, Hashable, CaseIterable { case portrait, top, bottom }
+    let ownerID: UUID
+    let storyID: UUID
+    let appearance: OiCucumberAppearance
+
+    var parts: [Part] {
+        [.portrait] + (appearance.topTexture ? [.top] : []) + (appearance.bottomTexture ? [.bottom] : [])
+    }
+
+    func path(_ part: Part) -> String {
+        "\(ownerID.uuidString.lowercased())/\(storyID.uuidString.lowercased())/appearance/\(appearance.id.uuidString.lowercased())/\(part.rawValue).png"
     }
 }
 
@@ -333,6 +374,7 @@ struct OiCapabilities: Decodable {
     let accountProviders: [String]?
     let schoolProfileEnabled: Bool?
     let farmerOutfitEnabled: Bool?
+    let publicCucumberAppearance: Bool?
 }
 
 struct OiStoryDraft: Codable, Equatable {

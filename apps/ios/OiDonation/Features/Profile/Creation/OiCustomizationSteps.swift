@@ -310,7 +310,7 @@ struct OiCardCustomizationStep: View {
     }
     private var storageDetails: some View {
         DisclosureGroup("저장·공개 안내") {
-            Text("꾸민 카드와 이미지 배치는 이 계정의 기기 초안에 저장돼요. 현재 서버에 공개되는 카드는 아래 프리셋을 사용해요. 익명 선택도 이 카드 미리보기에만 적용돼요.")
+            Text("공개 카드에는 꾸민 오이와 아래 카드 테두리를 사용해요. 배경, 문구, 익명 표시 등 내 카드 설정은 이 기기에 저장돼요.")
                 .font(.caption).foregroundStyle(.secondary).padding(.vertical, 8)
             OiCreationAssetPicker(assets: assets.filter { $0.kind == "card" }, selection: $draft.cardAsset, draft: draft)
         }.font(.caption).tint(Color("OiGreen"))

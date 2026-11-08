@@ -38,6 +38,8 @@ final class OiTestBackend {
     struct State {
         var unapprovedDraftsEnabled: Bool? = true
         var independentStoryCreation: Bool? = true
+        var publicCucumberAppearance = false
+        var failCucumberTextureUpload = false
         var hasWritingGrant = true
         var nickname = "Owner A"
         var farmName: String? = "오이"
@@ -193,9 +195,16 @@ final class OiTestBackend {
             else { result = ["error": state.analysisError] }
             if state.changeEvidenceAfterAnalysis { state.evidence?["submitted_at"] = "2026-11-04T03:00:00Z" }
             if state.revokeAfterAnalysis { state.isOperator = false }
+        } else if path.hasPrefix("/storage/v1/object/sign/") && path.contains("/appearance/") {
+            let key = String(path.dropFirst("/storage/v1/object/sign/".count))
+            if let image = state.uploads[key] {
+                if request.httpMethod == "POST" { result = ["signedURL": String(path.dropFirst("/storage/v1".count)) + "?token=fixture"] }
+                else { bytes = image }
+            } else { status = 404 }
         } else if path.contains("/storage/v1/object/") {
             let key = path.replacingOccurrences(of: "/storage/v1/object/", with: "")
-            if state.uploads[key] != nil { status = 409 }
+            if state.failCucumberTextureUpload && key.hasSuffix("/top.png") { status = 503 }
+            else if state.uploads[key] != nil { status = 409 }
             else { state.uploads[key] = raw; result = ["Key":key] }
         } else if path.hasSuffix("/rpc/oi_review_evidence") {
             let payload = body["p_payload"] as? [String: Any] ?? [:]
@@ -235,6 +244,7 @@ final class OiTestBackend {
                 result = state.story ?? [:]
             } else if action == "submit_story" {
                 state.submittedTitle = state.story?["title"] as? String
+                if let appearance = payload["cucumber_appearance"] { state.story?["cucumber_appearance"] = appearance }
                 state.story?["status"] = "pending"
                 let nextRevision = (state.story?["revision"] as? Int ?? 0)+1
                 state.story?["revision"] = nextRevision
@@ -245,6 +255,8 @@ final class OiTestBackend {
                 if !state.isOperator { status = 403 }
                 else if state.story?["revision"] as? Int != payload["revision"] as? Int { status = 409 }
                 else if !["published", "hidden"].contains(wanted) { status = 400 }
+                else if wanted == "published", let appearance = state.story?["cucumber_appearance"] as? [String: Any],
+                        appearance["id"] as? String != payload["appearance_id"] as? String { status = 409 }
                 else {
                     state.story?["status"] = wanted
                     let nextRevision = (state.story?["revision"] as? Int ?? 0) + 1
@@ -303,6 +315,7 @@ final class OiTestBackend {
             var capabilities: [String:Any] = ["operator":state.isOperator,"coins_enabled":false]
             if let enabled = state.unapprovedDraftsEnabled { capabilities["unapproved_drafts_enabled"] = enabled }
             if let independent = state.independentStoryCreation { capabilities["independent_story_creation"] = independent }
+            if state.publicCucumberAppearance { capabilities["public_cucumber_appearance"] = true }
             if let canonical = state.canonicalAccountID {
                 capabilities["account_id"] = canonical.uuidString
                 capabilities["account_merge_enabled"] = true
@@ -2515,6 +2528,59 @@ final class OiRemoteStoreTests: XCTestCase {
         let published = try await store.publishedStory(current.id)
         XCTAssertEqual(published.campusPlacement?.heightCentimeters, 135)
         XCTAssertEqual(published.campusPlacement?.headingDegrees, 263.5)
+    }
+
+    @MainActor func testPublishedOutfitSurvivesApprovalAndLoadsOnAnotherClient() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.publicCucumberAppearance = true; $0.isOperator = true; $0.failCucumberTextureUpload = true }
+        await store.start()
+        let saved = await store.save(draft())
+        let story = try XCTUnwrap(saved)
+        func sample(_ color: UIColor) -> UIImage {
+            let format = UIGraphicsImageRendererFormat(); format.scale = 1
+            return UIGraphicsImageRenderer(size: CGSize(width: 96, height: 96), format: format).image { context in
+                color.setFill(); context.fill(CGRect(x: 0, y: 0, width: 96, height: 96))
+            }
+        }
+        var look = OiWardrobeLook()
+        look.top = .hoodie; look.bottom = .shorts; look.topColor = 0x2345CD; look.shoeColor = 0x11B122
+        let active = try OiPhotoRenderer.asset(sample(.red))
+        let unused = try OiPhotoRenderer.asset(sample(.green))
+        try look.artwork.set(OiPhotoDesign(layers: [.init(source: active.id)]), sources: [active.id: active.data], for: "top-hoodie")
+        try look.artwork.set(OiPhotoDesign(layers: [.init(source: unused.id)]), sources: [unused.id: unused.data], for: "top-tshirt")
+        let portrait = try XCTUnwrap(sample(.orange).pngData())
+        let submission = try OiCucumberPublication(look: look, portrait: portrait)
+        let failed = await store.submitStory(story, cucumber: submission)
+        XCTAssertNil(failed)
+        XCTAssertEqual(backend.snapshot().story?["status"] as? String, "draft", "A failed outfit upload must not send the story for approval")
+
+        backend.configure { $0.failCucumberTextureUpload = false }
+        let submitted = await store.submitStory(story, cucumber: submission)
+        let pending = try XCTUnwrap(submitted)
+        let artwork = try XCTUnwrap(pending.cucumberArtwork)
+        XCTAssertEqual(pending.status, "pending")
+        XCTAssertTrue(store.stories.isEmpty)
+        XCTAssertEqual(Set(backend.snapshot().uploads.keys), Set([.portrait, .top].map { "oi-story-media/" + artwork.path($0) }))
+        XCTAssertFalse(backend.snapshot().uploads.values.contains(active.data))
+        XCTAssertFalse(backend.snapshot().uploads.values.contains(unused.data))
+
+        let result = try await store.reviewOperatorStory(pending, publish: true)
+        XCTAssertEqual(result.story.cucumberArtwork, artwork)
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let reader = OiRemoteStore(api: api, drafts: OiDraftVault(directory: directory))
+        let published = try await reader.publishedStory(pending.id)
+        XCTAssertEqual(published.cucumberAppearance?.top, "hoodie")
+        XCTAssertEqual(published.cucumberAppearance?.shoeColor, 0x11B122)
+        XCTAssertEqual(reader.campusStory(published).cucumberPortraitPath, artwork.path(.portrait))
+        let model = try await reader.cucumberModel(artwork)
+        XCTAssertNotNil(model.findEntity(named: "OiPhotoOverlay"), "The public 3D model has the outfit's applied photo texture")
+        XCTAssertEqual(model.visualBounds(relativeTo: nil).extents.y, 1.5, accuracy: 0.001)
+
+        let repository = RealStoryRepository(key: "sb_publishable_testing", session: session)
+        let clipStory = try await repository.fetchPublicStory(storyID: pending.id.uuidString)
+        XCTAssertEqual(clipStory?.hasCustomCucumberImage, true)
+        XCTAssertEqual(clipStory?.cucumberImageURL?.path, "/storage/v1/object/sign/oi-story-media/" + artwork.path(.portrait))
     }
 }
 

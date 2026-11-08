@@ -28,12 +28,14 @@ struct OiStoryReview<StoryPhoto: View>: View {
     let isSubmitting: Bool
     let onClose: () -> Void
     let onEdit: (OiCreationStep) -> Void
-    let onSubmit: () -> Void
+    let onSubmit: (Data?) -> Void
     let storyPhoto: (OiEditingPhoto, Bool) -> StoryPhoto
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var selection: Artwork?
     @State private var portrait: UIImage?
+    @State private var portraitPNG: Data?
+    @State private var invalidCapture = false
     @State private var checkedPortrait = false
     @State private var showingCards = false
 
@@ -78,7 +80,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Label("운영팀이 이야기와 사진을 승인하면 다른 사람의 지도와 현장 AR에 공개돼요.", systemImage: "checkmark.shield")
+                    Label("승인되면 이야기와 사진, 꾸민 오이가 다른 사람의 지도와 현장 AR에 공개돼요.", systemImage: "checkmark.shield")
                         .font(CampusStyle.body(14)).foregroundStyle(CampusStyle.sectionGreen)
                         .padding(.horizontal, 4)
                     OiConnectionStatus(remote: remote)
@@ -173,16 +175,15 @@ struct OiStoryReview<StoryPhoto: View>: View {
                 ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
                 : AnyLayout(HStackLayout(alignment: .center, spacing: 14))
             layout {
-                Button { selection = .character } label: {
-                    characterArtwork
-                        .frame(width: 112, height: 142)
-                        .background(Color("OiSoft"), in: RoundedRectangle(cornerRadius: 16))
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                if customization.wardrobe == nil || portrait != nil {
+                    Button { selection = .character } label: { characterTile }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(characterName) 크게 보기")
+                        .accessibilityIdentifier("oi.review.character")
+                        .disabled(isSubmitting)
+                } else {
+                    characterTile
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(characterName) 크게 보기")
-                .accessibilityIdentifier("oi.review.character")
-                .disabled(isSubmitting)
                 VStack(alignment: .leading, spacing: 8) {
                     Text(characterName).font(CampusStyle.characterTitle(21)).foregroundStyle(Color("OiDark"))
                     if let look = customization.wardrobe {
@@ -215,9 +216,15 @@ struct OiStoryReview<StoryPhoto: View>: View {
                     }
                 }
             }
-            Text("꾸민 외형과 의상 사진은 이 기기의 내 오이에 표시돼요.")
+            Text("공개 오이에 입힌 옷과 색상, 의상에 배치한 사진이 함께 공개돼요. 의상 사진 원본은 기기에 남아요.")
                 .font(CampusStyle.body(12)).foregroundStyle(.secondary)
         }
+    }
+
+    private var characterTile: some View {
+        characterArtwork.frame(width: 112, height: 142)
+            .background(Color("OiSoft"), in: RoundedRectangle(cornerRadius: 16))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
     @ViewBuilder private var characterArtwork: some View {
@@ -225,9 +232,16 @@ struct OiStoryReview<StoryPhoto: View>: View {
             Image(uiImage: portrait).resizable().scaledToFit().padding(4)
         } else if let look = customization.wardrobe {
             if !checkedPortrait { ProgressView() }
-            else if selection?.id != Artwork.character.id {
-                OiWardrobePreview(look: look, controls: false).allowsHitTesting(false)
+            else if invalidCapture {
+                Button("이미지 다시 만들기") { invalidCapture = false }
+                    .font(.caption).padding(8)
+            } else {
+                let orientation = customization.card?.characterOrientation ?? OiCardOrientation()
+                OiCardPortraitCapture(look: look, cacheKey: portraitKey(for: look), orientation: orientation,
+                    onCapture: { bytes, _ in invalidCapture = !acceptPortrait(bytes) })
             }
+        } else if let path = publicCard.cucumberPortraitPath {
+            OiCucumberPortraitImage(path: path, load: { try await remote.cucumberImage($0) })
         } else {
             OiCreationCharacterImage(asset: draft.cucumberAsset).padding(8)
         }
@@ -243,7 +257,9 @@ struct OiStoryReview<StoryPhoto: View>: View {
                     card("내가 꾸민 카드") {
                         OiDraftCardPreview(draft: draft, customization: customization, donorName: donorName)
                     }
-                    card("공개용 카드") { MYCardArtwork(card: publicCard) }
+                    card("공개 카드") {
+                        MYCardArtwork(card: publicCard, portrait: portrait, expectsPortrait: customization.wardrobe != nil)
+                    }
                 }.padding(.top, 14)
             } label: {
                 Label("카드 미리보기", systemImage: "rectangle.on.rectangle")
@@ -276,8 +292,14 @@ struct OiStoryReview<StoryPhoto: View>: View {
                 Label(error, systemImage: "exclamationmark.circle")
                     .font(.footnote).foregroundStyle(.red)
             }
+            if customization.wardrobe != nil && portraitPNG == nil {
+                Text("공개 카드에 들어갈 오이 이미지가 준비되면 검토를 요청할 수 있어요.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             OiCreationNextButton(title: isSubmitting ? "공개 검토 요청 중…" : "공개 검토 요청하기",
-                                 enabled: canSubmit && !isSubmitting, action: onSubmit)
+                                 enabled: canSubmit && !isSubmitting && (customization.wardrobe == nil || portraitPNG != nil)) {
+                onSubmit(portraitPNG)
+            }
                 .accessibilityIdentifier("oi.story.confirmSubmit")
         }
         .padding(.horizontal, 20).padding(.vertical, 10)
@@ -345,10 +367,19 @@ struct OiStoryReview<StoryPhoto: View>: View {
 
     private func restorePortrait() {
         if let look = customization.wardrobe, let card = customization.card, let bytes = card.portraitPNG {
-            let angle = card.characterOrientation ?? OiCardOrientation()
-            let key = OiCardPortrait.key(for: look) + "-angle-" + angle.cacheIdentity
-            if card.portraitKey == key { portrait = UIImage(data: bytes) }
+            if card.portraitKey == portraitKey(for: look) { _ = acceptPortrait(bytes) }
         }
         checkedPortrait = true
+    }
+
+    private func portraitKey(for look: OiWardrobeLook) -> String {
+        let angle = customization.card?.characterOrientation ?? OiCardOrientation()
+        return OiCardPortrait.key(for: look) + "-angle-" + angle.cacheIdentity
+    }
+
+    private func acceptPortrait(_ bytes: Data) -> Bool {
+        guard let image = try? OiPublishedCucumberImage.decode(bytes, part: .portrait) else { return false }
+        portrait = UIImage(cgImage: image); portraitPNG = bytes
+        return true
     }
 }

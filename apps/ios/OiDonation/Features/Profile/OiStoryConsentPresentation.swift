@@ -3,7 +3,7 @@ import Foundation
 enum OiWritingGuidance {
     static let available = "로그인하면 기부 증빙 없이 오이를 꾸미고 내 지도에 바로 배치할 수 있어요."
     static let unavailable = "지금은 공개 검토 요청을 받지 않아요. 내 지도에는 오이를 배치할 수 있어요."
-    static let publication = "다른 사람의 지도와 현장 AR에 공개하려면 이야기와 사진의 검토를 요청해 주세요."
+    static let publication = "다른 사람의 지도와 현장 AR에 공개하려면 이야기·사진·꾸민 오이의 검토를 요청해 주세요."
 }
 
 struct OiStoryConsentClause: Identifiable, Equatable, Sendable {
@@ -71,7 +71,7 @@ extension OiStoryConsentClause {
             id: .moderation,
             title: "[필수] 운영정책 위반 시 게시물 조치 규정",
             paragraphs: [
-                Paragraph(id: "moderation", heading: "1. 게시물 검토와 조치", body: "운영팀은 게시물을 공개하기 전에 검토합니다. 규정을 위반하거나 개인정보 노출 등으로 피해가 우려되는 게시물은 수정을 요청하거나 노출을 제한할 수 있습니다. 조치에 대한 문의는 고객센터로 접수해 주세요.")
+                Paragraph(id: "moderation", heading: "1. 게시물 검토와 조치", body: "운영팀은 이야기와 사진, 공개 오이의 의상에 적용한 사진을 공개 전에 검토합니다. 규정을 위반하거나 개인정보 노출 등으로 피해가 우려되는 게시물은 수정을 요청하거나 노출을 제한할 수 있습니다. 조치에 대한 문의는 고객센터로 접수해 주세요.")
             ],
             agreementText: "위 안내를 확인했으며, 조치 규정에 동의합니다"
         )

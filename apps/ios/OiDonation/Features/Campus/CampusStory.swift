@@ -17,6 +17,7 @@ struct CampusStory: Identifiable, Hashable {
     var authorID: UUID? = nil
     var remoteBody: String? = nil
     var remoteMediaPaths: [String] = []
+    var cucumberPortraitPath: String? = nil
     var latitude: Double? = nil
     var longitude: Double? = nil
     /// Local design content is never a public donation or a server collection target.

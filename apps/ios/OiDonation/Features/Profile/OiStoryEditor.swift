@@ -246,7 +246,7 @@ struct OiStoryEditor: View {
                 Task { await replaceWithServerDraft(revision: revision) }
             }
         } message: { _ in
-            Text("이 기기의 제목, 본문, 위치와 공개 프리셋 수정이 서버 버전으로 바뀝니다. 추가한 사진과 로컬 꾸미기는 보관합니다.")
+            Text("이 기기의 제목, 본문, 위치와 공개 카드 디자인을 서버 버전으로 바꿉니다. 추가한 사진과 기기에서 꾸민 오이는 보관합니다.")
         }
         .sheet(isPresented: $showingPreview) { reviewSheet }
         .sheet(item: $supplementaryScreen) { screen in
@@ -546,15 +546,15 @@ struct OiStoryEditor: View {
             donorName: remote.profile?.publicName ?? "",
             location: OiCreationStep.location.canContinue(draft: draft) ? completionLocation : nil,
             photos: editingPhotos, remote: remote, issues: reviewIssues,
-            error: localError ?? remote.error ?? (canWrite ? nil : OiWritingGuidance.unavailable),
-            canSubmit: canSubmit && !remote.isBusy && !saving, isSubmitting: publishing,
+            error: localError ?? remote.error ?? publicationAvailabilityMessage,
+            canSubmit: canSubmit && publicationAvailabilityMessage == nil && !remote.isBusy && !saving, isSubmitting: publishing,
             onClose: { showingPreview = false },
             onEdit: { step in
                 showingPreview = false
                 customizationReady = false
                 navigate(to: step)
-            }, onSubmit: {
-                Task { await submitReview() }
+            }, onSubmit: { portrait in
+                Task { await submitReview(portrait: portrait) }
             }) { photo, thumbnail in
                 reviewPhoto(photo, allowsRetry: !thumbnail, contentMode: thumbnail ? .fill : .fit,
                             maximumPixelSize: thumbnail ? 512 : 1600)
@@ -581,11 +581,29 @@ struct OiStoryEditor: View {
         return issues
     }
 
-    private func submitReview() async {
-        guard !publishing, !remote.isBusy, !saving, canSubmit else { return }
+    private var publicationAvailabilityMessage: String? {
+        if !canWrite { return OiWritingGuidance.unavailable }
+        if customization.wardrobe != nil && !remote.canPublishCucumberAppearance {
+            return "서버가 꾸민 오이의 공개를 지원할 때 다시 요청해 주세요. 내 지도와 초안은 저장돼 있어요."
+        }
+        return nil
+    }
+
+    private func submitReview(portrait: Data?) async {
+        guard !publishing, !remote.isBusy, !saving, canSubmit, publicationAvailabilityMessage == nil else { return }
         publishing = true
         defer { publishing = false }
-        if let saved = await saveCurrent(), let receipt = await remote.submitStory(saved) {
+        let publication: OiCucumberPublication?
+        do {
+            if let look = customization.wardrobe {
+                guard let portrait else { throw OiPhotoDataError.unreadable }
+                publication = try OiCucumberPublication(look: look, portrait: portrait)
+            } else { publication = nil }
+        } catch {
+            localError = "꾸민 오이의 공개 이미지를 준비하지 못했어요. 의상과 사진을 확인해 주세요."
+            return
+        }
+        if let saved = await saveCurrent(), let receipt = await remote.submitStory(saved, cucumber: publication) {
             draft = OiStoryDraft(story: receipt); submitted = true; localVersion += 1
             _ = await persist()
             showingPreview = false
@@ -621,9 +639,11 @@ struct OiStoryEditor: View {
             removed: removedMediaPaths, removedPhotoIDs: removedPhotoIDs)
     }
     private var publicCard: MYCard {
-        MYCard(id: draft.id.uuidString, title: draft.cucumberName, image: draft.cucumberAsset, school: .postech, order: 0,
+        let current = remote.ownStories.first(where: { $0.id == draft.id })
+        return MYCard(id: draft.id.uuidString, title: draft.cucumberName, image: draft.cucumberAsset, school: .postech, order: 0,
                body: draft.body, donor: remote.profile?.nickname ?? "농부",
-               date: remote.ownStories.first(where: { $0.id == draft.id })?.createdDateLabel ?? "", appearance: draft.cardAsset)
+               date: current?.createdDateLabel ?? "", appearance: draft.cardAsset,
+               cucumberPortraitPath: current?.cucumberArtwork?.path(.portrait))
     }
 
     @ViewBuilder private var editorStatus: some View {
@@ -694,7 +714,7 @@ struct OiStoryEditor: View {
         case .photos: storyPhotos()
         case .location: EmptyView() // The dedicated 3D picker is shown directly above.
         case .cucumber:
-            OiCucumberCustomizationStep(draft: $draft, customization: $customization, assets: remote.assets,
+            OiCucumberCustomizationStep(customization: $customization,
                 canContinue: true, isFinished: customizationReady, onContinue: toggleCustomizationReady,
                 onPhotoEditingChanged: { wardrobePhotoEditing = $0 })
         case .card:
@@ -730,7 +750,7 @@ struct OiStoryEditor: View {
                         if !publicCard.date.isEmpty { completionMetadata("날짜", value: publicCard.date) }
                     }
                     Text(isPreview ? "접수 후에는 이렇게 보여요" : "공개 검토 요청이 접수됐어요").font(CampusStyle.semibold(16))
-                    Text("이야기와 사진이 승인되면 다른 사람도 캠퍼스 지도와 현장 AR에서 볼 수 있어요.")
+                    Text("승인되면 이야기와 사진, 꾸민 오이를 다른 사람도 캠퍼스 지도와 현장 AR에서 볼 수 있어요.")
                         .font(CampusStyle.body(14)).foregroundStyle(.secondary)
                     if !isPreview, let owner, owner == remote.account?.id, !remote.needsReauthentication,
                        let registered = remote.ownStories.first(where: { $0.id == draft.id && $0.userId == owner && $0.isRegisteredOnCampus }),
