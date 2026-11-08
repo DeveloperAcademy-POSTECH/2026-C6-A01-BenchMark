@@ -323,6 +323,8 @@ MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하
 
 2026-11-05 사진 후속: 사진 화면의 `UIRotationGestureRecognizer`가 두 손가락 각도를 받아 `OiPhotoRotationGeometry`의 중앙 회전·cover scale을 미리보기와 JPEG에 동일 적용한다. 사진 교체 시 새 UUID로 UIKit 뷰도 교체한다. `OiStoryEditor.PhotoCheckpoint`는 사진 화면 진입 시 첨부/삭제 상태를 캡처해 취소 시 복원하며 완료 시 해제한다. 위치 피커는 별도 `NavigationStack` 없이 검색 헤더·취소와 지도 뒤로가기를 직접 소유하며 편집기의 상단 바는 숨긴다.
 
+2026-11-08 #154 후속: `PhotoCheckpoint`를 `fullScreenCover`의 표시 상태로 사용한다. 작성 단계와 스크롤 뷰를 유지하고, 편집 화면에서만 어두운 색상 모드와 사진 가져오기 작업을 적용한다. `photos` 단계로 저장된 이전 초안은 작성 화면 위에 사진 편집을 다시 열며, 검토 화면에서 사진 수정을 선택하면 검토 시트가 닫힌 뒤 편집을 연다.
+
 ## App Clip 수집 AR 카메라 생명주기 — 2026-11-02 / #109 브랜치
 
 사용자가 요청한 시작·실패 애니메이션 보완 범위에서 `.starting`과 `.playing`이 같은 컨테이너의 AR 컨트롤러·ARView·ARSession을 공유한다. 카메라 추적·텍스처·배치 준비 후 overlay를 표시하고, 조립·유지·페이드가 끝나야 수집과 단일 타이머를 활성화한다. 화면 이탈 때만 세션을 중지하고 anchor·비동기 작업을 해제한다. 실패는 고정 배경 위 원본 글자 세 조각의 transform을 단일 시간축으로 보간한다. 세부 Figma 값, 이미지 정규화, 접근성 대응과 실기기 서명 검증의 미완료 항목은 [검증 문서](../apps/ios/docs/app-clip-ar-collection.md)에 기록한다. 서버 수집 계약·권한·기부 정책은 변경하지 않는다.
