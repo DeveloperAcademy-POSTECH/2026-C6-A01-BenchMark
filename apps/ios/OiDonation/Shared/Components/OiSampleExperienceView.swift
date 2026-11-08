@@ -42,15 +42,19 @@ struct OiSampleExperienceView: View {
                 }
         }
         .fullScreenCover(isPresented: $isPlaying) {
-            ARCollectionGameView(cucumberName: OiSampleStory.name,
-                cucumberAssetName: "OiStoryCardCats", onBack: { isPlaying = false }) { _ in
-                OiSampleCollectionResult(isCollected: isCollected,
-                    onCollect: { isCollected = true }, onClose: { isPlaying = false })
-            }
-            .safeAreaInset(edge: .top, spacing: 0) {
+            // The AR stage draws to the screen edges; keep the notice outside its layout.
+            VStack(spacing: 0) {
                 Text("체험용 · 실제 도감에는 저장되지 않아요")
-                    .font(.caption).frame(maxWidth: .infinity).padding(8)
-                    .background(.regularMaterial)
+                    .font(.caption)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(8)
+                    .background(.regularMaterial, ignoresSafeAreaEdges: .top)
+                ARCollectionGameView(cucumberName: OiSampleStory.name,
+                    cucumberAssetName: "OiStoryCardCats", onBack: { isPlaying = false }) { _ in
+                    OiSampleCollectionResult(isCollected: isCollected,
+                        onCollect: { isCollected = true }, onClose: { isPlaying = false })
+                }
             }
             .preferredColorScheme(.light)
         }
