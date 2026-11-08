@@ -2057,15 +2057,16 @@ final class OiRemoteStoreTests: XCTestCase {
             try await Task.sleep(for: .seconds(1))
             let candidate = try await store.localDraft(id: local.id, owner: OiTestBackend.owner)
             let saved = try XCTUnwrap(candidate)
+            let isEditingPhotos = window.rootViewController?.presentedViewController != nil
             XCTAssertNil(backend.snapshot().story, "Photo and location edits never submit to server")
-            if saved.photos != local.photos { sawEdit = true }
-            if sawEdit && saved.creationStep == OiCreationStep.story.rawValue && !sawCancel {
+            if isEditingPhotos && saved.photos != local.photos { sawEdit = true }
+            if sawEdit && !isEditingPhotos && saved.creationStep == OiCreationStep.story.rawValue && !sawCancel {
                 XCTAssertEqual(saved.photos, local.photos, "Cancel restores all original attachments")
                 let bytes = try await store.localPhoto(id: first, owner: OiTestBackend.owner)
                 XCTAssertEqual(bytes, image, "Edits keep the original photo copy intact")
                 sawCancel = true
             }
-            if sawCancel && saved.creationStep == OiCreationStep.story.rawValue && saved.photos.count == 1 { sawDone = true }
+            if sawCancel && !isEditingPhotos && saved.creationStep == OiCreationStep.story.rawValue && saved.photos.count == 1 { sawDone = true }
             if sawDone && saved.creationStep == OiCreationStep.location.rawValue { sawLocation = true }
             if sawLocation && saved.creationStep == OiCreationStep.story.rawValue {
                 XCTAssertEqual(saved.draft.latitude, local.draft.latitude)
@@ -2074,7 +2075,7 @@ final class OiRemoteStoreTests: XCTestCase {
                 return
             }
         }
-        XCTFail("Photo/location UI route did not finish")
+        XCTFail("Photo/location UI route did not finish (edited: \(sawEdit), cancelled: \(sawCancel), saved: \(sawDone), picked location: \(sawLocation))")
     }
 
     /// Opt-in live UI check with a fake API and an isolated draft vault. Never uses a real account.

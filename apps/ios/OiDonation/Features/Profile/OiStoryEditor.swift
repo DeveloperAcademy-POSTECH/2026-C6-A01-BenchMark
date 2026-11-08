@@ -30,7 +30,8 @@ struct OiStoryEditor: View {
     @State private var discardCleanupError: String?
     @State private var submitted = false
     @State private var photoCheckpoint: PhotoCheckpoint?
-    private struct PhotoCheckpoint {
+    private struct PhotoCheckpoint: Identifiable {
+        let id = UUID()
         let photos: [UUID]
         let uploaded: Set<UUID>
         let removedPaths: [String]
@@ -50,6 +51,7 @@ struct OiStoryEditor: View {
     @State private var preparingPhoto = false
     @State private var publishing = false
     @State private var showingPreview = false
+    @State private var openingPhotosAfterReview = false
     @State private var consentState = OiStoryConsentState()
     @State private var supplementaryScreen: SupplementaryScreen?
     @State private var choosingExit = false
@@ -106,29 +108,6 @@ struct OiStoryEditor: View {
         .onChange(of: removedMediaPaths) { _, _ in scheduleSave() }
         .onChange(of: scenePhase) { _, phase in if phase != .active { scheduleSave() } }
         .onDisappear { if restored { scheduleSave() } }
-        .task(id: photoSelections) {
-            let selections = photoSelections
-            guard !selections.isEmpty, let owner else { return }
-            preparingPhoto = true
-            defer { preparingPhoto = false; photoSelections = [] }
-            var failures = 0
-            for selection in selections {
-                guard editingPhotos.count < OiCreationStep.storyPhotoLimit else { break }
-                do {
-                    guard let data = try await selection.loadTransferable(type: Data.self) else { throw OiServiceError.invalidInput }
-                    let jpeg = try OiPhotoProcessor.prepare(data)
-                    try Task.checkCancellation()
-                    let id = UUID()
-                    try await remote.saveLocalPhoto(jpeg, id: id, owner: owner)
-                    try Task.checkCancellation()
-                    guard remote.account?.id == owner else { throw OiServiceError.accountChanged }
-                    guard editingPhotos.count < OiCreationStep.storyPhotoLimit else { break }
-                    photos.append(id); localVersion += 1; _ = await persist()
-                } catch is CancellationError { return }
-                catch { failures += 1 }
-            }
-            if failures > 0 { localError = "\(failures)장의 사진을 추가하지 못했어요. 기기에서 열 수 있는 사진인지 확인한 뒤 다시 선택해 주세요." }
-        }
     }
 
     private var presentedContent: some View {
@@ -137,8 +116,6 @@ struct OiStoryEditor: View {
                 restorationStatus
             } else if submitted {
                 completion
-            } else if step == .photos {
-                photoEditorContent
             } else if step == .location {
                 OiLocationPicker(latitude: $draft.latitude, longitude: $draft.longitude,
                                  regionID: $draft.regionId,
@@ -202,11 +179,11 @@ struct OiStoryEditor: View {
                 }
             }
         }
-        .background(step == .photos ? Color(white: 38 / 255) : Color(.systemBackground))
-        .preferredColorScheme(step == .photos ? .dark : .light)
-        .environment(\.colorScheme, step == .photos ? .dark : .light)
-        .toolbarColorScheme(step == .photos ? .dark : .light, for: .navigationBar)
-        .toolbarBackground(step == .photos ? Color(white: 38 / 255) : Color(.systemBackground), for: .navigationBar)
+        .background(Color(.systemBackground))
+        .preferredColorScheme(.light)
+        .environment(\.colorScheme, .light)
+        .toolbarColorScheme(.light, for: .navigationBar)
+        .toolbarBackground(Color(.systemBackground), for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar(usesNavigationBar ? .visible : .hidden, for: .navigationBar)
         .disabled(remote.isBusy || preparingPhoto || publishing || saving || placing || replacingServerDraft || isDiscarding)
@@ -223,7 +200,7 @@ struct OiStoryEditor: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                if !submitted && step != .location && step != .photos {
+                if !submitted && step != .location {
                     Button("나가기") { if restored { choosingExit = true } else { dismiss() } }
                         .disabled(remote.isBusy || preparingPhoto || publishing || saving || isDiscarding)
                 }
@@ -248,7 +225,12 @@ struct OiStoryEditor: View {
         } message: { _ in
             Text("이 기기의 제목, 본문, 위치와 공개 카드 디자인을 서버 버전으로 바꿉니다. 추가한 사진과 기기에서 꾸민 오이는 보관합니다.")
         }
-        .sheet(isPresented: $showingPreview) { reviewSheet }
+        .fullScreenCover(item: $photoCheckpoint) { _ in photoEditorContent }
+        .sheet(isPresented: $showingPreview, onDismiss: {
+            guard openingPhotosAfterReview else { return }
+            openingPhotosAfterReview = false
+            openPhotoEditor()
+        }) { reviewSheet }
         .sheet(item: $supplementaryScreen) { screen in
             NavigationStack {
                 Group {
@@ -280,7 +262,12 @@ struct OiStoryEditor: View {
                 }
             }
         }
-        .onAppear { beginPhotoEditing() }
+        .background { Color(white: 38 / 255).ignoresSafeArea() }
+        .preferredColorScheme(.dark)
+        .environment(\.colorScheme, .dark)
+        .interactiveDismissDisabled()
+        .disabled(remote.isBusy || preparingPhoto || saving || !photoSelections.isEmpty)
+        .task(id: photoSelections) { await importSelectedPhotos() }
     }
 
     private var photoEditorHeader: some View {
@@ -295,7 +282,7 @@ struct OiStoryEditor: View {
             .foregroundStyle(.white)
             .multilineTextAlignment(.center)
             .accessibilityAddTraits(.isHeader)
-        let done = Button(action: finishPhotoEditing) {
+        let done = Button(action: saveAndClosePhotoEditor) {
             Text("완료").font(.custom("Paperlogy-5Medium", size: 20, relativeTo: .body))
                 .fixedSize()
                 .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
@@ -324,7 +311,7 @@ struct OiStoryEditor: View {
         .frame(minHeight: 60)
     }
 
-    private func storyPhotos(previewWidth: CGFloat = 296, previewHeight: CGFloat = 400) -> some View {
+    private func storyPhotos(previewWidth: CGFloat, previewHeight: CGFloat) -> some View {
         OiStoryPhotoStep(items: editingPhotos, uploadedPhotos: attachedPhotoIDs, selections: $photoSelections,
             loadPhoto: { id in
                 guard let owner, remote.account?.id == owner else { throw OiServiceError.accountChanged }
@@ -334,27 +321,52 @@ struct OiStoryEditor: View {
             previewWidth: previewWidth, previewHeight: previewHeight)
     }
 
-    private func beginPhotoEditing() {
-        guard photoCheckpoint == nil else { return }
+    private func openPhotoEditor() {
+        guard restored, !submitted, photoCheckpoint == nil else { return }
+        focusedStoryField = nil
         photoCheckpoint = PhotoCheckpoint(photos: photos, uploaded: uploadedPhotos,
             removedPaths: removedMediaPaths, removedIDs: removedPhotoIDs)
     }
 
     private func cancelPhotoEditing() {
-        guard !preparingPhoto else { return }
-        if let checkpoint = photoCheckpoint {
-            photos = checkpoint.photos; uploadedPhotos = checkpoint.uploaded
-            removedMediaPaths = checkpoint.removedPaths; removedPhotoIDs = checkpoint.removedIDs
-        }
-        photoCheckpoint = nil; photoSelections = []
-        navigate(to: .story)
+        guard !preparingPhoto, !saving, photoSelections.isEmpty, let checkpoint = photoCheckpoint else { return }
+        photos = checkpoint.photos; uploadedPhotos = checkpoint.uploaded
+        removedMediaPaths = checkpoint.removedPaths; removedPhotoIDs = checkpoint.removedIDs
+        localVersion += 1
+        saveAndClosePhotoEditor()
     }
 
-    private func finishPhotoEditing() {
-        guard !preparingPhoto else { return }
+    private func saveAndClosePhotoEditor() {
+        guard !preparingPhoto, !saving, photoSelections.isEmpty, photoCheckpoint != nil else { return }
+        saving = true
         Task {
-            if await persist() { photoCheckpoint = nil; navigate(to: .story) }
+            defer { saving = false }
+            if await persist() { photoCheckpoint = nil }
         }
+    }
+
+    private func importSelectedPhotos() async {
+        let selections = photoSelections
+        guard !selections.isEmpty, let owner else { return }
+        preparingPhoto = true
+        defer { preparingPhoto = false; photoSelections = [] }
+        var failures = 0
+        for selection in selections {
+            guard editingPhotos.count < OiCreationStep.storyPhotoLimit else { break }
+            do {
+                guard let data = try await selection.loadTransferable(type: Data.self) else { throw OiServiceError.invalidInput }
+                let jpeg = try OiPhotoProcessor.prepare(data)
+                try Task.checkCancellation()
+                let id = UUID()
+                try await remote.saveLocalPhoto(jpeg, id: id, owner: owner)
+                try Task.checkCancellation()
+                guard remote.account?.id == owner else { throw OiServiceError.accountChanged }
+                guard editingPhotos.count < OiCreationStep.storyPhotoLimit else { break }
+                photos.append(id); localVersion += 1; _ = await persist()
+            } catch is CancellationError { return }
+            catch { failures += 1 }
+        }
+        if failures > 0 { localError = "\(failures)장의 사진을 추가하지 못했어요. 기기에서 열 수 있는 사진인지 확인한 뒤 다시 선택해 주세요." }
     }
 
     private var editorScrollContent: some View {
@@ -393,7 +405,6 @@ struct OiStoryEditor: View {
     }
 
     private func navigate(to destination: OiCreationStep) {
-        if destination == .photos { beginPhotoEditing() }
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
             if step != destination { customizationReady = false }
             step = destination
@@ -533,6 +544,11 @@ struct OiStoryEditor: View {
                 submitted = !OiCreationAccess.canEdit(status: server.status, submitted: submitted)
             }
             restored = true; localError = nil; saveLabel = "이 계정의 기기 초안 자동 저장"
+            if step == .photos {
+                // Older drafts stored the photo editor as a step. Resume over the writing form.
+                step = .story
+                openPhotoEditor()
+            }
         } catch let error as OiDraftDiscardCleanupError {
             discardCleanupError = error.localizedDescription
         } catch is CancellationError {
@@ -549,10 +565,11 @@ struct OiStoryEditor: View {
             error: localError ?? remote.error ?? publicationAvailabilityMessage,
             canSubmit: canSubmit && publicationAvailabilityMessage == nil && !remote.isBusy && !saving, isSubmitting: publishing,
             onClose: { showingPreview = false },
-            onEdit: { step in
+            onEdit: { destination in
+                openingPhotosAfterReview = destination == .photos
                 showingPreview = false
                 customizationReady = false
-                navigate(to: step)
+                navigate(to: destination == .photos ? .story : destination)
             }, onSubmit: { portrait in
                 Task { await submitReview(portrait: portrait) }
             }) { photo, thumbnail in
@@ -701,18 +718,16 @@ struct OiStoryEditor: View {
 
     @ViewBuilder private var stepContent: some View {
         switch step {
-        case .consent: EmptyView() // Uses its own scroll view above.
+        case .consent, .photos, .location: EmptyView() // Presented separately above.
         case .story:
             VStack(alignment: .leading, spacing: 50) {
                 Text("내 지도에 오이를 배치하려면 위치를 골라 주세요. 이야기와 사진은 공개할 때 필요해요.")
                     .font(CampusStyle.body(14)).foregroundStyle(.secondary)
                 OiStoryAttachmentSections(photoCount: editingPhotos.count,
                     latitude: draft.latitude, longitude: draft.longitude,
-                    onPhotos: { navigate(to: .photos) }, onLocation: { navigate(to: .location) })
+                    onPhotos: openPhotoEditor, onLocation: { navigate(to: .location) })
                 OiStoryWritingStep(draft: $draft, focusedField: $focusedStoryField)
             }
-        case .photos: storyPhotos()
-        case .location: EmptyView() // The dedicated 3D picker is shown directly above.
         case .cucumber:
             OiCucumberCustomizationStep(customization: $customization,
                 canContinue: true, isFinished: customizationReady, onContinue: toggleCustomizationReady,
