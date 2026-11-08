@@ -12,4 +12,8 @@ struct StoryCard: Identifiable, Sendable {
     let cardID: String
     let storyID: String
     let imageURL: URL?
+
+    static func artworkPath(owner: UUID, story: UUID, snapshot: UUID) -> String {
+        "\(owner.uuidString.lowercased())/\(story.uuidString.lowercased())/card/\(snapshot.uuidString.lowercased()).png"
+    }
 }

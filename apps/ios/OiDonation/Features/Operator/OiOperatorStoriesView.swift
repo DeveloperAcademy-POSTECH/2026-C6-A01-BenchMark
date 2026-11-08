@@ -78,19 +78,23 @@ struct OiOperatorStoryDetailView: View {
     @State private var showingConfirmation = false
     @State private var checkedAppearance: OiCucumberArtworkReference?
     @State private var appearanceImages: [OiCucumberArtworkReference.Part: UIImage] = [:]
+    @State private var checkedCard: (path: String, image: UIImage)?
     @State private var appearanceError = false
     @State private var imageAttempt = 0
     @State private var selectedArtwork: ReviewArtwork?
     @Environment(\.scenePhase) private var phase
 
     private struct ReviewArtwork: Identifiable {
-        let id: OiCucumberArtworkReference.Part
+        let id: String
         let title: String
         let image: UIImage
     }
 
     private var artwork: OiCucumberArtworkReference? { model.detail?.story.cucumberArtwork }
-    private var appearanceReady: Bool { artwork == nil || checkedAppearance == artwork }
+    private var cardPath: String? { model.detail?.story.cardArtworkPath }
+    private var artworkReady: Bool {
+        (artwork == nil || checkedAppearance == artwork) && (cardPath == nil || checkedCard?.path == cardPath)
+    }
 
     var body: some View {
         List {
@@ -125,7 +129,9 @@ struct OiOperatorStoryDetailView: View {
             }
         }
         .task(id: storyID) { await loadLatest() }
-        .task(id: AppearanceLoad(artwork: artwork, attempt: imageAttempt)) { await loadAppearance(artwork) }
+        .task(id: ArtworkLoad(artwork: artwork, cardPath: cardPath, attempt: imageAttempt)) {
+            await loadArtwork(artwork, cardPath: cardPath)
+        }
         .fullScreenCover(item: $selectedArtwork) { selection in
             CampusArtworkOverlay(title: selection.title) { Image(uiImage: selection.image).resizable().scaledToFit() }
         }
@@ -138,7 +144,7 @@ struct OiOperatorStoryDetailView: View {
             let publish = story.status != "published"
             Button(publish ? "확인하고 공개" : "확인하고 비공개") {
                 Task {
-                    guard phase == .active, !publish || appearanceReady else { return }
+                    guard phase == .active, !publish || artworkReady else { return }
                     if let saved = await model.review(story, publish: publish, using: remote) { onUpdated(saved) }
                     confirmation = nil
                 }
@@ -147,7 +153,7 @@ struct OiOperatorStoryDetailView: View {
         } message: { story in
             Text(story.status == "published"
                  ? "‘\(story.title)’을 공개 목록에서 내리고 숨김 상태로 보관합니다."
-                 : "‘\(story.title)’의 내용과 사진, 위치, 꾸민 오이를 확인했나요? 승인하면 다른 이용자가 볼 수 있습니다.")
+                 : "‘\(story.title)’의 내용과 사진, 위치, 꾸민 오이와 카드를 확인했나요? 승인하면 다른 이용자가 볼 수 있습니다.")
         }
         .interactiveDismissDisabled(model.isProcessing)
         .privacySensitive()
@@ -194,7 +200,7 @@ struct OiOperatorStoryDetailView: View {
                         if let image = appearanceImages[part] {
                             let title = part == .portrait ? "지도와 카드에 표시할 오이" : (part == .top ? "상의 또는 세트" : "하의")
                             Button {
-                                selectedArtwork = ReviewArtwork(id: part, title: title, image: image)
+                                selectedArtwork = ReviewArtwork(id: part.rawValue, title: title, image: image)
                             } label: {
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text(title).font(.subheadline)
@@ -212,6 +218,22 @@ struct OiOperatorStoryDetailView: View {
                 }
             }
         }
+        if let path = story.cardArtworkPath {
+            Section("작성자가 꾸민 카드") {
+                if let checkedCard, checkedCard.path == path {
+                    Button {
+                        selectedArtwork = ReviewArtwork(id: path, title: "작성자가 꾸민 카드", image: checkedCard.image)
+                    } label: {
+                        Image(uiImage: checkedCard.image).resizable().scaledToFit().frame(maxHeight: 320)
+                    }.buttonStyle(.plain).accessibilityLabel("꾸민 카드 크게 보기")
+                } else if appearanceError {
+                    Text("카드 이미지를 확인하지 못했어요.")
+                    Button("카드 다시 불러오기") { imageAttempt += 1 }
+                } else {
+                    ProgressView("꾸민 카드를 불러오는 중")
+                }
+            }
+        }
         Section("공개 검토") {
             if model.isProcessing { ProgressView("공개 상태를 처리하는 중") }
             Button {
@@ -223,9 +245,9 @@ struct OiOperatorStoryDetailView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(!model.canReview || remote.isBusy || !remote.isOperator || remote.needsReauthentication
-                      || (story.status != "published" && !appearanceReady))
+                      || (story.status != "published" && !artworkReady))
             .accessibilityIdentifier("operator.story.review")
-            Text("이야기와 꾸민 오이의 외형을 검토해 공개 여부를 결정합니다.")
+            Text("이야기와 사진, 꾸민 오이와 카드를 검토해 공개 여부를 결정합니다.")
                 .font(.footnote).foregroundStyle(.secondary)
         }
     }
@@ -246,24 +268,32 @@ struct OiOperatorStoryDetailView: View {
         if let story = model.detail?.story { onUpdated(story) }
     }
 
-    private struct AppearanceLoad: Hashable {
+    private struct ArtworkLoad: Hashable {
         let artwork: OiCucumberArtworkReference?
+        let cardPath: String?
         let attempt: Int
     }
 
-    private func loadAppearance(_ reference: OiCucumberArtworkReference?) async {
-        checkedAppearance = nil; appearanceImages = [:]; appearanceError = false
-        guard let reference else { return }
+    private func loadArtwork(_ reference: OiCucumberArtworkReference?, cardPath path: String?) async {
+        checkedAppearance = nil; appearanceImages = [:]; checkedCard = nil; appearanceError = false
         do {
-            var images: [OiCucumberArtworkReference.Part: UIImage] = [:]
-            for part in reference.parts {
-                images[part] = try await remote.cucumberImage(reference.path(part), part: part)
+            if let reference {
+                var images: [OiCucumberArtworkReference.Part: UIImage] = [:]
+                for part in reference.parts {
+                    images[part] = try await remote.cucumberImage(reference.path(part), part: part)
+                }
                 try Task.checkCancellation()
+                guard artwork == reference else { return }
+                appearanceImages = images; checkedAppearance = reference
             }
-            guard artwork == reference else { return }
-            appearanceImages = images; checkedAppearance = reference
+            if let path {
+                let image = try await remote.cucumberImage(path)
+                try Task.checkCancellation()
+                guard cardPath == path else { return }
+                checkedCard = (path, image)
+            }
         } catch {
-            if !Task.isCancelled, artwork == reference { appearanceError = true }
+            if !Task.isCancelled, artwork == reference, cardPath == path { appearanceError = true }
         }
     }
 }

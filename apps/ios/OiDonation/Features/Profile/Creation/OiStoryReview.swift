@@ -17,7 +17,8 @@ struct OiStoryReviewIssue: Identifiable {
 struct OiStoryReview<StoryPhoto: View>: View {
     let draft: OiStoryDraft
     let customization: OiDraftCustomization
-    let publicCard: MYCard
+    let savedCardPath: String?
+    let savedPortraitPath: String?
     let donorName: String
     let location: String?
     let photos: [OiEditingPhoto]
@@ -28,16 +29,20 @@ struct OiStoryReview<StoryPhoto: View>: View {
     let isSubmitting: Bool
     let onClose: () -> Void
     let onEdit: (OiCreationStep) -> Void
-    let onSubmit: (Data?) -> Void
+    let onSubmit: (Data?, OiStoryCardPublication?) -> Void
     let storyPhoto: (OiEditingPhoto, Bool) -> StoryPhoto
 
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.colorScheme) private var colorScheme
     @State private var selection: Artwork?
     @State private var portrait: UIImage?
     @State private var portraitPNG: Data?
     @State private var invalidCapture = false
     @State private var checkedPortrait = false
-    @State private var showingCards = false
+    @State private var savedCard: UIImage?
+    @State private var artworkLoadFailed = false
+    @State private var artworkLoadAttempt = 0
+    @State private var renderError: String?
 
     private struct OutfitPhoto: Identifiable {
         let id: String
@@ -80,7 +85,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Label("승인되면 이야기와 사진, 꾸민 오이가 다른 사람의 지도와 현장 AR에 공개돼요.", systemImage: "checkmark.shield")
+                    Label("승인되면 이야기와 사진, 꾸민 오이와 카드를 다른 사람도 볼 수 있어요.", systemImage: "checkmark.shield")
                         .font(CampusStyle.body(14)).foregroundStyle(CampusStyle.sectionGreen)
                         .padding(.horizontal, 4)
                     OiConnectionStatus(remote: remote)
@@ -110,6 +115,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
         .tint(CampusStyle.sectionGreen)
         .interactiveDismissDisabled(isSubmitting)
         .task { restorePortrait() }
+        .task(id: artworkLoadAttempt) { await loadSavedArtwork() }
         .fullScreenCover(item: $selection) { item in
             switch item {
             case .story(let photo, let number):
@@ -122,6 +128,8 @@ struct OiStoryReview<StoryPhoto: View>: View {
                         OiWardrobePreview(look: look)
                             .frame(height: 410)
                             .clipShape(RoundedRectangle(cornerRadius: 24))
+                    } else if let portrait {
+                        Image(uiImage: portrait).resizable().scaledToFit()
                     } else {
                         OiCreationCharacterImage(asset: draft.cucumberAsset)
                     }
@@ -240,8 +248,9 @@ struct OiStoryReview<StoryPhoto: View>: View {
                 OiCardPortraitCapture(look: look, cacheKey: portraitKey(for: look), orientation: orientation,
                     onCapture: { bytes, _ in invalidCapture = !acceptPortrait(bytes) })
             }
-        } else if let path = publicCard.cucumberPortraitPath {
-            OiCucumberPortraitImage(path: path, load: { try await remote.cucumberImage($0) })
+        } else if savedPortraitPath != nil {
+            if !artworkLoadFailed { ProgressView() }
+            else { Image(systemName: "photo").foregroundStyle(.secondary) }
         } else {
             OiCreationCharacterImage(asset: draft.cucumberAsset).padding(8)
         }
@@ -249,24 +258,33 @@ struct OiStoryReview<StoryPhoto: View>: View {
 
     private var cardPanel: some View {
         panel {
-            DisclosureGroup(isExpanded: $showingCards) {
-                let layout = typeSize.isAccessibilitySize
-                    ? AnyLayout(VStackLayout(alignment: .center, spacing: 20))
-                    : AnyLayout(HStackLayout(alignment: .top, spacing: 16))
-                layout {
-                    card("내가 꾸민 카드") {
-                        OiDraftCardPreview(draft: draft, customization: customization, donorName: donorName)
-                    }
-                    card("공개 카드") {
-                        MYCardArtwork(card: publicCard, portrait: portrait, expectsPortrait: customization.wardrobe != nil)
-                    }
-                }.padding(.top, 14)
-            } label: {
-                Label("카드 미리보기", systemImage: "rectangle.on.rectangle")
-                    .font(CampusStyle.semibold(16)).foregroundStyle(Color("OiDark"))
-                    .frame(minHeight: 32)
+            sectionHeader("내가 꾸민 카드", symbol: "rectangle.on.rectangle", edit: .card)
+            Group {
+                if artworkLoadFailed {
+                    Button("이미지 다시 불러오기") { artworkLoadAttempt += 1 }
+                        .disabled(isSubmitting)
+                } else if let savedCard {
+                    Image(uiImage: savedCard).resizable().scaledToFit().accessibilityLabel("내가 꾸민 카드")
+                } else if artworkReady {
+                    draftCard
+                } else {
+                    ProgressView().frame(height: 96)
+                }
             }
+            .frame(maxWidth: 240).frame(maxWidth: .infinity)
+            Text("승인 전에는 작성자와 검토 담당자만 이 카드를 볼 수 있어요. 승인되면 이 모습 그대로 공개돼요.")
+                .font(CampusStyle.body(12)).foregroundStyle(.secondary)
         }
+    }
+
+    private var draftCard: OiDraftCardPreview {
+        OiDraftCardPreview(draft: draft, customization: customization, donorName: donorName, portrait: portrait)
+    }
+
+    private var artworkReady: Bool {
+        if customization.wardrobe != nil && portraitPNG == nil { return false }
+        if savedPortraitPath != nil && portrait == nil { return false }
+        return savedCardPath == nil || savedCard != nil
     }
 
     private var issuePanel: some View {
@@ -288,17 +306,23 @@ struct OiStoryReview<StoryPhoto: View>: View {
 
     private var submitBar: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let error {
+            if let error = renderError ?? error {
                 Label(error, systemImage: "exclamationmark.circle")
                     .font(.footnote).foregroundStyle(.red)
             }
-            if customization.wardrobe != nil && portraitPNG == nil {
-                Text("공개 카드에 들어갈 오이 이미지가 준비되면 검토를 요청할 수 있어요.")
+            if !artworkReady {
+                Text("오이와 카드 이미지가 준비되면 검토를 요청할 수 있어요.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             OiCreationNextButton(title: isSubmitting ? "공개 검토 요청 중…" : "공개 검토 요청하기",
-                                 enabled: canSubmit && !isSubmitting && (customization.wardrobe == nil || portraitPNG != nil)) {
-                onSubmit(portraitPNG)
+                                 enabled: canSubmit && !isSubmitting && artworkReady) {
+                renderError = nil
+                do {
+                    let card = try savedCardPath == nil ? draftCard.publication(colorScheme: colorScheme) : nil
+                    onSubmit(portraitPNG, card)
+                } catch {
+                    renderError = "꾸민 카드 이미지를 준비하지 못했어요. 카드 설정을 확인해 주세요."
+                }
             }
                 .accessibilityIdentifier("oi.story.confirmSubmit")
         }
@@ -358,11 +382,18 @@ struct OiStoryReview<StoryPhoto: View>: View {
         }
     }
 
-    private func card<Content: View>(_ title: String, @ViewBuilder artwork: () -> Content) -> some View {
-        VStack(spacing: 8) {
-            Text(title).font(CampusStyle.medium(13)).multilineTextAlignment(.center)
-            artwork().aspectRatio(362 / 502, contentMode: .fit)
-        }.frame(maxWidth: 240)
+    private func loadSavedArtwork() async {
+        artworkLoadFailed = false
+        do {
+            if let savedPortraitPath, portrait == nil {
+                portrait = try await remote.cucumberImage(savedPortraitPath)
+            }
+            if let savedCardPath {
+                savedCard = try await remote.cucumberImage(savedCardPath)
+            }
+        } catch {
+            if !OiServiceFailure.isCancellation(error) { artworkLoadFailed = true }
+        }
     }
 
     private func restorePortrait() {

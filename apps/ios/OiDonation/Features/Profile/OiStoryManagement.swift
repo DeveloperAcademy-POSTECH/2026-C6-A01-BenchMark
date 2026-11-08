@@ -20,6 +20,10 @@ struct OiStoryManagement: View {
                     Text(story.title).font(.headline)
                     Text(story.status == "pending" ? "공개 검토 중 · 나만 보기" : story.status.oiStatusTitle)
                     Text(story.body)
+                    if story.status != "draft" {
+                        CampusStoryCardArtwork(story: remote.campusStory(story))
+                            .frame(maxWidth: 240).frame(maxWidth: .infinity)
+                    }
                     if let error = remote.error { Text(error).foregroundStyle(.red) }
                     if story.isRegisteredOnCampus, !remote.needsReauthentication,
                        let showPlacement = campusStore?.showAuthoredPlacementAction {

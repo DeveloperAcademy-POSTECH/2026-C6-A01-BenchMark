@@ -16,6 +16,14 @@ struct OiDraftCardPreview: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("카드 미리보기, \(draft.cucumberName), \(design.caption ?? draft.title)")
     }
+
+    @MainActor func publication(colorScheme: ColorScheme) throws -> OiStoryCardPublication {
+        let renderer = ImageRenderer(content: composition.frame(width: 362, height: 502)
+            .environment(\.colorScheme, colorScheme))
+        renderer.scale = 2
+        guard let png = renderer.uiImage?.pngData() else { throw OiPhotoDataError.unreadable }
+        return try OiStoryCardPublication(png: png)
+    }
     private var cardCaption: String {
         if let caption = design.caption, !caption.isEmpty { return caption }
         return draft.title.isEmpty ? "오래 남는 나의 이야기" : draft.title
