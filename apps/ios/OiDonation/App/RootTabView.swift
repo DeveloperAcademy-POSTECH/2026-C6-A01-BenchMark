@@ -61,6 +61,13 @@ struct RootTabView: View {
                 }
             }
             .navigationDestination(for: PublicLinkParser.Destination.self) { publicDestination($0) }
+            .navigationDestination(for: AppClipInvocation.self) { invocation in
+                AppClipExperienceView(storyRepository: container.storyRepository, invocation: invocation) { story, id in
+                    OiStorySafetyButton(storyID: id, authorID: story.donorID, authorName: story.donorDisplayName)
+                }
+                .navigationTitle("이야기·AR")
+                .navigationBarTitleDisplayMode(.inline)
+            }
         }
         .tint(.black)
         .onChange(of: OiContentSafetyStore.shared.authors) { _, _ in
@@ -161,7 +168,7 @@ struct RootTabView: View {
             path = NavigationPath()
             pendingStoryList = false
             isARPresented = false
-            if let id = AppClipLink.storyID(in: url) { path.append(PublicLinkParser.Destination.story(id)) }
+            path.append(AppClipInvocation(url: url))
             return
         }
         if let host = container.approvedLinkHost,
