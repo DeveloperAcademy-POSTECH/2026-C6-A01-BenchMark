@@ -11,7 +11,7 @@ import RealityKit
 import UIKit
 
 /// The 3D renderer and publication use the same garment atlases. Only pixels inside the
-/// print frames leave the device; unused outfits, source photos and private cards stay local.
+/// print frames leave the device; unused outfits and source photos stay local.
 struct OiCucumberPublication {
     typealias Part = OiCucumberArtworkReference.Part
     let appearance: OiCucumberAppearance
@@ -47,6 +47,19 @@ struct OiCucumberPublication {
                              b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]))
         self.appearance = appearance(id: id)
         self.images = images
+    }
+}
+
+struct OiStoryCardPublication {
+    let id: UUID
+    let png: Data
+
+    init(png: Data) throws {
+        _ = try OiPublishedCucumberImage.decode(png, part: .portrait)
+        let b = Array(SHA256.hash(data: png).prefix(16))
+        id = UUID(uuid: (b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+                         b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]))
+        self.png = png
     }
 }
 

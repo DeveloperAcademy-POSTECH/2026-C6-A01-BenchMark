@@ -154,15 +154,16 @@ struct OiStoryCardArtwork: View {
 /// Match the loaded image to the snapshot path, including while a reused card changes stories.
 struct OiCucumberPortraitImage: View {
     let path: String
+    var label = "꾸민 오이"
     let load: (String) async throws -> UIImage
     @State private var result: (path: String, image: UIImage?)?
 
     var body: some View {
         Group {
             if let result, result.path == path {
-                if let image = result.image { Image(uiImage: image).resizable().scaledToFit() }
-                else { Image(systemName: "leaf").foregroundStyle(.secondary).accessibilityLabel("꾸민 오이 이미지를 불러오지 못했어요") }
-            } else { ProgressView().accessibilityLabel("꾸민 오이 불러오는 중") }
+                if let image = result.image { Image(uiImage: image).resizable().scaledToFit().accessibilityLabel(label) }
+                else { Image(systemName: "photo").foregroundStyle(.secondary).accessibilityLabel("\(label) 이미지를 불러오지 못했어요") }
+            } else { ProgressView().accessibilityLabel("\(label) 불러오는 중") }
         }
         .task(id: path) {
             do {

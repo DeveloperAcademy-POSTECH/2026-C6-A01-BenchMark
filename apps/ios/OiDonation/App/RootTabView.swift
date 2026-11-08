@@ -172,7 +172,7 @@ struct RootTabView: View {
                 school: MYSchool(id: school.id, name: school.name), order: index,
                 body: story.body, donor: remote.profiles.first(where: { $0.id == story.userId })?.nickname ?? "농부",
                 date: story.createdDateLabel, storyID: story.id.uuidString, appearance: story.cardAsset,
-                cucumberPortraitPath: story.cucumberArtwork?.path(.portrait))
+                cucumberPortraitPath: story.cucumberArtwork?.path(.portrait), cardArtworkPath: story.cardArtworkPath)
         }
         myDemo.synchronize(nickname: remote.profile?.nickname ?? "농부", cards: cards,
             favorites: Set(remote.favorites.map(\.uuidString)))

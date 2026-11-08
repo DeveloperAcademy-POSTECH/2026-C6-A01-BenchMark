@@ -351,15 +351,25 @@ struct OiServiceAPI {
 
     func upload(bucket: String, path: String, data: Data, contentType: String, token: String) async throws {
         let escaped = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
-        do { _ = try await request("storage/v1/object/\(bucket)/\(escaped)", method: "POST", token: token, body: data, contentType: contentType) }
-        catch let failure as OiServiceError {
-            switch failure {
-            case .conflict, .invalidInput:
-                do {
-                    let existing = try await request("storage/v1/object/authenticated/\(bucket)/\(escaped)", token: token)
-                    guard existing == data else { throw failure }
-                } catch { throw failure }
-            default: throw failure
+        let storyMedia = bucket == "oi-story-media"
+        do {
+            _ = try await request("storage/v1/object/\(bucket)/\(escaped)", method: "POST", token: token,
+                                  body: data, contentType: contentType, timeout: storyMedia ? 60 : 30)
+        } catch {
+            let timedOut = (error as? URLError)?.code == .timedOut
+            switch error {
+            case OiServiceError.conflict, OiServiceError.invalidInput: break
+            case _ where storyMedia && timedOut: break
+            default: throw error
+            }
+            // The server can commit a file before the upload response reaches the app.
+            let existing = try? await request("storage/v1/object/authenticated/\(bucket)/\(escaped)", token: token)
+            try Task.checkCancellation()
+            guard existing == data else {
+                if timedOut {
+                    throw OiServiceError.server("이미지 전송을 확인하지 못했어요. 초안을 저장했으니 연결을 확인한 뒤 다시 요청해 주세요.")
+                }
+                throw error
             }
         }
     }
