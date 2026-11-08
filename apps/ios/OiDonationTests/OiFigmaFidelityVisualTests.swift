@@ -79,7 +79,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             if variant.name == "402x874" {
                 let review = OiDonationEvidenceReview(reviewType: "donation_evidence", evidenceId: UUID(),
                     submittedAt: "2026-11-05T00:00:00Z", analyzedAt: "2026-11-05T00:01:00Z",
-                    humanReviewRequired: true, authenticityVerified: false, notice: "운영자 검토 후 작성 승인이 부여됩니다.",
+                    humanReviewRequired: true, authenticityVerified: false, notice: "운영팀이 제출 자료를 검토합니다.",
                     assessment: .init(verdict: .inconclusive, readability: .limited, findings: [],
                         limitations: ["원본 진위와 실제 납입을 확인하지 못했어요."], manualChecks: ["기부처와 이체 완료 상태를 확인해 주세요."]))
                 let result = OiDonationEvidenceContent(evidence: [], review: review)
@@ -101,7 +101,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertTrue(remote.hasLoadedRemote)
         XCTAssertNil(remote.loadError)
         XCTAssertTrue(remote.evidence.isEmpty)
-        XCTAssertFalse(remote.canStartStory)
+        XCTAssertTrue(remote.canStartStory, "Evidence is optional for story creation")
         let empty = NavigationStack { OiDonationEvidenceView(remote: remote) }
         try await capture(empty, name: "donation-evidence-empty", variant: try XCTUnwrap(variants.first),
                           defaults: fixture.defaults, attach: true)
@@ -122,10 +122,10 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 var review = OiDonationEvidenceReview(reviewType: "donation_evidence", evidenceId: UUID(),
                     submittedAt: "2026-11-05T00:00:00Z", analyzedAt: "2026-11-05T00:01:00Z",
                     humanReviewRequired: true, authenticityVerified: false,
-                    notice: "증빙 충족 판정은 학교의 공식 납입 확인이나 글 작성 승인이 아니에요.",
+                    notice: "증빙 충족은 참고 결과예요. 공식 납입 확인은 수납처에 문의해 주세요.",
                     assessment: .init(verdict: item.outcome == .suspectedManipulation ? .suspicious : .noObviousSigns,
                         readability: .readable, findings: [], limitations: ["제출 자료의 원본 진위와 제출자 본인 여부는 별도 확인이 필요해요."],
-                        manualChecks: ["운영자 검토 후 최종 작성 승인 상태를 확인해 주세요."]))
+                        manualChecks: ["운영팀의 자료 검토 결과를 확인해 주세요."]))
                 if let outcome = item.outcome {
                     review.summary = .init(outcome: outcome, sufficientEvidence: outcome == .sufficientEvidence,
                         title: item.title, reasons: [item.reason], checks: [
@@ -232,7 +232,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         @FocusState private var focusedField: OiStoryWritingStep.Field?
 
         var body: some View {
-            OiStoryWritingStep(draft: $draft, grants: [], focusedField: $focusedField)
+            OiStoryWritingStep(draft: $draft, focusedField: $focusedField)
         }
     }
 
@@ -242,7 +242,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
 
         var body: some View {
             VStack(alignment: .leading, spacing: 50) {
-                OiStoryWritingStep(draft: .constant(draft), grants: [], focusedField: $focusedField)
+                OiStoryWritingStep(draft: .constant(draft), focusedField: $focusedField)
                 OiStoryAttachmentSections(photoCount: 0, latitude: draft.latitude,
                     longitude: draft.longitude, onPhotos: {}, onLocation: {})
             }
@@ -490,7 +490,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         for variant in variants {
             let page = VStack(spacing: 0) {
                 OiCreationProgressHeader(step: 1).padding(.horizontal, 20)
-                OiStoryConsentView(clauses: OiStoryConsentClause.figmaDrafts, showsHeader: false)
+                OiStoryConsentView(clauses: OiStoryConsentClause.writingClauses, showsHeader: false)
             }
             try await capture(page, name: "consent-three-clauses", variant: variant,
                               defaults: fixture.defaults, attach: true)
@@ -512,7 +512,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                     assets: Self.assets, isFinished: true, onContinue: {})
             }
             try await capture(card, name: "card-finished", variant: variant, defaults: fixture.defaults, attach: true)
-            try await capture(NavigationStack { OiStoryConsentView(clauses: OiStoryConsentClause.figmaDrafts) },
+            try await capture(NavigationStack { OiStoryConsentView(clauses: OiStoryConsentClause.writingClauses) },
                 name: "consent-footprints", variant: variant, defaults: fixture.defaults, attach: true)
         }
     }

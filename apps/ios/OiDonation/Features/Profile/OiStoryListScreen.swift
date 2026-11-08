@@ -18,7 +18,7 @@ struct OiStoryListScreen: View {
     }
     @State private var selectedStoryID: UUID?
     @State private var showingConsent = false
-    @State private var showingEvidence = false
+    @State private var showingCreationUnavailable = false
 
     var body: some View {
         OiStoryListView(
@@ -32,11 +32,6 @@ struct OiStoryListScreen: View {
             onCreateStory: beginCreatingStory,
             onUseSeed: nil
         )
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("기부 자료 제출") { showingEvidence = true }
-            }
-        }
         .task(id: DraftLoadKey(owner: remote.account?.id, revision: remote.revision)) {
             await loadLocalDrafts()
         }
@@ -44,7 +39,7 @@ struct OiStoryListScreen: View {
             selectedLocalID = nil
             selectedStoryID = nil
             showingConsent = false
-            showingEvidence = false
+            showingCreationUnavailable = false
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             if let owner = remote.account?.id, loadedDraftOwner == owner, unreadableDraftCount > 0 || pendingDiscardCount > 0 {
@@ -66,7 +61,12 @@ struct OiStoryListScreen: View {
             }
         }
         .navigationDestination(isPresented: $showingSettings) { MYSettingsView(remote: remote) }
-        .navigationDestination(isPresented: $showingEvidence) { OiDonationEvidenceView(remote: remote) }
+        .alert("오이 만들기를 시작할 수 없어요", isPresented: $showingCreationUnavailable) {
+            Button("다시 확인") { Task { await remote.refresh() } }
+            Button("닫기", role: .cancel) {}
+        } message: {
+            Text(OiWritingGuidance.unavailable)
+        }
         .navigationDestination(item: $selectedLocalID) { id in
             OiStoryEditor(remote: remote, localID: id, onFinish: { selectedLocalID = nil })
         }
@@ -81,12 +81,12 @@ struct OiStoryListScreen: View {
 
     private var writingGuidance: String {
         guard remote.account != nil, !remote.needsReauthentication else {
-            return "로그인 후 이야기 작성 조건을 확인할 수 있어요."
+            return OiWritingGuidance.available
         }
         guard remote.hasLoadedRemote, remote.loadError == nil else {
             return OiStoryListView.listGuidance
         }
-        return OiWritingGuidance.message(unapprovedDraftsEnabled: remote.unapprovedDraftsEnabled)
+        return remote.canStartStory ? OiWritingGuidance.available : OiWritingGuidance.unavailable
     }
 
     private var state: OiStoryListState {
@@ -154,7 +154,7 @@ struct OiStoryListScreen: View {
         if remote.canStartStory {
             showingConsent = true
         } else {
-            showingEvidence = true
+            showingCreationUnavailable = true
         }
     }
 

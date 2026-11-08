@@ -146,7 +146,7 @@ export function createDonationHandler(config: Configuration, fetcher: typeof fet
         analyzed_at: new Date().toISOString(), model: config.model ?? DEFAULT_MODEL,
         prompt_version: DONATION_PROMPT_VERSION, human_review_required: true, authenticity_verified: false,
         writing_permission_granted: false,
-        notice: "문자도 기부 증빙으로 판단해요. 증빙 충족은 원본 진위·제출자 본인·학교 납입 확인의 보증이 아니며, 글 작성은 운영자 승인 후 가능해요.",
+        notice: "문자도 기부 자료로 검토해요. 증빙 충족은 원본 진위·제출자 본인·학교 납입 확인의 보증이 아니에요. 운영팀이 제출 자료를 별도로 검토해요.",
         assessment: facts.visual_review, summary });
     } catch (error) {
       if (signal.aborted) return json({ error: "analysis_timeout" }, 504);

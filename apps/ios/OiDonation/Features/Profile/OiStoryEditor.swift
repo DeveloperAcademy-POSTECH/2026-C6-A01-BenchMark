@@ -11,7 +11,7 @@ import SwiftUI
 
 struct OiStoryEditor: View {
     private enum SupplementaryScreen: String, Identifiable {
-        case completion, evidence
+        case completion
         var id: String { rawValue }
     }
 
@@ -150,7 +150,7 @@ struct OiStoryEditor: View {
 
                 Group {
                     if step == .consent {
-                        OiStoryConsentView(clauses: OiStoryConsentClause.figmaDrafts,
+                        OiStoryConsentView(clauses: OiStoryConsentClause.writingClauses,
                             onContinue: advance, onExit: { choosingExit = true },
                             showsHeader: false, state: $consentState)
                     } else if step == .cucumber || step == .card {
@@ -242,7 +242,6 @@ struct OiStoryEditor: View {
                 Group {
                     switch screen {
                     case .completion: completionContent(isPreview: true)
-                    case .evidence: OiDonationEvidenceView(remote: remote)
                     }
                 }
                 .toolbar { ToolbarItem(placement: .cancellationAction) {
@@ -499,7 +498,6 @@ struct OiStoryEditor: View {
             if let server = remote.ownStories.first(where: { $0.id == draft.id }) {
                 submitted = !OiCreationAccess.canEdit(status: server.status, submitted: submitted)
             }
-            if draft.grantId == nil && !remote.unapprovedDraftsEnabled { draft.grantId = availableGrants.first?.id }
             restored = true; localError = nil; saveLabel = "이 계정의 기기 초안 자동 저장"
         } catch let error as OiDraftDiscardCleanupError {
             discardCleanupError = error.localizedDescription
@@ -567,8 +565,7 @@ struct OiStoryEditor: View {
         }
     }
 
-    private var availableGrants: [OiWritingGrant] { remote.grants.filter { $0.revokedAt == nil } }
-    private var canWrite: Bool { remote.canWriteStory(grantID: draft.grantId) }
+    private var canWrite: Bool { remote.canStartStory }
     private var hasValidStoryPhotoCount: Bool {
         (1...OiCreationStep.storyPhotoLimit).contains(editingPhotos.count)
     }
@@ -594,13 +591,10 @@ struct OiStoryEditor: View {
         OiConnectionStatus(remote: remote)
         if let error = localError ?? remote.error { Text(error).font(.footnote).foregroundStyle(.red) }
         if !canWrite {
-            Text("서버에 저장하거나 공개 검토를 요청하려면 작성 권한을 확인해 주세요. 기존 글과 사진은 보관돼요.")
+            Text("\(OiWritingGuidance.unavailable) 이 기기에 저장한 글과 사진은 보관돼요.")
                 .font(.footnote).foregroundStyle(.orange)
-            Button("작성 권한 새로고침") {
-                Task {
-                    await remote.refresh()
-                    if draft.grantId == nil && !remote.unapprovedDraftsEnabled { draft.grantId = availableGrants.first?.id }
-                }
+            Button("작성 상태 다시 확인") {
+                Task { await remote.refresh() }
             }
         }
 
@@ -651,9 +645,7 @@ struct OiStoryEditor: View {
         case .consent: EmptyView() // Uses its own scroll view above.
         case .story:
             VStack(alignment: .leading, spacing: 50) {
-                OiStoryWritingStep(draft: $draft, grants: availableGrants,
-                    canChangeGrant: draft.revision == 0 || remote.ownStories.first(where: { $0.id == draft.id })?.grantId == nil,
-                    focusedField: $focusedStoryField)
+                OiStoryWritingStep(draft: $draft, focusedField: $focusedStoryField)
                 OiStoryAttachmentSections(photoCount: editingPhotos.count,
                     latitude: draft.latitude, longitude: draft.longitude,
                     onPhotos: { navigate(to: .photos) }, onLocation: { navigate(to: .location) })
