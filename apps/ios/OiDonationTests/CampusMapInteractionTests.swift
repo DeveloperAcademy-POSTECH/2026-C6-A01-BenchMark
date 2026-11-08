@@ -195,6 +195,96 @@ final class CampusMapInteractionTests: XCTestCase {
         XCTAssertEqual(reopened.region?.id, library.id, "Save the confirmed pin's region instead of the default region")
     }
 
+    func testPlacementPreviewGesturesChangeOiWithoutMovingCamera() async throws {
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        let scene = CampusExploreScene()
+        scene.setSharedMap(true)
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controller.view.addSubview(canvas)
+        window.isHidden = false
+        defer {
+            scene.suspendForARCamera()
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+        }
+        await scene.load()
+        window.layoutIfNeeded()
+        canvas.layoutIfNeeded()
+
+        let data = try XCTUnwrap(scene.data)
+        let start = try XCTUnwrap(data.graph.sorted { $0.key < $1.key }.map { data.world($0.value.p) }.first { point in
+            [0, 0.5, 1].allSatisfy { data.placementError(at: point + SIMD3($0, 0, 0)) == nil }
+        })
+        let coordinate = data.coordinate(start)
+        let placement = CampusPlacement(storyID: "gesture-check", latitude: coordinate.latitude,
+            longitude: coordinate.longitude, heightMeters: 1.2, headingDegrees: 10)
+        scene.beginPlacementPreview(placement)
+        await scene.preparePlacements(wardrobe: OiWardrobeLook())
+        let modelName = "placement:" + placement.id.uuidString
+        let map = try XCTUnwrap(canvas.map)
+        let model = try XCTUnwrap(map.scene.findEntity(named: modelName))
+        let camera = try XCTUnwrap(map.scene.anchors.flatMap { Array($0.children) }.compactMap { $0 as? PerspectiveCamera }.first)
+        let cameraStart = camera.position(relativeTo: nil)
+        let initialHeight = model.visualBounds(relativeTo: nil).extents.y
+        var committed: CampusPlacement?
+        scene.onPreviewChange = { value, _ in committed = value }
+
+        let pan = TestTilt()
+        let panAction = NSSelectorFromString("pan:")
+        pan.touches = 1; pan.state = .began
+        scene.perform(panAction, with: pan)
+        pan.state = .changed; pan.delta = CGPoint(x: 12, y: 0)
+        scene.perform(panAction, with: pan)
+        let moved = try XCTUnwrap(scene.placementPreview)
+        XCTAssertGreaterThan(moved.longitude, placement.longitude)
+        let ground = data.world(latitude: moved.latitude, longitude: moved.longitude)
+        XCTAssertLessThan(simd_distance(model.position(relativeTo: nil), ground), 0.001)
+        pan.delta = CGPoint(x: canvas.bounds.width * 2, y: 0)
+        scene.perform(panAction, with: pan)
+        XCTAssertNotNil(scene.previewMovementError)
+        XCTAssertEqual(scene.placementPreview, moved)
+
+        pan.touches = 2; pan.delta = CGPoint(x: 100, y: 0)
+        scene.perform(panAction, with: pan)
+        XCTAssertEqual(scene.placementPreview, moved, "Touch centroid changes do not move or rotate the model")
+        pan.delta = CGPoint(x: canvas.bounds.width / 2, y: 0)
+        scene.perform(panAction, with: pan)
+        XCTAssertEqual(scene.placementPreview?.headingDegrees, 190)
+        let rotation = TestRotation()
+        rotation.state = .changed; rotation.rotation = .pi / 2
+        scene.perform(NSSelectorFromString("rotate:"), with: rotation)
+        XCTAssertEqual(try XCTUnwrap(scene.placementPreview?.headingDegrees), 100, accuracy: 0.001)
+
+        let pinch = TestPinch()
+        let pinchAction = NSSelectorFromString("pinch:")
+        pinch.state = .changed; pinch.scale = 1.25
+        scene.perform(pinchAction, with: pinch)
+        XCTAssertEqual(scene.placementPreview?.heightCentimeters, 150)
+        XCTAssertEqual(model.visualBounds(relativeTo: nil).extents.y, initialHeight * 1.25, accuracy: 0.001)
+        pinch.scale = 100
+        scene.perform(pinchAction, with: pinch)
+        XCTAssertEqual(scene.placementPreview?.heightCentimeters, 200)
+        pinch.scale = 0.001
+        scene.perform(pinchAction, with: pinch)
+        XCTAssertEqual(scene.placementPreview?.heightCentimeters, 40)
+        pinch.state = .ended
+        scene.perform(pinchAction, with: pinch)
+        XCTAssertEqual(committed, scene.placementPreview)
+        XCTAssertEqual(committed?.latitude, moved.latitude)
+        XCTAssertEqual(committed?.longitude, moved.longitude)
+        XCTAssertEqual(camera.position(relativeTo: nil), cameraStart)
+        scene.suspendForARCamera(); scene.setVisible(true)
+        let restored = try XCTUnwrap(canvas.map?.scene.findEntity(named: modelName))
+        XCTAssertLessThan(simd_distance(restored.position(relativeTo: nil), ground), 0.001)
+        XCTAssertEqual(restored.scale, model.scale)
+    }
+
     func testOverviewPinchReversalAndTilt() async throws {
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: windowScene)
@@ -630,6 +720,19 @@ private final class TestPinch: UIPinchGestureRecognizer {
     override var scale: CGFloat {
         get { testScale }
         set { testScale = newValue }
+    }
+}
+
+private final class TestRotation: UIRotationGestureRecognizer {
+    private var testState: State = .possible
+    private var testRotation: CGFloat = 0
+    override var state: State {
+        get { testState }
+        set { testState = newValue }
+    }
+    override var rotation: CGFloat {
+        get { testRotation }
+        set { testRotation = newValue }
     }
 }
 

@@ -183,6 +183,7 @@ struct OiDraftPlacementPreview: View {
     let onEdit: () -> Void
     let onEditLocation: () -> Void
     let onReview: () -> Void
+    let onPlacementChange: (CampusPlacement, CampusRegion?) -> Void
 
     @Environment(\.scenePhase) private var scenePhase
     @State private var scene = CampusExploreScene()
@@ -191,8 +192,8 @@ struct OiDraftPlacementPreview: View {
 
     private var placement: CampusPlacement? {
         guard let latitude = draft.latitude, let longitude = draft.longitude else { return nil }
-        return try? CampusPlacement(id: draft.id, storyID: draft.id.uuidString, latitude: latitude,
-                                    longitude: longitude, headingDegrees: 180).validated()
+        return CampusPlacement.story(id: draft.id, latitude: latitude, longitude: longitude,
+            heightMeters: draft.heightMeters, headingDegrees: draft.headingDegrees ?? 180)
     }
 
     var body: some View {
@@ -204,7 +205,10 @@ struct OiDraftPlacementPreview: View {
                 .frame(maxWidth: .infinity, minHeight: 52)
                 .padding(.horizontal, 54)
                 .overlay(alignment: .leading) {
-                    Button(action: onEdit) {
+                    Button {
+                        scene.commitPlacementPreview()
+                        onEdit()
+                    } label: {
                         Image(systemName: "chevron.left").frame(width: 52, height: 48)
                     }
                     .foregroundStyle(Color("OiDark"))
@@ -214,6 +218,7 @@ struct OiDraftPlacementPreview: View {
                 CampusMapSurface(scene: scene)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityLabel("선택한 위치의 3D 캠퍼스 지도")
+                    .accessibilityHint("한 손가락으로 오이를 이동하고, 두 손가락으로 높이와 방향을 조절해요.")
                     .overlay {
                         if let locationError {
                             locationPrompt(locationError)
@@ -230,6 +235,13 @@ struct OiDraftPlacementPreview: View {
                                 .padding(16).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
                         }
                     }
+                    .overlay(alignment: .bottom) {
+                        if let error = scene.previewMovementError {
+                            Text(error).font(CampusStyle.body(13)).multilineTextAlignment(.center)
+                                .padding(10).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                                .padding(8).allowsHitTesting(false)
+                        }
+                    }
                     .task(id: retry) { await prepare(placement) }
                     .onChange(of: scenePhase, initial: true) { _, phase in
                         scene.setVisible(phase == .active)
@@ -243,9 +255,19 @@ struct OiDraftPlacementPreview: View {
                 Text("포항공과대학교 · \(draft.cucumberName.isEmpty ? "내 오이" : draft.cucumberName)")
                     .font(CampusStyle.semibold(16))
                     .foregroundStyle(Color("OiDark"))
-                Text("검토 요청 전에 나만 보는 미리보기예요.")
-                    .font(CampusStyle.body(14)).foregroundStyle(.secondary)
-                OiCreationNextButton(title: "검토 요청 계속하기", action: onReview)
+                if let placement = scene.placementPreview {
+                    Label("현장 AR 높이 \(placement.heightCentimeters)cm", systemImage: "ruler")
+                        .font(CampusStyle.semibold(17))
+                        .accessibilityIdentifier("oi.creation.placementHeight")
+                    Text("한 손가락으로 이동 · 핀치로 높이 조절\n두 손가락을 좌우로 움직이거나 비틀어 회전")
+                        .font(CampusStyle.body(13)).foregroundStyle(.secondary)
+                    Text("사진 속 크기는 촬영 거리와 각도에 따라 달라져요.")
+                        .font(CampusStyle.body(12)).foregroundStyle(.secondary)
+                }
+                OiCreationNextButton(title: "검토 요청 계속하기") {
+                    scene.commitPlacementPreview()
+                    onReview()
+                }
                     .accessibilityIdentifier("oi.creation.reviewPlacement")
             }
             .multilineTextAlignment(.center)
@@ -272,10 +294,8 @@ struct OiDraftPlacementPreview: View {
             locationError = error
             return
         }
-        if let region = CampusRegion.campus.first(where: { $0.id == draft.regionId }) ?? scene.nearestRegion() {
-            scene.focus(region, stories: [], placement: placement)
-        }
-        scene.syncPlacements(records: [placement])
+        scene.onPreviewChange = onPlacementChange
+        scene.beginPlacementPreview(placement)
         await scene.preparePlacements(wardrobe: wardrobe)
     }
 }

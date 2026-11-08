@@ -228,8 +228,7 @@ struct HomeView: View {
         guard isOnScreen, scene.ready, let id = authoredPlacementToReveal.wrappedValue,
               let story = authoredPlacementSource.stories.first(where: { $0.id == id }),
               let selectedRegion = CampusRegion.campus.first(where: { $0.id == story.regionId }) ?? scene.nearestRegion(),
-              let placement = try? CampusPlacement(id: id, storyID: id.uuidString, latitude: story.latitude,
-                longitude: story.longitude).validated()
+              let placement = story.campusPlacement
         else { return }
         region = selectedRegion; expanded = false; sort = .latest; searchResults = nil
         scene.focus(selectedRegion, stories: store.stories(in: selectedRegion.id, sortedBy: .latest), placement: placement)

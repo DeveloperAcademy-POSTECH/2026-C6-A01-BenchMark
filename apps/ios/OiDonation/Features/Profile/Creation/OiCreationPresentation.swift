@@ -69,6 +69,8 @@ enum OiCreationAccess {
         guard story.status == "draft" else { return false }
         var serverDraft = OiStoryDraft(story: story)
         serverDraft.revision = draft.revision
+        if draft.heightMeters == nil { serverDraft.heightMeters = nil }
+        if draft.headingDegrees == nil { serverDraft.headingDegrees = nil }
         return serverDraft == draft
     }
 }

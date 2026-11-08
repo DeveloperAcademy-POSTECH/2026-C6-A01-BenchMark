@@ -2068,7 +2068,8 @@ final class OiRemoteStoreTests: XCTestCase {
     @MainActor func testInteractiveCreationNavigation() async throws {
         let mode = ProcessInfo.processInfo.environment["OI_CREATION_INTERACTION_CHECK"]
         let freelyExplore = mode == "all-screens"
-        let checkPlacement = mode == "placement"
+        let checkMovement = mode == "placement-gestures"
+        let checkPlacement = mode == "placement" || checkMovement
         guard mode == "1" || freelyExplore || checkPlacement else {
             throw XCTSkip("Opt in to drive the editor with simulator UI automation")
         }
@@ -2111,27 +2112,46 @@ final class OiRemoteStoreTests: XCTestCase {
         }.preferredColorScheme(.light))
         window.rootViewController = controller
         window.makeKeyAndVisible()
+        if checkPlacement { previousKey?.isHidden = true }
         defer {
             window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+            if checkPlacement { previousKey?.isHidden = false }
             previousKey?.makeKey()
         }
         if let expectedGround {
-            func placedOi(in view: UIView) -> Entity? {
+            func placedOi(in view: UIView) -> (RealityKit.ARView, Entity)? {
                 if let canvas = view as? CampusMapCanvas {
-                    return canvas.map?.scene.findEntity(named: "placement:" + local.id.uuidString)
+                    guard let map = canvas.map,
+                          let model = map.scene.findEntity(named: "placement:" + local.id.uuidString) else { return nil }
+                    return (map, model)
                 }
                 return view.subviews.lazy.compactMap { placedOi(in: $0) }.first
             }
             var sawPlacement = false
+            var sawMovement = false
             for _ in 0..<180 {
                 try await Task.sleep(for: .seconds(1))
                 XCTAssertNil(backend.snapshot().story, "Done and opening review never submit the draft")
-                if !sawPlacement, let model = placedOi(in: window) {
+                if !sawPlacement, let (_, model) = placedOi(in: window) {
                     XCTAssertLessThan(simd_distance(model.position(relativeTo: nil), expectedGround), 0.001)
                     XCTAssertGreaterThan(model.visualBounds(relativeTo: nil).extents.y, 1)
                     sawPlacement = true
                 }
-                if sawPlacement, controller.presentedViewController != nil {
+                if checkMovement, sawPlacement, !sawMovement, let (map, model) = placedOi(in: window),
+                   let saved = try await store.localDraft(id: local.id, owner: OiTestBackend.owner),
+                   let latitude = saved.draft.latitude, let longitude = saved.draft.longitude,
+                   latitude != local.draft.latitude || longitude != local.draft.longitude {
+                    let moved = try CampusMapData.load().world(latitude: latitude, longitude: longitude)
+                    XCTAssertGreaterThan(simd_distance(moved, expectedGround), 0.02)
+                    XCTAssertLessThan(simd_distance(model.position(relativeTo: nil), moved), 0.001)
+                    let image: UIImage? = await withCheckedContinuation { continuation in
+                        map.snapshot(saveToHDR: false) { continuation.resume(returning: $0) }
+                    }
+                    let attachment = XCTAttachment(image: try XCTUnwrap(image))
+                    attachment.name = "draft-oi-after-drag"; attachment.lifetime = .keepAlways; add(attachment)
+                    sawMovement = true
+                }
+                if sawPlacement, (!checkMovement || sawMovement), controller.presentedViewController != nil {
                     let saved = try await store.localDraft(id: local.id, owner: OiTestBackend.owner)
                     XCTAssertEqual(saved?.customization?.wardrobe, look.wardrobe)
                     XCTAssertEqual(saved?.photos, photos)
@@ -2381,13 +2401,20 @@ final class OiRemoteStoreTests: XCTestCase {
         var current = draft(title: "Old title")
         guard let first = await store.save(current) else { XCTFail("First save failed"); return }
         current = OiStoryDraft(story: first); current.title = "Latest corrected title"
+        current.heightMeters = 1.35; current.headingDegrees = 263.5
         guard let updated = await store.save(current) else { XCTFail("Second save failed"); return }
         let receipt = await store.submitStory(updated)
         XCTAssertEqual(receipt?.status, "pending")
         XCTAssertEqual(backend.snapshot().submittedTitle, "Latest corrected title")
         XCTAssertEqual(receipt?.revision, 3)
+        XCTAssertEqual(receipt?.heightMeters, 1.35)
+        XCTAssertEqual(receipt?.headingDegrees, 263.5)
         XCTAssertEqual(store.ownStories.first(where: { $0.id == current.id })?.isRegisteredOnCampus, true)
         XCTAssertTrue(store.stories.isEmpty, "A pending placement must stay out of the public map and search")
+        backend.configure { $0.story?["status"] = "published" }
+        let published = try await store.publishedStory(current.id)
+        XCTAssertEqual(published.campusPlacement?.heightCentimeters, 135)
+        XCTAssertEqual(published.campusPlacement?.headingDegrees, 263.5)
     }
 }
 

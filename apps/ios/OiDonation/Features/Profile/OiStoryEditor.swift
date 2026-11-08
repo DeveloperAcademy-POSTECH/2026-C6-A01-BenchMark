@@ -145,7 +145,8 @@ struct OiStoryEditor: View {
             } else if step == .card && customizationReady {
                 OiDraftPlacementPreview(draft: draft, wardrobe: customization.wardrobe,
                     onEdit: { customizationReady = false },
-                    onEditLocation: { navigate(to: .location) }, onReview: advance)
+                    onEditLocation: { navigate(to: .location) }, onReview: advance,
+                    onPlacementChange: savePlacementPreview)
             } else {
                 OiCreationProgressHeader(step: step.progress, onSelect: selectProgressStage,
                     canSelectStage: canSelectProgressStage)
@@ -410,6 +411,16 @@ struct OiStoryEditor: View {
         }
     }
 
+    private func savePlacementPreview(_ placement: CampusPlacement, region: CampusRegion?) {
+        var updated = draft
+        updated.latitude = placement.latitude
+        updated.longitude = placement.longitude
+        updated.heightMeters = placement.heightMeters
+        updated.headingDegrees = placement.headingDegrees
+        if let region { updated.regionId = region.id }
+        draft = updated
+    }
+
     private func goBack() {
         if !restored { dismiss() }
         else if submitted { finish() }
@@ -503,6 +514,8 @@ struct OiStoryEditor: View {
                 removedPhotoIDs = record.removedPhotoIDs ?? []
             }
             if let server = remote.ownStories.first(where: { $0.id == draft.id }) {
+                if draft.heightMeters == nil { draft.heightMeters = server.heightMeters }
+                if draft.headingDegrees == nil { draft.headingDegrees = server.headingDegrees }
                 submitted = !OiCreationAccess.canEdit(status: server.status, submitted: submitted)
             }
             restored = true; localError = nil; saveLabel = "이 계정의 기기 초안 자동 저장"
@@ -527,7 +540,12 @@ struct OiStoryEditor: View {
                         Text(draft.title).font(.title2.bold())
                         Text(draft.body)
                         Text("\(draft.theme) · \(draft.emotion) · \(draft.cucumberName)")
-                        if let latitude = draft.latitude, let longitude = draft.longitude { Text("\(latitude), \(longitude)").font(.caption) }
+                        if let latitude = draft.latitude, let longitude = draft.longitude {
+                            Text("\(latitude), \(longitude)").font(.caption)
+                        }
+                        if let height = draft.heightMeters {
+                            Text("현장 AR 높이 \(height * 100, specifier: "%.0f")cm").font(.caption)
+                        }
                         ForEach(editingPhotos) { photo in reviewPhoto(photo).frame(height: 180) }
                         if let error = localError ?? remote.error { Text(error).foregroundStyle(.red) }
                         OiConnectionStatus(remote: remote)
