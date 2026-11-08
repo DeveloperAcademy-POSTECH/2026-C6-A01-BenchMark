@@ -10,6 +10,9 @@ import Observation
 
 @MainActor @Observable
 final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, OiOperatorEvidenceHistoryServing, OiOperatorEvidenceAnalysisServing, OiOperatorAuditServing {
+    // Avoid the synthesized isolated deinit crash on early iOS 26 (Swift #88036).
+    nonisolated deinit {}
+
     private(set) var schools: [OiSchool] = []
     private(set) var regions: [OiRegion] = []
     private(set) var assets: [OiAsset] = []

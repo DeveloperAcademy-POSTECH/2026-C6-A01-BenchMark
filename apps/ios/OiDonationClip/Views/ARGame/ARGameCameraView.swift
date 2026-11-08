@@ -16,6 +16,9 @@ import UIKit
 @MainActor
 @Observable
 final class ARGameCameraController: NSObject, ARSessionDelegate {
+    // Avoid the synthesized isolated deinit crash on early iOS 26 (Swift #88036).
+    nonisolated deinit {}
+
     let view = RealityKit.ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
 
     private let targetCount: Int

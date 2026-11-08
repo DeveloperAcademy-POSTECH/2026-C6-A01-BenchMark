@@ -11,6 +11,9 @@ import Observation
 @Observable
 @MainActor
 final class AppClipViewModel {
+    // Avoid the synthesized isolated deinit crash on early iOS 26 (Swift #88036).
+    nonisolated deinit {}
+
     private let storyRepository: any StoryRepository
     private let linkParser: PublicLinkParser?
     private var invocationID = UUID()
