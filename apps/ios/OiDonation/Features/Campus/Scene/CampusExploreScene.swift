@@ -36,6 +36,7 @@ struct CampusAuthoredPlacement: Identifiable, Equatable {
     let title: String
     let visibility: Visibility
     let wardrobe: OiWardrobeLook?
+    let submittedArtwork: OiCucumberArtworkReference?
     var id: String { placement.storyID }
 
     init?(story: OiLiveStory, owner: UUID, localDraft: OiLocalDraft?) {
@@ -45,17 +46,20 @@ struct CampusAuthoredPlacement: Identifiable, Equatable {
         // The private look belongs to the story ID, even if server normalization changes a field.
         let wardrobe = localDraft?.id == story.id ? localDraft?.customization?.wardrobe : nil
         let visibility = Visibility(story: story)
-        guard visibility == .pending || wardrobe != nil else { return nil }
+        let artwork = visibility == .published || wardrobe == nil ? story.cucumberArtwork : nil
+        guard visibility == .pending || wardrobe != nil || artwork != nil else { return nil }
         self.placement = placement
         self.regionID = story.regionId
         self.title = story.cucumberName
         self.visibility = visibility
-        self.wardrobe = wardrobe
+        self.wardrobe = artwork == nil ? wardrobe : nil
+        self.submittedArtwork = artwork
     }
 
     /// Records read from the signed-in account's vault are private to the home map.
     init?(personal record: OiLocalDraft, story: OiLiveStory?) {
-        guard let saved = record.personalPlacement,
+        guard story?.status != "published" || story?.cucumberArtwork == nil,
+              let saved = record.personalPlacement,
               let placement = CampusPlacement.story(id: record.id, latitude: saved.latitude, longitude: saved.longitude,
                   heightMeters: saved.heightMeters, headingDegrees: saved.headingDegrees) else { return nil }
         self.placement = placement
@@ -63,6 +67,7 @@ struct CampusAuthoredPlacement: Identifiable, Equatable {
         self.title = saved.name
         self.visibility = Visibility(story: story)
         self.wardrobe = record.customization?.wardrobe
+        self.submittedArtwork = self.wardrobe == nil ? story?.cucumberArtwork : nil
     }
 }
 
@@ -78,6 +83,10 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private var sharedMap = false
     var onStory: ((String) -> Void)?
     var onAuthoredPlacement: ((UUID) -> Void)?
+    @ObservationIgnored var loadCucumberPortrait: ((String) async throws -> UIImage)?
+    @ObservationIgnored var loadCucumberModel: ((OiCucumberArtworkReference) async throws -> Entity)?
+    @ObservationIgnored private var portraitTasks: [Task<Void, Never>] = []
+    @ObservationIgnored private let portraitCache = NSCache<NSString, UIImage>()
     private(set) var data: CampusMapData?
     private(set) var placementReady = false
     private(set) var placementLoading = false
@@ -374,7 +383,20 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         positions[story.id] = point
         guard authoredPlacements[story.id] == nil else { return }
         let button = UIButton(type: .custom)
-        button.setImage(UIImage(named: story.portraitImage), for: .normal)
+        if let path = story.cucumberPortraitPath {
+            button.tintColor = .systemGreen
+            button.setImage(portraitCache.object(forKey: path as NSString) ?? UIImage(systemName: "leaf"), for: .normal)
+            if portraitCache.object(forKey: path as NSString) == nil, let loadCucumberPortrait {
+                portraitTasks.append(Task { [weak self, weak button] in
+                    guard let image = try? await loadCucumberPortrait(path), !Task.isCancelled else { return }
+                    self?.portraitCache.totalCostLimit = 12 * 1024 * 1024
+                    if let cg = image.cgImage { self?.portraitCache.setObject(image, forKey: path as NSString, cost: cg.bytesPerRow * cg.height) }
+                    button?.setImage(image, for: .normal)
+                })
+            }
+        } else {
+            button.setImage(UIImage(named: story.portraitImage), for: .normal)
+        }
         button.imageView?.contentMode = .scaleAspectFit
         button.bounds.size = CGSize(width: 62, height: 76)
         button.accessibilityLabel = "\(story.title) 이야기 보기"
@@ -396,6 +418,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         guard authoredPlacements != updated else { return }
         authoredModels = authoredModels.filter { id, _ in
             updated[id] != nil && updated[id]?.wardrobe == authoredPlacements[id]?.wardrobe
+                && updated[id]?.submittedArtwork == authoredPlacements[id]?.submittedArtwork
         }
         authoredPlacements = updated
         if region != nil { makeStoryPins(stories) }
@@ -409,7 +432,10 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             guard authoredModels[item.id] == nil else { continue }
             do {
                 let model: Entity
-                if let wardrobe = item.wardrobe { model = try await OiWardrobeAsset.loadForPlacement(wardrobe) }
+                if let artwork = item.submittedArtwork {
+                    guard let loadCucumberModel else { continue }
+                    model = try await loadCucumberModel(artwork)
+                } else if let wardrobe = item.wardrobe { model = try await OiWardrobeAsset.loadForPlacement(wardrobe) }
                 else { model = try await CampusOiAsset.load() }
                 try Task.checkCancellation()
                 guard authoredPlacements[item.id] == item else { continue }
@@ -462,7 +488,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         let entity = template.clone(recursive: true)
         entity.name = "authored:" + item.id
         entity.position = data.world(latitude: placement.latitude, longitude: placement.longitude)
-        let templateHeight: Float = item.wardrobe == nil ? 1 : 1.5
+        let templateHeight: Float = item.wardrobe == nil && item.submittedArtwork == nil ? 1 : OiWardrobeAsset.placementHeight
         entity.scale = SIMD3(repeating: CampusPlacementGeometry.mapScale(unitsPerMeter: data.unitsPerMeter, editing: false)
                             * Float(placement.heightMeters) / templateHeight)
         entity.orientation = CampusOiAsset.heading(placement.headingDegrees)
@@ -829,6 +855,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     private func clearPins() {
         stopNavigation()
+        portraitTasks.forEach { $0.cancel() }
+        portraitTasks.removeAll()
         pins.forEach { $0.0.removeFromSuperview() }
         pins.removeAll()
         positions.removeAll()

@@ -62,6 +62,30 @@ struct CampusTags: View {
     }
 }
 
+private struct CampusCucumberPortraitLoaderKey: EnvironmentKey {
+    static let defaultValue: (@MainActor @Sendable (String) async throws -> UIImage)? = nil
+}
+
+extension EnvironmentValues {
+    var campusCucumberPortraitLoader: (@MainActor @Sendable (String) async throws -> UIImage)? {
+        get { self[CampusCucumberPortraitLoaderKey.self] }
+        set { self[CampusCucumberPortraitLoaderKey.self] = newValue }
+    }
+}
+
+struct CampusCucumberPortrait: View {
+    let story: CampusStory
+    @Environment(\.campusCucumberPortraitLoader) private var loadPortrait
+
+    var body: some View {
+        if let path = story.cucumberPortraitPath, let loadPortrait {
+            OiCucumberPortraitImage(path: path, load: loadPortrait)
+        } else {
+            Image(story.portraitImage).resizable().scaledToFit()
+        }
+    }
+}
+
 struct CampusStoryRow: View {
     let story: CampusStory
     var showsDate = true
@@ -69,7 +93,7 @@ struct CampusStoryRow: View {
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
             HStack(spacing: 12) {
-                Image(story.portraitImage).resizable().scaledToFit().padding(4)
+                CampusCucumberPortrait(story: story).padding(4)
                     .frame(width: 86, height: 86)
                     .background(Color(white: 0.94), in: RoundedRectangle(cornerRadius: 16))
                 VStack(alignment: .leading, spacing: 12) {

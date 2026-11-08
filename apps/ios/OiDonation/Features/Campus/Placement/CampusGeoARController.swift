@@ -44,7 +44,8 @@ import UIKit
         return result
     }
 
-    func start(_ placement: CampusPlacement, location: CampusGeoLocation, wardrobe: OiWardrobeLook? = nil) async {
+    func start(_ placement: CampusPlacement, location: CampusGeoLocation, wardrobe: OiWardrobeLook? = nil,
+               loadPublishedModel: (() async throws -> Entity)? = nil) async {
         stop()
         self.placement = placement; self.location = location; isWardrobeTest = wardrobe != nil
         mode = .preparing; message = nil
@@ -58,11 +59,13 @@ import UIKit
         guard allowed else { message = "설정에서 카메라 권한을 허용한 뒤 다시 시도해 주세요."; return }
         do {
             let entity: Entity
-            if let wardrobe { entity = try await OiWardrobeAsset.loadForPlacement(wardrobe) }
+            if let loadPublishedModel { entity = try await loadPublishedModel() }
+            else if let wardrobe { entity = try await OiWardrobeAsset.loadForPlacement(wardrobe) }
             else { entity = try await CampusOiAsset.load() }
             guard token == generation, !Task.isCancelled else { return }
             entity.name = "campus-geo-oi"
-            entity.scale = SIMD3(repeating: wardrobe == nil ? Float(placement.heightMeters) : 1)
+            let height = Float(placement.heightMeters)
+            entity.scale = SIMD3(repeating: loadPublishedModel != nil ? height / OiWardrobeAsset.placementHeight : wardrobe == nil ? height : 1)
             entity.orientation = CampusOiAsset.heading(placement.headingDegrees)
             character = entity
         } catch {

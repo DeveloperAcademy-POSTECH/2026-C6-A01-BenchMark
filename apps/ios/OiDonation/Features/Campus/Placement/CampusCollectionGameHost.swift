@@ -16,6 +16,9 @@ struct CampusCollectionGameHost: View {
     @State private var owner: UUID?
     @State private var saveRequest: UUID?
     @State private var notice: String?
+    @State private var portraitURL: URL?
+    @State private var portraitFailed = false
+    @State private var portraitAttempt = 0
 
     init(story: CampusStory, remote: OiRemoteStore, store: CampusStoryStore, onClose: @escaping () -> Void) {
         self.story = story
@@ -57,10 +60,20 @@ struct CampusCollectionGameHost: View {
                 } actions: {
                     Button("닫기", action: onClose).buttonStyle(.borderedProminent)
                 }
+            } else if story.cucumberPortraitPath != nil && portraitURL == nil {
+                if portraitFailed {
+                    ContentUnavailableView {
+                        Label("꾸민 오이를 불러오지 못했어요", systemImage: "leaf")
+                    } actions: {
+                        Button("다시 불러오기") { portraitAttempt += 1 }
+                        Button("닫기", action: onClose)
+                    }
+                } else { ProgressView("꾸민 오이를 불러오는 중") }
             } else {
                 ARCollectionGameView(
                     cucumberName: story.title,
-                    cucumberAssetName: story.portraitImage,
+                    cucumberImageURL: portraitURL,
+                    cucumberAssetName: story.cucumberPortraitPath == nil ? story.portraitImage : nil,
                     onBack: onClose
                 ) { _ in
                     ARCollectionResultView(
@@ -78,17 +91,19 @@ struct CampusCollectionGameHost: View {
                         onCollect: requestSave,
                         onCancel: onClose
                     ) {
-                        OiStoryCardArtwork(
-                            name: story.title,
-                            introduction: story.excerpt,
-                            donor: story.donor,
-                            date: story.date,
-                            tags: story.tags,
-                            assetName: story.portraitImage
-                        )
+                        CampusStoryCardArtwork(story: story)
                     }
                 }
             }
+        }
+        .task(id: portraitAttempt) {
+            guard let path = story.cucumberPortraitPath else { return }
+            portraitFailed = false
+            do {
+                let url = try await remote.mediaURL(bucket: OiPublishedCucumberImage.bucket, path: path)
+                try Task.checkCancellation()
+                portraitURL = url
+            } catch { if !Task.isCancelled { portraitFailed = true } }
         }
         .task(id: saveRequest) {
             guard let request = saveRequest else { return }

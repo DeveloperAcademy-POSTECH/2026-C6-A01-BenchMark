@@ -149,6 +149,7 @@ struct RootTabView: View {
         }
         .environment(remote)
         .environment(store)
+        .environment(\.campusCucumberPortraitLoader, { try await remote.cucumberImage($0) })
     }
 
     private func openGeoStory(_ story: CampusStory) {
@@ -170,7 +171,8 @@ struct RootTabView: View {
             return MYCard(id: story.id.uuidString, title: story.cucumberName, image: story.cucumberAsset,
                 school: MYSchool(id: school.id, name: school.name), order: index,
                 body: story.body, donor: remote.profiles.first(where: { $0.id == story.userId })?.nickname ?? "농부",
-                date: story.createdDateLabel, storyID: story.id.uuidString, appearance: story.cardAsset)
+                date: story.createdDateLabel, storyID: story.id.uuidString, appearance: story.cardAsset,
+                cucumberPortraitPath: story.cucumberArtwork?.path(.portrait))
         }
         myDemo.synchronize(nickname: remote.profile?.nickname ?? "농부", cards: cards,
             favorites: Set(remote.favorites.map(\.uuidString)))

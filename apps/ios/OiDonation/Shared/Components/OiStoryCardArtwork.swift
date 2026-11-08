@@ -19,6 +19,12 @@ struct OiStoryCardArtwork: View {
     var assetName: String? = nil
     var imageURL: URL? = nil
     var appearance = "MYBasicCard"
+    var portrait: UIImage? = nil
+    var portraitPath: String? = nil
+    var expectsPortrait = false
+    var loadPortrait: ((String) async throws -> UIImage)? = nil
+
+    private var hasCustomPortrait: Bool { portrait != nil || portraitPath != nil || expectsPortrait }
 
     var body: some View {
         GeometryReader { geometry in
@@ -42,10 +48,13 @@ struct OiStoryCardArtwork: View {
                 Image("OiStoryCardTexture").resizable().scaledToFill()
                     .frame(width: 332, height: 472).opacity(0.7)
                 tint.opacity(0.18)
-                character
-                    .frame(width: 439, height: 688)
-                    .offset(x: -60, y: -24)
-                    .frame(width: 332, height: 472, alignment: .topLeading)
+                if hasCustomPortrait {
+                    character.frame(width: 290, height: 351).offset(x: 21, y: 42)
+                        .frame(width: 332, height: 472, alignment: .topLeading)
+                } else {
+                    character.frame(width: 439, height: 688).offset(x: -60, y: -24)
+                        .frame(width: 332, height: 472, alignment: .topLeading)
+                }
                 LinearGradient(colors: [.clear, .clear, .black.opacity(0.72)],
                                startPoint: .top, endPoint: .bottom)
 
@@ -103,16 +112,20 @@ struct OiStoryCardArtwork: View {
     }
 
     @ViewBuilder private var character: some View {
-        if let assetName {
+        if let portrait {
+            Image(uiImage: portrait).resizable().scaledToFit()
+        } else if let portraitPath, let loadPortrait {
+            OiCucumberPortraitImage(path: portraitPath, load: loadPortrait)
+        } else if let assetName, !hasCustomPortrait {
             Image(assetName == "OiCats" || assetName == "OiCatsPortrait" ? "OiStoryCardCats" : assetName)
                 .resizable().scaledToFill()
         } else if let imageURL, imageURL.isFileURL,
                   let image = UIImage(contentsOfFile: imageURL.path) {
-            Image(uiImage: image).resizable().scaledToFill()
+            Image(uiImage: image).resizable().aspectRatio(contentMode: hasCustomPortrait ? .fit : .fill)
         } else if let imageURL {
             AsyncImage(url: imageURL) { phase in
                 switch phase {
-                case .success(let image): image.resizable().scaledToFill()
+                case .success(let image): image.resizable().aspectRatio(contentMode: hasCustomPortrait ? .fit : .fill)
                 case .empty: ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .failure: unavailableCharacter
                 @unknown default: unavailableCharacter
@@ -134,6 +147,31 @@ struct OiStoryCardArtwork: View {
         case "MYBlueCard": Color(red: 0.55, green: 0.74, blue: 0.96)
         case "MYRedCard": Color(red: 0.95, green: 0.56, blue: 0.52)
         default: .clear
+        }
+    }
+}
+
+/// Match the loaded image to the snapshot path, including while a reused card changes stories.
+struct OiCucumberPortraitImage: View {
+    let path: String
+    let load: (String) async throws -> UIImage
+    @State private var result: (path: String, image: UIImage?)?
+
+    var body: some View {
+        Group {
+            if let result, result.path == path {
+                if let image = result.image { Image(uiImage: image).resizable().scaledToFit() }
+                else { Image(systemName: "leaf").foregroundStyle(.secondary).accessibilityLabel("꾸민 오이 이미지를 불러오지 못했어요") }
+            } else { ProgressView().accessibilityLabel("꾸민 오이 불러오는 중") }
+        }
+        .task(id: path) {
+            do {
+                let image = try await load(path)
+                try Task.checkCancellation()
+                result = (path, image)
+            } catch {
+                if !Task.isCancelled { result = (path, nil) }
+            }
         }
     }
 }

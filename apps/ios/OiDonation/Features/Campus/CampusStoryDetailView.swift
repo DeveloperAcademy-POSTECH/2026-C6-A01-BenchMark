@@ -13,8 +13,10 @@ struct CampusStoryDetailView: View {
         GeometryReader { geometry in
           ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Image(story.example?.heroImage ?? story.portraitImage).resizable()
-                    .aspectRatio(contentMode: story.example?.heroImage == nil ? .fit : .fill)
+                Group {
+                    if let hero = story.example?.heroImage { Image(hero).resizable().scaledToFill() }
+                    else { CampusCucumberPortrait(story: story) }
+                }
                     .frame(width: geometry.size.width, height: 275).clipped()
                     .background(CampusStyle.background(story.palette))
                     .allowsHitTesting(false)
@@ -117,7 +119,7 @@ struct CampusStoryDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionTitle("오이 & 카드")
             HStack(spacing: 20) {
-                Image(story.portraitImage).resizable().scaledToFit().frame(maxWidth: .infinity).frame(height: 220)
+                CampusCucumberPortrait(story: story).frame(maxWidth: .infinity).frame(height: 220)
                 Button { showingCard = true } label: {
                     CampusStoryCardArtwork(story: story).frame(maxWidth: .infinity).frame(height: 220)
                 }.buttonStyle(.plain)

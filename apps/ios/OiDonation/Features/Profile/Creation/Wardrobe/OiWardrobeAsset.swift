@@ -4,7 +4,8 @@ import UIKit
 /// Same authored geometry and material composition for closet, campus and AR.
 @MainActor enum OiWardrobeAsset {
     static func prepare(_ look: OiWardrobeLook, existing: Entity? = nil,
-                        editingSlot: OiPhotoSlot? = nil, previewTexture: TextureResource? = nil, previewImage: CGImage? = nil) async throws -> (Entity, [OiPhotoSlot: Entity]) {
+                        editingSlot: OiPhotoSlot? = nil, previewTexture: TextureResource? = nil, previewImage: CGImage? = nil,
+                        publishedTextures: [OiPhotoSlot: CGImage] = [:]) async throws -> (Entity, [OiPhotoSlot: Entity]) {
         guard look.artwork.isValid else { throw OiPhotoDataError.unreadable }
         let root: Entity
         if let existing { root = existing.clone(recursive: true)
@@ -15,17 +16,13 @@ import UIKit
         var overlays: [OiPhotoSlot: Entity] = [:]
         for slot in OiPhotoSlot.allCases where slot.supports(look) {
             let design = look.artwork.designs[slot.itemID(in: look)]
-            guard design != nil || slot.fabric(in: look) != nil || editingSlot == slot else { continue }
-            let layout = try OiPhotoPrintLayout.load(for: slot, in: look)
+            let published = publishedTextures[slot]
+            guard published != nil || design != nil || slot.fabric(in: look) != nil || editingSlot == slot else { continue }
             if slot.preservesOriginalMaterial(in: look) {
                 let image: CGImage
-                if editingSlot == slot, let previewImage { image = previewImage }
-                else {
-                    let draft = try OiPhotoRenderer.load(design ?? OiPhotoDesign(), sources: look.artwork.sources, layout: layout)
-                    guard let cg = OiPhotoRenderer.atlas(layers: draft.layers, assets: draft.assets, panelSize: 1024,
-                        color: 0xFFFFFF, transparent: true, layout: layout).cgImage else { throw OiPhotoDataError.unreadable }
-                    image = cg
-                }
+                if let published { image = published }
+                else if editingSlot == slot, let previewImage { image = previewImage }
+                else { image = try atlas(for: slot, in: look) }
                 let prepared = try await OiCostumePhotoMaterial.prepare(image, resource: slot.resource(in: look))
                 try Task.checkCancellation()
                 try OiCostumePhotoMaterial.apply(prepared, to: root)
@@ -35,17 +32,26 @@ import UIKit
             let texture: TextureResource
             if editingSlot == slot, let previewTexture { texture = previewTexture }
             else {
-                let draft = try OiPhotoRenderer.load(design ?? OiPhotoDesign(), sources: look.artwork.sources, layout: layout)
-                let image = OiPhotoRenderer.atlas(layers: draft.layers, assets: draft.assets, panelSize: 1024,
-                    color: slot.color(in: look), fabric: slot.fabric(in: look), layout: layout)
-                guard let cg = image.cgImage else { throw OiPhotoDataError.unreadable }
-                texture = try await TextureResource(image: cg, options: .init(semantic: .color))
+                let image = try published ?? atlas(for: slot, in: look)
+                texture = try await TextureResource(image: image, options: .init(semantic: .color))
             }
             garment.name = "OiPhotoOverlay"
             applyPhoto(texture, to: garment); overlays[slot] = garment
             try Task.checkCancellation()
         }
         return (root, overlays)
+    }
+
+    static func atlas(for slot: OiPhotoSlot, in look: OiWardrobeLook) throws -> CGImage {
+        let layout = try OiPhotoPrintLayout.load(for: slot, in: look)
+        let design = look.artwork.designs[slot.itemID(in: look)] ?? OiPhotoDesign()
+        let draft = try OiPhotoRenderer.load(design, sources: look.artwork.sources, layout: layout)
+        let transparent = slot.preservesOriginalMaterial(in: look)
+        let image = OiPhotoRenderer.atlas(layers: draft.layers, assets: draft.assets, panelSize: 1024,
+            color: transparent ? 0xFFFFFF : slot.color(in: look), fabric: slot.fabric(in: look),
+            transparent: transparent, layout: layout)
+        guard let result = image.cgImage else { throw OiPhotoDataError.unreadable }
+        return result
     }
 
     static func assemble(_ look: OiWardrobeLook, root: Entity, overlays: [OiPhotoSlot: Entity]) {
@@ -55,8 +61,10 @@ import UIKit
     }
 
     /// Fixed 150cm height, feet at zero, facing +Z. Never edits the source mesh.
-    static func loadForPlacement(_ look: OiWardrobeLook) async throws -> Entity {
-        let (model, overlays) = try await prepare(look)
+    static let placementHeight: Float = 1.5
+
+    static func loadForPlacement(_ look: OiWardrobeLook, textures: [OiPhotoSlot: CGImage] = [:]) async throws -> Entity {
+        let (model, overlays) = try await prepare(look, publishedTextures: textures)
         try Task.checkCancellation()
         assemble(look, root: model, overlays: overlays)
         let bounds = model.visualBounds(relativeTo: nil)
@@ -64,7 +72,7 @@ import UIKit
         let offset = Entity(); offset.addChild(model)
         offset.position = -SIMD3(bounds.center.x, bounds.min.y, bounds.center.z)
         let sized = Entity(); sized.addChild(offset)
-        sized.scale = SIMD3(repeating: 1.5 / bounds.extents.y)
+        sized.scale = SIMD3(repeating: placementHeight / bounds.extents.y)
         let result = Entity(); result.addChild(sized)
         return result
     }

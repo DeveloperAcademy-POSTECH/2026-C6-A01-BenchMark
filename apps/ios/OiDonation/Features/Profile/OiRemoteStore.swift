@@ -7,6 +7,7 @@
 
 import Foundation
 import Observation
+import UIKit
 
 @MainActor @Observable
 final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, OiOperatorEvidenceHistoryServing, OiOperatorEvidenceAnalysisServing, OiOperatorAuditServing {
@@ -26,6 +27,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
     private(set) var media: [OiMedia] = []
     private(set) var evidence: [OiEvidence] = []
     private(set) var unapprovedDraftsEnabled = false
+    private(set) var canPublishCucumberAppearance = false
 
     var canPlaceOi: Bool { account != nil && !needsReauthentication && !isAccountDeletionPending }
 
@@ -285,6 +287,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         isAccountDeletionPending = false; isOperator = false; hasLoadedRemote = false; needsReauthentication = false; isRefreshing = false
         isAccountMergeAvailable = false; accountMemberIDs = []; accountProviders = []; localRecoveryWarning = nil
         isSchoolProfileAvailable = false; isFarmerOutfitAvailable = false; farmerOutfit = nil
+        canPublishCucumberAppearance = false
         localSignOutWarning = nil; loadError = nil; syncWarning = nil; error = nil; revision += 1
     }
 
@@ -467,8 +470,9 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
             try Task.checkCancellation()
             guard started == generation else { throw OiServiceError.accountChanged }
             let wanted = publish ? "published" : "hidden"
-            let receipt = try await api.mutate("review_story", payload: ["id": story.id.uuidString,
-                "revision": story.revision, "status": wanted], token: accessToken, as: OiLiveStory.self)
+            var payload: [String: Any] = ["id": story.id.uuidString, "revision": story.revision, "status": wanted]
+            if publish, let appearance = story.cucumberAppearance { payload["appearance_id"] = appearance.id.uuidString.lowercased() }
+            let receipt = try await api.mutate("review_story", payload: payload, token: accessToken, as: OiLiveStory.self)
             guard started == generation else { throw OiServiceError.accountChanged }
             guard receipt.id == story.id, receipt.status == wanted, receipt.revision > story.revision else {
                 throw OiOperatorStoryError.unconfirmedResult
@@ -570,6 +574,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         story.authorID = item.userId
         story.remoteBody = item.body
         story.remoteMediaPaths = mediaPaths(storyID: item.id)
+        story.cucumberPortraitPath = item.cucumberArtwork?.path(.portrait)
         story.latitude = item.latitude; story.longitude = item.longitude
         return story
     }
@@ -650,6 +655,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         profiles = fetchedProfiles; media = fetchedMedia; evidence = requests; committedMediaPaths = [:]
         collections = collected; favorites = Set(starred.map(\.storyId)); isOperator = capabilities?.operator == true
         unapprovedDraftsEnabled = capabilities?.independentStoryCreation == true && capabilities?.unapprovedDraftsEnabled == true
+        canPublishCucumberAppearance = capabilities?.publicCucumberAppearance == true
         isAccountMergeAvailable = capabilities?.accountMergeEnabled == true; accountMemberIDs = members
         isSchoolProfileAvailable = capabilities?.schoolProfileEnabled == true
         isFarmerOutfitAvailable = capabilities?.farmerOutfitEnabled == true; farmerOutfit = fetchedFarmerOutfit
@@ -725,9 +731,43 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         catch { self.error = error.localizedDescription; return nil }
     }
 
-    func submitStory(_ story: OiLiveStory) async -> OiLiveStory? {
+    func submitStory(_ story: OiLiveStory, cucumber: OiCucumberPublication? = nil) async -> OiLiveStory? {
         guard canStartStory else { error = OiServiceError.storyCreationUnavailable.localizedDescription; return nil }
-        return await change("submit_story", payload: ["id":story.id.uuidString,"revision":story.revision], as: OiLiveStory.self)
+        var payload: [String: Any] = ["id": story.id.uuidString, "revision": story.revision]
+        guard let cucumber else { return await change("submit_story", payload: payload, as: OiLiveStory.self) }
+        guard canPublishCucumberAppearance else {
+            error = "서버가 꾸민 오이의 공개를 지원할 때 다시 요청해 주세요. 내 지도와 초안은 저장돼 있어요."
+            return nil
+        }
+        guard !isBusy, let api, account?.id == story.userId else { return nil }
+        let started = generation
+        isBusy = true; error = nil
+        defer { isBusy = false }
+        do {
+            let reference = OiCucumberArtworkReference(ownerID: story.storageOwnerId ?? story.userId,
+                storyID: story.id, appearance: cucumber.appearance)
+            let accessToken = try await token()
+            for part in reference.parts {
+                try Task.checkCancellation()
+                guard started == generation, let data = cucumber.images[part] else { throw OiServiceError.accountChanged }
+                try await api.upload(bucket: OiPublishedCucumberImage.bucket, path: reference.path(part),
+                                     data: data, contentType: "image/png", token: accessToken)
+            }
+            try Task.checkCancellation()
+            guard started == generation else { throw OiServiceError.accountChanged }
+            payload["cucumber_appearance"] = cucumber.appearance.payload
+            let receipt = try await api.mutate("submit_story", payload: payload, token: accessToken, as: OiLiveStory.self)
+            guard started == generation else { throw OiServiceError.accountChanged }
+            guard receipt.id == story.id, receipt.status == "pending", receipt.revision > story.revision,
+                  receipt.cucumberAppearance == cucumber.appearance else { throw OiServiceError.unavailable }
+            applyReceipt(receipt, action: "submit_story", payload: payload)
+            await refreshAfterCommit()
+            guard started == generation else { return nil }
+            return receipt
+        } catch {
+            if started == generation { noteAuthenticationFailure(error); self.error = error.localizedDescription }
+            return nil
+        }
     }
 
     func updateProfile(nickname: String? = nil, schoolID: String? = nil, academicInfo: OiPublicAcademicInfo? = nil) async {
@@ -1112,5 +1152,15 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         let url = try await api.signedURL(bucket: bucket, path: path, token: accessToken)
         guard started == generation else { throw OiServiceError.accountChanged }
         return url
+    }
+
+    func cucumberImage(_ path: String, part: OiCucumberArtworkReference.Part = .portrait) async throws -> UIImage {
+        guard let api else { throw OiServiceError.configuration }
+        let started = generation
+        let accessToken = account == nil ? nil : try await token()
+        let bytes = try await api.downloadSignedObject(bucket: OiPublishedCucumberImage.bucket, path: path, token: accessToken)
+        try Task.checkCancellation()
+        guard started == generation else { throw OiServiceError.accountChanged }
+        return UIImage(cgImage: try OiPublishedCucumberImage.decode(bytes, part: part))
     }
 }

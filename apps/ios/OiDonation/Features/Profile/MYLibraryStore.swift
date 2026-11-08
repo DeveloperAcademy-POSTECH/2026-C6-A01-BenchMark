@@ -37,6 +37,7 @@ struct MYCard: Identifiable, Hashable {
     let date: String
     var storyID: String? = nil
     var appearance = "MYBasicCard"
+    var cucumberPortraitPath: String? = nil
 }
 
 @MainActor @Observable

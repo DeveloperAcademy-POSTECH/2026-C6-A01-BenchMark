@@ -10,10 +10,15 @@ import RealityKit
     private(set) var nearestDistance: Double?
     private(set) var ready = false
     var onStory: ((CampusNearbyOi) -> Void)?
+    @ObservationIgnored var loadCucumberModel: ((OiCucumberArtworkReference) async throws -> Entity)?
     @ObservationIgnored private var view: RealityKit.ARView?
     @ObservationIgnored private var template: Entity?
     @ObservationIgnored private var location: CampusGeoLocation?
     @ObservationIgnored private var items: [CampusNearbyOi] = []
+    @ObservationIgnored private var artwork: [String: OiCucumberArtworkReference] = [:]
+    @ObservationIgnored private var customModels: [String: Entity] = [:]
+    @ObservationIgnored private var modelTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var retryAfter: [String: Date] = [:]
     @ObservationIgnored private var anchors: [String: (item: CampusNearbyOi, anchor: AnchorEntity)] = [:]
     private var generation = UUID()
     private var active = false
@@ -59,13 +64,15 @@ import RealityKit
         restartTracking()
     }
 
-    func setItems(_ updated: [CampusNearbyOi]) {
+    func setItems(_ updated: [CampusNearbyOi], artwork updatedArtwork: [String: OiCucumberArtworkReference] = [:]) {
         items = updated
         // Withdraw deleted/hidden/edited objects immediately, including while GPS is unavailable.
         let current = Set(updated)
         for key in Array(anchors.keys) {
-            if let entry = anchors[key], !current.contains(entry.item) { remove(key) }
+            if let entry = anchors[key], !current.contains(entry.item) || artwork[key] != updatedArtwork[key] { remove(key) }
         }
+        for key in artwork.keys where artwork[key] != updatedArtwork[key] { releaseModel(key) }
+        artwork = updatedArtwork
         visibleCount = anchors.values.filter { $0.anchor.isEnabled }.count
         lastFrameCheck = 0
     }
@@ -74,6 +81,7 @@ import RealityKit
         generation = UUID(); active = false; ready = false
         onStory = nil
         location?.stop(); view?.session.pause()
+        for id in Array(artwork.keys) { releaseModel(id) }
         clearAnchors(); template = nil; nearestDistance = nil
     }
 
@@ -91,6 +99,28 @@ import RealityKit
     }
 
     private func remove(_ id: String) { anchors.removeValue(forKey: id)?.anchor.removeFromParent() }
+
+    private func releaseModel(_ id: String) {
+        modelTasks.removeValue(forKey: id)?.cancel()
+        customModels[id] = nil; retryAfter[id] = nil
+    }
+
+    private func loadModel(_ id: String, reference: OiCucumberArtworkReference) {
+        guard modelTasks[id] == nil, (retryAfter[id] ?? .distantPast) <= Date(), let loadCucumberModel else { return }
+        let request = generation
+        modelTasks[id] = Task { [weak self] in
+            do {
+                let model = try await loadCucumberModel(reference)
+                guard !Task.isCancelled, let self, self.generation == request, self.artwork[id] == reference else { return }
+                self.customModels[id] = model
+                self.modelTasks[id] = nil
+            } catch {
+                guard !Task.isCancelled, let self, self.generation == request, self.artwork[id] == reference else { return }
+                self.modelTasks[id] = nil
+                self.retryAfter[id] = Date().addingTimeInterval(10)
+            }
+        }
+    }
     private func clearAnchors() {
         for id in Array(anchors.keys) { remove(id) }
         visibleCount = 0
@@ -115,6 +145,7 @@ import RealityKit
             accuracy: fix.horizontalAccuracy, timestamp: fix.timestamp, retained: Set(anchors.keys))
         let desired = Set(nearby.map(\.id))
         for id in Array(anchors.keys) where !desired.contains(id) { remove(id) }
+        for id in Set(customModels.keys).union(modelTasks.keys).union(retryAfter.keys) where !desired.contains(id) { releaseModel(id) }
         guard case .normal = frame.camera.trackingState else {
             hideAnchors(); message = "주변을 천천히 비춰 카메라 추적을 안정시켜 주세요."; return
         }
@@ -127,11 +158,17 @@ import RealityKit
                 allowing: .existingPlaneGeometry, alignment: .horizontal).first {
                 let camera = frame.camera.transform.columns.3
                 for item in missing {
+                    let model: Entity
+                    let templateHeight: Float
+                    if let reference = artwork[item.id] {
+                        guard let loaded = customModels[item.id] else { loadModel(item.id, reference: reference); continue }
+                        model = loaded; templateHeight = OiWardrobeAsset.placementHeight
+                    } else { model = template; templateHeight = 1 }
                     let offset = item.placement.offsetMeters(fromLatitude: lat, longitude: lon)
                     let anchor = AnchorEntity(world: SIMD3(camera.x + offset.x, ground.worldTransform.columns.3.y, camera.z + offset.z))
-                    let entity = template.clone(recursive: true)
+                    let entity = model.clone(recursive: true)
                     entity.name = item.id
-                    entity.scale = SIMD3(repeating: Float(item.placement.heightMeters))
+                    entity.scale = SIMD3(repeating: Float(item.placement.heightMeters) / templateHeight)
                     entity.orientation = CampusOiAsset.heading(item.placement.headingDegrees)
                     anchor.addChild(entity); view.scene.addAnchor(anchor)
                     anchors[item.id] = (item, anchor)
@@ -141,6 +178,8 @@ import RealityKit
         visibleCount = anchors.values.filter { $0.anchor.isEnabled }.count
         if items.isEmpty { message = "아직 표시할 오이가 없어요. 지도에 오이를 배치한 뒤 다시 확인해 주세요." }
         else if nearby.isEmpty { message = "주변 25m 안에 오이가 없어요. 지도에 표시된 위치로 이동해 주세요." }
+        else if nearby.contains(where: { modelTasks[$0.id] != nil }) { message = "가까운 오이의 의상을 불러오고 있어요." }
+        else if nearby.contains(where: { retryAfter[$0.id] != nil && customModels[$0.id] == nil }) { message = "꾸민 오이를 불러오지 못했어요. 연결을 확인하거나 다시 시도해 주세요." }
         else if visibleCount < nearby.count { message = "가까운 오이를 찾았어요. 바닥을 비추면 나타나요." }
         else { message = "주변을 둘러보세요. 오이를 누르면 이야기가 열려요." }
     }

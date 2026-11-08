@@ -91,7 +91,8 @@ private struct StoryCardImage: View {
                     donor: story.donorDisplayName,
                     date: Self.dateLabel(story.publishedAt),
                     tags: story.tags,
-                    imageURL: story.cucumberImageURL
+                    imageURL: story.cucumberImageURL,
+                    expectsPortrait: story.hasCustomCucumberImage
                 )
             }
         }
