@@ -424,10 +424,10 @@ struct OiStorySeedIcon: View {
 }
 
 extension OiStoryListView {
-    static let listGuidance = "본인이 만든 오이를 씨앗을 통해 농장에 심을 수 있습니다"
+    static let listGuidance = "나만의 오이와 이야기를 만들어 보세요."
     static let listNotices = [
-        "이야기 저장은 4개까지 가능합니다",
-        "농장에 심기 전에는 이야기 및 오이를 눌러서 편집할 수 있습니다"
+        OiWritingGuidance.publication,
+        "검토를 요청하기 전에 초안에서 이야기와 오이를 편집할 수 있어요."
     ]
 }
 
