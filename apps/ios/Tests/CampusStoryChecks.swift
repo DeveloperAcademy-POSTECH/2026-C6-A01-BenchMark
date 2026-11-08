@@ -69,10 +69,10 @@ struct CampusStoryChecks {
         precondition(reopened.collected.isEmpty, "No account data restored from an unrelated local fixture cache")
 
         let examples = CampusStoryExamples.stories
-        precondition(examples.count == 3 && Set(examples.map(\.id)).count == 3)
+        precondition(examples.map(\.id) == [OiSampleStory.id, "example-poka"])
         precondition(examples.allSatisfy { $0.isExample && UUID(uuidString: $0.id) == nil && $0.remoteMediaPaths.isEmpty && $0.latitude == nil })
         precondition(examples[0].example?.galleryImages.count == 11 && examples[0].example?.cardImage != nil)
-        precondition(!examples[0].body.isEmpty && examples[1].body.isEmpty && examples[2].body.isEmpty,
+        precondition(!examples[0].body.isEmpty && examples[1].body.isEmpty,
                      "Do not invent Figma story bodies when only list metadata exists")
         let fixtureIDs = Set(examples.map(\.id))
         precondition(examples.allSatisfy { Set($0.example?.relatedIDs ?? []).isSubset(of: fixtureIDs) })

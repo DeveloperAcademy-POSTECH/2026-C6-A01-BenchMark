@@ -103,6 +103,10 @@ struct OiSampleMapView: View {
             ("OiSamplePirate", 0.68, 0.19, 56), ("OiSampleTraveler", 0.88, 0.15, 47),
             ("OiSampleRaincoat", 0.10, 0.22, 63), ("OiSampleAstronaut", 0.12, 0.44, 82)
         ]
+        let positions = [
+            OiSampleStory.id: CGPoint(x: 0.47, y: 0.35),
+            "example-poka": CGPoint(x: 0.65, y: 0.40)
+        ]
         return ZStack {
             ForEach(decorations.indices, id: \.self) { i in
                 let item = decorations[i]
@@ -111,15 +115,16 @@ struct OiSampleMapView: View {
                     .position(x: size.width * item.1, y: size.height * item.2)
                     .accessibilityHidden(true)
             }
-            ForEach(Array(CampusStoryExamples.stories.enumerated()), id: \.element.id) { index, story in
-                let positions: [(CGFloat, CGFloat)] = [(0.47, 0.35), (0.89, 0.49), (0.65, 0.40)]
-                NavigationLink(value: CampusDestination.summary(story.id)) {
-                    Image(story.id == "example-makgeolli" ? "OiSampleMakgeolli" : story.portraitImage)
-                        .resizable().scaledToFit().frame(width: 67, height: 89)
-                        .shadow(color: .white, radius: 10)
-                }.buttonStyle(.plain).accessibilityLabel("\(story.title) 예시 보기")
-                    .accessibilityIdentifier("sample.marker.\(story.id)")
-                    .position(x: size.width * positions[index].0, y: size.height * positions[index].1)
+            ForEach(CampusStoryExamples.stories) { story in
+                if let position = positions[story.id] {
+                    NavigationLink(value: CampusDestination.summary(story.id)) {
+                        Image(story.portraitImage)
+                            .resizable().scaledToFit().frame(width: 67, height: 89)
+                            .shadow(color: .white, radius: 10)
+                    }.buttonStyle(.plain).accessibilityLabel("\(story.title) 예시 보기")
+                        .accessibilityIdentifier("sample.marker.\(story.id)")
+                        .position(x: size.width * position.x, y: size.height * position.y)
+                }
             }
         }.opacity(isExpanded || typeSize.isAccessibilitySize ? 0.25 : 1)
             .allowsHitTesting(!isExpanded && !typeSize.isAccessibilitySize)
