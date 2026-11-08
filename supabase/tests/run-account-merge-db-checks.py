@@ -97,20 +97,23 @@ create table auth.identities(id uuid primary key default gen_random_uuid(),user_
 create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb; $$;
 grant execute on function auth.jwt() to anon,authenticated;
 """, text=True)
-        for migration in sorted((REPOSITORY / 'supabase/migrations').glob('*.sql')):
+        migrations = sorted((REPOSITORY / 'supabase/migrations').glob('*.sql'))
+        independent_creation = next(path for path in migrations if path.name.endswith('_oi_independent_story_creation.sql'))
+        legacy_writing_tests = ('oi-operator-evidence', 'oi-operator-workflow', 'oi-unapproved-drafts')
+        for migration in migrations:
             if migration.name.endswith('_oi_independent_farm_name.sql'):
                 run(connection, input="insert into auth.users(id) values('f1580000-0000-4000-8000-000000000001'); update public.oi_profiles set nickname='Legacy nickname' where id='f1580000-0000-4000-8000-000000000001';", text=True)
+            if migration == independent_creation:
+                for test in ('oi-flow', *legacy_writing_tests):
+                    run(connection + ['-f', f'supabase/tests/{test}.sql'])
             run(connection + ['-f', str(migration)])
         run(connection + ['-f', 'supabase/tests/oi-farm-name.sql'])
         # The backfill fixture belongs only to the farm migration test.
         run(connection, input="delete from benchmark_private.oi_account_members where auth_user_id='f1580000-0000-4000-8000-000000000001' and account_id=auth_user_id; delete from auth.users where id='f1580000-0000-4000-8000-000000000001';", text=True)
-        run(connection + ['-f', 'supabase/tests/oi-flow.sql'])
+        run(connection + ['-f', 'supabase/tests/oi-independent-story-creation.sql'])
         run(connection + ['-f', 'supabase/tests/account-merge.sql'])
         run(connection + ['-f', 'supabase/tests/oi-card-requests.sql'])
-        run(connection + ['-f', 'supabase/tests/oi-operator-evidence.sql'])
         run(connection + ['-f', 'supabase/tests/oi-operator-audit.sql'])
-        run(connection + ['-f', 'supabase/tests/oi-operator-workflow.sql'])
-        run(connection + ['-f', 'supabase/tests/oi-unapproved-drafts.sql'])
         run(connection + ['-f', 'supabase/tests/oi-account-deletion.sql'])
         run(connection + ['-f', 'supabase/tests/oi-content-safety.sql'])
         run(connection + ['-f', 'supabase/tests/oi-school-profile.sql'])
@@ -162,7 +165,6 @@ create function auth.jwt() returns jsonb language sql stable as $$ select coales
 grant execute on function auth.jwt() to anon,authenticated;
 """
         run(remote_connection, input=extra, text=True)
-        migrations = sorted((REPOSITORY / 'supabase/migrations').glob('*.sql'))
         merge_migration = next(path for path in migrations if path.name.endswith('_oi_account_merge.sql'))
         for migration in migrations:
             if migration == merge_migration:
@@ -173,16 +175,17 @@ grant execute on function auth.jwt() to anon,authenticated;
                 run(remote_connection, input="do $$ begin perform vault.create_secret(repeat('c',64), 'oi_evidence_fingerprint_key', 'Synthetic pre-existing key fixture'); end; $$;", text=True)
             if migration.name.endswith('_oi_independent_farm_name.sql'):
                 run(remote_connection, input="insert into auth.users(id) values('f1580000-0000-4000-8000-000000000001'); update public.oi_profiles set nickname='Legacy nickname' where id='f1580000-0000-4000-8000-000000000001';", text=True)
+            if migration == independent_creation:
+                for test in legacy_writing_tests:
+                    run(remote_connection + ['-f', f'supabase/tests/{test}.sql'])
             run(remote_connection + ['-f', str(migration)])
         run(remote_connection + ['-f', 'supabase/tests/oi-farm-name.sql'])
         run(remote_connection, input="delete from benchmark_private.oi_account_members where auth_user_id='f1580000-0000-4000-8000-000000000001' and account_id=auth_user_id; delete from auth.users where id='f1580000-0000-4000-8000-000000000001';", text=True)
         run(remote_connection + ['-f', 'supabase/tests/account-merge.sql'])
         run(remote_connection + ['-f', 'supabase/tests/account-merge-campus-compat.sql'])
+        run(remote_connection + ['-f', 'supabase/tests/oi-independent-story-creation.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-card-requests.sql'])
-        run(remote_connection + ['-f', 'supabase/tests/oi-operator-evidence.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-operator-audit.sql'])
-        run(remote_connection + ['-f', 'supabase/tests/oi-operator-workflow.sql'])
-        run(remote_connection + ['-f', 'supabase/tests/oi-unapproved-drafts.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-account-deletion.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-school-profile.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-farmer-outfit.sql'])

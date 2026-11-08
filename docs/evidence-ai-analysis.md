@@ -12,7 +12,7 @@ AI는 시각적 조작 징후와 문서 내부 불일치를 검토하는 참고 
 | `no_obvious_signs` | 읽을 수 있는 자료에서 뚜렷한 징후를 찾지 못함. 원본 인증이 아님 |
 | `inconclusive` | 판독 상태·자료 누락·불확실성 때문에 판단하기 어려움 |
 
-결과에는 `readability`, `findings`(종류·위치·관찰 내용), `limitations`, `manual_checks`가 포함된다. `human_review_required: true`, `authenticity_verified: false`와 고정 안내문은 모델 응답과 별도로 서버가 붙인다. 분석 실패에는 결과를 만들지 않는다. 기존 운영자 작성 승인 API를 호출하거나 신청 상태를 변경하지 않는다.
+결과에는 `readability`, `findings`(종류·위치·관찰 내용), `limitations`, `manual_checks`가 포함된다. `human_review_required: true`, `authenticity_verified: false`와 고정 안내문은 모델 응답과 별도로 서버가 붙인다. 분석 실패에는 결과를 만들지 않는다. 운영자 검토 API를 호출하거나 제출 상태를 변경하지 않는다. #234 이후 증빙 검토 결과는 작성 권한과 별개다.
 
 ## 서버 설정과 호출
 

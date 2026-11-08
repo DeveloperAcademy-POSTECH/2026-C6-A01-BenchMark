@@ -384,7 +384,7 @@ struct OiSchoolEvidenceView: View {
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("oi.schoolEvidence.outcome")
             Text(outcome.guidance).font(CampusStyle.body(16))
-            Text("AI 참고 결과이며 실제 소속·신원이나 문서의 진위를 보증하지 않아요. 기부 납입 확인·글 작성 승인과도 별개예요.")
+            Text("AI 참고 결과이며 실제 소속·신원이나 문서의 진위를 보증하지 않아요.")
                 .font(.footnote).foregroundStyle(.secondary)
             Button("운영팀 문의 방법") { showingSupport = true }
                 .font(.body).foregroundStyle(CampusStyle.green).frame(minHeight: 44)

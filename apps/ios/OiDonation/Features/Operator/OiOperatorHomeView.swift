@@ -75,7 +75,7 @@ struct OiOperatorHomeView: View {
             }
             Section("운영 기록") { menuLink(.audit) }
             Section {
-                Text("운영자의 작성 승인과 이야기 공개 승인은 학교의 공식 납입 확인·영수증 발급과 다릅니다.")
+                Text("이야기 공개는 콘텐츠 검토에서 결정합니다. 기부 자료 검토는 별도로 처리합니다.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }

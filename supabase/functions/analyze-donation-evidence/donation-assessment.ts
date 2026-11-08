@@ -208,7 +208,7 @@ export function assessDonation(facts: DonationFacts, duplicate: DuplicateCheck, 
     { kind: "official_source", status: sourcesFresh ? "matched" : "stale", detail: sourcesFresh ? "공식 기준 출처와 확인일을 함께 대조했어요." : "공식 기준 정보의 재확인이 필요해요." },
     { kind: "donor_reports", status: "unavailable", detail: "독립적으로 검증된 타 기부자 문자 원본은 아직 없어 후기 일치를 판정 근거로 만들지 않았어요." },
     { kind: "chronology", status: dateConflict ? "review" : facts.document_date ? "matched" : "unknown", detail: dateConflict ? "완료 일자 또는 대화 순서에 추가 확인이 필요해요." : "연도가 없는 문자 날짜는 추정하지 않으며, 날짜·금액·이름 가림만으로 반려하지 않아요." },
-    { kind: "ownership", status: "unknown", detail: "자료만으로 제출자 본인의 기부 여부를 확정하지 않아요. 글 작성은 운영자 승인 후 가능해요." },
+    { kind: "ownership", status: "unknown", detail: "자료만으로 제출자 본인의 기부 여부를 확정하지 않아요." },
   ];
   let outcome: "sufficient_evidence" | "needs_more_evidence" | "manual_review" | "suspected_manipulation" | "duplicate_evidence" | "not_donation";
   let title: string;
@@ -229,7 +229,7 @@ export function assessDonation(facts: DonationFacts, duplicate: DuplicateCheck, 
     || facts.document_kind === "sms" && !senderMatches) {
     outcome = "manual_review"; title = "추가 확인이 필요해요"; reason = "확인된 근거와 남은 불확실성을 운영자에게 함께 전달해요. 기부금 영수증만을 필수로 요구하지 않아요.";
   } else {
-    outcome = "sufficient_evidence"; title = "기부 완료 근거를 확인했어요"; reason = "기부 완료 내용과 수납기관 근거가 충족됐어요. 문자만으로도 증빙 충족으로 판단할 수 있어요. 최종 글 작성 권한은 운영자가 승인해요.";
+    outcome = "sufficient_evidence"; title = "기부 완료 근거를 확인했어요"; reason = "기부 완료 내용과 수납기관 근거가 충족됐어요. 문자만으로도 증빙 충족으로 판단할 수 있어요. 운영팀이 제출 자료를 별도로 검토해요.";
   }
   return { outcome, sufficient_evidence: outcome === "sufficient_evidence", title, reasons: [reason], checks,
     source_references: SOURCES.map(({ fact: _fact, ...source }) => ({ id: source.id, url: source.url, title: source.title,

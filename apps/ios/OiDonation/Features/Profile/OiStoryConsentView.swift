@@ -199,6 +199,6 @@ struct OiStoryConsentView: View {
 
 #Preview {
     NavigationStack {
-        OiStoryConsentView(clauses: OiStoryConsentClause.figmaDrafts)
+        OiStoryConsentView(clauses: OiStoryConsentClause.writingClauses)
     }
 }

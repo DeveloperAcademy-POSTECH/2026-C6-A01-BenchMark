@@ -186,7 +186,7 @@ struct OiAccountMergeView: View {
             }
             if let pair = flow.pair { verifiedAccount(pair.target) }
             if flow.hasClassifiedAdditional {
-                Text(addingMethod ? "별도 기록이 없는 로그인 방법을 현재 계정에 추가합니다. 최종 동의 전에는 추가를 확정하지 않습니다." : "대표 계정의 닉네임·학교를 유지합니다. 이야기의 검토 상태와 작성 승인 등 계정 기록은 유지합니다. 운영자 계정은 통합 대상에서 제외됩니다.")
+                Text(addingMethod ? "별도 기록이 없는 로그인 방법을 현재 계정에 추가합니다. 최종 동의 전에는 추가를 확정하지 않습니다." : "대표 계정의 닉네임·학교를 유지합니다. 이야기의 검토 상태와 기존 계정 기록은 유지합니다. 운영자 계정은 통합 대상에서 제외됩니다.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             if !confirmationStarted {
@@ -204,7 +204,7 @@ struct OiAccountMergeView: View {
             LabeledContent("이야기", value: "\(preview.counts.stories)개")
             LabeledContent("수집한 오이", value: "\(preview.counts.collections)개")
             LabeledContent("즐겨찾기", value: "\(preview.counts.favorites)개")
-            LabeledContent("작성 승인", value: "\(preview.counts.grants)건")
+            LabeledContent("이전 작성 승인 기록", value: "\(preview.counts.grants)건")
             Text(addingMethod ? "추가한 로그인 방법으로 계속 이용할 현재 계정의 기록입니다." : "서버에서 확인한 두 계정의 기록입니다. 로그인 계정 자체를 삭제하는 작업은 아닙니다.")
                 .font(.footnote).foregroundStyle(.secondary)
             if let expires = expiration(of: preview) {

@@ -70,7 +70,8 @@ test("SMS sufficiency does not require amount, donor name, a receipt or an infer
   const input = facts({ chronology: "unclear", document_date: null });
   const result = expectOutcome(input, "sufficient_evidence");
   assert.equal(result.title, "기부 완료 근거를 확인했어요");
-  assert.match(result.reasons.join(" "), /운영자/);
+  assert.match(result.reasons.join(" "), /운영팀.*검토/);
+  assert.doesNotMatch(result.reasons.join(" "), /글 작성 권한|작성 승인/);
   assert.equal(input.document_date, null);
   assert.equal(result.checks.find(check => check.kind === "chronology").status, "unknown");
   assert.match(result.checks.find(check => check.kind === "sender").detail, /문의 번호/);

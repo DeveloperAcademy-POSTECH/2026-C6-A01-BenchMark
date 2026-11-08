@@ -5,7 +5,7 @@ enum OiEvidenceDecision: String, CaseIterable, Identifiable {
     case approved, changesRequested = "changes_requested", rejected, revoked
     var id: String { rawValue }
     var title: String {
-        switch self { case .approved: "승인"; case .changesRequested: "보완 요청"; case .rejected: "반려"; case .revoked: "승인 철회" }
+        switch self { case .approved: "검토 완료"; case .changesRequested: "보완 요청"; case .rejected: "반려"; case .revoked: "검토 결과 철회" }
     }
     func allows(_ evidence: OiEvidence) -> Bool {
         self == .revoked ? evidence.status == "approved" : evidence.status == "pending"
@@ -27,29 +27,19 @@ struct OiEvidenceReview {
     let snapshot: OiEvidence
     let decision: OiEvidenceDecision
     let note: String
-    let storyLimit: Int?
-
-    init(snapshot: OiEvidence, decision: OiEvidenceDecision, note: String, count: String) throws {
+    init(snapshot: OiEvidence, decision: OiEvidenceDecision, note: String) throws {
         let note = note.trimmingCharacters(in: .whitespacesAndNewlines)
         guard decision.allows(snapshot), snapshot.objectPath != nil, snapshot.submittedAt != nil,
               note.unicodeScalars.count <= 2000, decision == .approved || !note.isEmpty else { throw OiEvidenceReviewError.invalidDecision }
-        let limit: Int?
-        if decision == .approved {
-            let cleaned = count.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !cleaned.isEmpty, cleaned.allSatisfy({ $0.isASCII && $0.isNumber }),
-                  let value = Int(cleaned), value > 0, value <= Int32.max else { throw OiEvidenceReviewError.invalidCount }
-            limit = value
-        } else { limit = nil }
-        self.snapshot = snapshot; self.decision = decision; self.note = note; storyLimit = limit
+        self.snapshot = snapshot; self.decision = decision; self.note = note
     }
 }
 
 enum OiEvidenceReviewError: LocalizedError {
-    case invalidDecision, invalidCount, missing, invalidDocument, documentTooLarge, serverNotReady
+    case invalidDecision, missing, invalidDocument, documentTooLarge, serverNotReady
     var errorDescription: String? {
         switch self {
-        case .invalidDecision: "현재 상태와 검토 의견을 확인해 주세요. 보완 요청·반려·승인 철회에는 의견이 필요하고, 의견은 2,000자 이내로 입력해 주세요."
-        case .invalidCount: "승인할 이야기 수를 1 이상의 정수로 입력해 주세요."
+        case .invalidDecision: "현재 상태와 검토 의견을 확인해 주세요. 보완 요청·반려·검토 결과 철회에는 의견이 필요하고, 의견은 2,000자 이내로 입력해 주세요."
         case .missing: "증빙이 없거나 제출 정보가 바뀌었어요. 목록을 다시 불러와 주세요."
         case .invalidDocument: "확인할 수 없는 파일이에요. JPEG·PNG 이미지 또는 암호가 없는 PDF가 필요합니다."
         case .documentTooLarge: "원본 파일이 열람 가능한 크기(10MiB)를 초과했어요."
@@ -174,7 +164,7 @@ extension OiEvidence {
             case OiServiceError.conflict: self.error = "증빙이 재제출되었거나 다른 운영자가 처리했어요. 최신 원본과 상태를 다시 확인해 주세요."
             case OiServiceError.signInRequired, OiServiceError.accountChanged, OiOperatorStoryError.accessDenied:
                 detail = nil; self.error = error.localizedDescription
-            case OiEvidenceReviewError.serverNotReady, OiEvidenceReviewError.invalidCount, OiEvidenceReviewError.invalidDecision:
+            case OiEvidenceReviewError.serverNotReady, OiEvidenceReviewError.invalidDecision:
                 self.error = error.localizedDescription
             default: self.error = "처리 결과를 확인하지 못했어요. 중복 처리하지 말고 최신 상태를 다시 불러와 주세요."
             }
