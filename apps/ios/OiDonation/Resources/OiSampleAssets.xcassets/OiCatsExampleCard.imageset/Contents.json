@@ -1,4 +1,13 @@
 {
-  "images": [{ "filename": "card.png", "idiom": "universal" }],
-  "info": { "author": "xcode", "version": 1 }
+  "images": [
+    {
+      "filename": "card.png",
+      "idiom": "universal",
+      "compression-type": "lossy"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
 }

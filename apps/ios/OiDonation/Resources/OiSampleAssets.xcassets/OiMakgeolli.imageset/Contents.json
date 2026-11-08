@@ -2,7 +2,8 @@
   "images": [
     {
       "filename": "e66d3.png",
-      "idiom": "universal"
+      "idiom": "universal",
+      "compression-type": "lossy"
     }
   ],
   "info": {
