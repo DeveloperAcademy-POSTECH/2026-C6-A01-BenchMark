@@ -19,7 +19,18 @@ struct OiLocalDraft: Codable, Identifiable, Equatable {
     var removedPhotoIDs: Set<UUID>?
     /// Local consent selections, never inferred from visiting a screen or legacy drafts.
     var agreedConsentClauseIDs: Set<String>?
+    var personalPlacement: OiPersonalPlacement?
     var id: UUID { draft.id }
+}
+
+/// The last confirmed position on this account's device map, separate from edits and public review.
+struct OiPersonalPlacement: Codable, Equatable {
+    let regionID: String
+    let name: String
+    let latitude: Double
+    let longitude: Double
+    let heightMeters: Double
+    let headingDegrees: Double
 }
 
 struct OiDraftListing {
@@ -98,10 +109,12 @@ actor OiDraftVault {
         return try JSONDecoder().decode(OiLocalDraft.self, from: Data(contentsOf: url))
     }
 
-    func save(_ record: OiLocalDraft, owner: UUID) throws {
-        if let current = try load(owner: owner, id: record.id), current.version > record.version { return }
+    @discardableResult
+    func save(_ record: OiLocalDraft, owner: UUID) throws -> Bool {
+        if let current = try load(owner: owner, id: record.id), current.version > record.version { return false }
         let url = try ownerDirectory(owner).appending(path: "draft-\(record.id.uuidString).json")
         try write(JSONEncoder().encode(record), to: url)
+        return true
     }
 
     func list(owner: UUID) throws -> [OiLocalDraft] {

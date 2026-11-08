@@ -427,7 +427,7 @@ extension OiStoryListView {
     static let listGuidance = "나만의 오이와 이야기를 만들어 보세요."
     static let listNotices = [
         OiWritingGuidance.publication,
-        "검토를 요청하기 전에 초안에서 이야기와 오이를 편집할 수 있어요."
+        "내 지도에 배치한 오이와 기기 초안은 내 이야기에서 다시 열 수 있어요."
     ]
 }
 
