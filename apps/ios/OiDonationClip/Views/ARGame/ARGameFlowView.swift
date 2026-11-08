@@ -12,7 +12,7 @@ import SwiftUI
 struct ARGameFlowView: View {
     let experience: AppClipExperience
     let onBack: () -> Void
-    let onRequestFullApp: () -> Void
+    let onRequestFullApp: (() -> Void)?
     var validateCollection: (() async -> Bool)? = nil
     @State private var validating = false
     @State private var validationError: String?
@@ -46,7 +46,7 @@ struct ARGameFlowView: View {
                         let saved = collectionStore.collect(experience.storyCard)
                         guard collectionStore.persistenceError == nil,
                               saved || collectionStore.contains(storyID: experience.story.storyID) else { return }
-                        onRequestFullApp()
+                        onRequestFullApp?()
                     }
                 },
                 onCancel: {

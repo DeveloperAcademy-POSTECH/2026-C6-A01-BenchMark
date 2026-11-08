@@ -116,6 +116,8 @@
 		C13211030000000000000001 /* Shared collection game in main app */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				AppClipViewModel.swift,
+				ContentView.swift,
 				Models/AppClipExperience.swift,
 				Views/StoryCard/AppClipStoryCardView.swift,
 				Views/ARGame/ARGameCameraView.swift,
