@@ -1,5 +1,7 @@
 # 증빙 AI 시각 분석 — #116
 
+> **2026-11-09 / #258:** 이 문서는 종료한 기부 증빙 기능의 구현 기록이다. 아래 운영 배포·실행 절차는 더 이상 사용하지 않는다. [현재 적용 순서](donation-evidence-retirement.md).
+
 ## 구현 범위
 
 2026-11-02 사용자 요청에 따라 버튼·화면 없이 Supabase Edge Function `analyze-evidence`를 추가했다. 기존 `oi_capabilities()` 운영자 권한과 비공개 `oi-evidence` 저장소를 사용한다. 신규 테이블·마이그레이션·자동 승인·원격 배포는 포함하지 않는다.

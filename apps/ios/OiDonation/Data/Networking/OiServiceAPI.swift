@@ -82,7 +82,6 @@ struct OiServiceAPI {
             case 401: throw OiServiceError.signInRequired
             case 403: throw OiServiceError.server("현재 계정에서 이 요청을 처리할 수 없어요. 새로고침해 상태를 다시 확인해 주세요.")
             case 404 where path == "rest/v1/rpc/\(Self.resolveCardRequestRPC)": throw OiServiceError.conflict
-            case 404 where path == "rest/v1/rpc/oi_review_evidence": throw OiEvidenceReviewError.serverNotReady
             case 404 where path == "rest/v1/rpc/oi_operator_audit": throw OiAuditError.notDeployed
             case 409: throw OiServiceError.conflict
             case 400, 422: throw OiServiceError.invalidInput
@@ -130,25 +129,6 @@ struct OiServiceAPI {
         guard receipt.deleted, receipt.deletedMemberIds.contains(account),
               receipt.deletedMemberIds.contains(proof.session.user.id) else { throw OiServiceError.conflict }
         return receipt
-    }
-
-    func reviewDonationEvidence(_ evidence: OiEvidence, token: String) async throws -> OiDonationEvidenceReview {
-        let response: Data
-        do {
-            response = try await request("functions/v1/analyze-donation-evidence", method: "POST", token: token,
-                body: JSONEncoder().encode(["evidence_id": evidence.id.uuidString]), timeout: 70)
-        } catch OiServiceError.unavailable {
-            throw OiServiceError.server("증빙은 접수됐지만 AI 검사를 완료하지 못했어요. AI 검사만 다시 시도해 주세요.")
-        }
-        let review = try decoder.decode(OiDonationEvidenceReview.self, from: response)
-        guard review.reviewType == "donation_evidence", review.evidenceId == evidence.id,
-              review.submittedAt == evidence.submittedAt, review.humanReviewRequired,
-              !review.authenticityVerified, review.summary?.isConsistent ?? true else { throw OiServiceError.conflict }
-        if review.summary?.sufficientEvidence == true {
-            guard review.assessment.verdict == .noObviousSigns, review.assessment.readability == .readable,
-                  review.assessment.findings.isEmpty else { throw OiServiceError.conflict }
-        }
-        return review
     }
 
     func reviewSchoolEvidence(_ data: Data, contentType: String, token: String) async throws -> OiSchoolEvidenceOutcome {
@@ -233,87 +213,6 @@ struct OiServiceAPI {
 
     func cardRequests(token: String) async throws -> [OiCardRequest] {
         try await cardRequestRPC("oi_card_requests", payload: [:], token: token, as: [OiCardRequest].self)
-    }
-
-    func reviewEvidence(_ review: OiEvidenceReview, token: String) async throws -> OiEvidence {
-        guard try await capabilities(token: token).independentStoryCreation == true else {
-            throw OiEvidenceReviewError.serverNotReady
-        }
-        let row = review.snapshot
-        let payload: [String: Any] = ["id": row.id.uuidString, "status": review.decision.rawValue,
-            "review_note": review.note, "expected_status": row.status,
-            "expected_object_path": row.objectPath as Any? ?? NSNull(),
-            "expected_submitted_at": row.submittedAt as Any? ?? NSNull(),
-            "expected_reviewed_at": row.reviewedAt as Any? ?? NSNull()]
-        let body = try JSONSerialization.data(withJSONObject: ["p_payload": payload])
-        let data = try await request("rest/v1/rpc/oi_review_evidence", method: "POST", token: token, body: body)
-        return try decoder.decode(OiEvidence.self, from: data)
-    }
-
-    /// Original evidence never enters the shared URL cache or a signed-link viewer.
-    func evidenceDocument(path: String, token: String) async throws -> OiEvidenceDocument {
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = transport.session.configuration.protocolClasses
-        config.urlCache = nil; config.httpCookieStorage = nil
-        let session = URLSession(configuration: config)
-        defer { session.invalidateAndCancel() }
-        let escaped = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
-        guard let url = URL(string: "https://\(Self.projectHost)/storage/v1/object/authenticated/oi-evidence/\(escaped)") else {
-            throw OiEvidenceReviewError.invalidDocument
-        }
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
-        request.timeoutInterval = 30
-        request.setValue(key, forHTTPHeaderField: "apikey")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        do {
-            let data = try await APIClient(session: session, approvedHost: Self.projectHost).send(request)
-            try Task.checkCancellation()
-            return try OiEvidenceDocument(data: data)
-        } catch APIError.httpStatus(401) { throw OiServiceError.signInRequired }
-        catch APIError.httpStatus(403) { throw OiOperatorStoryError.accessDenied }
-    }
-
-    // Only the evidence ID is sent; the existing server owns external analysis.
-    func analyzeEvidence(_ snapshot: OiEvidence, token: String) async throws -> OiEvidenceAnalysis {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = transport.session.configuration.protocolClasses
-        configuration.urlCache = nil; configuration.httpCookieStorage = nil
-        let session = URLSession(configuration: configuration)
-        defer { session.invalidateAndCancel() }
-        guard let url = URL(string: "https://\(Self.projectHost)/functions/v1/analyze-evidence") else { throw OiServiceError.configuration }
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
-        request.httpMethod = "POST"; request.timeoutInterval = 75
-        request.setValue(key, forHTTPHeaderField: "apikey")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["evidence_id": snapshot.id.uuidString.lowercased()])
-        do {
-            let (data, response) = try await APIClient(session: session, approvedHost: Self.projectHost).response(request)
-            try Task.checkCancellation()
-            if response.statusCode != 200 {
-                struct Failure: Decodable { let error: String }
-                let code = (try? JSONDecoder().decode(Failure.self, from: data))?.error
-                switch response.statusCode {
-                case 401: throw OiServiceError.signInRequired
-                case 403 where code == "evidence_ai_consent_required": throw OiEvidenceAnalysisError.consentRequired
-                case 403: throw OiOperatorStoryError.accessDenied
-                case 404 where code == "evidence_not_found": throw OiEvidenceReviewError.missing
-                case 404: throw OiEvidenceAnalysisError.notDeployed
-                case 409: throw OiServiceError.conflict
-                case 413, 415, 422: throw OiEvidenceAnalysisError.documentUnavailable
-                case 429: throw OiEvidenceAnalysisError.busy
-                case 503 where code == "analysis_not_configured": throw OiEvidenceAnalysisError.notConfigured
-                case 504: throw OiEvidenceAnalysisError.timeout
-                default: throw OiEvidenceAnalysisError.unavailable
-                }
-            }
-            guard data.count <= 64 * 1024 else { throw OiEvidenceAnalysisError.invalidResult }
-            let result: OiEvidenceAnalysis
-            do { result = try decoder.decode(OiEvidenceAnalysis.self, from: data) }
-            catch { throw OiEvidenceAnalysisError.invalidResult }
-            try result.validate(for: snapshot)
-            return result
-        } catch URLError.timedOut { throw OiEvidenceAnalysisError.timeout }
     }
 
     func sendCardRequest(storyID: UUID, requestID: UUID, token: String) async throws -> OiCardRequest.Status {
