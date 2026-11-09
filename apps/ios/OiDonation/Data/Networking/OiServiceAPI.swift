@@ -295,6 +295,7 @@ struct OiServiceAPI {
                 let code = (try? JSONDecoder().decode(Failure.self, from: data))?.error
                 switch response.statusCode {
                 case 401: throw OiServiceError.signInRequired
+                case 403 where code == "evidence_ai_consent_required": throw OiEvidenceAnalysisError.consentRequired
                 case 403: throw OiOperatorStoryError.accessDenied
                 case 404 where code == "evidence_not_found": throw OiEvidenceReviewError.missing
                 case 404: throw OiEvidenceAnalysisError.notDeployed

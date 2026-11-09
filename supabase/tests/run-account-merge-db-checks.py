@@ -120,6 +120,7 @@ grant execute on function auth.jwt() to anon,authenticated;
         run(connection + ['-f', 'supabase/tests/oi-school-profile.sql'])
         run(connection + ['-f', 'supabase/tests/oi-farmer-outfit.sql'])
         run(connection + ['-f', 'supabase/tests/oi-evidence-fingerprints.sql'])
+        run(connection + ['-f', 'supabase/tests/oi-evidence-operator-ai-consent.sql'])
         check_fingerprint_concurrency(connection)
         print('PASS: migrations, existing SQL regression, data union, preservation, consent, operator exclusion, rollback, RLS and old-session cutover')
 

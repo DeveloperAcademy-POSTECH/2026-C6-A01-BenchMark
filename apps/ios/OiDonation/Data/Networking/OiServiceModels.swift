@@ -206,6 +206,11 @@ struct OiEvidence: Codable, Identifiable, Equatable {
     var submittedAt: String? = nil
     var reviewedAt: String? = nil
     var reviewerId: UUID? = nil
+    var operatorAiConsentedAt: String? = nil
+
+    var hasOperatorAIConsent: Bool {
+        submittedAt.map { $0 == operatorAiConsentedAt } ?? false
+    }
 }
 
 struct OiDonationEvidenceSummary: Decodable, Equatable {

@@ -78,7 +78,7 @@ struct OiEvidenceAnalysis: Decodable, Equatable {
 }
 
 enum OiEvidenceAnalysisError: LocalizedError {
-    case notDeployed, notConfigured, busy, timeout, invalidResult, documentUnavailable, unavailable
+    case notDeployed, notConfigured, busy, timeout, invalidResult, documentUnavailable, consentRequired, unavailable
     var errorDescription: String? {
         switch self {
         case .notDeployed: "AI 분석 함수를 찾지 못했어요. 서버 배포 상태를 확인해 주세요."
@@ -87,6 +87,7 @@ enum OiEvidenceAnalysisError: LocalizedError {
         case .timeout: "분석 시간이 초과됐어요. 자동으로 재요청하지 않습니다."
         case .invalidResult: "유효한 분석 결과를 받지 못했어요. 원본을 직접 검토해 주세요."
         case .documentUnavailable: "이 자료의 AI 분석 결과를 만들 수 없어요. 원본을 직접 검토해 주세요."
+        case .consentRequired: "이 제출본의 AI 분석 동의가 확인되지 않았어요. 원본을 직접 검토해 주세요."
         case .unavailable: "AI 분석을 완료하지 못했어요. 연결 상태를 확인하고 직접 다시 시도해 주세요."
         }
     }

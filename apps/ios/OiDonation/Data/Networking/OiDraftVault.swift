@@ -60,6 +60,7 @@ struct OiEvidenceOperation: Codable, Equatable {
     var phase: String
     var failure: String?
     var storageOwnerID: UUID? = nil
+    var operatorAIConsent: Bool? = nil
 
     func objectPath(owner: UUID) -> String {
         "\((storageOwnerID ?? owner).uuidString.lowercased())/\(requestID.uuidString.lowercased())/\(uploadID.uuidString.lowercased()).\(fileExtension)"
