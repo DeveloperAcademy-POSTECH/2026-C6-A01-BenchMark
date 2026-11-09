@@ -348,7 +348,17 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         XCTAssertNotNil(UIImage(named: "StorySeedIcon"))
-        XCTAssertNotNil(UIImage(named: "MYEmptyCucumber"))
+        XCTAssertNotNil(UIImage(named: "SeedCucumberBody"))
+        for part in OiSeedCucumberPart.allCases {
+            let image = try XCTUnwrap(UIImage(named: part.asset)?.cgImage)
+            XCTAssertEqual(image.width, Int(part.sourceFrame.width))
+            XCTAssertEqual(image.height, Int(part.sourceFrame.height))
+        }
+        var edited = OiSeedCucumberAppearance()
+        edited[.leftEye] = .init(x: -45, y: -35, size: 1.4)
+        edited[.mouth] = .init(x: 25, y: 35, size: 1.15)
+        edited.stemLength = 1.45
+        edited.stemAngle = -55
         for variant in variants {
             let reference = NavigationStack {
                 OiStoryListView(state: .preview, seedCount: 3,
@@ -370,7 +380,120 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             }
             try await capture(destination, name: "seed-cucumber-customization", variant: variant,
                               defaults: fixture.defaults, attach: true)
+            let editedDestination = NavigationStack(path: .constant(["seedCustomization"])) {
+                NavigationLink("씨앗 사용하기", value: "seedCustomization")
+                    .navigationDestination(for: String.self) { _ in
+                        OiSeedCucumberCustomizationView(appearance: edited, selection: .stem)
+                    }
+            }
+            try await capture(editedDestination, name: "seed-cucumber-customization-edited", variant: variant,
+                              defaults: fixture.defaults, attach: true)
         }
+    }
+
+    func testSeedCucumberEditingGeometry() {
+        typealias Appearance = OiSeedCucumberAppearance
+        for canvasSize in [CGSize(width: 375, height: 315), CGSize(width: 440, height: 440)] {
+            let view = UIView(frame: CGRect(origin: .zero, size: canvasSize))
+            let viewport = OiSeedCucumberViewport(size: canvasSize)
+            var appearance = Appearance()
+            var selection: OiSeedCucumberPart = .stem
+            let surface = OiSeedCucumberTouchSurface(
+                appearance: Binding(get: { appearance }, set: { appearance = $0 }),
+                selection: Binding(get: { selection }, set: { selection = $0 })
+            )
+            let coordinator = surface.makeCoordinator()
+            XCTAssertNil(viewport.hitPart(at: .zero, appearance: appearance, selection: selection))
+
+            for part in OiSeedCucumberPart.faceParts {
+                appearance = Appearance()
+                let original = appearance.faceFrame(part)
+                let center = viewport.location(of: CGPoint(x: original.midX, y: original.midY))
+                XCTAssertEqual(viewport.hitPart(at: center, appearance: appearance, selection: selection), part)
+
+                let drag = SeedCucumberTestPan()
+                view.addGestureRecognizer(drag)
+                drag.point = CGPoint(x: center.x + 6, y: center.y - 4)
+                drag.delta = CGPoint(x: 6, y: -4)
+                drag.state = .began
+                coordinator.pan(drag)
+                XCTAssertEqual(selection, part)
+                drag.delta = CGPoint(x: 30 * viewport.scale, y: -40 * viewport.scale)
+                drag.state = .changed
+                coordinator.pan(drag)
+                XCTAssertEqual(appearance[part].x, 30, accuracy: 0.001)
+                XCTAssertEqual(appearance[part].y, -40, accuracy: 0.001)
+                drag.delta = CGPoint(x: 300 * viewport.scale, y: -300 * viewport.scale)
+                drag.state = .ended
+                coordinator.pan(drag)
+                XCTAssertEqual(appearance[part].x, Appearance.horizontalRange.upperBound)
+                XCTAssertEqual(appearance[part].y, Appearance.verticalRange.lowerBound)
+
+                let moved = appearance.faceFrame(part)
+                let pinch = UIPinchGestureRecognizer()
+                view.addGestureRecognizer(pinch)
+                pinch.state = .began
+                pinch.scale = 1
+                coordinator.pinch(pinch)
+                pinch.state = .changed
+                pinch.scale = 1.5
+                coordinator.pinch(pinch)
+                XCTAssertEqual(appearance.faceFrame(part).width, original.width * 1.5, accuracy: 0.001)
+                XCTAssertEqual(appearance.faceFrame(part).midX, moved.midX, accuracy: 0.001)
+                XCTAssertEqual(appearance.faceFrame(part).midY, moved.midY, accuracy: 0.001)
+                pinch.scale = 9
+                coordinator.pinch(pinch)
+                XCTAssertEqual(appearance[part].size, Appearance.sizeRange.upperBound)
+                pinch.state = .ended
+                pinch.scale = 0.1
+                coordinator.pinch(pinch)
+                XCTAssertEqual(appearance[part].size, Appearance.sizeRange.lowerBound)
+                for neighbor in OiSeedCucumberPart.faceParts where neighbor != part {
+                    XCTAssertEqual(appearance.faceFrame(neighbor), neighbor.sourceFrame)
+                }
+                view.removeGestureRecognizer(drag)
+                view.removeGestureRecognizer(pinch)
+            }
+
+            appearance = Appearance()
+            var desired = Appearance()
+            desired.stemLength = 1.5
+            desired.stemAngle = -54
+            let tip = viewport.location(of: appearance.stemTip)
+            let destination = viewport.location(of: desired.stemTip)
+            let drag = SeedCucumberTestPan()
+            view.addGestureRecognizer(drag)
+            drag.point = tip
+            drag.state = .began
+            coordinator.pan(drag)
+            XCTAssertEqual(selection, .stem)
+            drag.delta = CGPoint(x: destination.x - tip.x, y: destination.y - tip.y)
+            drag.state = .changed
+            coordinator.pan(drag)
+            XCTAssertEqual(appearance.stemLength, desired.stemLength, accuracy: 0.001)
+            XCTAssertEqual(appearance.stemAngle, desired.stemAngle, accuracy: 0.001)
+            XCTAssertEqual(Appearance.stemBase.applying(appearance.stemTransform).x, Appearance.stemBase.x, accuracy: 0.001)
+            XCTAssertEqual(Appearance.stemBase.applying(appearance.stemTransform).y, Appearance.stemBase.y, accuracy: 0.001)
+            let base = viewport.location(of: Appearance.stemBase)
+            for x in [-1.0, 1.0] {
+                drag.delta = CGPoint(x: base.x + x - tip.x, y: base.y + 10 - tip.y)
+                coordinator.pan(drag)
+                XCTAssertEqual(appearance.stemAngle, desired.stemAngle, accuracy: 0.001)
+            }
+            drag.delta = CGPoint(x: base.x + 1000 * viewport.scale - tip.x, y: base.y - tip.y)
+            drag.state = .ended
+            coordinator.pan(drag)
+            XCTAssertEqual(appearance.stemLength, Appearance.lengthRange.upperBound)
+            XCTAssertEqual(appearance.stemAngle, Appearance.angleRange.upperBound)
+        }
+    }
+
+    private final class SeedCucumberTestPan: UIPanGestureRecognizer {
+        var point = CGPoint.zero
+        var delta = CGPoint.zero
+
+        override func location(in view: UIView?) -> CGPoint { point }
+        override func translation(in view: UIView?) -> CGPoint { delta }
     }
 
     func testUpdatedConsentCaptures() async throws {
