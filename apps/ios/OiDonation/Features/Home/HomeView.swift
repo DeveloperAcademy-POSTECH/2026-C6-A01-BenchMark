@@ -184,6 +184,12 @@ struct HomeView: View {
         if let remote {
             scene.loadCucumberPortrait = { try await remote.cucumberImage($0) }
             scene.loadCucumberModel = { try await remote.cucumberModel($0) }
+            scene.loadPublicCucumberModel = { story in
+                guard let published = remote.stories.first(where: { $0.id.uuidString == story.id }),
+                      let artwork = published.cucumberArtwork,
+                      artwork.path(.portrait) == story.cucumberPortraitPath else { throw OiServiceError.unavailable }
+                return try await remote.cucumberModel(artwork)
+            }
         }
         scene.onRegion = { selected in
             region = selected; sort = .latest; expanded = false; searchResults = nil
