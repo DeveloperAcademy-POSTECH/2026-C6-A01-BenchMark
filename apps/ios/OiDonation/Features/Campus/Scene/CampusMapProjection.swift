@@ -27,10 +27,6 @@ struct CampusMapProjection {
     }
 
     func point(_ world: SIMD3<Float>) -> CGPoint? {
-        project(world)?.point
-    }
-
-    func project(_ world: SIMD3<Float>) -> (point: CGPoint, depth: Float)? {
         let offset = world - eye
         let depth = simd_dot(offset, forward)
         guard depth > 0.1, focalLength > 0 else { return nil }
@@ -38,7 +34,7 @@ struct CampusMapProjection {
         let x = center.x + CGFloat(simd_dot(offset, right)) * scale
         let y = center.y - CGFloat(simd_dot(offset, up)) * scale
         guard x.isFinite, y.isFinite else { return nil }
-        return (CGPoint(x: x, y: y), depth)
+        return CGPoint(x: x, y: y)
     }
 
     func ray(through point: CGPoint) -> (origin: SIMD3<Float>, direction: SIMD3<Float>)? {

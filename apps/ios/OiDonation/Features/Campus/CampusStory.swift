@@ -21,6 +21,7 @@ struct CampusStory: Identifiable, Hashable {
     var cardArtworkPath: String? = nil
     var latitude: Double? = nil
     var longitude: Double? = nil
+    var heightMeters: Double = 1
     /// Local design content is never a public donation or a server collection target.
     var example: CampusStoryExample? = nil
 

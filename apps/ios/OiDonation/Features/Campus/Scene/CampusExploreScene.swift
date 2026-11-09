@@ -146,7 +146,6 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var overviewStories: [CampusStory] = []
     private var regionCounts: [String: Int]?
     private var visible = true
-    private static let overviewRadius: Float = 305
     private static var cachedMesh: Entity?
 
     private struct AuthoredModel {
@@ -163,6 +162,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private struct StoryPin {
         let button: CampusStoryPinButton
         let ground: SIMD3<Float>
+        let mapHeight: Float
         let portraitPath: String?
         var requestedPortrait = false
     }
@@ -298,7 +298,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         stopNavigation()
         region = nil; hasMovedFromOverview = false
         clearRegionButtons()
-        target = SIMD3(32, 2, 1); radius = Self.overviewRadius; yaw = 0; pitch = 1.02
+        target = SIMD3(32, 2, 1); radius = 305; yaw = 0; pitch = 1.02
         if !sharedMap, let data {
             let sites = CampusRegion.campus.compactMap { region -> CampusRegionClustering.Site? in
                 guard let place = data.pois.first(where: { $0.id == region.placeID }) else { return nil }
@@ -388,11 +388,12 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private func makeStoryPins(_ stories: [CampusStory]) {
         clearStoryPins()
         guard let data else { return }
+        let mapScale = CampusPlacementGeometry.mapScale(unitsPerMeter: data.unitsPerMeter, editing: false)
         // Re-search can span multiple regions. Legacy records without coordinates
         // must still use their own region's paths, never the nearest region's center.
         for story in stories {
             if let latitude = story.latitude, let longitude = story.longitude {
-                attachStory(story, at: data.world(latitude: latitude, longitude: longitude))
+                attachStory(story, at: data.world(latitude: latitude, longitude: longitude), mapScale: mapScale)
             }
         }
         for region in CampusRegion.campus {
@@ -411,11 +412,11 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                 }!
                 selected.append(remaining.remove(at: next))
             }
-            for (story, point) in zip(records, selected) { attachStory(story, at: point) }
+            for (story, point) in zip(records, selected) { attachStory(story, at: point, mapScale: mapScale) }
         }
     }
 
-    private func attachStory(_ story: CampusStory, at point: SIMD3<Float>) {
+    private func attachStory(_ story: CampusStory, at point: SIMD3<Float>, mapScale: Float) {
         positions[story.id] = point
         guard authoredPlacements[story.id] == nil else { return }
         let button = CampusStoryPinButton(type: .custom)
@@ -436,7 +437,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         button.accessibilityIdentifier = "campus.pin.\(story.id)"
         button.addAction(UIAction { [weak self] _ in self?.onStory?(story.id) }, for: .touchUpInside)
         canvas?.addSubview(button)
-        pins.append(StoryPin(button: button, ground: point, portraitPath: story.cucumberPortraitPath))
+        pins.append(StoryPin(button: button, ground: point, mapHeight: Float(story.heightMeters) * mapScale,
+                             portraitPath: story.cucumberPortraitPath))
     }
 
     private func cacheStoryPortrait(_ source: UIImage, key: NSString) -> UIImage? {
@@ -952,17 +954,19 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         updateCenterLocation()
         guard visible, let view = canvas?.map else { return }
         let projection = mapProjection(in: view.bounds)
+        // Scale by the map zoom so rotating or tilting alone cannot swell the artwork.
+        let pointsPerMapUnit = projection.focalLength / CGFloat(radius)
         let visibleBounds = view.bounds.insetBy(dx: -100, dy: -100)
         for index in pins.indices {
             let pin = pins[index]
             let button = pin.button
-            guard !editingPlacement, let foot = projection.project(pin.ground), visibleBounds.contains(foot.point) else {
+            guard !editingPlacement, let foot = projection.point(pin.ground), visibleBounds.contains(foot) else {
                 button.isHidden = true
                 continue
             }
             loadVisiblePortrait(at: index)
-            let height = min(76, max(28, 48 * CGFloat(Self.overviewRadius / foot.depth)))
-            button.place(foot: foot.point, height: height)
+            let height = min(76, max(28, CGFloat(pin.mapHeight) * pointsPerMapUnit))
+            button.place(foot: foot, height: height)
             button.isHidden = false
         }
 

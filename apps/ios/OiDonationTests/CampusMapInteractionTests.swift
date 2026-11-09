@@ -40,7 +40,7 @@ final class CampusMapInteractionTests: XCTestCase {
         let story = CampusStory(id: UUID().uuidString, regionID: region.id, title: "공개 오이",
             image: "OiCats", tags: [], donor: "다른 작성자", location: region.title, date: "",
             order: 0, popularity: 0, palette: 0, cucumberPortraitPath: "approved/portrait.png",
-            latitude: coordinate.latitude, longitude: coordinate.longitude)
+            latitude: coordinate.latitude, longitude: coordinate.longitude, heightMeters: 1.25)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         let portrait = UIGraphicsImageRenderer(size: CGSize(width: 30, height: 40), format: format).image { context in
@@ -89,6 +89,7 @@ final class CampusMapInteractionTests: XCTestCase {
         canvas.layoutIfNeeded()
         try await assertGrounded("At the default zoom the visible foot must match the terrain coordinate")
         let initialHeight = artworkFrame().height
+        XCTAssertEqual(initialHeight, 28, accuracy: 0.5)
         let pinch = TestPinch()
         let pinchAction = NSSelectorFromString("pinch:")
         pinch.state = .began
@@ -97,7 +98,7 @@ final class CampusMapInteractionTests: XCTestCase {
         pinch.scale = 0.8
         scene.perform(pinchAction, with: pinch)
         let middleHeight = artworkFrame().height
-        XCTAssertLessThan(middleHeight, initialHeight)
+        XCTAssertEqual(middleHeight, initialHeight, accuracy: 0.5, "Distant markers must stay compact")
         pinch.scale = 0.25
         scene.perform(pinchAction, with: pinch)
         XCTAssertGreaterThan(cameraRadius(), 600, "The gesture must reach the elastic end of the zoom range")
@@ -107,7 +108,7 @@ final class CampusMapInteractionTests: XCTestCase {
             cameraRadius() <= 600.01 && badges(in: canvas).values.allSatisfy { $0.alpha == 1 && $0.interactive }
         }
         let farHeight = artworkFrame().height
-        XCTAssertLessThan(farHeight, middleHeight)
+        XCTAssertEqual(farHeight, initialHeight, accuracy: 0.5)
         XCTAssertLessThan(farHeight, 44)
         XCTAssertGreaterThanOrEqual(marker.bounds.width, 44)
         XCTAssertGreaterThanOrEqual(marker.bounds.height, 44)
@@ -138,6 +139,27 @@ final class CampusMapInteractionTests: XCTestCase {
 
         scene.focus(region, stories: [story])
         XCTAssertEqual(canvas.subviews.filter { $0.accessibilityIdentifier == markerID }.count, 1)
+        func currentHeight() throws -> CGFloat {
+            let button = try XCTUnwrap(canvas.subviews.first { $0.accessibilityIdentifier == markerID } as? UIButton)
+            button.layoutIfNeeded()
+            return try XCTUnwrap(button.imageView).bounds.height
+        }
+        let nearHeight = try currentHeight()
+        XCTAssertGreaterThan(nearHeight, initialHeight)
+        pinch.state = .began
+        scene.perform(pinchAction, with: pinch)
+        pinch.state = .changed
+        pinch.scale = 1.2
+        scene.perform(pinchAction, with: pinch)
+        let closerHeight = try currentHeight()
+        XCTAssertGreaterThan(closerHeight, nearHeight, "The portrait should grow smoothly at close zoom")
+        pinch.state = .ended
+        scene.perform(pinchAction, with: pinch)
+
+        var shorter = story
+        shorter.heightMeters = 0.5
+        scene.showStoriesInCurrentArea(region, stories: [shorter])
+        XCTAssertLessThan(try currentHeight(), closerHeight, "Close markers must reflect the saved height")
         scene.showOverview()
         XCTAssertEqual(canvas.subviews.filter { $0.accessibilityIdentifier == markerID }.count, 1)
         scene.setOverviewStories([])
