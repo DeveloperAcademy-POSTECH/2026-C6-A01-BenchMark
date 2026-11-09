@@ -77,15 +77,6 @@ struct MYSettingsView: View {
                             }
                         }
                     }
-                    if let remote {
-                        section("기부 자료 · 선택") {
-                            NavigationLink { OiDonationEvidenceView(remote: remote) } label: {
-                                settingsCard(action: "확인") {
-                                    profileValue("자료 제출과 검토 상태")
-                                }
-                            }.accessibilityIdentifier("my.settings.donationEvidence")
-                        }
-                    }
                     section("권한허용", detail: "iPhone 설정에서 변경") {
                         if permissionValues.count < MYPermission.allCases.count {
                             ProgressView().accessibilityLabel("기기 권한 확인 중")
@@ -159,7 +150,7 @@ struct MYSettingsView: View {
             }
             Button("취소", role: .cancel) {}
         } message: {
-            Text("연결된 로그인 계정, 이야기, 사진, 기부 증빙과 수집 기록이 모두 삭제됩니다. 되돌릴 수 없으며 실제 기부 내역에는 영향이 없습니다.")
+            Text("연결된 로그인 계정, 이야기, 사진, 기존에 제출한 기부 증빙과 수집 기록이 모두 삭제됩니다. 되돌릴 수 없으며 실제 기부 내역에는 영향이 없습니다.")
         }
         .alert(deletionSucceeded ? "회원 탈퇴 완료" : "탈퇴 상태 확인", isPresented: Binding(
             get: { deletionNotice != nil }, set: { if !$0 { deletionNotice = nil } }

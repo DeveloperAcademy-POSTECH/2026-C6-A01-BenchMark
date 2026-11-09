@@ -27,7 +27,7 @@ enum HomeDestination: String, Identifiable {
         case .news: "새로운 오이기부 소식이 준비되면 이곳에서 전해드릴게요."
         case .notifications: "아직 새로운 알림이 없어요."
         case .profile: "로그인 후 나의 정보와 이야기를 관리할 수 있어요."
-        case .myDonations: "아직 확인된 기부 내역이 없어요. 학교에서 납입을 확인한 이후 진행 상황을 안내드립니다."
+        case .myDonations: "기부 납입 내역과 영수증은 POSTECH 공식 수납처에서 확인해 주세요."
         case .map: "참여 가능한 벤치는 학교 확인 후 안내드릴게요."
         }
     }
@@ -41,7 +41,7 @@ struct HomeInformationSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     Text(destination.message).font(.body)
-                    if [.donation, .recurring, .receipt].contains(destination) {
+                    if [.donation, .recurring, .receipt, .myDonations].contains(destination) {
                         Link("POSTECH 공식 기부 사이트", destination: OfficialDonationWebsite.url)
                             .buttonStyle(.borderedProminent).tint(Color("OiGreen"))
                     }

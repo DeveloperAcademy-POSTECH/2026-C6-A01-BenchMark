@@ -10,7 +10,7 @@ import Observation
 import UIKit
 
 @MainActor @Observable
-final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, OiOperatorEvidenceHistoryServing, OiOperatorEvidenceAnalysisServing, OiOperatorAuditServing {
+final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     // Avoid the synthesized isolated deinit crash on early iOS 26 (Swift #88036).
     nonisolated deinit {}
 
@@ -25,7 +25,6 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
     private(set) var reviewStories: [OiLiveStory] = []
     private(set) var profiles: [OiProfile] = []
     private(set) var media: [OiMedia] = []
-    private(set) var evidence: [OiEvidence] = []
     private(set) var unapprovedDraftsEnabled = false
     private(set) var canPublishCucumberAppearance = false
     private(set) var canPublishStoryCard = false
@@ -38,7 +37,6 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
     private(set) var collections: [OiOwnedStory] = []
     private(set) var favorites: Set<UUID> = []
     private(set) var collectionCounts: [UUID: Int] = [:]
-    private(set) var evidenceOperation: OiEvidenceOperation?
     private(set) var isOperator = false
     private(set) var isBusy = false
     private(set) var isRefreshing = false
@@ -282,8 +280,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
 
     private func resetAccountState() {
         generation = UUID(); loadSequence += 1; refreshTask?.cancel(); refreshTask = nil
-        profile = nil; ownStories = []; reviewStories = []; profiles = []; media = []; evidence = []
-        loadedStories = []; collections = []; favorites = []; collectionCounts = [:]; evidenceOperation = nil; committedMediaPaths = [:]
+        profile = nil; ownStories = []; reviewStories = []; profiles = []; media = []
+        loadedStories = []; collections = []; favorites = []; collectionCounts = [:]; committedMediaPaths = [:]
         unapprovedDraftsEnabled = false
         isAccountDeletionPending = false; isOperator = false; hasLoadedRemote = false; needsReauthentication = false; isRefreshing = false
         isAccountMergeAvailable = false; accountMemberIDs = []; accountProviders = []; localRecoveryWarning = nil
@@ -344,107 +342,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         }
     }
 
-    func operatorEvidenceList() async throws -> [OiEvidence] {
-        try await withOperatorSession { api, token in
-            try await api.rows("oi_evidence_requests", query: "status=in.(pending,approved,changes_requested,rejected,revoked)&order=submitted_at.desc.nullslast,id.desc",
-                               token: token, as: OiEvidence.self).filter { $0.status != "draft" }
-        }
-    }
-
-    func operatorEvidence(_ id: UUID) async throws -> OiOperatorEvidenceDetail {
-        try await withOperatorSession { api, token in
-            let rows = try await api.rows("oi_evidence_requests", query: "id=eq.\(id.uuidString)", token: token, as: OiEvidence.self)
-            guard rows.count == 1, let row = rows.first, row.id == id, row.status != "draft" else { throw OiEvidenceReviewError.missing }
-            let grants = try await api.rows("oi_writing_grants", query: "evidence_id=eq.\(id.uuidString)", token: token, as: OiWritingGrant.self)
-            return OiOperatorEvidenceDetail(evidence: row, grants: grants)
-        }
-    }
-
-    func operatorEvidenceDocument(_ snapshot: OiEvidence) async throws -> OiEvidenceDocument {
-        let started = generation
-        let latest = try await operatorEvidence(snapshot.id)
-        guard latest.evidence == snapshot, let path = snapshot.objectPath else { throw OiServiceError.conflict }
-        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
-        guard parts.count == 3, UUID(uuidString: String(parts[0])) == (snapshot.storageOwnerId ?? snapshot.userId),
-              UUID(uuidString: String(parts[1])) == snapshot.id,
-              !parts[2].isEmpty, ![".", ".."].contains(String(parts[2])),
-              !path.contains("%"), !path.contains("?"), !path.contains("#"), !path.contains("\\") else { throw OiEvidenceReviewError.invalidDocument }
-        let document = try await withOperatorSession { api, token in try await api.evidenceDocument(path: path, token: token) }
-        guard try await operatorEvidence(snapshot.id).evidence == snapshot else { throw OiServiceError.conflict }
-        guard generation == started else { throw OiServiceError.accountChanged }
-        return document
-    }
-
-    func reviewOperatorEvidence(_ review: OiEvidenceReview) async throws -> OiEvidenceReviewResult {
-        guard !isBusy else { throw OiOperatorStoryError.busy }
-        let started = generation
-        isBusy = true
-        defer { isBusy = false }
-        do {
-            let receipt = try await withOperatorSession { api, token in
-                try await api.reviewEvidence(review, token: token)
-            }
-            guard started == generation else { throw OiServiceError.accountChanged }
-            guard receipt.id == review.snapshot.id, receipt.status == review.decision.rawValue,
-                  receipt.objectPath == review.snapshot.objectPath, receipt.userId == review.snapshot.userId,
-                  receipt.reviewedAt != nil else { throw OiOperatorStoryError.unconfirmedResult }
-            applyReceipt(receipt, action: "review_evidence", payload: [:])
-            await refreshAfterCommit()
-            guard started == generation else { throw OiServiceError.accountChanged }
-            return OiEvidenceReviewResult(evidence: receipt, warning: syncWarning)
-        } catch {
-            if started == generation { noteAuthenticationFailure(error) }
-            throw error
-        }
-    }
-
-    func operatorEvidenceHistory(_ id: UUID) async throws -> [OiEvidenceHistory] {
-        try await withOperatorSession { api, token in
-            try await api.rows("oi_evidence_history", query: "request_id=eq.\(id.uuidString)&order=recorded_at.desc,id.desc",
-                               token: token, as: OiEvidenceHistory.self).filter { $0.requestId == id }
-        }
-    }
-
     func operatorAudit(_ query: OiAuditQuery, after cursor: OiAuditCursor?) async throws -> OiAuditPage {
         try await withOperatorSession { api, token in try await api.operatorAudit(query, after: cursor, token: token) }
-    }
-
-    func validateOperatorEvidence(_ snapshot: OiEvidence) async throws {
-        guard try await operatorEvidence(snapshot.id).evidence == snapshot else { throw OiServiceError.conflict }
-    }
-
-    func operatorEvidenceAnalysis(_ snapshot: OiEvidence) async throws -> OiEvidenceAnalysis {
-        let started = generation
-        guard snapshot.status == "pending" else { throw OiServiceError.conflict }
-        try await validateOperatorEvidence(snapshot)
-        let result = try await withOperatorSession { api, token in try await api.analyzeEvidence(snapshot, token: token) }
-        try await validateOperatorEvidence(snapshot)
-        guard generation == started else { throw OiServiceError.accountChanged }
-        return result
-    }
-
-    func operatorEvidenceHistoryDocument(_ snapshot: OiEvidenceHistory) async throws -> OiEvidenceDocument {
-        try await withOperatorSession { api, token in
-            func currentHistory() async throws -> OiEvidenceHistory {
-                let rows = try await api.rows("oi_evidence_history", query: "id=eq.\(snapshot.id.uuidString)&request_id=eq.\(snapshot.requestId.uuidString)",
-                                              token: token, as: OiEvidenceHistory.self)
-                guard rows.count == 1, let row = rows.first, row == snapshot else { throw OiServiceError.conflict }
-                return row
-            }
-            _ = try await currentHistory()
-            let requests = try await api.rows("oi_evidence_requests", query: "id=eq.\(snapshot.requestId.uuidString)", token: token, as: OiEvidence.self)
-            guard requests.count == 1, let request = requests.first, request.id == snapshot.requestId else { throw OiEvidenceReviewError.missing }
-            let parts = snapshot.objectPath.split(separator: "/", omittingEmptySubsequences: false)
-            guard parts.count == 3, UUID(uuidString: String(parts[0])) == (request.storageOwnerId ?? request.userId),
-                  UUID(uuidString: String(parts[1])) == request.id, !parts[2].isEmpty,
-                  ![".", ".."].contains(String(parts[2])),
-                  !snapshot.objectPath.contains(where: { "%?#\\".contains($0) || $0.asciiValue.map { $0 < 32 } == true })
-            else { throw OiEvidenceReviewError.invalidDocument }
-            let document = try await api.evidenceDocument(path: snapshot.objectPath, token: token)
-            _ = try await currentHistory()
-            guard try await api.capabilities(token: token).operator else { throw OiOperatorStoryError.accessDenied }
-            return document
-        }
     }
 
     func operatorStory(_ id: UUID) async throws -> OiOperatorStoryDetail {
@@ -618,30 +517,19 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         }
         let fetchedMedia = try await api.rows("oi_story_media", query: "order=position.asc,id.asc", token: accessToken, as: OiMedia.self)
         let metrics = try await api.collectionMetrics(token: accessToken)
-        var requests: [OiEvidence] = []
         var collected: [OiOwnedStory] = []; var starred: [OiOwnedStory] = []
         if let accessToken {
-            requests = try await api.rows("oi_evidence_requests", query: "order=created_at.desc", token: accessToken, as: OiEvidence.self)
             collected = try await api.rows("oi_collections", query: "order=created_at.desc,story_id.asc", token: accessToken, as: OiOwnedStory.self)
             starred = try await api.rows("oi_favorites", token: accessToken, as: OiOwnedStory.self)
         }
-        var recoveredOperation = evidenceOperation
         var recoveryWarning: String?
         if let resolvedOwner {
-            if recoveredOperation == nil || account?.id != resolvedOwner {
-                do { recoveredOperation = try await drafts.evidence(owner: resolvedOwner) }
-                catch { recoveryWarning = "기기의 증빙 재시도 기록을 읽지 못했습니다. 원본은 보관돼 있으며 서버의 제출 상태를 먼저 확인해 주세요." }
-            }
             if members != accountMemberIDs || localRecoveryWarning != nil {
                 do {
                     if try await drafts.adoptDrafts(from: members, into: resolvedOwner) > 0 {
-                        recoveryWarning = "일부 기기 초안·증빙 재시도 기록을 대표 계정으로 복사하지 못했습니다. 원본은 이전 계정 폴더에 보관돼 있습니다."
+                        recoveryWarning = "일부 기기 초안·기존 증빙 기록을 대표 계정으로 복사하지 못했습니다. 원본은 이전 계정 폴더에 보관돼 있습니다."
                     }
-                } catch { recoveryWarning = "기기 초안·증빙 기록 통합을 완료하지 못했습니다. 원본은 이전 계정 폴더에 보관돼 있습니다." }
-            }
-            if recoveredOperation == nil || account?.id != resolvedOwner {
-                do { recoveredOperation = try await drafts.evidence(owner: resolvedOwner) }
-                catch { recoveryWarning = "기기 증빙 기록을 읽지 못했습니다. 원본은 보관돼 있으며 서버의 제출 상태를 확인해 주세요." }
+                } catch { recoveryWarning = "기기 초안·기존 증빙 기록 통합을 완료하지 못했습니다. 원본은 이전 계정 폴더에 보관돼 있습니다." }
             }
         }
         try Task.checkCancellation()
@@ -657,7 +545,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         ownStories = fetched.filter { $0.userId == account?.id && $0.status != "deleted" }
         reviewStories = capabilities?.operator == true ? fetched.filter { ["pending","published","hidden"].contains($0.status) } : []
         profile = ownProfile
-        profiles = fetchedProfiles; media = fetchedMedia; evidence = requests; committedMediaPaths = [:]
+        profiles = fetchedProfiles; media = fetchedMedia; committedMediaPaths = [:]
         collections = collected; favorites = Set(starred.map(\.storyId)); isOperator = capabilities?.operator == true
         unapprovedDraftsEnabled = capabilities?.independentStoryCreation == true && capabilities?.unapprovedDraftsEnabled == true
         canPublishCucumberAppearance = capabilities?.publicCucumberAppearance == true
@@ -666,7 +554,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         isSchoolProfileAvailable = capabilities?.schoolProfileEnabled == true
         isFarmerOutfitAvailable = capabilities?.farmerOutfitEnabled == true; farmerOutfit = fetchedFarmerOutfit
         accountProviders = capabilities?.accountProviders ?? []
-        evidenceOperation = recoveredOperation; localRecoveryWarning = recoveryWarning
+        localRecoveryWarning = recoveryWarning
         collectionCounts = metrics.reduce(into: [:]) { $0[$1.storyId] = $1.collectionCount }
         hasLoadedRemote = true; needsReauthentication = false; loadError = nil; syncWarning = localSignOutWarning; revision += 1
     }
@@ -695,7 +583,6 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
             if story.status == "published" { loadedStories.insert(story, at: 0) }
             if isOperator && ["pending","published","hidden"].contains(story.status) { reviewStories.insert(story, at: 0) }
         }
-        if let request = value as? OiEvidence { evidence.removeAll { $0.id == request.id }; evidence.insert(request, at: 0) }
         if let receipt = value as? OiMutationID {
             if action == "collect", !collections.contains(where: { $0.storyId == receipt.id }) {
                 collections.insert(OiOwnedStory(storyId: receipt.id, createdAt: nil), at: 0)
@@ -726,8 +613,6 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
     func perform(_ action: String, payload: [String: Any]) async {
         if ["reopen_story","delete_story","review_story","submit_story"].contains(action) {
             _ = await change(action, payload: payload, as: OiLiveStory.self)
-        } else if ["review_evidence","submit_evidence","reopen_evidence"].contains(action) {
-            _ = await change(action, payload: payload, as: OiEvidence.self)
         } else { _ = await change(action, payload: payload, as: OiMutationID.self) }
     }
 
@@ -923,75 +808,6 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         }
     }
 
-    func submitEvidence(data: Data, contentType: String, fileExtension: String, replacing request: OiEvidence? = nil,
-                        operatorAIConsent: Bool = false) async {
-        guard !isBusy, !needsReauthentication, let owner = account?.id else { error = OiServiceError.signInRequired.localizedDescription; return }
-        let started = generation
-        do {
-            let operation = OiEvidenceOperation(requestID: request?.id ?? UUID(), uploadID: UUID(), contentType: contentType,
-                fileExtension: fileExtension, previousStatus: request?.status, previousPath: request?.objectPath, phase: "prepared",
-                storageOwnerID: request?.storageOwnerId ?? request?.userId, operatorAIConsent: operatorAIConsent)
-            try await drafts.saveAttachment(data, owner: owner, id: operation.uploadID)
-            try await drafts.saveEvidence(operation, owner: owner)
-            try Task.checkCancellation()
-            guard generation == started, account?.id == owner else { throw OiServiceError.accountChanged }
-            evidenceOperation = operation; await retryEvidence()
-        } catch { if generation == started { self.error = error.localizedDescription } }
-    }
-
-    func retryEvidence() async {
-        guard !isBusy, let api, let owner = account?.id, var operation = evidenceOperation else { return }
-        let started = generation
-        isBusy = true; error = nil
-        defer { isBusy = false }
-        do {
-            let accessToken = try await token()
-            try Task.checkCancellation()
-            guard generation == started else { throw OiServiceError.accountChanged }
-            var request = try await api.mutate("start_evidence", payload: ["id":operation.requestID.uuidString], token: accessToken, as: OiEvidence.self)
-            guard generation == started else { throw OiServiceError.accountChanged }
-            operation.storageOwnerID = request.storageOwnerId ?? request.userId
-            try await drafts.saveEvidence(operation, owner: owner)
-            guard generation == started else { throw OiServiceError.accountChanged }
-            evidenceOperation = operation
-            let path = operation.objectPath(owner: owner)
-            if request.objectPath == path && request.status != "draft" { operation.phase = request.status }
-            else {
-                if let previousStatus = operation.previousStatus, let previousPath = operation.previousPath {
-                    request = try await api.mutate("reopen_evidence", payload: ["id":request.id.uuidString,"operation_id":operation.uploadID.uuidString,
-                        "expected_status":previousStatus,"expected_object_path":previousPath], token: accessToken, as: OiEvidence.self)
-                    guard generation == started else { throw OiServiceError.accountChanged }
-                }
-                guard request.status == "draft" else { throw OiServiceError.conflict }
-                operation.phase = "uploading"; try await drafts.saveEvidence(operation, owner: owner)
-                guard generation == started else { throw OiServiceError.accountChanged }
-                evidenceOperation = operation
-                let data = try await drafts.attachment(owner: owner, id: operation.uploadID)
-                try Task.checkCancellation()
-                guard generation == started else { throw OiServiceError.accountChanged }
-                try await api.upload(bucket: "oi-evidence", path: path, data: data, contentType: operation.contentType, token: accessToken)
-                guard generation == started else { throw OiServiceError.accountChanged }
-                operation.phase = "submitting"; try await drafts.saveEvidence(operation, owner: owner)
-                guard generation == started else { throw OiServiceError.accountChanged }
-                evidenceOperation = operation
-                request = try await api.mutate("submit_evidence", payload: ["id": request.id.uuidString, "object_path": path,
-                    "operator_ai_consent": operation.operatorAIConsent == true], token: accessToken, as: OiEvidence.self)
-                operation.phase = request.status
-            }
-            guard generation == started else { throw OiServiceError.accountChanged }
-            applyReceipt(request, action: "submit_evidence", payload: [:]); evidenceOperation = operation
-            do { try await drafts.saveEvidence(operation, owner: owner) }
-            catch { syncWarning = "제출은 완료됐지만 기기의 제출 상태 기록에 실패했습니다. 서버 상태를 새로 확인해 주세요." }
-            await refreshAfterCommit()
-        } catch {
-            guard generation == started else { return }
-            noteAuthenticationFailure(error); operation.phase = "failed"; operation.failure = error.localizedDescription
-            evidenceOperation = operation; self.error = error.localizedDescription
-            do { try await drafts.saveEvidence(operation, owner: owner) }
-            catch { self.error = "제출 재시도 정보를 기기에 보관하지 못했습니다. \(error.localizedDescription)" }
-        }
-    }
-
     func uploadStoryImage(_ data: Data, photoID: UUID, story: OiLiveStory) async -> OiLiveStory? {
         guard !isBusy, let api, account?.id == story.userId else { return nil }
         let started = generation
@@ -1144,25 +960,6 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         try await drafts.saveSchoolEvidenceReview(review, owner: owner)
         try Task.checkCancellation()
         guard started == generation, account?.id == owner else { throw OiServiceError.accountChanged }
-    }
-
-    func reviewDonationEvidence(_ evidence: OiEvidence) async throws -> OiDonationEvidenceReview {
-        guard let api else { throw OiServiceError.configuration }
-        guard let owner = account?.id, owner == evidence.userId, !needsReauthentication else { throw OiServiceError.signInRequired }
-        let started = generation
-        do {
-            let accessToken = try await token()
-            try Task.checkCancellation()
-            guard started == generation else { throw OiServiceError.accountChanged }
-            let review = try await api.reviewDonationEvidence(evidence, token: accessToken)
-            try Task.checkCancellation()
-            guard started == generation else { throw OiServiceError.accountChanged }
-            return review
-        } catch {
-            guard started == generation else { throw OiServiceError.accountChanged }
-            noteAuthenticationFailure(error)
-            throw error
-        }
     }
 
     func reviewSchoolEvidence(_ data: Data, contentType: String) async throws -> OiSchoolEvidenceOutcome {
