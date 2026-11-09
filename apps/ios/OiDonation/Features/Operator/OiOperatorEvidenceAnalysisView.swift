@@ -12,7 +12,7 @@ struct OiOperatorEvidenceAnalysisSection: View {
         Section("AI 참고 분석") {
             Text("원본 진위나 실제 납입을 보증하지 않으며, 작성 권한을 자동 승인하지 않습니다.")
                 .font(.footnote).foregroundStyle(.secondary)
-            if snapshot.status == "pending" {
+            if snapshot.status == "pending" && snapshot.hasOperatorAIConsent {
                 Text("분석을 요청하면 현재 증빙 원본을 기존 서버를 통해 OpenAI로 보냅니다. 결과는 이 화면에서만 확인하며 자동으로 재요청하지 않습니다.")
                     .font(.footnote).foregroundStyle(.secondary)
                 if model.isLoading {
@@ -31,6 +31,9 @@ struct OiOperatorEvidenceAnalysisSection: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 if let result = model.result { OiEvidenceAnalysisResultView(result: result) }
+            } else if snapshot.status == "pending" {
+                Text("이 제출본의 AI 분석 동의가 확인되지 않았어요. 원본을 직접 검토해 주세요.")
+                    .foregroundStyle(.secondary)
             } else {
                 Text("AI 분석은 검토 대기 중인 현재 제출본에만 제공됩니다.").foregroundStyle(.secondary)
             }

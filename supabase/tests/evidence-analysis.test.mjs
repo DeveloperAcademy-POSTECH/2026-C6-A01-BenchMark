@@ -19,7 +19,9 @@ const request = (value = { evidence_id: evidenceId }, headers = {}) => new Reque
 function fixture(overrides = {}) {
   const calls = [];
   let reads = 0, capabilities = 0;
-  const row = { id: evidenceId, user_id: actor, status: "pending", object_path: path, submitted_at: "2026-11-02T00:00:00Z" };
+  const submittedAt = "2026-11-02T00:00:00Z";
+  const row = { id: evidenceId, user_id: actor, status: "pending", object_path: path,
+    submitted_at: submittedAt, operator_ai_consented_at: submittedAt };
   const fetcher = async (url, init) => {
     calls.push({ url, init });
     assert.equal(init.redirect, "error");
@@ -33,12 +35,12 @@ function fixture(overrides = {}) {
     if (url.endsWith("/auth/v1/user")) return Response.json({ id: actor }, { status: overrides.authStatus ?? 200 });
     if (url.endsWith("/rpc/oi_capabilities")) {
       capabilities++;
-      return Response.json({ operator: overrides.operator !== false && !(overrides.revoke && capabilities > 1) });
+      return Response.json({ operator: overrides.operator !== false && !(overrides.revoke && capabilities > 2) });
     }
     if (url.includes("/oi_evidence_requests?")) {
       reads++;
       return Response.json(overrides.missing ? [] : [{ ...row, ...overrides.row,
-        ...(reads > 1 ? overrides.changed : {}) }]);
+        ...(reads > 1 ? overrides.changedBeforeProvider : {}), ...(reads > 2 ? overrides.changed : {}) }]);
     }
     if (url.includes("/storage/v1/object/authenticated/oi-evidence/")) return new Response(overrides.bytes ?? png, {
       status: overrides.storageStatus ?? 200, headers: { "Content-Type": overrides.mime ?? "image/png" },
@@ -148,6 +150,23 @@ test("merged evidence retains its original Storage prefix while canonical owners
   assert.equal((await handler(request())).status, 200);
 });
 
+for (const consent of [null, undefined, "2026-11-01T00:00:00Z"]) test(`missing or stale consent (${consent}) blocks download and transmission`, async () => {
+  const { handler, calls } = fixture({ row: { operator_ai_consented_at: consent } });
+  const response = await handler(request());
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).error, "evidence_ai_consent_required");
+  assert.ok(!calls.some(({ url }) => url.includes("/storage/v1/") || url.includes("api.openai.com")));
+});
+
+test("checks the current consent again before any OpenAI transmission", async () => {
+  const { handler, calls } = fixture({ changedBeforeProvider: { operator_ai_consented_at: null } });
+  const response = await handler(request());
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).error, "evidence_ai_consent_required");
+  assert.ok(calls.some(({ url }) => url.includes("/storage/v1/")));
+  assert.ok(!calls.some(({ url }) => url.includes("api.openai.com")));
+});
+
 for (const [name, overrides, status, code] of [
   ["expired session", { authStatus: 401 }, 401, "authentication_failed"],
   ["non-operator", { operator: false }, 403, "operator_required"],
@@ -182,7 +201,7 @@ test("does not accept URLs, arbitrary object paths, malformed IDs or extra conte
 
 for (const [name, overrides] of [
   ["replacement upload", { changed: { object_path: `${actor}/${evidenceId}/new.png` } }],
-  ["resubmission timestamp", { changed: { submitted_at: "2026-11-02T01:00:00Z" } }],
+  ["resubmission timestamp", { changed: { submitted_at: "2026-11-02T01:00:00Z", operator_ai_consented_at: "2026-11-02T01:00:00Z" } }],
   ["concurrent review", { changed: { status: "rejected" } }],
   ["operator revocation", { revoke: true }],
 ]) test(`discards result after ${name}`, async () => {
