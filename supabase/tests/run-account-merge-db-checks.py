@@ -93,7 +93,7 @@ try:
         run(connection, input="""create role service_role nologin bypassrls;
 alter table auth.users add column created_at timestamptz not null default now();
 create table auth.sessions(id uuid primary key,user_id uuid not null references auth.users(id) on delete cascade,created_at timestamptz not null default now());
-create table auth.identities(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users(id) on delete cascade,provider text not null);
+create table auth.identities(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users(id) on delete cascade,provider text not null,provider_id text);
 create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb; $$;
 grant execute on function auth.jwt() to anon,authenticated;
 """, text=True)
@@ -120,6 +120,7 @@ grant execute on function auth.jwt() to anon,authenticated;
         run(connection + ['-f', 'supabase/tests/oi-school-profile.sql'])
         run(connection + ['-f', 'supabase/tests/oi-farmer-outfit.sql'])
         run(connection + ['-f', 'supabase/tests/oi-evidence-fingerprints.sql'])
+        run(connection + ['-f', 'supabase/tests/oi-evidence-operator-ai-consent.sql'])
         check_fingerprint_concurrency(connection)
         print('PASS: migrations, existing SQL regression, data union, preservation, consent, operator exclusion, rollback, RLS and old-session cutover')
 
@@ -161,7 +162,7 @@ grant execute on function auth.jwt() to anon,authenticated;
         run(remote_connection, input=bootstrap, text=True)
         extra = """alter table auth.users add column created_at timestamptz not null default now();
 create table auth.sessions(id uuid primary key,user_id uuid not null references auth.users(id) on delete cascade,created_at timestamptz not null default now());
-create table auth.identities(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users(id) on delete cascade,provider text not null);
+create table auth.identities(id uuid primary key default gen_random_uuid(),user_id uuid not null references auth.users(id) on delete cascade,provider text not null,provider_id text);
 create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb; $$;
 grant execute on function auth.jwt() to anon,authenticated;
 """

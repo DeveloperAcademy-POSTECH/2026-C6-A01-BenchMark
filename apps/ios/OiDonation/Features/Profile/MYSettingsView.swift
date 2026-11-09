@@ -151,11 +151,11 @@ struct MYSettingsView: View {
             showingAcademicEditor = false
         }
         .confirmationDialog("회원 탈퇴", isPresented: $confirmingDeletion, titleVisibility: .visible) {
-            if remote?.accountProviders.isEmpty == true || remote?.accountProviders.contains("google") == true {
-                Button("Google로 본인 확인 후 탈퇴", role: .destructive) { deleteAccount(using: OiGoogleAuthentication()) }
-            }
             if remote?.accountProviders.isEmpty == true || remote?.accountProviders.contains("apple") == true {
                 Button("Apple로 본인 확인 후 탈퇴", role: .destructive) { deleteAccount(using: deletionAppleAuthentication) }
+            }
+            if remote?.accountProviders.isEmpty == true || remote?.accountProviders.contains("google") == true {
+                Button("Google로 본인 확인 후 탈퇴", role: .destructive) { deleteAccount(using: OiGoogleAuthentication()) }
             }
             Button("취소", role: .cancel) {}
         } message: {
@@ -183,7 +183,7 @@ struct MYSettingsView: View {
                 deletionSucceeded = true
                 var message = remote.syncWarning ?? "연결 계정과 오이기부 데이터가 삭제됐어요."
                 if receipt.appleRevocationRequired {
-                    message += "\nApple 로그인 연결도 해제하려면 iPhone 설정 → Apple 계정 → Apple로 로그인 → 오이기부 → 사용 중단을 선택해 주세요."
+                    message += "\nApple 로그인 연결을 자동으로 해제하지 못했어요. iPhone 설정 → Apple 계정 → Apple로 로그인 → 오이기부 → 사용 중단을 선택해 주세요."
                 }
                 deletionNotice = message
             } catch where OiServiceFailure.isCancellation(error) {

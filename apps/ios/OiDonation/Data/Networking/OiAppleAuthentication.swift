@@ -14,19 +14,33 @@ import UIKit
 @MainActor
 final class OiAppleAuthentication: NSObject, OiAuthenticating,
     ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+    private struct Credential {
+        let identityToken: String
+        let authorizationCode: String?
+    }
+
     private var controller: ASAuthorizationController?
     private var anchor: ASPresentationAnchor?
-    private var continuation: CheckedContinuation<String, Error>?
+    private var continuation: CheckedContinuation<Credential, Error>?
     private var attempt: UUID?
 
     func signIn(api: OiServiceAPI) async throws -> OiSession {
-        let credential = try await credentials()
-        let session = try await api.session(grant: "id_token", payload: ["provider": "apple", "id_token": credential.token, "nonce": credential.nonce])
+        let proof = try await deletionProof(api: api)
+        if let code = proof.appleAuthorizationCode {
+            try? await api.storeAppleAuthorization(code, token: proof.session.accessToken)
+        }
         try Task.checkCancellation()
-        return session
+        return proof.session
     }
 
-    private func credentials() async throws -> (token: String, nonce: String) {
+    func deletionProof(api: OiServiceAPI) async throws -> OiAccountDeletionProof {
+        let (credential, nonce) = try await credentials()
+        let session = try await api.session(grant: "id_token", payload: ["provider": "apple", "id_token": credential.identityToken, "nonce": nonce])
+        try Task.checkCancellation()
+        return OiAccountDeletionProof(session: session, appleAuthorizationCode: credential.authorizationCode)
+    }
+
+    private func credentials() async throws -> (Credential, String) {
         try Task.checkCancellation()
         guard attempt == nil else { throw OiServiceError.unavailable }
         var bytes = [UInt8](repeating: 0, count: 32)
@@ -44,7 +58,7 @@ final class OiAppleAuthentication: NSObject, OiAuthenticating,
         defer {
             if attempt == id { attempt = nil; controller = nil; continuation = nil; anchor = nil }
         }
-        let token = try await withTaskCancellationHandler {
+        let credential = try await withTaskCancellationHandler {
             try Task.checkCancellation()
             return try await withCheckedThrowingContinuation { pending in
                 continuation = pending
@@ -65,7 +79,7 @@ final class OiAppleAuthentication: NSObject, OiAuthenticating,
             }
         }
         try Task.checkCancellation()
-        return (token, nonce)
+        return (credential, nonce)
     }
 
     func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
@@ -74,7 +88,8 @@ final class OiAppleAuthentication: NSObject, OiAuthenticating,
               let data = credential.identityToken, let token = String(data: data, encoding: .utf8), !token.isEmpty else {
             finish(.failure(OiServiceError.invalidCallback)); return
         }
-        finish(.success(token))
+        let code = credential.authorizationCode.flatMap { String(data: $0, encoding: .utf8) }
+        finish(.success(Credential(identityToken: token, authorizationCode: code)))
     }
 
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
@@ -91,7 +106,7 @@ final class OiAppleAuthentication: NSObject, OiAuthenticating,
         anchor ?? ASPresentationAnchor()
     }
 
-    private func finish(_ result: Result<String, Error>) {
+    private func finish(_ result: Result<Credential, Error>) {
         guard let pending = continuation else { return }
         continuation = nil
         controller = nil

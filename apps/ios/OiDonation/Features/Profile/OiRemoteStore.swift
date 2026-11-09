@@ -163,7 +163,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         let started = generation
         isBusy = true
         defer { isBusy = false }
-        let proof = try await provider.signIn(api: api)
+        let proof = try await provider.deletionProof(api: api)
         try Task.checkCancellation()
         guard started == generation else { throw OiServiceError.accountChanged }
         let accessToken = try await token()
@@ -923,13 +923,14 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         }
     }
 
-    func submitEvidence(data: Data, contentType: String, fileExtension: String, replacing request: OiEvidence? = nil) async {
+    func submitEvidence(data: Data, contentType: String, fileExtension: String, replacing request: OiEvidence? = nil,
+                        operatorAIConsent: Bool = false) async {
         guard !isBusy, !needsReauthentication, let owner = account?.id else { error = OiServiceError.signInRequired.localizedDescription; return }
         let started = generation
         do {
             let operation = OiEvidenceOperation(requestID: request?.id ?? UUID(), uploadID: UUID(), contentType: contentType,
                 fileExtension: fileExtension, previousStatus: request?.status, previousPath: request?.objectPath, phase: "prepared",
-                storageOwnerID: request?.storageOwnerId ?? request?.userId)
+                storageOwnerID: request?.storageOwnerId ?? request?.userId, operatorAIConsent: operatorAIConsent)
             try await drafts.saveAttachment(data, owner: owner, id: operation.uploadID)
             try await drafts.saveEvidence(operation, owner: owner)
             try Task.checkCancellation()
@@ -973,7 +974,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
                 operation.phase = "submitting"; try await drafts.saveEvidence(operation, owner: owner)
                 guard generation == started else { throw OiServiceError.accountChanged }
                 evidenceOperation = operation
-                request = try await api.mutate("submit_evidence", payload: ["id":request.id.uuidString,"object_path":path], token: accessToken, as: OiEvidence.self)
+                request = try await api.mutate("submit_evidence", payload: ["id": request.id.uuidString, "object_path": path,
+                    "operator_ai_consent": operation.operatorAIConsent == true], token: accessToken, as: OiEvidence.self)
                 operation.phase = request.status
             }
             guard generation == started else { throw OiServiceError.accountChanged }

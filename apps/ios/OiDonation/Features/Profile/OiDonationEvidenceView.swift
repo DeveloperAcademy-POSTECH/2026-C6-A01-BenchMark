@@ -33,6 +33,7 @@ struct OiDonationEvidenceView: View {
         let id = UUID()
         let owner: UUID
         let operation: Operation
+        let runAI: Bool
     }
     @State private var attachment: Attachment?
     @State private var selection: Selection?
@@ -128,11 +129,28 @@ struct OiDonationEvidenceView: View {
             guard let value, let owner = pickerOwner, owner == remote.account?.id else { return }
             selection = Selection(owner: owner, source: .photo(value))
         }
-        .alert("자료 제출 및 AI 검사", isPresented: $confirming) {
-            Button("동의하고 요청") { startJob() }
+        .alert("기부 자료 확인", isPresented: $confirming) {
+            switch requestedOperation {
+            case .submit:
+                Button("AI 검사에 동의하고 제출") { startJob(runAI: true) }
+                Button("자료만 제출") { startJob(runAI: false) }
+            case .retryUpload:
+                Button("이전 선택으로 다시 제출") { startJob(runAI: remote.evidenceOperation?.operatorAIConsent == true) }
+            case .analyze:
+                Button("동의하고 검사") { startJob(runAI: true) }
+            case nil: EmptyView()
+            }
             Button("취소", role: .cancel) { requestedOperation = nil }
         } message: {
-            Text("기부 자료 제출은 선택이에요. 자료를 제출하려면 기부처, 기부일, 금액을 확인할 수 있는 영수증이나 입금 내역을 선택하고 불필요한 개인정보는 가려 주세요. 자료는 운영팀에 비공개로 제출되며 시각적 수정 여부를 참고로 검사하기 위해 OpenAI에 전송돼요. 공식 납입 확인과 영수증 발급은 수납처에 문의해 주세요.")
+            switch requestedOperation {
+            case .submit:
+                Text("자료는 운영팀에 비공개로 제출돼요. AI 검사에 동의하면 제출한 파일을 OpenAI로 보내 시각적 수정 여부를 확인하고, 운영자도 같은 파일의 AI 검사를 요청할 수 있어요. 자료만 제출하면 운영자가 직접 검토해요. 불필요한 개인정보는 가려 주세요.")
+            case .retryUpload:
+                Text("이전에 선택한 AI 검사 동의 여부를 유지해 같은 파일을 다시 제출해요.")
+            case .analyze:
+                Text("시각적 수정 여부를 확인하기 위해 선택한 제출본을 OpenAI로 보내요. 이 동의는 지금 요청하는 검사에만 적용돼요.")
+            case nil: EmptyView()
+            }
         }
         .task(id: selection?.id) { if let selection { await load(selection) } }
         .task(id: job?.id) { if let job { await perform(job) } }
@@ -219,7 +237,7 @@ struct OiDonationEvidenceView: View {
         confirming = true
     }
 
-    private func startJob() {
+    private func startJob(runAI: Bool) {
         defer { requestedOperation = nil }
         guard canAct, let owner = remote.account?.id, let operation = requestedOperation else { return }
         switch operation {
@@ -229,7 +247,7 @@ struct OiDonationEvidenceView: View {
         case .retryUpload: guard canRetryUpload else { return }
         }
         error = nil; review = nil
-        job = Job(owner: owner, operation: operation)
+        job = Job(owner: owner, operation: operation, runAI: runAI)
     }
 
     private func perform(_ input: Job) async {
@@ -241,7 +259,7 @@ struct OiDonationEvidenceView: View {
             case .submit(let attachment):
                 let previousUploadID = remote.evidenceOperation?.uploadID
                 await remote.submitEvidence(data: attachment.data, contentType: attachment.mime,
-                    fileExtension: attachment.fileExtension, replacing: replacing)
+                    fileExtension: attachment.fileExtension, replacing: replacing, operatorAIConsent: input.runAI)
                 guard remote.evidenceOperation?.uploadID != previousUploadID else {
                     throw OiServiceError.server(remote.error ?? "새 자료를 접수하지 못했어요. 파일을 유지했으니 다시 시도해 주세요.")
                 }
@@ -255,6 +273,7 @@ struct OiDonationEvidenceView: View {
             guard job?.id == input.id, remote.account?.id == input.owner else { return }
             selectedID = evidence.id
             attachment = nil; photo = nil
+            guard input.runAI else { return }
             let result = try await remote.reviewDonationEvidence(evidence)
             guard !Task.isCancelled, job?.id == input.id, remote.account?.id == input.owner else { return }
             review = result

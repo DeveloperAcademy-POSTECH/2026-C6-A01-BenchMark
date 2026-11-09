@@ -71,11 +71,14 @@ export function createHandler(config: Configuration, fetcher: typeof fetch = fet
       active.add(id);
       lockedId = id;
       const loadEvidence = async (): Promise<Evidence> => {
-        const rows = await readJSON(await call(`/rest/v1/oi_evidence_requests?id=eq.${id}&select=id,user_id,storage_owner_id,status,object_path,submitted_at&limit=1`), "evidence_unavailable");
+        const rows = await readJSON(await call(`/rest/v1/oi_evidence_requests?id=eq.${id}&select=id,user_id,storage_owner_id,status,object_path,submitted_at,operator_ai_consented_at&limit=1`), "evidence_unavailable");
         if (!Array.isArray(rows) || rows.length !== 1) throw new AnalysisError(404, "evidence_not_found");
         const row = rows[0];
         if (row.status !== "pending" || typeof row.object_path !== "string" || !row.submitted_at) {
           throw new AnalysisError(409, "evidence_not_pending");
+        }
+        if (row.operator_ai_consented_at !== row.submitted_at) {
+          throw new AnalysisError(403, "evidence_ai_consent_required");
         }
         const storageOwner = row.storage_owner_id ?? row.user_id;
         if (row.id !== id || typeof row.user_id !== "string" || !uuid.test(row.user_id)
@@ -88,6 +91,13 @@ export function createHandler(config: Configuration, fetcher: typeof fetch = fet
         return row;
       };
       const evidence = await loadEvidence();
+      const requireCurrentSubmission = async () => {
+        await requireOperator();
+        const current = await loadEvidence();
+        if (current.object_path !== evidence.object_path || current.submitted_at !== evidence.submitted_at) {
+          throw new AnalysisError(409, "evidence_changed");
+        }
+      };
       const file = await call(`/storage/v1/object/authenticated/oi-evidence/${evidence.object_path.split("/").map(encodeURIComponent).join("/")}`);
       if (!file.ok) {
         await file.body?.cancel();
@@ -96,13 +106,10 @@ export function createHandler(config: Configuration, fetcher: typeof fetch = fet
       const bytes = await readBounded(file, MAX_FILE_BYTES, signal);
       const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)))
         .map((value) => value.toString(16).padStart(2, "0")).join("");
+      await requireCurrentSubmission();
       const assessment = await analyzeDocument({ bytes, contentType: file.headers.get("content-type") ?? "",
         apiKey: config.openaiKey, model: config.model, signal, fetcher });
-      await requireOperator();
-      const current = await loadEvidence();
-      if (current.object_path !== evidence.object_path || current.submitted_at !== evidence.submitted_at) {
-        throw new AnalysisError(409, "evidence_changed");
-      }
+      await requireCurrentSubmission();
       return json({ evidence_id: id, submitted_at: evidence.submitted_at, sha256: digest,
         analyzed_at: new Date().toISOString(), model: config.model ?? DEFAULT_MODEL,
         prompt_version: PROMPT_VERSION, human_review_required: true, authenticity_verified: false,
