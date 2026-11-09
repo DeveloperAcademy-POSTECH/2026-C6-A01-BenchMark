@@ -85,8 +85,15 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     var onAuthoredPlacement: ((UUID) -> Void)?
     @ObservationIgnored var loadCucumberPortrait: ((String) async throws -> UIImage)?
     @ObservationIgnored var loadCucumberModel: ((OiCucumberArtworkReference) async throws -> Entity)?
+    @ObservationIgnored var loadPublicCucumberModel: ((CampusStory) async throws -> Entity)?
     @ObservationIgnored private var portraitTasks: [Task<Void, Never>] = []
     @ObservationIgnored private let portraitCache = NSCache<NSString, UIImage>()
+    @ObservationIgnored private var storyModelTask: Task<Void, Never>?
+    @ObservationIgnored private let storyModelCache: NSCache<NSString, Entity> = {
+        let cache = NSCache<NSString, Entity>()
+        cache.countLimit = 8
+        return cache
+    }()
     private(set) var data: CampusMapData?
     private(set) var placementReady = false
     private(set) var placementLoading = false
@@ -107,6 +114,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var previewRecognizer: OiTouchSequenceRecognizer?
     @ObservationIgnored private var placementLayer = Entity()
     @ObservationIgnored private var authoredLayer = Entity()
+    @ObservationIgnored private var storyLayer = Entity()
     @ObservationIgnored private var authoredPlacements: [String: CampusAuthoredPlacement] = [:]
     @ObservationIgnored private var authoredModels: [String: AuthoredModel] = [:]
     @ObservationIgnored private var authoredPins: [String: AuthoredPin] = [:]
@@ -160,11 +168,19 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
 
     private struct StoryPin {
+        let story: CampusStory
         let button: CampusStoryPinButton
         let ground: SIMD3<Float>
         let mapHeight: Float
-        let portraitPath: String?
         var requestedPortrait = false
+        var requestedModel = false
+        var model: StoryModel?
+    }
+
+    private struct StoryModel {
+        let entity: Entity
+        let templateHeight: Float
+        let unitCorners: [SIMD3<Float>]
     }
 
     func makeView() -> CampusMapCanvas {
@@ -256,6 +272,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     func suspendForARCamera() {
         setVisible(false)
         // Release before presenting another RealityKit renderer; navigation values stay here.
+        clearStoryPins()
         canvas?.map?.scene.removeAnchor(root)
         canvas?.removeRenderer()
         panTouchCount = 0
@@ -282,6 +299,9 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         placementLayer = Entity()
         root.addChild(placementLayer)
         syncPlacements(records: savedPlacements)
+        storyLayer = Entity()
+        root.addChild(storyLayer)
+        makeStoryPins(region == nil ? overviewStories : stories)
         authoredLayer = Entity()
         root.addChild(authoredLayer)
         rebuildAuthoredPlacements()
@@ -437,8 +457,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         button.accessibilityIdentifier = "campus.pin.\(story.id)"
         button.addAction(UIAction { [weak self] _ in self?.onStory?(story.id) }, for: .touchUpInside)
         canvas?.addSubview(button)
-        pins.append(StoryPin(button: button, ground: point, mapHeight: Float(story.heightMeters) * mapScale,
-                             portraitPath: story.cucumberPortraitPath))
+        pins.append(StoryPin(story: story, button: button, ground: point, mapHeight: Float(story.heightMeters) * mapScale))
     }
 
     private func cacheStoryPortrait(_ source: UIImage, key: NSString) -> UIImage? {
@@ -458,7 +477,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     private func loadVisiblePortrait(at index: Int) {
         let pin = pins[index]
-        guard !pin.requestedPortrait, let path = pin.portraitPath else { return }
+        guard !pin.requestedPortrait, let path = pin.story.cucumberPortraitPath else { return }
         if let image = portraitCache.object(forKey: path as NSString) {
             pins[index].requestedPortrait = true
             pin.button.setImage(image, for: .normal)
@@ -471,6 +490,55 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                 self.canvas?.setNeedsLayout()
             })
         }
+    }
+
+    private func loadVisibleStoryModel(at index: Int) {
+        let pin = pins[index]
+        let story = pin.story
+        let load = loadPublicCucumberModel
+        guard !story.isExample, !pin.requestedModel, story.cucumberPortraitPath == nil || load != nil else { return }
+        let key = (story.cucumberPortraitPath ?? "bundled-default") as NSString
+        if let template = storyModelCache.object(forKey: key) {
+            pins[index].requestedModel = true
+            attachStoryModel(template, at: index)
+            return
+        }
+        // Build one visible model at a time so a refreshed map doesn't decode all textures at once.
+        guard storyModelTask == nil else { return }
+        pins[index].requestedModel = true
+        storyModelTask = Task { [weak self, weak button = pin.button] in
+            let template: Entity?
+            if story.cucumberPortraitPath == nil { template = try? await CampusOiAsset.load() }
+            else { template = try? await load?(story) }
+            guard !Task.isCancelled, let self, let button,
+                  let index = self.pins.firstIndex(where: { $0.button === button }) else { return }
+            self.storyModelTask = nil
+            if let template {
+                self.storyModelCache.setObject(template, forKey: key)
+                self.attachStoryModel(template, at: index)
+            }
+            self.updateCamera()
+        }
+    }
+
+    private func attachStoryModel(_ template: Entity, at index: Int) {
+        let pin = pins[index]
+        let bounds = template.visualBounds(relativeTo: template)
+        let height = bounds.extents.y
+        guard height.isFinite, height > 0.001 else { return }
+        let entity = template.clone(recursive: true)
+        entity.name = "public:" + pin.story.id
+        entity.position = pin.ground
+        entity.orientation = CampusOiAsset.heading(pin.story.headingDegrees)
+        let corners = [bounds.min.x, bounds.max.x].flatMap { x in
+            [bounds.min.y, bounds.max.y].flatMap { y in
+                [bounds.min.z, bounds.max.z].map { z in
+                    entity.orientation.act(SIMD3(x, y, z) / height)
+                }
+            }
+        }
+        storyLayer.addChild(entity)
+        pins[index].model = StoryModel(entity: entity, templateHeight: height, unitCorners: corners)
     }
 
     func focusBackdrop(_ region: CampusRegion) {
@@ -927,6 +995,9 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     func recenter() { if let region { focus(region, stories: stories) } else { showOverview() } }
 
     private func clearStoryPins() {
+        storyModelTask?.cancel()
+        storyModelTask = nil
+        storyLayer.children.removeAll()
         portraitTasks.forEach { $0.cancel() }
         portraitTasks.removeAll()
         pins.forEach { $0.button.removeFromSuperview() }
@@ -957,16 +1028,35 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         // Scale by the map zoom so rotating or tilting alone cannot swell the artwork.
         let pointsPerMapUnit = projection.focalLength / CGFloat(radius)
         let visibleBounds = view.bounds.insetBy(dx: -100, dy: -100)
+        var storyFrames: [CGRect] = []
         for index in pins.indices {
             let pin = pins[index]
             let button = pin.button
             guard !editingPlacement, let foot = projection.point(pin.ground), visibleBounds.contains(foot) else {
+                if let model = pin.model {
+                    model.entity.removeFromParent()
+                    pins[index].model = nil
+                    pins[index].requestedModel = false
+                }
                 button.isHidden = true
                 continue
             }
-            loadVisiblePortrait(at: index)
+            loadVisibleStoryModel(at: index)
             let height = min(76, max(28, CGFloat(pin.mapHeight) * pointsPerMapUnit))
-            button.place(foot: foot, height: height)
+            if let model = pins[index].model {
+                let worldHeight = Float(height / pointsPerMapUnit)
+                let scale = worldHeight / model.templateHeight
+                if model.entity.scale.x != scale { model.entity.scale = SIMD3(repeating: scale) }
+                let frame = model.unitCorners.reduce(CGRect(origin: foot, size: .zero)) { frame, corner in
+                    guard let point = projection.point(pin.ground + worldHeight * corner) else { return frame }
+                    return frame.union(CGRect(origin: point, size: .zero))
+                }
+                button.place(modelFrame: frame)
+                storyFrames.append(button.frame.insetBy(dx: -12, dy: -12))
+            } else {
+                loadVisiblePortrait(at: index)
+                button.place(foot: foot, height: height)
+            }
             button.isHidden = false
         }
 
@@ -986,12 +1076,14 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         let markers = regionClustering?.markers(radius: radius, focalLength: projection.focalLength,
                                                 reduceMotion: UIAccessibility.isReduceMotionEnabled,
                                                 separation: projection.planeSeparation) ?? []
+        storyFrames.sort { $0.minY < $1.minY }
         var shownRegionIDs: Set<String> = []
         if !editingPlacement {
             for marker in markers {
                 guard let button = regionButtons[marker.node.id], let screen = projection.point(marker.anchor),
                       visibleBounds.contains(screen) else { continue }
                 button.place(at: screen, opacity: marker.opacity, panelOpacity: panelOpacity)
+                button.avoidStoryFrames(storyFrames, in: view.bounds)
                 button.isUserInteractionEnabled = marker.isInteractive
                 button.isAccessibilityElement = marker.isInteractive
                 button.accessibilityElementsHidden = !marker.isInteractive
@@ -1192,16 +1284,27 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private var artworkSize = CGSize.zero
 
     func place(foot: CGPoint, height: CGFloat) {
+        imageView?.isHidden = false
         let imageSize = currentImage?.size ?? CGSize(width: 46, height: 56)
         let aspect = imageSize.width / imageSize.height
         let width = height * min(aspect, 46.0 / 56.0)
         let size = CGSize(width: width, height: width / aspect)
         if artworkSize != size {
             artworkSize = size
-            bounds.size = CGSize(width: max(44, size.width), height: max(44, size.height))
             setNeedsLayout()
         }
+        bounds.size = CGSize(width: max(44, size.width), height: max(44, size.height))
         center = CGPoint(x: foot.x, y: foot.y - artworkSize.height / 2)
+    }
+
+    func place(modelFrame: CGRect) {
+        if artworkSize != .zero {
+            artworkSize = .zero
+            setNeedsLayout()
+        }
+        imageView?.isHidden = true
+        bounds.size = CGSize(width: max(44, modelFrame.width), height: max(44, modelFrame.height))
+        center = CGPoint(x: modelFrame.midX, y: modelFrame.midY)
     }
 
     override func imageRect(forContentRect contentRect: CGRect) -> CGRect {
@@ -1302,6 +1405,23 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         content.center = CGPoint(x: bounds.midX, y: bounds.midY - diameter * 0.08 * panelOpacity)
         // The 3D panel stands on its anchor; the near-overhead circle is centred on it.
         center = CGPoint(x: anchor.x, y: anchor.y - diameter * 0.5 * panelOpacity)
+    }
+
+    func avoidStoryFrames(_ stories: [CGRect], in viewport: CGRect) {
+        var above = frame
+        for story in stories.reversed() where above.intersects(story) {
+            above.origin.y = story.minY - above.height
+        }
+        guard above != frame else { return }
+        if above.minY >= viewport.minY {
+            center.y = above.midY
+            return
+        }
+        var below = frame
+        for story in stories where below.intersects(story) {
+            below.origin.y = story.maxY
+        }
+        center.y = below.maxY <= viewport.maxY ? below.midY : above.midY
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }

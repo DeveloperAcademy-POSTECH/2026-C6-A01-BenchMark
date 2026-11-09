@@ -22,6 +22,7 @@ struct CampusStory: Identifiable, Hashable {
     var latitude: Double? = nil
     var longitude: Double? = nil
     var heightMeters: Double = 1
+    var headingDegrees: Double = 0
     /// Local design content is never a public donation or a server collection target.
     var example: CampusStoryExample? = nil
 
