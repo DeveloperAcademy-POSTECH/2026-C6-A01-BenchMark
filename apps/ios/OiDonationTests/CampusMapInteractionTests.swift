@@ -167,6 +167,103 @@ final class CampusMapInteractionTests: XCTestCase {
         XCTAssertFalse(scene.visibleStoryIDs().contains(story.id))
     }
 
+    func testPublicOiKeepsItsWorldHeadingAndFootWhenTheMapRotates() async throws {
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        let scene = CampusExploreScene()
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controller.view.addSubview(canvas)
+        window.isHidden = false
+        defer {
+            scene.suspendForARCamera()
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+        }
+        await scene.load()
+        window.layoutIfNeeded()
+        canvas.layoutIfNeeded()
+
+        let data = try XCTUnwrap(scene.data)
+        let region = try XCTUnwrap(CampusRegion.campus.first { $0.id == "pond" })
+        let place = try XCTUnwrap(data.pois.first { $0.id == region.placeID })
+        let path = try XCTUnwrap(data.graph[place.node])
+        let coordinate = data.coordinate(data.world(path.p))
+        let ground = data.world(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let story = CampusStory(id: UUID().uuidString, regionID: region.id, title: "공개 오이",
+            image: "OiCats", tags: [], donor: "다른 작성자", location: region.title, date: "",
+            order: 0, popularity: 0, palette: 0, cucumberPortraitPath: "approved/portrait.png",
+            latitude: coordinate.latitude, longitude: coordinate.longitude, heightMeters: 1.25, headingDegrees: 150)
+        var modelRequests: [CampusStory] = []
+        scene.loadPublicCucumberModel = { requested in
+            modelRequests.append(requested)
+            var outfit = OiWardrobeLook()
+            outfit.costume = .catBear
+            return try await OiWardrobeAsset.loadForPlacement(outfit)
+        }
+        scene.setOverviewStories([story])
+        let map = try XCTUnwrap(canvas.map)
+        let name = "public:" + story.id
+        func marker() throws -> UIButton {
+            try XCTUnwrap(canvas.subviews.first { $0.accessibilityIdentifier == "campus.pin." + story.id } as? UIButton)
+        }
+        try await waitUntil("The approved character must load as a 3D entity") { map.scene.findEntity(named: name) != nil }
+        let button = try marker()
+        let countBadge = try XCTUnwrap(canvas.subviews.compactMap { $0 as? UIButton }.first {
+            !$0.isHidden && $0.isUserInteractionEnabled && $0.accessibilityLabel?.hasSuffix("오이 1개") == true
+        })
+        XCTAssertEqual(modelRequests, [story])
+        XCTAssertTrue(try XCTUnwrap(button.imageView).isHidden)
+        XCTAssertFalse(countBadge.frame.intersects(button.frame), "The count must not obscure the 3D character")
+        XCTAssertTrue(canvas.hitTest(countBadge.center, with: nil) === countBadge)
+        XCTAssertTrue(canvas.hitTest(button.center, with: nil) === button)
+        try await capture("public-oi-on-overview", in: canvas)
+
+        scene.focus(region, stories: [story])
+        let model = try XCTUnwrap(map.scene.findEntity(named: name))
+        let camera = try XCTUnwrap(map.scene.anchors.flatMap { Array($0.children) }.compactMap { $0 as? PerspectiveCamera }.first)
+        func facing() -> SIMD3<Float> { model.orientation(relativeTo: nil).act([0, 0, 1]) }
+        let forward = facing()
+        let angle = Float(story.headingDegrees * .pi / 180)
+        XCTAssertLessThan(simd_distance(forward, SIMD3(sin(angle), 0, -cos(angle))), 0.001)
+        XCTAssertGreaterThan(simd_dot(camera.position(relativeTo: nil) - ground, forward), 0)
+        try await capture("public-oi-front", in: canvas)
+
+        let gesture = TestTilt()
+        let panAction = NSSelectorFromString("pan:")
+        gesture.state = .began
+        scene.perform(panAction, with: gesture)
+        gesture.state = .changed
+        gesture.delta = CGPoint(x: -.pi / 0.006, y: -70)
+        scene.perform(panAction, with: gesture)
+        XCTAssertLessThan(simd_dot(camera.position(relativeTo: nil) - ground, forward), 0, "The camera reached the back of the character")
+        XCTAssertLessThan(simd_distance(facing(), forward), 0.001)
+        XCTAssertLessThan(simd_distance(model.position(relativeTo: nil), ground), 0.001)
+        XCTAssertEqual(model.visualBounds(relativeTo: nil).min.y, ground.y, accuracy: 0.01)
+        try await capture("public-oi-back", in: canvas)
+        let rotated = try marker()
+        XCTAssertFalse(rotated.isHidden)
+        XCTAssertGreaterThanOrEqual(rotated.bounds.width, 44)
+        XCTAssertGreaterThanOrEqual(rotated.bounds.height, 44)
+        XCTAssertTrue(canvas.hitTest(rotated.center, with: nil) === rotated)
+        var opened: String?
+        scene.onStory = { opened = $0 }
+        rotated.sendActions(for: .touchUpInside)
+        XCTAssertEqual(opened, story.id)
+
+        scene.suspendForARCamera()
+        scene.setVisible(true)
+        let restored = try XCTUnwrap(canvas.map?.scene.findEntity(named: name))
+        XCTAssertLessThan(simd_distance(restored.orientation(relativeTo: nil).act([0, 0, 1]), forward), 0.001)
+        scene.showStoriesInCurrentArea(region, stories: [])
+        XCTAssertNil(canvas.map?.scene.findEntity(named: name))
+        XCTAssertEqual(modelRequests, [story])
+    }
+
     func testAuthoredOiShowsBeforeAndDuringReviewAndKeepsPublicMarkerSeparate() async throws {
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: windowScene)
