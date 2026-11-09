@@ -480,6 +480,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         story.cucumberPortraitPath = item.cucumberArtwork?.path(.portrait)
         story.cardArtworkPath = item.cardArtworkPath
         story.latitude = item.latitude; story.longitude = item.longitude
+        if let placement = item.campusPlacement { story.heightMeters = placement.heightMeters }
         return story
     }
 
