@@ -19,6 +19,7 @@ struct OiStoryListScreen: View {
     }
     @State private var selectedStoryID: UUID?
     @State private var showingConsent = false
+    @State private var showingSeedCustomization = false
 
     var body: some View {
         OiStoryListView(
@@ -30,7 +31,7 @@ struct OiStoryListScreen: View {
             onAddSeed: nil,
             onSelectStory: selectStory,
             onCreateStory: beginCreatingStory,
-            onUseSeed: nil
+            onUseSeed: { showingSeedCustomization = true }
         )
         .task(id: DraftLoadKey(owner: remote.account?.id, revision: remote.revision,
                                placementRevision: remote.localPlacementRevision)) {
@@ -40,6 +41,7 @@ struct OiStoryListScreen: View {
             selectedLocalID = nil
             selectedStoryID = nil
             showingConsent = false
+            showingSeedCustomization = false
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             if let owner = remote.account?.id, loadedDraftOwner == owner, unreadableDraftCount > 0 || pendingDiscardCount > 0 {
@@ -70,7 +72,9 @@ struct OiStoryListScreen: View {
         .navigationDestination(isPresented: $showingConsent) {
             OiStoryCreationConsentFlow(remote: remote, onFinish: { showingConsent = false })
         }
-
+        .navigationDestination(isPresented: $showingSeedCustomization) {
+            OiSeedCucumberCustomizationView()
+        }
     }
 
     private var state: OiStoryListState {

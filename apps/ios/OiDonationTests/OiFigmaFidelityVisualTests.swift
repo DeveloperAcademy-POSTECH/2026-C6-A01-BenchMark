@@ -348,6 +348,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         XCTAssertNotNil(UIImage(named: "StorySeedIcon"))
+        XCTAssertNotNil(UIImage(named: "MYEmptyCucumber"))
         for variant in variants {
             let reference = NavigationStack {
                 OiStoryListView(state: .preview, seedCount: 3,
@@ -357,10 +358,17 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             }
             try await capture(reference, name: "story-list-seed-reference", variant: variant,
                               defaults: fixture.defaults, attach: true)
-            // The actual screen displays zero until a seed service is connected.
+            // The actual list offers customization without displaying a seed balance.
             let store = OiRemoteStore(vault: OiMemorySession())
             let live = NavigationStack { OiStoryListScreen(remote: store) }
             try await capture(live, name: "story-list-seed-unconnected", variant: variant,
+                              defaults: fixture.defaults, attach: true,
+                              scrollToBottom: variant.dynamicTypeSize.isAccessibilitySize)
+            let destination = NavigationStack(path: .constant(["seedCustomization"])) {
+                NavigationLink("씨앗 사용하기", value: "seedCustomization")
+                    .navigationDestination(for: String.self) { _ in OiSeedCucumberCustomizationView() }
+            }
+            try await capture(destination, name: "seed-cucumber-customization", variant: variant,
                               defaults: fixture.defaults, attach: true)
         }
     }
@@ -1046,7 +1054,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     private func capture<V: View>(_ view: V, name: String, variant: Variant, defaults: UserDefaults,
                                  includesSafeArea: Bool = true,
                                  delay: Duration = .milliseconds(180), attach: Bool = false,
-                                 checksBottomSheet: Bool = false) async throws -> Data {
+                                 checksBottomSheet: Bool = false,
+                                 scrollToBottom: Bool = false) async throws -> Data {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first, "The isolated simulator test host must have a window scene")
@@ -1092,6 +1101,13 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         host.view.setNeedsLayout()
         try await Task.sleep(for: delay)
         host.view.layoutIfNeeded()
+        if scrollToBottom {
+            let scrollView = try XCTUnwrap(firstScrollView(in: host.view))
+            let bottom = scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom
+            XCTAssertGreaterThan(bottom, scrollView.contentOffset.y)
+            scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: bottom), animated: false)
+            try await Task.sleep(for: .milliseconds(180))
+        }
         if checksBottomSheet {
             let presented = try XCTUnwrap(root.presentedViewController ?? host.presentedViewController)
             let sheet = try XCTUnwrap(presented.presentationController)
@@ -1127,6 +1143,14 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: output).count, png.count, "The saved capture must contain the rendered PNG")
         print("Figma132 capture: \(output.path)")
         return png
+    }
+
+    private func firstScrollView(in view: UIView) -> UIScrollView? {
+        if let scrollView = view as? UIScrollView { return scrollView }
+        for child in view.subviews {
+            if let scrollView = firstScrollView(in: child) { return scrollView }
+        }
+        return nil
     }
 
     private func releaseCampusRenderers(in view: UIView) {
