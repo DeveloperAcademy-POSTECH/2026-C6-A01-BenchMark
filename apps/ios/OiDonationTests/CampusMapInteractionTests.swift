@@ -41,9 +41,11 @@ final class CampusMapInteractionTests: XCTestCase {
             image: "OiCats", tags: [], donor: "다른 작성자", location: region.title, date: "",
             order: 0, popularity: 0, palette: 0, cucumberPortraitPath: "approved/portrait.png",
             latitude: coordinate.latitude, longitude: coordinate.longitude)
-        let portrait = UIGraphicsImageRenderer(size: CGSize(width: 30, height: 40)).image { context in
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let portrait = UIGraphicsImageRenderer(size: CGSize(width: 30, height: 40), format: format).image { context in
             UIColor.systemPurple.setFill()
-            context.fill(CGRect(x: 0, y: 0, width: 30, height: 40))
+            context.fill(CGRect(x: 7, y: 8, width: 16, height: 27))
         }
         var paths: [String] = []
         scene.loadCucumberPortrait = { path in paths.append(path); return portrait }
@@ -60,9 +62,79 @@ final class CampusMapInteractionTests: XCTestCase {
         XCTAssertTrue(canvas.hitTest(marker.center, with: nil) === marker, "The character is tappable above the region count")
         marker.sendActions(for: .touchUpInside)
         XCTAssertEqual(opened, story.id)
-        for _ in 0..<30 where marker.currentImage !== portrait { await Task.yield() }
+        try await waitUntil("The approved portrait must lose its transparent padding") {
+            marker.currentImage?.size == CGSize(width: 16, height: 27)
+        }
         XCTAssertEqual(paths, ["approved/portrait.png"])
-        XCTAssertTrue(marker.currentImage === portrait)
+
+        let map = try XCTUnwrap(canvas.map)
+        let camera = try XCTUnwrap(map.scene.anchors.flatMap { Array($0.children) }
+            .compactMap { $0 as? PerspectiveCamera }.first)
+        let artwork = try XCTUnwrap(marker.imageView)
+        let ground = data.world(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let pivot = SIMD3<Float>(32, 2, 1)
+        func cameraRadius() -> Float { simd_distance(camera.position(relativeTo: nil), pivot) }
+        func artworkFrame() -> CGRect {
+            marker.layoutIfNeeded()
+            return canvas.convert(artwork.bounds, from: artwork)
+        }
+        func assertGrounded(_ message: String) async throws {
+            try await waitUntil(message) {
+                guard let projected = map.project(ground) else { return false }
+                let frame = artworkFrame()
+                return abs(frame.midX - projected.x) < 1 && abs(frame.maxY - projected.y) < 1
+            }
+        }
+
+        canvas.layoutIfNeeded()
+        try await assertGrounded("At the default zoom the visible foot must match the terrain coordinate")
+        let initialHeight = artworkFrame().height
+        let pinch = TestPinch()
+        let pinchAction = NSSelectorFromString("pinch:")
+        pinch.state = .began
+        scene.perform(pinchAction, with: pinch)
+        pinch.state = .changed
+        pinch.scale = 0.8
+        scene.perform(pinchAction, with: pinch)
+        let middleHeight = artworkFrame().height
+        XCTAssertLessThan(middleHeight, initialHeight)
+        pinch.scale = 0.25
+        scene.perform(pinchAction, with: pinch)
+        XCTAssertGreaterThan(cameraRadius(), 600, "The gesture must reach the elastic end of the zoom range")
+        pinch.state = .ended
+        scene.perform(pinchAction, with: pinch)
+        try await waitUntil("The map must settle at the far zoom limit") {
+            cameraRadius() <= 600.01 && badges(in: canvas).values.allSatisfy { $0.alpha == 1 && $0.interactive }
+        }
+        let farHeight = artworkFrame().height
+        XCTAssertLessThan(farHeight, middleHeight)
+        XCTAssertLessThan(farHeight, 44)
+        XCTAssertGreaterThanOrEqual(marker.bounds.width, 44)
+        XCTAssertGreaterThanOrEqual(marker.bounds.height, 44)
+        XCTAssertFalse(marker.isHidden)
+        try await assertGrounded("Zooming out must keep the visible foot on the same terrain coordinate")
+
+        let farTap = CGPoint(x: marker.frame.minX + 1, y: marker.frame.midY)
+        XCTAssertFalse(artworkFrame().contains(farTap))
+        let farHit = try XCTUnwrap(canvas.hitTest(farTap, with: nil) as? UIButton)
+        XCTAssertTrue(farHit === marker, "The area outside the artwork must still open the story")
+        opened = nil
+        farHit.sendActions(for: .touchUpInside)
+        XCTAssertEqual(opened, story.id)
+
+        let tilt = TestTilt()
+        let panAction = NSSelectorFromString("pan:")
+        tilt.state = .began
+        scene.perform(panAction, with: tilt)
+        tilt.state = .changed
+        tilt.delta = CGPoint(x: 35, y: -100)
+        scene.perform(panAction, with: tilt)
+        try await assertGrounded("Rotating and tilting the map must keep the foot on the terrain")
+        tilt.delta = CGPoint(x: -60, y: 190)
+        scene.perform(panAction, with: tilt)
+        try await assertGrounded("The foot must stay anchored when looking down from above")
+        tilt.state = .ended
+        scene.perform(panAction, with: tilt)
 
         scene.focus(region, stories: [story])
         XCTAssertEqual(canvas.subviews.filter { $0.accessibilityIdentifier == markerID }.count, 1)

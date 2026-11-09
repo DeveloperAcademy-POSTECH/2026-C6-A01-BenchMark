@@ -146,6 +146,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var overviewStories: [CampusStory] = []
     private var regionCounts: [String: Int]?
     private var visible = true
+    private static let overviewRadius: Float = 305
     private static var cachedMesh: Entity?
 
     private struct AuthoredModel {
@@ -160,8 +161,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
 
     private struct StoryPin {
-        let button: UIButton
-        let position: SIMD3<Float>
+        let button: CampusStoryPinButton
+        let ground: SIMD3<Float>
         let portraitPath: String?
         var requestedPortrait = false
     }
@@ -297,7 +298,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         stopNavigation()
         region = nil; hasMovedFromOverview = false
         clearRegionButtons()
-        target = SIMD3(32, 2, 1); radius = 305; yaw = 0; pitch = 1.02
+        target = SIMD3(32, 2, 1); radius = Self.overviewRadius; yaw = 0; pitch = 1.02
         if !sharedMap, let data {
             let sites = CampusRegion.campus.compactMap { region -> CampusRegionClustering.Site? in
                 guard let place = data.pois.first(where: { $0.id == region.placeID }) else { return nil }
@@ -417,22 +418,40 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private func attachStory(_ story: CampusStory, at point: SIMD3<Float>) {
         positions[story.id] = point
         guard authoredPlacements[story.id] == nil else { return }
-        let button = UIButton(type: .custom)
+        let button = CampusStoryPinButton(type: .custom)
+        let placeholder = UIImage(systemName: "leaf")
         if let path = story.cucumberPortraitPath {
             button.tintColor = .systemGreen
-            button.setImage(portraitCache.object(forKey: path as NSString) ?? UIImage(systemName: "leaf"), for: .normal)
+            button.setImage(portraitCache.object(forKey: path as NSString) ?? placeholder, for: .normal)
         } else {
-            button.setImage(UIImage(named: story.portraitImage), for: .normal)
+            let key = "asset:\(story.portraitImage)" as NSString
+            let artwork = portraitCache.object(forKey: key) ?? UIImage(named: story.portraitImage)
+                .flatMap { cacheStoryPortrait($0, key: key) }
+            button.setImage(artwork ?? placeholder, for: .normal)
         }
         button.imageView?.contentMode = .scaleAspectFit
         button.contentHorizontalAlignment = .fill
         button.contentVerticalAlignment = .fill
-        button.bounds.size = region == nil ? CGSize(width: 46, height: 56) : CGSize(width: 62, height: 76)
         button.accessibilityLabel = "\(story.title) 이야기 보기"
         button.accessibilityIdentifier = "campus.pin.\(story.id)"
         button.addAction(UIAction { [weak self] _ in self?.onStory?(story.id) }, for: .touchUpInside)
         canvas?.addSubview(button)
-        pins.append(StoryPin(button: button, position: point + SIMD3(0, 2.5, 0), portraitPath: story.cucumberPortraitPath))
+        pins.append(StoryPin(button: button, ground: point, portraitPath: story.cucumberPortraitPath))
+    }
+
+    private func cacheStoryPortrait(_ source: UIImage, key: NSString) -> UIImage? {
+        // Map pins are small. Trim the padding once at display resolution.
+        let thumbnailSize = CGSize(width: 256, height: 256)
+        let image: UIImage
+        if let raster = source.cgImage, max(raster.width, raster.height) > 256 {
+            image = source.preparingThumbnail(of: thumbnailSize) ?? source
+        } else {
+            image = source
+        }
+        guard let artwork = CucumberArtwork.normalized(image), let raster = artwork.cgImage else { return nil }
+        portraitCache.totalCostLimit = 12 * 1024 * 1024
+        portraitCache.setObject(artwork, forKey: key, cost: raster.bytesPerRow * raster.height)
+        return artwork
     }
 
     private func loadVisiblePortrait(at index: Int) {
@@ -444,10 +463,10 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         } else if let loadCucumberPortrait {
             pins[index].requestedPortrait = true
             portraitTasks.append(Task { [weak self, weak button = pin.button] in
-                guard let image = try? await loadCucumberPortrait(path), !Task.isCancelled else { return }
-                self?.portraitCache.totalCostLimit = 12 * 1024 * 1024
-                if let cg = image.cgImage { self?.portraitCache.setObject(image, forKey: path as NSString, cost: cg.bytesPerRow * cg.height) }
-                button?.setImage(image, for: .normal)
+                guard let image = try? await loadCucumberPortrait(path), !Task.isCancelled,
+                      let self, let button, let artwork = self.cacheStoryPortrait(image, key: path as NSString) else { return }
+                button.setImage(artwork, for: .normal)
+                self.canvas?.setNeedsLayout()
             })
         }
     }
@@ -937,16 +956,17 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         for index in pins.indices {
             let pin = pins[index]
             let button = pin.button
-            guard !editingPlacement, let screen = projection.point(pin.position), visibleBounds.contains(screen) else {
+            guard !editingPlacement, let foot = projection.project(pin.ground), visibleBounds.contains(foot.point) else {
                 button.isHidden = true
                 continue
             }
-            button.center = CGPoint(x: screen.x, y: screen.y - button.bounds.height * 0.35)
-            button.isHidden = false
             loadVisiblePortrait(at: index)
+            let height = min(76, max(28, 48 * CGFloat(Self.overviewRadius / foot.depth)))
+            button.place(foot: foot.point, height: height)
+            button.isHidden = false
         }
 
-        var visibleButtons = pins.map(\.button)
+        var visibleButtons: [UIView] = pins.map(\.button)
         for pin in authoredPins.values {
             guard !editingPlacement, let screen = projection.point(pin.ground), visibleBounds.contains(screen) else {
                 pin.button.isHidden = true
@@ -1161,6 +1181,28 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     ) -> Bool {
         navigationGestures.contains { $0 === gestureRecognizer }
             && navigationGestures.contains { $0 === otherGestureRecognizer }
+    }
+}
+
+@MainActor private final class CampusStoryPinButton: UIButton {
+    private var artworkSize = CGSize.zero
+
+    func place(foot: CGPoint, height: CGFloat) {
+        let imageSize = currentImage?.size ?? CGSize(width: 46, height: 56)
+        let aspect = imageSize.width / imageSize.height
+        let width = height * min(aspect, 46.0 / 56.0)
+        let size = CGSize(width: width, height: width / aspect)
+        if artworkSize != size {
+            artworkSize = size
+            bounds.size = CGSize(width: max(44, size.width), height: max(44, size.height))
+            setNeedsLayout()
+        }
+        center = CGPoint(x: foot.x, y: foot.y - artworkSize.height / 2)
+    }
+
+    override func imageRect(forContentRect contentRect: CGRect) -> CGRect {
+        CGRect(x: bounds.midX - artworkSize.width / 2, y: bounds.midY - artworkSize.height / 2,
+               width: artworkSize.width, height: artworkSize.height)
     }
 }
 
