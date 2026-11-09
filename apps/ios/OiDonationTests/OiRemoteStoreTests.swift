@@ -2047,6 +2047,7 @@ final class OiRemoteStoreTests: XCTestCase {
         let published = try await store.publishedStory(current.id)
         XCTAssertEqual(published.campusPlacement?.heightCentimeters, 135)
         XCTAssertEqual(published.campusPlacement?.headingDegrees, 263.5)
+        XCTAssertEqual(store.campusStory(published).heightMeters, 1.35, accuracy: 0.001)
     }
 
     @MainActor func testPublishedOutfitSurvivesApprovalAndLoadsOnAnotherClient() async throws {
