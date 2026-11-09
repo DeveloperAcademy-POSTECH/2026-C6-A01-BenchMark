@@ -10,6 +10,18 @@ import Foundation
 @MainActor
 protocol OiAuthenticating {
     func signIn(api: OiServiceAPI) async throws -> OiSession
+    func deletionProof(api: OiServiceAPI) async throws -> OiAccountDeletionProof
+}
+
+struct OiAccountDeletionProof {
+    let session: OiSession
+    var appleAuthorizationCode: String? = nil
+}
+
+extension OiAuthenticating {
+    func deletionProof(api: OiServiceAPI) async throws -> OiAccountDeletionProof {
+        OiAccountDeletionProof(session: try await signIn(api: api))
+    }
 }
 
 struct OiServiceAPI {
@@ -104,13 +116,19 @@ struct OiServiceAPI {
         return try decoder.decode(OiAccountDeletionStatus.self, from: data)
     }
 
-    func deleteAccount(_ account: UUID, token: String, proof: OiSession) async throws -> OiAccountDeletionReceipt {
-        let body = try JSONSerialization.data(withJSONObject: ["account_id": account.uuidString,
-            "consent": true, "proof": proof.accessToken])
+    func storeAppleAuthorization(_ code: String, token: String) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["code": code])
+        _ = try await request("functions/v1/apple-sign-in-token", method: "POST", token: token, body: body, timeout: 7)
+    }
+
+    func deleteAccount(_ account: UUID, token: String, proof: OiAccountDeletionProof) async throws -> OiAccountDeletionReceipt {
+        var payload: [String: Any] = ["account_id": account.uuidString, "consent": true, "proof": proof.session.accessToken]
+        if let code = proof.appleAuthorizationCode { payload["apple_code"] = code }
+        let body = try JSONSerialization.data(withJSONObject: payload)
         let data = try await request("functions/v1/delete-account", method: "POST", token: token, body: body, timeout: 50)
         let receipt = try decoder.decode(OiAccountDeletionReceipt.self, from: data)
         guard receipt.deleted, receipt.deletedMemberIds.contains(account),
-              receipt.deletedMemberIds.contains(proof.user.id) else { throw OiServiceError.conflict }
+              receipt.deletedMemberIds.contains(proof.session.user.id) else { throw OiServiceError.conflict }
         return receipt
     }
 

@@ -163,7 +163,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorEvidenceServing, Oi
         let started = generation
         isBusy = true
         defer { isBusy = false }
-        let proof = try await provider.signIn(api: api)
+        let proof = try await provider.deletionProof(api: api)
         try Task.checkCancellation()
         guard started == generation else { throw OiServiceError.accountChanged }
         let accessToken = try await token()
