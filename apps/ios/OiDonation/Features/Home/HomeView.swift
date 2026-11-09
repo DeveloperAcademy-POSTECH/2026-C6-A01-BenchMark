@@ -142,7 +142,7 @@ struct HomeView: View {
         }
         .task {
             configureSceneCallbacks()
-            scene.setRegionCounts(Dictionary(grouping: store.stories, by: \.regionID).mapValues(\.count))
+            scene.setOverviewStories(store.stories)
             await scene.load()
         }
         .task(id: authoredSource) { await loadAuthoredPlacements(authoredSource) }
@@ -171,10 +171,10 @@ struct HomeView: View {
                 scene.setVisible(isOnScreen && scenePhase == .active)
             }
         }
-        .onChange(of: store.stories) { _, _ in
-            scene.setRegionCounts(Dictionary(grouping: store.stories, by: \.regionID).mapValues(\.count))
+        .onChange(of: store.stories) { _, stories in
+            scene.setOverviewStories(stories)
             if let region {
-                scene.showStoriesInCurrentArea(region, stories: searchResults == nil ? store.stories(in: region.id, sortedBy: sort) : store.stories)
+                scene.showStoriesInCurrentArea(region, stories: searchResults == nil ? store.stories(in: region.id, sortedBy: sort) : stories)
                 if searchResults != nil { searchResults = scene.visibleStoryIDs() }
             }
         }

@@ -12,6 +12,67 @@ import XCTest
 
 @MainActor
 final class CampusMapInteractionTests: XCTestCase {
+    func testPublicOiAppearsAndOpensOnOverviewBeforeSelectingARegion() async throws {
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        let scene = CampusExploreScene()
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controller.view.addSubview(canvas)
+        window.isHidden = false
+        defer {
+            scene.suspendForARCamera()
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+        }
+        await scene.load()
+        window.layoutIfNeeded()
+        canvas.layoutIfNeeded()
+
+        let data = try XCTUnwrap(scene.data)
+        let region = try XCTUnwrap(CampusRegion.campus.first { $0.id == "pond" })
+        let place = try XCTUnwrap(data.pois.first { $0.id == region.placeID })
+        let coordinate = data.coordinate(data.world(place.p))
+        let story = CampusStory(id: UUID().uuidString, regionID: region.id, title: "공개 오이",
+            image: "OiCats", tags: [], donor: "다른 작성자", location: region.title, date: "",
+            order: 0, popularity: 0, palette: 0, cucumberPortraitPath: "approved/portrait.png",
+            latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let portrait = UIGraphicsImageRenderer(size: CGSize(width: 30, height: 40)).image { context in
+            UIColor.systemPurple.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 30, height: 40))
+        }
+        var paths: [String] = []
+        scene.loadCucumberPortrait = { path in paths.append(path); return portrait }
+        var opened: String?
+        scene.onStory = { opened = $0 }
+
+        // The public feed can arrive after the overview has already loaded.
+        scene.setOverviewStories([story])
+        let markerID = "campus.pin." + story.id
+        let marker = try XCTUnwrap(canvas.subviews.first { $0.accessibilityIdentifier == markerID } as? UIButton)
+        XCTAssertFalse(marker.isHidden)
+        XCTAssertTrue(scene.visibleStoryIDs().contains(story.id))
+        XCTAssertTrue(badges(in: canvas).values.contains { $0.label.contains("오이 1개") })
+        XCTAssertTrue(canvas.hitTest(marker.center, with: nil) === marker, "The character is tappable above the region count")
+        marker.sendActions(for: .touchUpInside)
+        XCTAssertEqual(opened, story.id)
+        for _ in 0..<30 where marker.currentImage !== portrait { await Task.yield() }
+        XCTAssertEqual(paths, ["approved/portrait.png"])
+        XCTAssertTrue(marker.currentImage === portrait)
+
+        scene.focus(region, stories: [story])
+        XCTAssertEqual(canvas.subviews.filter { $0.accessibilityIdentifier == markerID }.count, 1)
+        scene.showOverview()
+        XCTAssertEqual(canvas.subviews.filter { $0.accessibilityIdentifier == markerID }.count, 1)
+        scene.setOverviewStories([])
+        XCTAssertFalse(canvas.subviews.contains { $0.accessibilityIdentifier == markerID })
+        XCTAssertFalse(scene.visibleStoryIDs().contains(story.id))
+    }
+
     func testAuthoredOiShowsBeforeAndDuringReviewAndKeepsPublicMarkerSeparate() async throws {
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: windowScene)
@@ -139,6 +200,12 @@ final class CampusMapInteractionTests: XCTestCase {
         XCTAssertNil(canvas.map?.scene.findEntity(named: modelName))
         XCTAssertFalse(canvas.subviews.contains { $0.accessibilityIdentifier == markerID })
         XCTAssertTrue(canvas.subviews.contains { $0.accessibilityIdentifier == publicPinID })
+        scene.setOverviewStories([publicStory])
+        scene.showOverview()
+        scene.setAuthoredPlacements([published])
+        XCTAssertFalse(canvas.subviews.contains { $0.accessibilityIdentifier == publicPinID })
+        scene.setAuthoredPlacements([])
+        XCTAssertEqual(canvas.subviews.filter { $0.accessibilityIdentifier == publicPinID }.count, 1)
     }
 
     func testCenterLocationTracksMapAndRejectsBuildings() async throws {
