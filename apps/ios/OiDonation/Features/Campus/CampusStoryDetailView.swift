@@ -32,7 +32,7 @@ struct CampusStoryDetailView: View {
                     if !story.remoteMediaPaths.isEmpty { remoteGallery }
                     location
                     related
-                    Text(story.isExample ? "디자인을 확인하기 위한 예시입니다. 실제 기부·수집 기록에 포함되지 않아요." : "작성·공개는 운영자 검토 기준이며 학교 공식 납입 확인과 다릅니다. 로그인 후 수집 기록이 계정에 저장됩니다.")
+                    Text(story.isExample ? "디자인을 확인하기 위한 예시입니다. 실제 기부·수집 기록에 포함되지 않아요." : "공개된 이야기는 운영자가 검토한 콘텐츠입니다. 로그인 후 수집 기록이 계정에 저장됩니다.")
                         .font(.caption).foregroundStyle(.secondary)
                 }.frame(width: max(0, geometry.size.width - 40), alignment: .leading)
                     .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 25)

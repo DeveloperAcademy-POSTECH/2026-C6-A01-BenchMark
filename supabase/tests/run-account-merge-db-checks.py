@@ -99,8 +99,12 @@ grant execute on function auth.jwt() to anon,authenticated;
 """, text=True)
         migrations = sorted((REPOSITORY / 'supabase/migrations').glob('*.sql'))
         independent_creation = next(path for path in migrations if path.name.endswith('_oi_independent_story_creation.sql'))
+        retirement = next(path for path in migrations if path.name.endswith('_oi_retire_donation_evidence.sql'))
+        # Exercise historical evidence workflows at the schema where they were available.
+        post_retirement = migrations[migrations.index(retirement):]
         legacy_writing_tests = ('oi-operator-evidence', 'oi-operator-workflow', 'oi-unapproved-drafts')
         for migration in migrations:
+            if migration == retirement: break
             if migration.name.endswith('_oi_independent_farm_name.sql'):
                 run(connection, input="insert into auth.users(id) values('f1580000-0000-4000-8000-000000000001'); update public.oi_profiles set nickname='Legacy nickname' where id='f1580000-0000-4000-8000-000000000001';", text=True)
             if migration == independent_creation:
@@ -115,7 +119,6 @@ grant execute on function auth.jwt() to anon,authenticated;
         run(connection + ['-f', 'supabase/tests/account-merge.sql'])
         run(connection + ['-f', 'supabase/tests/oi-card-requests.sql'])
         run(connection + ['-f', 'supabase/tests/oi-operator-audit.sql'])
-        run(connection + ['-f', 'supabase/tests/oi-account-deletion.sql'])
         run(connection + ['-f', 'supabase/tests/oi-content-safety.sql'])
         run(connection + ['-f', 'supabase/tests/oi-school-profile.sql'])
         run(connection + ['-f', 'supabase/tests/oi-farmer-outfit.sql'])
@@ -169,6 +172,7 @@ grant execute on function auth.jwt() to anon,authenticated;
         run(remote_connection, input=extra, text=True)
         merge_migration = next(path for path in migrations if path.name.endswith('_oi_account_merge.sql'))
         for migration in migrations:
+            if migration == retirement: break
             if migration == merge_migration:
                 run(remote_connection + ['-f', 'supabase/tests/fixtures/deployed-campus-mutate.sql'])
             if migration.name.endswith('_oi_evidence_fingerprints.sql'):
@@ -189,12 +193,17 @@ grant execute on function auth.jwt() to anon,authenticated;
         run(remote_connection + ['-f', 'supabase/tests/oi-public-cucumber-appearance.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-card-requests.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-operator-audit.sql'])
-        run(remote_connection + ['-f', 'supabase/tests/oi-account-deletion.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-school-profile.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-farmer-outfit.sql'])
         run(remote_connection + ['-f', 'supabase/tests/oi-evidence-fingerprints.sql'])
         run(remote_connection, input="set role service_role; do $$ begin if public.oi_evidence_fingerprint_key() <> repeat('c',64) then raise exception 'Migration must preserve the pre-existing named key'; end if; end; $$;", text=True)
         print('PASS: deployed save_campus_story, height_meters and heading_degrees behavior survives canonical ownership patch')
+        for database in (connection, remote_connection):
+            for migration in post_retirement:
+                run(database + ['-f', str(migration)])
+            run(database + ['-f', 'supabase/tests/oi-donation-evidence-retired.sql'])
+            run(database + ['-f', 'supabase/tests/oi-account-deletion.sql'])
+        print('PASS: retired evidence RPCs and uploads, retained private records and deletion, story moderation on both histories')
         # Unknown owning function edits must stop the migration before any schema change commits.
         run(connection + ['-c', 'create database unknown_drift'])
         drift_connection = connection.copy()

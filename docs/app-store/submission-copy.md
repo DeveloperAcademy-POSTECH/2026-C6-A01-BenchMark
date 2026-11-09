@@ -1,6 +1,6 @@
 # 오이기부 1.0.0 스토어 설명과 심사 메모
 
-2026-11-09 #253. 기부 없이 내 지도에 배치하고, 공개 검토 후 꾸민 오이와 카드가 표시되는 빌드에 사용한다. [스토어 이미지와 순서](submission-current/README.md).
+2026-11-09 #253·#258·#259. 기부 없이 내 지도에 배치하고, 공개 검토 후 전체 캠퍼스 지도에서 공개 오이를 바로 누를 수 있는 빌드에 사용한다. [스토어 이미지와 순서](submission-current/README.md).
 
 ## 스토어 설명 — 한국어
 
@@ -13,12 +13,12 @@ POSTECH 캠퍼스에 남겨진 이야기를 3D 지도와 AR로 만나고, 나만
 다른 사람과 이야기를 나누고 싶다면 공개 검토를 요청해요. 승인되면 이야기와 사진, 직접 꾸민 오이와 카드가 공개 지도에 표시돼요. 캠퍼스 현장 AR에서도 같은 오이를 볼 수 있어요.
 
 • 캠퍼스에서 이야기 발견하기
-지도에서 오이를 눌러 공개 이야기를 읽어요. 캠퍼스에 있다면 AR로 오이를 찾아 카드를 모을 수 있어요. 현장 AR에는 위치와 카메라 권한이 필요해요.
+홈의 3D 캠퍼스 지도에서 바로 보이는 오이를 눌러 공개 이야기를 읽어요. 캠퍼스에 있다면 AR로 오이를 찾아 카드를 모을 수 있어요. 현장 AR에는 위치와 카메라 권한이 필요해요.
 
 • 현장 방문 없이 먼저 체험하기
 홈의 ‘체험하기’에서 로그인 없이 6냥이오이 이야기와 AR 수집을 체험해 보세요. 체험 카드는 실제 도감에 기록되지 않아요.
 
-기부는 선택이에요. 기부하려면 POSTECH 공식 기부처의 안내를 확인해 주세요. 원하는 경우 MY 설정에서 기부 자료를 운영팀에 비공개로 제출할 수 있어요. 앱에서 기부금을 직접 받지 않아요.
+기부는 선택이에요. 기부하려면 POSTECH 공식 기부처의 안내를 확인해 주세요. 앱은 기부금과 기부 자료를 받지 않아요.
 
 ## 심사 메모 — 한국어
 
@@ -28,11 +28,11 @@ POSTECH 캠퍼스에 남겨진 이야기를 3D 지도와 AR로 만나고, 나만
 
 실제 이야기는 MY → 설정에서 Apple 또는 Google로 로그인하고 홈 지도 ‘+’ → ‘오이 만들기’에서 시작합니다. 글·사진과 캠퍼스 위치를 정하고 오이와 카드를 꾸민 뒤 ‘내 지도에 배치하기’를 누르면 이 기기에서 바로 확인할 수 있습니다. ‘공개 검토 요청’을 제출하면 운영팀이 콘텐츠를 검토합니다. 승인되면 다른 사용자도 이야기·사진과 같은 오이 외형·카드를 공개 지도에서 볼 수 있으며 현장 AR에는 승인된 오이 외형이 표시됩니다. 탈퇴는 MY → 설정 → 회원 탈퇴에서 재인증 후 진행합니다.
 
-기부나 기부 자료 제출은 이야기 작성, 배치, 공개 또는 수집의 조건이 아닙니다. 기부 링크는 POSTECH의 공식 외부 사이트를 엽니다. 원하는 사용자가 설정에서 제출하는 기부 자료는 비공개로 검토하며, AI 검사는 동의한 자료에만 사용합니다.
+기부는 이야기 작성, 배치, 공개 또는 수집의 조건이 아닙니다. 기부 링크는 POSTECH의 공식 외부 사이트를 엽니다. 앱에서 기부금과 기부 자료를 받지 않습니다. 홈의 캠퍼스 지도에 보이는 공개 오이를 눌러 해당 이야기를 바로 열 수 있습니다.
 
 ## App Review notes — English
 
-OiDonation is a free iPhone app for discovering and sharing stories on the POSTECH campus. Donating, submitting donation evidence, or earning a reward is never a condition for creating a story, placing a character, or collecting a card. The app does not accept payments. The optional donation link opens POSTECH’s official website in a browser. Optional evidence review in settings is private and does not grant app functionality or change story publication.
+OiDonation is a free iPhone app for discovering and sharing stories on the POSTECH campus. Donating is not required to create a story, place a character, or collect a card. The app does not accept payments or collect donation records. The optional donation link opens POSTECH’s official website in a browser. Tap a published cucumber directly on the main campus map to open its story.
 
 **Try the sample story and AR collection without an account or a campus visit.** On the main map, tap **체험하기** (Try it) → **6냥이오이** → **스토리 보기** (Read story) → **수집하기** (Collect) → **시작** (Start). On an AR-capable iPhone, allow camera access, find three cucumber characters within 30 seconds, and tap **체험 카드 모으기** (Collect sample card). Sample cards are separate from the account collection. In the App Clip, **이야기·AR 체험** (Try story and AR) opens the same experience.
 
