@@ -90,16 +90,6 @@ struct OiWardrobePhotoEditor: View {
                          : "옷의 윤곽을 보며 사진을 배치하세요.\n드래그로 이동 · 두 손가락으로 크기와 회전 조절")
                         .font(CampusStyle.body(10)).foregroundStyle(Color(white: 0.48))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    if let message = error ?? scene.error ?? scene.photoPreviewError {
-                        Text(message).font(.caption).foregroundStyle(.red).accessibilityIdentifier("photo-editor-error")
-                    }
-                    if !restoreFailed && (scene.error != nil || scene.photoPreviewError != nil) {
-                        Button("미리보기 다시 시도") {
-                            if scene.error != nil { scene.update(look, retry: true) }
-                            requestPreview()
-                        }.disabled(scene.loading || renderTask != nil)
-                    }
-                    if importInProgress { ProgressView().accessibilityLabel("사진을 불러오는 중…") }
                     if selectedLayer != nil {
                         DisclosureGroup("사진 복제 · 순서 · 초기화") { transformControls.padding(.top, 12) }
                             .font(.subheadline).accessibilityIdentifier("photo-layer-controls")
@@ -108,6 +98,18 @@ struct OiWardrobePhotoEditor: View {
                         .font(.caption2).foregroundStyle(.secondary)
                 }.padding(.bottom, 20)
             }.accessibilityIdentifier("photo-editor-scroll")
+            if let message = error ?? scene.error ?? scene.photoPreviewError {
+                Text(message).font(.caption).foregroundStyle(.red).accessibilityIdentifier("photo-editor-error")
+            }
+            if !restoreFailed && (scene.error != nil || scene.photoPreviewError != nil) {
+                Button("미리보기 다시 시도") {
+                    if scene.error != nil { scene.update(look, retry: true) }
+                    requestPreview()
+                }.disabled(scene.loading || renderTask != nil)
+            }
+            if importInProgress {
+                ProgressView("사진을 불러오는 중…").font(.caption)
+            }
             photoControls.padding(.bottom, 8)
         }
         .padding(.horizontal, 20).padding(.top, 12)
@@ -384,7 +386,11 @@ struct OiWardrobePhotoEditor: View {
             } catch is CancellationError { return }
             catch { failures += 1 }
         }
-        if failures > 0 { error = "사진 \(failures)장을 불러오지 못했어요. 나머지 사진은 추가했어요." }
+        if failures > 0 {
+            error = failures == picks.count
+                ? OiPhotoDataError.unreadable.errorDescription
+                : "사진 \(failures)장을 불러오지 못했어요. 나머지 사진은 추가했어요."
+        }
     }
     private func requestPreview() {
         guard phase != .background, let layout else { return }
