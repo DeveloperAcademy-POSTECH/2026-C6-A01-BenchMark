@@ -853,6 +853,22 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     }
 
     func removeStoryMedia(paths removedPaths: Set<String>, photoIDs removedPhotoIDs: Set<UUID>, story: OiLiveStory) async -> OiLiveStory? {
+        await updateStoryMedia(story: story) { paths in
+            paths.filter { path in
+                if removedPaths.contains(path) { return false }
+                guard let id = OiEditingPhoto.localPhotoID(for: path) else { return true }
+                return !removedPhotoIDs.contains(id)
+            }
+        }
+    }
+
+    func reorderStoryMedia(_ order: [String], story: OiLiveStory) async -> OiLiveStory? {
+        await updateStoryMedia(story: story) { paths in
+            OiEditingPhoto.applyingOrder(order, to: paths, key: OiEditingPhoto.orderKey(for:))
+        }
+    }
+
+    private func updateStoryMedia(story: OiLiveStory, transform: ([String]) -> [String]) async -> OiLiveStory? {
         guard !isBusy, !needsReauthentication, let api, account?.id == story.userId else { return nil }
         let started = generation
         isBusy = true; error = nil
@@ -863,14 +879,9 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
                 token: accessToken, as: OiMedia.self).map(\.objectPath)
             try Task.checkCancellation()
             guard started == generation else { throw OiServiceError.accountChanged }
-            let retained = current.filter { path in
-                if removedPaths.contains(path) { return false }
-                guard let leaf = path.split(separator: "/").last, leaf.lowercased().hasSuffix(".jpg"),
-                      let id = UUID(uuidString: String(leaf.dropLast(4))) else { return true }
-                return !removedPhotoIDs.contains(id)
-            }
+            let retained = transform(current)
             if current == retained {
-                // The server already reflects the removal. Replace a stale cached list.
+                // The server already reflects the change. Replace a stale cached list.
                 loadSequence += 1
                 committedMediaPaths[story.id] = retained
                 revision += 1
