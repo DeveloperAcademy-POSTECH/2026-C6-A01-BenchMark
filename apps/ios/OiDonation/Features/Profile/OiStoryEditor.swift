@@ -81,6 +81,27 @@ struct OiStoryEditor: View {
         _step = State(initialValue: initialStep)
     }
 
+    #if DEBUG
+    // Hosted tests can drive the mounted editor without depending on SwiftUI's UIKit accessibility tree.
+    struct PhotoEditingTestActions {
+        let items: @MainActor () -> [OiEditingPhoto]
+        let open: @MainActor () -> Void
+        let move: @MainActor (OiEditingPhoto, Int) -> Void
+        let cancel: @MainActor () -> Void
+        let done: @MainActor () -> Void
+        let edit: @MainActor (UUID, OiPhotoEdit) async -> Bool
+        let remove: @MainActor (OiEditingPhoto) -> Void
+    }
+
+    private var onPhotoEditingReady: ((PhotoEditingTestActions) -> Void)?
+
+    func observePhotoEditingForTest(_ observe: @escaping (PhotoEditingTestActions) -> Void) -> Self {
+        var view = self
+        view.onPhotoEditingReady = observe
+        return view
+    }
+    #endif
+
     var body: some View {
         if let owner, remote.account?.id != owner {
             ContentUnavailableView {
@@ -110,6 +131,14 @@ struct OiStoryEditor: View {
         .onChange(of: removedMediaPaths) { _, _ in scheduleSave() }
         .onChange(of: scenePhase) { _, phase in if phase != .active { scheduleSave() } }
         .onDisappear { if restored { scheduleSave() } }
+        #if DEBUG
+        .onAppear {
+            onPhotoEditingReady?(PhotoEditingTestActions(
+                items: { editingPhotos }, open: openPhotoEditor, move: movePhoto,
+                cancel: cancelPhotoEditing, done: saveAndClosePhotoEditor, edit: editPhoto, remove: removePhoto
+            ))
+        }
+        #endif
     }
 
     private var presentedContent: some View {
