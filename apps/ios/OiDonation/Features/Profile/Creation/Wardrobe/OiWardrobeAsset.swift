@@ -32,7 +32,8 @@ import UIKit
             let texture: TextureResource
             if editingSlot == slot, let previewTexture { texture = previewTexture }
             else {
-                let image = try published ?? atlas(for: slot, in: look)
+                let pendingPhoto = editingSlot == slot ? previewImage : nil
+                let image = try published ?? pendingPhoto ?? atlas(for: slot, in: look)
                 texture = try await TextureResource(image: image, options: .init(semantic: .color))
             }
             garment.name = "OiPhotoOverlay"

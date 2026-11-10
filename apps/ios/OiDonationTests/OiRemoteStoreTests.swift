@@ -2917,6 +2917,86 @@ final class OiCostumePhotoTests: XCTestCase {
             print("OI_PHOTO_BIND_PASS \(look.modelName)")
         }
     }
+    func testWardrobePreviewRestoresAppliedAndEditingPhotosAfterReopening() async throws {
+        var look = OiWardrobeLook()
+        look.top = .hoodie
+        let slot = OiPhotoSlot.top
+        let layout = try OiPhotoPrintLayout.load(for: slot, in: look)
+        let size = CGSize(width: 64, height: 64)
+        func photo(_ color: UIColor) throws -> OiPhotoImageAsset {
+            try OiPhotoRenderer.asset(UIGraphicsImageRenderer(size: size).image { context in
+                color.setFill()
+                context.fill(CGRect(origin: .zero, size: size))
+            })
+        }
+        let saved = try photo(.magenta)
+        try look.artwork.set(OiPhotoDesign(layers: [OiPhotoLayer(source: saved.id)]),
+                             sources: [saved.id: saved.data], for: slot.itemID(in: look))
+
+        let scene = OiWardrobeScene()
+        let surface = OiWardrobeSurface(scene: scene, look: look)
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = windowScene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: windowScene)
+        let host = UIViewController()
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previousKey?.makeKey() }
+
+        func open() -> RealityKit.ARView {
+            let view = scene.install()
+            view.frame = host.view.bounds
+            host.view.addSubview(view)
+            scene.update(look)
+            return view
+        }
+
+        func close(_ view: RealityKit.ARView) {
+            OiWardrobeSurface.dismantleUIView(view, coordinator: surface.makeCoordinator())
+            view.removeFromSuperview()
+        }
+
+        func photoPixels(in view: RealityKit.ARView, matching color: (Int, Int, Int) -> Bool) async throws -> Int {
+            for _ in 0..<200 where scene.loading { try await Task.sleep(for: .milliseconds(50)) }
+            XCTAssertFalse(scene.loading)
+            XCTAssertNil(scene.error)
+            try await Task.sleep(for: .milliseconds(300))
+            let image: UIImage? = await withCheckedContinuation { continuation in
+                view.snapshot(saveToHDR: false) { continuation.resume(returning: $0) }
+            }
+            let pixels = rgba(try XCTUnwrap(image?.cgImage), size: 128)
+            return stride(from: 0, to: pixels.count, by: 4).reduce(into: 0) { count, index in
+                if color(Int(pixels[index]), Int(pixels[index + 1]), Int(pixels[index + 2])) { count += 1 }
+            }
+        }
+
+        let magenta: (Int, Int, Int) -> Bool = { red, green, blue in min(red, blue) > green + 45 }
+        let firstView = open()
+        let firstCount = try await photoPixels(in: firstView, matching: magenta)
+        XCTAssertGreaterThan(firstCount, 20)
+        close(firstView)
+
+        let reopenedView = open()
+        let reopenedCount = try await photoPixels(in: reopenedView, matching: magenta)
+        XCTAssertGreaterThan(reopenedCount, 20, "Reopening should render the selected hoodie and its saved photo")
+
+        // The editor can produce a new photo while the SwiftUI surface is being replaced.
+        scene.editPhotos(in: slot, look: look)
+        close(reopenedView)
+        let editing = try photo(.blue)
+        let atlas = OiPhotoRenderer.atlas(layers: [OiPhotoLayer(source: editing.id)], assets: [editing.id: editing],
+                                         panelSize: 256, color: look.topColor, layout: layout)
+        await scene.setPhotoPreview(try XCTUnwrap(atlas.cgImage))
+        let editingView = open()
+        let replacementView = open()
+        close(editingView)
+        defer { close(replacementView) }
+        let editingCount = try await photoPixels(in: replacementView) { red, green, blue in
+            blue > max(red, green) + 45
+        }
+        XCTAssertGreaterThan(editingCount, 20, "A late teardown should not hide the reopened live photo preview")
+    }
+
     func testSavedPhotoRemovalAndPlainGarmentStillWork() async throws {
         var look = OiWardrobeLook(); look.costume = .dinosaur
         let asset = try OiPhotoRenderer.asset(UIImage(cgImage: canvas { cg in
@@ -3133,7 +3213,7 @@ final class OiCostumePhotoTests: XCTestCase {
             editor.frame(height: 462).background(Color(red: 0.92, green: 0.94, blue: 0.89))
         }.environment(\.scenePhase, .active))
         window.rootViewController = controller; window.makeKeyAndVisible()
-        defer { scene.release(); window.isHidden = true }
+        defer { window.isHidden = true; window.rootViewController = nil }
         try await Task.sleep(for: .seconds(3))
         let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) }
         let attachment = XCTAttachment(image: image); attachment.name = "photo-editor-\(look.costume == nil ? "uv" : "rounded")-\(empty ? "empty" : "photo")"; attachment.lifetime = .keepAlways; add(attachment)
@@ -3189,7 +3269,7 @@ final class OiCostumePhotoTests: XCTestCase {
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let window = UIWindow(windowScene: windowScene); let controller = UIViewController()
         controller.view = view; window.rootViewController = controller; window.makeKeyAndVisible()
-        defer { scene.release(); window.isHidden = true }
+        defer { scene.uninstall(view); window.isHidden = true }
         let requested = ProcessInfo.processInfo.environment["OI_PHOTO_PROOF_SET"].flatMap(OiWardrobeLook.Costume.init(rawValue:))
         var proofLooks = (requested.map({ [$0] }) ?? OiWardrobeLook.Costume.allCases).map { costume in
             var look = OiWardrobeLook(); look.costume = costume; return (costume.rawValue, look)
@@ -3279,7 +3359,7 @@ final class OiWardrobeAssetTests: XCTestCase {
         let view = scene.install()
         view.frame = window.bounds
         controller.view.addSubview(view)
-        defer { scene.release(); view.removeFromSuperview() }
+        defer { scene.uninstall(view); view.removeFromSuperview() }
         for costume: OiWardrobeLook.Costume in [.baseball, .farmer, .astronautNavy, .postechSelfie] {
             var look = OiWardrobeLook(); look.costume = costume
             scene.update(look)
