@@ -20,6 +20,7 @@ struct OiStoryEditor: View {
     @State private var draft: OiStoryDraft
     @State private var owner: UUID?
     @State private var photos: [UUID] = []
+    @State private var photoOrder: [String]?
     @State private var uploadedPhotos: Set<UUID> = []
     @State private var localVersion = 0
     @State private var restored = false
@@ -33,6 +34,7 @@ struct OiStoryEditor: View {
     private struct PhotoCheckpoint: Identifiable {
         let id = UUID()
         let photos: [UUID]
+        let order: [String]?
         let uploaded: Set<UUID>
         let removedPaths: [String]
         let removedIDs: Set<UUID>
@@ -317,6 +319,7 @@ struct OiStoryEditor: View {
                 guard let owner, remote.account?.id == owner else { throw OiServiceError.accountChanged }
                 return try await remote.localPhoto(id: id, owner: owner)
             }, edit: { id, operation in await editPhoto(id, operation: operation) }, remove: removePhoto,
+            move: movePhoto,
             photo: { reviewPhoto($0, contentMode: .fill) }, thumbnail: { reviewPhoto($0, allowsRetry: false, contentMode: .fill) },
             previewWidth: previewWidth, previewHeight: previewHeight)
     }
@@ -324,13 +327,13 @@ struct OiStoryEditor: View {
     private func openPhotoEditor() {
         guard restored, !submitted, photoCheckpoint == nil else { return }
         focusedStoryField = nil
-        photoCheckpoint = PhotoCheckpoint(photos: photos, uploaded: uploadedPhotos,
+        photoCheckpoint = PhotoCheckpoint(photos: photos, order: photoOrder, uploaded: uploadedPhotos,
             removedPaths: removedMediaPaths, removedIDs: removedPhotoIDs)
     }
 
     private func cancelPhotoEditing() {
         guard !preparingPhoto, !saving, photoSelections.isEmpty, let checkpoint = photoCheckpoint else { return }
-        photos = checkpoint.photos; uploadedPhotos = checkpoint.uploaded
+        photos = checkpoint.photos; photoOrder = checkpoint.order; uploadedPhotos = checkpoint.uploaded
         removedMediaPaths = checkpoint.removedPaths; removedPhotoIDs = checkpoint.removedIDs
         localVersion += 1
         saveAndClosePhotoEditor()
@@ -537,6 +540,7 @@ struct OiStoryEditor: View {
                 consentState = OiStoryConsentState(savedIDs: record.agreedConsentClauseIDs ?? [])
                 removedMediaPaths = record.removedMediaPaths ?? []
                 removedPhotoIDs = record.removedPhotoIDs ?? []
+                photoOrder = record.photoOrder
             }
             if let server = remote.ownStories.first(where: { $0.id == draft.id }) {
                 if draft.heightMeters == nil { draft.heightMeters = server.heightMeters }
@@ -664,8 +668,10 @@ struct OiStoryEditor: View {
         uploadedPhotos.union(serverMediaPaths.compactMap(OiEditingPhoto.localPhotoID(for:)))
     }
     private var editingPhotos: [OiEditingPhoto] {
-        OiEditingPhoto.ordered(local: photos, remote: serverMediaPaths,
+        let items = OiEditingPhoto.ordered(local: photos, remote: serverMediaPaths,
             removed: removedMediaPaths, removedPhotoIDs: removedPhotoIDs)
+        guard let photoOrder else { return items }
+        return OiEditingPhoto.applyingOrder(photoOrder, to: items, key: \.orderKey)
     }
     private var currentStory: OiLiveStory? { remote.ownStories.first { $0.id == draft.id } }
     // On a second device, preserve the last reviewed design until the author customizes it here.
@@ -824,6 +830,18 @@ struct OiStoryEditor: View {
             photos.removeAll { $0 == id }; uploadedPhotos.remove(id)
         case .uploaded(let path): removedMediaPaths.append(path)
         }
+        photoOrder?.removeAll { $0 == item.orderKey }
+        scheduleSave()
+    }
+
+    private func movePhoto(_ item: OiEditingPhoto, by offset: Int) {
+        var items = editingPhotos
+        guard let from = items.firstIndex(of: item) else { return }
+        let destination = min(max(0, from + offset), items.count - 1)
+        guard from != destination else { return }
+        items.remove(at: from)
+        items.insert(item, at: destination)
+        photoOrder = items.map(\.orderKey)
         scheduleSave()
     }
 
@@ -838,13 +856,16 @@ struct OiStoryEditor: View {
             try await remote.saveLocalPhoto(jpeg, id: newID, owner: owner)
             guard remote.account?.id == owner else { throw OiServiceError.accountChanged }
             guard !attachedPhotoIDs.contains(id), let index = photos.firstIndex(of: id) else { throw OiServiceError.conflict }
+            if let orderIndex = photoOrder?.firstIndex(of: id.uuidString) {
+                photoOrder?[orderIndex] = newID.uuidString
+            }
             photos[index] = newID; localVersion += 1
             return await persist()
         } catch { localError = error.localizedDescription; return false }
     }
 
     private func record() -> OiLocalDraft {
-        OiLocalDraft(draft: draft, photos: photos, uploadedPhotos: Array(uploadedPhotos), version: localVersion, submitted: submitted, creationStep: step.rawValue, customization: customization, removedMediaPaths: removedMediaPaths, removedPhotoIDs: removedPhotoIDs, agreedConsentClauseIDs: consentState.savedIDs, personalPlacement: personalPlacement)
+        OiLocalDraft(draft: draft, photos: photos, uploadedPhotos: Array(uploadedPhotos), version: localVersion, submitted: submitted, creationStep: step.rawValue, customization: customization, removedMediaPaths: removedMediaPaths, removedPhotoIDs: removedPhotoIDs, agreedConsentClauseIDs: consentState.savedIDs, personalPlacement: personalPlacement, photoOrder: photoOrder)
     }
 
     private func scheduleSave() {
@@ -900,6 +921,15 @@ struct OiStoryEditor: View {
             current = updated; draft.revision = updated.revision
             removedMediaPaths = []; removedPhotoIDs = []; localVersion += 1
             guard await persist() else { return nil }
+        }
+        if let photoOrder {
+            // Uses the existing attach_media call to keep the server's attachment order equal to the draft.
+            guard let updated = await remote.reorderStoryMedia(photoOrder, story: current) else { return nil }
+            if updated.revision != current.revision {
+                draft.revision = updated.revision; localVersion += 1
+                guard await persist() else { return nil }
+            }
+            current = updated
         }
         return current
     }

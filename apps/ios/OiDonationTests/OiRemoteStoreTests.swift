@@ -1612,6 +1612,154 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTFail("Photo/location UI route did not finish (edited: \(sawEdit), cancelled: \(sawCancel), saved: \(sawDone), picked location: \(sawLocation))")
     }
 
+    /// Drives the real photo editor through its accessibility actions with one server-attached and two device photos.
+    @MainActor func testPhotoReorderCancelDoneAndReopenWithMixedPhotos() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let image = try XCTUnwrap(UIImage(named: "DonationCampus")?.jpegData(compressionQuality: 0.9))
+        let serverID = UUID(), localA = UUID(), localB = UUID()
+        let savedReceipt = await store.save(draft(title: "사진 순서 검증"))
+        let saved = try XCTUnwrap(savedReceipt)
+        let attachedReceipt = await store.uploadStoryImage(image, photoID: serverID, story: saved)
+        let attached = try XCTUnwrap(attachedReceipt)
+        for id in [localA, localB] { try await store.saveLocalPhoto(image, id: id, owner: OiTestBackend.owner) }
+        let serverPaths = store.mediaPaths(storyID: saved.id)
+        XCTAssertEqual(serverPaths.count, 1)
+        let local = OiLocalDraft(draft: OiStoryDraft(story: attached), photos: [localA, localB], version: 1,
+                                creationStep: OiCreationStep.photos.rawValue)
+        try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: NavigationStack {
+            OiStoryEditor(remote: store, localID: local.id).environment(\.scenePhase, .active)
+        })
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
+
+        func savedDraft() async throws -> OiLocalDraft {
+            let value = try await store.localDraft(id: local.id, owner: OiTestBackend.owner)
+            return try XCTUnwrap(value)
+        }
+        func editorView() -> UIView? { window.rootViewController?.presentedViewController?.view }
+        func waitFor(_ label: String, _ condition: () async throws -> Bool) async throws {
+            for _ in 0..<100 {
+                if try await condition() { return }
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            XCTFail("Timed out: \(label)")
+            throw CancellationError()
+        }
+        func find(_ match: (NSObject) -> Bool) -> NSObject? {
+            guard let root = editorView() else { return nil }
+            var queue: [NSObject] = [root]
+            var visited = Set<ObjectIdentifier>()
+            while !queue.isEmpty {
+                let object = queue.removeFirst()
+                guard visited.insert(ObjectIdentifier(object)).inserted else { continue }
+                if object !== root, match(object) { return object }
+                if let view = object as? UIView { queue += view.subviews }
+                if let elements = object.accessibilityElements as? [NSObject] { queue += elements }
+                let count = object.accessibilityElementCount()
+                if count != NSNotFound, count > 0 {
+                    queue += (0..<count).compactMap { object.accessibilityElement(at: $0) as? NSObject }
+                }
+            }
+            return nil
+        }
+        // SwiftUI identifiers are not visible to an in-process walk, so buttons are matched by label.
+        func element(label: String) -> NSObject? {
+            find { $0.accessibilityLabel == label && $0.accessibilityTraits.contains(.button) }
+        }
+        func thumbnail(_ label: String) -> NSObject? { find { $0.accessibilityLabel == label } }
+        func perform(_ actionName: String, on label: String) async throws {
+            var target: NSObject?
+            try await waitFor("thumbnail \(label)") { target = thumbnail(label); return target != nil }
+            let action = try XCTUnwrap(target?.accessibilityCustomActions?.first { $0.name == actionName },
+                                       "\(label) exposes \(actionName)")
+            if let handler = action.actionHandler { XCTAssertTrue(handler(action)) }
+            else { _ = (action.target as AnyObject?)?.perform(action.selector, with: action) }
+        }
+        func tap(_ label: String) async throws {
+            var target: NSObject?
+            try await waitFor("button \(label)") { target = element(label: label); return target != nil }
+            XCTAssertTrue(try XCTUnwrap(target).accessibilityActivate(), "\(label) activates")
+        }
+        func reopen() async throws {
+            try await waitFor("photo editor closed") { editorView() == nil }
+            var button: NSObject?
+            try await waitFor("story photo button") {
+                guard let host = window.rootViewController?.view else { return false }
+                var queue: [NSObject] = [host]
+                while !queue.isEmpty {
+                    let object = queue.removeFirst()
+                    if object.accessibilityLabel?.hasPrefix("선택한 사진 보기") == true,
+                       object.accessibilityTraits.contains(.button) {
+                        button = object; return true
+                    }
+                    if let view = object as? UIView { queue += view.subviews }
+                    let count = object.accessibilityElementCount()
+                    if count != NSNotFound, count > 0 {
+                        queue += (0..<count).compactMap { object.accessibilityElement(at: $0) as? NSObject }
+                    }
+                }
+                return false
+            }
+            XCTAssertTrue(try XCTUnwrap(button).accessibilityActivate())
+            try await waitFor("photo editor opened") { editorView() != nil }
+        }
+        let first = "첫 번째 사진 선택, 대표 사진"
+        let server = serverID.uuidString, a = localA.uuidString, b = localB.uuidString
+
+        // Default order: the server attachment first, then device photos.
+        try await waitFor("photo editor restored") { editorView() != nil && thumbnail(first) != nil }
+        try await perform("뒤로 이동", on: first)
+        try await waitFor("reorder saved") { try await savedDraft().photoOrder == [a, server, b] }
+        try await tap("취소")
+        try await waitFor("cancel restores order") {
+            let draft = try await savedDraft()
+            return draft.photoOrder == nil && draft.photos == [localA, localB] && editorView() == nil
+        }
+
+        // Reorder → Done keeps the order and it survives reopening.
+        try await reopen()
+        try await perform("뒤로 이동", on: first)
+        try await tap("완료")
+        try await waitFor("done keeps order") { try await savedDraft().photoOrder == [a, server, b] && editorView() == nil }
+        try await reopen()
+        try await perform("앞으로 이동", on: "3번째 사진 선택")
+        try await waitFor("restored order moved") { try await savedDraft().photoOrder == [a, b, server] }
+        try await tap("취소")
+        try await waitFor("cancel returns to saved order") {
+            try await savedDraft().photoOrder == [a, server, b] && editorView() == nil
+        }
+
+        // Rotate replaces the representative device photo in place; delete drops it from the order.
+        try await reopen()
+        try await tap("회전")
+        var rotated: UUID?
+        try await waitFor("rotation keeps position") {
+            let draft = try await savedDraft()
+            guard let id = draft.photos.first, id != localA, draft.photos == [id, localB] else { return false }
+            rotated = id
+            return draft.photoOrder == [id.uuidString, server, b]
+        }
+        let rotatedID = try XCTUnwrap(rotated)
+        try await tap("삭제")
+        try await waitFor("delete updates order") {
+            let draft = try await savedDraft()
+            return draft.photos == [localB] && draft.photoOrder == [server, b]
+        }
+        try await tap("완료")
+        try await waitFor("delete saved") { editorView() == nil }
+        let final = try await savedDraft()
+        XCTAssertEqual(final.photos, [localB])
+        XCTAssertFalse(final.photos.contains(rotatedID))
+        XCTAssertEqual(store.mediaPaths(storyID: saved.id), serverPaths, "Device-only reordering never writes the server")
+    }
+
     /// Opt-in live UI check with a fake API and an isolated draft vault. Never uses a real account.
     @MainActor func testInteractiveCreationNavigation() async throws {
         let mode = ProcessInfo.processInfo.environment["OI_CREATION_INTERACTION_CHECK"]
@@ -1944,6 +2092,31 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(receipt?.status, "pending")
         XCTAssertFalse(OiCreationAccess.canEdit(status: receipt?.status, submitted: false))
         XCTAssertTrue(store.stories.isEmpty, "Review request must not publish the story")
+    }
+
+    @MainActor func testMediaReorderKeepsAttachmentsMissingFromLocalCache() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let receipt = await store.save(draft())
+        let story = try XCTUnwrap(receipt)
+        let firstID = UUID(), secondID = UUID()
+        let prefix = "\(story.userId.uuidString)/\(story.id.uuidString)"
+        let first = "\(prefix)/\(firstID.uuidString.lowercased()).jpg"
+        let second = "\(prefix)/\(secondID.uuidString.lowercased()).jpg"
+        let unknown = "\(prefix)/another-device.jpg"
+        backend.configure {
+            $0.paths = [first, unknown, second]
+            $0.failReads = true
+        }
+        let preferred = [secondID.uuidString, firstID.uuidString]
+        let reordered = await store.reorderStoryMedia(preferred, story: story)
+        let updated = try XCTUnwrap(reordered)
+        XCTAssertEqual(updated.revision, story.revision + 1)
+        XCTAssertEqual(backend.snapshot().paths, [second, first, unknown])
+        XCTAssertEqual(store.mediaPaths(storyID: story.id), [second, first, unknown])
+        let repeated = await store.reorderStoryMedia(preferred, story: updated)
+        XCTAssertEqual(repeated?.revision, updated.revision)
     }
 
     @MainActor func testMediaRemovalKeepsAttachmentsMissingFromLocalCache() async throws {
