@@ -65,7 +65,9 @@ struct OiSeedCucumberAppearance {
     static let stemDefaultTip = CGPoint(x: 650, y: 79)
     static let sizeRange: ClosedRange<CGFloat> = 0.5...2
     static let horizontalRange: ClosedRange<CGFloat> = -80...80
-    static let verticalRange: ClosedRange<CGFloat> = -110...140
+    static let eyeSpacingRange: ClosedRange<CGFloat> = 0.70...1.30
+    static let minimumEyeMouthGap: CGFloat = 20
+    private static let verticalRange: ClosedRange<CGFloat> = -110...140
     static let lengthRange: ClosedRange<CGFloat> = 0.5...1.65
     static let angleRange: ClosedRange<CGFloat> = -130...35
     static let heightRange: ClosedRange<CGFloat> = 0.85...1.20
@@ -79,9 +81,14 @@ struct OiSeedCucumberAppearance {
 
     private var eyes = Face()
     private var mouth = Face()
+    var eyeSpacing: CGFloat = 1
     var stemLength: CGFloat = 1
     var stemAngle: CGFloat = 0
-    var bodyHeight: CGFloat = 1
+    var bodyHeight: CGFloat = 1 {
+        didSet {
+            eyes.y = min(eyes.y, faceVerticalRange(for: .eyes).upperBound)
+        }
+    }
     var bodyWidth: CGFloat = 1
 
     subscript(part: OiSeedCucumberPart) -> Face {
@@ -93,8 +100,24 @@ struct OiSeedCucumberAppearance {
             }
         }
         set {
-            if part == .eyes { eyes = newValue }
-            else if part == .mouth { mouth = newValue }
+            let face = Face(x: Self.clamp(newValue.x, to: Self.horizontalRange),
+                            y: Self.clamp(newValue.y, to: faceVerticalRange(for: part)),
+                            size: Self.clamp(newValue.size, to: Self.sizeRange))
+            if part == .eyes { eyes = face }
+            else if part == .mouth { mouth = face }
+        }
+    }
+
+    func faceVerticalRange(for part: OiSeedCucumberPart) -> ClosedRange<CGFloat> {
+        let range = Self.verticalRange
+        // The eye stagger stays fixed when the body stretches, unlike the group and mouth centers.
+        let eyeStagger = OiSeedCucumberLayer.rightEye.sourceFrame.midY - Self.eyePairCenter.y
+        let centerSeparation = OiSeedCucumberLayer.mouth.sourceFrame.midY - Self.eyePairCenter.y
+        let minimumOffset = (eyeStagger + Self.minimumEyeMouthGap) / bodyHeight - centerSeparation
+        switch part {
+        case .eyes: return range.lowerBound...Self.clamp(mouth.y - minimumOffset, to: range)
+        case .mouth: return Self.clamp(eyes.y + minimumOffset, to: range)...range.upperBound
+        case .stem, .body: return range
         }
     }
 
@@ -114,8 +137,10 @@ struct OiSeedCucumberAppearance {
         let moved = CGPoint(x: anchor.x + face.x, y: anchor.y + face.y).applying(bodyTransform)
         let width = crop.width * face.size
         let height = crop.height * face.size
-        // Resize each eye around its own center so the spacing in the pair stays constant.
-        return CGRect(x: moved.x + center.x - anchor.x - width / 2, y: moved.y + center.y - anchor.y - height / 2,
+        let spacing = layer.part == .eyes ? eyeSpacing : 1
+        // Resize each eye around its own center independently of the spacing control.
+        return CGRect(x: moved.x + (center.x - anchor.x) * spacing - width / 2,
+                      y: moved.y + center.y - anchor.y - height / 2,
                       width: width, height: height)
     }
 
@@ -129,16 +154,7 @@ struct OiSeedCucumberAppearance {
 
     var stemAttachment: CGPoint { Self.stemBase.applying(bodyTransform) }
 
-    var stemTransform: CGAffineTransform {
-        let attachment = stemAttachment
-        return CGAffineTransform(translationX: attachment.x, y: attachment.y)
-            .rotated(by: Self.stemAxis + stemAngle * .pi / 180)
-            .scaledBy(x: stemLength, y: 1)
-            .rotated(by: -Self.stemAxis)
-            .translatedBy(x: -Self.stemBase.x, y: -Self.stemBase.y)
-    }
-
-    var stemTip: CGPoint { Self.stemDefaultTip.applying(stemTransform) }
+    var stemTip: CGPoint { stemPoint(for: Self.stemDefaultTip) }
 
     mutating func moveStemTip(to tip: CGPoint) {
         let attachment = stemAttachment

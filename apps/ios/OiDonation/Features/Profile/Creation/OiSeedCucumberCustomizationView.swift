@@ -40,10 +40,7 @@ struct OiSeedCucumberCustomizationView: View {
             let viewport = OiSeedCucumberViewport(size: size)
             var artwork = context
             artwork.concatenate(viewport.transform)
-            var stem = artwork
-            stem.concatenate(appearance.stemTransform)
-            let stemLayer = OiSeedCucumberLayer.stem
-            stem.draw(Image(stemLayer.asset), in: stemLayer.sourceFrame)
+            appearance.drawStem(in: artwork)
             // The crown covers the stem's cut edge at every rotation and length.
             artwork.draw(Image("SeedCucumberBody"), in: appearance.bodyFrame)
             for layer in OiSeedCucumberLayer.faceLayers {
@@ -99,9 +96,13 @@ struct OiSeedCucumberCustomizationView: View {
                 let face = appearance[selection]
                 slider("크기", value: faceBinding(\.size), range: OiSeedCucumberAppearance.sizeRange,
                        display: percent(face.size), id: "size")
+                if selection == .eyes {
+                    slider("미간", value: $appearance.eyeSpacing, range: OiSeedCucumberAppearance.eyeSpacingRange,
+                           display: percent(appearance.eyeSpacing), id: "eyeSpacing")
+                }
                 slider("좌우 위치", value: faceBinding(\.x), range: OiSeedCucumberAppearance.horizontalRange,
                        display: offsetLabel(face.x, negative: "왼쪽", positive: "오른쪽"), id: "horizontal")
-                slider("상하 위치", value: faceBinding(\.y), range: OiSeedCucumberAppearance.verticalRange,
+                slider("상하 위치", value: faceBinding(\.y), range: appearance.faceVerticalRange(for: selection),
                        display: offsetLabel(face.y, negative: "위", positive: "아래"), id: "vertical")
             }
         }
