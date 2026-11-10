@@ -28,23 +28,29 @@ final class OiWardrobeScene {
     @ObservationIgnored private var cardPitch: Float = 0
 
     func install() -> RealityKit.ARView {
-        if let canvas { return canvas }
         let view = RealityKit.ARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
         view.environment.background = .color(.white)
         view.renderOptions.formUnion([.disableMotionBlur, .disableDepthOfField, .disableCameraGrain])
         view.environment.lighting.intensityExponent = 0
-        camera.camera.fieldOfViewInDegrees = 36
-        anchor.addChild(camera)
-        for (position, power) in [(SIMD3<Float>(-3, 5, 4), Float(1200)), (SIMD3<Float>(3, 3, 2), Float(700)), (SIMD3<Float>(0, 4, -3), Float(800))] {
-            let light = DirectionalLight(); light.light.intensity = power
-            light.look(at: [0, 0.8, 0], from: position, relativeTo: nil)
-            anchor.addChild(light)
+        if let canvas {
+            // SwiftUI can mount the new view before dismantling the previous one.
+            canvas.scene.removeAnchor(anchor)
+        } else {
+            camera.camera.fieldOfViewInDegrees = 36
+            anchor.addChild(camera)
+            for (position, power) in [(SIMD3<Float>(-3, 5, 4), Float(1200)), (SIMD3<Float>(3, 3, 2), Float(700)), (SIMD3<Float>(0, 4, -3), Float(800))] {
+                let light = DirectionalLight(); light.light.intensity = power
+                light.look(at: [0, 0.8, 0], from: position, relativeTo: nil)
+                anchor.addChild(light)
+            }
         }
         view.scene.addAnchor(anchor)
         canvas = view
         updateCamera()
         return view
     }
+
+    func isInstalled(_ view: RealityKit.ARView) -> Bool { canvas === view }
 
     func update(_ look: OiWardrobeLook, retry: Bool = false) {
         guard retry || look != request else { return }
@@ -93,9 +99,11 @@ final class OiWardrobeScene {
     }
 
     func setPhotoPreview(_ image: CGImage) async {
-        guard let editingSlot, let look = request else { return }
+        guard let editingSlot else { return }
         previewImage = image
-        previewVersion += 1; let version = previewVersion
+        previewVersion += 1
+        guard let look = request else { return }
+        let version = previewVersion
         let token = generation
         do {
             if editingSlot.preservesOriginalMaterial(in: look) {
@@ -150,11 +158,14 @@ final class OiWardrobeScene {
                                               0.07 + sin(cardPitch) * distance,
                                               cos(yaw) * cos(cardPitch) * distance), relativeTo: nil)
     }
-    func release() {
+    func uninstall(_ view: RealityKit.ARView) {
+        guard isInstalled(view) else { return }
         generation += 1; task?.cancel(); task = nil
-        model?.removeFromParent(); model = nil; loadedName = nil; request = nil
-        photoNodes.removeAll(); previewTexture = nil; previewImage = nil; previewVersion += 1
-        canvas?.scene.anchors.removeAll(); canvas = nil
+        model = nil; loadedName = nil; request = nil
+        // Keep the editor's latest image so a new view can recreate its texture.
+        photoNodes.removeAll(); previewTexture = nil; previewVersion += 1
+        view.scene.removeAnchor(anchor)
+        canvas = nil
         for child in Array(anchor.children) { child.removeFromParent() }
     }
 }
@@ -175,8 +186,13 @@ struct OiWardrobeSurface: UIViewRepresentable {
         scene.update(look)
         return view
     }
-    func updateUIView(_ view: RealityKit.ARView, context: Context) { scene.update(look) }
-    static func dismantleUIView(_ view: RealityKit.ARView, coordinator: Coordinator) { view.scene.anchors.removeAll() }
+    func updateUIView(_ view: RealityKit.ARView, context: Context) {
+        guard scene.isInstalled(view) else { return }
+        scene.update(look)
+    }
+    static func dismantleUIView(_ view: RealityKit.ARView, coordinator: Coordinator) {
+        coordinator.scene.uninstall(view)
+    }
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         let scene: OiWardrobeScene
@@ -232,8 +248,6 @@ struct OiWardrobePreview: View {
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
             }
         }
-        .onDisappear { scene.release() }
-        .onChange(of: scenePhase) { _, phase in if phase == .background { scene.release() } }
     }
 }
 

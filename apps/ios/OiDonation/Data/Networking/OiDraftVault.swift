@@ -20,6 +20,8 @@ struct OiLocalDraft: Codable, Identifiable, Equatable {
     /// Local consent selections, never inferred from visiting a screen or legacy drafts.
     var agreedConsentClauseIDs: Set<String>?
     var personalPlacement: OiPersonalPlacement?
+    /// Preferred photo order by `OiEditingPhoto.orderKey`; nil keeps the attachment order.
+    var photoOrder: [String]?
     var id: UUID { draft.id }
 }
 

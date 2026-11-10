@@ -9,12 +9,15 @@ struct OiStoryPhotoStep<Photo: View>: View {
     let loadPhoto: (UUID) async throws -> Data
     let edit: (UUID, OiPhotoEdit) async -> Bool
     let remove: (OiEditingPhoto) -> Void
+    let move: (OiEditingPhoto, Int) -> Void
     let photo: (OiEditingPhoto) -> Photo
     var thumbnail: ((OiEditingPhoto) -> Photo)? = nil
     var previewWidth: CGFloat = 296
     var previewHeight: CGFloat = 400
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @ScaledMetric(relativeTo: .caption) private var countLineHeight = 16.0
+    @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @GestureState private var photoDrag: PhotoDrag?
     @ScaledMetric(relativeTo: .body) private var representativeLineHeight = 14.0
     @State private var previewImage: UIImage?
     @State private var previewID: UUID?
@@ -29,10 +32,15 @@ struct OiStoryPhotoStep<Photo: View>: View {
         let id: UUID
         let image: UIImage
     }
+    private struct PhotoDrag {
+        let item: OiEditingPhoto
+        let translation: CGFloat
+    }
+    private let thumbnailWidth: CGFloat = 60
+    private let thumbnailSpacing: CGFloat = 10
     private var current: OiEditingPhoto? { selected.flatMap { items.contains($0) ? $0 : nil } ?? items.first }
     private var remainingSlots: Int { max(0, OiCreationStep.storyPhotoLimit - items.count) }
     var body: some View {
-        let glowInset: CGFloat = 14
         VStack(spacing: 0) {
             if let current {
                 Group {
@@ -48,73 +56,31 @@ struct OiStoryPhotoStep<Photo: View>: View {
                 }
                 .frame(width: previewWidth, height: previewHeight)
                 .clipped()
-                .padding(.bottom, 30)
-                let toolLayout = dynamicTypeSize.isAccessibilitySize
-                    ? AnyLayout(VStackLayout(spacing: 9)) : AnyLayout(HStackLayout(spacing: 9))
-                toolLayout {
-                    Button {
-                        if case .local(let id) = current { cropPhotoID = id }
-                    } label: { toolLabel("자르기", symbol: "crop") }
-                        .buttonStyle(.plain).disabled(!canEdit).accessibilityIdentifier("oi.photos.crop")
-                    editButton("회전", symbol: "rotate.left", operation: .rotateLeft)
-                    Button { remove(current); selected = nil } label: { toolLabel("삭제", symbol: "trash") }
-                        .buttonStyle(.plain).accessibilityIdentifier("oi.photos.delete")
-                }.padding(.bottom, canEdit ? 30 : 0)
-                if !canEdit {
-                    Text("업로드된 사진은 삭제 후 새 사진으로 바꿀 수 있어요.")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .padding(.vertical, 15)
-                }
             } else {
-                ContentUnavailableView("이야기에 담을 사진을 골라주세요", systemImage: "photo.on.rectangle.angled", description: Text("선택한 사진은 먼저 이 기기에 보관돼요."))
-                    .frame(minHeight: previewHeight).padding(.bottom, 22)
+                emptyPreview
             }
-            HStack(spacing: 4) {
-                Text(items.count.formatted())
-                    .font(.custom("Paperlogy-6SemiBold", size: 12, relativeTo: .caption))
-                Text("/")
-                Text(OiCreationStep.storyPhotoLimit.formatted())
+            editingTools
+                .padding(.top, 20)
+            if current != nil && !canEdit {
+                Text("업로드된 사진은 삭제 후 새 사진으로 바꿀 수 있어요.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .padding(.top, 12)
             }
-                .font(.custom("Paperlogy-4Regular", size: 12, relativeTo: .caption))
-                .tracking(0.24)
-                .frame(minHeight: countLineHeight)
-                .padding(.horizontal, 12).padding(.vertical, 4)
-                .foregroundStyle(.black)
-                .background(Color(red: 241 / 255, green: 244 / 255, blue: 236 / 255).opacity(0.6), in: Capsule())
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("사진 \(items.count) / \(OiCreationStep.storyPhotoLimit)")
-            HStack(alignment: .top, spacing: 0) {
-                PhotosPicker(selection: $selections, maxSelectionCount: max(1, remainingSlots), matching: .images) {
-                    thumbnailTile("추가") {
-                        Color("OiBorder").overlay {
-                            Text("+").font(.custom("Paperlogy-4Regular", size: 30, relativeTo: .body))
-                                .tracking(0.6)
-                                .foregroundStyle(Color(red: 84 / 255, green: 105 / 255, blue: 48 / 255))
-                                .accessibilityHidden(true)
-                        }
-                    }
-                }.accessibilityIdentifier("oi.photos.add").buttonStyle(.plain)
-                    .disabled(remainingSlots == 0)
-                    .opacity(remainingSlots == 0 ? 0.45 : 1)
-                    .padding(.vertical, glowInset)
+            if items.count > OiCreationStep.storyPhotoLimit {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                            Button { selected = item } label: {
-                                thumbnailTile("\(index + 1)", selected: current == item, representative: index == 0) {
-                                    thumbnail?(item) ?? photo(item)
-                                }
-                            }.buttonStyle(.plain).accessibilityLabel("\(index + 1)번째 사진 선택")
-                                .accessibilityAddTraits(current == item ? .isSelected : [])
-                        }
-                    }
-                    // Match the tile spacing at the pinned edge while leaving room for the glow.
-                    .padding(.leading, 10)
-                    .padding([.vertical, .trailing], glowInset)
+                    thumbnailRow.padding(10)
                 }
+                .padding(.top, 38)
+            } else {
+                thumbnailRow.padding(.top, 48)
             }
-            .padding(.top, current == nil ? 8 : 4)
+            Text("첫번째 사진이 대표사진으로 설정됩니다\n사진을 꾹 누르고 순서를 조절해보세요")
+                .font(CampusStyle.body(14))
+                .tracking(0.28)
+                .lineSpacing(4)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(Color(white: 100 / 255))
+                .padding(.top, 20)
         }
         .disabled(cropPhotoID != nil || isEditing)
         .task(id: current) {
@@ -153,6 +119,115 @@ struct OiStoryPhotoStep<Photo: View>: View {
             editedIndex = nil
         }
     }
+
+    private var emptyPreview: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "photo.on.rectangle.angled")
+                .font(.system(size: 30, weight: .light))
+                .accessibilityHidden(true)
+            VStack(spacing: 4) {
+                Text("이야기에 담을 사진을 추가해주세요")
+                    .font(CampusStyle.medium(20)).tracking(0.4)
+                Text("사진은 최대 3장까지 가능합니다")
+                    .font(.custom("Paperlogy-3Light", size: 14, relativeTo: .caption))
+                    .tracking(0.28)
+            }
+        }
+        .foregroundStyle(.white)
+        .multilineTextAlignment(.center)
+        .padding(10)
+        .frame(maxWidth: 350, minHeight: previewHeight)
+        .background(Color(white: 55 / 255))
+        .accessibilityElement(children: .combine)
+    }
+
+    private var editingTools: some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 9)) : AnyLayout(HStackLayout(spacing: 20))
+        return layout {
+            if let current {
+                Button {
+                    if case .local(let id) = current { cropPhotoID = id }
+                } label: { toolLabel("자르기", symbol: "crop") }
+                    .buttonStyle(.plain).disabled(!canEdit).accessibilityIdentifier("oi.photos.crop")
+                editButton("회전", symbol: "rotate.left", operation: .rotateLeft)
+                Button {
+                    remove(current); selected = nil
+                } label: { toolLabel("삭제", symbol: "trash") }
+                    .buttonStyle(.plain).accessibilityIdentifier("oi.photos.delete")
+            } else {
+                toolLabel("자르기", symbol: "crop").accessibilityHidden(true)
+                toolLabel("회전", symbol: "rotate.left").accessibilityHidden(true)
+                toolLabel("삭제", symbol: "trash").accessibilityHidden(true)
+            }
+        }
+    }
+
+    private var thumbnailRow: some View {
+        HStack(alignment: .top, spacing: thumbnailSpacing) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                Button { selected = item } label: {
+                    thumbnailTile("\(index + 1)", selected: current == item, representative: index == 0) {
+                        thumbnail?(item) ?? photo(item)
+                    }
+                }.buttonStyle(.plain)
+                    .accessibilityLabel(index == 0 ? "첫 번째 사진 선택, 대표 사진" : "\(index + 1)번째 사진 선택")
+                    .accessibilityAddTraits(current == item ? .isSelected : [])
+                    .accessibilityActions {
+                        if index > 0 {
+                            Button("앞으로 이동") { move(item, -1) }
+                        }
+                        if index + 1 < items.count {
+                            Button("뒤로 이동") { move(item, 1) }
+                        }
+                    }
+                    .simultaneousGesture(reorderGesture(for: item), including: items.count > 1 ? .all : .none)
+                    .offset(x: photoDrag?.item == item ? photoDrag?.translation ?? 0 : 0)
+                    .zIndex(photoDrag?.item == item ? 1 : 0)
+            }
+            if remainingSlots > 0 {
+                PhotosPicker(selection: $selections, maxSelectionCount: remainingSlots, matching: .images) {
+                    thumbnailTile("추가") {
+                        CampusStyle.secondaryAction.overlay {
+                            Text("+").font(CampusStyle.body(30)).tracking(0.6)
+                                .foregroundStyle(CampusStyle.sectionGreen)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                }
+                .accessibilityIdentifier("oi.photos.add")
+                .buttonStyle(.plain)
+
+                ForEach(0..<max(0, remainingSlots - 1), id: \.self) { index in
+                    thumbnailTile("") {
+                        LinearGradient(
+                            colors: index == 0
+                                ? [Color(white: 57 / 255), Color(white: 52 / 255)]
+                                : [Color(white: 43 / 255), Color(white: 40 / 255)],
+                            startPoint: .topLeading, endPoint: .bottomTrailing
+                        )
+                    }
+                    .accessibilityHidden(true)
+                }
+            }
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: items)
+    }
+
+    private func reorderGesture(for item: OiEditingPhoto) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.35)
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
+            .updating($photoDrag) { value, state, _ in
+                guard case .second(true, let drag) = value else { return }
+                state = PhotoDrag(item: item, translation: drag?.translation.width ?? 0)
+            }
+            .onEnded { value in
+                guard case .second(true, let drag?) = value else { return }
+                let direction: CGFloat = layoutDirection == .rightToLeft ? -1 : 1
+                let slots = direction * drag.translation.width / (thumbnailWidth + thumbnailSpacing)
+                move(item, Int(slots.rounded()))
+            }
+    }
     private var canEdit: Bool {
         if case .local(let id) = current { return !uploadedPhotos.contains(id) }
         return false
@@ -177,17 +252,17 @@ struct OiStoryPhotoStep<Photo: View>: View {
     }
 
     private func toolLabel(_ title: String, symbol: String) -> some View {
-        VStack(spacing: 8) {
+        HStack(spacing: 8) {
             Image(systemName: symbol).font(.system(size: 20, weight: .light))
                 .accessibilityHidden(true)
-            Text(title).font(.custom("Paperlogy-5Medium", size: 20, relativeTo: .body)).tracking(0.4)
+            Text(title).font(CampusStyle.medium(16)).tracking(0.32)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.vertical, 8)
-        .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : 85, minHeight: 88)
+        .padding(.vertical, 12)
+        .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : 100, minHeight: 52)
         .foregroundStyle(Color(white: 106 / 255))
-        .background(Color(white: 244 / 255), in: RoundedRectangle(cornerRadius: 20))
+        .background(Color(white: 239 / 255), in: RoundedRectangle(cornerRadius: 20))
     }
 
     private func thumbnailTile<Content: View>(_ title: String, selected: Bool = false, representative: Bool = false,
@@ -195,7 +270,7 @@ struct OiStoryPhotoStep<Photo: View>: View {
         let shape = RoundedRectangle(cornerRadius: 10)
         return VStack(spacing: 10) {
             content()
-                .frame(width: 60, height: 75)
+                .frame(width: thumbnailWidth, height: 75)
                 .background(Color(.secondarySystemBackground))
                 .clipShape(shape)
                 .overlay { if selected { shape.strokeBorder(.white, lineWidth: 3) } }
@@ -217,7 +292,7 @@ struct OiStoryPhotoStep<Photo: View>: View {
         Text(title)
             .font(.custom("Paperlogy-5Medium", size: 14, relativeTo: .caption))
             .tracking(0.28)
-            .foregroundStyle(.white)
+            .foregroundStyle(.white.opacity(title == "추가" ? 0.3 : 1))
     }
 }
 
