@@ -9,7 +9,6 @@ struct OiStoryConsentView: View {
     var showsContinueButton = true
     var state: Binding<OiStoryConsentState>?
     var onSelectStage: ((Int) -> Void)?
-    var onSkip: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -22,12 +21,6 @@ struct OiStoryConsentView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 20) {
-                    if let onSkip {
-                        Text("내 지도에만 배치할 때는 공개 약관 동의가 필요 없어요.")
-                            .font(CampusStyle.body(14)).foregroundStyle(.secondary)
-                        OiCreationNextButton(title: "나만의 오이 만들기", action: onSkip)
-                            .accessibilityIdentifier("oi.consent.makePersonalOi")
-                    }
                     VStack(spacing: 50) {
                         ForEach(clauses) { clause in
                             clauseSection(clause)
