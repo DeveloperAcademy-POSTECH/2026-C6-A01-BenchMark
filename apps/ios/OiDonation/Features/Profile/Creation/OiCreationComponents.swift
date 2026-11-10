@@ -375,6 +375,15 @@ struct OiStoryAttachmentSections: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 50) {
+            OiCreationSection(title: "이야기 사진", hint: "(공개할 때 1~\(OiCreationStep.storyPhotoLimit)장)") {
+                formButton(photoCount == 0 ? "사진 추가하기" : "선택한 사진 보기 · \(photoCount)장",
+                           highlighted: false, action: onPhotos)
+                    .accessibilityIdentifier("oi.story.editPhotos")
+                if photoCount > OiCreationStep.storyPhotoLimit {
+                    Text("공개 검토를 요청하려면 사진을 \(OiCreationStep.storyPhotoLimit)장 이하로 줄여 주세요.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
             OiCreationSection(title: "오이 위치 설정", titleSize: 30) {
                 Map(position: .constant(.region(MKCoordinateRegion(
                     center: coordinate ?? CLLocationCoordinate2D(latitude: 36.0139, longitude: 129.3232),
@@ -397,15 +406,6 @@ struct OiStoryAttachmentSections: View {
                 .accessibilityIdentifier("oi.story.locationPreview")
                 formButton(coordinate == nil ? "위치 설정하기" : "재설정하기", highlighted: true, action: onLocation)
                     .accessibilityIdentifier("oi.story.editLocation")
-            }
-            OiCreationSection(title: "이야기 사진", hint: "(공개할 때 1~\(OiCreationStep.storyPhotoLimit)장)") {
-                formButton(photoCount == 0 ? "사진 추가하기" : "선택한 사진 보기 · \(photoCount)장",
-                           highlighted: false, action: onPhotos)
-                    .accessibilityIdentifier("oi.story.editPhotos")
-                if photoCount > OiCreationStep.storyPhotoLimit {
-                    Text("공개 검토를 요청하려면 사진을 \(OiCreationStep.storyPhotoLimit)장 이하로 줄여 주세요.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
             }
         }
     }

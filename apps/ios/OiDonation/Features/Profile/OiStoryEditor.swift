@@ -141,7 +141,7 @@ struct OiStoryEditor: View {
                         OiStoryConsentView(clauses: OiStoryConsentClause.writingClauses,
                             continueTitle: "공개 약관에 동의하고 계속",
                             onContinue: advance, onExit: { choosingExit = true },
-                            showsHeader: false, state: $consentState, onSkip: { navigate(to: .story) })
+                            showsHeader: false, state: $consentState)
                     } else if step == .cucumber || step == .card {
                         VStack(spacing: 0) {
                             editorStatus.padding(.horizontal, 20)
@@ -731,10 +731,10 @@ struct OiStoryEditor: View {
             VStack(alignment: .leading, spacing: 50) {
                 Text("내 지도에 오이를 배치하려면 위치를 골라 주세요. 이야기와 사진은 공개할 때 필요해요.")
                     .font(CampusStyle.body(14)).foregroundStyle(.secondary)
+                OiStoryWritingStep(draft: $draft, focusedField: $focusedStoryField)
                 OiStoryAttachmentSections(photoCount: editingPhotos.count,
                     latitude: draft.latitude, longitude: draft.longitude,
                     onPhotos: openPhotoEditor, onLocation: { navigate(to: .location) })
-                OiStoryWritingStep(draft: $draft, focusedField: $focusedStoryField)
             }
         case .cucumber:
             OiCucumberCustomizationStep(customization: $customization,
