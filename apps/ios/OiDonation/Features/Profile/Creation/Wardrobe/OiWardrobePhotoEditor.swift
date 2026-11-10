@@ -133,7 +133,7 @@ struct OiWardrobePhotoEditor: View {
         .onChange(of: phase) { _, value in
             // System presentations can temporarily make the scene inactive.
             // Keep the existing preview alive until the app actually backgrounds.
-            if value == .background { stopPreview(); scene.release() }
+            if value == .background { stopPreview() }
             else if value == .active { requestPreview() }
         }
         .onChange(of: draft.layers) { _, _ in requestPreview() }
