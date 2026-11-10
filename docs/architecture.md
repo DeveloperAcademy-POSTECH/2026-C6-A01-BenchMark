@@ -314,6 +314,8 @@ MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하
 
 2026-11-09 #268: 씨앗 화면의 얼굴 편집은 `OiSeedCucumberCustomizationView`에 둔다. 고정된 원본 이미지 좌표에서 몸체와 네 부위를 합성한다. 드래그·핀치와 슬라이더는 같은 화면 상태를 갱신하며, 꼭지는 밑동을 축으로 길이와 각도를 조절한다. 편집값은 화면에 머무는 동안 메모리에 유지한다.
 
+2026-11-10 후속 작업에서 키는 발바닥, 체형은 몸체 중심선을 기준으로 바꾸도록 했다. 두 눈의 중심 간격과 눈·입·꼭지 자체 크기는 몸체 비율과 독립적으로 유지하며 각 부위의 부착 위치만 몸체를 따라 이동한다. 꼭지는 몸체 뒤에 합성해 회전한 밑동 절단면을 머리 윤곽이 가린다.
+
 `OiLocalDraft`의 선택적 `creationStep`·`customization`·`removedMediaPaths`는 구버전 초안을 그대로 읽을 수 있게 추가한다. `OiDraftCustomization`은 로컬 미리보기 전용이며 `OiStoryDraft.payload()`나 공유 DB를 확장하지 않는다. 업로드 사진 순서를 유지하고 기기 사본과 서버 경로를 중복 표시하지 않는다. 기존 `attach_media` RPC로 사진 연결을 변경하며, 변경 직후 목록 동기화가 실패해도 응답의 revision과 경로를 보존한다.
 
 위치 선택은 기존 `CampusExploreScene`을 재사용한다. 2026-11-05 후속 요청에 따라 `OiLocationPicker`가 장소 검색 → 지도 확인을 소유하고, `OiStoryLocationStep`은 번들 POSTECH POI 검색 목록을 표시한다. 별도 오이 모델 로딩 없이 지도 카메라의 광학 중심 광선과 `CampusHeightField`의 교차점으로 임시 좌표를 계산한다. 이동·회전·기울기·확대·탄성 복귀마다 갱신하며 유효하지 않으면 이전 유효 좌표도 비워 잘못 확정되지 않게 한다. 확인 버튼에서 카메라 이동을 멈추고 다시 검증한 뒤 초안에 전달한다. 지도 검색 복귀·화면 종료 시 숨은 RealityKit 렌더러를 해제하며 메인과 같은 `CampusMapLabels`를 사용한다. 현장 테스트 화면의 탭·`CampusPlacementTools`는 변경하지 않는다. 구현 경계와 검증 절차는 [이야기 생성 흐름](story-creation-flow.md)을 따른다.

@@ -349,16 +349,19 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         XCTAssertNotNil(UIImage(named: "StorySeedIcon"))
         XCTAssertNotNil(UIImage(named: "SeedCucumberBody"))
-        for part in OiSeedCucumberPart.allCases {
-            let image = try XCTUnwrap(UIImage(named: part.asset)?.cgImage)
-            XCTAssertEqual(image.width, Int(part.sourceFrame.width))
-            XCTAssertEqual(image.height, Int(part.sourceFrame.height))
+        for layer in OiSeedCucumberLayer.allCases {
+            let image = try XCTUnwrap(UIImage(named: layer.asset)?.cgImage)
+            XCTAssertEqual(image.width, Int(layer.sourceFrame.width))
+            XCTAssertEqual(image.height, Int(layer.sourceFrame.height))
         }
         var edited = OiSeedCucumberAppearance()
-        edited[.leftEye] = .init(x: -45, y: -35, size: 1.4)
+        edited[.eyes] = .init(x: -45, y: -35, size: 1.4)
         edited[.mouth] = .init(x: 25, y: 35, size: 1.15)
-        edited.stemLength = 1.45
-        edited.stemAngle = -55
+        edited.stemLength = 1.63
+        edited.stemAngle = -70
+        var resized = edited
+        resized.bodyWidth = 1.30
+        resized.bodyHeight = 0.85
         for variant in variants {
             let reference = NavigationStack {
                 OiStoryListView(state: .preview, seedCount: 3,
@@ -388,6 +391,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             }
             try await capture(editedDestination, name: "seed-cucumber-customization-edited", variant: variant,
                               defaults: fixture.defaults, attach: true)
+            let bodyDestination = NavigationStack {
+                OiSeedCucumberCustomizationView(appearance: resized, selection: .body)
+            }
+            try await capture(bodyDestination, name: "seed-cucumber-customization-body", variant: variant,
+                              defaults: fixture.defaults, attach: true)
         }
     }
 
@@ -407,9 +415,20 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
 
             for part in OiSeedCucumberPart.faceParts {
                 appearance = Appearance()
-                let original = appearance.faceFrame(part)
-                let center = viewport.location(of: CGPoint(x: original.midX, y: original.midY))
-                XCTAssertEqual(viewport.hitPart(at: center, appearance: appearance, selection: selection), part)
+                appearance.bodyWidth = 1.25
+                appearance.bodyHeight = 0.85
+                let initial = appearance
+                let layers = OiSeedCucumberLayer.allCases.filter { $0.part == part }
+                let original = layers.map(appearance.faceFrame)
+                for frame in original {
+                    let center = viewport.location(of: CGPoint(x: frame.midX, y: frame.midY))
+                    XCTAssertEqual(viewport.hitPart(at: center, appearance: appearance, selection: selection), part)
+                }
+                guard let frame = original.last else {
+                    XCTFail("Editable parts must contain at least one layer")
+                    continue
+                }
+                let center = viewport.location(of: CGPoint(x: frame.midX, y: frame.midY))
 
                 let drag = SeedCucumberTestPan()
                 view.addGestureRecognizer(drag)
@@ -418,18 +437,24 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 drag.state = .began
                 coordinator.pan(drag)
                 XCTAssertEqual(selection, part)
-                drag.delta = CGPoint(x: 30 * viewport.scale, y: -40 * viewport.scale)
+                drag.delta = CGPoint(x: 30 * viewport.scale * appearance.bodyWidth,
+                                     y: -40 * viewport.scale * appearance.bodyHeight)
                 drag.state = .changed
                 coordinator.pan(drag)
                 XCTAssertEqual(appearance[part].x, 30, accuracy: 0.001)
                 XCTAssertEqual(appearance[part].y, -40, accuracy: 0.001)
+                for (layer, frame) in zip(layers, original) {
+                    let moved = appearance.faceFrame(layer)
+                    XCTAssertEqual(moved.midX - frame.midX, 30 * appearance.bodyWidth, accuracy: 0.001)
+                    XCTAssertEqual(moved.midY - frame.midY, -40 * appearance.bodyHeight, accuracy: 0.001)
+                }
                 drag.delta = CGPoint(x: 300 * viewport.scale, y: -300 * viewport.scale)
                 drag.state = .ended
                 coordinator.pan(drag)
                 XCTAssertEqual(appearance[part].x, Appearance.horizontalRange.upperBound)
                 XCTAssertEqual(appearance[part].y, Appearance.verticalRange.lowerBound)
 
-                let moved = appearance.faceFrame(part)
+                let moved = layers.map(appearance.faceFrame)
                 let pinch = UIPinchGestureRecognizer()
                 view.addGestureRecognizer(pinch)
                 pinch.state = .began
@@ -438,9 +463,13 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 pinch.state = .changed
                 pinch.scale = 1.5
                 coordinator.pinch(pinch)
-                XCTAssertEqual(appearance.faceFrame(part).width, original.width * 1.5, accuracy: 0.001)
-                XCTAssertEqual(appearance.faceFrame(part).midX, moved.midX, accuracy: 0.001)
-                XCTAssertEqual(appearance.faceFrame(part).midY, moved.midY, accuracy: 0.001)
+                for (layer, frame) in zip(layers, moved) {
+                    let enlarged = appearance.faceFrame(layer)
+                    XCTAssertEqual(enlarged.width, frame.width * 1.5, accuracy: 0.001)
+                    XCTAssertEqual(enlarged.height, frame.height * 1.5, accuracy: 0.001)
+                    XCTAssertEqual(enlarged.midX, frame.midX, accuracy: 0.001)
+                    XCTAssertEqual(enlarged.midY, frame.midY, accuracy: 0.001)
+                }
                 pinch.scale = 9
                 coordinator.pinch(pinch)
                 XCTAssertEqual(appearance[part].size, Appearance.sizeRange.upperBound)
@@ -448,17 +477,19 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 pinch.scale = 0.1
                 coordinator.pinch(pinch)
                 XCTAssertEqual(appearance[part].size, Appearance.sizeRange.lowerBound)
-                for neighbor in OiSeedCucumberPart.faceParts where neighbor != part {
-                    XCTAssertEqual(appearance.faceFrame(neighbor), neighbor.sourceFrame)
+                for layer in OiSeedCucumberLayer.allCases where layer.part != part && layer.part != .stem {
+                    XCTAssertEqual(appearance.faceFrame(layer), initial.faceFrame(layer))
                 }
                 view.removeGestureRecognizer(drag)
                 view.removeGestureRecognizer(pinch)
             }
 
             appearance = Appearance()
-            var desired = Appearance()
-            desired.stemLength = 1.5
-            desired.stemAngle = -54
+            appearance.bodyWidth = 1.30
+            appearance.bodyHeight = 0.85
+            var desired = appearance
+            desired.stemLength = 1.63
+            desired.stemAngle = -70
             let tip = viewport.location(of: appearance.stemTip)
             let destination = viewport.location(of: desired.stemTip)
             let drag = SeedCucumberTestPan()
@@ -472,9 +503,10 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             coordinator.pan(drag)
             XCTAssertEqual(appearance.stemLength, desired.stemLength, accuracy: 0.001)
             XCTAssertEqual(appearance.stemAngle, desired.stemAngle, accuracy: 0.001)
-            XCTAssertEqual(Appearance.stemBase.applying(appearance.stemTransform).x, Appearance.stemBase.x, accuracy: 0.001)
-            XCTAssertEqual(Appearance.stemBase.applying(appearance.stemTransform).y, Appearance.stemBase.y, accuracy: 0.001)
-            let base = viewport.location(of: Appearance.stemBase)
+            let joinedBase = Appearance.stemBase.applying(appearance.stemTransform)
+            XCTAssertEqual(joinedBase.x, appearance.stemAttachment.x, accuracy: 0.001)
+            XCTAssertEqual(joinedBase.y, appearance.stemAttachment.y, accuracy: 0.001)
+            let base = viewport.location(of: appearance.stemAttachment)
             for x in [-1.0, 1.0] {
                 drag.delta = CGPoint(x: base.x + x - tip.x, y: base.y + 10 - tip.y)
                 coordinator.pan(drag)
@@ -485,6 +517,42 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             coordinator.pan(drag)
             XCTAssertEqual(appearance.stemLength, Appearance.lengthRange.upperBound)
             XCTAssertEqual(appearance.stemAngle, Appearance.angleRange.upperBound)
+        }
+    }
+
+    func testSeedCucumberBodyScaleKeepsFootAndFacialGeometry() {
+        typealias Appearance = OiSeedCucumberAppearance
+        let original = Appearance()
+        let left = original.faceFrame(.leftEye)
+        let right = original.faceFrame(.rightEye)
+        let initialSpacing = CGSize(width: right.midX - left.midX, height: right.midY - left.midY)
+
+        for (width, height) in [(0.90, 1.0), (1.30, 1.0), (1.0, 0.85), (1.0, 1.20)] as [(CGFloat, CGFloat)] {
+            var resized = original
+            resized.bodyWidth = width
+            resized.bodyHeight = height
+            XCTAssertEqual(resized.bodyFrame.width, original.bodyFrame.width * width, accuracy: 0.001)
+            XCTAssertEqual(resized.bodyFrame.height, original.bodyFrame.height * height, accuracy: 0.001)
+            let foot = Appearance.bodyPivot.applying(resized.bodyTransform)
+            XCTAssertEqual(foot.x, Appearance.bodyPivot.x, accuracy: 0.001)
+            XCTAssertEqual(foot.y, Appearance.bodyPivot.y, accuracy: 0.001)
+
+            let left = resized.faceFrame(.leftEye)
+            let right = resized.faceFrame(.rightEye)
+            XCTAssertEqual(right.midX - left.midX, initialSpacing.width, accuracy: 0.001)
+            XCTAssertEqual(right.midY - left.midY, initialSpacing.height, accuracy: 0.001)
+            let initialCenter = CGPoint(x: original.faceFrame(.leftEye).midX + initialSpacing.width / 2,
+                                        y: original.faceFrame(.leftEye).midY + initialSpacing.height / 2)
+            let center = initialCenter.applying(resized.bodyTransform)
+            XCTAssertEqual((left.midX + right.midX) / 2, center.x, accuracy: 0.001)
+            XCTAssertEqual((left.midY + right.midY) / 2, center.y, accuracy: 0.001)
+            XCTAssertEqual(resized.faceFrame(.mouth).size, original.faceFrame(.mouth).size)
+
+            let base = Appearance.stemBase.applying(resized.bodyTransform)
+            XCTAssertEqual(resized.stemAttachment.x, base.x, accuracy: 0.001)
+            XCTAssertEqual(resized.stemAttachment.y, base.y, accuracy: 0.001)
+            XCTAssertEqual(resized.stemTip.x - base.x, original.stemTip.x - original.stemAttachment.x, accuracy: 0.001)
+            XCTAssertEqual(resized.stemTip.y - base.y, original.stemTip.y - original.stemAttachment.y, accuracy: 0.001)
         }
     }
 

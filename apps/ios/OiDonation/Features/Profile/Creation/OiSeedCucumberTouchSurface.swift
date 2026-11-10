@@ -82,9 +82,9 @@ struct OiSeedCucumberTouchSurface: UIViewRepresentable {
                 appearance.moveStemTip(to: CGPoint(x: drag.tip.x + dx, y: drag.tip.y + dy))
             } else {
                 appearance[drag.part].x = OiSeedCucumberAppearance.clamp(
-                    drag.face.x + dx, to: OiSeedCucumberAppearance.horizontalRange)
+                    drag.face.x + dx / appearance.bodyWidth, to: OiSeedCucumberAppearance.horizontalRange)
                 appearance[drag.part].y = OiSeedCucumberAppearance.clamp(
-                    drag.face.y + dy, to: OiSeedCucumberAppearance.verticalRange)
+                    drag.face.y + dy / appearance.bodyHeight, to: OiSeedCucumberAppearance.verticalRange)
             }
             surface.appearance = appearance
         }
@@ -93,7 +93,7 @@ struct OiSeedCucumberTouchSurface: UIViewRepresentable {
             switch gesture.state {
             case .began:
                 let part = surface.selection
-                guard part != .stem else { return }
+                guard OiSeedCucumberPart.faceParts.contains(part) else { return }
                 resize = (part, surface.appearance[part].size)
                 resizeFace(by: gesture.scale)
             case .changed:

@@ -8,16 +8,30 @@
 import CoreGraphics
 
 enum OiSeedCucumberPart: String, CaseIterable, Identifiable {
-    case leftEye, rightEye, mouth, stem
+    case eyes, mouth, stem, body
+
+    static let faceParts: [Self] = [.eyes, .mouth]
 
     var id: Self { self }
 
     var title: String {
         switch self {
-        case .leftEye: "왼쪽 눈"
-        case .rightEye: "오른쪽 눈"
+        case .eyes: "눈"
         case .mouth: "입"
         case .stem: "꼭지"
+        case .body: "몸체"
+        }
+    }
+}
+
+enum OiSeedCucumberLayer: CaseIterable {
+    case leftEye, rightEye, mouth, stem
+
+    var part: OiSeedCucumberPart {
+        switch self {
+        case .leftEye, .rightEye: .eyes
+        case .mouth: .mouth
+        case .stem: .stem
         }
     }
 
@@ -40,11 +54,13 @@ enum OiSeedCucumberPart: String, CaseIterable, Identifiable {
         }
     }
 
-    static let faceParts: [Self] = [.leftEye, .rightEye, .mouth]
+    static let faceLayers: [Self] = [.leftEye, .rightEye, .mouth]
 }
 
 struct OiSeedCucumberAppearance {
     static let sourceSize = CGSize(width: 1058, height: 1658)
+    // Ground line of the visible body artwork, excluding transparent padding.
+    static let bodyPivot = CGPoint(x: sourceSize.width / 2, y: 1549)
     static let stemBase = CGPoint(x: 549, y: 164)
     static let stemDefaultTip = CGPoint(x: 650, y: 79)
     static let sizeRange: ClosedRange<CGFloat> = 0.5...2
@@ -52,6 +68,8 @@ struct OiSeedCucumberAppearance {
     static let verticalRange: ClosedRange<CGFloat> = -110...140
     static let lengthRange: ClosedRange<CGFloat> = 0.5...1.65
     static let angleRange: ClosedRange<CGFloat> = -130...35
+    static let heightRange: ClosedRange<CGFloat> = 0.85...1.20
+    static let widthRange: ClosedRange<CGFloat> = 0.90...1.30
 
     struct Face {
         var x: CGFloat = 0
@@ -59,41 +77,73 @@ struct OiSeedCucumberAppearance {
         var size: CGFloat = 1
     }
 
-    private var faces: [OiSeedCucumberPart: Face] = [:]
+    private var eyes = Face()
+    private var mouth = Face()
     var stemLength: CGFloat = 1
     var stemAngle: CGFloat = 0
+    var bodyHeight: CGFloat = 1
+    var bodyWidth: CGFloat = 1
 
     subscript(part: OiSeedCucumberPart) -> Face {
-        get { faces[part, default: Face()] }
-        set { faces[part] = newValue }
+        get {
+            switch part {
+            case .eyes: eyes
+            case .mouth: mouth
+            case .stem, .body: Face()
+            }
+        }
+        set {
+            if part == .eyes { eyes = newValue }
+            else if part == .mouth { mouth = newValue }
+        }
     }
 
-    func faceFrame(_ part: OiSeedCucumberPart) -> CGRect {
-        let crop = part.sourceFrame
-        let face = self[part]
+    var bodyTransform: CGAffineTransform {
+        let pivot = Self.bodyPivot
+        return CGAffineTransform(a: bodyWidth, b: 0, c: 0, d: bodyHeight,
+                                 tx: pivot.x * (1 - bodyWidth), ty: pivot.y * (1 - bodyHeight))
+    }
+
+    var bodyFrame: CGRect { CGRect(origin: .zero, size: Self.sourceSize).applying(bodyTransform) }
+
+    func faceFrame(_ layer: OiSeedCucumberLayer) -> CGRect {
+        let crop = layer.sourceFrame
+        let face = self[layer.part]
+        let center = CGPoint(x: crop.midX, y: crop.midY)
+        let anchor = layer.part == .eyes ? Self.eyePairCenter : center
+        let moved = CGPoint(x: anchor.x + face.x, y: anchor.y + face.y).applying(bodyTransform)
         let width = crop.width * face.size
         let height = crop.height * face.size
-        return CGRect(x: crop.midX + face.x - width / 2, y: crop.midY + face.y - height / 2,
+        // Resize each eye around its own center so the spacing in the pair stays constant.
+        return CGRect(x: moved.x + center.x - anchor.x - width / 2, y: moved.y + center.y - anchor.y - height / 2,
                       width: width, height: height)
     }
 
+    private static let eyePairCenter: CGPoint = {
+        let left = OiSeedCucumberLayer.leftEye.sourceFrame
+        let right = OiSeedCucumberLayer.rightEye.sourceFrame
+        return CGPoint(x: (left.midX + right.midX) / 2, y: (left.midY + right.midY) / 2)
+    }()
     private static let stemVector = CGPoint(x: stemDefaultTip.x - stemBase.x, y: stemDefaultTip.y - stemBase.y)
     private static let stemAxis = atan2(stemVector.y, stemVector.x)
 
+    var stemAttachment: CGPoint { Self.stemBase.applying(bodyTransform) }
+
     var stemTransform: CGAffineTransform {
-        let base = Self.stemBase
-        return CGAffineTransform(translationX: base.x, y: base.y)
+        let attachment = stemAttachment
+        return CGAffineTransform(translationX: attachment.x, y: attachment.y)
             .rotated(by: Self.stemAxis + stemAngle * .pi / 180)
             .scaledBy(x: stemLength, y: 1)
             .rotated(by: -Self.stemAxis)
-            .translatedBy(x: -base.x, y: -base.y)
+            .translatedBy(x: -Self.stemBase.x, y: -Self.stemBase.y)
     }
 
     var stemTip: CGPoint { Self.stemDefaultTip.applying(stemTransform) }
 
     mutating func moveStemTip(to tip: CGPoint) {
-        let x = tip.x - Self.stemBase.x
-        let y = tip.y - Self.stemBase.y
+        let attachment = stemAttachment
+        let x = tip.x - attachment.x
+        let y = tip.y - attachment.y
         let distance = hypot(x, y)
         stemLength = Self.clamp(distance / hypot(Self.stemVector.x, Self.stemVector.y), to: Self.lengthRange)
         // Keep the last angle below the base so crossing it cannot flip the stem.
@@ -108,15 +158,24 @@ struct OiSeedCucumberAppearance {
 }
 
 struct OiSeedCucumberViewport {
-    // Extra space above the source lets a lengthened, upright stem remain visible.
-    private static let stemClearance: CGFloat = 120
+    // Fit the largest supported pose once so changing height does not zoom the preview.
+    private static let artBounds: CGRect = {
+        let pivot = OiSeedCucumberAppearance.bodyPivot
+        let crown = OiSeedCucumberAppearance.stemBase.y
+        let tallestCrown = pivot.y + (crown - pivot.y) * OiSeedCucumberAppearance.heightRange.upperBound
+        let top = tallestCrown - 280
+        let source = OiSeedCucumberAppearance.sourceSize
+        return CGRect(x: 0, y: top, width: source.width, height: source.height - top)
+    }()
     let scale: CGFloat
     private let offset: CGPoint
 
     init(size: CGSize) {
-        let source = OiSeedCucumberAppearance.sourceSize
-        let art = CGRect(x: 0, y: -Self.stemClearance, width: source.width, height: source.height + Self.stemClearance)
-        scale = min(size.width / art.width, size.height / art.height)
+        let art = Self.artBounds
+        // Leave room for the selection marker in screen points at any preview size.
+        let markerPadding: CGFloat = 12
+        scale = max(0, min((size.width - markerPadding * 2) / art.width,
+                           (size.height - markerPadding * 2) / art.height))
         offset = CGPoint(x: (size.width - art.width * scale) / 2,
                          y: (size.height - art.height * scale) / 2 - art.minY * scale)
     }
@@ -129,13 +188,15 @@ struct OiSeedCucumberViewport {
 
     func hitPart(at location: CGPoint, appearance: OiSeedCucumberAppearance,
                  selection: OiSeedCucumberPart) -> OiSeedCucumberPart? {
-        let candidates = [selection] + OiSeedCucumberPart.allCases.filter { $0 != selection }
-        return candidates.compactMap { part -> (part: OiSeedCucumberPart, distance: CGFloat)? in
-            let frame = appearance.faceFrame(part)
-            let center = self.location(of: part == .stem ? appearance.stemTip : CGPoint(x: frame.midX, y: frame.midY))
+        return OiSeedCucumberLayer.allCases.compactMap { layer -> (part: OiSeedCucumberPart, distance: CGFloat)? in
+            let frame = appearance.faceFrame(layer)
+            let isStem = layer == .stem
+            let center = self.location(of: isStem ? appearance.stemTip : CGPoint(x: frame.midX, y: frame.midY))
             let distance = hypot(location.x - center.x, location.y - center.y)
-            let radius = part == .stem ? 22 : max(22, max(frame.width, frame.height) * scale / 2)
-            return distance <= radius ? (part, distance) : nil
-        }.min { $0.distance < $1.distance }?.part
+            let radius = isStem ? 22 : max(22, max(frame.width, frame.height) * scale / 2)
+            return distance <= radius ? (layer.part, distance) : nil
+        }.min {
+            $0.distance == $1.distance ? $0.part == selection && $1.part != selection : $0.distance < $1.distance
+        }?.part
     }
 }

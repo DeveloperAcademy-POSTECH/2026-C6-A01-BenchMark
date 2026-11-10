@@ -12,7 +12,7 @@ struct OiSeedCucumberCustomizationView: View {
     @State private var appearance: OiSeedCucumberAppearance
     @State private var selection: OiSeedCucumberPart
 
-    init(appearance: OiSeedCucumberAppearance = .init(), selection: OiSeedCucumberPart = .leftEye) {
+    init(appearance: OiSeedCucumberAppearance = .init(), selection: OiSeedCucumberPart = .eyes) {
         _appearance = State(initialValue: appearance)
         _selection = State(initialValue: selection)
     }
@@ -40,13 +40,14 @@ struct OiSeedCucumberCustomizationView: View {
             let viewport = OiSeedCucumberViewport(size: size)
             var artwork = context
             artwork.concatenate(viewport.transform)
-            artwork.draw(Image("SeedCucumberBody"),
-                         in: CGRect(origin: .zero, size: OiSeedCucumberAppearance.sourceSize))
             var stem = artwork
             stem.concatenate(appearance.stemTransform)
-            stem.draw(Image(OiSeedCucumberPart.stem.asset), in: OiSeedCucumberPart.stem.sourceFrame)
-            for part in OiSeedCucumberPart.faceParts {
-                artwork.draw(Image(part.asset), in: appearance.faceFrame(part))
+            let stemLayer = OiSeedCucumberLayer.stem
+            stem.draw(Image(stemLayer.asset), in: stemLayer.sourceFrame)
+            // The crown covers the stem's cut edge at every rotation and length.
+            artwork.draw(Image("SeedCucumberBody"), in: appearance.bodyFrame)
+            for layer in OiSeedCucumberLayer.faceLayers {
+                artwork.draw(Image(layer.asset), in: appearance.faceFrame(layer))
             }
             drawSelection(in: context, viewport: viewport)
         }
@@ -57,17 +58,20 @@ struct OiSeedCucumberCustomizationView: View {
     }
 
     private func drawSelection(in context: GraphicsContext, viewport: OiSeedCucumberViewport) {
-        let marker: CGRect
+        let markers: [CGRect]
         if selection == .stem {
             let tip = viewport.location(of: appearance.stemTip)
-            marker = CGRect(x: tip.x - 8, y: tip.y - 8, width: 16, height: 16)
+            markers = [CGRect(x: tip.x - 8, y: tip.y - 8, width: 16, height: 16)]
         } else {
-            let frame = appearance.faceFrame(selection).applying(viewport.transform)
-            marker = frame.insetBy(dx: -4, dy: -4)
+            markers = OiSeedCucumberLayer.faceLayers.filter { $0.part == selection }.map { layer in
+                appearance.faceFrame(layer).applying(viewport.transform).insetBy(dx: -4, dy: -4)
+            }
         }
-        let outline = Path(roundedRect: marker, cornerRadius: min(marker.width, marker.height) / 2)
-        context.stroke(outline, with: .color(.white), lineWidth: 3)
-        context.stroke(outline, with: .color(.primary), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+        for marker in markers {
+            let outline = Path(roundedRect: marker, cornerRadius: min(marker.width, marker.height) / 2)
+            context.stroke(outline, with: .color(.white), lineWidth: 3)
+            context.stroke(outline, with: .color(.primary), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+        }
     }
 
     private var controls: some View {
@@ -77,15 +81,21 @@ struct OiSeedCucumberCustomizationView: View {
             } else {
                 partPicker.pickerStyle(.segmented)
             }
-            Text(selection == .stem ? "꼭지 끝을 끌어 길이와 각도를 조절하세요." : "끌어서 옮기고 두 손가락으로 선택한 부위의 크기를 조절하세요.")
+            Text(instructions)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-            if selection == .stem {
+            switch selection {
+            case .stem:
                 slider("길이", value: $appearance.stemLength, range: OiSeedCucumberAppearance.lengthRange,
                        display: percent(appearance.stemLength), id: "length")
                 slider("각도", value: $appearance.stemAngle, range: OiSeedCucumberAppearance.angleRange,
                        display: "\(Int(appearance.stemAngle.rounded()))°", id: "angle")
-            } else {
+            case .body:
+                slider("키", value: $appearance.bodyHeight, range: OiSeedCucumberAppearance.heightRange,
+                       display: percent(appearance.bodyHeight), id: "height")
+                slider("체형", value: $appearance.bodyWidth, range: OiSeedCucumberAppearance.widthRange,
+                       display: percent(appearance.bodyWidth), id: "width")
+            case .eyes, .mouth:
                 let face = appearance[selection]
                 slider("크기", value: faceBinding(\.size), range: OiSeedCucumberAppearance.sizeRange,
                        display: percent(face.size), id: "size")
@@ -94,6 +104,15 @@ struct OiSeedCucumberCustomizationView: View {
                 slider("상하 위치", value: faceBinding(\.y), range: OiSeedCucumberAppearance.verticalRange,
                        display: offsetLabel(face.y, negative: "위", positive: "아래"), id: "vertical")
             }
+        }
+    }
+
+    private var instructions: String {
+        switch selection {
+        case .eyes: "두 눈을 함께 끌어 옮기고, 두 손가락으로 크기를 조절하세요."
+        case .mouth: "입을 끌어 옮기고, 두 손가락으로 크기를 조절하세요."
+        case .stem: "꼭지 끝을 끌어 길이와 각도를 조절하세요."
+        case .body: "키와 체형을 따로 조절하세요. 체형은 오른쪽으로 갈수록 통통해요."
         }
     }
 
