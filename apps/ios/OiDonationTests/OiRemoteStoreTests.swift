@@ -2824,6 +2824,49 @@ final class OiCostumePhotoTests: XCTestCase {
             print("OI_PHOTO_BAKE_PASS \(look.modelName)")
         }
     }
+    func testOversizedPNGImportsAndPreservesTransparencyInSavedArtwork() throws {
+        let edge = 768
+        var state: UInt32 = 0x9130abc
+        var pixels = Data(count: edge * edge * 4)
+        pixels.withUnsafeMutableBytes { (buffer: UnsafeMutableRawBufferPointer) in
+            for y in 0..<edge {
+                // Leave the left edge transparent and use incompressible color on the rest.
+                for x in 96..<edge {
+                    state = 1664525 &* state &+ 1013904223
+                    let i = (y * edge + x) * 4
+                    buffer[i] = UInt8(truncatingIfNeeded: state >> 24)
+                    buffer[i + 1] = UInt8(truncatingIfNeeded: state >> 16)
+                    buffer[i + 2] = UInt8(truncatingIfNeeded: state >> 8)
+                    buffer[i + 3] = 255
+                }
+            }
+        }
+        let provider = try XCTUnwrap(CGDataProvider(data: pixels as CFData))
+        let bitmap = CGBitmapInfo.byteOrder32Big.union(.init(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let image = try XCTUnwrap(CGImage(width: edge, height: edge, bitsPerComponent: 8, bitsPerPixel: 32,
+            bytesPerRow: edge * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: bitmap,
+            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+        let png = try XCTUnwrap(UIImage(cgImage: image).pngData())
+        XCTAssertGreaterThan(png.count, OiWardrobeArtwork.maximumSourceBytes)
+
+        let imported = try OiPhotoRenderer.asset(png)
+        XCTAssertLessThanOrEqual(imported.data.count, OiWardrobeArtwork.maximumSourceBytes)
+        let layer = OiPhotoLayer(source: imported.id, side: .front)
+        var look = OiWardrobeLook()
+        look.costume = .dinosaur
+        let slot = OiPhotoSlot.top
+        let layout = try OiPhotoPrintLayout.load(for: slot, in: look)
+        let design = OiPhotoDesign(layers: [layer])
+        try look.artwork.set(design, sources: [imported.id: imported.data], for: slot.itemID(in: look))
+        let saved = try OiPhotoRenderer.load(design, sources: look.artwork.sources, layout: layout)
+        let restoredImage = try XCTUnwrap(saved.assets[imported.id]?.image.cgImage)
+        let importedImage = try XCTUnwrap(imported.image.cgImage)
+        XCTAssertEqual(restoredImage.width, importedImage.width)
+        XCTAssertEqual(restoredImage.height, importedImage.height)
+        let preview = rgba(restoredImage, size: 8)
+        XCTAssertEqual(preview[(4 * 8) * 4 + 3], 0, "The transparent edge survives saving")
+        XCTAssertEqual(preview[(4 * 8 + 4) * 4 + 3], 255, "The center still contains the photo")
+    }
     func testPhotoVerticalOrientationAlphaAndUnpaintedBack() async throws {
         let ink = canvas { cg in
             cg.setFillColor(UIColor.red.cgColor); cg.fill(CGRect(x: 0, y: 0, width: 512, height: 256))
