@@ -431,9 +431,10 @@ struct OiStoryEditor: View {
     }
 
     private func canSelectProgressStage(_ stage: Int) -> Bool {
-        guard !wardrobePhotoEditing, canLeaveCurrentStep else { return false }
-        if stage <= step.progress { return true }
-        return stage <= OiCreationStep.story.progress || OiCreationStep.location.canContinue(draft: draft)
+        guard !wardrobePhotoEditing else { return false }
+        if stage <= step.progress { return step != .consent || consentState.allRequiredClausesAreAgreed }
+        guard canLeaveCurrentStep else { return false }
+        return stage <= OiCreationStep.story.progress || storyInputIsComplete
     }
 
     private func navigate(to destination: OiCreationStep) {
@@ -467,15 +468,21 @@ struct OiStoryEditor: View {
     }
 
     private var canLeaveCurrentStep: Bool {
-        step != .consent || consentState.allRequiredClausesAreAgreed
+        switch step {
+        case .consent: consentState.allRequiredClausesAreAgreed
+        case .story: storyInputIsComplete
+        default: true
+        }
+    }
+
+    /// Theme, emotion, title, story, at least one photo and a campus location are all required before the cucumber step.
+    private var storyInputIsComplete: Bool {
+        OiCreationStep.story.canContinue(draft: draft) && hasValidStoryPhotoCount
+            && OiCreationStep.location.canContinue(draft: draft)
     }
 
     private func advance() {
         guard canLeaveCurrentStep else { return }
-        if step == .story, !OiCreationStep.location.canContinue(draft: draft) {
-            navigate(to: .location)
-            return
-        }
         if let next = step.next { navigate(to: next) } else { showingPreview = true }
     }
 
@@ -764,8 +771,6 @@ struct OiStoryEditor: View {
         case .consent, .photos, .location: EmptyView() // Presented separately above.
         case .story:
             VStack(alignment: .leading, spacing: 50) {
-                Text("내 지도에 오이를 배치하려면 위치를 골라 주세요. 이야기와 사진은 공개할 때 필요해요.")
-                    .font(CampusStyle.body(14)).foregroundStyle(.secondary)
                 OiStoryWritingStep(draft: $draft, focusedField: $focusedStoryField)
                 OiStoryAttachmentSections(photoCount: editingPhotos.count,
                     latitude: draft.latitude, longitude: draft.longitude,

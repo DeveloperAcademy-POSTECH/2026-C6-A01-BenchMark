@@ -400,7 +400,7 @@ struct OiStoryAttachmentSections: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 50) {
-            OiCreationSection(title: "이야기 사진", hint: "(공개할 때 1~\(OiCreationStep.storyPhotoLimit)장)") {
+            OiCreationSection(title: "이야기 사진", hint: "(1장 이상 3장 이내)") {
                 formButton(photoCount == 0 ? "사진 추가하기" : "선택한 사진 보기 · \(photoCount)장",
                            highlighted: false, action: onPhotos)
                     .accessibilityIdentifier("oi.story.editPhotos")
@@ -409,7 +409,7 @@ struct OiStoryAttachmentSections: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
-            OiCreationSection(title: "오이 위치 설정", titleSize: 30) {
+            OiCreationSection(title: "오이 위치 설정") {
                 Map(position: .constant(.region(MKCoordinateRegion(
                     center: coordinate ?? CLLocationCoordinate2D(latitude: 36.0139, longitude: 129.3232),
                     latitudinalMeters: coordinate == nil ? 1_200 : 300,
