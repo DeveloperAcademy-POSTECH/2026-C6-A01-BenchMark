@@ -310,6 +310,8 @@ MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하
 
 ### 2026-11-03 + 버튼 이야기 생성 흐름
 
+2026-11-11 #282 접근성 보완: 일반 글자 크기의 발자국 디자인을 유지하고, 접근성 크기의 단계 표시는 글자를 감싸는 가변 높이 배경과 두 열 배치를 사용한다. 번호·제목은 축소하거나 자르지 않으며 현재 단계·누름 효과와 이동 조건은 공통으로 유지한다. [수정 범위와 검증](verification/step-accessibility-282.md).
+
 `RootTabView`가 지도 + 버튼에서 `OiStoryListScreen`을 push한다. 팀원의 `OiStoryListView`·`OiStoryConsentView`·승인 검사를 재사용하고, `OiStoryEditor`의 기존 초안·사진 업로드·revision 기반 저장·검토 요청에 단계별 화면을 연결한다. 사진/위치/커스텀 화면은 `Features/Profile/Creation`에 둔다. `OiCreationStep`은 단계 순서와 입력 검증, `OiCreationAccess`는 서버 상태에 따른 편집 가능 여부를 담당한다.
 
 2026-11-09 #268: 씨앗 화면의 얼굴 편집은 `OiSeedCucumberCustomizationView`에 둔다. 고정된 원본 이미지 좌표에서 몸체와 네 부위를 합성한다. 드래그·핀치와 슬라이더는 같은 화면 상태를 갱신하며, 꼭지는 밑동을 축으로 길이와 각도를 조절한다. 편집값은 화면에 머무는 동안 메모리에 유지한다.
