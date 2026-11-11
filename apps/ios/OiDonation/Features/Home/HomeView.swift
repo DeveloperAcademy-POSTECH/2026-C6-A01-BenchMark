@@ -105,6 +105,9 @@ struct HomeView: View {
             switch destination {
             case .workshop:
                 MYWorkshopView(demo: myDemo, remote: remote)
+            case .cucumberCustomization:
+                OiSeedCucumberCustomizationView()
+                    .toolbar(.visible, for: .navigationBar)
             case .farm: MYFarmView(remote: remote).id(remote?.account?.id)
             case .collection: MYCollectionView(demo: myDemo, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
             case .school(let school): MYCollectionView(demo: myDemo, school: school, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
@@ -279,7 +282,7 @@ struct HomeView: View {
     private var homeActions: some View {
         HStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 8) {
-                Button(action: onOpenProfile) {
+                NavigationLink(value: MYDestination.cucumberCustomization) {
                     HStack(spacing: -12) {
                         MYFarmerArtwork(ownerID: remote?.account?.id, outfit: remote?.farmerOutfit)
                             .frame(width: 38, height: 38).background(CampusStyle.secondaryAction, in: Circle())
@@ -290,7 +293,7 @@ struct HomeView: View {
                             .background(.white, in: Capsule())
                     }.shadow(color: CampusStyle.mapAction.opacity(0.4), radius: 7, y: 3)
                         .frame(minHeight: 44)
-                }.buttonStyle(.plain).accessibilityLabel("\(remote?.profile?.farmName ?? "오이")의 농부 프로필")
+                }.buttonStyle(.plain).accessibilityLabel("오이 커스텀 열기")
                     .accessibilityIdentifier("campus.profile")
                 Button(action: onOpenProfile) {
                     CampusMyHouseButtonArtwork()

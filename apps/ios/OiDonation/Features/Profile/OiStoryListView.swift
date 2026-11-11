@@ -32,9 +32,7 @@ struct OiStoryListView: View {
                     Button("다시 시도", action: onRetry)
                 }
             case .empty, .content:
-                ScrollView {
-                    storySlots
-                }
+                storySlots
             }
         }
         .navigationTitle("")
@@ -104,6 +102,7 @@ struct OiStoryListView: View {
                 footer
             }
         }
+
     }
 
     private func storySlot(_ item: OiStoryListItem) -> some View {

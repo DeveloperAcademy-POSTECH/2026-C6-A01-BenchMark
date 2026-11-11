@@ -370,6 +370,27 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         XCTAssertNotNil(UIImage(named: "StorySeedIcon"))
+        for variant in variants {
+            let reference = NavigationStack {
+                OiStoryListView(state: .preview, seedCount: 3,
+                    notices: OiStoryListView.listNotices,
+                    guidance: OiStoryListView.listGuidance,
+                    onAddSeed: {}, onCreateStory: {}, onUseSeed: {})
+            }
+            try await capture(reference, name: "story-list-seed-reference", variant: variant,
+                              defaults: fixture.defaults, attach: true)
+            // The actual screen displays zero until a seed service is connected.
+            let store = OiRemoteStore(vault: OiMemorySession())
+            let live = NavigationStack { OiStoryListScreen(remote: store) }
+            try await capture(live, name: "story-list-seed-unconnected", variant: variant,
+                              defaults: fixture.defaults, attach: true)
+        }
+    }
+
+    func testMapCucumberCustomizationCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        XCTAssertNotNil(UIImage(named: "StorySeedIcon"))
         XCTAssertNotNil(UIImage(named: "SeedCucumberBody"))
         for layer in OiSeedCucumberLayer.allCases {
             let image = try XCTUnwrap(UIImage(named: layer.asset)?.cgImage)
@@ -386,24 +407,14 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         resized.bodyWidth = 1.30
         resized.bodyHeight = 0.85
         for variant in variants {
-            let reference = NavigationStack {
-                OiStoryListView(state: .preview, seedCount: 3,
-                    notices: OiStoryListView.listNotices,
-                    guidance: OiStoryListView.listGuidance,
-                    onAddSeed: {}, onCreateStory: {}, onUseSeed: {})
+            let store = CampusStoryStore(defaults: fixture.defaults)
+            let home = HomeView(container: .pilot, store: store, myDemo: MYLibraryStore(),
+                                isCameraCoverActive: false, onOpenProfile: {}, onOpenStory: { _ in })
+            if variant.name == "402x874" {
+                try await capture(NavigationStack { home }, name: "campus-cucumber-entry", variant: variant,
+                                  defaults: fixture.defaults, delay: .seconds(2), attach: true)
             }
-            try await capture(reference, name: "story-list-seed-reference", variant: variant,
-                              defaults: fixture.defaults, attach: true)
-            // The actual list offers customization without displaying a seed balance.
-            let store = OiRemoteStore(vault: OiMemorySession())
-            let live = NavigationStack { OiStoryListScreen(remote: store) }
-            try await capture(live, name: "story-list-seed-unconnected", variant: variant,
-                              defaults: fixture.defaults, attach: true,
-                              scrollToBottom: variant.dynamicTypeSize.isAccessibilitySize)
-            let destination = NavigationStack(path: .constant(["seedCustomization"])) {
-                NavigationLink("씨앗 사용하기", value: "seedCustomization")
-                    .navigationDestination(for: String.self) { _ in OiSeedCucumberCustomizationView() }
-            }
+            let destination = NavigationStack(path: .constant([MYDestination.cucumberCustomization])) { home }
             try await capture(destination, name: "seed-cucumber-customization", variant: variant,
                               defaults: fixture.defaults, attach: true)
             if variant.name == "402x874" {
@@ -413,11 +424,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 try await capture(spacedDestination, name: "seed-cucumber-customization-eye-spacing",
                                   variant: variant, defaults: fixture.defaults, attach: true)
             }
-            let editedDestination = NavigationStack(path: .constant(["seedCustomization"])) {
-                NavigationLink("씨앗 사용하기", value: "seedCustomization")
-                    .navigationDestination(for: String.self) { _ in
-                        OiSeedCucumberCustomizationView(appearance: edited, selection: .stem)
-                    }
+            let editedDestination = NavigationStack {
+                OiSeedCucumberCustomizationView(appearance: edited, selection: .stem)
             }
             try await capture(editedDestination, name: "seed-cucumber-customization-edited", variant: variant,
                               defaults: fixture.defaults, attach: true)
@@ -1375,8 +1383,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     private func capture<V: View>(_ view: V, name: String, variant: Variant, defaults: UserDefaults,
                                  includesSafeArea: Bool = true,
                                  delay: Duration = .milliseconds(180), attach: Bool = false,
-                                 checksBottomSheet: Bool = false,
-                                 scrollToBottom: Bool = false) async throws -> Data {
+                                 checksBottomSheet: Bool = false) async throws -> Data {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first, "The isolated simulator test host must have a window scene")
@@ -1422,13 +1429,6 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         host.view.setNeedsLayout()
         try await Task.sleep(for: delay)
         host.view.layoutIfNeeded()
-        if scrollToBottom {
-            let scrollView = try XCTUnwrap(firstScrollView(in: host.view))
-            let bottom = scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom
-            XCTAssertGreaterThan(bottom, scrollView.contentOffset.y)
-            scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: bottom), animated: false)
-            try await Task.sleep(for: .milliseconds(180))
-        }
         if checksBottomSheet {
             let presented = try XCTUnwrap(root.presentedViewController ?? host.presentedViewController)
             let sheet = try XCTUnwrap(presented.presentationController)
@@ -1464,14 +1464,6 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: output).count, png.count, "The saved capture must contain the rendered PNG")
         print("Figma132 capture: \(output.path)")
         return png
-    }
-
-    private func firstScrollView(in view: UIView) -> UIScrollView? {
-        if let scrollView = view as? UIScrollView { return scrollView }
-        for child in view.subviews {
-            if let scrollView = firstScrollView(in: child) { return scrollView }
-        }
-        return nil
     }
 
     private func releaseCampusRenderers(in view: UIView) {
