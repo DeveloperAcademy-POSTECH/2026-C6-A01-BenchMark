@@ -310,6 +310,8 @@ MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하
 
 ### 2026-11-03 + 버튼 이야기 생성 흐름
 
+2026-11-11 #282 접근성 보완: 일반 글자 크기의 발자국 디자인을 유지하고, 접근성 크기의 단계 표시는 글자를 감싸는 가변 높이 배경과 두 열 배치를 사용한다. 번호·제목은 축소하거나 자르지 않으며 현재 단계·누름 효과와 이동 조건은 공통으로 유지한다. [수정 범위와 검증](verification/step-accessibility-282.md).
+
 `RootTabView`가 지도 + 버튼에서 `OiStoryListScreen`을 push한다. 팀원의 `OiStoryListView`·`OiStoryConsentView`·승인 검사를 재사용하고, `OiStoryEditor`의 기존 초안·사진 업로드·revision 기반 저장·검토 요청에 단계별 화면을 연결한다. 사진/위치/커스텀 화면은 `Features/Profile/Creation`에 둔다. `OiCreationStep`은 단계 순서와 입력 검증, `OiCreationAccess`는 서버 상태에 따른 편집 가능 여부를 담당한다.
 
 `OiLocalDraft`의 선택적 `creationStep`·`customization`·`removedMediaPaths`는 구버전 초안을 그대로 읽을 수 있게 추가한다. `OiDraftCustomization`은 로컬 미리보기 전용이며 `OiStoryDraft.payload()`나 공유 DB를 확장하지 않는다. 업로드 사진 순서를 유지하고 기기 사본과 서버 경로를 중복 표시하지 않는다. 기존 `attach_media` RPC로 사진 연결을 변경하며, 변경 직후 목록 동기화가 실패해도 응답의 revision과 경로를 보존한다.
