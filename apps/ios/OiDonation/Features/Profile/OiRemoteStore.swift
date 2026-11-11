@@ -64,6 +64,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     private var generation = UUID()
     private var loadSequence = 0
     private var localSignOutWarning: String?
+    @ObservationIgnored private var catalogLoadedAt: ContinuousClock.Instant?
+    @ObservationIgnored private var usesLegacyCollectionMetrics = false
     private var committedMediaPaths: [UUID:[String]] = [:]
     private let authentication: any OiAuthenticating
     private let drafts: OiDraftVault
@@ -440,14 +442,14 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         }
     }
 
-    func refresh() async {
+    func refresh(reuseCatalog: Bool = false) async {
         guard !isBusy, !isRefreshing else { return }
         let started = generation
         let previousErrorRevision = errorRevision
         isRefreshing = true
         defer { if started == generation { isRefreshing = false } }
         do {
-            try await load()
+            try await load(reuseCatalog: reuseCatalog)
             if started == generation, errorRevision == previousErrorRevision { error = nil }
         } catch {
             guard started == generation, !Task.isCancelled, !OiServiceFailure.isCancellation(error) else { return }
@@ -487,7 +489,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         return story
     }
 
-    private func load() async throws {
+    private func load(reuseCatalog: Bool = false) async throws {
         guard let api else { throw OiServiceError.configuration }
         let started = generation
         loadSequence += 1
@@ -506,11 +508,16 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         else { capabilities = nil }
         let resolvedOwner = capabilities?.accountId ?? account?.id
         let members = Set(capabilities?.accountMemberIds ?? resolvedOwner.map { [$0] } ?? [])
-        let fetchedSchools = try await api.rows("oi_schools", query: "order=id.asc", as: OiSchool.self)
-        let fetchedRegions = try await api.rows("oi_regions", query: "order=id.asc", as: OiRegion.self)
-        let fetchedAssets = try await api.rows("oi_assets", query: "order=id.asc", as: OiAsset.self)
-        let fetched = try await api.rows("oi_stories", query: "order=created_at.desc,id.asc", token: accessToken, as: OiLiveStory.self)
-        let fetchedProfiles = try await api.rows("oi_profiles", token: accessToken, as: OiProfile.self)
+        // Only public reference data is cached for timer-driven refreshes.
+        let catalogIsFresh = reuseCatalog && catalogLoadedAt.map { $0.duration(to: .now) < .seconds(300) } == true
+        let fetchedSchools = catalogIsFresh ? schools : try await api.rows("oi_schools", query: "order=id.asc", as: OiSchool.self)
+        let fetchedRegions = catalogIsFresh ? regions : try await api.rows("oi_regions", query: "order=id.asc", as: OiRegion.self)
+        let fetchedAssets = catalogIsFresh ? assets : try await api.rows("oi_assets", query: "order=id.asc", as: OiAsset.self)
+        let publicFilter = accessToken == nil ? "&status=eq.published" : ""
+        let fetched = try await api.rows("oi_stories", query: "order=created_at.desc,id.asc" + publicFilter,
+                                         token: accessToken, as: OiLiveStory.self)
+        let published = fetched.filter { $0.status == "published" }
+        let fetchedProfiles = try await api.rows("oi_profiles", query: "order=id.asc", token: accessToken, as: OiProfile.self)
         var ownProfile = fetchedProfiles.first { $0.id == resolvedOwner }
         if capabilities?.schoolProfileEnabled == true, let resolvedOwner, let accessToken {
             ownProfile = try await api.schoolProfile(owner: resolvedOwner, token: accessToken)
@@ -520,7 +527,21 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             fetchedFarmerOutfit = try await api.farmerOutfit(owner: resolvedOwner, token: accessToken)
         }
         let fetchedMedia = try await api.rows("oi_story_media", query: "order=position.asc,id.asc", token: accessToken, as: OiMedia.self)
-        let metrics = try await api.collectionMetrics(token: accessToken)
+        let counts: [UUID: Int]
+        var metricsWarning: String?
+        let publishedIDs = published.map(\.id)
+        do {
+            let metrics = try await collectionMetrics(for: publishedIDs, using: api, token: accessToken)
+            counts = metrics.reduce(into: [:]) { $0[$1.storyId] = $1.collectionCount }
+        } catch OiServiceError.signInRequired {
+            throw OiServiceError.signInRequired
+        } catch {
+            if Task.isCancelled || OiServiceFailure.isCancellation(error) { throw error }
+            // A statistics outage must not block updates to published and hidden stories.
+            let visibleIDs = Set(publishedIDs)
+            counts = collectionCounts.filter { visibleIDs.contains($0.key) }
+            metricsWarning = "오이 수집 수를 갱신하지 못했어요. 다시 불러오면 확인할 수 있어요."
+        }
         var collected: [OiOwnedStory] = []; var starred: [OiOwnedStory] = []
         if let accessToken {
             collected = try await api.rows("oi_collections", query: "order=created_at.desc,story_id.asc", token: accessToken, as: OiOwnedStory.self)
@@ -544,13 +565,20 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             try vault.write(current)
             resetAccountState(); session = current; account = resolved
         }
+        let owned = fetched.filter { $0.userId == account?.id && $0.status != "deleted" }
+        let starredIDs = Set(starred.map(\.storyId))
+        let contentChanged = !hasLoadedRemote || schools != fetchedSchools || regions != fetchedRegions || assets != fetchedAssets
+            || loadedStories != published || ownStories != owned || profile != ownProfile || profiles != fetchedProfiles
+            || media != fetchedMedia || collections != collected || favorites != starredIDs || collectionCounts != counts
+            || !committedMediaPaths.isEmpty || members != accountMemberIDs || recoveryWarning != localRecoveryWarning
+        if !catalogIsFresh { catalogLoadedAt = .now }
         schools = fetchedSchools; regions = fetchedRegions; assets = fetchedAssets
-        loadedStories = fetched.filter { $0.status == "published" }
-        ownStories = fetched.filter { $0.userId == account?.id && $0.status != "deleted" }
+        loadedStories = published
+        ownStories = owned
         reviewStories = capabilities?.operator == true ? fetched.filter { ["pending","published","hidden"].contains($0.status) } : []
         profile = ownProfile
         profiles = fetchedProfiles; media = fetchedMedia; committedMediaPaths = [:]
-        collections = collected; favorites = Set(starred.map(\.storyId)); isOperator = capabilities?.operator == true
+        collections = collected; favorites = starredIDs; isOperator = capabilities?.operator == true
         unapprovedDraftsEnabled = capabilities?.independentStoryCreation == true && capabilities?.unapprovedDraftsEnabled == true
         canPublishCucumberAppearance = capabilities?.publicCucumberAppearance == true
         canPublishStoryCard = capabilities?.publicStoryCard == true
@@ -559,8 +587,19 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         isFarmerOutfitAvailable = capabilities?.farmerOutfitEnabled == true; farmerOutfit = fetchedFarmerOutfit
         accountProviders = capabilities?.accountProviders ?? []
         localRecoveryWarning = recoveryWarning
-        collectionCounts = metrics.reduce(into: [:]) { $0[$1.storyId] = $1.collectionCount }
-        hasLoadedRemote = true; needsReauthentication = false; loadError = nil; syncWarning = localSignOutWarning; revision += 1
+        collectionCounts = counts
+        hasLoadedRemote = true; needsReauthentication = false; loadError = nil; syncWarning = localSignOutWarning ?? metricsWarning
+        if contentChanged { revision += 1 }
+    }
+
+    private func collectionMetrics(for ids: [UUID], using api: OiServiceAPI, token: String?) async throws -> [OiCollectionMetric] {
+        guard !ids.isEmpty else { return [] }
+        if !usesLegacyCollectionMetrics {
+            do { return try await api.collectionMetrics(for: ids, token: token) }
+            catch OiCollectionMetricsError.boundedQueryNotDeployed { usesLegacyCollectionMetrics = true }
+        }
+        let requested = Set(ids)
+        return try await api.legacyCollectionMetrics(token: token).filter { requested.contains($0.storyId) }
     }
 
     private func refreshAfterCommit() async {

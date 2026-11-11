@@ -24,9 +24,14 @@ extension OiAuthenticating {
     }
 }
 
+enum OiCollectionMetricsError: Error {
+    case boundedQueryNotDeployed
+}
+
 struct OiServiceAPI {
     static let projectHost = "kfzfzarslqdqmrazohej.supabase.co"
     static let authenticationCallback = "kr.ac.postech.benchmark://auth/callback"
+    private static let boundedCollectionMetricsPath = "rest/v1/rpc/oi_collection_metrics_for_stories"
     private static let resolveCardRequestRPC = "oi_resolve_card_request"
     private let key: String
     private let transport: APIClient
@@ -82,6 +87,7 @@ struct OiServiceAPI {
             case 401: throw OiServiceError.signInRequired
             case 403: throw OiServiceError.server("현재 계정에서 이 요청을 처리할 수 없어요. 새로고침해 상태를 다시 확인해 주세요.")
             case 404 where path == "rest/v1/rpc/\(Self.resolveCardRequestRPC)": throw OiServiceError.conflict
+            case 404 where path == Self.boundedCollectionMetricsPath: throw OiCollectionMetricsError.boundedQueryNotDeployed
             case 404 where path == "rest/v1/rpc/oi_operator_audit": throw OiAuditError.notDeployed
             case 409: throw OiServiceError.conflict
             case 400, 422: throw OiServiceError.invalidInput
@@ -177,7 +183,19 @@ struct OiServiceAPI {
         return records.filter { $0.status == "published" }
     }
 
-    func collectionMetrics(token: String?) async throws -> [OiCollectionMetric] {
+    func collectionMetrics(for storyIDs: [UUID], token: String?) async throws -> [OiCollectionMetric] {
+        var values: [OiCollectionMetric] = []
+        for offset in stride(from: 0, to: storyIDs.count, by: 200) {
+            try Task.checkCancellation()
+            let ids = storyIDs[offset..<min(offset + 200, storyIDs.count)]
+            let body = try JSONEncoder().encode(["p_story_ids": Array(ids)])
+            let data = try await request(Self.boundedCollectionMetricsPath, method: "POST", token: token, body: body)
+            values += try decoder.decode([OiCollectionMetric].self, from: data)
+        }
+        return values
+    }
+
+    func legacyCollectionMetrics(token: String?) async throws -> [OiCollectionMetric] {
         var values: [OiCollectionMetric] = []
         var offset = 0
         while true {
