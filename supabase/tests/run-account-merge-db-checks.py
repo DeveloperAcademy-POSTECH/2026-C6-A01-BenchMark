@@ -203,6 +203,7 @@ grant execute on function auth.jwt() to anon,authenticated;
                 run(database + ['-f', str(migration)])
             run(database + ['-f', 'supabase/tests/oi-donation-evidence-retired.sql'])
             run(database + ['-f', 'supabase/tests/oi-account-deletion.sql'])
+            run(database + ['-f', 'supabase/tests/oi-bounded-collection-metrics.sql'])
         print('PASS: retired evidence RPCs and uploads, retained private records and deletion, story moderation on both histories')
         # Unknown owning function edits must stop the migration before any schema change commits.
         run(connection + ['-c', 'create database unknown_drift'])
