@@ -132,6 +132,28 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    /// Captures the photo settings layout for 0–4 photos (4 = a legacy draft over the limit).
+    func testStoryPhotoStepCountCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let image = try XCTUnwrap(UIImage(named: "DonationCampus")?.jpegData(compressionQuality: 0.9))
+        let ids = (0..<4).map { _ in UUID() }
+        let colors: [Color] = [.orange, .teal, .pink, .indigo]
+        for variant in [variants[0], variants[3]] {
+            for count in variant.dynamicTypeSize.isAccessibilitySize ? [3] : [0, 1, 2, 3, 4] {
+                let items = ids.prefix(count).map(OiEditingPhoto.local)
+                let step = OiStoryPhotoStep(items: Array(items), uploadedPhotos: [], selections: .constant([]),
+                    loadPhoto: { _ in image }, edit: { _, _ in false }, remove: { _ in }, move: { _, _ in },
+                    photo: { item in colors[ids.firstIndex { .local($0) == item } ?? 0] })
+                let screen = ScrollView { step.padding(.horizontal, 20).padding(.top, 20).frame(maxWidth: .infinity) }
+                    .background(Color(white: 38 / 255))
+                    .environment(\.colorScheme, .dark)
+                try await capture(screen, name: "photo-step-\(count)", variant: variant,
+                                  defaults: fixture.defaults, delay: .milliseconds(600), attach: true)
+            }
+        }
+    }
+
     func testPopulatedPhotoAndLocationCaptures() async throws {
         let fixture = try isolatedDefaults()
         let backend = OiTestBackend(); backend.install()

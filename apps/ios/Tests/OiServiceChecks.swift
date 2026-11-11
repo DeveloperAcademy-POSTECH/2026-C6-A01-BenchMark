@@ -348,6 +348,9 @@ struct OiServiceChecks {
         let removedPath = "owner/story/\(removedPhoto.uuidString.lowercased()).jpg"
         let ordered = OiEditingPhoto.ordered(local: [localA, localB], remote: [oldPath, localPath, removedPath], removed: [removedPath])
         precondition(ordered == [.uploaded(oldPath), .local(localA), .local(localB)])
+        let preferred = [localB.uuidString, oldPath, localA.uuidString]
+        precondition(OiEditingPhoto.applyingOrder(preferred, to: ordered, key: \.orderKey) ==
+                     [.local(localB), .uploaded(oldPath), .local(localA)])
         let lateReceipt = OiEditingPhoto.ordered(local: [localA, removedPhoto],
             remote: [oldPath, localPath, removedPath], removed: [], removedPhotoIDs: [removedPhoto])
         precondition(lateReceipt == [.uploaded(oldPath), .local(localA)],
@@ -378,6 +381,10 @@ struct OiServiceChecks {
         record.agreedConsentClauseIDs = ["storyWriting"]
         let consentRoundTrip = try JSONDecoder().decode(OiLocalDraft.self, from: JSONEncoder().encode(record))
         precondition(consentRoundTrip.agreedConsentClauseIDs == ["storyWriting"])
+        precondition(legacy.photoOrder == nil)
+        record.photoOrder = preferred
+        let reorderedDraft = try JSONDecoder().decode(OiLocalDraft.self, from: JSONEncoder().encode(record))
+        precondition(reorderedDraft.photoOrder == preferred)
         record.creationStep = OiCreationStep.card.rawValue
         record.customization = OiDraftCustomization(fill: .gradient, firstColor: 0xABCDEF, secondColor: 0x123456,
                                                    showsCharacter: false, garmentColors: ["모자":0x445566])

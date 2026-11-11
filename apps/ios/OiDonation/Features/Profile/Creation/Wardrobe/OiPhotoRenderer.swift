@@ -31,23 +31,40 @@ enum OiPhotoRenderer {
     static func fabricImage(_ fabric: OiDenim?) -> UIImage? { fabric.flatMap { fabrics[$0] } }
 
     static func image(_ data: Data) throws -> UIImage {
+        try image(data, maximumPixelSize: 768)
+    }
+    private static func image(_ data: Data, maximumPixelSize: Int) throws -> UIImage {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: 768,
+                kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize,
                 kCGImageSourceShouldCacheImmediately: true
               ] as CFDictionary) else { throw OiPhotoDataError.unreadable }
         return UIImage(cgImage: cg)
     }
     static func asset(_ data: Data) throws -> OiPhotoImageAsset { try asset(image(data)) }
     static func asset(_ image: UIImage) throws -> OiPhotoImageAsset {
+        let original = try encoded(image)
+        let limit = OiWardrobeArtwork.maximumSourceBytes
+        var data = original
+        var preview = image
+        // Detailed PNGs can exceed the draft limit after the first downsample.
+        for edge in [640, 512, 384, 256] where data.count > limit {
+            preview = try self.image(original, maximumPixelSize: edge)
+            data = try encoded(preview)
+        }
+        guard data.count <= limit else { throw OiPhotoDataError.limit }
+        let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        return OiPhotoImageAsset(id: hash, image: preview, data: data)
+    }
+    private static func encoded(_ image: UIImage) throws -> Data {
         let alpha = image.cgImage?.alphaInfo
         let transparent = alpha == .first || alpha == .last || alpha == .premultipliedFirst || alpha == .premultipliedLast
-        guard let data = transparent ? image.pngData() : image.jpegData(compressionQuality: 0.8) else { throw OiPhotoDataError.unreadable }
-        guard data.count <= OiWardrobeArtwork.maximumSourceBytes else { throw OiPhotoDataError.limit }
-        let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-        return OiPhotoImageAsset(id: hash, image: image, data: data)
+        guard let data = transparent ? image.pngData() : image.jpegData(compressionQuality: 0.8) else {
+            throw OiPhotoDataError.unreadable
+        }
+        return data
     }
 
     // Only photos are clipped. Garment color/fabric still covers the complete UV texture.
