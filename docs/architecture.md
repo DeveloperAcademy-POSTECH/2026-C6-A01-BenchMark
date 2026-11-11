@@ -310,7 +310,17 @@ MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하
 
 ### 2026-11-03 + 버튼 이야기 생성 흐름
 
+2026-11-11 #282 접근성 보완: 일반 글자 크기의 발자국 디자인을 유지하고, 접근성 크기의 단계 표시는 글자를 감싸는 가변 높이 배경과 두 열 배치를 사용한다. 번호·제목은 축소하거나 자르지 않으며 현재 단계·누름 효과와 이동 조건은 공통으로 유지한다. [수정 범위와 검증](verification/step-accessibility-282.md).
+
 `RootTabView`가 지도 + 버튼에서 `OiStoryListScreen`을 push한다. 팀원의 `OiStoryListView`·`OiStoryConsentView`·승인 검사를 재사용하고, `OiStoryEditor`의 기존 초안·사진 업로드·revision 기반 저장·검토 요청에 단계별 화면을 연결한다. 사진/위치/커스텀 화면은 `Features/Profile/Creation`에 둔다. `OiCreationStep`은 단계 순서와 입력 검증, `OiCreationAccess`는 서버 상태에 따른 편집 가능 여부를 담당한다.
+
+2026-11-09 #268: 씨앗 화면의 얼굴 편집은 `OiSeedCucumberCustomizationView`에 둔다. 고정된 원본 이미지 좌표에서 몸체와 네 부위를 합성한다. 드래그·핀치와 슬라이더는 같은 화면 상태를 갱신하며, 꼭지는 밑동을 축으로 길이와 각도를 조절한다. 편집값은 화면에 머무는 동안 메모리에 유지한다.
+
+2026-11-10 후속 작업에서 키는 발바닥, 체형은 몸체 중심선을 기준으로 바꾸도록 했다. 두 눈의 중심 간격과 눈·입·꼭지 자체 크기는 몸체 비율과 독립적으로 유지하며 각 부위의 부착 위치만 몸체를 따라 이동한다. 꼭지는 몸체 뒤에 합성해 회전한 밑동 절단면을 머리 윤곽이 가린다.
+
+같은 날 후속 작업에서 미간은 두 눈의 중점을 기준으로 좌우 대칭 이동을 적용한다. 눈과 입의 세로 범위는 몸체 높이를 적용한 각 중심을 기준으로 계산하며, 슬라이더와 드래그가 같은 모델 제약을 사용한다. 꼭지의 원본 텍스처는 밑동 가까이에서 고정하고 끝으로 갈수록 길이와 각도 변형을 적용한다.
+
+2026-11-11 후속으로 지도 프로필 버튼은 `MYDestination.cucumberCustomization`, 작업실 버튼은 `MYDestination.workshop`에 연결한다.
 
 `OiLocalDraft`의 선택적 `creationStep`·`customization`·`removedMediaPaths`는 구버전 초안을 그대로 읽을 수 있게 추가한다. `OiDraftCustomization`은 로컬 미리보기 전용이며 `OiStoryDraft.payload()`나 공유 DB를 확장하지 않는다. 업로드 사진 순서를 유지하고 기기 사본과 서버 경로를 중복 표시하지 않는다. 기존 `attach_media` RPC로 사진 연결을 변경하며, 변경 직후 목록 동기화가 실패해도 응답의 revision과 경로를 보존한다.
 

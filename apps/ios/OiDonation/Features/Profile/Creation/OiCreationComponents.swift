@@ -12,7 +12,8 @@ struct OiCreationProgressHeader: View {
     var body: some View {
         Group {
             if dynamicTypeSize.isAccessibilitySize {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12, alignment: .top),
+                                    GridItem(.flexible(), alignment: .top)], spacing: 12) {
                     ForEach(1...4, id: \.self) { number in stageButton(number, width: 66) }
                 }
             } else {
@@ -34,10 +35,10 @@ struct OiCreationProgressHeader: View {
             else if number == step - 1 { onPrevious?() }
         } label: {
             VStack(spacing: 7) {
-                OiCreationCurrentStepPulse(isCurrent: number == step) {
+                OiCreationCurrentStepPulse(isCurrent: number == step, fitsLabel: dynamicTypeSize.isAccessibilitySize) {
                     ZStack {
-                        artwork(number, width: width).foregroundStyle(Color("OiDark")).offset(y: 4)
-                        artwork(number, width: width)
+                        stageFace(number, width: width).foregroundStyle(Color("OiDark")).offset(y: 4)
+                        stageFace(number, width: width)
                             .foregroundStyle(LinearGradient(
                                 colors: number == step
                                     ? [Color("OiGreen").opacity(0.85), Color("OiGreen")]
@@ -49,10 +50,15 @@ struct OiCreationProgressHeader: View {
                     Text("STEP \(number)")
                         .font(.custom("Paperlogy-7Bold", size: 10, relativeTo: .caption2))
                         .foregroundStyle(number == step ? Color.white : Color("OiDark"))
-                }.frame(height: 42)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: dynamicTypeSize.isAccessibilitySize)
+                }.frame(height: dynamicTypeSize.isAccessibilitySize ? nil : 42)
                 Text(title(number))
                     .font(.custom(number == step ? "Paperlogy-6SemiBold" : "Paperlogy-4Regular", size: 12, relativeTo: .caption))
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1).minimumScaleFactor(0.75)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                    .minimumScaleFactor(dynamicTypeSize.isAccessibilitySize ? 1 : 0.75)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: dynamicTypeSize.isAccessibilitySize)
             }
             .frame(maxWidth: .infinity, minHeight: 70).contentShape(Rectangle())
         }
@@ -64,6 +70,15 @@ struct OiCreationProgressHeader: View {
         .accessibilityHint(canNavigate ? "입력한 내용을 유지하고 이 단계로 이동해요" : "")
         .accessibilityAddTraits(number == step ? .isSelected : [])
         .accessibilityIdentifier("oi.creation.stage.\(number)")
+    }
+
+    @ViewBuilder private func stageFace(_ number: Int, width: CGFloat) -> some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            // Large text determines the badge size instead of overflowing fixed artwork.
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+        } else {
+            artwork(number, width: width)
+        }
     }
 
     private func artwork(_ number: Int, width: CGFloat) -> some View {
@@ -85,6 +100,7 @@ private extension EnvironmentValues {
 /// One phase drives brightness, size, lift and shadow; the text moves with the face.
 private struct OiCreationCurrentStepPulse<Face: View, Label: View>: View {
     let isCurrent: Bool
+    var fitsLabel = false
     @ViewBuilder var face: () -> Face
     @ViewBuilder var label: () -> Label
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -105,9 +121,18 @@ private struct OiCreationCurrentStepPulse<Face: View, Label: View>: View {
 
     private func footprint(lowered: Bool) -> some View {
         let closeToSurface = lowered || isPressed
-        return ZStack {
-            face().brightness(lowered ? -0.16 : 0)
-            label()
+        return Group {
+            if fitsLabel {
+                label()
+                    .padding(.horizontal, 12).padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
+                    .background { face().brightness(lowered ? -0.16 : 0) }
+            } else {
+                ZStack {
+                    face().brightness(lowered ? -0.16 : 0)
+                    label()
+                }
+            }
         }
         .scaleEffect(lowered ? 0.94 : 1)
         .rotation3DEffect(.degrees(lowered ? -5 : 0), axis: (x: 1, y: 0, z: 0))
