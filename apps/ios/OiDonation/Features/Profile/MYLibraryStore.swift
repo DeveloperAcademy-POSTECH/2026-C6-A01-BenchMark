@@ -77,6 +77,7 @@ final class MYLibraryStore {
 
 enum MYDestination: Hashable {
     case workshop
+    case cucumberCustomization
     case farm
     case collection
     case school(MYSchool)
