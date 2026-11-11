@@ -12,6 +12,26 @@ import XCTest
 
 @MainActor
 final class CampusMapInteractionTests: XCTestCase {
+    func testMapProjectsOverlaysWhenViewportOrArtworkChanges() {
+        let canvas = CampusMapCanvas(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        var layouts = 0
+        canvas.didLayout = { layouts += 1 }
+
+        canvas.layoutSubviews()
+        canvas.layoutSubviews()
+        XCTAssertEqual(layouts, 1)
+
+        canvas.bounds.size.width = 420
+        canvas.layoutSubviews()
+        XCTAssertEqual(layouts, 2)
+
+        canvas.invalidateProjection()
+        canvas.invalidateProjection()
+        canvas.layoutSubviews()
+        canvas.layoutSubviews()
+        XCTAssertEqual(layouts, 3)
+    }
+
     func testPublicOiAppearsAndOpensOnOverviewBeforeSelectingARegion() async throws {
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: windowScene)
@@ -24,7 +44,7 @@ final class CampusMapInteractionTests: XCTestCase {
         controller.view.addSubview(canvas)
         window.isHidden = false
         defer {
-            scene.suspendForARCamera()
+            scene.suspendRendering()
             window.isHidden = true
             window.rootViewController = nil
             window.windowScene = nil
@@ -179,7 +199,7 @@ final class CampusMapInteractionTests: XCTestCase {
         controller.view.addSubview(canvas)
         window.isHidden = false
         defer {
-            scene.suspendForARCamera()
+            scene.suspendRendering()
             window.isHidden = true
             window.rootViewController = nil
             window.windowScene = nil
@@ -255,7 +275,7 @@ final class CampusMapInteractionTests: XCTestCase {
         rotated.sendActions(for: .touchUpInside)
         XCTAssertEqual(opened, story.id)
 
-        scene.suspendForARCamera()
+        scene.suspendRendering()
         scene.setVisible(true)
         let restored = try XCTUnwrap(canvas.map?.scene.findEntity(named: name))
         XCTAssertLessThan(simd_distance(restored.orientation(relativeTo: nil).act([0, 0, 1]), forward), 0.001)
@@ -276,7 +296,7 @@ final class CampusMapInteractionTests: XCTestCase {
         controller.view.addSubview(canvas)
         window.isHidden = false
         defer {
-            scene.suspendForARCamera()
+            scene.suspendRendering()
             window.isHidden = true
             window.rootViewController = nil
             window.windowScene = nil
@@ -383,7 +403,7 @@ final class CampusMapInteractionTests: XCTestCase {
         tilt.state = .ended
         scene.perform(NSSelectorFromString("pan:"), with: tilt)
 
-        scene.suspendForARCamera()
+        scene.suspendRendering()
         scene.setVisible(true)
         XCTAssertNotNil(canvas.map?.scene.findEntity(named: modelName))
 
@@ -412,7 +432,7 @@ final class CampusMapInteractionTests: XCTestCase {
         window.isHidden = false
         defer {
             scene.endPlacement()
-            scene.suspendForARCamera()
+            scene.suspendRendering()
             canvas.removeFromSuperview()
             window.isHidden = true
             window.rootViewController = nil
@@ -508,7 +528,7 @@ final class CampusMapInteractionTests: XCTestCase {
         controller.view.addSubview(canvas)
         window.isHidden = false
         defer {
-            scene.suspendForARCamera()
+            scene.suspendRendering()
             window.isHidden = true
             window.rootViewController = nil
             window.windowScene = nil
@@ -581,7 +601,7 @@ final class CampusMapInteractionTests: XCTestCase {
         scene.updatePlacementPreviewTouches([:])
         XCTAssertEqual(committed, movedAgain)
         XCTAssertEqual(camera.position(relativeTo: nil), cameraStart)
-        scene.suspendForARCamera(); scene.setVisible(true)
+        scene.suspendRendering(); scene.setVisible(true)
         let restored = try XCTUnwrap(canvas.map?.scene.findEntity(named: modelName))
         let restoredGround = data.world(latitude: movedAgain.latitude, longitude: movedAgain.longitude)
         XCTAssertLessThan(simd_distance(restored.position(relativeTo: nil), restoredGround), 0.001)
@@ -601,7 +621,7 @@ final class CampusMapInteractionTests: XCTestCase {
         controller.view.addSubview(canvas)
         window.isHidden = false
         defer {
-            scene.suspendForARCamera()
+            scene.suspendRendering()
             canvas.removeFromSuperview()
             window.isHidden = true
             window.rootViewController = nil
@@ -683,7 +703,7 @@ final class CampusMapInteractionTests: XCTestCase {
         controller.view.addSubview(canvas)
         window.isHidden = false
         defer {
-            scene.suspendForARCamera()
+            scene.suspendRendering()
             canvas.removeFromSuperview()
             window.isHidden = true
             window.rootViewController = nil
@@ -814,7 +834,7 @@ final class CampusMapInteractionTests: XCTestCase {
         controller.view.addSubview(canvas)
         window.isHidden = false
         defer {
-            scene.suspendForARCamera()
+            scene.suspendRendering()
             canvas.removeFromSuperview()
             window.isHidden = true
             window.rootViewController = nil
