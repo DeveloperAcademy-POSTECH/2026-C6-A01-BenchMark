@@ -322,7 +322,7 @@ MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하
 
 2026-11-11 후속으로 지도 프로필 버튼은 `MYDestination.cucumberCustomization`, 작업실 버튼은 `MYDestination.workshop`에 연결한다.
 
-2026-11-12 #289의 3D 미리보기는 버튼을 누른 시점의 `OiSeedCucumberAppearance`를 사용한다. Swift에서 몸체·팔다리·얼굴·꼭지의 메시를 구성하고 RealityKit의 가상 카메라로 표시한다. 얼굴은 몸체 곡면을 따라 배치하며, 꼭지는 기존 편집 좌표의 변형을 3D 형상에 적용한다. 모델 생성과 화면 표시는 모두 기기에서 처리한다.
+2026-11-12 #289의 3D 미리보기는 본 앱에 번들된 `SeedCucumberMaster.usdz`를 RealityKit으로 불러온다. 기준 모델은 정면 원화의 실루엣, 피부 요철과 줄무늬, 얼굴과 꼭지를 반영하며 측면과 뒷면은 같은 피부가 이어지도록 제작했다. 버튼을 누른 시점의 `OiSeedCucumberAppearance`로 키와 체형을 반영하고, 움직인 얼굴은 `SeedCucumberSurface.json`의 표면 깊이에 맞춘다. 꼭지는 기존 편집 좌표의 변형을 적용하고 밑동을 고정한다. 자산 로딩, 편집값 반영, 화면 표시는 모두 기기에서 처리한다.
 
 `OiLocalDraft`의 선택적 `creationStep`·`customization`·`removedMediaPaths`는 구버전 초안을 그대로 읽을 수 있게 추가한다. `OiDraftCustomization`은 로컬 미리보기 전용이며 `OiStoryDraft.payload()`나 공유 DB를 확장하지 않는다. 업로드 사진 순서를 유지하고 기기 사본과 서버 경로를 중복 표시하지 않는다. 기존 `attach_media` RPC로 사진 연결을 변경하며, 변경 직후 목록 동기화가 실패해도 응답의 revision과 경로를 보존한다.
 

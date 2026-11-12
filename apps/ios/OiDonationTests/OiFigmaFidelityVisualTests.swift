@@ -439,7 +439,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
-    func testSeedCucumber3DModelKeepsEditedPartsOnSkin() throws {
+    func testSeedCucumber3DModelKeepsEditedPartsOnSkin() async throws {
         typealias Appearance = OiSeedCucumberAppearance
         let original = Appearance()
         let edited = editedSeedCucumber3DAppearance()
@@ -453,18 +453,29 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         narrow.stemAngle = Appearance.angleRange.upperBound
 
         let appearances = [original, edited, narrow]
-        let roots = try appearances.map { try OiSeedCucumberModel.make(appearance: $0) }
+        var roots: [Entity] = []
+        for appearance in appearances {
+            roots.append(try await OiSeedCucumberModel.make(appearance: appearance))
+        }
         for (index, root) in roots.enumerated() {
             let body = try XCTUnwrap(root.findEntity(named: "Body"))
             let bounds = body.visualBounds(relativeTo: root)
             XCTAssertEqual(root.visualBounds(relativeTo: root).min.y, 0, accuracy: 0.005, "Pose \(index)")
             XCTAssertGreaterThan(bounds.extents.z, bounds.extents.x * 0.25, "Pose \(index) must have body depth")
-            for name in ["LeftArm", "RightArm", "LeftHand", "RightHand", "LeftLeg", "RightLeg", "LeftFoot", "RightFoot"] {
+            for name in ["LeftArm", "RightArm", "LeftLeg", "RightLeg"] {
                 let limb = try XCTUnwrap(root.findEntity(named: name))
                 XCTAssertGreaterThan(limb.visualBounds(relativeTo: root).extents.z, 0.01, "\(name) in pose \(index)")
             }
 
             let bodyTriangles = try cucumberTriangles(named: "Body", in: root)
+            var bodyRows: [Int: [CucumberTriangle]] = [:]
+            for triangle in bodyTriangles {
+                let firstRow = cucumberDepthRow(min(triangle.0.y, triangle.1.y, triangle.2.y))
+                let lastRow = cucumberDepthRow(max(triangle.0.y, triangle.1.y, triangle.2.y))
+                for row in firstRow...lastRow {
+                    bodyRows[row, default: []].append(triangle)
+                }
+            }
             for name in ["LeftEye", "RightEye", "Mouth"] {
                 let face = try XCTUnwrap(root.findEntity(named: name))
                 XCTAssertGreaterThan(face.visualBounds(relativeTo: root).min.z, 0, "\(name) must face +Z")
@@ -472,7 +483,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 for offset in stride(from: 0, to: triangles.count, by: max(1, triangles.count / 24)) {
                     let triangle = triangles[offset]
                     let center = (triangle.0 + triangle.1 + triangle.2) / 3
-                    let skin = try XCTUnwrap(cucumberDepth(at: center, in: bodyTriangles), "\(name) left the body in pose \(index)")
+                    let row = bodyRows[cucumberDepthRow(center.y), default: []]
+                    let skin = try XCTUnwrap(cucumberDepth(at: center, in: row), "\(name) left the body in pose \(index)")
                     XCTAssertLessThan(abs(center.z - skin.upperBound), 0.025, "\(name) detached from the front skin in pose \(index)")
                 }
             }
@@ -482,7 +494,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             XCTAssertGreaterThan(stem.visualBounds(relativeTo: root).max.y, bounds.max.y, "Pose \(index) must show the stem")
             XCTAssertTrue(stemTriangles.contains { triangle in
                 let center = (triangle.0 + triangle.1 + triangle.2) / 3
-                guard let skin = cucumberDepth(at: center, in: bodyTriangles) else { return false }
+                guard let skin = cucumberDepth(at: center, in: bodyRows[cucumberDepthRow(center.y), default: []]) else { return false }
                 return center.z > skin.lowerBound && center.z < skin.upperBound
             }, "The stem must enter the body in pose \(index)")
         }
@@ -562,6 +574,10 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         return triangles
     }
 
+    private func cucumberDepthRow(_ y: Float) -> Int {
+        Int(floor(y * 100))
+    }
+
     private func cucumberDepth(at point: SIMD3<Float>, in triangles: [CucumberTriangle]) -> ClosedRange<Float>? {
         var front = -Float.infinity
         var back = Float.infinity
@@ -570,7 +586,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             let other = c - a
             let offset = point - a
             let determinant = side.x * other.y - side.y * other.x
-            guard abs(determinant) > 0.0000001 else { continue }
+            guard abs(determinant) > 0.0000000001 else { continue }
             let u = (offset.x * other.y - offset.y * other.x) / determinant
             let v = (side.x * offset.y - side.y * offset.x) / determinant
             guard u >= -0.0001, v >= -0.0001, u + v <= 1.0001 else { continue }

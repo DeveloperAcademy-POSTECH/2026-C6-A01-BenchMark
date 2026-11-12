@@ -68,10 +68,9 @@ struct OiSeedCucumber3DPreview: View {
 
     private func load() async {
         state = .loading
-        await Task.yield()
-        guard !Task.isCancelled else { return }
         do {
-            let model = try OiSeedCucumberModel.make(appearance: appearance)
+            let model = try await OiSeedCucumberModel.make(appearance: appearance)
+            try Task.checkCancellation()
             let bounds = model.visualBounds(relativeTo: nil)
             let radius = simd_length(bounds.extents) / 2
             guard radius.isFinite, radius > 0 else {
@@ -79,6 +78,8 @@ struct OiSeedCucumber3DPreview: View {
                 return
             }
             state = .ready(model, center: bounds.center, radius: radius)
+        } catch is CancellationError {
+            return
         } catch {
             state = .failed
         }
