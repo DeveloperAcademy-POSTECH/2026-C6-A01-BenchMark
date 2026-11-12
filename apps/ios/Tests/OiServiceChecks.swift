@@ -388,10 +388,11 @@ struct OiServiceChecks {
         record.creationStep = OiCreationStep.card.rawValue
         record.customization = OiDraftCustomization(fill: .gradient, firstColor: 0xABCDEF, secondColor: 0x123456,
                                                    showsCharacter: false, garmentColors: ["모자":0x445566])
-        // Old customization records can omit the wardrobe, card, and bare cucumber appearance.
+        // Old customization records can omit the local appearance and outfit.
         let oldCustomization = try JSONEncoder().encode(record.customization!)
         let oldRecovered = try JSONDecoder().decode(OiDraftCustomization.self, from: oldCustomization)
-        precondition(oldRecovered.wardrobe == nil && oldRecovered.card == nil && oldRecovered.seedAppearance == nil && oldRecovered.seedWhiteTshirt == nil)
+        precondition(oldRecovered.wardrobe == nil && oldRecovered.card == nil && oldRecovered.seedAppearance == nil)
+        precondition(oldRecovered.seedWhiteTshirt == nil && oldRecovered.seedLongPants == nil)
         var seedAppearance = OiSeedCucumberAppearance()
         seedAppearance.bodyHeight = 1.1
         seedAppearance.bodyWidth = 1.2
@@ -402,6 +403,10 @@ struct OiServiceChecks {
         seedAppearance[.mouth] = .init(x: 6, y: 18, size: 0.75)
         record.customization?.seedAppearance = seedAppearance
         record.customization?.seedWhiteTshirt = true
+        let shirtOnly = try JSONEncoder().encode(record.customization!)
+        let shirtOnlyRecovered = try JSONDecoder().decode(OiDraftCustomization.self, from: shirtOnly)
+        precondition(shirtOnlyRecovered.seedWhiteTshirt == true && shirtOnlyRecovered.seedLongPants == nil)
+        record.customization?.seedLongPants = true
         let future = try JSONDecoder().decode(OiWardrobeLook.self, from: Data(#"{"top":"future-garment","bottom":"retired-pants","topColor":4294967295}"#.utf8))
         precondition(future.top == .tshirt && future.bottom == .long && future.topColor == 0xFFFFFF)
         precondition(future.fabrics.isEmpty, "Legacy looks have no fabric override")
@@ -522,6 +527,7 @@ struct OiServiceChecks {
         print("PASS: card framing, 3D orientation and artwork survive draft recovery; legacy cards and public payload unchanged")
         precondition(recovered?.customization?.seedAppearance == seedAppearance, "Face, stem, and body edits must survive reopening the account draft")
         precondition(recovered?.customization?.seedWhiteTshirt == true, "The STEP 3 shirt selection must survive reopening the account draft")
+        precondition(recovered?.customization?.seedLongPants == true, "The STEP 3 pants selection must survive reopening the account draft")
         precondition(recovered?.customization?.wardrobe == look, "Garments and all three colors must survive reopening the account draft")
         precondition(recovered?.customization?.wardrobe?.artwork == look.artwork)
         precondition(recovered?.customization?.wardrobe?.fabrics == look.fabrics)

@@ -583,7 +583,45 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         init(_ value: OiDraftCustomization) { self.value = value }
     }
 
-    func testStep3WhiteTshirtKeepsFaceAndRotatesInPlace() async throws {
+    func testStep3PinchRevealsPreviewAndClampsZoom() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let variant = try XCTUnwrap(variants.first { $0.name == "402x874" })
+        let screen = CreationCapturePage(step: 3) {
+            OiCucumberCustomizationStep(customization: .constant(.init()), onContinue: {})
+        }
+        .environment(\.scenePhase, .active)
+
+        try await capture(screen, name: "step3-pinched", variant: variant, defaults: fixture.defaults,
+                          delay: .zero, prepareRealityCapture: { host in
+            let surface = try await self.step3Surface(in: host)
+            XCTAssertEqual(surface.accessibilityValue, "정면 이미지")
+            let pinch = try self.step3Pinch(in: surface)
+            try self.applyStep3Pinch(pinch, state: .began, scale: 1)
+            try await self.waitForStep3 { surface.accessibilityValue == "3D 미리보기" }
+
+            let camera = try self.step3Camera(in: surface)
+            let normal = camera.position(relativeTo: nil).z
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 10)
+            let closest = camera.position(relativeTo: nil).z
+            XCTAssertLessThan(closest, normal)
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 10)
+            XCTAssertEqual(camera.position(relativeTo: nil).z, closest, accuracy: 0.001)
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 0.9)
+            XCTAssertGreaterThan(camera.position(relativeTo: nil).z, closest)
+
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 0.1)
+            let farthest = camera.position(relativeTo: nil).z
+            XCTAssertGreaterThan(farthest, normal)
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 0.1)
+            XCTAssertEqual(camera.position(relativeTo: nil).z, farthest, accuracy: 0.001)
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 1.1)
+            XCTAssertLessThan(camera.position(relativeTo: nil).z, farthest)
+            return surface
+        })
+    }
+
+    func testStep3OutfitKeepsFaceAndCameraWhileChangingLayers() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         let variant = try XCTUnwrap(variants.first { $0.name == "402x874" })
@@ -600,49 +638,66 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
         .environment(\.scenePhase, .active)
 
-        try await capture(screen, name: "step3-white-tshirt-rotated", variant: variant, defaults: fixture.defaults,
+        try await capture(screen, name: "step3-pants-outfit-zoomed", variant: variant, defaults: fixture.defaults,
                           delay: .zero, attach: true, prepareRealityCapture: { host in
             let surface = try await self.step3Surface(in: host)
             try await self.waitForStep3 { surface.scene.findEntity(named: "SeedCucumber") != nil }
             let model = try XCTUnwrap(surface.scene.findEntity(named: "SeedCucumber"))
             let eye = try XCTUnwrap(model.findEntity(named: "LeftEye"))
             let faceTransform = eye.transformMatrix(relativeTo: model)
-            let garmentName = OiSeedCucumberModel.whiteTshirtEntityName
-            XCTAssertNil(model.findEntity(named: garmentName))
+            let shirtName = OiSeedCucumberGarment.whiteTshirt.rawValue
+            let pantsName = OiSeedCucumberGarment.longPants.rawValue
+            XCTAssertNil(model.findEntity(named: shirtName))
+            XCTAssertNil(model.findEntity(named: pantsName))
+
+            draft.value.seedLongPants = true
+            try await self.waitForStep3 {
+                model.findEntity(named: pantsName) != nil && surface.accessibilityValue == "3D 미리보기"
+            }
+            let pants = try XCTUnwrap(model.findEntity(named: pantsName))
+            XCTAssertNil(model.findEntity(named: shirtName))
 
             draft.value.seedWhiteTshirt = true
-            try await self.waitForStep3 {
-                model.findEntity(named: garmentName) != nil && surface.accessibilityValue == "3D 미리보기"
-            }
-            let shirt = try XCTUnwrap(model.findEntity(named: garmentName))
-            let cameras = surface.scene.anchors.flatMap { anchor in
-                anchor.children.compactMap { $0 as? PerspectiveCamera }
-            }
-            let camera = try XCTUnwrap(cameras.first)
+            try await self.waitForStep3 { model.findEntity(named: shirtName) != nil }
+            let shirt = try XCTUnwrap(model.findEntity(named: shirtName))
+            let camera = try self.step3Camera(in: surface)
             let front = camera.position(relativeTo: nil)
             let rotation = try XCTUnwrap(surface.accessibilityCustomActions?.first)
             let rotate = try XCTUnwrap(rotation.actionHandler)
             XCTAssertTrue(rotate(rotation))
             let turned = camera.position(relativeTo: nil)
             XCTAssertGreaterThan(simd_distance(front, turned), 0.2)
+            let pinch = try self.step3Pinch(in: surface)
+            try self.applyStep3Pinch(pinch, state: .began, scale: 1)
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 1.24)
+            let zoomed = camera.position(relativeTo: nil)
+            XCTAssertGreaterThan(simd_distance(turned, zoomed), 0.2)
 
             draft.value.seedWhiteTshirt = nil
-            try await self.waitForStep3 { model.findEntity(named: garmentName) == nil }
+            try await self.waitForStep3 { model.findEntity(named: shirtName) == nil }
+            XCTAssertTrue(model.findEntity(named: pantsName) === pants)
             draft.value.seedWhiteTshirt = true
-            try await self.waitForStep3 { model.findEntity(named: garmentName) != nil }
+            try await self.waitForStep3 { model.findEntity(named: shirtName) === shirt }
+
+            draft.value.seedLongPants = nil
+            try await self.waitForStep3 { model.findEntity(named: pantsName) == nil }
+            XCTAssertTrue(model.findEntity(named: shirtName) === shirt)
+            draft.value.seedLongPants = true
+            try await self.waitForStep3 { model.findEntity(named: pantsName) === pants }
+
             XCTAssertTrue(surface.scene.findEntity(named: "SeedCucumber") === model)
             XCTAssertTrue(model.findEntity(named: "LeftEye") === eye)
-            XCTAssertTrue(model.findEntity(named: garmentName) === shirt, "The scene must reuse the prepared garment")
             XCTAssertEqual(eye.transformMatrix(relativeTo: model).columns.3, faceTransform.columns.3)
-            XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), turned), 0, accuracy: 0.001)
+            XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), zoomed), 0, accuracy: 0.001)
             return surface
         })
         XCTAssertEqual(draft.value.seedAppearance, appearance)
         XCTAssertEqual(draft.value.wardrobe, original.wardrobe)
     }
 
-    func testWhiteTshirtSharesBodyTransformAtEverySizeCorner() async throws {
-        let garment = try await OiSeedCucumberModel.loadWhiteTshirt()
+    func testStep3GarmentsShareBodyTransformAtEverySizeCorner() async throws {
+        let shirt = try await OiSeedCucumberModel.loadGarment(.whiteTshirt)
+        let pants = try await OiSeedCucumberModel.loadGarment(.longPants)
         for width in [OiSeedCucumberAppearance.widthRange.lowerBound, OiSeedCucumberAppearance.widthRange.upperBound] {
             for height in [OiSeedCucumberAppearance.heightRange.lowerBound, OiSeedCucumberAppearance.heightRange.upperBound] {
                 var appearance = editedSeedCucumber3DAppearance()
@@ -654,18 +709,41 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 let mouth = try XCTUnwrap(model.findEntity(named: "Mouth"))
                 let bodyTransform = body.transformMatrix(relativeTo: model)
                 let mouthTransform = mouth.transformMatrix(relativeTo: model)
-                try OiSeedCucumberModel.setWhiteTshirt(garment, on: model)
-                let parent = try XCTUnwrap(garment.parent)
+                try OiSeedCucumberModel.setGarment(.whiteTshirt, asset: shirt, on: model)
+                try OiSeedCucumberModel.setGarment(.longPants, asset: pants, on: model)
+                let parent = try XCTUnwrap(shirt.parent)
+                XCTAssertTrue(pants.parent === parent)
                 XCTAssertEqual(parent.scale, SIMD3(Float(width), Float(height), Float(width)))
                 var ancestor = body.parent
                 while let current = ancestor, current !== parent { ancestor = current.parent }
                 XCTAssertTrue(ancestor === parent, "The garment must inherit the same affine transform as the skin")
                 XCTAssertEqual(body.transformMatrix(relativeTo: model).columns.3, bodyTransform.columns.3)
                 XCTAssertEqual(mouth.transformMatrix(relativeTo: model).columns.3, mouthTransform.columns.3)
-                try OiSeedCucumberModel.setWhiteTshirt(nil, on: model)
-                XCTAssertNil(garment.parent)
+                try OiSeedCucumberModel.setGarment(.whiteTshirt, asset: nil, on: model)
+                try OiSeedCucumberModel.setGarment(.longPants, asset: nil, on: model)
+                XCTAssertNil(shirt.parent)
+                XCTAssertNil(pants.parent)
             }
         }
+    }
+
+    private func step3Camera(in surface: RealityKit.ARView) throws -> PerspectiveCamera {
+        let cameras = surface.scene.anchors.flatMap { anchor in
+            anchor.children.compactMap { $0 as? PerspectiveCamera }
+        }
+        return try XCTUnwrap(cameras.first)
+    }
+
+    private func step3Pinch(in surface: RealityKit.ARView) throws -> UIPinchGestureRecognizer {
+        try XCTUnwrap(surface.gestureRecognizers?.compactMap { $0 as? UIPinchGestureRecognizer }.first)
+    }
+
+    private func applyStep3Pinch(_ pinch: UIPinchGestureRecognizer, state: UIGestureRecognizer.State,
+                                 scale: CGFloat) throws {
+        pinch.state = state
+        pinch.scale = scale
+        let target = try XCTUnwrap(pinch.delegate)
+        XCTAssertTrue(UIApplication.shared.sendAction(NSSelectorFromString("didPinch:"), to: target, from: pinch, for: nil))
     }
 
     private func step3Surface(in host: UIView) async throws -> RealityKit.ARView {
