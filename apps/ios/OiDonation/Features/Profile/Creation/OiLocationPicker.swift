@@ -33,7 +33,7 @@ struct OiLocationPicker: View {
         .onDisappear {
             isOnScreen = false
             scene.endPlacement()
-            scene.suspendForARCamera()
+            scene.suspendRendering()
         }
         .onChange(of: scenePhase) { _, phase in
             scene.setVisible(isOnScreen && showingMap && phase == .active)
@@ -148,7 +148,7 @@ struct OiLocationPicker: View {
 
     private func backToSearch() {
         showingMap = false
-        scene.suspendForARCamera()
+        scene.suspendRendering()
     }
 
     private func confirmLocation() {
@@ -251,7 +251,7 @@ struct OiDraftPlacementPreview: View {
                     .task(id: retry) { await prepare(placement) }
                     .onChange(of: scenePhase, initial: true) { _, _ in updateVisibility() }
                     .onChange(of: isShowingReview) { _, _ in updateVisibility() }
-                    .onDisappear { scene.suspendForARCamera() }
+                    .onDisappear { scene.suspendRendering() }
             } else {
                 locationPrompt("내 오이를 놓을 캠퍼스 위치를 선택해 주세요.")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -318,7 +318,7 @@ struct OiDraftPlacementPreview: View {
     }
 
     private func updateVisibility() {
-        if isShowingReview || scenePhase == .background { scene.suspendForARCamera() }
+        if isShowingReview || scenePhase == .background { scene.suspendRendering() }
         else { scene.setVisible(scenePhase == .active) }
     }
 }

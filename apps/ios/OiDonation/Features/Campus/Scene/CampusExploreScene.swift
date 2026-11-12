@@ -269,13 +269,18 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         updateCamera()
     }
 
-    func suspendForARCamera() {
+    func suspendRendering() {
         setVisible(false)
-        // Release before presenting another RealityKit renderer; navigation values stay here.
+        // Release the renderer and its scene while keeping navigation values and asset templates.
+        guard let canvas, canvas.map != nil else { return }
         clearStoryPins()
-        canvas?.map?.scene.removeAnchor(root)
-        canvas?.removeRenderer()
-        panTouchCount = 0
+        canvas.removeRenderer()
+        root = AnchorEntity(world: .zero)
+        placementLayer = Entity()
+        authoredLayer = Entity()
+        storyLayer = Entity()
+        draftEntity = nil
+        placementReticle = nil
     }
 
     private func attachRenderer(to canvas: CampusMapCanvas) {
@@ -487,7 +492,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                 guard let image = try? await loadCucumberPortrait(path), !Task.isCancelled,
                       let self, let button, let artwork = self.cacheStoryPortrait(image, key: path as NSString) else { return }
                 button.setImage(artwork, for: .normal)
-                self.canvas?.setNeedsLayout()
+                self.canvas?.invalidateProjection()
             })
         }
     }
@@ -1430,6 +1435,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 final class CampusMapCanvas: UIView {
     private(set) var map: RealityKit.ARView?
     var didLayout: (() -> Void)?
+    private var lastLayoutBounds: CGRect?
     override init(frame: CGRect) { super.init(frame: frame) }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
     func installRenderer() -> RealityKit.ARView {
@@ -1445,7 +1451,18 @@ final class CampusMapCanvas: UIView {
         map?.removeFromSuperview()
         map = nil
     }
-    override func layoutSubviews() { super.layoutSubviews(); map?.frame = bounds; didLayout?() }
+    func invalidateProjection() {
+        lastLayoutBounds = nil
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds != lastLayoutBounds else { return }
+        lastLayoutBounds = bounds
+        map?.frame = bounds
+        didLayout?()
+    }
 }
 
 struct CampusMapSurface: UIViewRepresentable {

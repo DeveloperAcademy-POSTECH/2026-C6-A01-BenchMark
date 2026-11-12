@@ -7,9 +7,9 @@
 
 import Foundation
 
-struct OiSchool: Codable, Identifiable { let id: String; let name: String }
-struct OiRegion: Codable, Identifiable { let id: String; let schoolId: String; let name: String }
-struct OiAsset: Codable, Identifiable { let id: String; let kind: String; let name: String }
+struct OiSchool: Codable, Equatable, Identifiable { let id: String; let name: String }
+struct OiRegion: Codable, Equatable, Identifiable { let id: String; let schoolId: String; let name: String }
+struct OiAsset: Codable, Equatable, Identifiable { let id: String; let kind: String; let name: String }
 
 struct OiAccount: Codable, Equatable {
     let id: UUID
@@ -195,7 +195,7 @@ struct OiCardRequestReceipt: Decodable {
     let status: OiCardRequest.Status
 }
 
-struct OiOwnedStory: Codable, Identifiable {
+struct OiOwnedStory: Codable, Equatable, Identifiable {
     let storyId: UUID
     let createdAt: String?
     var id: UUID { storyId }
@@ -206,7 +206,7 @@ struct OiCollectionMetric: Decodable {
     let collectionCount: Int
 }
 
-struct OiMedia: Codable, Identifiable {
+struct OiMedia: Codable, Equatable, Identifiable {
     let id: UUID
     let storyId: UUID
     let objectPath: String

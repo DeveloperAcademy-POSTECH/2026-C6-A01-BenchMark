@@ -120,7 +120,7 @@ struct RootTabView: View {
             if remote.isConfigured { await remote.refresh() } else { await remote.start() }
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(30)) } catch { return }
-                await remote.refresh()
+                await remote.refresh(reuseCatalog: true)
             }
         }
         .preferredColorScheme(.light)
