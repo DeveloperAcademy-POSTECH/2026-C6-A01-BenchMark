@@ -1,9 +1,0 @@
-{
-  "name": "oi-education-lights-prototype",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "test": "node qa/geometry.test.mjs",
-    "check": "node --check dist/app.js && node --check dist/geometry.js"
-  }
-}
