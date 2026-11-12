@@ -10,6 +10,12 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private(set) var error: String?
     private(set) var ready = false
     private(set) var hasMovedFromOverview = false
+    private(set) var appearance = CampusMapAppearance.saved
+    var onEducationDistrict: (() -> Void)?
+    @ObservationIgnored private var educationEntity: ModelEntity?
+    @ObservationIgnored private var educationButton: UIButton?
+    private var educationNear = false
+    private var educationCamera: (target: SIMD3<Float>, radius: Float, yaw: Float, pitch: Float)?
     var onRegion: ((CampusRegion) -> Void)?
     var onPlacement: ((UUID) -> Void)?
     private var sharedMap = false
@@ -36,7 +42,10 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var canvas: CampusMapCanvas?
     @ObservationIgnored private var root = AnchorEntity(world: .zero)
     @ObservationIgnored private var camera = PerspectiveCamera()
-    @ObservationIgnored private var pins: [(UIButton, SIMD3<Float>)] = []
+    @ObservationIgnored private var mapSun: DirectionalLight?
+    @ObservationIgnored private var shadowDistance: Float = 0
+    @ObservationIgnored private var pins: [(UIButton, SIMD3<Float>, String)] = []
+    @ObservationIgnored private let storyModels = CampusStoryModels()
     @ObservationIgnored private var regionClustering: CampusRegionClustering?
     @ObservationIgnored private var regionButtons: [String: CampusRegionButton] = [:]
     @ObservationIgnored private var cameraMotion: (
@@ -59,14 +68,17 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var navigationGestures: [UIGestureRecognizer] = []
     private var region: CampusRegion?
     private var stories: [CampusStory] = []
+    private var overviewStories: [CampusStory] = []
     private var regionCounts: [String: Int]?
     private var visible = true
     private static var cachedMesh: Entity?
+    @ObservationIgnored private var displayedMap: Entity?
 
     func makeView() -> CampusMapCanvas {
         if let canvas { return canvas }
         let canvas = CampusMapCanvas()
         self.canvas = canvas
+        storyModels.onChange = { [weak self] in self?.updateCamera() }
         pins.forEach { canvas.addSubview($0.0) }
         regionButtons.values.forEach { canvas.addSubview($0) }
         if let data { mapLabels.configure(data: data, in: canvas) }
@@ -107,22 +119,93 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         do {
             let data = try CampusMapData.load()
             guard let url = Bundle.main.url(forResource: "campus-mobile", withExtension: "oimesh") else { throw CocoaError(.fileNoSuchFile) }
-            let map: Entity
-            if let cached = Self.cachedMesh { map = cached.clone(recursive: true) }
-            else {
-                let loaded = try await CampusMeshLoader.load(url: url)
+            if Self.cachedMesh == nil {
+                let loaded = try await CampusMeshLoader.load(url: url, mapData: data)
                 try Task.checkCancellation()
                 Self.cachedMesh = loaded
-                map = loaded.clone(recursive: true)
             }
             // Loading may finish while AR has suspended the map. Keep the template
             // detached until a renderer is available instead of reviving the old scene.
-            if canvas?.map != nil { root.addChild(map) }
+            if canvas?.map != nil { try installMap() }
             self.data = data; ready = true
+            try installEducationDistrict(data: data)
             if let canvas { mapLabels.configure(data: data, in: canvas) }
             if let region { focus(region, stories: stories) } else { showOverview() }
         } catch is CancellationError { }
         catch { self.error = "캠퍼스 지도를 불러오지 못했어요. 다시 시도해 주세요." }
+    }
+
+    func setAppearance(_ appearance: CampusMapAppearance) {
+        guard appearance != self.appearance else { return }
+        let previous = self.appearance
+        self.appearance = appearance
+        do {
+            if let view = canvas?.map { mapSun = try appearance.configureLighting(in: view, root: root) }
+            shadowDistance = 0
+            updateMapShadows()
+            if canvas?.map != nil, Self.cachedMesh != nil { try installMap() }
+            appearance.save()
+            canvas?.setAppearance(appearance)
+        } catch {
+            self.appearance = previous
+            if let view = canvas?.map { mapSun = try? previous.configureLighting(in: view, root: root) }
+            shadowDistance = 0
+            updateMapShadows()
+            self.error = "지도 색상을 불러오지 못했어요. 다시 시도해 주세요."
+        }
+    }
+
+    private func installMap() throws {
+        guard let template = Self.cachedMesh else { return }
+        let replacement = try appearance.makeMap(from: template)
+        displayedMap?.removeFromParent()
+        root.addChild(replacement)
+        displayedMap = replacement
+    }
+
+    private func installEducationDistrict(data: CampusMapData) throws {
+        educationEntity?.removeFromParent()
+        let entity = try CampusEducationDistrict.makeEntity(data: data)
+        root.addChild(entity)
+        educationEntity = entity
+        educationNear = false
+        if educationButton == nil {
+            let button = UIButton(type: .system)
+            var config = UIButton.Configuration.filled()
+            config.title = "교육지구 2.0 · 건립 예정"
+            config.image = UIImage(systemName: "sparkles")
+            config.imagePadding = 5
+            config.baseBackgroundColor = UIColor.white.withAlphaComponent(0.94)
+            config.baseForegroundColor = UIColor(red: 0.22, green: 0.34, blue: 0.40, alpha: 1)
+            config.cornerStyle = .capsule
+            config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { input in
+                var output = input; output.font = UIFont.systemFont(ofSize: 12, weight: .semibold); return output
+            }
+            button.configuration = config
+            button.accessibilityIdentifier = "campus.education-district"
+            button.accessibilityLabel = "교육지구 2.0 건립 예정 부지, 사업 안내 보기"
+            button.addAction(UIAction { [weak self] _ in self?.selectEducationDistrict() }, for: .touchUpInside)
+            educationButton = button
+        }
+        if let button = educationButton { canvas?.addSubview(button) }
+    }
+
+    func selectEducationDistrict() {
+        guard !editingPlacement, !selectingCenterLocation, let data else { return }
+        if educationCamera == nil { educationCamera = (target, radius, yaw, pitch) }
+        stopNavigation()
+        yaw = CampusEducationDistrict.heading
+        pitch = 0.65
+        animateCamera(to: data.grounded(CampusEducationDistrict.center) + SIMD3(0, -2, 0), radius: 60)
+        onEducationDistrict?()
+    }
+
+    func finishEducationDistrict() {
+        guard let previous = educationCamera else { return }
+        educationCamera = nil
+        stopNavigation()
+        yaw = previous.yaw; pitch = previous.pitch
+        animateCamera(to: previous.target, radius: previous.radius)
     }
 
     func setVisible(_ active: Bool) {
@@ -147,6 +230,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     func suspendForARCamera() {
         setVisible(false)
+        storyModels.suspend()
         // Release before presenting another RealityKit renderer; navigation values stay here.
         canvas?.map?.scene.removeAnchor(root)
         canvas?.removeRenderer()
@@ -156,7 +240,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private func attachRenderer(to canvas: CampusMapCanvas) {
         guard canvas.map == nil else { return }
         let view = canvas.installRenderer()
-        view.environment.background = .color(UIColor(red: 0.78, green: 0.86, blue: 0.70, alpha: 1))
+        canvas.setAppearance(appearance)
         view.renderOptions = [.disableMotionBlur, .disableDepthOfField, .disableCameraGrain]
         // Do not move a previously rendered camera/anchor graph into another ARView.
         // Its engine state can retain the old camera while UIKit pins keep moving.
@@ -166,13 +250,17 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         camera.camera.fieldOfViewInDegrees = 42
         camera.camera.near = editingPlacement ? 0.01 : 0.1; camera.camera.far = 1800
         root.addChild(camera)
-        let sun = DirectionalLight(); sun.light.intensity = 2200
-        sun.look(at: .zero, from: SIMD3(30, 60, 40), relativeTo: nil); root.addChild(sun)
-        let fill = DirectionalLight(); fill.light.intensity = 900
-        fill.look(at: .zero, from: SIMD3(-30, 40, -50), relativeTo: nil); root.addChild(fill)
-        if ready, let mesh = Self.cachedMesh { root.addChild(mesh.clone(recursive: true)) }
+        shadowDistance = 0
+        do { mapSun = try appearance.configureLighting(in: view, root: root) }
+        catch { self.error = "지도 조명을 불러오지 못했어요. 다시 시도해 주세요." }
+        if ready {
+            do { try installMap() }
+            catch { self.error = "지도 색상을 불러오지 못했어요. 다시 시도해 주세요." }
+        }
+        if let data { try? installEducationDistrict(data: data) }
         placementLayer = Entity()
         root.addChild(placementLayer)
+        storyModels.attach(to: root)
         syncPlacements(records: savedPlacements)
         draftEntity = nil
         placementReticle = nil
@@ -207,6 +295,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             }
             updateRegionCounts()
         }
+        if !sharedMap { makeStoryPins(overviewStories) }
         radius = settledRadius()
         updateCamera()
     }
@@ -222,6 +311,17 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     func showStoriesInCurrentArea(_ region: CampusRegion, stories: [CampusStory]) {
         self.region = region; self.stories = stories
+        clearPins()
+        makeStoryPins(stories)
+        updateCamera()
+    }
+
+    /// Keep public characters ready even when no region/list has been opened.
+    /// Refreshing data must not reset the camera or interrupt a map gesture.
+    func setOverviewStories(_ stories: [CampusStory]) {
+        overviewStories = stories
+        setRegionCounts(Dictionary(grouping: stories, by: \.regionID).mapValues(\.count))
+        guard ready, region == nil, !sharedMap else { return }
         makeStoryPins(stories)
         updateCamera()
     }
@@ -248,12 +348,13 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         self.region = region; self.stories = stories
         guard let data, let place = data.pois.first(where: { $0.id == region.placeID }) else { return }
         target = data.world(place.p); radius = 63; yaw = 0.1; pitch = 0.88
+        clearPins()
         makeStoryPins(stories)
         updateCamera()
     }
 
     private func makeStoryPins(_ stories: [CampusStory]) {
-        clearPins()
+        clearStoryPins()
         guard let data else { return }
         // Re-search can span multiple regions. Legacy records without coordinates
         // must still use their own region's paths, never the nearest region's center.
@@ -280,18 +381,28 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             }
             for (story, point) in zip(records, selected) { attachStory(story, at: point) }
         }
+        storyModels.setStories(stories, positions: positions)
     }
 
     private func attachStory(_ story: CampusStory, at point: SIMD3<Float>) {
         positions[story.id] = point
         let button = UIButton(type: .custom)
-        button.setImage(UIImage(named: story.portraitImage), for: .normal)
-        button.imageView?.contentMode = .scaleAspectFit
+        // Transparent hit/accessibility target only. The visible character is a USDZ
+        // entity on the terrain, with real depth, lighting and a fixed orientation.
         button.bounds.size = CGSize(width: 62, height: 76)
         button.accessibilityLabel = "\(story.title) 이야기 보기"
         button.accessibilityIdentifier = "campus.pin.\(story.id)"
-        button.addAction(UIAction { [weak self] _ in self?.onStory?(story.id) }, for: .touchUpInside)
-        attach(button, at: point + SIMD3(0, 2.5, 0))
+        button.isHidden = true
+        let spinner = UIActivityIndicatorView(style: .medium)
+        spinner.isUserInteractionEnabled = false
+        spinner.hidesWhenStopped = true
+        button.addSubview(spinner)
+        button.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            if self.storyModels.hasFailed(story.id) { self.storyModels.retry(story.id) }
+            else if self.storyModels.isReady(story.id) { self.onStory?(story.id) }
+        }, for: .touchUpInside)
+        attach(button, at: point, storyID: story.id)
     }
 
     func focusBackdrop(_ region: CampusRegion) {
@@ -531,6 +642,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         } else {
             var entity = view.entity(at: point)
             while let current = entity {
+                if current.name == "campus.education-district" { selectEducationDistrict(); return }
                 if let record = savedPlacements.first(where: { current.name == "placement:" + $0.id.uuidString }) {
                     if let onPlacement { onPlacement(record.id) } else { onStory?(record.storyID) }; return
                 }
@@ -563,17 +675,21 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     private func clearPins() {
         stopNavigation()
-        pins.forEach { $0.0.removeFromSuperview() }
-        pins.removeAll()
-        positions.removeAll()
+        clearStoryPins()
         regionButtons.values.forEach { $0.removeFromSuperview() }
         regionButtons.removeAll()
         regionClustering = nil
     }
 
-    private func attach(_ button: UIButton, at position: SIMD3<Float>) {
+    private func clearStoryPins() {
+        pins.forEach { $0.0.removeFromSuperview() }
+        pins.removeAll()
+        positions.removeAll()
+    }
+
+    private func attach(_ button: UIButton, at position: SIMD3<Float>, storyID: String) {
         canvas?.addSubview(button)
-        pins.append((button, position))
+        pins.append((button, position, storyID))
     }
 
     private var eye: SIMD3<Float> {
@@ -585,19 +701,60 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                             verticalFOV: camera.camera.fieldOfViewInDegrees, viewport: bounds)
     }
 
+    private func updateMapShadows() {
+        guard appearance == .apricotCream, let mapSun else { return }
+        // Keep the shadow map focused when zoomed in, without rebuilding it for
+        // every tiny pinch delta. The overview still covers the whole campus.
+        let distance = min(650, max(60, ceil(radius * 2.2 / 20) * 20))
+        guard distance != shadowDistance else { return }
+        mapSun.shadow = .init(shadowProjection: .automatic(maximumDistance: distance), depthBias: 1)
+        shadowDistance = distance
+    }
+
     private func updateCamera() {
+        updateMapShadows()
         camera.look(at: target, from: eye, relativeTo: nil)
         updateCenterLocation()
         guard visible, let view = canvas?.map else { return }
         let projection = mapProjection(in: view.bounds)
         let visibleBounds = view.bounds.insetBy(dx: -100, dy: -100)
-        for (button, world) in pins {
-            guard !editingPlacement, let screen = projection.point(world), visibleBounds.contains(screen) else {
+        // Counts describe the whole campus. As the user pinches closer, reveal
+        // characters at their saved coordinates without requiring a badge tap.
+        let density = projection.focalLength / CGFloat(max(radius, 0.001))
+        let progress = min(1, max(0, (density - 6) / 4))
+        let storyOpacity: CGFloat = educationCamera != nil ? 0 : region != nil ? 1 :
+            (overviewStories.isEmpty ? 0 : progress * progress * (3 - 2 * progress))
+        // Like other map symbols, exaggerate display size without changing the
+        // saved coordinate or the 150cm physical AR asset. No billboard component.
+        let characterHeight = Float((data?.unitsPerMeter ?? 0.12) * 1.5 * 30)
+        var visibleStories: Set<String> = []
+        for (button, world, id) in pins {
+            button.alpha = storyOpacity
+            button.isUserInteractionEnabled = storyOpacity >= 0.5
+            button.isAccessibilityElement = storyOpacity >= 0.5
+            guard !editingPlacement, storyOpacity > 0.01,
+                  let screen = projection.point(world), visibleBounds.contains(screen) else {
                 button.isHidden = true
                 continue
             }
-            button.center = CGPoint(x: screen.x, y: screen.y - button.bounds.height * 0.35)
+            let top = projection.point(world + SIMD3(0, characterHeight, 0)) ?? screen
+            let height = max(44, abs(top.y - screen.y))
+            button.bounds.size = CGSize(width: max(44, height * 0.7), height: height)
+            button.center = CGPoint(x: (screen.x + top.x) / 2, y: (screen.y + top.y) / 2)
             button.isHidden = false
+            visibleStories.insert(id)
+        }
+        storyModels.update(visible: visibleStories, opacity: Float(storyOpacity), height: characterHeight)
+        for (button, _, id) in pins {
+            let failed = storyModels.hasFailed(id)
+            button.setImage(failed ? UIImage(systemName: "arrow.clockwise") : nil, for: .normal)
+            button.accessibilityHint = failed ? "3D 오이를 다시 불러오기" :
+                (storyModels.isReady(id) ? "이야기 열기" : "3D 오이를 불러오는 중")
+            if let spinner = button.subviews.compactMap({ $0 as? UIActivityIndicatorView }).first {
+                spinner.center = CGPoint(x: button.bounds.midX, y: button.bounds.midY)
+                if !button.isHidden && !storyModels.isReady(id) && !failed { spinner.startAnimating() }
+                else { spinner.stopAnimating() }
+            }
         }
 
         let panelOpacity = CampusMapProjection.panelOpacity(pitch: pitch)
@@ -606,21 +763,36 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                                                 separation: projection.planeSeparation) ?? []
         var visibleButtons = pins.map(\.0)
         var shownRegionIDs: Set<String> = []
-        if !editingPlacement {
+        if !editingPlacement && educationCamera == nil {
             for marker in markers {
                 guard let button = regionButtons[marker.node.id], let screen = projection.point(marker.anchor),
                       visibleBounds.contains(screen) else { continue }
-                button.place(at: screen, opacity: marker.opacity, panelOpacity: panelOpacity)
-                button.isUserInteractionEnabled = marker.isInteractive
-                button.isAccessibilityElement = marker.isInteractive
-                button.accessibilityElementsHidden = !marker.isInteractive
-                button.isHidden = false
+                let opacity = marker.opacity * (1 - storyOpacity)
+                let interactive = marker.isInteractive && storyOpacity < 0.5
+                button.place(at: screen, opacity: opacity, panelOpacity: panelOpacity)
+                button.isUserInteractionEnabled = interactive
+                button.isAccessibilityElement = interactive
+                button.accessibilityElementsHidden = !interactive
+                button.isHidden = opacity <= 0.01
                 visibleButtons.append(button)
                 shownRegionIDs.insert(marker.node.id)
             }
         }
         for (id, button) in regionButtons where !shownRegionIDs.contains(id) {
             button.isHidden = true
+        }
+        if let entity = educationEntity, let button = educationButton {
+            let near = educationNear ? radius < 105 : radius < 85
+            if near != educationNear { educationNear = near; CampusEducationDistrict.update(entity, near: near) }
+            let anchor = entity.position + SIMD3(0, 6.8, 0)
+            if !editingPlacement, !selectingCenterLocation, let screen = projection.point(anchor), visibleBounds.contains(screen) {
+                button.sizeToFit()
+                button.center = CGPoint(x: min(max(screen.x, button.bounds.width / 2 + 12), view.bounds.width - button.bounds.width / 2 - 12),
+                                        y: max(110, min(view.bounds.height - 100, screen.y)))
+                button.isHidden = false
+                canvas?.bringSubviewToFront(button)
+                visibleButtons.append(button)
+            } else { button.isHidden = true }
         }
         mapLabels.update(projection: projection, viewport: view.bounds, radius: radius, pins: visibleButtons)
     }
@@ -863,14 +1035,33 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
 final class CampusMapCanvas: UIView {
     private(set) var map: RealityKit.ARView?
+    let backdrop = CAGradientLayer()
     var didLayout: (() -> Void)?
-    override init(frame: CGRect) { super.init(frame: frame) }
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backdrop.startPoint = CGPoint(x: 0.7, y: 0)
+        backdrop.endPoint = CGPoint(x: 0.3, y: 1)
+        backdrop.locations = [0, 0.46, 1]
+        layer.insertSublayer(backdrop, at: 0)
+    }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    func setAppearance(_ appearance: CampusMapAppearance) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        backdrop.colors = appearance.backdropColors.map(\.cgColor)
+        CATransaction.commit()
+        map?.isOpaque = false
+        map?.backgroundColor = .clear
+        map?.environment.background = .color(.clear)
+    }
     func installRenderer() -> RealityKit.ARView {
         if let map { return map }
         let view = RealityKit.ARView(frame: bounds, cameraMode: .nonAR, automaticallyConfigureSession: false)
         map = view
         insertSubview(view, at: 0)
+        // UIKit inserts the renderer before standalone layers. Keep the backdrop
+        // underneath it on screen, including after returning from the AR camera.
+        layer.insertSublayer(backdrop, below: view.layer)
         return view
     }
     func removeRenderer() {
@@ -879,7 +1070,15 @@ final class CampusMapCanvas: UIView {
         map?.removeFromSuperview()
         map = nil
     }
-    override func layoutSubviews() { super.layoutSubviews(); map?.frame = bounds; didLayout?() }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        backdrop.frame = bounds
+        CATransaction.commit()
+        map?.frame = bounds
+        didLayout?()
+    }
 }
 
 struct CampusMapSurface: UIViewRepresentable {

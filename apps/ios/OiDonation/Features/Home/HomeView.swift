@@ -25,6 +25,7 @@ struct HomeView: View {
     @State private var pendingStoryID: String?
     @State private var showingRequests = false
     @State private var listIsAtTop = true
+    @State private var showingEducationDistrict = false
 
     private var isLoadingStories: Bool {
         guard let remote else { return false }
@@ -84,6 +85,12 @@ struct HomeView: View {
             case .school(let school): MYCollectionView(demo: myDemo, school: school, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
             }
         }
+        .sheet(isPresented: $showingEducationDistrict, onDismiss: { scene.finishEducationDistrict() }) {
+            CampusEducationDistrictView { covered in
+                if covered { scene.suspendForARCamera() }
+                else { scene.setVisible(isOnScreen && !isCameraCoverActive && scenePhase == .active) }
+            }
+        }
         .sheet(isPresented: $showingSchools) {
             CampusSchoolSearchView {
                 showingSchools = false; region = nil; expanded = false; searchResults = nil
@@ -108,7 +115,7 @@ struct HomeView: View {
         }
         .task {
             configureSceneCallbacks()
-            scene.setRegionCounts(Dictionary(grouping: store.stories, by: \.regionID).mapValues(\.count))
+            scene.setOverviewStories(store.stories)
             await scene.load()
         }
         .onAppear { isOnScreen = true; scene.setVisible(!isCameraCoverActive && scenePhase == .active) }
@@ -123,7 +130,7 @@ struct HomeView: View {
             }
         }
         .onChange(of: store.stories) { _, _ in
-            scene.setRegionCounts(Dictionary(grouping: store.stories, by: \.regionID).mapValues(\.count))
+            scene.setOverviewStories(store.stories)
             if let region {
                 scene.showStoriesInCurrentArea(region, stories: searchResults == nil ? store.stories(in: region.id, sortedBy: sort) : store.stories)
                 if searchResults != nil { searchResults = scene.visibleStoryIDs() }
@@ -132,6 +139,7 @@ struct HomeView: View {
     }
 
     private func configureSceneCallbacks() {
+        scene.onEducationDistrict = { showingEducationDistrict = true }
         scene.onRegion = { selected in
             region = selected; sort = .latest; expanded = false; searchResults = nil
             scene.focus(selected, stories: store.stories(in: selected.id, sortedBy: .latest))
@@ -251,7 +259,7 @@ struct HomeView: View {
                 .buttonStyle(.plain).glassEffect(.regular.interactive(), in: Circle())
                 .accessibilityLabel("캠퍼스 전체 지도").accessibilityIdentifier("campus.overview")
                 Spacer()
-                Color.clear.frame(width: 50, height: 1)
+                mapAppearanceMenu
             } else {
                 Button { showingSchools = true } label: {
                     HStack(spacing: 8) {
@@ -262,6 +270,7 @@ struct HomeView: View {
                 .buttonStyle(.plain).glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 20))
                 .accessibilityLabel("캠퍼스 선택").accessibilityIdentifier("campus.school")
                 Spacer()
+                mapAppearanceMenu
             }
         }
         .overlay(alignment: .top) {
@@ -269,6 +278,30 @@ struct HomeView: View {
                 searchAreaButton.alignmentGuide(.top) { ($0.height - 34) / 2 }.transition(.opacity)
             }
         }
+    }
+
+    private var mapAppearanceMenu: some View {
+        Menu {
+            ForEach(CampusMapAppearance.allCases) { appearance in
+                Button {
+                    scene.setAppearance(appearance)
+                } label: {
+                    if scene.appearance == appearance {
+                        Label(appearance.title, systemImage: "checkmark")
+                    } else {
+                        Text(appearance.title)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "paintpalette")
+                .font(.system(size: 19, weight: .medium))
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: Circle())
+        .accessibilityLabel("지도 색상, \(scene.appearance.title)")
+        .accessibilityIdentifier("campus.appearance")
     }
 
     private var searchAreaButton: some View {

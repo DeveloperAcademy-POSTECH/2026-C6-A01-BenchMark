@@ -28,7 +28,7 @@ import UIKit
             entry(id: "area.\($0.id)", title: $0.title, point: $0.anchor, roof: $0.roof, size: 13)
         }
         let landmarks = Set(data.pois.filter { ["53", "72", "83", "88", "7", "58"].contains($0.id) }.compactMap(\.buildingId))
-        buildings = CampusBuildingLabel.catalog(data).sorted {
+        buildings = CampusBuildingLabel.catalog(data).filter { $0.id != CampusEducationDistrict.retiredBuildingID }.sorted {
             if landmarks.contains($0.id) != landmarks.contains($1.id) { return landmarks.contains($0.id) }
             return $0.id < $1.id
         }.map { entry(id: "building.\($0.id)", title: $0.title, point: $0.anchor, roof: $0.roof, size: 11) }
