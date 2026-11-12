@@ -13,6 +13,18 @@ import StoreKit
 struct OiDonationClipApp: App {
     @State private var isOverlayPresented = false
     @State private var invocation: AppClipInvocation?
+#if DEBUG
+    /// A new session per presentation so reopening always starts a fresh puzzle.
+    @State private var postcardPrototypeSession: PostcardPrototypeSession?
+#endif
+
+    private var postcardPrototypeAction: (() -> Void)? {
+#if DEBUG
+        { postcardPrototypeSession = PostcardPrototypeSession() }
+#else
+        nil
+#endif
+    }
 
     init() {
         for name in [
@@ -35,10 +47,16 @@ struct OiDonationClipApp: App {
             AppClipExperienceView(
                 storyRepository: RealStoryRepository(),
                 invocation: invocation,
-                onRequestFullApp: { isOverlayPresented = true }
+                onRequestFullApp: { isOverlayPresented = true },
+                onOpenPostcardPrototype: postcardPrototypeAction
             ) { story, id in
                 AppClipStorySafetyButton(story: story, id: id)
             }
+#if DEBUG
+            .fullScreenCover(item: $postcardPrototypeSession) { session in
+                ARPostcardPrototypeFlowView().id(session.id)
+            }
+#endif
             .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
                 invocation = AppClipInvocation(url: activity.webpageURL)
             }
@@ -63,3 +81,9 @@ private struct AppClipStorySafetyButton: View {
             }
     }
 }
+
+#if DEBUG
+private struct PostcardPrototypeSession: Identifiable {
+    let id = UUID()
+}
+#endif

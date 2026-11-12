@@ -15,6 +15,7 @@ struct AppClipInvocation: Hashable {
 struct AppClipExperienceView<SafetyButton: View>: View {
     private let invocation: AppClipInvocation?
     private let onRequestFullApp: (() -> Void)?
+    private let onOpenPostcardPrototype: (() -> Void)?
     private let storySafetyButton: (Story, UUID) -> SafetyButton
 
     @State private var viewModel: AppClipViewModel
@@ -29,10 +30,12 @@ struct AppClipExperienceView<SafetyButton: View>: View {
         storyRepository: any StoryRepository,
         invocation: AppClipInvocation? = nil,
         onRequestFullApp: (() -> Void)? = nil,
+        onOpenPostcardPrototype: (() -> Void)? = nil,
         @ViewBuilder storySafetyButton: @escaping (Story, UUID) -> SafetyButton
     ) {
         self.invocation = invocation
         self.onRequestFullApp = onRequestFullApp
+        self.onOpenPostcardPrototype = onOpenPostcardPrototype
         self.storySafetyButton = storySafetyButton
         _selection = State(initialValue: invocation)
         _viewModel = State(initialValue: AppClipViewModel(storyRepository: storyRepository))
@@ -58,6 +61,13 @@ struct AppClipExperienceView<SafetyButton: View>: View {
                             .frame(minHeight: 44).accessibilityIdentifier("appclip.sample")
                         Text("기부나 로그인 없이 예시 이야기를 읽고 AR을 체험해 보세요. 실제 도감에는 저장되지 않아요.")
                             .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    if let onOpenPostcardPrototype {
+                        Section("개발용") {
+                            Button("AR 엽서 퍼즐 테스트", action: onOpenPostcardPrototype)
+                                .frame(minHeight: 44)
+                                .accessibilityIdentifier("appclip.postcardPrototype")
+                        }
                     }
                     Section("공개 이야기") {
                         ForEach(visibleStories) { story in
