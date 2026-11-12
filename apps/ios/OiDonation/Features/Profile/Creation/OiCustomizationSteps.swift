@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 private enum OiCardTab: String, CaseIterable {
-    case content = "내용", background = "배경", border = "엽서", pattern = "패턴", size = "오이 배치"
+    case content = "내용", background = "배경", pattern = "패턴", size = "오이 배치"
 }
 
 struct OiCardCustomizationStep: View {
@@ -84,7 +84,7 @@ struct OiCardCustomizationStep: View {
                 .presentationCornerRadius(35)
                 .presentationBackground(Color("OiLight"))
         }
-        .onAppear { if design.postcardDate == nil { change { $0.postcardDate = Date() } }; refreshPortrait(); nameInput = baseName; onSizeEditingChanged?(isSizeEditing) }
+        .onAppear { prepareBackground(); if design.postcardDate == nil { change { $0.postcardDate = Date() } }; refreshPortrait(); nameInput = baseName; onSizeEditingChanged?(isSizeEditing) }
         .onChange(of: customization.wardrobe) { _, _ in refreshPortrait() }
         .onChange(of: tab) { _, value in saveOrientation(); if value == .size { showingBack = false } }
         .onChange(of: isSizeEditing) { _, editing in onSizeEditingChanged?(editing) }
@@ -163,7 +163,7 @@ struct OiCardCustomizationStep: View {
     @ViewBuilder private var controls: some View {
         switch tab {
         case .content: contentEditor
-        case .background, .border: paletteEditor(border: tab == .border)
+        case .background: backgroundEditor
         case .pattern: patterns
         case .size: EmptyView() // The non-scrolling, height-constrained editor above owns this tab.
         }
@@ -239,83 +239,65 @@ struct OiCardCustomizationStep: View {
             Text(hint).font(CampusStyle.body(9)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
-    private func paletteEditor(border: Bool) -> some View {
-        let fill = border ? design.borderFill : customization.fill
-        let first = border ? design.borderFirst : customization.firstColor
-        let second = border ? design.borderSecond : customization.secondColor
-        let colors = OiCardPalette.items(gradient: fill == .gradient, border: border)
+    private var backgroundStyle: OiPostcardBackgroundStyle {
+        design.postcardBackground ?? OiPostcardBackgroundStyle(color: design.borderFirst, fill: design.borderFill)
+    }
+    private func prepareBackground() {
+        guard design.postcardBackground == nil else { return }
+        let value = customization.card == nil ? OiPostcardBackgroundStyle() : backgroundStyle
+        change { $0.postcardBackground = value }
+    }
+    private func updateBackground(_ edit: (inout OiPostcardBackgroundStyle) -> Void) {
+        var value = backgroundStyle; edit(&value)
+        change { $0.postcardBackground = value }
+    }
+    var backgroundEditor: some View {
+        let style = backgroundStyle
         return VStack(alignment: .leading, spacing: 20) {
-            Picker(border ? "엽서 종이 채우기" : "사진 영역 채우기", selection: Binding(get: { fill }, set: { value in
-                if border { change { $0.borderFill = value } } else { customization.fill = value }
+            Picker("배경 효과", selection: Binding(get: { style.fill }, set: { fill in
+                updateBackground { $0.fill = fill }
             })) {
                 Text("단색").tag(OiDraftCustomization.Fill.solid)
                 Text("그라데이션").tag(OiDraftCustomization.Fill.gradient)
-            }.pickerStyle(.segmented)
+            }.pickerStyle(.segmented).accessibilityIdentifier("oi.postcard.background.effect")
+            Text("배경색 하나로 엽서 앞·뒷면을 함께 꾸며요. 그라데이션은 은은한 밝고 어두운 톤을 자동으로 더해요.")
+                .font(CampusStyle.body(12)).foregroundStyle(.secondary)
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 6), spacing: 12) {
-                ForEach(colors) { item in
-                    Button {
-                        if border { change { $0.borderFirst = item.first; $0.borderSecond = item.second } }
-                        else { customization.firstColor = item.first; customization.secondColor = item.second }
-                    } label: {
+                ForEach(OiCardPalette.backgrounds) { item in
+                    Button { updateBackground { $0.color = item.first } } label: {
                         VStack(spacing: 5) {
-                            OiCardGradient(fill: fill, first: item.first, second: item.second)
+                            OiPostcardBackground(style: .init(color: item.first, fill: style.fill))
                                 .frame(width: 40, height: 40).clipShape(Circle())
                                 .overlay(Circle().strokeBorder(Color.black.opacity(0.12), lineWidth: 0.8))
                                 .overlay {
-                                    if first == item.first && (fill == .solid || second == item.second) {
-                                        Circle().strokeBorder(Color("OiGreen"), lineWidth: 2)
-                                    }
+                                    if style.color == item.first { Circle().strokeBorder(Color("OiGreen"), lineWidth: 2) }
                                 }
                             Text(item.name).font(CampusStyle.body(10)).lineLimit(1).minimumScaleFactor(0.8)
                         }.frame(maxWidth: .infinity, minHeight: 57)
                     }.buttonStyle(.plain).accessibilityLabel(item.name)
+                        .accessibilityAddTraits(style.color == item.first ? .isSelected : [])
                 }
             }.padding(.horizontal, 8)
-            if fill == .gradient { Text("직접 색상 선택").font(CampusStyle.semibold(14)) }
-            HStack(spacing: 16) {
-                colorControl(fill == .gradient ? "시작 Color" : "직접 색상 선택", border: border, second: false)
-                if fill == .gradient {
-                    colorControl("끝 Color", border: border, second: true)
-                } else if !border {
-                    Button { showingPhotoEditor = true } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "photo.badge.plus").font(.system(size: 16))
-                                .frame(width: 40, height: 40).background(Color(white: 0.94), in: Circle())
-                            Text("직접 이미지 추가").font(CampusStyle.semibold(12))
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                    }.buttonStyle(.plain).accessibilityIdentifier("oi.card.background.photo")
+            HStack(spacing: 8) {
+                ColorPicker("배경색", selection: Binding(get: { Color(oiRGB: style.color) }, set: { color in
+                    updateBackground { $0.color = color.oiRGB }
+                }), supportsOpacity: false).labelsHidden().frame(width: 40, height: 40)
+                    .accessibilityLabel("직접 배경색 선택")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("직접 배경색 선택").font(CampusStyle.medium(12))
+                    Text(String(format: "#%06X", style.color)).font(CampusStyle.body(10)).foregroundStyle(.secondary)
                 }
             }
-            if !border {
-                Button { customization.showsCharacter = false; showingPhotoEditor = true } label: {
-                    Label("직접 사진 넣기 · 배치 수정", systemImage: "photo.badge.plus")
-                }.buttonStyle(.bordered).accessibilityIdentifier("oi.postcard.photo.edit")
-                Toggle("사진을 엽서 색에 맞춰 표현", isOn: Binding(get: { design.photoMonochrome ?? false }, set: { value in
-                    change { $0.photoMonochrome = value }
-                })).font(CampusStyle.body(13)).tint(Color("OiGreen"))
+            Button { customization.showsCharacter = false; showingPhotoEditor = true } label: {
+                Label("사진 넣기 · 배치 수정", systemImage: "photo.badge.plus")
+            }.buttonStyle(.bordered).accessibilityIdentifier("oi.postcard.photo.edit")
+            Toggle("사진을 배경 색조에 맞추기", isOn: Binding(get: { design.photoMonochrome ?? false }, set: { value in
+                change { $0.photoMonochrome = value }
+            })).font(CampusStyle.body(13)).tint(Color("OiGreen"))
+            if design.backgroundPhoto != nil {
+                Button("사진 삭제", role: .destructive) { change { $0.backgroundPhoto = nil } }.font(.caption)
             }
-            if !border && design.backgroundPhoto != nil {
-                HStack {
-                    Button("배경 사진 배치 수정") { showingPhotoEditor = true }
-                    Spacer()
-                    Button("사진 삭제", role: .destructive) { change { $0.backgroundPhoto = nil } }
-                }.font(.caption)
-            }
-        }
-    }
-    private func colorControl(_ title: String, border: Bool, second: Bool) -> some View {
-        let value = border ? (second ? design.borderSecond : design.borderFirst) : (second ? customization.secondColor : customization.firstColor)
-        return HStack(spacing: 8) {
-            ColorPicker(title, selection: Binding(get: { Color(oiRGB: value) }, set: { color in
-                if border { change { if second { $0.borderSecond = color.oiRGB } else { $0.borderFirst = color.oiRGB } } }
-                else if second { customization.secondColor = color.oiRGB }
-                else { customization.firstColor = color.oiRGB }
-            }), supportsOpacity: false).labelsHidden().frame(width: 40, height: 40)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(CampusStyle.medium(12))
-                Text(String(format: "#%06X", value)).font(CampusStyle.body(10)).foregroundStyle(.secondary)
-            }
-        }.frame(maxWidth: .infinity, alignment: .leading)
+        }.tint(Color("OiGreen"))
     }
     private var patterns: some View {
         VStack(alignment: .leading, spacing: 12) {

@@ -14,7 +14,7 @@ struct OiDraftCardPreview: View {
             Group {
                 if showingBack {
                     OiPostcardBack(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond,
-                        message: draft.body, author: donorName)
+                        backgroundStyle: design.postcardBackground, message: draft.body, author: donorName)
                 } else { composition }
             }.frame(width: 362, height: 502)
                 .scaleEffect(proxy.size.width / 362, anchor: .topLeading)
@@ -27,12 +27,14 @@ struct OiDraftCardPreview: View {
         let renderer = ImageRenderer(content: composition.frame(width: 362, height: 502)
             .environment(\.colorScheme, colorScheme))
         renderer.scale = 2
-        guard let png = renderer.uiImage?.pngData() else { throw OiPhotoDataError.unreadable }
+        guard let image = renderer.uiImage else { throw OiPhotoDataError.unreadable }
+        let png = design.postcardBackground.flatMap { OiPostcardBackgroundMetadata.png(image: image, style: $0) } ?? image.pngData()
+        guard let png else { throw OiPhotoDataError.unreadable }
         return try OiStoryCardPublication(png: png)
     }
     private var composition: some View {
         OiPostcardFront(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond,
-                        date: OiPostcardDate.string(design.postcardDate ?? Date())) {
+                        backgroundStyle: design.postcardBackground, date: OiPostcardDate.string(design.postcardDate ?? Date())) {
             ZStack {
                 OiCardBackground(customization: customization, pattern: design.pattern)
                 if customization.showsCharacter {
@@ -59,13 +61,19 @@ struct OiCardBackground: View {
             let paper = customization.card ?? OiCardDesign()
             let photoTint = paper.photoMonochrome == true && paper.backgroundPhoto != nil
             ZStack {
-                OiCardGradient(fill: photoTint ? paper.borderFill : customization.fill,
-                               first: photoTint ? paper.borderFirst : customization.firstColor,
-                               second: photoTint ? paper.borderSecond : customization.secondColor)
-                    // Match the full-card gradient through the inset content area.
-                    .frame(width: geometry.size.width + gradientInset * 2,
-                           height: geometry.size.height + gradientInset * 2)
-                    .frame(width: geometry.size.width, height: geometry.size.height)
+                Group {
+                    if let style = paper.postcardBackground {
+                        // Crop the very same full-paper background into the artwork window.
+                        OiPostcardBackground(style: style)
+                            .frame(width: geometry.size.width * 362 / 296, height: geometry.size.height * 502 / 436)
+                    } else {
+                        OiCardGradient(fill: photoTint ? paper.borderFill : customization.fill,
+                                       first: photoTint ? paper.borderFirst : customization.firstColor,
+                                       second: photoTint ? paper.borderSecond : customization.secondColor)
+                            .frame(width: geometry.size.width + gradientInset * 2,
+                                   height: geometry.size.height + gradientInset * 2)
+                    }
+                }.frame(width: geometry.size.width, height: geometry.size.height)
                 if let design = customization.card, let bytes = design.backgroundPhoto,
                    let photo = UIImage(data: bytes) {
                     OiCardPlacedImage(image: photo, placement: design.backgroundPlacement)

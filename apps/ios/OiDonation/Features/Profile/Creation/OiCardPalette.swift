@@ -8,6 +8,13 @@ enum OiCardPalette {
         let second: UInt32
         var id: String { name }
     }
+    /// One seed color per option; the same Figma haze is derived automatically.
+    static var backgrounds: [Swatch] {
+        [Swatch(name: "로즈", first: 0xEECFDF, second: 0xEECFDF),
+         Swatch(name: "그린", first: 0xE8EECF, second: 0xE8EECF),
+         Swatch(name: "코랄", first: 0xEECFCF, second: 0xEECFCF)]
+        + items(gradient: false, border: false).filter { $0.name != "블러시" }
+    }
     static func items(gradient: Bool, border: Bool) -> [Swatch] {
         let names = gradient ? ["샌드", "선셋", "오렌지", "멜론", "라임", "그린티", "지구", "스카이", "미드나잇", "오키드", "블러시", "아이언"]
             : ["화이트", "아이보리", "오트밀", "토프", "스톤", "차콜", "세이지", "민트", "스카이", "라벤더", "블러시", "버터"]

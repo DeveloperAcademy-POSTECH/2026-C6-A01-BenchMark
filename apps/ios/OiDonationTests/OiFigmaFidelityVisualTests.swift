@@ -287,7 +287,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let data = try JSONEncoder().encode(style)
         XCTAssertEqual(try JSONDecoder().decode(OiDraftCustomization.self, from: data), style)
         var old = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(try XCTUnwrap(style.card))) as? [String: Any])
-        old.removeValue(forKey: "postcardDate"); old.removeValue(forKey: "photoMonochrome")
+        old.removeValue(forKey: "postcardDate"); old.removeValue(forKey: "photoMonochrome"); old.removeValue(forKey: "postcardBackground")
         let legacy = try JSONDecoder().decode(OiCardDesign.self, from: JSONSerialization.data(withJSONObject: old))
         XCTAssertNil(legacy.postcardDate); XCTAssertNil(legacy.photoMonochrome)
         XCTAssertEqual(legacy.backgroundPlacement, style.card?.backgroundPlacement)
@@ -300,6 +300,79 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             let shot = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
             shot.name = back ? "postcard-back" : "postcard-front"; shot.lifetime = .keepAlways; add(shot)
         }
+    }
+
+    func testUnifiedPostcardBackgroundAndMetadata() throws {
+        let style = OiPostcardBackgroundStyle(color: 0xEECFDF, fill: .gradient)
+        var customization = Self.customization
+        customization.showsCharacter = false
+        customization.card = OiCardDesign()
+        customization.card?.postcardBackground = style
+        let renderer = ImageRenderer(content: OiPostcardBackground(style: style).frame(width: 362, height: 502))
+        renderer.scale = 1
+        let field = try XCTUnwrap(renderer.uiImage?.pngData())
+        let bitmap = try renderedBitmap(field, size: CGSize(width: 362, height: 502))
+        let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: 362 * 502 * 4)
+        func rgb(_ x: Int, _ y: Int) -> [Int] { (0..<3).map { Int(pixels[(y * 362 + x) * 4 + $0]) } }
+        XCTAssertGreaterThan(rgb(180, 250)[0], rgb(340, 80)[0] + 5, "The top-right Figma haze must be darker than the center")
+        // Sampled from the Figma 5400:6605 PNG, away from the perforated edge.
+        for (x, y, reference) in [(180, 180, [230, 194, 214]), (180, 322, [230, 190, 210]),
+                                   (18, 180, [233, 191, 212]), (180, 18, [232, 197, 215])] {
+            for channel in 0..<3 {
+                XCTAssertLessThanOrEqual(abs(rgb(x, y)[channel] - reference[channel]), 6)
+            }
+        }
+
+        let inner = ImageRenderer(content: OiCardBackground(customization: customization, pattern: nil)
+            .frame(width: 296, height: 436))
+        inner.scale = 1
+        let crop = try renderedBitmap(try XCTUnwrap(inner.uiImage?.pngData()), size: CGSize(width: 296, height: 436))
+        let cropPixels = try XCTUnwrap(crop.data).bindMemory(to: UInt8.self, capacity: 296 * 436 * 4)
+        for channel in 0..<3 {
+            XCTAssertLessThanOrEqual(abs(Int(cropPixels[(100 * 296 + 80) * 4 + channel]) - rgb(113, 133)[channel]), 2,
+                                    "Paper and artwork backgrounds must form one continuous field")
+        }
+        let preview = OiDraftCardPreview(draft: Self.draft, customization: customization)
+        let first = try preview.publication(colorScheme: .light)
+        let second = try preview.publication(colorScheme: .light)
+        XCTAssertEqual(first.id, second.id, "Identical cards must keep a stable review snapshot ID")
+        let image = try XCTUnwrap(UIImage(data: first.png))
+        OiPostcardBackgroundMetadata.remember(png: first.png, image: image)
+        XCTAssertEqual(OiPostcardBackgroundMetadata.style(for: image), style, "A remote image must restore the exact back background")
+        XCTAssertEqual(try JSONDecoder().decode(OiDraftCustomization.self, from: JSONEncoder().encode(customization)), customization)
+        let blank = UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).image { _ in }
+        OiPostcardBackgroundMetadata.remember(png: try XCTUnwrap(blank.pngData()), image: blank)
+        XCTAssertNil(OiPostcardBackgroundMetadata.style(for: blank))
+        let shot = XCTAttachment(data: field, uniformTypeIdentifier: "public.png")
+        shot.name = "figma-rose-background"; shot.lifetime = .keepAlways; add(shot)
+    }
+
+    func testUnifiedBackgroundEditorCapture() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        var customization = Self.customization
+        customization.card = OiCardDesign()
+        customization.card?.postcardBackground = OiPostcardBackgroundStyle()
+        for variant in variants.prefix(2) {
+            let editor = VStack(spacing: 14) {
+                OiDraftCardPreview(draft: Self.draft, customization: customization)
+                    .frame(width: 150, height: 208)
+                ScrollView {
+                    OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(customization)).backgroundEditor
+                        .padding(20)
+                }
+            }.background(.white)
+            try await capture(editor, name: "unified-background-editor", variant: variant,
+                              defaults: fixture.defaults, includesSafeArea: true, attach: true)
+        }
+        let sheet = HStack(spacing: 16) {
+            ForEach([0xEECFDF, 0xE8EECF, 0xEECFCF] as [UInt32], id: \.self) { color in
+                OiPostcardBack(backgroundStyle: .init(color: color), message: "함께한 순간을 오래 기억하며, 고마운 마음을 캠퍼스에 남깁니다.", author: "오이 농부")
+            }
+        }.padding(20).background(.black)
+        let renderer = ImageRenderer(content: sheet)
+        let shot = XCTAttachment(data: try XCTUnwrap(renderer.uiImage?.pngData()), uniformTypeIdentifier: "public.png")
+        shot.name = "unified-postcard-gradients"; shot.lifetime = .keepAlways; add(shot)
     }
 
     func testPostcardCapturesCurrentWardrobePortrait() async throws {

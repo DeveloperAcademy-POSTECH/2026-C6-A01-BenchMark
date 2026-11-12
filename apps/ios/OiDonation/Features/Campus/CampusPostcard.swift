@@ -14,14 +14,30 @@ struct CampusPostcard: View {
     let store: CampusStoryStore
     @State private var showingBack = false
     @State private var snapshot: UIImage?
+    @State private var backgroundStyle: OiPostcardBackgroundStyle?
+    @Environment(OiRemoteStore.self) private var remote: OiRemoteStore?
+    @State private var localRecord: (owner: UUID, value: OiLocalDraft)?
     @State private var colors: (UInt32, UInt32) = (0xE8EECF, 0xD5DBC6)
     @Environment(\.campusCucumberPortraitLoader) private var loadImage
     @State private var failed = false
     @State private var retry = 0
+    private var localOwner: UUID? {
+        guard story.cardArtworkPath == nil, let remote, !remote.needsReauthentication,
+              let owner = remote.account?.id, owner == story.authorID else { return nil }
+        return owner
+    }
+    private var localDraft: OiLocalDraft? {
+        guard let localRecord, localRecord.owner == localOwner,
+              localRecord.value.id == UUID(uuidString: story.id) else { return nil }
+        return localRecord.value
+    }
     var body: some View {
         VStack(spacing: 10) {
             OiFlippablePostcard(showingBack: $showingBack) {
-                if let snapshot {
+                if let record = localDraft, let customization = record.customization {
+                    OiDraftCardPreview(draft: record.draft, customization: customization,
+                        donorName: remote?.profile?.publicName ?? "").frame(width: 362, height: 502)
+                } else if let snapshot {
                     Image(uiImage: snapshot).resizable().frame(width: 362, height: 502)
                 } else {
                     OiPostcardFront(date: OiPostcardDate.string(from: story.date)) {
@@ -37,7 +53,9 @@ struct CampusPostcard: View {
                     }
                 }
             } back: {
-                OiPostcardBack(first: colors.0, second: colors.1, message: story.body,
+                OiPostcardBack(first: colors.0, second: colors.1,
+                               backgroundStyle: localDraft?.customization?.card?.postcardBackground ?? backgroundStyle,
+                               message: localDraft?.draft.body ?? story.body,
                                author: story.donor, scrollable: true)
             }
             Text("탭하거나 옆으로 밀어서 뒤집기").font(CampusStyle.body(12)).foregroundStyle(.secondary)
@@ -46,15 +64,22 @@ struct CampusPostcard: View {
             }
         }
         .id(story.id)
-        .task(id: "\(story.id)/\(story.cardArtworkPath ?? "")/\(retry)") {
-            snapshot = nil; failed = false; colors = (0xE8EECF, 0xD5DBC6)
-            guard let path = story.cardArtworkPath, let loadImage else { return }
+        .task(id: "\(story.id)/\(story.cardArtworkPath ?? "")/\(localOwner?.uuidString ?? "")/\(retry)") {
+            snapshot = nil; localRecord = nil; backgroundStyle = nil; failed = false; colors = (0xE8EECF, 0xD5DBC6)
+            guard let path = story.cardArtworkPath, let loadImage else {
+                if let remote, let owner = localOwner, let id = UUID(uuidString: story.id),
+                   let record = try? await remote.localDraft(id: id, owner: owner), !Task.isCancelled {
+                    localRecord = (owner, record)
+                }
+                return
+            }
             do {
                 let image = try await loadImage(path)
                 try Task.checkCancellation()
                 if OiPostcardSnapshot.isPostcard(image) {
                     colors = (OiPostcardSnapshot.color(image, x: 0.05, y: 0.10) ?? 0xE8EECF,
                               OiPostcardSnapshot.color(image, x: 0.95, y: 0.90) ?? 0xD5DBC6)
+                    backgroundStyle = OiPostcardBackgroundMetadata.style(for: image)
                     snapshot = image
                 }
             } catch { if !Task.isCancelled { failed = true } }
