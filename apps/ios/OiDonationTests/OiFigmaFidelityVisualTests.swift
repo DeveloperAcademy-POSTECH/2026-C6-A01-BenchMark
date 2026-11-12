@@ -203,7 +203,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         for variant in variants.prefix(2) {
             for bottom in [false, true] {
                 let page = CreationCapturePage(step: 3, anchor: bottom ? .bottom : .top) {
-                    OiCucumberCustomizationStep(customization: .constant(customization), canContinue: true, onContinue: {})
+                    OiCucumberCustomizationStep(customization: .constant(customization), previewMode: .wardrobe,
+                                                canContinue: true, onContinue: {})
                         .environment(\.scenePhase, .active)
                 }
                 try await capture(page, name: bottom ? "costume-set-bottom" : "costume-set-top",
@@ -520,6 +521,74 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertGreaterThan(try partBounds("Mouth", pose: 1).center.x, try partBounds("Mouth", pose: 0).center.x)
         XCTAssertLessThan(try partBounds("Mouth", pose: 1).center.y, try partBounds("Mouth", pose: 0).center.y)
         XCTAssertLessThan(try partBounds("Stem", pose: 1).min.x, try partBounds("Stem", pose: 0).min.x)
+    }
+
+    func testStep3ShowsFrontWhilePreparingAndRotatesFromOneRequest() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let variant = try XCTUnwrap(variants.first { $0.name == "402x874" })
+        var draft = OiDraftCustomization()
+        var existingLook = OiWardrobeLook()
+        existingLook.costume = .baseball
+        draft.wardrobe = existingLook
+        let original = draft
+        let customization = Binding(get: { draft }, set: { draft = $0 })
+
+        func step() -> some View {
+            CreationCapturePage(step: 3) {
+                OiCucumberCustomizationStep(customization: customization, onContinue: {})
+            }
+            .environment(\.scenePhase, .active)
+        }
+
+        try await capture(step(), name: "step3-seed-front", variant: variant, defaults: fixture.defaults,
+                          delay: .zero, attach: true, prepareRealityCapture: { host in
+            let surface = try await self.step3Surface(in: host)
+            try await self.waitForStep3 {
+                surface.scene.findEntity(named: "SeedCucumber") != nil
+            }
+            XCTAssertEqual(surface.accessibilityValue, "정면 이미지",
+                           "Loading the model must leave the original front image visible")
+            return nil
+        })
+        XCTAssertEqual(draft, original, "Browsing must preserve the existing wardrobe")
+
+        draft.seedAppearance = editedSeedCucumber3DAppearance()
+        try await capture(step(), name: "step3-seed-rotated", variant: variant, defaults: fixture.defaults,
+                          delay: .zero, attach: true, prepareRealityCapture: { host in
+            let surface = try await self.step3Surface(in: host)
+            XCTAssertEqual(surface.accessibilityValue, "정면 이미지")
+            let rotation = try XCTUnwrap(surface.accessibilityCustomActions?.first)
+            let rotate = try XCTUnwrap(rotation.actionHandler)
+            XCTAssertTrue(rotate(rotation))
+            try await self.waitForStep3 { surface.accessibilityValue == "3D 미리보기" }
+            let model = try XCTUnwrap(surface.scene.findEntity(named: "SeedCucumber"))
+            let body = try XCTUnwrap(model.findEntity(named: "Body"))
+            XCTAssertGreaterThan(body.visualBounds(relativeTo: model).extents.x, 0.52,
+                                 "The displayed model must reflect the wider edited body")
+            return surface
+        })
+        XCTAssertEqual(draft.wardrobe, original.wardrobe)
+
+        let editor = NavigationStack {
+            OiSeedCucumberCustomizationView(appearance: draft.seedAppearance ?? .init(), onApply: { _ in })
+        }
+        try await capture(editor, name: "step3-seed-face-editor", variant: variant,
+                          defaults: fixture.defaults, attach: true)
+    }
+
+    private func step3Surface(in host: UIView) async throws -> RealityKit.ARView {
+        let identifier = "oi.step3.cucumber.surface"
+        try await waitForStep3 { self.cucumberSurface(in: host, identifier: identifier) != nil }
+        return try XCTUnwrap(cucumberSurface(in: host, identifier: identifier))
+    }
+
+    private func waitForStep3(_ condition: () -> Bool) async throws {
+        for _ in 0..<50 {
+            if condition() { return }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTFail("The STEP 3 preview did not finish preparing")
     }
 
     func testSeedCucumber3DPreviewCapturesRealModel() async throws {
@@ -1549,7 +1618,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     private func capture<V: View>(_ view: V, name: String, variant: Variant, defaults: UserDefaults,
                                  includesSafeArea: Bool = true,
                                  delay: Duration = .milliseconds(180), attach: Bool = false,
-                                 checksBottomSheet: Bool = false, cucumberCameraYaw: Float? = nil) async throws -> Data {
+                                 checksBottomSheet: Bool = false, cucumberCameraYaw: Float? = nil,
+                                 prepareRealityCapture: ((UIView) async throws -> RealityKit.ARView?)? = nil) async throws -> Data {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first, "The isolated simulator test host must have a window scene")
@@ -1606,7 +1676,9 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
         let renderView: UIView = checksBottomSheet ? window : host.view
         let realitySnapshot: (image: UIImage, frame: CGRect)?
-        if let cucumberCameraYaw {
+        if let prepareRealityCapture, let renderer = try await prepareRealityCapture(renderView) {
+            realitySnapshot = try await snapshotCucumberSurface(renderer, in: renderView)
+        } else if let cucumberCameraYaw {
             realitySnapshot = try await captureCucumberSurface(in: renderView, yaw: cucumberCameraYaw)
         } else {
             realitySnapshot = nil
@@ -1662,6 +1734,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             camera.look(at: bounds.center, from: position, relativeTo: nil)
             try await Task.sleep(for: .milliseconds(100))
         }
+        return try await snapshotCucumberSurface(renderer, in: view)
+    }
+
+    private func snapshotCucumberSurface(_ renderer: RealityKit.ARView, in view: UIView) async throws
+        -> (image: UIImage, frame: CGRect) {
         // UIKit's view snapshot omits the Metal surface.
         let snapshot: UIImage? = await withCheckedContinuation { continuation in
             renderer.snapshot(saveToHDR: false) { continuation.resume(returning: $0) }
@@ -1673,11 +1750,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         return (image, renderer.convert(renderer.bounds, to: view))
     }
 
-    private func cucumberSurface(in view: UIView) -> RealityKit.ARView? {
-        if let surface = view as? RealityKit.ARView, surface.accessibilityIdentifier == "seedCucumber.3D.canvas" {
+    private func cucumberSurface(in view: UIView, identifier: String = "seedCucumber.3D.canvas") -> RealityKit.ARView? {
+        if let surface = view as? RealityKit.ARView, surface.accessibilityIdentifier == identifier {
             return surface
         }
-        return view.subviews.lazy.compactMap { self.cucumberSurface(in: $0) }.first
+        return view.subviews.lazy.compactMap { self.cucumberSurface(in: $0, identifier: identifier) }.first
     }
 
     private func releaseCampusRenderers(in view: UIView) {
