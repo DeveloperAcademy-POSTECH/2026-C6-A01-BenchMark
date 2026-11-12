@@ -42,6 +42,9 @@ enum OiOperatorStoryError: LocalizedError {
 
 @MainActor @Observable
 final class OiOperatorStoriesModel {
+    // Avoid the synthesized isolated deinit crash on early iOS 26 (Swift #88036).
+    nonisolated deinit {}
+
     var filter: OiOperatorStoryFilter = .pending
     private(set) var stories: [OiLiveStory] = []
     private(set) var isLoading = false
@@ -78,6 +81,9 @@ final class OiOperatorStoriesModel {
 
 @MainActor @Observable
 final class OiOperatorStoryModel {
+    // Avoid the synthesized isolated deinit crash on early iOS 26 (Swift #88036).
+    nonisolated deinit {}
+
     private(set) var detail: OiOperatorStoryDetail?
     private(set) var isLoading = false
     private(set) var isProcessing = false

@@ -19,6 +19,8 @@ struct MYSettingsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var settingsError = false
+    @State private var showingBlockedAuthors = false
+    @State private var showingSupport = false
     @State private var showingAcademicEditor = false
     @State private var permissionValues: [MYPermission: PermissionStatus] = [:]
     @State private var showingOperator = false
@@ -46,26 +48,20 @@ struct MYSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 40) {
+                section("콘텐츠 보호") {
+                    Button("차단한 작성자") { showingBlockedAuthors = true }.frame(minHeight: 44)
+                }
+                section("도움말") {
+                    Button("개인정보 및 지원") { showingSupport = true }
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("my.settings.support")
+                }
                 section("소셜 로그인") {
                     if let remote {
                         OiSignInView(remote: remote, presentation: .settings)
                     }
                 }
                 if remote?.account != nil || demo != nil {
-                    section("본인인증") {
-                        Button {} label: {
-                            Text("본인 인증하기")
-                                .font(CampusStyle.semibold(18))
-                                .tracking(0.36)
-                                .foregroundStyle(CampusStyle.green)
-                                .padding(.vertical, 20)
-                                .frame(maxWidth: .infinity, minHeight: 69)
-                                .background(Color(white: 243 / 255), in: RoundedRectangle(cornerRadius: 15))
-                                .overlay { RoundedRectangle(cornerRadius: 15).stroke(Color(white: 205 / 255), lineWidth: 1) }
-                        }
-                        .disabled(true)
-                        .accessibilityIdentifier("my.settings.identity")
-                    }
                     section("학적정보") {
                         schoolRow
                         if let remote, let owner = remote.account?.id, remote.hasLoadedRemote {
@@ -79,15 +75,6 @@ struct MYSettingsView: View {
                             .sheet(isPresented: $showingAcademicEditor) {
                                 OiPublicAcademicEditor(remote: remote, owner: owner)
                             }
-                        }
-                    }
-                    if let remote {
-                        section("기부 인증") {
-                            NavigationLink { OiDonationEvidenceView(remote: remote) } label: {
-                                settingsCard(action: "확인") {
-                                    profileValue("기부 자료 제출 · 인증 진척도")
-                                }
-                            }.accessibilityIdentifier("my.settings.donationEvidence")
                         }
                     }
                     section("권한허용", detail: "iPhone 설정에서 변경") {
@@ -138,6 +125,8 @@ struct MYSettingsView: View {
                 }
             }.buttonStyle(.plain).padding(.horizontal, 20).padding(.top, 17).padding(.bottom, 40)
         }
+        .sheet(isPresented: $showingBlockedAuthors) { OiBlockedAuthorsView() }
+        .sheet(isPresented: $showingSupport) { OiSupportView() }
         .background(Color.white.ignoresSafeArea()).foregroundStyle(.black)
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -153,15 +142,15 @@ struct MYSettingsView: View {
             showingAcademicEditor = false
         }
         .confirmationDialog("회원 탈퇴", isPresented: $confirmingDeletion, titleVisibility: .visible) {
-            if remote?.accountProviders.isEmpty == true || remote?.accountProviders.contains("google") == true {
-                Button("Google로 본인 확인 후 탈퇴", role: .destructive) { deleteAccount(using: OiGoogleAuthentication()) }
-            }
             if remote?.accountProviders.isEmpty == true || remote?.accountProviders.contains("apple") == true {
                 Button("Apple로 본인 확인 후 탈퇴", role: .destructive) { deleteAccount(using: deletionAppleAuthentication) }
             }
+            if remote?.accountProviders.isEmpty == true || remote?.accountProviders.contains("google") == true {
+                Button("Google로 본인 확인 후 탈퇴", role: .destructive) { deleteAccount(using: OiGoogleAuthentication()) }
+            }
             Button("취소", role: .cancel) {}
         } message: {
-            Text("연결된 로그인 계정, 이야기, 사진, 기부 증빙과 수집 기록이 모두 삭제됩니다. 되돌릴 수 없으며 실제 기부 내역에는 영향이 없습니다.")
+            Text("연결된 로그인 계정, 이야기, 사진, 기존에 제출한 기부 증빙과 수집 기록이 모두 삭제됩니다. 되돌릴 수 없으며 실제 기부 내역에는 영향이 없습니다.")
         }
         .alert(deletionSucceeded ? "회원 탈퇴 완료" : "탈퇴 상태 확인", isPresented: Binding(
             get: { deletionNotice != nil }, set: { if !$0 { deletionNotice = nil } }
@@ -185,7 +174,7 @@ struct MYSettingsView: View {
                 deletionSucceeded = true
                 var message = remote.syncWarning ?? "연결 계정과 오이기부 데이터가 삭제됐어요."
                 if receipt.appleRevocationRequired {
-                    message += "\nApple 로그인 연결도 해제하려면 iPhone 설정 → Apple 계정 → Apple로 로그인 → 오이기부 → 사용 중단을 선택해 주세요."
+                    message += "\nApple 로그인 연결을 자동으로 해제하지 못했어요. iPhone 설정 → Apple 계정 → Apple로 로그인 → 오이기부 → 사용 중단을 선택해 주세요."
                 }
                 deletionNotice = message
             } catch where OiServiceFailure.isCancellation(error) {
@@ -300,7 +289,7 @@ struct MYSettingsView: View {
                 OiSchoolEvidenceView(remote: remote)
             } label: {
                 VStack(spacing: 4) {
-                    Text("학교 인증하기")
+                    Text("학교 자료 확인하기")
                         .font(CampusStyle.semibold(18))
                         .tracking(0.36)
                         .foregroundStyle(CampusStyle.green)
@@ -457,7 +446,7 @@ struct OiSettingsHeader: View {
                 Button(action: close) {
                     Image(systemName: "xmark").font(.system(size: 20))
                         .frame(width: 50, height: 50, alignment: .trailing).contentShape(Rectangle())
-                }.buttonStyle(.plain).accessibilityLabel("학교 인증 닫기")
+                }.buttonStyle(.plain).accessibilityLabel("학교 자료 확인 닫기")
             } else {
                 Color.clear.frame(width: 50, height: 50).accessibilityHidden(true)
             }

@@ -20,6 +20,7 @@ final class OiStoreURLProtocol: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() { Self.handle?(request, self) }
     override func stopLoading() { lock.lock(); stopped = true; lock.unlock() }
+    func timeOut() { client?.urlProtocol(self, didFailWithError: URLError(.timedOut)) }
     func respond(_ status: Int, _ data: Data) {
         lock.lock(); let canceled = stopped; lock.unlock()
         guard !canceled, let url = request.url,
@@ -36,7 +37,16 @@ final class OiTestBackend {
     static let grant = UUID(uuidString: "b1000000-0000-4000-8000-000000000010") ?? UUID()
     private let lock = NSLock()
     struct State {
-        var unapprovedDraftsEnabled: Bool?
+        var unapprovedDraftsEnabled: Bool? = true
+        var independentStoryCreation: Bool? = true
+        var publicCucumberAppearance = false
+        var publicStoryCard = false
+        var failCucumberTextureUpload = false
+        var timeOutCardUploadAfterCommit = false
+        var timeOutSubmitAfterCommit = false
+        var timeOutSubmitBeforeCommit = false
+        var submitCount = 0
+        var artworkUploadAttempts = 0
         var hasWritingGrant = true
         var nickname = "Owner A"
         var farmName: String? = "오이"
@@ -76,20 +86,6 @@ final class OiTestBackend {
         var loseReviewResponse = false
         var holdReviewResponse = false
         var ignoreStoryStatusFilter = false
-        var evidenceReviewCount = 0
-        var evidenceRPCMissing = false
-        var holdEvidenceRead = false
-        var history: [[String: Any]] = []
-        var failHistoryReads = false
-        var holdHistoryRead = false
-        var revokeOnDocumentRead = false
-        var analysisStatus = 200
-        var analysisError = "analysis_unavailable"
-        var analysisResult: [String: Any] = [:]
-        var analysisBodies: [[String: Any]] = []
-        var holdAnalysis = false
-        var changeEvidenceAfterAnalysis = false
-        var revokeAfterAnalysis = false
         var auditRecords: [[String: Any]] = []
         var auditBodies: [[String: Any]] = []
         var auditStatus = 200
@@ -100,7 +96,6 @@ final class OiTestBackend {
         var cardSendResponse: [String: String] = [:]
         var cardSendPayloads: [[String: String]] = []
         var holdCardSend = false
-        var loseEvidenceResponse = false
         var holdOwnerRead = false
         var holdPostMergeRead = false
         var mergeConfirmCount = 0
@@ -109,13 +104,12 @@ final class OiTestBackend {
         var story: [String:Any]?
         var paths: [String] = []
         var uploads: [String:Data] = [:]
-        var evidence: [String:Any]?
-        var requestIDs: Set<String> = []
         var submittedTitle: String?
         var canonicalAccountID: UUID?
         var refreshSucceeds = false
         var refreshRequestCount = 0
         var grantOwnerQueries: [String] = []
+        var retiredEvidenceRequests: [String] = []
     }
     private var state = State()
 
@@ -123,7 +117,7 @@ final class OiTestBackend {
     func snapshot() -> State { lock.lock(); defer { lock.unlock() }; return state }
     func releaseHeldRead() {
         let value = snapshot().held
-        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false; $0.holdReviewResponse = false; $0.holdEvidenceRead = false; $0.holdHistoryRead = false; $0.holdAnalysis = false; $0.holdAuditRead = false; $0.holdCardSend = false; $0.holdFarmWrite = false; $0.holdFarmerOutfitWrite = false }
+        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false; $0.holdReviewResponse = false; $0.holdAuditRead = false; $0.holdCardSend = false; $0.holdFarmWrite = false; $0.holdFarmerOutfitWrite = false }
         value?.0.respond(200, value?.1 ?? Data())
     }
     func install() { OiStoreURLProtocol.handle = { [weak self] request, client in self?.receive(request, client: client) } }
@@ -151,7 +145,12 @@ final class OiTestBackend {
         var status = 200
         var result: Any = []
         var bytes: Data?
-        if path == "/auth/v1/token" {
+        if path.hasSuffix("/oi_evidence_requests") || path.hasSuffix("/oi_review_evidence")
+            || path.contains("/object/oi-evidence/") || path.hasSuffix("/analyze-evidence")
+            || path.hasSuffix("/analyze-donation-evidence") {
+            state.retiredEvidenceRequests.append(path)
+            status = 410
+        } else if path == "/auth/v1/token" {
             state.refreshRequestCount += 1
             if state.refreshSucceeds && !state.failRefreshToken {
                 result = ["access_token":"token-a","refresh_token":"next-refresh","expires_in":3600,
@@ -179,54 +178,42 @@ final class OiTestBackend {
         else if path.contains("/object/authenticated/") {
             let key = path.replacingOccurrences(of: "/storage/v1/object/authenticated/", with: "")
             bytes = state.uploads[key]; if bytes == nil { status = 404 }
-            if state.revokeOnDocumentRead { state.isOperator = false }
         } else if path == "/functions/v1/delete-account" {
             if body["account_id"] as? String == Self.owner.uuidString,
                body["proof"] as? String == "token-a", body["consent"] as? Bool == true {
                 result = ["deleted": true, "apple_revocation_required": false, "deleted_member_ids": [Self.owner.uuidString]]
             } else { status = 403 }
-        } else if path == "/functions/v1/analyze-evidence" {
-            state.analysisBodies.append(body)
-            status = state.analysisStatus
-            if status == 200 { result = state.analysisResult }
-            else { result = ["error": state.analysisError] }
-            if state.changeEvidenceAfterAnalysis { state.evidence?["submitted_at"] = "2026-11-04T03:00:00Z" }
-            if state.revokeAfterAnalysis { state.isOperator = false }
+        } else if path.hasPrefix("/storage/v1/object/sign/") && (path.contains("/appearance/") || path.contains("/card/")) {
+            let key = String(path.dropFirst("/storage/v1/object/sign/".count))
+            if let image = state.uploads[key] {
+                if request.httpMethod == "POST" { result = ["signedURL": String(path.dropFirst("/storage/v1".count)) + "?token=fixture"] }
+                else { bytes = image }
+            } else { status = 404 }
         } else if path.contains("/storage/v1/object/") {
             let key = path.replacingOccurrences(of: "/storage/v1/object/", with: "")
-            if state.uploads[key] != nil { status = 409 }
+            if key.contains("/card/") || key.contains("/appearance/") { state.artworkUploadAttempts += 1 }
+            if state.failCucumberTextureUpload && key.hasSuffix("/top.png") { status = 503 }
+            else if state.uploads[key] != nil { status = 409 }
             else { state.uploads[key] = raw; result = ["Key":key] }
-        } else if path.hasSuffix("/rpc/oi_review_evidence") {
-            let payload = body["p_payload"] as? [String: Any] ?? [:]
-            let wanted = payload["status"] as? String ?? ""
-            state.evidenceReviewCount += 1
-            if state.evidenceRPCMissing { status = 404 }
-            else if !state.isOperator { status = 403 }
-            else if state.evidence?["status"] as? String != payload["expected_status"] as? String ||
-                state.evidence?["object_path"] as? String != payload["expected_object_path"] as? String ||
-                state.evidence?["submitted_at"] as? String != payload["expected_submitted_at"] as? String ||
-                state.evidence?["reviewed_at"] as? String != payload["expected_reviewed_at"] as? String { status = 409 }
-            else {
-                state.evidence?["status"] = wanted
-                state.evidence?["review_note"] = payload["review_note"]
-                state.evidence?["reviewed_at"] = "2026-11-04T02:00:00Z"
-                state.evidence?["reviewer_id"] = owner.uuidString
-                if wanted == "revoked", state.story?["grant_id"] as? String == Self.grant.uuidString {
-                    state.story?["status"] = "hidden"
-                }
-                result = state.evidence ?? [:]
-                if state.failAfterReview { state.failReads = true }
-                if state.loseReviewResponse { status = 503; state.loseReviewResponse = false }
+            if status == 200, key.contains("/card/"), state.timeOutCardUploadAfterCommit {
+                state.timeOutCardUploadAfterCommit = false
+                lock.unlock(); client.timeOut(); return
             }
         } else if path.hasSuffix("/rpc/oi_mutate") {
             let payload = body["p_payload"] as? [String:Any] ?? [:]
             let action = body["p_action"] as? String ?? ""
             if action == "save_story" {
                 var story = payload
+                story["grant_id"] = state.story?["id"] as? String == payload["id"] as? String
+                    ? state.story?["grant_id"] ?? NSNull() : NSNull()
                 story["user_id"] = owner.uuidString
                 story["status"] = "draft"
                 story["revision"] = (payload["revision"] as? Int ?? 0)+1
                 story["created_at"] = "2026-10-28T00:00:00Z"
+                if state.story?["id"] as? String == payload["id"] as? String {
+                    story["card_snapshot_id"] = state.story?["card_snapshot_id"]
+                    story["cucumber_appearance"] = state.story?["cucumber_appearance"]
+                }
                 state.story = story; result = story
             } else if action == "attach_media" {
                 state.paths = payload["paths"] as? [String] ?? []
@@ -234,9 +221,25 @@ final class OiTestBackend {
                 state.story?["revision"] = nextRevision
                 result = state.story ?? [:]
             } else if action == "submit_story" {
+                state.submitCount += 1
+                if state.timeOutSubmitBeforeCommit {
+                    state.timeOutSubmitBeforeCommit = false
+                    lock.unlock(); client.timeOut(); return
+                }
                 state.submittedTitle = state.story?["title"] as? String
+                if let appearance = payload["cucumber_appearance"] { state.story?["cucumber_appearance"] = appearance }
+                if let card = payload["card_snapshot_id"] { state.story?["card_snapshot_id"] = card }
                 state.story?["status"] = "pending"
                 let nextRevision = (state.story?["revision"] as? Int ?? 0)+1
+                state.story?["revision"] = nextRevision
+                result = state.story ?? [:]
+                if state.timeOutSubmitAfterCommit {
+                    state.timeOutSubmitAfterCommit = false
+                    lock.unlock(); client.timeOut(); return
+                }
+            } else if action == "reopen_story" {
+                state.story?["status"] = "draft"
+                let nextRevision = (state.story?["revision"] as? Int ?? 0) + 1
                 state.story?["revision"] = nextRevision
                 result = state.story ?? [:]
             } else if action == "review_story" {
@@ -245,6 +248,10 @@ final class OiTestBackend {
                 if !state.isOperator { status = 403 }
                 else if state.story?["revision"] as? Int != payload["revision"] as? Int { status = 409 }
                 else if !["published", "hidden"].contains(wanted) { status = 400 }
+                else if wanted == "published", let appearance = state.story?["cucumber_appearance"] as? [String: Any],
+                        appearance["id"] as? String != payload["appearance_id"] as? String { status = 409 }
+                else if wanted == "published", let card = state.story?["card_snapshot_id"] as? String,
+                        card != payload["card_snapshot_id"] as? String { status = 409 }
                 else {
                     state.story?["status"] = wanted
                     let nextRevision = (state.story?["revision"] as? Int ?? 0) + 1
@@ -253,17 +260,6 @@ final class OiTestBackend {
                     if state.failAfterReview { state.failReads = true }
                     if state.loseReviewResponse { status = 503; state.loseReviewResponse = false }
                 }
-            } else if action == "start_evidence" {
-                let id = payload["id"] as? String ?? ""
-                state.requestIDs.insert(id)
-                if state.evidence == nil {
-                    state.evidence = ["id":id,"user_id":owner.uuidString,"storage_owner_id":owner.uuidString,"status":"draft"]
-                }
-                result = state.evidence ?? [:]
-            } else if action == "submit_evidence" {
-                state.evidence?["status"] = "pending"; state.evidence?["object_path"] = payload["object_path"]
-                result = state.evidence ?? [:]
-                if state.loseEvidenceResponse { status = 503; state.loseEvidenceResponse = false }
             } else { result = ["id":payload["id"] ?? ""] }
         } else if path.hasSuffix("/rpc/oi_operator_audit") {
             state.auditBodies.append(body); status = state.auditStatus
@@ -302,6 +298,9 @@ final class OiTestBackend {
             if state.failCapabilities { status = 503 }
             var capabilities: [String:Any] = ["operator":state.isOperator,"coins_enabled":false]
             if let enabled = state.unapprovedDraftsEnabled { capabilities["unapproved_drafts_enabled"] = enabled }
+            if let independent = state.independentStoryCreation { capabilities["independent_story_creation"] = independent }
+            if state.publicCucumberAppearance { capabilities["public_cucumber_appearance"] = true }
+            if state.publicStoryCard { capabilities["public_story_card"] = true }
             if let canonical = state.canonicalAccountID {
                 capabilities["account_id"] = canonical.uuidString
                 capabilities["account_merge_enabled"] = true
@@ -388,45 +387,16 @@ final class OiTestBackend {
             result = state.paths.enumerated().map { position, path in
                 ["id":UUID().uuidString,"story_id":state.story?["id"] ?? "","object_path":path,"position":position]
             }
-        } else if path.hasSuffix("/oi_evidence_history") {
-            if state.failHistoryReads { status = 503 }
-            else {
-                let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems ?? []
-                func value(_ name: String) -> String? { query.first { $0.name == name }?.value }
-                let filtered = state.history.filter { row in
-                    (value("id") == nil || value("id") == "eq.\(row["id"] as? String ?? "")") &&
-                    (value("request_id") == nil || value("request_id") == "eq.\(row["request_id"] as? String ?? "")")
-                }.sorted { ($0["recorded_at"] as? String ?? "", $0["id"] as? String ?? "") > ($1["recorded_at"] as? String ?? "", $1["id"] as? String ?? "") }
-                result = Array(filtered.dropFirst(Int(value("offset") ?? "0") ?? 0).prefix(Int(value("limit") ?? "200") ?? 200))
-            }
-        } else if path.hasSuffix("/oi_evidence_requests"), let evidence = state.evidence {
-            if state.failReads { status = 503 }
-            else {
-                let query = request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems ?? []
-                let id = query.first { $0.name == "id" }?.value
-                if id == nil || id == "eq.\(evidence["id"] as? String ?? "")" { result = [evidence] }
-            }
-        }
-        else if path.hasSuffix("/oi_writing_grants") {
+        } else if path.hasSuffix("/oi_writing_grants") {
             if let url = request.url,
                let owner = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "user_id" })?.value {
                 state.grantOwnerQueries.append(owner)
             }
             result = state.hasWritingGrant ? [["id":Self.grant.uuidString,"story_limit":5]] : []
-            if let url = request.url,
-               URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains(where: { $0.name == "evidence_id" }) == true {
-                let evidenceStatus = state.evidence?["status"] as? String
-                result = evidenceStatus == "approved" || evidenceStatus == "revoked"
-                    ? [["id":Self.grant.uuidString,"story_limit":3,"revoked_at":evidenceStatus == "revoked" ? "2026-11-04T02:00:00Z" as Any : NSNull()]] : []
-            }
         }
         let data = bytes ?? ((try? JSONSerialization.data(withJSONObject: result)) ?? Data())
         if (path.hasSuffix("/oi_stories") && owner == Self.owner && state.holdOwnerRead)
             || (path.hasSuffix("/rpc/oi_mutate") && body["p_action"] as? String == "review_story" && state.holdReviewResponse)
-            || (path.hasSuffix("/rpc/oi_review_evidence") && state.holdReviewResponse)
-            || (path.hasSuffix("/oi_evidence_requests") && state.holdEvidenceRead)
-            || (path.hasSuffix("/oi_evidence_history") && state.holdHistoryRead)
-            || (path == "/functions/v1/analyze-evidence" && state.holdAnalysis)
             || (path.hasSuffix("/rpc/oi_operator_audit") && state.holdAuditRead)
             || (path.hasSuffix("/rpc/oi_capabilities") && state.holdPostMergeRead && state.mergeConfirmCount > 0)
             || (path.hasSuffix("/rpc/oi_request_card") && state.holdCardSend)
@@ -476,6 +446,16 @@ final class OiControlledAuthentication: OiAuthenticating {
 }
 
 final class OiRemoteStoreTests: XCTestCase {
+    @MainActor func testExistingAccountStartsAndRefreshesWithoutDonationEvidence() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        await store.refresh()
+        XCTAssertTrue(store.hasLoadedRemote)
+        XCTAssertTrue(store.canStartStory)
+        XCTAssertTrue(backend.snapshot().retiredEvidenceRequests.isEmpty)
+    }
+
     @MainActor func testConfirmedDeletionPurgesOnlyDeletedAccountLocalDrafts() async throws {
         let (store, backend, vault, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
@@ -646,439 +626,6 @@ final class OiRemoteStoreTests: XCTestCase {
                 XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
             }
             let attachment = XCTAttachment(image: image); attachment.name = "operator-audit-\(name)"; attachment.lifetime = .keepAlways; add(attachment)
-            window.isHidden = true; window.rootViewController = nil
-        }
-    }
-
-    private func historyFixture() -> [String: Any] {
-        ["id": UUID().uuidString, "request_id": OiTestBackend.grant.uuidString,
-         "status": "changes_requested", "object_path": "\(OiTestBackend.owner.uuidString.lowercased())/\(OiTestBackend.grant.uuidString.lowercased())/previous.png",
-         "review_note": "가상 증빙을 보완해 주세요", "reviewer_id": OiTestBackend.other.uuidString,
-         "recorded_at": "2026-11-04T00:00:00Z"]
-    }
-
-    private func analysisFixture(verdict: String = "inconclusive") -> [String: Any] {
-        ["evidence_id": OiTestBackend.grant.uuidString.lowercased(), "submitted_at": "2026-11-04T01:00:00.000Z",
-         "sha256": String(repeating: "a", count: 64), "analyzed_at": "2026-11-04T02:00:00Z",
-         "model": "synthetic-model", "prompt_version": "evidence-visual-review-v1",
-         "human_review_required": true, "authenticity_verified": false,
-         "notice": "AI 참고 자료이며 원본 진위·실제 납입 확인을 보증하지 않습니다.",
-         "assessment": ["verdict": verdict, "readability": verdict == "inconclusive" ? "limited" : "readable",
-                        "findings": verdict == "suspicious" ? [["category": "visual_edit", "location": "가상 금액 영역", "observation": "가상 문자의 경계가 다름"]] : [],
-                        "limitations": ["가상 자료만 분석한 결과입니다."], "manual_checks": ["원본과 기부 내역을 직접 확인하세요."]]]
-    }
-
-    @MainActor func testOperatorEvidenceHistoryPaginationFiltersAndFailures() async throws {
-        let (store, backend, _, session, directory) = try context()
-        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
-        var rows = (0..<205).map { _ in historyFixture() }
-        var unrelated = historyFixture(); unrelated["request_id"] = UUID().uuidString; rows.append(unrelated)
-        backend.configure { $0.isOperator = true; $0.history = rows }
-        await store.start()
-        let model = OiOperatorEvidenceHistoryModel()
-        await model.load(OiTestBackend.grant, using: store)
-        XCTAssertEqual(model.rows.count, 205); XCTAssertTrue(model.hasLoaded)
-        XCTAssertTrue(model.rows.allSatisfy { $0.requestId == OiTestBackend.grant })
-        XCTAssertEqual(model.rows.first?.status, "changes_requested")
-        backend.configure { $0.history = [] }
-        await model.load(OiTestBackend.grant, using: store)
-        XCTAssertTrue(model.hasLoaded); XCTAssertTrue(model.rows.isEmpty)
-        backend.configure { $0.failHistoryReads = true }
-        await model.load(OiTestBackend.grant, using: store)
-        XCTAssertFalse(model.hasLoaded); XCTAssertNotNil(model.error)
-        backend.configure { $0.failHistoryReads = false; $0.isOperator = false }
-        await model.load(OiTestBackend.grant, using: store)
-        XCTAssertTrue(model.rows.isEmpty); XCTAssertNotNil(model.error)
-    }
-
-    @MainActor func testOperatorEvidenceHistoryOpensArchivedOriginalAndRechecksRights() async throws {
-        let (store, backend, _, session, directory) = try context()
-        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
-        let history = historyFixture()
-        let path = try XCTUnwrap(history["object_path"] as? String)
-        let bytes = Data([0xff, 0xd8, 0xff, 0x00])
-        backend.configure {
-            $0.isOperator = true; $0.evidence = evidenceFixture(); $0.history = [history]
-            $0.uploads["oi-evidence/\(path)"] = bytes
-        }
-        await store.start()
-        let entries = try await store.operatorEvidenceHistory(OiTestBackend.grant)
-        let entry = try XCTUnwrap(entries.first)
-        let document = try await store.operatorEvidenceHistoryDocument(entry)
-        XCTAssertEqual(document.data, bytes, "Archived path, rather than current submission, must be opened")
-        backend.configure { $0.history[0]["object_path"] = "changed.png" }
-        do { _ = try await store.operatorEvidenceHistoryDocument(entry); XCTFail("Changed history must be rejected") }
-        catch OiServiceError.conflict {}
-        backend.configure { $0.history = [history]; $0.revokeOnDocumentRead = true }
-        do { _ = try await store.operatorEvidenceHistoryDocument(entry); XCTFail("Rights must be rechecked before return") }
-        catch OiOperatorStoryError.accessDenied {}
-    }
-
-    @MainActor func testOperatorEvidenceAnalysisUsesIDOnlyAndNeverApproves() async throws {
-        let (store, backend, _, session, directory) = try context()
-        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
-        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
-        await store.start()
-        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
-        XCTAssertTrue(backend.snapshot().analysisBodies.isEmpty)
-        let model = OiOperatorEvidenceAnalysisModel()
-        for verdict in ["suspicious", "no_obvious_signs", "inconclusive"] {
-            backend.configure { $0.analysisResult = analysisFixture(verdict: verdict) }
-            await model.analyze(row, using: store)
-            XCTAssertEqual(model.result?.assessment.verdict.rawValue, verdict)
-            XCTAssertNil(model.error)
-        }
-        let bodies = backend.snapshot().analysisBodies
-        XCTAssertEqual(bodies.count, 3)
-        XCTAssertTrue(bodies.allSatisfy { Set($0.keys) == ["evidence_id"] && $0["evidence_id"] as? String == row.id.uuidString.lowercased() })
-        XCTAssertEqual(backend.snapshot().evidence?["status"] as? String, "pending")
-        XCTAssertEqual(backend.snapshot().evidenceReviewCount, 0)
-        XCTAssertEqual(backend.snapshot().reviewCount, 0)
-        backend.configure { $0.evidence?["submitted_at"] = "2026-11-04T03:00:00Z" }
-        await model.revalidate(row, using: store)
-        XCTAssertNil(model.result); XCTAssertNotNil(model.error)
-    }
-
-    @MainActor func testOperatorEvidenceAnalysisErrorsAreDistinctAndDoNotRetry() async throws {
-        let (store, backend, _, session, directory) = try context()
-        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
-        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
-        await store.start()
-        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
-        let model = OiOperatorEvidenceAnalysisModel()
-        for (status, code, expected) in [(404, "NOT_FOUND", "배포"), (503, "analysis_not_configured", "설정"),
-                                         (429, "analysis_busy", "한도"), (504, "analysis_timeout", "초과"),
-                                         (422, "analysis_refused", "자료"), (502, "invalid_analysis_response", "완료하지 못"),
-                                         (409, "evidence_changed", "새로고침")] {
-            backend.configure { $0.analysisStatus = status; $0.analysisError = code }
-            let count = backend.snapshot().analysisBodies.count
-            await model.analyze(row, using: store)
-            XCTAssertNil(model.result); XCTAssertTrue(model.error?.contains(expected) == true, model.error ?? "No error")
-            XCTAssertEqual(backend.snapshot().analysisBodies.count, count + 1)
-        }
-    }
-
-    @MainActor func testOperatorEvidenceAnalysisRejectsStaleAndRevokedResults() async throws {
-        let (store, backend, _, session, directory) = try context()
-        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
-        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture(); $0.analysisResult = analysisFixture() }
-        await store.start()
-        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
-        let model = OiOperatorEvidenceAnalysisModel()
-        backend.configure { $0.changeEvidenceAfterAnalysis = true }
-        await model.analyze(row, using: store)
-        XCTAssertNil(model.result); XCTAssertNotNil(model.error)
-        backend.configure { $0.changeEvidenceAfterAnalysis = false; $0.evidence = evidenceFixture(); $0.revokeAfterAnalysis = true }
-        await model.analyze(row, using: store)
-        XCTAssertNil(model.result); XCTAssertFalse(store.isOperator)
-        XCTAssertEqual(backend.snapshot().evidenceReviewCount, 0)
-    }
-
-    @MainActor func testOperatorEvidenceAnalysisRejectsUnsafeOrMalformedContract() async throws {
-        let (store, backend, _, session, directory) = try context()
-        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
-        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
-        await store.start()
-        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
-        let model = OiOperatorEvidenceAnalysisModel()
-        for key in ["authenticity_verified", "human_review_required", "evidence_id", "sha256", "assessment"] {
-            var fixture = analysisFixture()
-            switch key {
-            case "authenticity_verified": fixture[key] = true
-            case "human_review_required": fixture[key] = false
-            case "evidence_id": fixture[key] = UUID().uuidString
-            default: fixture[key] = "invalid"
-            }
-            backend.configure { $0.analysisResult = fixture }
-            await model.analyze(row, using: store)
-            XCTAssertNil(model.result); XCTAssertNotNil(model.error)
-        }
-    }
-
-    @MainActor func testOperatorEvidenceAnalysisDuplicateInvalidationAndAccountChange() async throws {
-        let (store, backend, _, session, directory) = try context()
-        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
-        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture(); $0.analysisResult = analysisFixture() }
-        await store.start()
-        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
-        let model = OiOperatorEvidenceAnalysisModel()
-        let held = expectation(description: "analysis pending")
-        backend.configure { $0.holdAnalysis = true; $0.didHold = { held.fulfill() } }
-        let first = Task { await model.analyze(row, using: store) }
-        await fulfillment(of: [held], timeout: 5)
-        await model.analyze(row, using: store)
-        XCTAssertEqual(backend.snapshot().analysisBodies.count, 1)
-        model.invalidate()
-        await store.signOut()
-        backend.releaseHeldRead()
-        await first.value
-        XCTAssertNil(model.result); XCTAssertNil(model.error); XCTAssertFalse(model.isLoading)
-    }
-
-    @MainActor func testOperatorEvidenceAnalysisCancellationDoesNotCreateVerdict() async throws {
-        let (store, backend, _, session, directory) = try context()
-        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
-        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture(); $0.analysisResult = analysisFixture() }
-        await store.start()
-        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
-        let model = OiOperatorEvidenceAnalysisModel()
-        let held = expectation(description: "cancelable analysis")
-        backend.configure { $0.holdAnalysis = true; $0.didHold = { held.fulfill() } }
-        let request = Task { await model.analyze(row, using: store) }
-        await fulfillment(of: [held], timeout: 5)
-        request.cancel()
-        await request.value
-        backend.releaseHeldRead()
-        XCTAssertNil(model.result); XCTAssertNil(model.error); XCTAssertFalse(model.isLoading)
-        XCTAssertEqual(backend.snapshot().analysisBodies.count, 1)
-    }
-
-    @MainActor func testOperatorEvidenceSupplementScreenLayouts() async throws {
-        let (store, backend, _, session, directory) = try context()
-        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
-        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture(); $0.history = [historyFixture()] }
-        await store.start()
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
-        for name in ["history", "history-empty", "history-error", "analysis-suspicious", "analysis-no_obvious_signs", "analysis-inconclusive", "analysis-accessibility"] {
-            backend.configure { $0.history = name == "history-empty" ? [] : [historyFixture()]; $0.failHistoryReads = name == "history-error" }
-            let view: AnyView
-            if name.hasPrefix("history") { view = AnyView(NavigationStack { OiOperatorEvidenceHistoryView(remote: store, evidenceID: OiTestBackend.grant) }) }
-            else {
-                let verdict = name == "analysis-accessibility" ? "suspicious" : String(name.dropFirst("analysis-".count))
-                let result = try decoder.decode(OiEvidenceAnalysis.self, from: JSONSerialization.data(withJSONObject: analysisFixture(verdict: verdict)))
-                view = AnyView(NavigationStack { List { Section("AI 참고 분석") { OiEvidenceAnalysisResultView(result: result) } }.navigationTitle("증빙 검토 상세") })
-            }
-            let window = UIWindow(windowScene: scene)
-            let controller = UIHostingController(rootView: view.environment(\.scenePhase, .active)
-                .environment(\.locale, Locale(identifier: "ko_KR"))
-                .environment(\.dynamicTypeSize, name.hasSuffix("accessibility") ? .accessibility5 : .large)
-                .preferredColorScheme(.light))
-            window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
-            window.rootViewController = controller; window.makeKeyAndVisible()
-            try await Task.sleep(for: .milliseconds(400))
-            controller.view.layoutIfNeeded()
-            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
-                XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
-            }
-            let attachment = XCTAttachment(image: image); attachment.name = "operator-supplement-\(name)"; attachment.lifetime = .keepAlways; add(attachment)
-            window.isHidden = true; window.rootViewController = nil
-        }
-        XCTAssertTrue(backend.snapshot().analysisBodies.isEmpty, "Rendering never automatically calls AI")
-    }
-
-    private func evidenceFixture(status: String = "pending") -> [String: Any] {
-        ["id": OiTestBackend.grant.uuidString, "user_id": OiTestBackend.owner.uuidString,
-         "storage_owner_id": OiTestBackend.owner.uuidString, "status": status,
-         "object_path": "\(OiTestBackend.owner.uuidString.lowercased())/\(OiTestBackend.grant.uuidString.lowercased())/synthetic.png",
-         "submitted_at": "2026-11-04T01:00:00Z"]
-    }
-
-    @MainActor func testOperatorEvidenceListDetailAndAllDecisions() async throws {
-        let (store, backend, _, session, directory) = try context()
-        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
-        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
-        await store.start()
-        let list = OiOperatorEvidenceListModel()
-        await list.load(using: store)
-        XCTAssertEqual(list.filtered.count, 1)
-        let model = OiOperatorEvidenceModel()
-        for decision in OiEvidenceDecision.allCases {
-            backend.configure { $0.evidence = evidenceFixture(status: decision == .revoked ? "approved" : "pending") }
-            await model.load(OiTestBackend.grant, using: store)
-            let snapshot = try XCTUnwrap(model.detail?.evidence)
-            let review = try OiEvidenceReview(snapshot: snapshot, decision: decision, note: "가상 자료 검토 의견", count: "3")
-            let result = await model.review(review, using: store)
-            let receipt = try XCTUnwrap(result)
-            XCTAssertEqual(receipt.status, decision.rawValue)
-            XCTAssertNotNil(model.notice)
-            XCTAssertTrue(model.requiresReload)
-            list.apply(receipt)
-            XCTAssertTrue(list.filtered.isEmpty)
-            list.filter = OiEvidenceFilter(rawValue: decision.rawValue) ?? .all
-            XCTAssertEqual(list.filtered.first?.id, receipt.id)
-            list.filter = .pending
-        }
-        XCTAssertEqual(backend.snapshot().evidenceReviewCount, 4)
-    }
-
-    @MainActor func testOperatorEvidenceValidationAndDocumentFormats() throws {
-        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let row = try decoder.decode(OiEvidence.self, from: JSONSerialization.data(withJSONObject: evidenceFixture()))
-        for count in ["", "0", "-1", "1.5", "999999999999", "１２"] {
-            XCTAssertThrowsError(try OiEvidenceReview(snapshot: row, decision: .approved, note: "", count: count))
-        }
-        XCTAssertNoThrow(try OiEvidenceReview(snapshot: row, decision: .approved, note: "", count: "2"))
-        for decision in [OiEvidenceDecision.changesRequested, .rejected, .revoked] {
-            XCTAssertThrowsError(try OiEvidenceReview(snapshot: row, decision: decision, note: " \n", count: ""))
-        }
-        XCTAssertThrowsError(try OiEvidenceReview(snapshot: row, decision: .approved, note: String(repeating: "a", count: 2001), count: "1"))
-        XCTAssertThrowsError(try OiEvidenceDocument(data: Data("<html>error</html>".utf8)))
-        XCTAssertThrowsError(try OiEvidenceDocument(data: Data(repeating: 0, count: OiEvidenceDocument.maximumBytes + 1)))
-        XCTAssertEqual(try OiEvidenceDocument(data: Data("%PDF-synthetic".utf8)).kind, .pdf)
-    }
-
-    @MainActor func testOperatorEvidencePrivateOriginalAndStaleSnapshot() async throws {
-        let (store, backend, _, session, directory) = try context()
-        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
-        let fixture = evidenceFixture()
-        let path = try XCTUnwrap(fixture["object_path"] as? String)
-        let png = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { context in
-            UIColor.green.setFill(); context.fill(CGRect(x: 0, y: 0, width: 20, height: 20))
-        }.pngData())
-        backend.configure { $0.isOperator = true; $0.evidence = fixture; $0.uploads["oi-evidence/\(path)"] = png }
-        await store.start()
-        let row = try await store.operatorEvidence(OiTestBackend.grant).evidence
-        let document = try await store.operatorEvidenceDocument(row)
-        XCTAssertEqual(document.data, png)
-        backend.configure { $0.evidence?["submitted_at"] = "2026-11-04T01:01:00Z" }
-        do { _ = try await store.operatorEvidenceDocument(row); XCTFail("Stale originals must not open") }
-        catch OiServiceError.conflict {}
-        let model = OiOperatorEvidenceModel()
-        await model.load(row.id, using: store)
-        let current = try XCTUnwrap(model.detail?.evidence)
-        backend.configure { $0.evidence?["submitted_at"] = "2026-11-04T01:02:00Z" }
-        let review = try OiEvidenceReview(snapshot: current, decision: .approved, note: "", count: "2")
-        let receipt = await model.review(review, using: store)
-        XCTAssertNil(receipt); XCTAssertTrue(model.requiresReload); XCTAssertNotNil(model.error)
-        XCTAssertEqual(backend.snapshot().evidence?["status"] as? String, "pending")
-    }
-
-    @MainActor func testOperatorEvidenceResponseLossAndMissingRPCNeverReplay() async throws {
-        let (store, backend, _, session, directory) = try context()
-        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
-        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
-        await store.start()
-        let model = OiOperatorEvidenceModel()
-        for missing in [true, false] {
-            backend.configure { $0.evidence = evidenceFixture(); $0.evidenceRPCMissing = missing; $0.loseReviewResponse = !missing }
-            await model.load(OiTestBackend.grant, using: store)
-            let row = try XCTUnwrap(model.detail?.evidence)
-            let review = try OiEvidenceReview(snapshot: row, decision: .approved, note: "", count: "2")
-            let result = await model.review(review, using: store)
-            XCTAssertNil(result); XCTAssertTrue(model.requiresReload)
-            let count = backend.snapshot().evidenceReviewCount
-            let second = await model.review(review, using: store)
-            XCTAssertNil(second); XCTAssertEqual(backend.snapshot().evidenceReviewCount, count)
-            if missing { XCTAssertTrue(model.error?.contains("아직 준비") == true) }
-            else {
-                await model.load(row.id, using: store)
-                XCTAssertEqual(model.detail?.evidence.status, "approved")
-            }
-        }
-    }
-
-    @MainActor func testOperatorEvidenceReceiptSurvivesRefreshFailureAndRightsAreChecked() async throws {
-        let (store, backend, _, session, directory) = try context()
-        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
-        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture(status: "approved") }
-        await store.start()
-        let savedResult = await store.save(draft(title: "철회 시 비공개 전환할 가상 이야기"))
-        let saved = try XCTUnwrap(savedResult)
-        let pendingResult = await store.submitStory(saved)
-        let pending = try XCTUnwrap(pendingResult)
-        _ = try await store.reviewOperatorStory(pending, publish: true)
-        XCTAssertFalse(store.stories.isEmpty)
-        let model = OiOperatorEvidenceModel()
-        await model.load(OiTestBackend.grant, using: store)
-        let row = try XCTUnwrap(model.detail?.evidence)
-        let review = try OiEvidenceReview(snapshot: row, decision: .revoked, note: "가상 철회 사유", count: "")
-        backend.configure { $0.failAfterReview = true }
-        let result = await model.review(review, using: store)
-        XCTAssertEqual(result?.status, "revoked"); XCTAssertNotNil(model.warning)
-        XCTAssertEqual(store.evidence.first?.status, "revoked")
-        XCTAssertTrue(store.stories.isEmpty); XCTAssertTrue(store.reviewStories.isEmpty)
-        backend.configure { $0.failReads = false; $0.isOperator = false }
-        do { _ = try await store.operatorEvidenceList(); XCTFail("Permission required") }
-        catch OiOperatorStoryError.accessDenied {}
-    }
-
-    @MainActor func testEvidenceRevocationPreservesUnrelatedTemporaryStoryOnRefreshFailure() async throws {
-        let (store, backend, _, session, directory) = try context()
-        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
-        backend.configure {
-            $0.isOperator = true
-            $0.unapprovedDraftsEnabled = true
-            $0.evidence = evidenceFixture(status: "approved")
-        }
-        await store.start()
-        var temporary = draft()
-        temporary.grantId = nil
-        let saveResult = await store.save(temporary)
-        let saved = try XCTUnwrap(saveResult)
-        let submitResult = await store.submitStory(saved)
-        let pending = try XCTUnwrap(submitResult)
-        _ = try await store.reviewOperatorStory(pending, publish: true)
-        let evidence = try await store.operatorEvidence(OiTestBackend.grant).evidence
-        let review = try OiEvidenceReview(snapshot: evidence, decision: .revoked, note: "Synthetic revocation", count: "")
-        backend.configure { $0.failAfterReview = true }
-        let result = try await store.reviewOperatorEvidence(review)
-        XCTAssertEqual(result.evidence.status, "revoked")
-        XCTAssertNotNil(result.warning)
-        XCTAssertEqual(store.stories.map(\.id), [saved.id])
-        XCTAssertEqual(store.ownStories.map(\.id), [saved.id])
-        XCTAssertEqual(backend.snapshot().story?["status"] as? String, "published")
-    }
-
-    @MainActor func testOperatorEvidenceDuplicateAndPreviousAccountResponse() async throws {
-        let (store, backend, _, session, directory) = try context()
-        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
-        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
-        await store.start()
-        let model = OiOperatorEvidenceModel()
-        await model.load(OiTestBackend.grant, using: store)
-        let row = try XCTUnwrap(model.detail?.evidence)
-        let review = try OiEvidenceReview(snapshot: row, decision: .approved, note: "", count: "2")
-        let held = expectation(description: "evidence response held")
-        backend.configure { $0.holdReviewResponse = true; $0.didHold = { held.fulfill() } }
-        let first = Task { await model.review(review, using: store) }
-        await fulfillment(of: [held], timeout: 5)
-        let duplicate = await model.review(review, using: store)
-        XCTAssertNil(duplicate); XCTAssertEqual(backend.snapshot().evidenceReviewCount, 1)
-        await store.signOut()
-        XCTAssertNotNil(store.account, "A mutation in progress blocks account changes")
-        backend.releaseHeldRead()
-        let result = await first.value
-        XCTAssertEqual(result?.status, "approved")
-        let readHeld = expectation(description: "evidence read pending")
-        backend.configure { $0.holdEvidenceRead = true; $0.didHold = { readHeld.fulfill() } }
-        let read = Task { try await store.operatorEvidenceList() }
-        await fulfillment(of: [readHeld], timeout: 5)
-        backend.configure { $0.holdEvidenceRead = false }
-        await store.signOut()
-        backend.releaseHeldRead()
-        do { _ = try await read.value; XCTFail("Old account response must not be returned") }
-        catch OiServiceError.accountChanged {}
-    }
-
-    @MainActor func testOperatorEvidenceScreenLayouts() async throws {
-        let (store, backend, _, session, directory) = try context()
-        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
-        backend.configure { $0.isOperator = true; $0.evidence = evidenceFixture() }
-        await store.start()
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        for name in ["list", "detail", "detail-accessibility", "approved", "list-failed", "list-empty"] {
-            backend.configure {
-                $0.failReads = name == "list-failed"
-                $0.evidence = evidenceFixture(status: name == "approved" ? "approved" : name == "list-empty" ? "draft" : "pending")
-            }
-            let detail = name.hasPrefix("detail") || name == "approved"
-            let view = detail ? AnyView(NavigationStack { OiOperatorEvidenceDetailView(remote: store, evidenceID: OiTestBackend.grant) })
-                : AnyView(NavigationStack { OiOperatorEvidenceListView(remote: store) })
-            let window = UIWindow(windowScene: scene)
-            let controller = UIHostingController(rootView: view.environment(\.scenePhase, .active)
-                .environment(\.locale, Locale(identifier: "ko_KR"))
-                .environment(\.dynamicTypeSize, name.hasSuffix("accessibility") ? .accessibility5 : .large)
-                .preferredColorScheme(.light))
-            window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
-            window.rootViewController = controller; window.makeKeyAndVisible()
-            try await Task.sleep(for: .milliseconds(500))
-            controller.view.layoutIfNeeded()
-            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
-                XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
-            }
-            let attachment = XCTAttachment(image: image); attachment.name = "operator-evidence-\(name)"
-            attachment.lifetime = .keepAlways; add(attachment)
             window.isHidden = true; window.rootViewController = nil
         }
     }
@@ -1502,8 +1049,12 @@ final class OiRemoteStoreTests: XCTestCase {
         backend.configure { $0.schoolProfileEnabled = true }
         await store.start()
         XCTAssertTrue(store.isSchoolProfileAvailable)
+        let readsBeforeWrite = backend.snapshot().schoolProfileReads
         await store.updateSchoolProfile(schoolID: "postech", admissionYear: 2020, department: "  Computer Science  ")
         XCTAssertNil(store.error)
+        XCTAssertEqual(backend.snapshot().schoolProfileReads, readsBeforeWrite, "A valid write receipt must not wait for a full refresh")
+        XCTAssertEqual(store.profiles.first { $0.id == OiTestBackend.owner }?.schoolId, "postech")
+        XCTAssertNil(store.profiles.first { $0.id == OiTestBackend.owner }?.schoolAdmissionYear)
         XCTAssertEqual(store.profile?.schoolAdmissionYear, 2020)
         XCTAssertEqual(store.profile?.schoolDepartment, "Computer Science")
         await store.updateProfile(nickname: "Changed nickname")
@@ -2040,15 +1591,16 @@ final class OiRemoteStoreTests: XCTestCase {
             try await Task.sleep(for: .seconds(1))
             let candidate = try await store.localDraft(id: local.id, owner: OiTestBackend.owner)
             let saved = try XCTUnwrap(candidate)
+            let isEditingPhotos = window.rootViewController?.presentedViewController != nil
             XCTAssertNil(backend.snapshot().story, "Photo and location edits never submit to server")
-            if saved.photos != local.photos { sawEdit = true }
-            if sawEdit && saved.creationStep == OiCreationStep.story.rawValue && !sawCancel {
+            if isEditingPhotos && saved.photos != local.photos { sawEdit = true }
+            if sawEdit && !isEditingPhotos && saved.creationStep == OiCreationStep.story.rawValue && !sawCancel {
                 XCTAssertEqual(saved.photos, local.photos, "Cancel restores all original attachments")
                 let bytes = try await store.localPhoto(id: first, owner: OiTestBackend.owner)
                 XCTAssertEqual(bytes, image, "Edits keep the original photo copy intact")
                 sawCancel = true
             }
-            if sawCancel && saved.creationStep == OiCreationStep.story.rawValue && saved.photos.count == 1 { sawDone = true }
+            if sawCancel && !isEditingPhotos && saved.creationStep == OiCreationStep.story.rawValue && saved.photos.count == 1 { sawDone = true }
             if sawDone && saved.creationStep == OiCreationStep.location.rawValue { sawLocation = true }
             if sawLocation && saved.creationStep == OiCreationStep.story.rawValue {
                 XCTAssertEqual(saved.draft.latitude, local.draft.latitude)
@@ -2057,38 +1609,291 @@ final class OiRemoteStoreTests: XCTestCase {
                 return
             }
         }
-        XCTFail("Photo/location UI route did not finish")
+        XCTFail("Photo/location UI route did not finish (edited: \(sawEdit), cancelled: \(sawCancel), saved: \(sawDone), picked location: \(sawLocation))")
     }
+
+    #if DEBUG
+    /// Restores the real photo cover and drives its editor handlers with server and device photos.
+    @MainActor func testPhotoReorderCancelDoneAndReopenWithMixedPhotos() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let image = try XCTUnwrap(UIImage(named: "DonationCampus")?.jpegData(compressionQuality: 0.9))
+        let serverID = UUID(), localA = UUID(), localB = UUID()
+        let savedReceipt = await store.save(draft(title: "사진 순서 검증"))
+        let saved = try XCTUnwrap(savedReceipt)
+        let attachedReceipt = await store.uploadStoryImage(image, photoID: serverID, story: saved)
+        let attached = try XCTUnwrap(attachedReceipt)
+        for id in [localA, localB] { try await store.saveLocalPhoto(image, id: id, owner: OiTestBackend.owner) }
+        let serverPaths = store.mediaPaths(storyID: saved.id)
+        XCTAssertEqual(serverPaths.count, 1)
+        let local = OiLocalDraft(draft: OiStoryDraft(story: attached), photos: [localA, localB], version: 1,
+                                creationStep: OiCreationStep.photos.rawValue)
+        try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive })
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        var actions: OiStoryEditor.PhotoEditingTestActions?
+        defer {
+            actions = nil
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+            previousKey?.makeKey()
+        }
+
+        func mountEditor() {
+            actions = nil
+            window.rootViewController = UIHostingController(rootView: NavigationStack {
+                OiStoryEditor(remote: store, localID: local.id)
+                    .observePhotoEditingForTest { actions = $0 }
+                    .environment(\.scenePhase, .active)
+            })
+            window.makeKeyAndVisible()
+        }
+        func savedDraft() async throws -> OiLocalDraft {
+            let value = try await store.localDraft(id: local.id, owner: OiTestBackend.owner)
+            return try XCTUnwrap(value)
+        }
+        func photoEditorIsPresented() -> Bool { window.rootViewController?.presentedViewController != nil }
+        func waitFor(_ label: String, _ condition: () async throws -> Bool) async throws {
+            for _ in 0..<100 {
+                if try await condition() { return }
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            XCTFail("Timed out: \(label)")
+            throw CancellationError()
+        }
+        func reopen(expectedOrder: [String]) async throws -> OiStoryEditor.PhotoEditingTestActions {
+            try await waitFor("photo editor closed") { !photoEditorIsPresented() }
+            try await waitFor("story editor mounted") { actions != nil }
+            let current = try XCTUnwrap(actions)
+            try await waitFor("saved photo order restored") { current.items().map(\.orderKey) == expectedOrder }
+            current.open()
+            try await waitFor("photo editor reopened") { photoEditorIsPresented() }
+            XCTAssertEqual(current.items().map(\.orderKey), expectedOrder)
+            return current
+        }
+
+        let server = serverID.uuidString, a = localA.uuidString, b = localB.uuidString
+        let originalOrder = [server, a, b], reordered = [a, server, b]
+
+        // A legacy draft saved in the photo step opens the cover over the story form.
+        mountEditor()
+        try await waitFor("photo editor restored") { photoEditorIsPresented() && actions != nil }
+        var controls = try XCTUnwrap(actions)
+        XCTAssertEqual(controls.items().map(\.orderKey), originalOrder)
+        controls.move(try XCTUnwrap(controls.items().first), 1)
+        try await waitFor("reorder saved") { try await savedDraft().photoOrder == reordered }
+        controls.cancel()
+        try await waitFor("cancel restores order") {
+            let draft = try await savedDraft()
+            return draft.photoOrder == nil && draft.photos == [localA, localB] && !photoEditorIsPresented()
+        }
+
+        controls = try await reopen(expectedOrder: originalOrder)
+        controls.move(try XCTUnwrap(controls.items().first), 1)
+        controls.done()
+        try await waitFor("done keeps order") { try await savedDraft().photoOrder == reordered && !photoEditorIsPresented() }
+
+        // Mount a fresh editor so the order has to be read from the saved draft.
+        mountEditor()
+        controls = try await reopen(expectedOrder: reordered)
+        controls.move(.local(localB), -1)
+        try await waitFor("restored order moved") { try await savedDraft().photoOrder == [a, b, server] }
+        controls.cancel()
+        try await waitFor("cancel returns to saved order") {
+            try await savedDraft().photoOrder == reordered && !photoEditorIsPresented()
+        }
+
+        // Rotate the representative device photo in place, then delete it.
+        controls = try await reopen(expectedOrder: reordered)
+        let didRotate = await controls.edit(localA, .rotateLeft)
+        XCTAssertTrue(didRotate)
+        var rotated: UUID?
+        try await waitFor("rotation keeps position") {
+            let draft = try await savedDraft()
+            guard let id = draft.photos.first, id != localA, draft.photos == [id, localB] else { return false }
+            rotated = id
+            return draft.photoOrder == [id.uuidString, server, b]
+        }
+        let rotatedID = try XCTUnwrap(rotated)
+        controls.remove(.local(rotatedID))
+        try await waitFor("delete updates order") {
+            let draft = try await savedDraft()
+            return draft.photos == [localB] && draft.photoOrder == [server, b]
+        }
+        controls.done()
+        try await waitFor("delete saved") { !photoEditorIsPresented() }
+        let final = try await savedDraft()
+        XCTAssertEqual(final.photos, [localB])
+        XCTAssertEqual(final.photoOrder, [server, b])
+        XCTAssertEqual(store.mediaPaths(storyID: saved.id), serverPaths, "Device-only reordering never writes the server")
+    }
+    #endif
 
     /// Opt-in live UI check with a fake API and an isolated draft vault. Never uses a real account.
     @MainActor func testInteractiveCreationNavigation() async throws {
         let mode = ProcessInfo.processInfo.environment["OI_CREATION_INTERACTION_CHECK"]
         let freelyExplore = mode == "all-screens"
-        guard mode == "1" || freelyExplore else {
-            throw XCTSkip("Opt in to drive Done → Next → Previous → Previous with simulator UI automation")
+        let checkMovement = mode == "placement-gestures"
+        let checkReview = mode == "review"
+        let checkPersonal = mode == "personal-placement"
+        let checkPlacement = mode == "placement" || checkMovement || checkReview || checkPersonal
+        guard mode == "1" || freelyExplore || checkPlacement else {
+            throw XCTSkip("Opt in to drive the editor with simulator UI automation")
         }
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        if checkPersonal { backend.configure { $0.hasWritingGrant = false; $0.unapprovedDraftsEnabled = false } }
+        if checkReview { backend.configure { $0.publicCucumberAppearance = true; $0.publicStoryCard = true } }
         await store.start()
         var look = OiDraftCustomization()
         look.wardrobe = OiWardrobeLook()
         var input = draft(title: "화면 이동 검증용 이야기")
+        var expectedGround: SIMD3<Float>?
+        var photos: [UUID] = []
         if freelyExplore { input.body = ""; input.latitude = nil; input.longitude = nil; input.cucumberName = "" }
-        let local = OiLocalDraft(draft: input, version: 1,
-            creationStep: (freelyExplore ? OiCreationStep.consent : .cucumber).rawValue, customization: look)
+        if checkPlacement {
+            let map = try CampusMapData.load()
+            let point = try XCTUnwrap(map.graph.sorted { $0.key < $1.key }.map { map.world($0.value.p) }
+                .first { map.placementError(at: $0) == nil })
+            let coordinate = map.coordinate(point)
+            expectedGround = point
+            input.latitude = coordinate.latitude; input.longitude = coordinate.longitude
+            look.wardrobe?.topColor = 0x6A4194
+        }
+        if checkPlacement && !checkPersonal {
+            let photo = UUID()
+            let image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32)).jpegData(withCompressionQuality: 0.8) { context in
+                UIColor.green.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+            }
+            try await store.saveLocalPhoto(image, id: photo, owner: OiTestBackend.owner)
+            photos = [photo]
+        }
+        if checkReview {
+            input.title = "연못 옆에서 보낸 첫 학기"
+            input.body = "수업이 끝나면 친구와 연못을 걸었어요.\n그 산책이 오래 기억에 남아요."
+            input.cucumberName = "산책오이"
+            input.heightMeters = 1.35
+            photos = []
+            let images = try ["DonationCampus", "CampusSchoolMap"].map { name in
+                try OiPhotoProcessor.prepare(XCTUnwrap(UIImage(named: name)?.jpegData(compressionQuality: 0.84)))
+            }
+            for image in images {
+                let id = UUID()
+                try await store.saveLocalPhoto(image, id: id, owner: OiTestBackend.owner)
+                photos.append(id)
+            }
+            var wardrobe = OiWardrobeLook()
+            wardrobe.topColor = 0x748D43
+            let front = try OiPhotoRenderer.asset(images[0])
+            let back = try OiPhotoRenderer.asset(images[1])
+            let layers = [OiPhotoLayer(source: front.id, side: .front), OiPhotoLayer(source: back.id, side: .back)]
+            try wardrobe.artwork.set(OiPhotoDesign(layers: layers), sources: [front.id: front.data, back.id: back.data],
+                                     for: OiPhotoSlot.top.itemID(in: wardrobe))
+            look.wardrobe = wardrobe
+        }
+        if checkPersonal {
+            input.grantId = nil; input.title = ""; input.body = ""; input.theme = ""; input.emotion = ""
+        }
+        let initialStep: OiCreationStep = checkPersonal || freelyExplore ? .consent : checkPlacement ? .card : .cucumber
+        let local = OiLocalDraft(draft: input, photos: photos, version: 1,
+            creationStep: initialStep.rawValue, customization: look,
+            agreedConsentClauseIDs: checkPlacement && !checkPersonal ? Set(OiStoryConsentClause.writingClauses.map(\.id.rawValue)) : nil)
         try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousKey = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
         window.frame = scene.coordinateSpace.bounds
-        let controller = UIHostingController(rootView: NavigationStack {
-            OiStoryEditor(remote: store, localID: local.id).environment(\.scenePhase, .active)
-        }.preferredColorScheme(.light))
+        let controller = UIHostingController(rootView: Group {
+            if checkPersonal { RootTabView(container: .preview, remote: store) }
+            else { NavigationStack { OiStoryEditor(remote: store, localID: local.id) } }
+        }.environment(\.scenePhase, .active).preferredColorScheme(.light))
         window.rootViewController = controller
         window.makeKeyAndVisible()
+        if checkPlacement { previousKey?.isHidden = true }
         defer {
             window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+            if checkPlacement { previousKey?.isHidden = false }
             previousKey?.makeKey()
+        }
+        if let expectedGround {
+            func placedOi(in view: UIView) -> (RealityKit.ARView, Entity)? {
+                if let canvas = view as? CampusMapCanvas {
+                    guard let map = canvas.map,
+                          let model = map.scene.findEntity(named: "placement:" + local.id.uuidString) else { return nil }
+                    return (map, model)
+                }
+                return view.subviews.lazy.compactMap { placedOi(in: $0) }.first
+            }
+            var sawPlacement = false
+            var sawMovement = false
+            var sawPersonalMap = false
+            func modelOnHomeMap(in view: UIView) -> Entity? {
+                guard !view.isHidden else { return nil }
+                if let canvas = view as? CampusMapCanvas {
+                    let visibleMarker = canvas.subviews.contains { !$0.isHidden && $0.accessibilityIdentifier == "campus.authored." + local.id.uuidString }
+                    return visibleMarker ? canvas.map?.scene.findEntity(named: "authored:" + local.id.uuidString) : nil
+                }
+                return view.subviews.lazy.compactMap { modelOnHomeMap(in: $0) }.first
+            }
+            for _ in 0..<180 {
+                try await Task.sleep(for: .seconds(1))
+                let backendState = backend.snapshot()
+                if checkReview {
+                    if let submitted = backendState.story, submitted["status"] as? String == "pending" {
+                        XCTAssertTrue(sawPlacement)
+                        XCTAssertEqual(backendState.submittedTitle, input.title)
+                        XCTAssertEqual(backendState.paths.count, photos.count)
+                        XCTAssertNotNil(submitted["card_snapshot_id"], "Submit the reviewed card image with the story")
+                        XCTAssertNil(submitted["customization"], "Original photos and editing settings stay on the device")
+                        return
+                    }
+                } else {
+                    XCTAssertNil(backendState.story, "Done and opening review never submit the draft")
+                }
+                if !sawPlacement, let (_, model) = placedOi(in: window) {
+                    XCTAssertLessThan(simd_distance(model.position(relativeTo: nil), expectedGround), 0.001)
+                    XCTAssertGreaterThan(model.visualBounds(relativeTo: nil).extents.y, 1)
+                    sawPlacement = true
+                }
+                if checkMovement, sawPlacement, !sawMovement, let (map, model) = placedOi(in: window),
+                   let saved = try await store.localDraft(id: local.id, owner: OiTestBackend.owner),
+                   let latitude = saved.draft.latitude, let longitude = saved.draft.longitude,
+                   latitude != local.draft.latitude || longitude != local.draft.longitude {
+                    let moved = try CampusMapData.load().world(latitude: latitude, longitude: longitude)
+                    XCTAssertGreaterThan(simd_distance(moved, expectedGround), 0.02)
+                    XCTAssertLessThan(simd_distance(model.position(relativeTo: nil), moved), 0.001)
+                    let image: UIImage? = await withCheckedContinuation { continuation in
+                        map.snapshot(saveToHDR: false) { continuation.resume(returning: $0) }
+                    }
+                    let attachment = XCTAttachment(image: try XCTUnwrap(image))
+                    attachment.name = "draft-oi-after-drag"; attachment.lifetime = .keepAlways; add(attachment)
+                    sawMovement = true
+                }
+                if checkPersonal, sawPlacement, !sawPersonalMap, let model = modelOnHomeMap(in: window) {
+                    let saved = try await store.localDraft(id: local.id, owner: OiTestBackend.owner)
+                    XCTAssertLessThan(simd_distance(model.position(relativeTo: nil), expectedGround), 0.001)
+                    XCTAssertEqual(saved?.customization?.wardrobe, look.wardrobe)
+                    XCTAssertEqual(saved?.photos, [])
+                    XCTAssertNotNil(saved?.personalPlacement)
+                    XCTAssertTrue(saved?.agreedConsentClauseIDs?.isEmpty == true)
+                    XCTAssertTrue(backendState.uploads.isEmpty)
+                    sawPersonalMap = true
+                }
+                if checkPersonal, sawPersonalMap, controller.presentedViewController != nil { return }
+                if !checkReview, !checkPersonal, sawPlacement, (!checkMovement || sawMovement), controller.presentedViewController != nil {
+                    let saved = try await store.localDraft(id: local.id, owner: OiTestBackend.owner)
+                    XCTAssertEqual(saved?.customization?.wardrobe, look.wardrobe)
+                    XCTAssertEqual(saved?.photos, photos)
+                    return
+                }
+            }
+            return XCTFail("Done → placement preview → review did not complete")
         }
         var reachedCard = false
         var visited = Set<String>()
@@ -2141,13 +1946,50 @@ final class OiRemoteStoreTests: XCTestCase {
         return value
     }
 
-    @MainActor func testTemporaryWritingFlagPreservesStoryAndPhotoWhenDisabled() async throws {
+    @MainActor func testPersonalPlacementStaysInTheAccountVaultWhenPublicationIsPaused() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { clean(session, directory: directory) }
-        backend.configure { $0.hasWritingGrant = false }
+        backend.configure { $0.hasWritingGrant = false; $0.unapprovedDraftsEnabled = false }
         await store.start()
-        XCTAssertFalse(store.canStartStory, "Old servers with no flag must require approval")
-        backend.configure { $0.unapprovedDraftsEnabled = true }
+        XCTAssertTrue(store.canPlaceOi)
+        XCTAssertFalse(store.canStartStory)
+
+        let owner = OiTestBackend.owner
+        var record = OiLocalDraft(draft: OiStoryDraft(), version: 2, creationStep: OiCreationStep.card.rawValue)
+        record.personalPlacement = OiPersonalPlacement(regionID: "pond", name: "내 오이", latitude: 36.0126,
+            longitude: 129.3197, heightMeters: 1.35, headingDegrees: 230)
+        try await store.savePersonalPlacement(record, owner: owner)
+        var stale = record
+        stale.personalPlacement = nil
+        stale.version -= 1
+        try await store.saveLocalDraft(stale, owner: owner)
+
+        let reopenedVault = OiDraftVault(directory: directory)
+        let reopened = try await reopenedVault.load(owner: owner, id: record.id)
+        let otherAccountCopy = try await reopenedVault.load(owner: UUID(), id: record.id)
+        XCTAssertEqual(reopened, record)
+        XCTAssertNil(otherAccountCopy)
+        XCTAssertNil(backend.snapshot().story)
+        XCTAssertTrue(backend.snapshot().uploads.isEmpty)
+        XCTAssertTrue(store.stories.isEmpty)
+        XCTAssertTrue(store.ownStories.isEmpty)
+
+        let placementRevision = store.localPlacementRevision
+        try await store.discardLocalDraft(id: record.id, owner: owner)
+        let discarded = try await reopenedVault.load(owner: owner, id: record.id)
+        XCTAssertNil(discarded)
+        XCTAssertGreaterThan(store.localPlacementRevision, placementRevision)
+        await store.signOut()
+        XCTAssertFalse(store.canPlaceOi)
+    }
+
+    @MainActor func testWritingPausePreservesStoryAndPhotoWithoutRequiringEvidence() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { clean(session, directory: directory) }
+        backend.configure { $0.hasWritingGrant = false; $0.independentStoryCreation = nil }
+        await store.start()
+        XCTAssertFalse(store.canStartStory, "The old writing flag alone does not prove the new policy is active")
+        backend.configure { $0.independentStoryCreation = true }
         await store.refresh()
         XCTAssertTrue(store.canStartStory)
         var temporary = draft(); temporary.grantId = nil
@@ -2160,24 +2002,21 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertTrue(store.stories.isEmpty, "Saving must not publish")
         let paths = store.mediaPaths(storyID: saved.id)
         XCTAssertEqual(paths.count, 1)
-        backend.configure { $0.unapprovedDraftsEnabled = false }
+        backend.configure { $0.unapprovedDraftsEnabled = false; $0.hasWritingGrant = true }
         await store.refresh()
         XCTAssertFalse(store.canStartStory)
-        XCTAssertFalse(store.canWriteStory(grantID: nil))
         XCTAssertEqual(store.ownStories.first?.body, temporary.body)
         XCTAssertEqual(store.mediaPaths(storyID: saved.id), paths)
         let denied = await store.save(OiStoryDraft(story: withPhoto))
         XCTAssertNil(denied)
         XCTAssertEqual(backend.snapshot().uploads.count, 1)
-        backend.configure { $0.hasWritingGrant = true }
-        await store.refresh()
-        var resumed = OiStoryDraft(story: withPhoto); resumed.grantId = OiTestBackend.grant
-        let approved = await store.save(resumed)
-        XCTAssertEqual(approved?.id, saved.id)
-        XCTAssertEqual(approved?.grantId, OiTestBackend.grant)
-        XCTAssertEqual(store.mediaPaths(storyID: saved.id), paths)
         backend.configure { $0.unapprovedDraftsEnabled = true }
         await store.refresh()
+        var resumed = OiStoryDraft(story: withPhoto); resumed.grantId = OiTestBackend.grant
+        let reopened = await store.save(resumed)
+        XCTAssertEqual(reopened?.id, saved.id)
+        XCTAssertNil(reopened?.grantId)
+        XCTAssertEqual(store.mediaPaths(storyID: saved.id), paths)
         XCTAssertTrue(store.unapprovedDraftsEnabled)
         await store.signOut()
         XCTAssertFalse(store.unapprovedDraftsEnabled)
@@ -2227,6 +2066,31 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(receipt?.status, "pending")
         XCTAssertFalse(OiCreationAccess.canEdit(status: receipt?.status, submitted: false))
         XCTAssertTrue(store.stories.isEmpty, "Review request must not publish the story")
+    }
+
+    @MainActor func testMediaReorderKeepsAttachmentsMissingFromLocalCache() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let receipt = await store.save(draft())
+        let story = try XCTUnwrap(receipt)
+        let firstID = UUID(), secondID = UUID()
+        let prefix = "\(story.userId.uuidString)/\(story.id.uuidString)"
+        let first = "\(prefix)/\(firstID.uuidString.lowercased()).jpg"
+        let second = "\(prefix)/\(secondID.uuidString.lowercased()).jpg"
+        let unknown = "\(prefix)/another-device.jpg"
+        backend.configure {
+            $0.paths = [first, unknown, second]
+            $0.failReads = true
+        }
+        let preferred = [secondID.uuidString, firstID.uuidString]
+        let reordered = await store.reorderStoryMedia(preferred, story: story)
+        let updated = try XCTUnwrap(reordered)
+        XCTAssertEqual(updated.revision, story.revision + 1)
+        XCTAssertEqual(backend.snapshot().paths, [second, first, unknown])
+        XCTAssertEqual(store.mediaPaths(storyID: story.id), [second, first, unknown])
+        let repeated = await store.reorderStoryMedia(preferred, story: updated)
+        XCTAssertEqual(repeated?.revision, updated.revision)
     }
 
     @MainActor func testMediaRemovalKeepsAttachmentsMissingFromLocalCache() async throws {
@@ -2309,24 +2173,6 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(store.profile?.nickname, "Owner B")
     }
 
-    @MainActor func testEvidenceLostResponseResumesSameApplicationAndFile() async throws {
-        let (store,backend,vault,session,directory) = try context()
-        defer { clean(session, directory: directory) }
-        await store.start()
-        backend.configure { $0.loseEvidenceResponse = true }
-        await store.submitEvidence(data: Data([1,2,3]), contentType: "image/png", fileExtension: "png")
-        let operation = store.evidenceOperation
-        XCTAssertEqual(operation?.phase, "failed")
-        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
-        let restored = OiRemoteStore(api: api, drafts: OiDraftVault(directory: directory), vault: vault)
-        await restored.start(); await restored.retryEvidence()
-        XCTAssertEqual(restored.evidenceOperation?.requestID, operation?.requestID)
-        XCTAssertEqual(restored.evidenceOperation?.uploadID, operation?.uploadID)
-        XCTAssertEqual(restored.evidenceOperation?.phase, "pending")
-        XCTAssertEqual(backend.snapshot().requestIDs.count, 1)
-        XCTAssertEqual(backend.snapshot().uploads.count, 1)
-    }
-
     @MainActor func testPublicationUsesLatestSavedContentAndRevision() async throws {
         let (store,backend,_,session,directory) = try context()
         defer { clean(session, directory: directory) }
@@ -2334,11 +2180,133 @@ final class OiRemoteStoreTests: XCTestCase {
         var current = draft(title: "Old title")
         guard let first = await store.save(current) else { XCTFail("First save failed"); return }
         current = OiStoryDraft(story: first); current.title = "Latest corrected title"
+        current.heightMeters = 1.35; current.headingDegrees = 263.5
         guard let updated = await store.save(current) else { XCTFail("Second save failed"); return }
         let receipt = await store.submitStory(updated)
         XCTAssertEqual(receipt?.status, "pending")
         XCTAssertEqual(backend.snapshot().submittedTitle, "Latest corrected title")
         XCTAssertEqual(receipt?.revision, 3)
+        XCTAssertEqual(receipt?.heightMeters, 1.35)
+        XCTAssertEqual(receipt?.headingDegrees, 263.5)
+        XCTAssertEqual(store.ownStories.first(where: { $0.id == current.id })?.isRegisteredOnCampus, true)
+        XCTAssertTrue(store.stories.isEmpty, "A pending placement must stay out of the public map and search")
+        backend.configure { $0.story?["status"] = "published" }
+        let published = try await store.publishedStory(current.id)
+        XCTAssertEqual(published.campusPlacement?.heightCentimeters, 135)
+        XCTAssertEqual(published.campusPlacement?.headingDegrees, 263.5)
+        let campusStory = store.campusStory(published)
+        XCTAssertEqual(campusStory.heightMeters, 1.35, accuracy: 0.001)
+        XCTAssertEqual(campusStory.headingDegrees, 263.5, accuracy: 0.001)
+    }
+
+    @MainActor func testPublishedOutfitSurvivesApprovalAndLoadsOnAnotherClient() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.publicCucumberAppearance = true; $0.isOperator = true; $0.failCucumberTextureUpload = true }
+        await store.start()
+        let saved = await store.save(draft())
+        let story = try XCTUnwrap(saved)
+        func sample(_ color: UIColor) -> UIImage {
+            let format = UIGraphicsImageRendererFormat(); format.scale = 1
+            return UIGraphicsImageRenderer(size: CGSize(width: 96, height: 96), format: format).image { context in
+                color.setFill(); context.fill(CGRect(x: 0, y: 0, width: 96, height: 96))
+            }
+        }
+        var look = OiWardrobeLook()
+        look.top = .hoodie; look.bottom = .shorts; look.topColor = 0x2345CD; look.shoeColor = 0x11B122
+        let active = try OiPhotoRenderer.asset(sample(.red))
+        let unused = try OiPhotoRenderer.asset(sample(.green))
+        try look.artwork.set(OiPhotoDesign(layers: [.init(source: active.id)]), sources: [active.id: active.data], for: "top-hoodie")
+        try look.artwork.set(OiPhotoDesign(layers: [.init(source: unused.id)]), sources: [unused.id: unused.data], for: "top-tshirt")
+        let portrait = try XCTUnwrap(sample(.orange).pngData())
+        let submission = try OiCucumberPublication(look: look, portrait: portrait)
+        let failed = await store.submitStory(story, cucumber: submission)
+        XCTAssertNil(failed)
+        XCTAssertEqual(backend.snapshot().story?["status"] as? String, "draft", "A failed outfit upload must not send the story for approval")
+
+        backend.configure { $0.failCucumberTextureUpload = false }
+        let submitted = await store.submitStory(story, cucumber: submission)
+        let pending = try XCTUnwrap(submitted)
+        let artwork = try XCTUnwrap(pending.cucumberArtwork)
+        XCTAssertEqual(pending.status, "pending")
+        XCTAssertTrue(store.stories.isEmpty)
+        XCTAssertEqual(Set(backend.snapshot().uploads.keys), Set([.portrait, .top].map { "oi-story-media/" + artwork.path($0) }))
+        XCTAssertFalse(backend.snapshot().uploads.values.contains(active.data))
+        XCTAssertFalse(backend.snapshot().uploads.values.contains(unused.data))
+
+        let result = try await store.reviewOperatorStory(pending, publish: true)
+        XCTAssertEqual(result.story.cucumberArtwork, artwork)
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let reader = OiRemoteStore(api: api, drafts: OiDraftVault(directory: directory))
+        let published = try await reader.publishedStory(pending.id)
+        XCTAssertEqual(published.cucumberAppearance?.top, "hoodie")
+        XCTAssertEqual(published.cucumberAppearance?.shoeColor, 0x11B122)
+        XCTAssertEqual(reader.campusStory(published).cucumberPortraitPath, artwork.path(.portrait))
+        let model = try await reader.cucumberModel(artwork)
+        XCTAssertNotNil(model.findEntity(named: "OiPhotoOverlay"), "The public 3D model has the outfit's applied photo texture")
+        XCTAssertEqual(model.visualBounds(relativeTo: nil).extents.y, 1.5, accuracy: 0.001)
+
+        let repository = RealStoryRepository(key: "sb_publishable_testing", session: session)
+        let clipStory = try await repository.fetchPublicStory(storyID: pending.id.uuidString)
+        XCTAssertEqual(clipStory?.hasCustomCucumberImage, true)
+        XCTAssertEqual(clipStory?.cucumberImageURL?.path, "/storage/v1/object/sign/oi-story-media/" + artwork.path(.portrait))
+    }
+
+    @MainActor func testAuthoredCardIsReviewedAndReusedWhenStoryIsResubmitted() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure {
+            $0.isOperator = true; $0.publicStoryCard = true; $0.publicCucumberAppearance = true
+            $0.timeOutCardUploadAfterCommit = true
+        }
+        await store.start()
+        let input = draft()
+        var customization = OiDraftCustomization()
+        customization.firstColor = 0x3F7DA4
+        var design = OiCardDesign(); design.caption = "검토용 카드 문구"; design.anonymous = true
+        customization.card = design
+        let preview = OiDraftCardPreview(draft: input, customization: customization, donorName: "Fixture")
+        let card = try preview.publication(colorScheme: .light)
+        XCTAssertEqual(try preview.publication(colorScheme: .light).id, card.id)
+        let image = try OiPublishedCucumberImage.decode(card.png, part: .portrait)
+        XCTAssertEqual(image.width, 724)
+        XCTAssertEqual(image.height, 1004)
+        let cucumber = try OiCucumberPublication(look: OiWardrobeLook(), portrait: card.png)
+
+        let draftReceipt = await store.save(input)
+        let saved = try XCTUnwrap(draftReceipt)
+        let pendingReceipt = await store.submitStory(saved, cucumber: cucumber, card: card)
+        let pending = try XCTUnwrap(pendingReceipt, "A committed image must survive a lost upload response")
+        let cardPath = try XCTUnwrap(pending.cardArtworkPath)
+        XCTAssertEqual(backend.snapshot().uploads["oi-story-media/" + cardPath], card.png)
+        let repository = RealStoryRepository(key: "sb_publishable_testing", session: session)
+        let privateCard = try await repository.fetchPublicStoryCard(storyID: saved.id.uuidString)
+        XCTAssertNil(privateCard)
+
+        let approved = try await store.reviewOperatorStory(pending, publish: true).story
+        let publicCard = try await repository.fetchPublicStoryCard(storyID: saved.id.uuidString)
+        XCTAssertEqual(publicCard?.imageURL?.path, "/storage/v1/object/sign/oi-story-media/" + cardPath)
+        XCTAssertEqual(store.campusStory(approved).cardArtworkPath, cardPath)
+        let uploadCount = backend.snapshot().artworkUploadAttempts
+
+        await store.perform("reopen_story", payload: ["id": approved.id.uuidString, "revision": approved.revision])
+        var edited = OiStoryDraft(story: try XCTUnwrap(store.ownStories.first { $0.id == approved.id }))
+        edited.body = "Edited after approval"
+        let editReceipt = await store.save(edited)
+        let resubmitting = try XCTUnwrap(editReceipt)
+        backend.configure { $0.timeOutSubmitBeforeCommit = true }
+        let unconfirmed = await store.submitStory(resubmitting, cucumber: cucumber, card: card)
+        XCTAssertNil(unconfirmed, "An uncommitted request must remain a draft")
+        XCTAssertEqual(store.ownStories.first?.status, "draft")
+        backend.configure { $0.timeOutSubmitAfterCommit = true }
+        let confirmed = await store.submitStory(resubmitting, cucumber: cucumber, card: card)
+        XCTAssertEqual(confirmed?.status, "pending", "Verify the committed revision without submitting twice")
+        XCTAssertEqual(confirmed?.body, edited.body)
+        XCTAssertEqual(confirmed?.cardArtworkPath, cardPath)
+        XCTAssertEqual(backend.snapshot().submitCount, 3)
+        XCTAssertEqual(backend.snapshot().artworkUploadAttempts, uploadCount)
+        let pendingCard = try await repository.fetchPublicStoryCard(storyID: saved.id.uuidString)
+        XCTAssertNil(pendingCard)
     }
 }
 
@@ -2577,8 +2545,7 @@ extension OiRemoteStoreTests {
         XCTAssertEqual(vault.value?.user.id, OiTestBackend.owner)
         XCTAssertEqual(vault.value?.appAccount?.id, OiTestBackend.other)
         XCTAssertEqual(store.profile?.id, OiTestBackend.other)
-        XCTAssertFalse(store.grants.isEmpty)
-        XCTAssertEqual(backend.snapshot().grantOwnerQueries.last, "eq.\(OiTestBackend.other.uuidString)")
+        XCTAssertTrue(backend.snapshot().grantOwnerQueries.isEmpty, "Writing does not load donation grants")
         guard let saved = await store.save(draft()) else { XCTFail("Canonical story save failed"); return }
         XCTAssertEqual(saved.userId, OiTestBackend.other)
         XCTAssertEqual(store.ownStories.first?.id, saved.id)
@@ -2639,39 +2606,6 @@ extension OiRemoteStoreTests {
         XCTAssertFalse(store.needsReauthentication)
         XCTAssertNil(store.error)
         XCTAssertNil(store.loadError)
-    }
-
-    @MainActor func testAdoptedUncreatedEvidenceUsesNewServerStorageOwner() async throws {
-        let (store,backend,_,session,directory) = try context()
-        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
-        let local = OiDraftVault(directory: directory)
-        let data = Data([4,5,6])
-        let original = OiEvidenceOperation(requestID: UUID(), uploadID: UUID(), contentType: "image/png",
-            fileExtension: "png", phase: "failed", failure: "Offline before server application creation")
-        try await local.saveAttachment(data, owner: OiTestBackend.owner, id: original.uploadID)
-        try await local.saveEvidence(original, owner: OiTestBackend.owner)
-        backend.configure { $0.canonicalAccountID = OiTestBackend.other }
-        await store.start()
-        XCTAssertTrue(backend.snapshot().requestIDs.isEmpty)
-        XCTAssertNil(backend.snapshot().evidence)
-        XCTAssertEqual(store.evidenceOperation?.storageOwnerID, OiTestBackend.owner)
-        await store.retryEvidence()
-        let expected = "\(OiTestBackend.other.uuidString.lowercased())/\(original.requestID.uuidString.lowercased())/\(original.uploadID.uuidString.lowercased()).png"
-        let state = backend.snapshot()
-        XCTAssertEqual(state.requestIDs, Set([original.requestID.uuidString]))
-        XCTAssertEqual(state.evidence?["storage_owner_id"] as? String, OiTestBackend.other.uuidString)
-        XCTAssertEqual(state.evidence?["object_path"] as? String, expected)
-        XCTAssertEqual(state.uploads["oi-evidence/" + expected], data)
-        XCTAssertEqual(state.uploads.count, 1)
-        XCTAssertEqual(store.evidenceOperation?.storageOwnerID, OiTestBackend.other)
-        XCTAssertEqual(store.evidenceOperation?.phase, "pending")
-        XCTAssertNil(store.error)
-        let preservedOperation = try await local.evidence(owner: OiTestBackend.owner)
-        let preservedAttachment = try await local.attachment(owner: OiTestBackend.owner, id: original.uploadID)
-        let adoptedOperation = try await local.evidence(owner: OiTestBackend.other)
-        XCTAssertEqual(preservedOperation, original)
-        XCTAssertEqual(preservedAttachment, data)
-        XCTAssertEqual(adoptedOperation?.storageOwnerID, OiTestBackend.other)
     }
 
     @MainActor func testRepeatedLoginDoesNotBecomeConfigurationError() async throws {
@@ -2819,141 +2753,6 @@ extension OiRemoteStoreTests {
 
 }
 
-extension OiRemoteStoreTests {
-    @MainActor func testDonationAIResultRejectsOtherSubmissionAndApprovalClaims() async throws {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [OiStoreURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        let previous = OiStoreURLProtocol.handle
-        defer { session.invalidateAndCancel(); OiStoreURLProtocol.handle = previous }
-        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
-        let request = OiEvidence(id: UUID(), userId: OiTestBackend.owner, status: "pending",
-            objectPath: "private.png", reviewNote: nil, submittedAt: "2026-11-05T00:00:00Z")
-        let base: [String: Any] = [
-            "review_type": "donation_evidence", "evidence_id": request.id.uuidString,
-            "submitted_at": request.submittedAt ?? "", "analyzed_at": "2026-11-05T00:01:00Z",
-            "human_review_required": true, "authenticity_verified": false, "notice": "운영자 검토 필요",
-            "assessment": ["verdict": "no_obvious_signs", "readability": "readable", "findings": [],
-                "limitations": ["진위 및 납입 미확인"], "manual_checks": ["원본 확인"]]
-        ]
-        for field in ["valid", "evidence_id", "submitted_at", "human_review_required", "authenticity_verified"] {
-            var response = base
-            if field == "evidence_id" { response[field] = UUID().uuidString }
-            if field == "submitted_at" { response[field] = "2026-11-05T00:02:00Z" }
-            if field == "human_review_required" { response[field] = false }
-            if field == "authenticity_verified" { response[field] = true }
-            let bytes = try JSONSerialization.data(withJSONObject: response)
-            OiStoreURLProtocol.handle = { input, client in
-                XCTAssertEqual(input.url?.path, "/functions/v1/analyze-donation-evidence")
-                XCTAssertEqual(input.httpMethod, "POST")
-                XCTAssertEqual(input.timeoutInterval, 70)
-                let payload = try? JSONSerialization.jsonObject(with: OiTestBackend.body(input)) as? [String: String]
-                XCTAssertEqual(payload, ["evidence_id": request.id.uuidString])
-                client.respond(200, bytes)
-            }
-            do {
-                let review = try await api.reviewDonationEvidence(request, token: "synthetic-session")
-                XCTAssertEqual(field, "valid")
-                XCTAssertEqual(review.assessment.verdict, .noObviousSigns)
-                XCTAssertNil(review.summary, "A legacy visual-only response must remain compatible without implying evidence sufficiency")
-            } catch { XCTAssertNotEqual(field, "valid", "The matching non-authoritative result must be accepted") }
-        }
-    }
-
-    @MainActor func testDonationEvidenceDatesAndUnknownStatesAreNotFabricated() throws {
-        XCTAssertEqual(OiDonationEvidenceContent.dateLabel("2026-11-05T00:00:00.000Z"), "2026년 11월 5일 목요일 09:00")
-        XCTAssertEqual(OiDonationEvidenceContent.dateLabel(nil), "접수일 확인 중")
-        XCTAssertEqual(OiDonationEvidenceContent.statusTitle("new_server_status"), "상태 확인 필요")
-        XCTAssertEqual(OiDonationEvidenceContent.statusTitle("approved"), "작성 승인")
-    }
-
-    @MainActor func testDonationSemanticSummaryAcceptsSMSAndSeparatesOtherOutcomes() async throws {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [OiStoreURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        let previous = OiStoreURLProtocol.handle
-        defer { session.invalidateAndCancel(); OiStoreURLProtocol.handle = previous }
-        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
-        let evidence = OiEvidence(id: UUID(), userId: OiTestBackend.owner, status: "pending",
-            objectPath: "synthetic-private.png", reviewNote: nil, submittedAt: "2026-11-05T00:00:00Z")
-        for outcome in OiDonationEvidenceSummary.Outcome.allCases {
-            let sufficient = outcome == .sufficientEvidence
-            let summary: [String: Any] = [
-                "outcome": outcome.rawValue, "sufficient_evidence": sufficient,
-                "title": sufficient ? "문자에서 기부 완료 근거를 확인했어요" : "자료에 추가 확인이 필요해요",
-                "reasons": ["실제 발신번호와 입금 완료 내용을 함께 대조했어요."],
-                "checks": [["kind": "sender", "status": "matched", "detail": "공식 기부 문의 번호와 일치해요."]],
-                "source_references": [["id": "postech-giving", "url": "https://vision.postech.ac.kr/web/?sub=contract&top=participation",
-                    "title": "POSTECH 발전기금", "kind": "official", "verified_at": "2026-11-05"]]
-            ]
-            let response: [String: Any] = [
-                "review_type": "donation_evidence", "evidence_id": evidence.id.uuidString,
-                "submitted_at": evidence.submittedAt ?? "", "analyzed_at": "2026-11-05T00:01:00Z",
-                "human_review_required": true, "authenticity_verified": false, "notice": "글 작성은 운영자 최종 승인 후 가능해요.",
-                "summary": summary,
-                "assessment": ["verdict": "no_obvious_signs", "readability": "readable", "findings": [],
-                    "limitations": ["원본 진위와 실제 납입은 별도 확인이 필요해요."], "manual_checks": ["제출자 본인 자료인지 확인해 주세요."]]
-            ]
-            let bytes = try JSONSerialization.data(withJSONObject: response)
-            OiStoreURLProtocol.handle = { _, client in client.respond(200, bytes) }
-            let review = try await api.reviewDonationEvidence(evidence, token: "synthetic-session")
-            XCTAssertEqual(review.summary?.outcome, outcome)
-            XCTAssertEqual(review.summary?.sufficientEvidence, sufficient)
-            XCTAssertEqual(review.humanReviewRequired, true)
-            XCTAssertEqual(review.authenticityVerified, false)
-            XCTAssertNotNil(review.summary?.sourceReferences.first?.safeURL)
-        }
-    }
-
-    @MainActor func testDonationSemanticSummaryRejectsConflictingPassClaims() async throws {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [OiStoreURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        let previous = OiStoreURLProtocol.handle
-        defer { session.invalidateAndCancel(); OiStoreURLProtocol.handle = previous }
-        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
-        let evidence = OiEvidence(id: UUID(), userId: OiTestBackend.owner, status: "pending",
-            objectPath: "synthetic-private.png", reviewNote: nil, submittedAt: "2026-11-05T00:00:00Z")
-        for scenario in ["mismatchedFlag", "missingPassFlag", "suspiciousPass", "unreadablePass", "emptyReasons", "unknownOutcome"] {
-            var summary: [String: Any] = ["outcome": "sufficient_evidence", "sufficient_evidence": true,
-                "title": "문자 증빙 충족", "reasons": ["입금 완료 근거 확인"], "checks": [], "source_references": []]
-            var assessment: [String: Any] = ["verdict": "no_obvious_signs", "readability": "readable", "findings": [],
-                "limitations": ["원본 진위 미확인"], "manual_checks": ["운영자 확인"]]
-            if scenario == "mismatchedFlag" { summary["outcome"] = "needs_more_evidence" }
-            if scenario == "missingPassFlag" { summary["sufficient_evidence"] = false }
-            if scenario == "suspiciousPass" { assessment["verdict"] = "suspicious" }
-            if scenario == "unreadablePass" { assessment["readability"] = "unreadable" }
-            if scenario == "emptyReasons" { summary["reasons"] = [] as [String] }
-            if scenario == "unknownOutcome" { summary["outcome"] = "automatically_approved" }
-            let response: [String: Any] = ["review_type": "donation_evidence", "evidence_id": evidence.id.uuidString,
-                "submitted_at": evidence.submittedAt ?? "", "analyzed_at": "2026-11-05T00:01:00Z",
-                "human_review_required": true, "authenticity_verified": false, "notice": "운영자 확인 필요",
-                "summary": summary, "assessment": assessment]
-            let bytes = try JSONSerialization.data(withJSONObject: response)
-            OiStoreURLProtocol.handle = { _, client in client.respond(200, bytes) }
-            do {
-                _ = try await api.reviewDonationEvidence(evidence, token: "synthetic-session")
-                XCTFail("Conflicting evidence pass must be rejected: \(scenario)")
-            } catch {}
-        }
-    }
-
-    @MainActor func testDonationSourceLinksOnlyOpenTrustedHTTPSHosts() {
-        for value in ["https://vision.postech.ac.kr/web/", "https://www.postech.ac.kr/"] {
-            let source = OiDonationEvidenceSummary.SourceReference(id: "official", url: value,
-                title: "기부 안내", kind: "official", verifiedAt: "2026-11-05")
-            XCTAssertNotNil(source.safeURL)
-        }
-        for value in ["http://vision.postech.ac.kr/", "javascript:alert(1)", "https://postech.ac.kr.example.com/",
-                      "https://postech.ac.kr@evil.example/", "https://user@vision.postech.ac.kr/",
-                      "https://vision.postech.ac.kr:8080/", "https://unreviewed-donor.example/"] {
-            let source = OiDonationEvidenceSummary.SourceReference(id: "untrusted", url: value,
-                title: "기부 후기", kind: "report", verifiedAt: "2026-11-05")
-            XCTAssertNil(source.safeURL)
-        }
-    }
-}
-
 @MainActor
 final class OiCostumePhotoTests: XCTestCase {
     private func canvas(_ draw: (CGContext) -> Void) -> CGImage {
@@ -3025,6 +2824,49 @@ final class OiCostumePhotoTests: XCTestCase {
             print("OI_PHOTO_BAKE_PASS \(look.modelName)")
         }
     }
+    func testOversizedPNGImportsAndPreservesTransparencyInSavedArtwork() throws {
+        let edge = 768
+        var state: UInt32 = 0x9130abc
+        var pixels = Data(count: edge * edge * 4)
+        pixels.withUnsafeMutableBytes { (buffer: UnsafeMutableRawBufferPointer) in
+            for y in 0..<edge {
+                // Leave the left edge transparent and use incompressible color on the rest.
+                for x in 96..<edge {
+                    state = 1664525 &* state &+ 1013904223
+                    let i = (y * edge + x) * 4
+                    buffer[i] = UInt8(truncatingIfNeeded: state >> 24)
+                    buffer[i + 1] = UInt8(truncatingIfNeeded: state >> 16)
+                    buffer[i + 2] = UInt8(truncatingIfNeeded: state >> 8)
+                    buffer[i + 3] = 255
+                }
+            }
+        }
+        let provider = try XCTUnwrap(CGDataProvider(data: pixels as CFData))
+        let bitmap = CGBitmapInfo.byteOrder32Big.union(.init(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let image = try XCTUnwrap(CGImage(width: edge, height: edge, bitsPerComponent: 8, bitsPerPixel: 32,
+            bytesPerRow: edge * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: bitmap,
+            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+        let png = try XCTUnwrap(UIImage(cgImage: image).pngData())
+        XCTAssertGreaterThan(png.count, OiWardrobeArtwork.maximumSourceBytes)
+
+        let imported = try OiPhotoRenderer.asset(png)
+        XCTAssertLessThanOrEqual(imported.data.count, OiWardrobeArtwork.maximumSourceBytes)
+        let layer = OiPhotoLayer(source: imported.id, side: .front)
+        var look = OiWardrobeLook()
+        look.costume = .dinosaur
+        let slot = OiPhotoSlot.top
+        let layout = try OiPhotoPrintLayout.load(for: slot, in: look)
+        let design = OiPhotoDesign(layers: [layer])
+        try look.artwork.set(design, sources: [imported.id: imported.data], for: slot.itemID(in: look))
+        let saved = try OiPhotoRenderer.load(design, sources: look.artwork.sources, layout: layout)
+        let restoredImage = try XCTUnwrap(saved.assets[imported.id]?.image.cgImage)
+        let importedImage = try XCTUnwrap(imported.image.cgImage)
+        XCTAssertEqual(restoredImage.width, importedImage.width)
+        XCTAssertEqual(restoredImage.height, importedImage.height)
+        let preview = rgba(restoredImage, size: 8)
+        XCTAssertEqual(preview[(4 * 8) * 4 + 3], 0, "The transparent edge survives saving")
+        XCTAssertEqual(preview[(4 * 8 + 4) * 4 + 3], 255, "The center still contains the photo")
+    }
     func testPhotoVerticalOrientationAlphaAndUnpaintedBack() async throws {
         let ink = canvas { cg in
             cg.setFillColor(UIColor.red.cgColor); cg.fill(CGRect(x: 0, y: 0, width: 512, height: 256))
@@ -3075,6 +2917,86 @@ final class OiCostumePhotoTests: XCTestCase {
             print("OI_PHOTO_BIND_PASS \(look.modelName)")
         }
     }
+    func testWardrobePreviewRestoresAppliedAndEditingPhotosAfterReopening() async throws {
+        var look = OiWardrobeLook()
+        look.top = .hoodie
+        let slot = OiPhotoSlot.top
+        let layout = try OiPhotoPrintLayout.load(for: slot, in: look)
+        let size = CGSize(width: 64, height: 64)
+        func photo(_ color: UIColor) throws -> OiPhotoImageAsset {
+            try OiPhotoRenderer.asset(UIGraphicsImageRenderer(size: size).image { context in
+                color.setFill()
+                context.fill(CGRect(origin: .zero, size: size))
+            })
+        }
+        let saved = try photo(.magenta)
+        try look.artwork.set(OiPhotoDesign(layers: [OiPhotoLayer(source: saved.id)]),
+                             sources: [saved.id: saved.data], for: slot.itemID(in: look))
+
+        let scene = OiWardrobeScene()
+        let surface = OiWardrobeSurface(scene: scene, look: look)
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = windowScene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: windowScene)
+        let host = UIViewController()
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previousKey?.makeKey() }
+
+        func open() -> RealityKit.ARView {
+            let view = scene.install()
+            view.frame = host.view.bounds
+            host.view.addSubview(view)
+            scene.update(look)
+            return view
+        }
+
+        func close(_ view: RealityKit.ARView) {
+            OiWardrobeSurface.dismantleUIView(view, coordinator: surface.makeCoordinator())
+            view.removeFromSuperview()
+        }
+
+        func photoPixels(in view: RealityKit.ARView, matching color: (Int, Int, Int) -> Bool) async throws -> Int {
+            for _ in 0..<200 where scene.loading { try await Task.sleep(for: .milliseconds(50)) }
+            XCTAssertFalse(scene.loading)
+            XCTAssertNil(scene.error)
+            try await Task.sleep(for: .milliseconds(300))
+            let image: UIImage? = await withCheckedContinuation { continuation in
+                view.snapshot(saveToHDR: false) { continuation.resume(returning: $0) }
+            }
+            let pixels = rgba(try XCTUnwrap(image?.cgImage), size: 128)
+            return stride(from: 0, to: pixels.count, by: 4).reduce(into: 0) { count, index in
+                if color(Int(pixels[index]), Int(pixels[index + 1]), Int(pixels[index + 2])) { count += 1 }
+            }
+        }
+
+        let magenta: (Int, Int, Int) -> Bool = { red, green, blue in min(red, blue) > green + 45 }
+        let firstView = open()
+        let firstCount = try await photoPixels(in: firstView, matching: magenta)
+        XCTAssertGreaterThan(firstCount, 20)
+        close(firstView)
+
+        let reopenedView = open()
+        let reopenedCount = try await photoPixels(in: reopenedView, matching: magenta)
+        XCTAssertGreaterThan(reopenedCount, 20, "Reopening should render the selected hoodie and its saved photo")
+
+        // The editor can produce a new photo while the SwiftUI surface is being replaced.
+        scene.editPhotos(in: slot, look: look)
+        close(reopenedView)
+        let editing = try photo(.blue)
+        let atlas = OiPhotoRenderer.atlas(layers: [OiPhotoLayer(source: editing.id)], assets: [editing.id: editing],
+                                         panelSize: 256, color: look.topColor, layout: layout)
+        await scene.setPhotoPreview(try XCTUnwrap(atlas.cgImage))
+        let editingView = open()
+        let replacementView = open()
+        close(editingView)
+        defer { close(replacementView) }
+        let editingCount = try await photoPixels(in: replacementView) { red, green, blue in
+            blue > max(red, green) + 45
+        }
+        XCTAssertGreaterThan(editingCount, 20, "A late teardown should not hide the reopened live photo preview")
+    }
+
     func testSavedPhotoRemovalAndPlainGarmentStillWork() async throws {
         var look = OiWardrobeLook(); look.costume = .dinosaur
         let asset = try OiPhotoRenderer.asset(UIImage(cgImage: canvas { cg in
@@ -3291,7 +3213,7 @@ final class OiCostumePhotoTests: XCTestCase {
             editor.frame(height: 462).background(Color(red: 0.92, green: 0.94, blue: 0.89))
         }.environment(\.scenePhase, .active))
         window.rootViewController = controller; window.makeKeyAndVisible()
-        defer { scene.release(); window.isHidden = true }
+        defer { window.isHidden = true; window.rootViewController = nil }
         try await Task.sleep(for: .seconds(3))
         let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) }
         let attachment = XCTAttachment(image: image); attachment.name = "photo-editor-\(look.costume == nil ? "uv" : "rounded")-\(empty ? "empty" : "photo")"; attachment.lifetime = .keepAlways; add(attachment)
@@ -3347,7 +3269,7 @@ final class OiCostumePhotoTests: XCTestCase {
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let window = UIWindow(windowScene: windowScene); let controller = UIViewController()
         controller.view = view; window.rootViewController = controller; window.makeKeyAndVisible()
-        defer { scene.release(); window.isHidden = true }
+        defer { scene.uninstall(view); window.isHidden = true }
         let requested = ProcessInfo.processInfo.environment["OI_PHOTO_PROOF_SET"].flatMap(OiWardrobeLook.Costume.init(rawValue:))
         var proofLooks = (requested.map({ [$0] }) ?? OiWardrobeLook.Costume.allCases).map { costume in
             var look = OiWardrobeLook(); look.costume = costume; return (costume.rawValue, look)
@@ -3437,7 +3359,7 @@ final class OiWardrobeAssetTests: XCTestCase {
         let view = scene.install()
         view.frame = window.bounds
         controller.view.addSubview(view)
-        defer { scene.release(); view.removeFromSuperview() }
+        defer { scene.uninstall(view); view.removeFromSuperview() }
         for costume: OiWardrobeLook.Costume in [.baseball, .farmer, .astronautNavy, .postechSelfie] {
             var look = OiWardrobeLook(); look.costume = costume
             scene.update(look)

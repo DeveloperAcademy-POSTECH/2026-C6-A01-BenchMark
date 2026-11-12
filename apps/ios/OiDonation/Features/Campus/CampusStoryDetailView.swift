@@ -7,17 +7,23 @@ struct CampusStoryDetailView: View {
     @State private var selectedImage: CampusImageSelection?
     @State private var showingCard = false
     @State private var showingAllRelated = false
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         GeometryReader { geometry in
           ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Image(story.example?.heroImage ?? story.portraitImage).resizable()
-                    .aspectRatio(contentMode: story.example?.heroImage == nil ? .fit : .fill)
+                Group {
+                    if let hero = story.example?.heroImage { Image(hero).resizable().scaledToFill() }
+                    else { CampusCucumberPortrait(story: story) }
+                }
                     .frame(width: geometry.size.width, height: 275).clipped()
                     .background(CampusStyle.background(story.palette))
                     .allowsHitTesting(false)
                 VStack(alignment: .leading, spacing: 50) {
+                    if let author = story.authorID, let id = UUID(uuidString: story.id) {
+                        OiStorySafetyButton(storyID: id, authorID: author, authorName: story.donor, onBlock: { dismiss() })
+                    }
                     heading
                     donor
                     storyBlock
@@ -26,7 +32,7 @@ struct CampusStoryDetailView: View {
                     if !story.remoteMediaPaths.isEmpty { remoteGallery }
                     location
                     related
-                    Text(story.isExample ? "디자인을 확인하기 위한 예시입니다. 실제 기부·수집 기록에 포함되지 않아요." : "작성·공개는 운영자 검토 기준이며 학교 공식 납입 확인과 다릅니다. 로그인 후 수집 기록이 계정에 저장됩니다.")
+                    Text(story.isExample ? "디자인을 확인하기 위한 예시입니다. 실제 기부·수집 기록에 포함되지 않아요." : "공개된 이야기는 운영자가 검토한 콘텐츠입니다. 로그인 후 수집 기록이 계정에 저장됩니다.")
                         .font(.caption).foregroundStyle(.secondary)
                 }.frame(width: max(0, geometry.size.width - 40), alignment: .leading)
                     .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 25)
@@ -113,7 +119,7 @@ struct CampusStoryDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionTitle("오이 & 카드")
             HStack(spacing: 20) {
-                Image(story.portraitImage).resizable().scaledToFit().frame(maxWidth: .infinity).frame(height: 220)
+                CampusCucumberPortrait(story: story).frame(maxWidth: .infinity).frame(height: 220)
                 Button { showingCard = true } label: {
                     CampusStoryCardArtwork(story: story).frame(maxWidth: .infinity).frame(height: 220)
                 }.buttonStyle(.plain)

@@ -9,6 +9,8 @@ struct HomeView: View {
     let onOpenStory: (String) -> Void
     var remote: OiRemoteStore? = nil
     var onCreateStory: (() -> Void)? = nil
+    var onOpenSample: (() -> Void)? = nil
+    var authoredPlacementToReveal: Binding<UUID?> = .constant(nil)
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var scene = CampusExploreScene()
@@ -26,6 +28,28 @@ struct HomeView: View {
     @State private var showingRequests = false
     @State private var listIsAtTop = true
     @State private var showingEducationDistrict = false
+    @State private var loadedAuthoredSource: AuthoredPlacementSource?
+    @State private var selectedAuthoredDestination: AuthoredDestination?
+
+    private enum AuthoredDestination: Hashable {
+        case personal(UUID)
+        case story(UUID)
+    }
+
+    private struct AuthoredPlacementSource: Equatable {
+        let owner: UUID?
+        let stories: [OiLiveStory]
+        let localRevision: Int
+        let hasLoadedRemote: Bool
+    }
+
+    private var authoredPlacementSource: AuthoredPlacementSource {
+        guard let remote, let owner = remote.account?.id, remote.canPlaceOi else {
+            return AuthoredPlacementSource(owner: nil, stories: [], localRevision: 0, hasLoadedRemote: false)
+        }
+        return AuthoredPlacementSource(owner: owner, stories: remote.ownStories.filter { $0.userId == owner },
+            localRevision: remote.localPlacementRevision, hasLoadedRemote: remote.hasLoadedRemote)
+    }
 
     private var isLoadingStories: Bool {
         guard let remote else { return false }
@@ -33,6 +57,7 @@ struct HomeView: View {
     }
 
     var body: some View {
+        let authoredSource = authoredPlacementSource
         GeometryReader { geometry in
             ZStack {
                 CampusMapSurface(scene: scene).ignoresSafeArea().accessibilityHidden(expanded)
@@ -61,6 +86,7 @@ struct HomeView: View {
                 if let error = scene.error {
                     ContentUnavailableView { Label("지도를 불러올 수 없어요", systemImage: "map") } description: { Text(error) } actions: {
                         Button("다시 시도") { Task { await scene.load() } }
+                        if let onOpenSample { Button("이야기·AR 체험", action: onOpenSample) }
                     }.background(.regularMaterial)
                 }
             }
@@ -80,6 +106,9 @@ struct HomeView: View {
             switch destination {
             case .workshop:
                 MYWorkshopView(demo: myDemo, remote: remote)
+            case .cucumberCustomization:
+                OiSeedCucumberCustomizationView()
+                    .toolbar(.visible, for: .navigationBar)
             case .farm: MYFarmView(remote: remote).id(remote?.account?.id)
             case .collection: MYCollectionView(demo: myDemo, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
             case .school(let school): MYCollectionView(demo: myDemo, school: school, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
@@ -89,6 +118,14 @@ struct HomeView: View {
             CampusEducationDistrictView { covered in
                 if covered { scene.suspendForARCamera() }
                 else { scene.setVisible(isOnScreen && !isCameraCoverActive && scenePhase == .active) }
+            }
+        }
+        .navigationDestination(item: $selectedAuthoredDestination) { destination in
+            if let remote, remote.canPlaceOi {
+                switch destination {
+                case .personal(let id): OiStoryEditor(remote: remote, localID: id)
+                case .story(let id): OiStoryManagement(remote: remote, storyID: id)
+                }
             }
         }
         .sheet(isPresented: $showingSchools) {
@@ -118,7 +155,22 @@ struct HomeView: View {
             scene.setOverviewStories(store.stories)
             await scene.load()
         }
-        .onAppear { isOnScreen = true; scene.setVisible(!isCameraCoverActive && scenePhase == .active) }
+        .task(id: authoredSource) { await loadAuthoredPlacements(authoredSource) }
+        .onAppear {
+            pruneAuthoredPlacements(authoredSource)
+            isOnScreen = true
+            scene.setVisible(!isCameraCoverActive && scenePhase == .active)
+            revealAuthoredPlacement()
+        }
+        .onChange(of: authoredSource) { _, source in
+            pruneAuthoredPlacements(source)
+            revealAuthoredPlacement()
+        }
+        .onChange(of: scene.ready) { _, _ in revealAuthoredPlacement() }
+        .onChange(of: authoredPlacementToReveal.wrappedValue) { _, id in
+            if id != nil { selectedAuthoredDestination = nil }
+            revealAuthoredPlacement()
+        }
         .onDisappear { isOnScreen = false; scene.suspendForARCamera() }
         .onChange(of: scenePhase) { _, phase in scene.setVisible(isOnScreen && !isCameraCoverActive && phase == .active) }
         .onChange(of: isCameraCoverActive) { _, active in
@@ -129,10 +181,10 @@ struct HomeView: View {
                 scene.setVisible(isOnScreen && scenePhase == .active)
             }
         }
-        .onChange(of: store.stories) { _, _ in
-            scene.setOverviewStories(store.stories)
+        .onChange(of: store.stories) { _, stories in
+            scene.setOverviewStories(stories)
             if let region {
-                scene.showStoriesInCurrentArea(region, stories: searchResults == nil ? store.stories(in: region.id, sortedBy: sort) : store.stories)
+                scene.showStoriesInCurrentArea(region, stories: searchResults == nil ? store.stories(in: region.id, sortedBy: sort) : stories)
                 if searchResults != nil { searchResults = scene.visibleStoryIDs() }
             }
         }
@@ -140,6 +192,16 @@ struct HomeView: View {
 
     private func configureSceneCallbacks() {
         scene.onEducationDistrict = { showingEducationDistrict = true }
+        if let remote {
+            scene.loadCucumberPortrait = { try await remote.cucumberImage($0) }
+            scene.loadCucumberModel = { try await remote.cucumberModel($0) }
+            scene.loadPublicCucumberModel = { story in
+                guard let published = remote.stories.first(where: { $0.id.uuidString == story.id }),
+                      let artwork = published.cucumberArtwork,
+                      artwork.path(.portrait) == story.cucumberPortraitPath else { throw OiServiceError.unavailable }
+                return try await remote.cucumberModel(artwork)
+            }
+        }
         scene.onRegion = { selected in
             region = selected; sort = .latest; expanded = false; searchResults = nil
             scene.focus(selected, stories: store.stories(in: selected.id, sortedBy: .latest))
@@ -150,6 +212,63 @@ struct HomeView: View {
             // Use the same value-based path as list links and the summary's detail link.
             openStory(id)
         }
+        scene.onAuthoredPlacement = { id in
+            let source = authoredPlacementSource
+            guard let owner = source.owner, loadedAuthoredSource?.owner == owner,
+                  let item = scene.authoredPlacement(id: id) else { return }
+            if item.visibility == .published, store.story(id.uuidString) != nil {
+                openStory(id.uuidString)
+            } else {
+                scene.suspendForARCamera()
+                selectedAuthoredDestination = source.stories.contains(where: { $0.id == id }) ? .story(id) : .personal(id)
+            }
+        }
+    }
+
+    private func pruneAuthoredPlacements(_ source: AuthoredPlacementSource) {
+        guard loadedAuthoredSource?.owner != source.owner else { return }
+        loadedAuthoredSource = nil
+        selectedAuthoredDestination = nil
+        scene.setAuthoredPlacements([])
+    }
+
+    private func loadAuthoredPlacements(_ source: AuthoredPlacementSource) async {
+        guard let remote, let owner = source.owner else { return }
+        let drafts = (try? await remote.localDraftListing())?.drafts ?? []
+        guard !Task.isCancelled, authoredPlacementSource == source else { return }
+
+        let stories = source.stories.reduce(into: [UUID: OiLiveStory]()) { $0[$1.id] = $1 }
+        let records = drafts.reduce(into: [UUID: OiLocalDraft]()) { $0[$1.id] = $1 }
+        var placements = source.stories.compactMap { story in
+            CampusAuthoredPlacement(story: story, owner: owner, localDraft: records[story.id])
+        }
+        let personal = records.values.compactMap { record -> CampusAuthoredPlacement? in
+            let story = stories[record.id]
+            // A successfully submitted story that disappeared after sync was deleted.
+            guard !record.submitted || !source.hasLoadedRemote || story != nil else { return nil }
+            return CampusAuthoredPlacement(personal: record, story: story)
+        }
+        placements.append(contentsOf: personal) // A confirmed device position takes precedence on the owner's map.
+        pruneAuthoredPlacements(source)
+        scene.setAuthoredPlacements(placements)
+        loadedAuthoredSource = source
+        revealAuthoredPlacement()
+        await scene.loadAuthoredModels()
+    }
+
+    private func revealAuthoredPlacement() {
+        let source = authoredPlacementSource
+        guard isOnScreen, scene.ready, loadedAuthoredSource == source,
+              let id = authoredPlacementToReveal.wrappedValue else { return }
+        let item = scene.authoredPlacement(id: id)
+        let story = source.stories.first { $0.id == id && $0.isRegisteredOnCampus }
+        guard let placement = item?.placement ?? story?.campusPlacement,
+              let selectedRegion = CampusRegion.campus.first(where: { $0.id == (item?.regionID ?? story?.regionId) }) ?? scene.nearestRegion()
+        else { return }
+        region = selectedRegion; expanded = false; sort = .latest; searchResults = nil
+        scene.focus(selectedRegion, stories: store.stories(in: selectedRegion.id, sortedBy: .latest), placement: placement)
+        distances = scene.distances()
+        authoredPlacementToReveal.wrappedValue = nil
     }
 
     private func configureMapLabels(_ geometry: GeometryProxy) {
@@ -171,7 +290,7 @@ struct HomeView: View {
     private var homeActions: some View {
         HStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 8) {
-                Button(action: onOpenProfile) {
+                NavigationLink(value: MYDestination.cucumberCustomization) {
                     HStack(spacing: -12) {
                         MYFarmerArtwork(ownerID: remote?.account?.id, outfit: remote?.farmerOutfit)
                             .frame(width: 38, height: 38).background(CampusStyle.secondaryAction, in: Circle())
@@ -182,7 +301,7 @@ struct HomeView: View {
                             .background(.white, in: Capsule())
                     }.shadow(color: CampusStyle.mapAction.opacity(0.4), radius: 7, y: 3)
                         .frame(minHeight: 44)
-                }.buttonStyle(.plain).accessibilityLabel("\(remote?.profile?.farmName ?? "오이")의 농부 프로필")
+                }.buttonStyle(.plain).accessibilityLabel("오이 커스텀 열기")
                     .accessibilityIdentifier("campus.profile")
                 Button(action: onOpenProfile) {
                     CampusMyHouseButtonArtwork()
@@ -271,6 +390,14 @@ struct HomeView: View {
                 .accessibilityLabel("캠퍼스 선택").accessibilityIdentifier("campus.school")
                 Spacer()
                 mapAppearanceMenu
+                if let onOpenSample {
+                    Button(action: onOpenSample) {
+                        Text("체험하기").font(CampusStyle.medium(14))
+                            .padding(.horizontal, 12).frame(minHeight: 44)
+                            .contentShape(Capsule())
+                    }.buttonStyle(.plain).glassEffect(.regular.interactive(), in: Capsule())
+                        .accessibilityLabel("이야기·AR 체험 열기").accessibilityIdentifier("campus.sample")
+                }
             }
         }
         .overlay(alignment: .top) {
@@ -347,12 +474,12 @@ struct HomeView: View {
                         Button("거리순") { sort = .distance; distances = scene.distances() }
                         Button("인기순") { sort = .popular }
                     } label: {
-                        Text("\(items.count)개").font(CampusStyle.medium(16)).tracking(0.32)
+                        Text("공개 \(items.count)개").font(CampusStyle.medium(16)).tracking(0.32)
                             .foregroundStyle(.black)
                             .padding(.horizontal, 16).frame(minWidth: 68).frame(height: 29)
                             .background(CampusStyle.secondaryAction, in: Capsule())
                             .frame(minHeight: 44).contentShape(Capsule())
-                    }.accessibilityLabel("오이 \(items.count)개, 다른 정렬")
+                    }.accessibilityLabel("공개 오이 \(items.count)개, 다른 정렬")
                 }.padding(.vertical, -7.5)
                 if sort == .distance || sort == .popular {
                     Text(sort == .distance ? "지도 중심에서 가까운 순서" : "인기순")
@@ -362,7 +489,7 @@ struct HomeView: View {
                 ScrollView {
                     LazyVStack(spacing: 10) {
                         if items.isEmpty, remote == nil || remote?.hasLoadedRemote == true {
-                            Text("이 화면에는 오이가 없어요. 지도를 움직여 다시 검색해 주세요.")
+                            Text("이 화면에는 공개된 오이가 없어요. 지도를 움직여 다시 검색해 주세요.")
                                 .font(CampusStyle.body(14)).foregroundStyle(.secondary).padding()
                         }
                         ForEach(items) { story in

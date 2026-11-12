@@ -60,8 +60,7 @@ struct OiServiceChecks {
         defer { try? FileManager.default.removeItem(at: directory) }
         let owner = UUID()
         let original = OiSavedSchoolEvidenceReview(
-            summary: .init(outcome: "school_document_needed", title: "학교 발급 증빙 필요",
-                           detail: "프로필 캡처가 제출됐어요.", nextStep: "학생증 앞면을 제출해 주세요.", reference: nil),
+            outcome: .rejected,
             reviewedAt: Date(timeIntervalSince1970: 1_760_000_000)
         )
         try await OiDraftVault(directory: directory).saveSchoolEvidenceReview(original, owner: owner)
@@ -69,8 +68,25 @@ struct OiServiceChecks {
         let reopened = OiDraftVault(directory: directory)
         let restored = try await reopened.schoolEvidenceReview(owner: owner)
         let otherAccount = try await reopened.schoolEvidenceReview(owner: UUID())
-        precondition(restored?.summary.outcome == original.summary.outcome)
+        precondition(restored?.outcome == original.outcome)
         precondition(restored?.reviewedAt == original.reviewedAt && otherAccount == nil)
+        // A new analysis must not collapse distinct follow-up actions into legacy rejection.
+        let responses: [(String, OiSchoolEvidenceOutcome)] = [
+            ("school_evidence_visible", .completed), ("school_document_needed", .documentNeeded),
+            ("retake_needed", .retakeNeeded), ("manual_review_needed", .manualReviewNeeded)
+        ]
+        for (raw, expected) in responses {
+            guard let outcome = OiSchoolEvidenceOutcome(reviewOutcome: raw) else { preconditionFailure(raw) }
+            precondition(outcome == expected)
+            try await reopened.saveSchoolEvidenceReview(.init(outcome: outcome, reviewedAt: original.reviewedAt), owner: owner)
+            let reloaded = try await OiDraftVault(directory: directory).schoolEvidenceReview(owner: owner)
+            precondition(reloaded?.outcome == expected)
+        }
+        for raw in ["completed", "rejected"] {
+            let legacy = Data("{\"outcome\":\"\(raw)\",\"reviewedAt\":0}".utf8)
+            let receipt = try JSONDecoder().decode(OiSavedSchoolEvidenceReview.self, from: legacy)
+            precondition(receipt.outcome == OiSchoolEvidenceOutcome(rawValue: raw))
+        }
         print("PASS: school evidence summary survives reopening and is scoped to its account")
     }
 
@@ -205,14 +221,17 @@ struct OiServiceChecks {
         precondition(profiles.allSatisfy { $0.publicName == nil && $0.department == nil && $0.admissionYear == nil }, "Pre-migration profile responses remain readable")
 
         let publicID = UUID()
-        func publicFixture(status: String, id: UUID) throws -> Data {
-            try JSONSerialization.data(withJSONObject: [[
+        func publicRow(status: String, id: UUID) -> [String: Any] {
+            [
                 "id": id.uuidString, "user_id": UUID().uuidString, "grant_id": UUID().uuidString,
                 "region_id": "pond", "title": "Test", "body": "Test story", "theme": "Test", "emotion": "Test",
                 "cucumber_name": "Test", "cucumber_asset": "OiCats", "card_asset": "MYBasicCard",
                 "latitude": 36.012, "longitude": 129.32, "status": status, "revision": 1,
                 "created_at": "2026-10-28T00:00:00Z"
-            ]])
+            ]
+        }
+        func publicFixture(status: String, id: UUID) throws -> Data {
+            try JSONSerialization.data(withJSONObject: [publicRow(status: status, id: id)])
         }
         let publicData = try publicFixture(status: "published", id: publicID)
         OiURLProtocol.handler = { request in
@@ -224,7 +243,7 @@ struct OiServiceChecks {
             return (200, publicData)
         }
         let publicStory = try await api.publishedStory(publicID)
-        precondition(publicStory.id == publicID)
+        precondition(publicStory.id == publicID && publicStory.heightMeters == nil && publicStory.headingDegrees == nil)
         for invalid in [Data("[]".utf8), try publicFixture(status: "hidden", id: publicID), try publicFixture(status: "published", id: UUID())] {
             OiURLProtocol.handler = { _ in (200, invalid) }
             do { _ = try await api.publishedStory(publicID); preconditionFailure("Non-public or mismatched AR story accepted") }
@@ -239,6 +258,19 @@ struct OiServiceChecks {
         }
         let nearby = try await api.publishedStories()
         precondition(nearby.map(\.id) == [publicID])
+        let finiteID = UUID()
+        var legacyGeometry = publicRow(status: "published", id: publicID)
+        legacyGeometry["height_meters"] = "NaN"
+        legacyGeometry["heading_degrees"] = "Infinity"
+        var finiteGeometry = publicRow(status: "published", id: finiteID)
+        finiteGeometry["height_meters"] = 1.35
+        finiteGeometry["heading_degrees"] = 263.5
+        let mixedGeometry = try JSONSerialization.data(withJSONObject: [legacyGeometry, finiteGeometry])
+        OiURLProtocol.handler = { _ in (200, mixedGeometry) }
+        let mixedStories = try await api.publishedStories()
+        precondition(mixedStories.map(\.id) == [publicID, finiteID])
+        precondition(mixedStories[0].heightMeters == nil && mixedStories[0].headingDegrees == nil)
+        precondition(mixedStories[1].heightMeters == 1.35 && mixedStories[1].headingDegrees == 263.5)
         let hiddenData = try publicFixture(status: "hidden", id: publicID)
         OiURLProtocol.handler = { _ in (200, hiddenData) }
         let hiddenNearby = try await api.publishedStories()
@@ -281,18 +313,14 @@ struct OiServiceChecks {
         temporaryDraft.grantId = nil
         precondition(temporaryDraft.valid)
         let temporaryPayload = try temporaryDraft.payload()
-        precondition(temporaryPayload["grant_id"] is NSNull)
-        let grant = OiWritingGrant(id: draft.grantId!, storyLimit: 1, revokedAt: nil)
-        precondition(OiWritingAccess.canWrite(grantID: nil, grants: [], unapprovedDraftsEnabled: true))
-        precondition(!OiWritingAccess.canWrite(grantID: nil, grants: [], unapprovedDraftsEnabled: false))
-        precondition(OiWritingAccess.canWrite(grantID: grant.id, grants: [grant], unapprovedDraftsEnabled: false))
-        precondition(!OiWritingAccess.canWrite(grantID: grant.id, grants: [], unapprovedDraftsEnabled: true))
-        let revoked = OiWritingGrant(id: grant.id, storyLimit: 1, revokedAt: "2026-11-04")
-        precondition(!OiWritingAccess.canWrite(grantID: grant.id, grants: [revoked], unapprovedDraftsEnabled: true))
+        precondition(temporaryPayload["grant_id"] == nil)
+        let legacyPayload = try draft.payload()
+        precondition(legacyPayload["grant_id"] == nil, "A restored draft must not send its old writing grant")
         let capabilityDecoder = JSONDecoder()
         capabilityDecoder.keyDecodingStrategy = .convertFromSnakeCase
         let oldCapabilities = try capabilityDecoder.decode(OiCapabilities.self, from: Data("{\"operator\":false,\"coins_enabled\":false}".utf8))
         precondition(oldCapabilities.unapprovedDraftsEnabled != true)
+        precondition(oldCapabilities.independentStoryCreation != true)
         precondition(OiCreationStep.allCases.allSatisfy { $0.canContinue(draft: draft) })
         precondition(OiCreationStep.consent.previous == nil && OiCreationStep.story.previous == .consent && OiCreationStep.card.next == nil)
         var invalid = draft; invalid.title = String(repeating: "가", count: 101)
@@ -320,6 +348,9 @@ struct OiServiceChecks {
         let removedPath = "owner/story/\(removedPhoto.uuidString.lowercased()).jpg"
         let ordered = OiEditingPhoto.ordered(local: [localA, localB], remote: [oldPath, localPath, removedPath], removed: [removedPath])
         precondition(ordered == [.uploaded(oldPath), .local(localA), .local(localB)])
+        let preferred = [localB.uuidString, oldPath, localA.uuidString]
+        precondition(OiEditingPhoto.applyingOrder(preferred, to: ordered, key: \.orderKey) ==
+                     [.local(localB), .uploaded(oldPath), .local(localA)])
         let lateReceipt = OiEditingPhoto.ordered(local: [localA, removedPhoto],
             remote: [oldPath, localPath, removedPath], removed: [], removedPhotoIDs: [removedPhoto])
         precondition(lateReceipt == [.uploaded(oldPath), .local(localA)],
@@ -350,6 +381,10 @@ struct OiServiceChecks {
         record.agreedConsentClauseIDs = ["storyWriting"]
         let consentRoundTrip = try JSONDecoder().decode(OiLocalDraft.self, from: JSONEncoder().encode(record))
         precondition(consentRoundTrip.agreedConsentClauseIDs == ["storyWriting"])
+        precondition(legacy.photoOrder == nil)
+        record.photoOrder = preferred
+        let reorderedDraft = try JSONDecoder().decode(OiLocalDraft.self, from: JSONEncoder().encode(record))
+        precondition(reorderedDraft.photoOrder == preferred)
         record.creationStep = OiCreationStep.card.rawValue
         record.customization = OiDraftCustomization(fill: .gradient, firstColor: 0xABCDEF, secondColor: 0x123456,
                                                    showsCharacter: false, garmentColors: ["모자":0x445566])

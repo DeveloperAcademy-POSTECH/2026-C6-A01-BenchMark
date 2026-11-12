@@ -8,11 +8,14 @@
 import SwiftUI
 
 struct MYFarmerCustomizationView: View {
+    private nonisolated enum ScrollTarget: Hashable, Sendable { case categories }
+
     var remote: OiRemoteStore?
     @State private var initial: OiFarmerOutfit
     @State private var drafts: [String: OiFarmerOutfit]
     @State private var character: String
     @State private var category = MYFarmerSlot.top
+    @State private var wardrobeScrollPosition = ScrollPosition(idType: ScrollTarget.self)
     @State private var isSaving = false
     @State private var saveError: String?
     @State private var pendingSaveID: UUID?
@@ -40,11 +43,12 @@ struct MYFarmerCustomizationView: View {
                             header(wardrobe)
                             preview(wardrobe)
                             characterSelector
-                            categorySelector
+                            categorySelector.id(ScrollTarget.categories)
                             itemGrid(wardrobe)
                             notices
-                        }
+                        }.scrollTargetLayout()
                     }
+                    .scrollPosition($wardrobeScrollPosition)
                 } else {
                     VStack(spacing: 0) {
                         header(wardrobe).padding(.top, 9)
@@ -54,7 +58,9 @@ struct MYFarmerCustomizationView: View {
                         ScrollView {
                             itemGrid(wardrobe).padding(.top, 5)
                             notices
-                        }.scrollIndicators(.hidden)
+                        }
+                        .scrollIndicators(.hidden)
+                        .scrollPosition($wardrobeScrollPosition)
                     }
                 }
             case .failure:
@@ -65,6 +71,13 @@ struct MYFarmerCustomizationView: View {
         .toolbar(.hidden, for: .navigationBar)
         .interactiveDismissDisabled(isSaving)
         .accessibilityAction(.escape) { if !isSaving { dismiss() } }
+        .onChange(of: category) { _, _ in
+            if dynamicTypeSize.isAccessibilitySize {
+                wardrobeScrollPosition.scrollTo(id: ScrollTarget.categories, anchor: .top)
+            } else {
+                wardrobeScrollPosition.scrollTo(edge: .top)
+            }
+        }
         .task(id: pendingSaveID) {
             guard pendingSaveID != nil, let request = pendingSave, let remote else { return }
             let saved = await remote.saveFarmerOutfit(request.outfit)
@@ -206,7 +219,7 @@ struct MYFarmerCustomizationView: View {
     private var categorySelector: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 20) {
-                ForEach(MYFarmerSlot.allCases) { slot in
+                ForEach(MYFarmerSlot.allCases.filter(\.isAvailable)) { slot in
                     Button { category = slot } label: {
                         Text(slot.title)
                             .font(.custom(category == slot ? "Paperlogy-7Bold" : "Paperlogy-5Medium", size: 16, relativeTo: .body))

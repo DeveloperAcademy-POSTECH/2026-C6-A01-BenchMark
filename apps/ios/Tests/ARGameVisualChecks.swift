@@ -37,8 +37,8 @@ private final class ARGameVisualScene: UIResponder, UIWindowSceneDelegate {
         do {
             let output = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-            let fontNames = ["PearToucan-Regular", "PearToucan-Bold", "PearToucan-Light", "Paperlogy-7Bold",
-                             "Paperlogy-4Regular", "Paperlogy-6SemiBold", "Paperlogy-2ExtraLight"]
+            let fontNames = ["Paperlogy-2ExtraLight", "Paperlogy-3Light", "Paperlogy-4Regular",
+                             "Paperlogy-6SemiBold", "Paperlogy-7Bold"]
             for name in fontNames {
                 guard let url = Bundle.main.url(forResource: name, withExtension: "ttf") else {
                     preconditionFailure("Missing packaged font: \(name)")
@@ -75,7 +75,7 @@ private final class ARGameVisualScene: UIResponder, UIWindowSceneDelegate {
             for seconds in [30, 9] {
                 try await snapshot(ZStack {
                     Color.gray
-                    ARGameHUD(remainingSeconds: seconds, collectedCount: 1, targetCount: 3, cucumberImageURL: nil)
+                    ARGameHUD(remainingSeconds: seconds, collectedCount: 1, targetCount: 3, artwork: UIImage(named: "ARGameIntroCucumber").flatMap(CucumberArtwork.normalized))
                 }.ignoresSafeArea(), size: sizes[0].1,
                    output: output.appendingPathComponent("hud-\(seconds).png"), delay: 0.2)
             }
@@ -91,7 +91,7 @@ private final class ARGameVisualScene: UIResponder, UIWindowSceneDelegate {
                                output: output.appendingPathComponent("success.png"), delay: 1)
             try await snapshot(ZStack {
                 Color.gray
-                ARGameHUD(remainingSeconds: 30, collectedCount: 0, targetCount: 3, cucumberImageURL: nil)
+                ARGameHUD(remainingSeconds: 30, collectedCount: 0, targetCount: 3, artwork: UIImage(named: "ARGameIntroCucumber").flatMap(CucumberArtwork.normalized))
                 ARGameStartOverlay(onFinished: {})
             }.ignoresSafeArea(), size: sizes[0].1,
                                output: output.appendingPathComponent("start-assembled.png"), delay: UIAccessibility.isReduceMotionEnabled ? 0.1 : 0.82)

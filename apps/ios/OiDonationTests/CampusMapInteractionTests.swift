@@ -6,14 +6,14 @@
 //
 
 import RealityKit
-import CryptoKit
 import UIKit
 import XCTest
+import CryptoKit
 @testable import OiDonation
 
 @MainActor
 final class CampusMapInteractionTests: XCTestCase {
-    func testOverviewRevealsPublicCharactersWithoutOpeningRegion() async throws {
+    func testPublicOiAppearsAndOpensOnOverviewBeforeSelectingARegion() async throws {
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: windowScene)
         let controller = UIViewController()
@@ -26,144 +26,149 @@ final class CampusMapInteractionTests: XCTestCase {
         window.isHidden = false
         defer {
             scene.suspendForARCamera()
-            canvas.removeFromSuperview()
             window.isHidden = true
             window.rootViewController = nil
             window.windowScene = nil
         }
-        // Exercise data arriving before the map, as well as later refreshes.
-        let data = try CampusMapData.load()
-        let coordinate = data.coordinate(SIMD3(32, 0, 1))
-        var story = CampusStory(id: "map-visibility-fixture", regionID: "pond", title: "지도 표시 검증",
-            image: "OiCats", tags: [], donor: "", location: "", date: "", order: 0, popularity: 0, palette: 0,
-            latitude: coordinate.latitude, longitude: coordinate.longitude)
-        scene.setOverviewStories([story])
         await scene.load()
-        XCTAssertTrue(scene.ready, scene.error ?? "Map should load")
         window.layoutIfNeeded()
         canvas.layoutIfNeeded()
-        func pin() throws -> UIButton {
-            try XCTUnwrap(canvas.subviews.compactMap { $0 as? UIButton }
-                .first { $0.accessibilityIdentifier == "campus.pin.\(story.id)" })
+
+        let data = try XCTUnwrap(scene.data)
+        let region = try XCTUnwrap(CampusRegion.campus.first { $0.id == "pond" })
+        let place = try XCTUnwrap(data.pois.first { $0.id == region.placeID })
+        let coordinate = data.coordinate(data.world(place.p))
+        let story = CampusStory(id: UUID().uuidString, regionID: region.id, title: "공개 오이",
+            image: "OiCats", tags: [], donor: "다른 작성자", location: region.title, date: "",
+            order: 0, popularity: 0, palette: 0, cucumberPortraitPath: "approved/portrait.png",
+            latitude: coordinate.latitude, longitude: coordinate.longitude, heightMeters: 1.25)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let portrait = UIGraphicsImageRenderer(size: CGSize(width: 30, height: 40), format: format).image { context in
+            UIColor.systemPurple.setFill()
+            context.fill(CGRect(x: 7, y: 8, width: 16, height: 27))
         }
-        func character() -> Entity? {
-            canvas.map?.scene.anchors.compactMap { $0.findEntity(named: "campus.story.\(story.id)") }.first
-        }
-        XCTAssertTrue(try pin().isHidden, "Overview should show counts rather than overlapping characters")
-        XCTAssertNil(character(), "Overview must not decode offscreen wardrobe models")
+        var paths: [String] = []
+        scene.loadCucumberPortrait = { path in paths.append(path); return portrait }
+        var opened: String?
+        scene.onStory = { opened = $0 }
+
+        // The public feed can arrive after the overview has already loaded.
+        scene.setOverviewStories([story])
+        let markerID = "campus.pin." + story.id
+        let marker = try XCTUnwrap(canvas.subviews.first { $0.accessibilityIdentifier == markerID } as? UIButton)
+        XCTAssertFalse(marker.isHidden)
+        XCTAssertTrue(scene.visibleStoryIDs().contains(story.id))
         XCTAssertTrue(badges(in: canvas).values.contains { $0.label.contains("오이 1개") })
-
-        let pinch = TestPinch()
-        pinch.state = .began
-        scene.perform(NSSelectorFromString("pinch:"), with: pinch)
-        pinch.state = .changed; pinch.scale = 5
-        scene.perform(NSSelectorFromString("pinch:"), with: pinch)
-        XCTAssertFalse(try pin().isHidden, "Pinching the map must reveal placed characters without tapping a region")
-        XCTAssertEqual(try pin().alpha, 1)
-        XCTAssertTrue(try pin().isUserInteractionEnabled)
-        try await waitUntil("The close map must load the actual USDZ mesh", timeout: 20) { character() != nil }
-        XCTAssertNil(try pin().image(for: .normal), "The hit target must not display a flat portrait")
-        let model = try XCTUnwrap(character())
-        let bounds = model.visualBounds(relativeTo: nil)
-        XCTAssertGreaterThan(bounds.extents.z, 1, "Character must have actual depth")
-        XCTAssertEqual(bounds.min.y, model.position.y, accuracy: 0.01, "Feet must sit on the sampled terrain")
-        XCTAssertEqual(model.position, data.world(latitude: coordinate.latitude, longitude: coordinate.longitude))
-        XCTAssertTrue(badges(in: canvas).isEmpty, "Count panels must not cover the close-up characters")
-        var openedID: String?
-        scene.onStory = { openedID = $0 }
-        try pin().sendActions(for: .touchUpInside)
-        XCTAssertEqual(openedID, story.id)
-        try await capture("public-character-direct-zoom", in: canvas)
-
-        let orientation = model.orientation
-        let turn = TestRotation()
-        turn.state = .began
-        scene.perform(NSSelectorFromString("rotate:"), with: turn)
-        turn.state = .changed; turn.rotation = .pi / 2
-        scene.perform(NSSelectorFromString("rotate:"), with: turn)
-        XCTAssertEqual(model.orientation, orientation, "Orbiting the camera must not billboard the model")
-        try await capture("public-character-3d-side", in: canvas)
-        turn.rotation = .pi / 2
-        scene.perform(NSSelectorFromString("rotate:"), with: turn)
-        try await capture("public-character-3d-back", in: canvas)
-        turn.rotation = -.pi
-        scene.perform(NSSelectorFromString("rotate:"), with: turn)
-        turn.state = .ended
-        scene.perform(NSSelectorFromString("rotate:"), with: turn)
+        XCTAssertTrue(canvas.hitTest(marker.center, with: nil) === marker, "The character is tappable above the region count")
+        marker.sendActions(for: .touchUpInside)
+        XCTAssertEqual(opened, story.id)
+        try await waitUntil("The approved portrait must lose its transparent padding") {
+            marker.currentImage?.size == CGSize(width: 16, height: 27)
+        }
+        XCTAssertEqual(paths, ["approved/portrait.png"])
 
         let map = try XCTUnwrap(canvas.map)
-        let camera = try XCTUnwrap(map.scene.anchors.flatMap { Array($0.children) }.compactMap { $0 as? PerspectiveCamera }.first)
-        let cameraTransform = camera.transform
-        let moved = data.coordinate(SIMD3(34, 0, 1))
-        story.latitude = moved.latitude
-        story.longitude = moved.longitude
-        let previousPin = try pin()
-        let previousCenter = previousPin.center
-        scene.setOverviewStories([story])
-        XCTAssertTrue(character() === model, "Refreshing unchanged assets must reuse the mesh")
-        XCTAssertNil(previousPin.superview)
-        XCTAssertEqual(camera.transform, cameraTransform)
-        XCTAssertNotEqual(try pin().center, previousCenter)
-        XCTAssertFalse(try pin().isHidden, "Live refresh must update pins while staying in overview navigation")
-        pinch.scale = 0.2
-        scene.perform(NSSelectorFromString("pinch:"), with: pinch)
-        XCTAssertTrue(try pin().isHidden, "Zooming back out must restore count markers")
-        XCTAssertFalse(badges(in: canvas).isEmpty)
-        pinch.scale = 5
-        scene.perform(NSSelectorFromString("pinch:"), with: pinch)
-        XCTAssertFalse(try pin().isHidden, "Refreshing public stories must not cancel the ongoing pinch")
-        pinch.state = .ended
-        scene.perform(NSSelectorFromString("pinch:"), with: pinch)
-        scene.suspendForARCamera()
-        scene.setVisible(true)
-        XCTAssertFalse(try pin().isHidden, "Returning from a story/AR must restore the map character")
-        XCTAssertNotNil(character(), "Returning to a new renderer must clone the cached 3D template")
-        XCTAssertFalse(character() === model)
-
-        scene.setOverviewStories([])
-        XCTAssertNil(character(), "Deleted stories must leave neither an entity nor a hit target")
-        XCTAssertFalse(canvas.subviews.contains { $0.accessibilityIdentifier == "campus.pin.\(story.id)" })
-        scene.setOverviewStories([story])
-        XCTAssertFalse(try pin().isHidden, "Data first arriving after load must also be visible")
-        scene.focus(try XCTUnwrap(CampusRegion.campus.first), stories: [story])
-        scene.showOverview()
-        XCTAssertTrue(try pin().isHidden)
-        XCTAssertTrue(badges(in: canvas).values.contains { $0.label.contains("오이 1개") })
-    }
-
-    func testPublicCharacterAssetsAndCancelledLoads() async throws {
-        XCTAssertEqual(CampusStoryModels.resource(for: "OiCats"), "wardrobe-costume-cat-bear")
-        XCTAssertEqual(CampusStoryModels.resource(for: "OiGardener"), "wardrobe-costume-farmer")
-        XCTAssertEqual(CampusStoryModels.resource(for: "OiWizard"), "wardrobe-tshirt-long")
-        // Public identifiers cannot turn into arbitrary file paths.
-        XCTAssertEqual(CampusStoryModels.resource(for: "../../private"), "wardrobe-tshirt-long")
-        for costume in OiWardrobeLook.Costume.allCases {
-            XCTAssertEqual(CampusStoryModels.resource(for: costume.thumbnailName), costume.modelName)
-            XCTAssertNoThrow(try OiWardrobeAsset.url(costume.modelName, folder: "Wardrobe"))
+        let camera = try XCTUnwrap(map.scene.anchors.flatMap { Array($0.children) }
+            .compactMap { $0 as? PerspectiveCamera }.first)
+        let artwork = try XCTUnwrap(marker.imageView)
+        let ground = data.world(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let pivot = SIMD3<Float>(32, 2, 1)
+        func cameraRadius() -> Float { simd_distance(camera.position(relativeTo: nil), pivot) }
+        func artworkFrame() -> CGRect {
+            marker.layoutIfNeeded()
+            return canvas.convert(artwork.bounds, from: artwork)
         }
-        let models = CampusStoryModels()
-        let root = Entity()
-        models.attach(to: root)
-        let story = CampusStory(id: "cancelled-load", regionID: "pond", title: "테스트", image: "OiGardener",
-            tags: [], donor: "", location: "", date: "", order: 0, popularity: 0, palette: 0)
-        models.setStories([story], positions: [story.id: .zero])
-        models.update(visible: [story.id], opacity: 1, height: 5.4)
-        models.setStories([], positions: [:])
-        models.update(visible: [], opacity: 0, height: 5.4)
-        try await Task.sleep(for: .milliseconds(500))
-        XCTAssertNil(root.findEntity(named: "campus.story.\(story.id)"))
-        models.setStories([story], positions: [story.id: SIMD3(1, 2, 3)])
-        models.onChange = { [weak models] in models?.update(visible: [story.id], opacity: 1, height: 5.4) }
-        models.update(visible: [story.id], opacity: 1, height: 5.4)
-        try await waitUntil("Farmer preset must load after cancelling an old request", timeout: 20) { models.isReady(story.id) }
-        XCTAssertEqual(root.findEntity(named: "campus.story.\(story.id)")?.position, SIMD3(1, 2, 3))
-        models.suspend()
-        XCTAssertTrue(root.children.isEmpty)
+        func assertGrounded(_ message: String) async throws {
+            try await waitUntil(message) {
+                guard let projected = map.project(ground) else { return false }
+                let frame = artworkFrame()
+                return abs(frame.midX - projected.x) < 1 && abs(frame.maxY - projected.y) < 1
+            }
+        }
+
+        canvas.layoutIfNeeded()
+        try await assertGrounded("At the default zoom the visible foot must match the terrain coordinate")
+        let initialHeight = artworkFrame().height
+        XCTAssertEqual(initialHeight, 28, accuracy: 0.5)
+        let pinch = TestPinch()
+        let pinchAction = NSSelectorFromString("pinch:")
+        pinch.state = .began
+        scene.perform(pinchAction, with: pinch)
+        pinch.state = .changed
+        pinch.scale = 0.8
+        scene.perform(pinchAction, with: pinch)
+        let middleHeight = artworkFrame().height
+        XCTAssertEqual(middleHeight, initialHeight, accuracy: 0.5, "Distant markers must stay compact")
+        pinch.scale = 0.25
+        scene.perform(pinchAction, with: pinch)
+        XCTAssertGreaterThan(cameraRadius(), 600, "The gesture must reach the elastic end of the zoom range")
+        pinch.state = .ended
+        scene.perform(pinchAction, with: pinch)
+        try await waitUntil("The map must settle at the far zoom limit") {
+            cameraRadius() <= 600.01 && badges(in: canvas).values.allSatisfy { $0.alpha == 1 && $0.interactive }
+        }
+        let farHeight = artworkFrame().height
+        XCTAssertEqual(farHeight, initialHeight, accuracy: 0.5)
+        XCTAssertLessThan(farHeight, 44)
+        XCTAssertGreaterThanOrEqual(marker.bounds.width, 44)
+        XCTAssertGreaterThanOrEqual(marker.bounds.height, 44)
+        XCTAssertFalse(marker.isHidden)
+        try await assertGrounded("Zooming out must keep the visible foot on the same terrain coordinate")
+
+        let farTap = CGPoint(x: marker.frame.minX + 1, y: marker.frame.midY)
+        XCTAssertFalse(artworkFrame().contains(farTap))
+        let farHit = try XCTUnwrap(canvas.hitTest(farTap, with: nil) as? UIButton)
+        XCTAssertTrue(farHit === marker, "The area outside the artwork must still open the story")
+        opened = nil
+        farHit.sendActions(for: .touchUpInside)
+        XCTAssertEqual(opened, story.id)
+
+        let tilt = TestTilt()
+        let panAction = NSSelectorFromString("pan:")
+        tilt.state = .began
+        scene.perform(panAction, with: tilt)
+        tilt.state = .changed
+        tilt.delta = CGPoint(x: 35, y: -100)
+        scene.perform(panAction, with: tilt)
+        try await assertGrounded("Rotating and tilting the map must keep the foot on the terrain")
+        tilt.delta = CGPoint(x: -60, y: 190)
+        scene.perform(panAction, with: tilt)
+        try await assertGrounded("The foot must stay anchored when looking down from above")
+        tilt.state = .ended
+        scene.perform(panAction, with: tilt)
+
+        scene.focus(region, stories: [story])
+        XCTAssertEqual(canvas.subviews.filter { $0.accessibilityIdentifier == markerID }.count, 1)
+        func currentHeight() throws -> CGFloat {
+            let button = try XCTUnwrap(canvas.subviews.first { $0.accessibilityIdentifier == markerID } as? UIButton)
+            button.layoutIfNeeded()
+            return try XCTUnwrap(button.imageView).bounds.height
+        }
+        let nearHeight = try currentHeight()
+        XCTAssertGreaterThan(nearHeight, initialHeight)
+        pinch.state = .began
+        scene.perform(pinchAction, with: pinch)
+        pinch.state = .changed
+        pinch.scale = 1.2
+        scene.perform(pinchAction, with: pinch)
+        let closerHeight = try currentHeight()
+        XCTAssertGreaterThan(closerHeight, nearHeight, "The portrait should grow smoothly at close zoom")
+        pinch.state = .ended
+        scene.perform(pinchAction, with: pinch)
+
+        var shorter = story
+        shorter.heightMeters = 0.5
+        scene.showStoriesInCurrentArea(region, stories: [shorter])
+        XCTAssertLessThan(try currentHeight(), closerHeight, "Close markers must reflect the saved height")
+        scene.showOverview()
+        XCTAssertEqual(canvas.subviews.filter { $0.accessibilityIdentifier == markerID }.count, 1)
+        scene.setOverviewStories([])
+        XCTAssertFalse(canvas.subviews.contains { $0.accessibilityIdentifier == markerID })
+        XCTAssertFalse(scene.visibleStoryIDs().contains(story.id))
     }
 
-    func testMapAppearancePreservesCameraGeometryAndOriginalColors() async throws {
-        let previous = CampusMapAppearance.saved
-        defer { previous.save() }
+    func testPublicOiKeepsItsWorldHeadingAndFootWhenTheMapRotates() async throws {
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: windowScene)
         let controller = UIViewController()
@@ -176,84 +181,223 @@ final class CampusMapInteractionTests: XCTestCase {
         window.isHidden = false
         defer {
             scene.suspendForARCamera()
-            canvas.removeFromSuperview()
             window.isHidden = true
             window.rootViewController = nil
             window.windowScene = nil
         }
-        scene.setAppearance(.original)
         await scene.load()
-        XCTAssertTrue(scene.ready, scene.error ?? "Map should load")
         window.layoutIfNeeded()
         canvas.layoutIfNeeded()
-        func root() throws -> Entity {
-            try XCTUnwrap(canvas.map?.scene.anchors.flatMap { Array($0.children) }
-                .first { $0.name.hasPrefix("POSTECH v09") })
+
+        let data = try XCTUnwrap(scene.data)
+        let region = try XCTUnwrap(CampusRegion.campus.first { $0.id == "pond" })
+        let place = try XCTUnwrap(data.pois.first { $0.id == region.placeID })
+        let path = try XCTUnwrap(data.graph[place.node])
+        let coordinate = data.coordinate(data.world(path.p))
+        let ground = data.world(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let story = CampusStory(id: UUID().uuidString, regionID: region.id, title: "공개 오이",
+            image: "OiCats", tags: [], donor: "다른 작성자", location: region.title, date: "",
+            order: 0, popularity: 0, palette: 0, cucumberPortraitPath: "approved/portrait.png",
+            latitude: coordinate.latitude, longitude: coordinate.longitude, heightMeters: 1.25, headingDegrees: 150)
+        var modelRequests: [CampusStory] = []
+        scene.loadPublicCucumberModel = { requested in
+            modelRequests.append(requested)
+            var outfit = OiWardrobeLook()
+            outfit.costume = .catBear
+            return try await OiWardrobeAsset.loadForPlacement(outfit)
         }
-        func colors(_ entity: Entity) -> [String: UIColor] {
-            Dictionary(uniqueKeysWithValues: entity.children.compactMap { child in
-                guard let model = child as? ModelEntity,
-                      let material = model.model?.materials.first as? SimpleMaterial else { return nil }
-                return (child.name, material.color.tint)
-            })
+        scene.setOverviewStories([story])
+        let map = try XCTUnwrap(canvas.map)
+        let name = "public:" + story.id
+        func marker() throws -> UIButton {
+            try XCTUnwrap(canvas.subviews.first { $0.accessibilityIdentifier == "campus.pin." + story.id } as? UIButton)
         }
-        func assertBackdropBelowMap() throws {
-            let layers = try XCTUnwrap(canvas.layer.sublayers)
-            let backdropIndex = try XCTUnwrap(layers.firstIndex(of: canvas.backdrop))
-            let mapIndex = try XCTUnwrap(layers.firstIndex(of: try XCTUnwrap(canvas.map).layer))
-            XCTAssertLessThan(backdropIndex, mapIndex, "The opaque gradient must not cover the rendered map")
-        }
-        try assertBackdropBelowMap()
-        let original = try root()
-        let originalColors = colors(original)
-        let bounds = original.visualBounds(relativeTo: nil)
-        let camera = try XCTUnwrap(canvas.map?.scene.anchors.flatMap { Array($0.children) }.compactMap { $0 as? PerspectiveCamera }.first)
-        let cameraTransform = camera.transform
-        try await capture("palette-original-overview", in: canvas)
-        scene.setAppearance(.apricotCream)
-        XCTAssertNil(scene.error)
-        XCTAssertFalse(try XCTUnwrap(canvas.map).isOpaque)
-        XCTAssertEqual(canvas.backdrop.colors as? [CGColor], CampusMapAppearance.apricotCream.backdropColors.map(\.cgColor))
-        let litView = try XCTUnwrap(canvas.map)
-        let sun = try XCTUnwrap(litView.scene.anchors.first?.findEntity(named: "campus-sun") as? DirectionalLight)
-        XCTAssertNotNil(sun.shadow)
-        XCTAssertNotNil(litView.environment.lighting.resource)
-        XCTAssertEqual(litView.environment.lighting.intensityExponent, 1)
-        let apricot = try root()
-        XCTAssertEqual(apricot.children.count, original.children.count)
-        XCTAssertEqual(apricot.visualBounds(relativeTo: nil).extents, bounds.extents)
-        XCTAssertEqual(apricot.visualBounds(relativeTo: nil).center, bounds.center)
-        XCTAssertEqual(camera.transform, cameraTransform)
-        XCTAssertNotEqual(colors(apricot), originalColors)
-        XCTAssertEqual(colors(original), originalColors, "Recoloring a clone must not mutate the template")
-        try await capture("palette-apricot-overview", in: canvas)
-        scene.focus(try XCTUnwrap(CampusRegion.campus.first { $0.id == "pond" }), stories: [])
-        try await capture("palette-apricot-pond", in: canvas)
-        let focusedCamera = camera.transform
-        let mapData = try XCTUnwrap(scene.data)
-        let pondRegion = try XCTUnwrap(CampusRegion.campus.first { $0.id == "pond" })
-        let pond = mapData.world(try XCTUnwrap(mapData.pois.first { $0.id == pondRegion.placeID }).p)
-        camera.look(at: pond + SIMD3(0, 5, 0), from: pond + SIMD3(4, 23, 43), relativeTo: nil)
-        try await capture("palette-apricot-low-angle", in: canvas)
-        camera.transform = focusedCamera
-        scene.setAppearance(.original)
-        XCTAssertEqual(canvas.backdrop.colors as? [CGColor], CampusMapAppearance.original.backdropColors.map(\.cgColor))
-        XCTAssertEqual(colors(try root()), originalColors)
-        XCTAssertEqual(camera.transform, focusedCamera)
-        let originalSun = try XCTUnwrap(litView.scene.anchors.first?.findEntity(named: "campus-sun") as? DirectionalLight)
-        XCTAssertEqual(originalSun.shadow?.depthBias, DirectionalLight().shadow?.depthBias)
-        XCTAssertNil(litView.environment.lighting.resource)
-        XCTAssertEqual(originalSun.light.intensity, 2200)
-        try await capture("palette-original-pond", in: canvas)
-        scene.setAppearance(.apricotCream)
+        try await waitUntil("The approved character must load as a 3D entity") { map.scene.findEntity(named: name) != nil }
+        let button = try marker()
+        let countBadge = try XCTUnwrap(canvas.subviews.compactMap { $0 as? UIButton }.first {
+            !$0.isHidden && $0.isUserInteractionEnabled && $0.accessibilityLabel?.hasSuffix("오이 1개") == true
+        })
+        XCTAssertEqual(modelRequests, [story])
+        XCTAssertTrue(try XCTUnwrap(button.imageView).isHidden)
+        XCTAssertFalse(countBadge.frame.intersects(button.frame), "The count must not obscure the 3D character")
+        XCTAssertTrue(canvas.hitTest(countBadge.center, with: nil) === countBadge)
+        XCTAssertTrue(canvas.hitTest(button.center, with: nil) === button)
+        try await capture("public-oi-on-overview", in: canvas)
+
+        scene.focus(region, stories: [story])
+        let model = try XCTUnwrap(map.scene.findEntity(named: name))
+        let camera = try XCTUnwrap(map.scene.anchors.flatMap { Array($0.children) }.compactMap { $0 as? PerspectiveCamera }.first)
+        func facing() -> SIMD3<Float> { model.orientation(relativeTo: nil).act([0, 0, 1]) }
+        let forward = facing()
+        let angle = Float(story.headingDegrees * .pi / 180)
+        XCTAssertLessThan(simd_distance(forward, SIMD3(sin(angle), 0, -cos(angle))), 0.001)
+        XCTAssertGreaterThan(simd_dot(camera.position(relativeTo: nil) - ground, forward), 0)
+        try await capture("public-oi-front", in: canvas)
+
+        let gesture = TestTilt()
+        let panAction = NSSelectorFromString("pan:")
+        gesture.state = .began
+        scene.perform(panAction, with: gesture)
+        gesture.state = .changed
+        gesture.delta = CGPoint(x: -.pi / 0.006, y: -70)
+        scene.perform(panAction, with: gesture)
+        XCTAssertLessThan(simd_dot(camera.position(relativeTo: nil) - ground, forward), 0, "The camera reached the back of the character")
+        XCTAssertLessThan(simd_distance(facing(), forward), 0.001)
+        XCTAssertLessThan(simd_distance(model.position(relativeTo: nil), ground), 0.001)
+        XCTAssertEqual(model.visualBounds(relativeTo: nil).min.y, ground.y, accuracy: 0.01)
+        try await capture("public-oi-back", in: canvas)
+        let rotated = try marker()
+        XCTAssertFalse(rotated.isHidden)
+        XCTAssertGreaterThanOrEqual(rotated.bounds.width, 44)
+        XCTAssertGreaterThanOrEqual(rotated.bounds.height, 44)
+        XCTAssertTrue(canvas.hitTest(rotated.center, with: nil) === rotated)
+        var opened: String?
+        scene.onStory = { opened = $0 }
+        rotated.sendActions(for: .touchUpInside)
+        XCTAssertEqual(opened, story.id)
+
         scene.suspendForARCamera()
         scene.setVisible(true)
-        try assertBackdropBelowMap()
-        XCTAssertEqual(canvas.backdrop.colors as? [CGColor], CampusMapAppearance.apricotCream.backdropColors.map(\.cgColor))
-        XCTAssertEqual(colors(try root()), colors(apricot), "Renderer recreation must retain the chosen palette")
-        XCTAssertNotNil(canvas.map?.environment.lighting.resource)
-        XCTAssertNotNil((canvas.map?.scene.anchors.first?.findEntity(named: "campus-sun") as? DirectionalLight)?.shadow)
-        XCTAssertEqual(CampusMapAppearance.saved, .apricotCream)
+        let restored = try XCTUnwrap(canvas.map?.scene.findEntity(named: name))
+        XCTAssertLessThan(simd_distance(restored.orientation(relativeTo: nil).act([0, 0, 1]), forward), 0.001)
+        scene.showStoriesInCurrentArea(region, stories: [])
+        XCTAssertNil(canvas.map?.scene.findEntity(named: name))
+        XCTAssertEqual(modelRequests, [story])
+    }
+
+    func testAuthoredOiShowsBeforeAndDuringReviewAndKeepsPublicMarkerSeparate() async throws {
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        let scene = CampusExploreScene()
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controller.view.addSubview(canvas)
+        window.isHidden = false
+        defer {
+            scene.suspendForARCamera()
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+        }
+        await scene.load()
+        window.layoutIfNeeded()
+        canvas.layoutIfNeeded()
+
+        let data = try XCTUnwrap(scene.data)
+        let region = try XCTUnwrap(CampusRegion.campus.first { $0.id == "pond" })
+        let location = try XCTUnwrap(data.graph.sorted { $0.key < $1.key }.map { data.world($0.value.p) }
+            .first { data.placementError(at: $0) == nil })
+        let coordinate = data.coordinate(location)
+        let owner = UUID()
+        let storyID = UUID()
+        func story(_ status: String, revision: Int) -> OiLiveStory {
+            OiLiveStory(id: storyID, userId: owner, grantId: nil, regionId: region.id,
+                title: "검증용 이야기", body: "검증용 본문", theme: "우정", emotion: "즐거움",
+                cucumberName: "보라색 오이", cucumberAsset: "OiCats", cardAsset: "MYBasicCard",
+                latitude: coordinate.latitude, longitude: coordinate.longitude,
+                status: status, revision: revision, createdAt: "2026-11-08T00:00:00Z")
+        }
+        let pending = story("pending", revision: 3)
+        var look = OiWardrobeLook()
+        look.topColor = 0x6A4194
+        look.bottomColor = 0xA3BAD9
+        var customization = OiDraftCustomization()
+        customization.wardrobe = look
+        var local = OiLocalDraft(draft: OiStoryDraft(story: pending), customization: customization)
+        local.personalPlacement = OiPersonalPlacement(regionID: region.id, name: pending.cucumberName,
+            latitude: coordinate.latitude, longitude: coordinate.longitude, heightMeters: 1.2, headingDegrees: 135)
+        let personal = try XCTUnwrap(CampusAuthoredPlacement(personal: local, story: nil))
+        let markerID = "campus.authored." + storyID.uuidString
+        let modelName = "authored:" + storyID.uuidString
+        scene.setAuthoredPlacements([personal])
+        await scene.loadAuthoredModels()
+        XCTAssertEqual(personal.visibility, .personal)
+        XCTAssertEqual(personal.placement.headingDegrees, 135)
+        XCTAssertEqual(personal.wardrobe, look)
+        XCTAssertNotNil(canvas.map?.scene.findEntity(named: modelName), "The outfit loads on the campus overview")
+
+        let legacy = try XCTUnwrap(CampusAuthoredPlacement(story: pending, owner: owner, localDraft: local))
+        XCTAssertNil(CampusAuthoredPlacement(story: pending, owner: UUID(), localDraft: local))
+        XCTAssertNil(CampusAuthoredPlacement(story: story("hidden", revision: 4), owner: owner, localDraft: local))
+        XCTAssertNil(CampusAuthoredPlacement(story: story("draft", revision: 4), owner: owner, localDraft: local))
+        XCTAssertNil(CampusAuthoredPlacement(story: story("published", revision: 4), owner: owner, localDraft: nil))
+        // Server receipts can normalize fields without changing the identity of the private outfit.
+        local.draft.latitude = coordinate.latitude + 0.001
+        XCTAssertEqual(CampusAuthoredPlacement(story: pending, owner: owner, localDraft: local)?.wardrobe, look)
+        XCTAssertEqual(legacy.wardrobe, look)
+        let authored = try XCTUnwrap(CampusAuthoredPlacement(personal: local, story: pending))
+        XCTAssertEqual(authored.placement, personal.placement, "Unconfirmed draft edits leave the saved position intact")
+
+        scene.setAuthoredPlacements([authored])
+        scene.focus(region, stories: [], placement: authored.placement)
+        await scene.loadAuthoredModels()
+        let marker = try XCTUnwrap(canvas.subviews.first { $0.accessibilityIdentifier == markerID } as? UIButton)
+        XCTAssertTrue(marker.accessibilityLabel?.contains("검토 중 · 나만 보기") == true)
+        var opened: UUID?
+        scene.onAuthoredPlacement = { opened = $0 }
+        marker.sendActions(for: .touchUpInside)
+        XCTAssertEqual(opened, storyID)
+        let model = try XCTUnwrap(canvas.map?.scene.findEntity(named: modelName))
+        XCTAssertLessThan(simd_distance(model.position(relativeTo: nil), location), 0.001)
+        XCTAssertGreaterThan(model.visualBounds(relativeTo: nil).extents.y, 1)
+        try await capture("authored-oi-at-selected-location", in: canvas)
+
+        var publishedStory = story("published", revision: 4)
+        publishedStory.heightMeters = 2
+        publishedStory.headingDegrees = 35
+        let published = try XCTUnwrap(CampusAuthoredPlacement(story: publishedStory, owner: owner, localDraft: local))
+        scene.setAuthoredPlacements([published])
+        let publicStory = CampusStory(id: storyID.uuidString, regionID: region.id, title: pending.cucumberName,
+            image: pending.cucumberAsset, tags: [], donor: "테스트 작성자", location: region.title, date: "",
+            order: 0, popularity: 0, palette: 0, latitude: coordinate.latitude, longitude: coordinate.longitude)
+        scene.focus(region, stories: [publicStory], placement: published.placement)
+        let publicPinID = "campus.pin." + storyID.uuidString
+        XCTAssertFalse(canvas.subviews.contains { $0.accessibilityIdentifier == publicPinID })
+        XCTAssertEqual(canvas.subviews.filter { $0.accessibilityIdentifier == markerID }.count, 1)
+        let publishedMarker = try XCTUnwrap(canvas.subviews.first { $0.accessibilityIdentifier == markerID } as? UIButton)
+        XCTAssertEqual(publishedMarker.accessibilityLabel, "보라색 오이, 공개 중 · 내 오이")
+        XCTAssertLessThan(publishedMarker.bounds.width, 120)
+        XCTAssertLessThan(publishedMarker.bounds.height, 40)
+
+        func assertLabelAboveModel() throws {
+            let map = try XCTUnwrap(canvas.map)
+            let entity = try XCTUnwrap(map.scene.findEntity(named: modelName))
+            let bounds = entity.visualBounds(relativeTo: nil)
+            let head = try XCTUnwrap(map.project(SIMD3(bounds.center.x, bounds.max.y, bounds.center.z)))
+            XCTAssertFalse(publishedMarker.isHidden)
+            XCTAssertLessThan(publishedMarker.frame.maxY, head.y, "Even the tallest model should clear its label")
+        }
+
+        try await capture("authored-oi-published-label", in: canvas)
+        try assertLabelAboveModel()
+        let tilt = TestTilt()
+        tilt.state = .began
+        scene.perform(NSSelectorFromString("pan:"), with: tilt)
+        tilt.state = .changed
+        tilt.delta = CGPoint(x: 80, y: 170)
+        scene.perform(NSSelectorFromString("pan:"), with: tilt)
+        try await capture("authored-oi-published-label-overhead", in: canvas)
+        try assertLabelAboveModel()
+        tilt.state = .ended
+        scene.perform(NSSelectorFromString("pan:"), with: tilt)
+
+        scene.suspendForARCamera()
+        scene.setVisible(true)
+        XCTAssertNotNil(canvas.map?.scene.findEntity(named: modelName))
+
+        scene.setAuthoredPlacements([])
+        XCTAssertNil(canvas.map?.scene.findEntity(named: modelName))
+        XCTAssertFalse(canvas.subviews.contains { $0.accessibilityIdentifier == markerID })
+        XCTAssertTrue(canvas.subviews.contains { $0.accessibilityIdentifier == publicPinID })
+        scene.setOverviewStories([publicStory])
+        scene.showOverview()
+        scene.setAuthoredPlacements([published])
+        XCTAssertFalse(canvas.subviews.contains { $0.accessibilityIdentifier == publicPinID })
+        scene.setAuthoredPlacements([])
+        XCTAssertEqual(canvas.subviews.filter { $0.accessibilityIdentifier == publicPinID }.count, 1)
     }
 
     func testCenterLocationTracksMapAndRejectsBuildings() async throws {
@@ -279,12 +423,18 @@ final class CampusMapInteractionTests: XCTestCase {
         window.layoutIfNeeded()
         canvas.layoutIfNeeded()
         let data = try XCTUnwrap(scene.data)
-        let point = try XCTUnwrap(data.graph.values.map { data.world($0.p) }.first { p in
+        let library = try XCTUnwrap(CampusRegion.campus.first { $0.id == "library" })
+        let libraryPOI = try XCTUnwrap(data.pois.first { $0.id == library.placeID })
+        let libraryCenter = data.world(libraryPOI.p)
+        let outdoors = data.graph.values.map { data.world($0.p) }.filter { p in
             [-1, 0, 1].allSatisfy { x in
                 [-1, 0, 1].allSatisfy { z in
                     data.placementError(at: p + SIMD3(Float(x), 0, Float(z))) == nil
                 }
             }
+        }
+        let point = try XCTUnwrap(outdoors.min {
+            simd_distance_squared($0, libraryCenter) < simd_distance_squared($1, libraryCenter)
         })
         let original = data.coordinate(point)
         scene.beginCenterLocation(latitude: original.latitude, longitude: original.longitude)
@@ -343,6 +493,100 @@ final class CampusMapInteractionTests: XCTestCase {
         let reopened = try XCTUnwrap(scene.confirmCenterLocation())
         XCTAssertEqual(reopened.latitude, original.latitude, accuracy: 0.000001)
         XCTAssertEqual(reopened.longitude, original.longitude, accuracy: 0.000001)
+        XCTAssertEqual(reopened.region?.id, library.id, "Save the confirmed pin's region instead of the default region")
+    }
+
+    func testPlacementPreviewGesturesChangeOiWithoutMovingCamera() async throws {
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        let scene = CampusExploreScene()
+        scene.setSharedMap(true)
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controller.view.addSubview(canvas)
+        window.isHidden = false
+        defer {
+            scene.suspendForARCamera()
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+        }
+        await scene.load()
+        window.layoutIfNeeded()
+        canvas.layoutIfNeeded()
+
+        let data = try XCTUnwrap(scene.data)
+        let start = try XCTUnwrap(data.graph.sorted { $0.key < $1.key }.map { data.world($0.value.p) }.first { point in
+            [0, 0.5, 1].allSatisfy { data.placementError(at: point + SIMD3($0, 0, 0)) == nil }
+        })
+        let coordinate = data.coordinate(start)
+        let placement = CampusPlacement(storyID: "gesture-check", latitude: coordinate.latitude,
+            longitude: coordinate.longitude, heightMeters: 1.2, headingDegrees: 10)
+        scene.beginPlacementPreview(placement)
+        await scene.preparePlacements(wardrobe: OiWardrobeLook())
+        let modelName = "placement:" + placement.id.uuidString
+        let map = try XCTUnwrap(canvas.map)
+        let model = try XCTUnwrap(map.scene.findEntity(named: modelName))
+        let camera = try XCTUnwrap(map.scene.anchors.flatMap { Array($0.children) }.compactMap { $0 as? PerspectiveCamera }.first)
+        let cameraStart = camera.position(relativeTo: nil)
+        let initialHeight = model.visualBounds(relativeTo: nil).extents.y
+        var committed: CampusPlacement?
+        scene.onPreviewChange = { value, _ in committed = value }
+
+        let a = CGPoint(x: 80, y: 100)
+        scene.updatePlacementPreviewTouches([0: a])
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: 82, y: 100)])
+        XCTAssertEqual(scene.placementPreview, placement, "A small motion while setting down a finger does not drag")
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: 92, y: 100)])
+        let moved = try XCTUnwrap(scene.placementPreview)
+        XCTAssertGreaterThan(moved.longitude, placement.longitude)
+        let ground = data.world(latitude: moved.latitude, longitude: moved.longitude)
+        XCTAssertLessThan(simd_distance(model.position(relativeTo: nil), ground), 0.001)
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: canvas.bounds.width * 2, y: 100)])
+        XCTAssertNotNil(scene.previewMovementError)
+        XCTAssertEqual(scene.placementPreview, moved)
+
+        scene.updatePlacementPreviewTouches([0: a, 1: CGPoint(x: 120, y: 100)])
+        XCTAssertEqual(scene.placementPreview, moved, "Touch centroid changes do not move or rotate the model")
+        let centerX = 100 + canvas.bounds.width / 2
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX - 20, y: 100), 1: CGPoint(x: centerX + 20, y: 100)])
+        XCTAssertEqual(scene.placementPreview?.headingDegrees, 190)
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX, y: 80), 1: CGPoint(x: centerX, y: 120)])
+        XCTAssertEqual(try XCTUnwrap(scene.placementPreview?.headingDegrees), 100, accuracy: 0.001)
+
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX, y: 75), 1: CGPoint(x: centerX, y: 125)])
+        XCTAssertEqual(scene.placementPreview?.heightCentimeters, 150)
+        XCTAssertEqual(model.visualBounds(relativeTo: nil).extents.y, initialHeight * 1.25, accuracy: 0.001)
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX, y: 0), 1: CGPoint(x: centerX, y: 200)])
+        XCTAssertEqual(scene.placementPreview?.heightCentimeters, 200)
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX, y: 98), 1: CGPoint(x: centerX, y: 102)])
+        XCTAssertEqual(scene.placementPreview?.heightCentimeters, 40)
+        let adjusted = try XCTUnwrap(scene.placementPreview)
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX, y: 98)])
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX + 28, y: 98)])
+        scene.updatePlacementPreviewTouches([0: CGPoint(x: centerX + 50, y: 98)])
+        XCTAssertEqual(scene.placementPreview, adjusted, "Lifting one finger must not turn rotation into a move")
+        XCTAssertNil(committed, "The sequence ends only after all fingers lift")
+        scene.updatePlacementPreviewTouches([:])
+        XCTAssertEqual(committed, scene.placementPreview)
+        XCTAssertEqual(committed?.latitude, moved.latitude)
+        XCTAssertEqual(committed?.longitude, moved.longitude)
+
+        scene.updatePlacementPreviewTouches([2: a])
+        scene.updatePlacementPreviewTouches([2: CGPoint(x: 92, y: 100)])
+        let movedAgain = try XCTUnwrap(scene.placementPreview)
+        XCTAssertGreaterThan(movedAgain.longitude, moved.longitude, "A fresh one-finger drag can move the model")
+        scene.updatePlacementPreviewTouches([:])
+        XCTAssertEqual(committed, movedAgain)
+        XCTAssertEqual(camera.position(relativeTo: nil), cameraStart)
+        scene.suspendForARCamera(); scene.setVisible(true)
+        let restored = try XCTUnwrap(canvas.map?.scene.findEntity(named: modelName))
+        let restoredGround = data.world(latitude: movedAgain.latitude, longitude: movedAgain.longitude)
+        XCTAssertLessThan(simd_distance(restored.position(relativeTo: nil), restoredGround), 0.001)
+        XCTAssertEqual(restored.scale, model.scale)
     }
 
     func testOverviewPinchReversalAndTilt() async throws {
@@ -693,10 +937,105 @@ final class CampusMapInteractionTests: XCTestCase {
         XCTAssertLessThan(simd_distance(pose().target, hiddenDestination), 0.01, "Backgrounding must clear the old edge-return motion")
     }
 
+    func testMapAppearancePreservesCameraGeometryAndOriginalColors() async throws {
+        let previous = CampusMapAppearance.saved
+        defer { previous.save() }
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        let scene = CampusExploreScene()
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controller.view.addSubview(canvas)
+        window.isHidden = false
+        defer {
+            scene.suspendForARCamera()
+            canvas.removeFromSuperview()
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+        }
+        scene.setAppearance(.original)
+        await scene.load()
+        XCTAssertTrue(scene.ready, scene.error ?? "Map should load")
+        window.layoutIfNeeded()
+        canvas.layoutIfNeeded()
+        func root() throws -> Entity {
+            try XCTUnwrap(canvas.map?.scene.anchors.flatMap { Array($0.children) }
+                .first { $0.name.hasPrefix("POSTECH v09") })
+        }
+        func colors(_ entity: Entity) -> [String: UIColor] {
+            Dictionary(uniqueKeysWithValues: entity.children.compactMap { child in
+                guard let model = child as? ModelEntity,
+                      let material = model.model?.materials.first as? SimpleMaterial else { return nil }
+                return (child.name, material.color.tint)
+            })
+        }
+        func assertBackdropBelowMap() throws {
+            let layers = try XCTUnwrap(canvas.layer.sublayers)
+            let backdropIndex = try XCTUnwrap(layers.firstIndex(of: canvas.backdrop))
+            let mapIndex = try XCTUnwrap(layers.firstIndex(of: try XCTUnwrap(canvas.map).layer))
+            XCTAssertLessThan(backdropIndex, mapIndex, "The opaque gradient must not cover the rendered map")
+        }
+        try assertBackdropBelowMap()
+        let original = try root()
+        let originalColors = colors(original)
+        let bounds = original.visualBounds(relativeTo: nil)
+        let camera = try XCTUnwrap(canvas.map?.scene.anchors.flatMap { Array($0.children) }.compactMap { $0 as? PerspectiveCamera }.first)
+        let cameraTransform = camera.transform
+        try await capture("palette-original-overview", in: canvas)
+        scene.setAppearance(.apricotCream)
+        XCTAssertNil(scene.error)
+        XCTAssertFalse(try XCTUnwrap(canvas.map).isOpaque)
+        XCTAssertEqual(canvas.backdrop.colors as? [CGColor], CampusMapAppearance.apricotCream.backdropColors.map(\.cgColor))
+        let litView = try XCTUnwrap(canvas.map)
+        let sun = try XCTUnwrap(litView.scene.anchors.first?.findEntity(named: "campus-sun") as? DirectionalLight)
+        XCTAssertNotNil(sun.shadow)
+        XCTAssertNotNil(litView.environment.lighting.resource)
+        XCTAssertEqual(litView.environment.lighting.intensityExponent, 1)
+        let apricot = try root()
+        XCTAssertEqual(apricot.children.count, original.children.count)
+        XCTAssertEqual(apricot.visualBounds(relativeTo: nil).extents, bounds.extents)
+        XCTAssertEqual(apricot.visualBounds(relativeTo: nil).center, bounds.center)
+        XCTAssertEqual(camera.transform, cameraTransform)
+        XCTAssertNotEqual(colors(apricot), originalColors)
+        XCTAssertEqual(colors(original), originalColors, "Recoloring a clone must not mutate the template")
+        try await capture("palette-apricot-overview", in: canvas)
+        scene.focus(try XCTUnwrap(CampusRegion.campus.first { $0.id == "pond" }), stories: [])
+        try await capture("palette-apricot-pond", in: canvas)
+        let focusedCamera = camera.transform
+        let mapData = try XCTUnwrap(scene.data)
+        let pondRegion = try XCTUnwrap(CampusRegion.campus.first { $0.id == "pond" })
+        let pond = mapData.world(try XCTUnwrap(mapData.pois.first { $0.id == pondRegion.placeID }).p)
+        camera.look(at: pond + SIMD3(0, 5, 0), from: pond + SIMD3(4, 23, 43), relativeTo: nil)
+        try await capture("palette-apricot-low-angle", in: canvas)
+        camera.transform = focusedCamera
+        scene.setAppearance(.original)
+        XCTAssertEqual(canvas.backdrop.colors as? [CGColor], CampusMapAppearance.original.backdropColors.map(\.cgColor))
+        XCTAssertEqual(colors(try root()), originalColors)
+        XCTAssertEqual(camera.transform, focusedCamera)
+        let originalSun = try XCTUnwrap(litView.scene.anchors.first?.findEntity(named: "campus-sun") as? DirectionalLight)
+        XCTAssertEqual(originalSun.shadow?.depthBias, DirectionalLight().shadow?.depthBias)
+        XCTAssertNil(litView.environment.lighting.resource)
+        XCTAssertEqual(originalSun.light.intensity, 2200)
+        try await capture("palette-original-pond", in: canvas)
+        scene.setAppearance(.apricotCream)
+        scene.suspendForARCamera()
+        scene.setVisible(true)
+        try assertBackdropBelowMap()
+        XCTAssertEqual(canvas.backdrop.colors as? [CGColor], CampusMapAppearance.apricotCream.backdropColors.map(\.cgColor))
+        XCTAssertEqual(colors(try root()), colors(apricot), "Renderer recreation must retain the chosen palette")
+        XCTAssertNotNil(canvas.map?.environment.lighting.resource)
+        XCTAssertNotNil((canvas.map?.scene.anchors.first?.findEntity(named: "campus-sun") as? DirectionalLight)?.shadow)
+        XCTAssertEqual(CampusMapAppearance.saved, .apricotCream)
+    }
+
     private func waitUntil(_ description: String, timeout: TimeInterval = 3, condition: () -> Bool,
                            file: StaticString = #filePath, line: UInt = #line) async throws {
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(min(30, timeout)))
+        let deadline = clock.now.advanced(by: .seconds(min(3, timeout)))
         while !condition(), clock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
@@ -730,8 +1069,7 @@ final class CampusMapInteractionTests: XCTestCase {
 
     private func badges(in canvas: CampusMapCanvas) -> [String: Badge] {
         Dictionary(uniqueKeysWithValues: canvas.subviews.compactMap { view -> (String, Badge)? in
-            guard let button = view as? UIButton, !button.isHidden, let id = button.accessibilityIdentifier,
-                  id.hasPrefix("campus.region.") || id.hasPrefix("campus.cluster.") else { return nil }
+            guard let button = view as? UIButton, !button.isHidden, let id = button.accessibilityIdentifier else { return nil }
             return (id, Badge(center: button.center, alpha: button.alpha,
                               label: button.accessibilityLabel ?? "", interactive: button.isUserInteractionEnabled))
         })
@@ -751,14 +1089,11 @@ final class CampusMapInteractionTests: XCTestCase {
 
     private func capture(_ name: String, in canvas: CampusMapCanvas) async throws {
         let map = try XCTUnwrap(canvas.map)
-        // Allow lighting/shadow buffers to settle before a visual comparison.
-        try await Task.sleep(for: .milliseconds(350))
         let rendered = await withCheckedContinuation { continuation in
             map.snapshot(saveToHDR: false) { continuation.resume(returning: $0) }
         }
         let image = try XCTUnwrap(rendered)
         let composite = UIGraphicsImageRenderer(bounds: canvas.bounds).image { context in
-            canvas.backdrop.render(in: context.cgContext)
             image.draw(in: canvas.bounds)
             for overlay in canvas.subviews where overlay !== map && !overlay.isHidden {
                 context.cgContext.saveGState()
@@ -785,13 +1120,6 @@ private final class TestPinch: UIPinchGestureRecognizer {
         get { testScale }
         set { testScale = newValue }
     }
-}
-
-private final class TestRotation: UIRotationGestureRecognizer {
-    private var testState: State = .possible
-    private var testRotation: CGFloat = 0
-    override var state: State { get { testState } set { testState = newValue } }
-    override var rotation: CGFloat { get { testRotation } set { testRotation = newValue } }
 }
 
 private final class TestTilt: UIPanGestureRecognizer {

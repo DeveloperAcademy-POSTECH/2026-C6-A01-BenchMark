@@ -11,8 +11,8 @@ struct ARGameHUD: View {
     let remainingSeconds: Int
     let collectedCount: Int
     let targetCount: Int
-    let cucumberImageURL: URL?
-    var cucumberAssetName: String? = nil
+    let artwork: UIImage?
+    @State private var outline: UIImage?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -26,6 +26,7 @@ struct ARGameHUD: View {
             }
             .frame(maxWidth: .infinity)
         }
+        .task(id: artwork) { outline = artwork.flatMap(CucumberArtwork.collectionOutline) }
     }
 
     private var timer: some View {
@@ -33,7 +34,7 @@ struct ARGameHUD: View {
             Image(systemName: "clock.fill")
                 .font(.system(size: 30))
             Text("\(remainingSeconds)")
-                .font(.custom("PearToucan-Regular", fixedSize: 30))
+                .font(.custom("Paperlogy-4Regular", fixedSize: 30))
                 .monospacedDigit()
         }
         .foregroundStyle(.white)
@@ -45,15 +46,16 @@ struct ARGameHUD: View {
 
     private func collectionTray(width: CGFloat) -> some View {
         ZStack {
-            Image("ARGameCollectionTray")
-                .resizable()
-                .accessibilityHidden(true)
+            RoundedRectangle(cornerRadius: 30)
+                .fill(Color(white: 120 / 255).opacity(0.2))
             HStack(spacing: 25) {
                 ForEach(0..<targetCount, id: \.self) { index in
                     ZStack {
-                        if index < collectedCount {
-                            CucumberCharacterImage(imageURL: cucumberImageURL, contentMode: .fit, assetName: cucumberAssetName)
-                                .transition(.opacity)
+                        if index < collectedCount, let artwork {
+                            Image(uiImage: artwork).resizable().scaledToFit().transition(.opacity)
+                        } else if let outline {
+                            Image(uiImage: outline).renderingMode(.template).resizable().scaledToFit()
+                                .foregroundStyle(.white.opacity(0.8))
                         }
                     }
                     .frame(width: 72, height: 118)

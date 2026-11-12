@@ -52,10 +52,10 @@ struct OiStoryListView: View {
             }
 
             ToolbarItem(placement: .topBarTrailing) {
-                optionalButton(action: onAddSeed) {
-                    OiSeedBalanceLabel(count: seedCount)
+                if let onAddSeed {
+                    Button(action: onAddSeed) { OiSeedBalanceLabel(count: seedCount) }
+                        .accessibilityIdentifier("storyList.seedBalance")
                 }
-                .accessibilityIdentifier("storyList.seedBalance")
             }
             .sharedBackgroundVisibility(.hidden)
         }
@@ -190,7 +190,7 @@ struct OiStoryListView: View {
 
     private func storyTitle(_ title: String) -> some View {
         Text(title)
-            .font(.custom("PearToucan-Bold", size: 20, relativeTo: .title3))
+            .font(.custom("Paperlogy-7Bold", size: 20, relativeTo: .title3))
             .tracking(0.8)
             .lineSpacing(usesAccessibilityLayout ? titleLineSpacing : 0)
             .lineLimit(usesAccessibilityLayout ? nil : 1)
@@ -397,7 +397,7 @@ struct OiSeedBalanceLabel: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("씨앗 추가")
         .accessibilityValue(count.map { "\($0)개" } ?? "개수 확인 준비 중")
-        .accessibilityHint("기부 인증 미리보기 열기")
+        .accessibilityHint("씨앗 안내 열기")
     }
 
     private var seedBalanceBorderColor: Color {
@@ -424,10 +424,10 @@ struct OiStorySeedIcon: View {
 }
 
 extension OiStoryListView {
-    static let listGuidance = "본인이 만든 오이를 씨앗을 통해 농장에 심을 수 있습니다"
+    static let listGuidance = "나만의 오이와 이야기를 만들어 보세요."
     static let listNotices = [
-        "이야기 저장은 4개까지 가능합니다",
-        "농장에 심기 전에는 이야기 및 오이를 눌러서 편집할 수 있습니다"
+        OiWritingGuidance.publication,
+        "내 지도에 배치한 오이와 기기 초안은 내 이야기에서 다시 열 수 있어요."
     ]
 }
 

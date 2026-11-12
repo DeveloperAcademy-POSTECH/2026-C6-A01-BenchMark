@@ -42,7 +42,7 @@ struct MYFarmView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if hasPlots {
                     Text("* 내가 등록한 오이를 확인해보세요!")
-                        .font(.custom("PearToucan-Regular", size: 20, relativeTo: .body))
+                        .font(.custom("Paperlogy-4Regular", size: 20, relativeTo: .body))
                         .foregroundStyle(CampusStyle.sectionGreen)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 28).padding(.vertical, 4)
@@ -66,7 +66,7 @@ struct MYFarmView: View {
 
     private var farmTitle: some View {
         Text("\(remote?.profile?.farmName ?? "오이") 밭")
-            .font(.custom("PearToucan-Regular", size: 35, relativeTo: .title))
+            .font(.custom("Paperlogy-4Regular", size: 35, relativeTo: .title))
             .foregroundStyle(Color(red: 126 / 255, green: 88 / 255, blue: 48 / 255))
             .lineLimit(1).minimumScaleFactor(0.6).accessibilityAddTraits(.isHeader)
     }
@@ -131,11 +131,11 @@ struct MYFarmView: View {
             Image("MYEmptyCucumber").resizable().scaledToFit()
                 .shadow(color: .black.opacity(0.4), radius: 15).frame(height: 277)
                 .frame(maxWidth: .infinity).accessibilityHidden(true)
-            Text("아직 기부한 오이가 없어요")
+            Text("아직 만든 오이가 없어요")
                 .font(.custom("Paperlogy-7Bold", size: 30, relativeTo: .title))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
-            Text("안내된 정식 기부처의 절차를 따라 기부해요.\n작성 승인 또는 임시 작성 모드에서 나만의 오이와 이야기를 만들 수 있어요.")
+            Text("나만의 오이와 이야기를 만들어 보세요.\n작성 조건은 이야기 목록에서 확인할 수 있어요.")
                 .font(.custom("Paperlogy-3Light", size: 18, relativeTo: .body)).lineSpacing(5)
             NavigationLink {
                 if let remote { OiStoryListScreen(remote: remote) }
@@ -150,7 +150,7 @@ struct MYFarmView: View {
     }
 
     private var emptyAction: some View {
-        Text("기부하고 오이만들기").font(.custom("Paperlogy-6SemiBold", size: 25, relativeTo: .title2))
+        Text("오이와 이야기 만들기").font(.custom("Paperlogy-6SemiBold", size: 25, relativeTo: .title2))
             .multilineTextAlignment(.center).foregroundStyle(.black)
             .padding(.horizontal, 20).padding(.vertical, 15)
             .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : 284, minHeight: 68)

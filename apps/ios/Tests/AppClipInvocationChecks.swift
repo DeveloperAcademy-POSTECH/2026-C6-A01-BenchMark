@@ -42,6 +42,29 @@ private actor ControlledStoryRepository: StoryRepository {
     }
 }
 
+private actor BrowseRepository: StoryRepository {
+    let id = UUID(uuidString: "19900000-0000-4000-8000-000000000001")!
+    var fails = false
+    var removed = false
+    var offsets: [Int] = []
+    func setFailure(_ value: Bool) { fails = value }
+    func removeStory() { removed = true }
+    func fetchPublicStories(offset: Int) async throws -> [PublicStorySummary] {
+        offsets.append(offset)
+        if fails { throw CheckError.failed }
+        if removed || offset > 0 { return [] }
+        return Array(repeating: PublicStorySummary(id: id, userId: id, title: "가상 검사 이야기", cucumberName: "검사 오이"), count: 20)
+    }
+    func fetchPublicStory(storyID: String) async throws -> Story? {
+        if removed { return nil }
+        return Story(storyID: id.uuidString, donorID: id, donorDisplayName: "가상 농부", title: "가상 검사", content: "테스트 전용",
+            publishedAt: Date(), location: StoryLocation(locationID: "pond", displayName: "검사 장소"), tags: [], cucumberID: id.uuidString, cucumberName: "검사 오이")
+    }
+    func fetchPublicStoryCard(storyID: String) async throws -> StoryCard? {
+        StoryCard(cardID: id.uuidString, storyID: id.uuidString, imageURL: nil)
+    }
+}
+
 @MainActor
 private final class ControlledGameClock {
     private var sleepers: [CheckedContinuation<Void, Error>] = []
@@ -106,6 +129,37 @@ struct AppClipInvocationChecks {
         ]
         for value in valid { require(AppClipLink.matches(url(value)), "valid default link: \(value)") }
         for value in invalid { require(!AppClipLink.matches(url(value)), "reject link: \(value)") }
+
+        let browseRepository = BrowseRepository()
+        let browse = AppClipViewModel(storyRepository: browseRepository)
+        await browse.loadPublicStories(reset: true)
+        require(browse.publicStories.count == 1 && browse.hasMoreStories, "deduplicates a public page without losing pagination")
+        await browse.loadPublicStories()
+        let offsets = await browseRepository.offsets
+        require(offsets == [0, 20] && !browse.hasMoreStories, "pagination uses server row count")
+        await browseRepository.setFailure(true)
+        await browse.loadPublicStories(reset: true)
+        require(browse.listError != nil && browse.publicStories.count == 1, "refresh failure preserves previously loaded content")
+        await browseRepository.setFailure(false)
+        let browseID = await browseRepository.id
+        let storyURL = AppClipLink.storyURL(browseID)
+        require(AppClipLink.storyID(in: storyURL) == browseID.uuidString, "story URL round trip")
+        require(!AppClipLink.matches(url(AppClipLink.defaultURLString + "&story=bad")), "reject malformed story")
+        require(!AppClipLink.matches(url(storyURL.absoluteString + "&story=" + browseID.uuidString)), "reject duplicated story parameter")
+        await browse.handleInvocationURL(invocationURL: storyURL)
+        require(browse.state == .ready && browse.story?.storyID == browseID.uuidString, "production configuration reaches actual story without a custom host")
+        let canCollect = await browse.canCollectCurrentStory()
+        require(canCollect, "published story can be collected")
+        let appRouter = AppRouter()
+        appRouter.open(storyURL)
+        require(appRouter.storyPath == [.story(browseID.uuidString)], "installed app opens the same story")
+        await browseRepository.removeStory()
+        let removedCanCollect = await browse.canCollectCurrentStory()
+        require(!removedCanCollect, "withdrawn story cannot be saved after an AR round")
+        browse.showWelcome()
+        await browse.loadPublicStories(reset: true)
+        require(browse.publicStories.isEmpty && browse.listError == nil, "real empty state has no invented stories")
+        print("PASS: public browsing, pagination, retry, direct production story link and revoked collection")
 
         let repository = ControlledStoryRepository()
         let model = AppClipViewModel(storyRepository: repository)
@@ -244,6 +298,10 @@ struct AppClipInvocationChecks {
                 imageURL: url("https://example.com/story-cards/first.png")
             )
         let collectionStore = StoryCollectionStore(defaults: collectionDefaults)
+        let sampleCard = StoryCard(cardID: OiSampleStory.id, storyID: OiSampleStory.id, imageURL: nil)
+        require(UUID(uuidString: sampleCard.storyID) == nil, "sample cannot be passed as a server UUID")
+        require(!collectionStore.collect(sampleCard), "sample collection cannot enter the shared App Group store")
+        require(StoryCollectionStore(defaults: collectionDefaults).cards.isEmpty, "sample leaves no importable record")
         require(collectionStore.collect(storyCard, at: Date(timeIntervalSince1970: 1)), "first collection is stored")
         require(!collectionStore.collect(storyCard, at: Date(timeIntervalSince1970: 2)), "duplicate collection is ignored")
         require(collectionStore.cards.count == 1, "one collection record is stored per story")

@@ -16,6 +16,7 @@ struct OiSchoolEvidenceView: View {
     enum Document: Hashable { case studentID, enrollment, diploma, webmail }
     enum Step: Hashable {
         case profile, affiliation, document(Affiliation), attachment(Affiliation, Document)
+        case result(OiSchoolEvidenceOutcome)
     }
 
     let remote: OiRemoteStore
@@ -36,9 +37,14 @@ struct OiSchoolEvidenceView: View {
         let contentType: String
         let name: String
     }
-    private struct AnalysisRequest: Identifiable {
+    private struct PendingReview {
+        let owner: UUID
+        let result: OiSavedSchoolEvidenceReview
+    }
+    private struct ReviewRequest: Identifiable {
+        enum Action { case analyze(Attachment), save(PendingReview) }
         let id = UUID()
-        let attachment: Attachment
+        let action: Action
     }
     private struct ProfileSubmission: Identifiable {
         let id = UUID()
@@ -68,10 +74,12 @@ struct OiSchoolEvidenceView: View {
     @State private var cameraDenied = false
     @State private var selection: Selection?
     @State private var attachment: Attachment?
-    @State private var analysisRequest: AnalysisRequest?
-    @State private var review: OiSavedSchoolEvidenceReview?
+    @State private var reviewRequest: ReviewRequest?
+    @State private var pendingReview: PendingReview?
+    @State private var reviewLoadedOwner: UUID?
     @State private var historyError: String?
     @State private var error: String?
+    @State private var showingSupport = false
 
     init(remote: OiRemoteStore, initialStep: Step = .profile) {
         self.remote = remote
@@ -84,7 +92,7 @@ struct OiSchoolEvidenceView: View {
         return calendar.component(.year, from: .now)
     }
     private var cleanDepartment: String { department.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var isProcessing: Bool { selection != nil || analysisRequest != nil || profileSubmission != nil }
+    private var isProcessing: Bool { selection != nil || reviewRequest != nil || profileSubmission != nil }
     private var canSaveProfile: Bool {
         schoolID != nil && admissionYear != nil && (skipsDepartment || (!cleanDepartment.isEmpty && cleanDepartment.unicodeScalars.count <= 100))
             && remote.hasLoadedRemote && !remote.needsReauthentication
@@ -98,17 +106,32 @@ struct OiSchoolEvidenceView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if remote.account != nil {
-                    OiConnectionStatus(remote: remote, showsInitialProgress: !remote.hasLoadedRemote)
-                    switch step {
-                    case .profile: profileForm
-                    case .affiliation: affiliationChoices
-                    case .document(let affiliation): documentChoices(affiliation)
-                    case .attachment: attachmentForm
+                if let owner = remote.account?.id {
+                    if reviewLoadedOwner != owner {
+                        ProgressView("자료 확인 결과 불러오는 중")
+                    } else if case .result(let outcome) = step {
+                        resultView(outcome)
+                    } else {
+                        OiConnectionStatus(remote: remote, showsInitialProgress: !remote.hasLoadedRemote)
+                        if let historyError { Text(historyError).font(.footnote).foregroundStyle(.secondary) }
+                        switch step {
+                        case .profile: profileForm
+                        case .affiliation: affiliationChoices
+                        case .document(let affiliation): documentChoices(affiliation)
+                        case .attachment:
+                            if pendingReview == nil { attachmentForm }
+                            if reviewRequest != nil {
+                                ProgressView(pendingReview == nil ? "학교 증빙 확인 중" : "자료 확인 결과 저장 중")
+                            }
+                        case .result: EmptyView()
+                        }
+                        if let error {
+                            Text(error).font(.footnote).foregroundStyle(.red)
+                                .accessibilityIdentifier("oi.schoolEvidence.error")
+                        }
                     }
-                    if let error { Text(error).font(.footnote).foregroundStyle(.red).accessibilityIdentifier("oi.schoolEvidence.error") }
                 } else {
-                    Text("로그인한 뒤 학교 인증을 시작해 주세요.")
+                    Text("로그인한 뒤 학교 자료 확인을 시작해 주세요.")
                         .font(CampusStyle.body(16))
                 }
             }
@@ -123,7 +146,7 @@ struct OiSchoolEvidenceView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .top, spacing: 0) {
-            OiSettingsHeader(title: "학교 인증", back: goBack, close: { clearTransient(); dismiss() })
+            OiSettingsHeader(title: "학교 자료 확인", back: goBack, close: { clearTransient(); dismiss() })
         }
         .accessibilityAction(.escape, goBack)
         .confirmationDialog("첨부 방법 선택", isPresented: $choosingSource, titleVisibility: .visible) {
@@ -174,8 +197,8 @@ struct OiSchoolEvidenceView: View {
         .task(id: selection?.id) {
             if let selection { await prepareAttachment(selection) }
         }
-        .task(id: analysisRequest?.id) {
-            if let analysisRequest { await analyze(analysisRequest) }
+        .task(id: reviewRequest?.id) {
+            if let reviewRequest { await submitReview(reviewRequest) }
         }
         .task(id: profileSubmission?.id) {
             if let profileSubmission { await saveProfile(profileSubmission) }
@@ -188,7 +211,7 @@ struct OiSchoolEvidenceView: View {
             schoolQuery = ""
             department = ""
             skipsDepartment = false
-            review = nil
+            reviewLoadedOwner = nil
             historyError = nil
             step = .profile
         }
@@ -304,28 +327,30 @@ struct OiSchoolEvidenceView: View {
 
     private var affiliationChoices: some View {
         VStack(alignment: .leading, spacing: 16) {
-            sectionTitle("인증 방식 선택")
-            choice("졸업생 인증", detail: "학생증 또는 졸업증명서를 첨부해주세요") { step = .document(.graduate) }
-            choice("재학생 인증", detail: "학생증 또는 재학증명서를 첨부해주세요") { step = .document(.student) }
+            sectionTitle("학교 자료 유형 선택")
+            choice("졸업생 자료 확인", detail: "학생증 또는 졸업증명서를 첨부해주세요") { step = .document(.graduate) }
+            choice("재학생 자료 확인", detail: "학생증 또는 재학증명서를 첨부해주세요") { step = .document(.student) }
         }
     }
 
     private func documentChoices(_ affiliation: Affiliation) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            sectionTitle("인증 수단 선택")
-            choice("학생증", detail: "학생증을 스캔∙촬영∙캡처 후 첨부하여 인증하기") { step = .attachment(affiliation, .studentID) }
+            sectionTitle("자료 종류 선택")
+            choice("학생증", detail: "학생증을 스캔∙촬영∙캡처 후 첨부하기") { step = .attachment(affiliation, .studentID) }
             if affiliation == .graduate {
-                choice("졸업 증명서", detail: "학교에서 발급해 준 졸업 증명서를 첨부하여 인증하기") { step = .attachment(affiliation, .diploma) }
-                choice("학교 웹메일", detail: "학교에서 사용하는 웹메일 화면을 촬영∙캡처 후 첨부하여 인증하기") { step = .attachment(affiliation, .webmail) }
+                choice("졸업 증명서", detail: "학교에서 발급해 준 졸업 증명서를 첨부하기") { step = .attachment(affiliation, .diploma) }
+                choice("학교 웹메일", detail: "학교에서 사용하는 웹메일 화면을 촬영∙캡처 후 첨부하기") { step = .attachment(affiliation, .webmail) }
             } else {
-                choice("재학 증명서", detail: "학교에서 발급해 준 재학 증명서를 첨부하여 인증") { step = .attachment(affiliation, .enrollment) }
+                choice("재학 증명서", detail: "학교에서 발급해 준 재학 증명서를 첨부하기") { step = .attachment(affiliation, .enrollment) }
             }
         }
     }
 
     private var attachmentForm: some View {
         VStack(alignment: .leading, spacing: 16) {
-            sectionTitle("인증 자료 첨부")
+            sectionTitle("학교 자료 첨부")
+            Text("AI가 자료의 학교 관련 표기를 살펴봐요. 학교의 공식 소속·신원 인증이나 문서 진위 확인은 아니에요.")
+                .font(.footnote).foregroundStyle(.secondary)
             Button { choosingSource = true } label: {
                 VStack(spacing: 4) {
                     Text(attachment?.name ?? "파일 첨부하기").font(CampusStyle.body(16)).tracking(0.32)
@@ -345,32 +370,33 @@ struct OiSchoolEvidenceView: View {
                     .font(.footnote).foregroundStyle(.secondary)
                 Toggle("선택한 증빙을 분석을 위해 OpenAI로 전송하는 데 동의합니다", isOn: $acknowledged)
                     .font(CampusStyle.body(14)).tint(CampusStyle.green)
-                    .disabled(analysisRequest != nil)
+                    .disabled(reviewRequest != nil)
                     .accessibilityIdentifier("oi.schoolEvidence.consent")
             }
-            if analysisRequest != nil { ProgressView("학교 증빙 분석 중") }
-            if let historyError { Text(historyError).font(.footnote).foregroundStyle(.secondary) }
-            if let review { reviewSummary(review) }
         }
     }
 
-    private func reviewSummary(_ review: OiSavedSchoolEvidenceReview) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("최근 증빙 판정").font(CampusStyle.medium(20)).accessibilityAddTraits(.isHeader)
-            Text(review.summary.title).font(CampusStyle.semibold(18)).accessibilityIdentifier("oi.schoolEvidence.outcome")
-            Text(review.summary.detail).font(CampusStyle.body(14))
-            Text(review.summary.nextStep).font(CampusStyle.body(14))
-            Label("제출자 본인 일치 미확인", systemImage: "person.crop.circle.badge.questionmark")
+    private func resultView(_ outcome: OiSchoolEvidenceOutcome) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label(outcome.title, systemImage: outcome == .completed ? "doc.text.magnifyingglass" : "info.circle")
+                .font(CampusStyle.semibold(24))
+                .foregroundStyle(outcome == .completed ? CampusStyle.sectionGreen : .black)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("oi.schoolEvidence.outcome")
+            Text(outcome.guidance).font(CampusStyle.body(16))
+            Text("AI 참고 결과이며 실제 소속·신원이나 문서의 진위를 보증하지 않아요.")
                 .font(.footnote).foregroundStyle(.secondary)
-            if let reference = review.summary.reference, reference.url.scheme == "https" { Link(reference.title, destination: reference.url) }
-            Text(review.reviewedAt, format: .dateTime.year().month().day().hour().minute())
-                .font(.footnote).foregroundStyle(.secondary)
-        }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(white: 243 / 255), in: RoundedRectangle(cornerRadius: 20))
+            Button("운영팀 문의 방법") { showingSupport = true }
+                .font(.body).foregroundStyle(CampusStyle.green).frame(minHeight: 44)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(white: 243 / 255), in: RoundedRectangle(cornerRadius: 20))
+        .sheet(isPresented: $showingSupport) { OiSupportView() }
     }
 
     @ViewBuilder private var bottomAction: some View {
-        if remote.account != nil {
+        if let owner = remote.account?.id, reviewLoadedOwner == owner {
             switch step {
             case .profile:
                 primaryButton(profileSubmission == nil ? "다음" : "학적정보 저장 중", disabled: !canSaveProfile) {
@@ -381,11 +407,25 @@ struct OiSchoolEvidenceView: View {
                         department: skipsDepartment ? nil : cleanDepartment)
                 }
             case .attachment:
-                primaryButton(analysisRequest == nil ? "인증 요청하기" : "분석 중", disabled: attachment == nil || !acknowledged || isProcessing || remote.isBusy || remote.needsReauthentication) {
-                    guard let attachment, attachment.owner == remote.account?.id, acknowledged else { return }
-                    error = nil
-                    analysisRequest = AnalysisRequest(attachment: attachment)
+                if reviewRequest == nil {
+                    if let pendingReview {
+                        primaryButton("다시 저장하기", disabled: false) {
+                            error = nil
+                            reviewRequest = ReviewRequest(action: .save(pendingReview))
+                        }
+                    } else {
+                        primaryButton("AI 자료 확인 요청",
+                                      disabled: attachment == nil || !acknowledged || isProcessing || remote.isBusy || remote.needsReauthentication) {
+                            guard let attachment, attachment.owner == owner, acknowledged else { return }
+                            error = nil
+                            reviewRequest = ReviewRequest(action: .analyze(attachment))
+                        }
+                    }
                 }
+            case .result(.completed):
+                primaryButton("확인", disabled: false) { dismiss() }
+            case .result:
+                primaryButton("자료 다시 확인하기", disabled: false) { step = .profile }
             default: EmptyView()
             }
         }
@@ -456,7 +496,7 @@ struct OiSchoolEvidenceView: View {
     private func goBack() {
         clearTransient()
         switch step {
-        case .profile: dismiss()
+        case .profile, .result: dismiss()
         case .affiliation: step = .profile
         case .document: step = .affiliation
         case .attachment(let affiliation, _): step = .document(affiliation)
@@ -491,14 +531,14 @@ struct OiSchoolEvidenceView: View {
         pickerOwner = nil
         acknowledged = false
         attachment = nil
-        review = nil
         error = nil
         selection = Selection(source: source, owner: owner)
     }
 
     private func clearTransient() {
         profileSubmission = nil
-        analysisRequest = nil
+        reviewRequest = nil
+        pendingReview = nil
         pickerOwner = nil
         photo = nil
         pickingPhoto = false
@@ -545,40 +585,58 @@ struct OiSchoolEvidenceView: View {
         }
     }
 
-    private func analyze(_ input: AnalysisRequest) async {
-        defer {
-            if analysisRequest?.id == input.id { analysisRequest = nil; acknowledged = false }
-        }
-        do {
-            let attachment = input.attachment
-            guard attachment.owner == remote.account?.id, !Task.isCancelled else { return }
-            let result = try await remote.reviewSchoolEvidence(attachment.data, contentType: attachment.contentType)
-            guard !Task.isCancelled, analysisRequest?.id == input.id, remote.account?.id == attachment.owner else { return }
-            guard let summary = result.summary else { throw OiServiceError.server("최신 증빙 판정을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.") }
-            let saved = OiSavedSchoolEvidenceReview(summary: summary, reviewedAt: .now)
-            review = saved
-            self.attachment = nil
-            historyError = nil
-            do { try await remote.saveSchoolEvidenceReview(saved, owner: attachment.owner) }
-            catch {
-                guard !Task.isCancelled, remote.account?.id == attachment.owner else { return }
-                historyError = "이번 판정을 기기에 저장하지 못했어요."
+    private func submitReview(_ request: ReviewRequest) async {
+        defer { if reviewRequest?.id == request.id { reviewRequest = nil } }
+
+        let pending: PendingReview
+        switch request.action {
+        case .analyze(let attachment):
+            guard isCurrentReview(request, owner: attachment.owner) else { return }
+            do {
+                let outcome = try await remote.reviewSchoolEvidence(attachment.data, contentType: attachment.contentType)
+                guard isCurrentReview(request, owner: attachment.owner) else { return }
+                pending = PendingReview(owner: attachment.owner, result: .init(outcome: outcome, reviewedAt: .now))
+                pendingReview = pending
+                self.attachment = nil
+                acknowledged = false
+            } catch {
+                guard isCurrentReview(request, owner: attachment.owner) else { return }
+                self.error = (error as? OiServiceError)?.localizedDescription
+                    ?? "학교 증빙을 확인하지 못했어요. 연결 상태를 확인한 뒤 다시 시도해 주세요."
+                return
             }
+        case .save(let review):
+            pending = review
+        }
+
+        guard isCurrentReview(request, owner: pending.owner) else { return }
+        do {
+            try await remote.saveSchoolEvidenceReview(pending.result, owner: pending.owner)
+            guard isCurrentReview(request, owner: pending.owner) else { return }
+            pendingReview = nil
+            historyError = nil
+            step = .result(pending.result.outcome)
         } catch {
-            guard !Task.isCancelled, analysisRequest?.id == input.id, remote.account?.id == input.attachment.owner else { return }
-            self.error = (error as? OiServiceError)?.localizedDescription
-                ?? "파일이나 분석 응답을 읽지 못했어요. 파일 형식과 네트워크를 확인한 뒤 다시 시도해 주세요."
+            guard isCurrentReview(request, owner: pending.owner) else { return }
+            self.error = "자료 확인 결과를 기기에 저장하지 못했어요. 다시 저장해 주세요."
         }
     }
 
+    private func isCurrentReview(_ request: ReviewRequest, owner: UUID) -> Bool {
+        !Task.isCancelled && reviewRequest?.id == request.id && remote.account?.id == owner
+    }
+
     private func loadReview(owner: UUID) async {
+        defer {
+            if !Task.isCancelled, remote.account?.id == owner { reviewLoadedOwner = owner }
+        }
         do {
             let saved = try await remote.localSchoolEvidenceReview(owner: owner)
-            guard !Task.isCancelled, remote.account?.id == owner, review == nil else { return }
-            review = saved
+            guard !Task.isCancelled, remote.account?.id == owner else { return }
+            if let saved { step = .result(saved.outcome) }
         } catch {
-            guard !Task.isCancelled, remote.account?.id == owner, review == nil else { return }
-            historyError = "기기에 저장된 판정을 읽지 못했어요."
+            guard !Task.isCancelled, remote.account?.id == owner else { return }
+            historyError = "이전 자료 확인 결과를 불러오지 못했어요. 화면을 다시 열어 주세요."
         }
     }
 

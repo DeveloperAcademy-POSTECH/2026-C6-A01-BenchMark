@@ -8,7 +8,7 @@ enum OiCreationStep: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .consent: "약관 동의"
+        case .consent: "공개 약관"
         case .story: "이야기 작성"
         case .photos: "이미지 선택"
         case .location: "위치 설정"
@@ -69,14 +69,35 @@ enum OiCreationAccess {
         guard story.status == "draft" else { return false }
         var serverDraft = OiStoryDraft(story: story)
         serverDraft.revision = draft.revision
+        if draft.heightMeters == nil { serverDraft.heightMeters = nil }
+        if draft.headingDegrees == nil { serverDraft.headingDegrees = nil }
         return serverDraft == draft
     }
 }
 
-/// Keeps the displayed order equal to the server's attachment order, then appends new local photos.
+/// Merges server attachments and local copies before applying a draft's preferred order.
 enum OiEditingPhoto: Hashable, Identifiable {
     case local(UUID), uploaded(String)
     var id: String { switch self { case .local(let id): id.uuidString; case .uploaded(let path): path } }
+    var orderKey: String {
+        switch self {
+        case .local(let id): id.uuidString
+        case .uploaded(let path): Self.orderKey(for: path)
+        }
+    }
+
+    nonisolated static func orderKey(for path: String) -> String {
+        localPhotoID(for: path)?.uuidString ?? path
+    }
+
+    nonisolated static func applyingOrder<T>(_ preferred: [String], to values: [T], key: (T) -> String) -> [T] {
+        let rank = Dictionary(preferred.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: min)
+        return values.enumerated().sorted { lhs, rhs in
+            let left = rank[key(lhs.element)] ?? Int.max
+            let right = rank[key(rhs.element)] ?? Int.max
+            return left == right ? lhs.offset < rhs.offset : left < right
+        }.map(\.element)
+    }
 
     nonisolated static func localPhotoID(for path: String) -> UUID? {
         guard let filename = path.split(separator: "/").last, filename.lowercased().hasSuffix(".jpg") else { return nil }

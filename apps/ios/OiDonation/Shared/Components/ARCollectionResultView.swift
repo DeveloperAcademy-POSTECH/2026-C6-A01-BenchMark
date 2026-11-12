@@ -60,7 +60,7 @@ struct ARCollectionResultView<Artwork: View>: View {
         VStack(alignment: .leading, spacing: 16) {
             headerLayout {
                 Text(name)
-                    .font(.custom("PearToucan-Bold", size: 28, relativeTo: .title))
+                    .font(.custom("Paperlogy-7Bold", size: 28, relativeTo: .title))
                     .tracking(1.12)
                     .lineLimit(usesExpandedLayout ? nil : 1)
                     .minimumScaleFactor(0.65)

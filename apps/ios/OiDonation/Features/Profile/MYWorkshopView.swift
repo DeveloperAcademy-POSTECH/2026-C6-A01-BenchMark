@@ -69,7 +69,7 @@ struct MYWorkshopView: View {
                         ZStack {
                             Image("MYSettingsBoard").resizable().scaledToFit()
                             Image("MYRake").resizable().scaledToFit().frame(width: 68 * scale, height: 172.7 * scale)
-                            Text("설\n정").font(.custom("PearToucan-Regular", size: 20, relativeTo: .body)).dynamicTypeSize(.medium).lineSpacing(0)
+                            Text("설\n정").font(.custom("Paperlogy-4Regular", size: 20, relativeTo: .body)).dynamicTypeSize(.medium).lineSpacing(0)
                                 .foregroundStyle(Color(red: 0.47, green: 0.25, blue: 0.08))
                                 .position(x: 71.06 * scale, y: 30.5 * scale)
                         }.frame(width: 91.76 * scale, height: 191.2 * scale)
@@ -84,7 +84,6 @@ struct MYWorkshopView: View {
                     if isSignedIn && !dynamicTypeSize.isAccessibilitySize {
                         workshopTitle.frame(maxWidth: max(0, geometry.size.width - 180))
                             .position(x: geometry.size.width / 2, y: 97.5 * scale)
-                        addSeedLink.position(x: geometry.size.width - 55 * scale, y: 97.5 * scale)
                     }
                 }.frame(width: geometry.size.width, height: sceneHeight).clipped()
             }.scrollBounceBehavior(.basedOnSize).scrollIndicators(.hidden)
@@ -97,7 +96,6 @@ struct MYWorkshopView: View {
             if dynamicTypeSize.isAccessibilitySize {
                 if isSignedIn {
                     workshopTitle
-                    addSeedLink
                 }
                 else {
                     Text("MY 페이지는 로그인 후 사용할 수 있습니다")
@@ -112,18 +110,10 @@ struct MYWorkshopView: View {
         }
     }
 
-    private var addSeedLink: some View {
-        NavigationLink { OiEvidenceDesignPreview() } label: {
-            OiSeedBalanceLabel(count: 0)
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("my.workshop.addSeed")
-    }
-
     private var workshopTitle: some View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Text(remote?.profile?.farmName ?? "오이").font(.custom("PearToucan-Regular", size: 35, relativeTo: .title))
-            Text("의 작업실").font(.custom("PearToucan-Light", size: 20, relativeTo: .body))
+            Text(remote?.profile?.farmName ?? "오이").font(.custom("Paperlogy-4Regular", size: 35, relativeTo: .title))
+            Text("의 작업실").font(.custom("Paperlogy-3Light", size: 20, relativeTo: .body))
         }.foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6)
             .accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
     }

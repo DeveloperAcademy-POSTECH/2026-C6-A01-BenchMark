@@ -9,6 +9,7 @@ struct ARGamePlayingView: View {
     var cucumberAssetName: String? = nil
 
     @Environment(\.scenePhase) private var scenePhase
+    @State private var artwork: UIImage?
     @State private var cameraController: ARGameCameraController?
 
     var body: some View {
@@ -23,8 +24,7 @@ struct ARGamePlayingView: View {
                     remainingSeconds: viewModel.remainingSeconds,
                     collectedCount: viewModel.collectedCount,
                     targetCount: viewModel.targetCount,
-                    cucumberImageURL: cucumberImageURL,
-                    cucumberAssetName: cucumberAssetName
+                    artwork: artwork
                 )
 
                 if viewModel.state == .starting {
@@ -43,11 +43,16 @@ struct ARGamePlayingView: View {
         .task {
             // Lazy creation avoids constructing discarded ARViews on body updates.
             guard cameraController == nil else { return }
+            guard let image = await CucumberArtwork.load(imageURL: cucumberImageURL, assetName: cucumberAssetName),
+                  !Task.isCancelled else {
+                if !Task.isCancelled { viewModel.cameraBecameUnavailable() }
+                return
+            }
+            artwork = image
             let model = viewModel
             cameraController = ARGameCameraController(
                 targetCount: viewModel.targetCount,
-                cucumberImageURL: cucumberImageURL,
-                cucumberAssetName: cucumberAssetName,
+                artwork: image,
                 onUnavailable: { [weak model] in model?.cameraBecameUnavailable() },
                 onCollect: { [weak model] in model?.collectCucumber() }
             )

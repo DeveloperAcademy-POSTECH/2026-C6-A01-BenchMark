@@ -118,6 +118,11 @@ struct MYCollectionView: View {
         }) { card in
             cardOverlay(card)
         }
+        .onChange(of: OiContentSafetyStore.shared.authors) { _, _ in
+            if let item = selectedCollectedCard, OiContentSafetyStore.shared.isBlocked(item.story.donorID) {
+                selectedCollectedCard = nil
+            }
+        }
         .sheet(item: $selectedCollectedCard) { item in
             collectedCardOverlay(item)
         }
@@ -171,8 +176,7 @@ struct MYCollectionView: View {
     }
 
     private var isLoadingCollectedSection: Bool {
-        shouldShowCollectedSection && (collectedLibrary.isLoading ||
-            (collectedLibrary.items.isEmpty && collectedLibrary.unavailableRecords.isEmpty))
+        shouldShowCollectedSection && collectedLibrary.isLoading
     }
 
     private var collectedSection: some View {
@@ -219,14 +223,14 @@ struct MYCollectionView: View {
                     ForEach(collectedLibrary.unavailableRecords) { _ in
                         VStack(spacing: 8) {
                             Image(systemName: "arrow.triangle.2.circlepath").font(.title3)
-                            Text("연결 대기").font(.caption).multilineTextAlignment(.center)
+                            Text("표시할 수 없음").font(.caption).multilineTextAlignment(.center)
                         }
                         .foregroundStyle(.secondary)
                         .padding(10)
                         .frame(width: cardWidth, height: cardHeight)
                         .background(Color(.secondarySystemBackground), in: cardShape)
                         .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("서버 연결을 기다리는 수집 카드")
+                        .accessibilityLabel("공개 상태, 차단 설정 또는 연결 상태로 표시할 수 없는 수집 카드")
                     }
                 }
             }
@@ -294,20 +298,7 @@ struct MYCollectionView: View {
                 .frame(minWidth: 44, minHeight: 44)
         }.buttonStyle(.plain).accessibilityLabel("고정한 카드만 보기")
             .accessibilityAddTraits(pinnedOnly ? .isSelected : []).accessibilityIdentifier("my.pinned")
-        Button {} label: {
-            Text("MY")
-                .font(.custom("Paperlogy-5Medium", size: 14, relativeTo: .body))
-                .tracking(-0.56)
-                .foregroundStyle(.black)
-                .padding(.horizontal, 12).padding(.vertical, 5)
-                .frame(minWidth: 47, minHeight: 29)
-                .background(Color(white: 231 / 255), in: Capsule())
-                .frame(minHeight: 44)
-        }
-        .buttonStyle(.plain)
-        .disabled(true)
-        .accessibilityLabel("MY 필터")
-        .accessibilityIdentifier("my.collection.myFilter")
+
     }
 
     private var countBadge: some View {
@@ -464,6 +455,10 @@ struct MYCollectionView: View {
                     .font(.custom("Paperlogy-8ExtraBold", size: 28, relativeTo: .title))
                 Text(item.story.content)
                     .font(.body)
+                if let id = UUID(uuidString: item.story.storyID) {
+                    OiStorySafetyButton(storyID: id, authorID: item.story.donorID, authorName: item.story.donorDisplayName,
+                        onBlock: { selectedCollectedCard = nil })
+                }
                 if let remote {
                     Button("내 계정 도감에 저장") {
                         guard let owner = remote.account?.id else { return }
@@ -510,7 +505,7 @@ private struct MYSchoolFolder: View {
                     .offset(x: -8 * scale, y: 30.7 * scale)
                 HStack(alignment: .bottom, spacing: 3 * scale) {
                     Text("\(cards.count)")
-                        .font(.custom("PearToucan-Bold", size: 50 * scale, relativeTo: .title))
+                        .font(.custom("Paperlogy-7Bold", size: 50 * scale, relativeTo: .title))
                         .tracking(2 * scale).frame(height: 35 * scale)
                     Text("card")
                         .font(.custom("Paperlogy-4Regular", size: 25 * scale, relativeTo: .title2))

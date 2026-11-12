@@ -29,102 +29,6 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         ]
     }
 
-    func testDonationEvidenceCaptures() async throws {
-        let fixture = try isolatedDefaults()
-        let previous = OiStoreURLProtocol.handle
-        let backend = OiTestBackend()
-        backend.install()
-        let fallback = OiStoreURLProtocol.handle
-        let statuses = ["approved", "pending", "changes_requested", "rejected"]
-        let rows: [[String: Any]] = statuses.enumerated().map { index, status in
-            ["id": UUID().uuidString, "user_id": OiTestBackend.owner.uuidString, "status": status,
-             "object_path": "synthetic-private.png", "submitted_at": "2026-11-0\(index + 1)T10:56:00Z",
-             "review_note": status == "changes_requested" ? "기부처와 이체 완료 상태가 보이도록 다시 제출해 주세요." : ""]
-        }
-        let bytes = try JSONSerialization.data(withJSONObject: rows)
-        OiStoreURLProtocol.handle = { request, client in
-            if request.url?.path == "/rest/v1/oi_evidence_requests" { client.respond(200, bytes) }
-            else { fallback?(request, client) }
-        }
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [OiStoreURLProtocol.self]
-        let session = URLSession(configuration: config)
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("DonationEvidence-\(UUID())")
-        defer {
-            session.invalidateAndCancel(); OiStoreURLProtocol.handle = previous
-            fixture.defaults.removePersistentDomain(forName: fixture.name)
-            withExtendedLifetime(backend) {}
-            if FileManager.default.fileExists(atPath: directory.path) { try? FileManager.default.removeItem(at: directory) }
-        }
-        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
-        let remote = OiRemoteStore(api: api, drafts: OiDraftVault(directory: directory), vault: OiMemorySession())
-        await remote.start()
-        XCTAssertEqual(remote.evidence.count, 4)
-        XCTAssertNotNil(UIImage(named: "DonationSeed"))
-        XCTAssertNotNil(UIImage(named: "DonationApprovalBackground"))
-        for variant in variants {
-            let view = NavigationStack { OiDonationEvidenceView(remote: remote) }
-            try await capture(view, name: "donation-evidence", variant: variant, defaults: fixture.defaults, attach: true)
-            let attached = OiDonationEvidenceContent(evidence: [], attachmentName: "synthetic-proof.pdf",
-                canSubmit: true, message: "파일은 아직 전송되지 않았어요")
-            try await capture(attached, name: "donation-evidence-attached", variant: variant,
-                defaults: fixture.defaults, attach: true)
-            if variant.name == "402x874" {
-                let review = OiDonationEvidenceReview(reviewType: "donation_evidence", evidenceId: UUID(),
-                    submittedAt: "2026-11-05T00:00:00Z", analyzedAt: "2026-11-05T00:01:00Z",
-                    humanReviewRequired: true, authenticityVerified: false, notice: "운영자 검토 후 작성 승인이 부여됩니다.",
-                    assessment: .init(verdict: .inconclusive, readability: .limited, findings: [],
-                        limitations: ["원본 진위와 실제 납입을 확인하지 못했어요."], manualChecks: ["기부처와 이체 완료 상태를 확인해 주세요."]))
-                let result = OiDonationEvidenceContent(evidence: [], review: review)
-                try await capture(result, name: "donation-evidence-ai-result", variant: variant,
-                    defaults: fixture.defaults, attach: true)
-                let failed = OiDonationEvidenceContent(evidence: remote.evidence,
-                    message: "증빙은 접수됐지만 AI 검사를 완료하지 못했어요. AI 검사만 다시 시도해 주세요.")
-                try await capture(failed, name: "donation-evidence-ai-error", variant: variant,
-                    defaults: fixture.defaults, attach: true)
-            }
-        }
-    }
-
-    func testDonationSemanticResultCaptures() async throws {
-        let fixture = try isolatedDefaults()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
-        let cases: [(name: String, outcome: OiDonationEvidenceSummary.Outcome?, title: String, reason: String)] = [
-            ("sms-sufficient", .sufficientEvidence, "문자에서 기부 완료 근거를 확인했어요", "공식 발신번호와 입금 확인 내용을 함께 대조했어요. 영수증이 없어도 증빙으로 인정할 수 있어요."),
-            ("pledge-insufficient", .needsMoreEvidence, "약정 접수만으로는 입금 완료를 확인하기 어려워요", "현재 자료에는 약정 접수 안내만 있어요. 입금 확인 문자나 이체 완료 내역을 추가해 주세요."),
-            ("manipulation", .suspectedManipulation, "자료의 일부에 추가 확인이 필요해요", "문자 일부의 시각적 불일치를 확인했어요. 개인정보 가림 자체는 조작으로 판단하지 않아요."),
-            ("duplicate", .duplicateEvidence, "다른 신청에 사용된 자료와 중복 근거가 있어요", "자료 재사용 가능성이 있어 운영자 확인이 필요해요. 다른 사용자의 정보는 표시하지 않아요."),
-            ("legacy", nil, "이전 시각적 참고 검사", "")
-        ]
-        for variant in variants {
-            for item in cases {
-                var review = OiDonationEvidenceReview(reviewType: "donation_evidence", evidenceId: UUID(),
-                    submittedAt: "2026-11-05T00:00:00Z", analyzedAt: "2026-11-05T00:01:00Z",
-                    humanReviewRequired: true, authenticityVerified: false,
-                    notice: "증빙 충족 판정은 학교의 공식 납입 확인이나 글 작성 승인이 아니에요.",
-                    assessment: .init(verdict: item.outcome == .suspectedManipulation ? .suspicious : .noObviousSigns,
-                        readability: .readable, findings: [], limitations: ["제출 자료의 원본 진위와 제출자 본인 여부는 별도 확인이 필요해요."],
-                        manualChecks: ["운영자 검토 후 최종 작성 승인 상태를 확인해 주세요."]))
-                if let outcome = item.outcome {
-                    review.summary = .init(outcome: outcome, sufficientEvidence: outcome == .sufficientEvidence,
-                        title: item.title, reasons: [item.reason], checks: [
-                            .init(kind: "sender", status: "matched", detail: "실제 발신번호를 공식 기부 문의 번호와 대조했어요."),
-                            .init(kind: "duplicate", status: outcome == .duplicateEvidence ? "duplicate" : "clear",
-                                detail: outcome == .duplicateEvidence ? "다른 신청에서 동일한 자료의 사용 기록을 확인했어요." : "현재 확인 가능한 범위에서 다른 신청과의 중복 근거가 없어요.")
-                        ], sourceReferences: [
-                            .init(id: "postech-giving", url: "https://vision.postech.ac.kr/web/?sub=contract&top=participation",
-                                title: "POSTECH 발전기금 공식 안내", kind: "official", verifiedAt: "2026-11-05")
-                        ])
-                }
-                let screen = ScrollView {
-                    OiDonationEvidenceResult(review: review).padding(20)
-                }.background(Color.white).foregroundStyle(.black)
-                try await capture(screen, name: "donation-semantic-" + item.name,
-                    variant: variant, defaults: fixture.defaults, attach: true)
-            }
-        }
-    }
-
     func testMYHouseArtworkDoesNotRevealImageMatte() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
@@ -211,7 +115,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         @FocusState private var focusedField: OiStoryWritingStep.Field?
 
         var body: some View {
-            OiStoryWritingStep(draft: $draft, grants: [], focusedField: $focusedField)
+            OiStoryWritingStep(draft: $draft, focusedField: $focusedField)
         }
     }
 
@@ -221,9 +125,31 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
 
         var body: some View {
             VStack(alignment: .leading, spacing: 50) {
-                OiStoryWritingStep(draft: .constant(draft), grants: [], focusedField: $focusedField)
+                OiStoryWritingStep(draft: .constant(draft), focusedField: $focusedField)
                 OiStoryAttachmentSections(photoCount: 0, latitude: draft.latitude,
                     longitude: draft.longitude, onPhotos: {}, onLocation: {})
+            }
+        }
+    }
+
+    /// Captures the photo settings layout for 0–4 photos (4 = a legacy draft over the limit).
+    func testStoryPhotoStepCountCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let image = try XCTUnwrap(UIImage(named: "DonationCampus")?.jpegData(compressionQuality: 0.9))
+        let ids = (0..<4).map { _ in UUID() }
+        let colors: [Color] = [.orange, .teal, .pink, .indigo]
+        for variant in [variants[0], variants[3]] {
+            for count in variant.dynamicTypeSize.isAccessibilitySize ? [3] : [0, 1, 2, 3, 4] {
+                let items = ids.prefix(count).map(OiEditingPhoto.local)
+                let step = OiStoryPhotoStep(items: Array(items), uploadedPhotos: [], selections: .constant([]),
+                    loadPhoto: { _ in image }, edit: { _, _ in false }, remove: { _ in }, move: { _, _ in },
+                    photo: { item in colors[ids.firstIndex { .local($0) == item } ?? 0] })
+                let screen = ScrollView { step.padding(.horizontal, 20).padding(.top, 20).frame(maxWidth: .infinity) }
+                    .background(Color(white: 38 / 255))
+                    .environment(\.colorScheme, .dark)
+                try await capture(screen, name: "photo-step-\(count)", variant: variant,
+                                  defaults: fixture.defaults, delay: .milliseconds(600), attach: true)
             }
         }
     }
@@ -275,14 +201,71 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         for variant in variants.prefix(2) {
             for bottom in [false, true] {
                 let page = CreationCapturePage(step: 3, anchor: bottom ? .bottom : .top) {
-                    OiCucumberCustomizationStep(draft: .constant(Self.draft), customization: .constant(customization),
-                        assets: Self.assets, canContinue: true, onContinue: {})
+                    OiCucumberCustomizationStep(customization: .constant(customization), canContinue: true, onContinue: {})
                         .environment(\.scenePhase, .active)
                 }
                 try await capture(page, name: bottom ? "costume-set-bottom" : "costume-set-top",
                                   variant: variant, defaults: fixture.defaults, delay: .seconds(3), attach: true)
             }
         }
+    }
+
+    func testCardBackgroundAndBorderColorRegions() throws {
+        let size = CGSize(width: 362, height: 502)
+        func render(_ style: OiDraftCustomization, name: String) throws -> Data {
+            let renderer = ImageRenderer(content:
+                OiDraftCardPreview(draft: Self.draft, customization: style)
+                    .frame(width: size.width, height: size.height).environment(\.colorScheme, .light))
+            renderer.scale = 1
+            let png = try XCTUnwrap(renderer.uiImage?.pngData())
+            let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+            return png
+        }
+        func rgb(_ data: Data, x: Int, y: Int) throws -> [Int] {
+            let bitmap = try renderedBitmap(data, size: size)
+            let bytes = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: 362 * 502 * 4)
+            let offset = (y * 362 + x) * 4
+            return (0..<3).map { Int(bytes[offset + $0]) }
+        }
+        func distance(_ a: [Int], _ b: [Int]) -> Int { zip(a, b).reduce(0) { $0 + abs($1.0 - $1.1) } }
+
+        var style = OiDraftCustomization()
+        style.showsCharacter = false
+        style.firstColor = 0xD9D9D9
+        style.card = OiCardDesign(borderFirst: 0xFFFFFF)
+        let reference = try render(style, name: "card-regions-gray-white")
+        style.firstColor = 0x285DB0
+        let background = try render(style, name: "card-regions-blue-white")
+        style.card?.borderFirst = 0xCE4068
+        let border = try render(style, name: "card-regions-blue-pink")
+
+        // Background includes the outside margin and the interior. Changing only
+        // the border must not recolor either region (the former implementation did).
+        for point in [CGPoint(x: 7, y: 180), CGPoint(x: 180, y: 180)] {
+            let a = try rgb(reference, x: Int(point.x), y: Int(point.y))
+            let b = try rgb(background, x: Int(point.x), y: Int(point.y))
+            let c = try rgb(border, x: Int(point.x), y: Int(point.y))
+            XCTAssertGreaterThan(distance(a, b), 80)
+            XCTAssertLessThan(distance(b, c), 6)
+        }
+        // Sample the two header areas away from glyphs and the left frame line.
+        for point in [CGPoint(x: 30, y: 22), CGPoint(x: 130, y: 22), CGPoint(x: 15, y: 180)] {
+            let a = try rgb(reference, x: Int(point.x), y: Int(point.y))
+            let b = try rgb(background, x: Int(point.x), y: Int(point.y))
+            let c = try rgb(border, x: Int(point.x), y: Int(point.y))
+            // Figma's name strip is translucent. It must respond primarily to
+            // border tint while retaining that deliberate background show-through.
+            XCTAssertLessThan(Double(distance(a, b)), Double(distance(b, c)) * 0.4,
+                              "Background dominates the border tint at \(point)")
+            XCTAssertGreaterThan(distance(b, c), 60, "Border/header stayed white at \(point)")
+        }
+        style.fill = .gradient; style.firstColor = 0xD3DBC4; style.secondColor = 0xF3F7E6
+        style.card?.borderFill = .gradient
+        style.card?.borderFirst = 0x102841; style.card?.borderSecond = 0x6BA3C9
+        _ = try render(style, name: "card-regions-gradient")
+        style.card?.pattern = 3; style.showsCharacter = true
+        _ = try render(style, name: "card-regions-pattern-character")
     }
 
     func testCardPatternsRemainVisibleAcrossBackgrounds() throws {
@@ -360,14 +343,13 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         for variant in variants {
             let cucumber = CreationCapturePage(step: 3) {
-                OiCucumberCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
-                    assets: Self.assets, canContinue: true, onContinue: {})
+                OiCucumberCustomizationStep(customization: .constant(Self.customization), canContinue: true, onContinue: {})
                     .environment(\.scenePhase, .active)
             }
             try await capture(cucumber, name: "cucumber-customization", variant: variant, defaults: fixture.defaults, delay: .seconds(2))
             let card = CreationCapturePage(step: 4) {
                 OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
-                    assets: Self.assets, canContinue: true, onContinue: {})
+                    canContinue: true, onContinue: {})
             }
             try await capture(card, name: "card-customization", variant: variant, defaults: fixture.defaults)
         }
@@ -405,13 +387,328 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testMapCucumberCustomizationCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        XCTAssertNotNil(UIImage(named: "StorySeedIcon"))
+        XCTAssertNotNil(UIImage(named: "SeedCucumberBody"))
+        for layer in OiSeedCucumberLayer.allCases {
+            let image = try XCTUnwrap(UIImage(named: layer.asset)?.cgImage)
+            XCTAssertEqual(image.width, Int(layer.sourceFrame.width))
+            XCTAssertEqual(image.height, Int(layer.sourceFrame.height))
+        }
+        var edited = OiSeedCucumberAppearance()
+        edited[.eyes] = .init(x: -45, y: -35, size: 1.4)
+        edited[.mouth] = .init(x: 25, y: 35, size: 1.15)
+        edited.eyeSpacing = 1.25
+        edited.stemLength = 1.65
+        edited.stemAngle = -72
+        var resized = edited
+        resized.bodyWidth = 1.30
+        resized.bodyHeight = 0.85
+        for variant in variants {
+            let store = CampusStoryStore(defaults: fixture.defaults)
+            let home = HomeView(container: .pilot, store: store, myDemo: MYLibraryStore(),
+                                isCameraCoverActive: false, onOpenProfile: {}, onOpenStory: { _ in })
+            if variant.name == "402x874" {
+                try await capture(NavigationStack { home }, name: "campus-cucumber-entry", variant: variant,
+                                  defaults: fixture.defaults, delay: .seconds(2), attach: true)
+            }
+            let destination = NavigationStack(path: .constant([MYDestination.cucumberCustomization])) { home }
+            try await capture(destination, name: "seed-cucumber-customization", variant: variant,
+                              defaults: fixture.defaults, attach: true)
+            if variant.name == "402x874" {
+                let spacedDestination = NavigationStack {
+                    OiSeedCucumberCustomizationView(appearance: edited, selection: .eyes)
+                }
+                try await capture(spacedDestination, name: "seed-cucumber-customization-eye-spacing",
+                                  variant: variant, defaults: fixture.defaults, attach: true)
+            }
+            let editedDestination = NavigationStack {
+                OiSeedCucumberCustomizationView(appearance: edited, selection: .stem)
+            }
+            try await capture(editedDestination, name: "seed-cucumber-customization-edited", variant: variant,
+                              defaults: fixture.defaults, attach: true)
+            let bodyDestination = NavigationStack {
+                OiSeedCucumberCustomizationView(appearance: resized, selection: .body)
+            }
+            try await capture(bodyDestination, name: "seed-cucumber-customization-body", variant: variant,
+                              defaults: fixture.defaults, attach: true)
+        }
+    }
+
+    func testSeedCucumberEditingGeometry() {
+        typealias Appearance = OiSeedCucumberAppearance
+        for canvasSize in [CGSize(width: 375, height: 315), CGSize(width: 440, height: 440)] {
+            let view = UIView(frame: CGRect(origin: .zero, size: canvasSize))
+            let viewport = OiSeedCucumberViewport(size: canvasSize)
+            var appearance = Appearance()
+            var selection: OiSeedCucumberPart = .stem
+            let surface = OiSeedCucumberTouchSurface(
+                appearance: Binding(get: { appearance }, set: { appearance = $0 }),
+                selection: Binding(get: { selection }, set: { selection = $0 })
+            )
+            let coordinator = surface.makeCoordinator()
+            XCTAssertNil(viewport.hitPart(at: .zero, appearance: appearance, selection: selection))
+
+            for part in OiSeedCucumberPart.faceParts {
+                appearance = Appearance()
+                appearance.bodyWidth = 1.25
+                appearance.bodyHeight = 0.85
+                let initial = appearance
+                let layers = OiSeedCucumberLayer.allCases.filter { $0.part == part }
+                let original = layers.map(appearance.faceFrame)
+                for frame in original {
+                    let center = viewport.location(of: CGPoint(x: frame.midX, y: frame.midY))
+                    XCTAssertEqual(viewport.hitPart(at: center, appearance: appearance, selection: selection), part)
+                }
+                guard let frame = original.last else {
+                    XCTFail("Editable parts must contain at least one layer")
+                    continue
+                }
+                let center = viewport.location(of: CGPoint(x: frame.midX, y: frame.midY))
+
+                let drag = SeedCucumberTestPan()
+                view.addGestureRecognizer(drag)
+                drag.point = CGPoint(x: center.x + 6, y: center.y - 4)
+                drag.delta = CGPoint(x: 6, y: -4)
+                drag.state = .began
+                coordinator.pan(drag)
+                XCTAssertEqual(selection, part)
+                let expectedY = Appearance.clamp(-40, to: initial.faceVerticalRange(for: part))
+                drag.delta = CGPoint(x: 30 * viewport.scale * appearance.bodyWidth,
+                                     y: -40 * viewport.scale * appearance.bodyHeight)
+                drag.state = .changed
+                coordinator.pan(drag)
+                XCTAssertEqual(appearance[part].x, 30, accuracy: 0.001)
+                XCTAssertEqual(appearance[part].y, expectedY, accuracy: 0.001)
+                for (layer, frame) in zip(layers, original) {
+                    let moved = appearance.faceFrame(layer)
+                    XCTAssertEqual(moved.midX - frame.midX, 30 * appearance.bodyWidth, accuracy: 0.001)
+                    XCTAssertEqual(moved.midY - frame.midY, expectedY * appearance.bodyHeight, accuracy: 0.001)
+                }
+                drag.delta = CGPoint(x: 300 * viewport.scale, y: -300 * viewport.scale)
+                drag.state = .ended
+                coordinator.pan(drag)
+                XCTAssertEqual(appearance[part].x, Appearance.horizontalRange.upperBound)
+                XCTAssertEqual(appearance[part].y, initial.faceVerticalRange(for: part).lowerBound, accuracy: 0.001)
+
+                let moved = layers.map(appearance.faceFrame)
+                let pinch = UIPinchGestureRecognizer()
+                view.addGestureRecognizer(pinch)
+                pinch.state = .began
+                pinch.scale = 1
+                coordinator.pinch(pinch)
+                pinch.state = .changed
+                pinch.scale = 1.5
+                coordinator.pinch(pinch)
+                for (layer, frame) in zip(layers, moved) {
+                    let enlarged = appearance.faceFrame(layer)
+                    XCTAssertEqual(enlarged.width, frame.width * 1.5, accuracy: 0.001)
+                    XCTAssertEqual(enlarged.height, frame.height * 1.5, accuracy: 0.001)
+                    XCTAssertEqual(enlarged.midX, frame.midX, accuracy: 0.001)
+                    XCTAssertEqual(enlarged.midY, frame.midY, accuracy: 0.001)
+                }
+                pinch.scale = 9
+                coordinator.pinch(pinch)
+                XCTAssertEqual(appearance[part].size, Appearance.sizeRange.upperBound)
+                pinch.state = .ended
+                pinch.scale = 0.1
+                coordinator.pinch(pinch)
+                XCTAssertEqual(appearance[part].size, Appearance.sizeRange.lowerBound)
+                for layer in OiSeedCucumberLayer.allCases where layer.part != part && layer.part != .stem {
+                    XCTAssertEqual(appearance.faceFrame(layer), initial.faceFrame(layer))
+                }
+                view.removeGestureRecognizer(drag)
+                view.removeGestureRecognizer(pinch)
+            }
+
+            appearance = Appearance()
+            appearance.bodyWidth = 1.30
+            appearance.bodyHeight = 0.85
+            var desired = appearance
+            desired.stemLength = 1.65
+            desired.stemAngle = -72
+            let tip = viewport.location(of: appearance.stemTip)
+            let destination = viewport.location(of: desired.stemTip)
+            let drag = SeedCucumberTestPan()
+            view.addGestureRecognizer(drag)
+            drag.point = tip
+            drag.state = .began
+            coordinator.pan(drag)
+            XCTAssertEqual(selection, .stem)
+            drag.delta = CGPoint(x: destination.x - tip.x, y: destination.y - tip.y)
+            drag.state = .changed
+            coordinator.pan(drag)
+            XCTAssertEqual(appearance.stemLength, desired.stemLength, accuracy: 0.001)
+            XCTAssertEqual(appearance.stemAngle, desired.stemAngle, accuracy: 0.001)
+            let joinedBase = appearance.stemPoint(for: Appearance.stemBase)
+            XCTAssertEqual(joinedBase.x, appearance.stemAttachment.x, accuracy: 0.001)
+            XCTAssertEqual(joinedBase.y, appearance.stemAttachment.y, accuracy: 0.001)
+            let nearRoot = CGPoint(x: Appearance.stemBase.x + 12, y: Appearance.stemBase.y - 8)
+            let rootPoint = appearance.stemPoint(for: nearRoot)
+            XCTAssertEqual(rootPoint.x - joinedBase.x, 12, accuracy: 0.001)
+            XCTAssertEqual(rootPoint.y - joinedBase.y, -8, accuracy: 0.001)
+            let mappedTip = appearance.stemPoint(for: Appearance.stemDefaultTip)
+            XCTAssertEqual(mappedTip.x, appearance.stemTip.x, accuracy: 0.001)
+            XCTAssertEqual(mappedTip.y, appearance.stemTip.y, accuracy: 0.001)
+            let base = viewport.location(of: appearance.stemAttachment)
+            for x in [-1.0, 1.0] {
+                drag.delta = CGPoint(x: base.x + x - tip.x, y: base.y + 10 - tip.y)
+                coordinator.pan(drag)
+                XCTAssertEqual(appearance.stemAngle, desired.stemAngle, accuracy: 0.001)
+            }
+            drag.delta = CGPoint(x: base.x + 1000 * viewport.scale - tip.x, y: base.y - tip.y)
+            drag.state = .ended
+            coordinator.pan(drag)
+            XCTAssertEqual(appearance.stemLength, Appearance.lengthRange.upperBound)
+            XCTAssertEqual(appearance.stemAngle, Appearance.angleRange.upperBound)
+        }
+    }
+
+    func testSeedCucumberEyeSpacingKeepsPairCenterAndSize() {
+        typealias Appearance = OiSeedCucumberAppearance
+        var appearance = Appearance()
+        appearance.bodyWidth = 1.3
+        appearance.bodyHeight = 0.85
+        appearance[.eyes] = .init(x: 20, y: -30, size: 1.6)
+        let left = appearance.faceFrame(.leftEye)
+        let right = appearance.faceFrame(.rightEye)
+        let mouth = appearance.faceFrame(.mouth)
+        let viewport = OiSeedCucumberViewport(size: CGSize(width: 375, height: 315))
+
+        for spacing in [Appearance.eyeSpacingRange.lowerBound, Appearance.eyeSpacingRange.upperBound] {
+            appearance.eyeSpacing = spacing
+            let spacedLeft = appearance.faceFrame(.leftEye)
+            let spacedRight = appearance.faceFrame(.rightEye)
+            XCTAssertEqual(spacedRight.midX - spacedLeft.midX, (right.midX - left.midX) * spacing, accuracy: 0.001)
+            XCTAssertEqual(spacedLeft.midX + spacedRight.midX, left.midX + right.midX, accuracy: 0.001)
+            XCTAssertEqual(spacedLeft.midY, left.midY, accuracy: 0.001)
+            XCTAssertEqual(spacedRight.midY, right.midY, accuracy: 0.001)
+            XCTAssertEqual(spacedLeft.size, left.size)
+            XCTAssertEqual(spacedRight.size, right.size)
+            XCTAssertEqual(appearance.faceFrame(.mouth), mouth)
+            for eye in [spacedLeft, spacedRight] {
+                let center = viewport.location(of: CGPoint(x: eye.midX, y: eye.midY))
+                XCTAssertEqual(viewport.hitPart(at: center, appearance: appearance, selection: .mouth), .eyes)
+            }
+        }
+    }
+
+    func testSeedCucumberFaceCannotCrossDuringSliderOrDragUpdates() {
+        typealias Appearance = OiSeedCucumberAppearance
+        func gap(_ appearance: Appearance) -> CGFloat {
+            appearance.faceFrame(.mouth).midY
+                - max(appearance.faceFrame(.leftEye).midY, appearance.faceFrame(.rightEye).midY)
+        }
+
+        for height in [Appearance.heightRange.lowerBound, Appearance.heightRange.upperBound] {
+            let size = CGSize(width: 375, height: 315)
+            let view = UIView(frame: CGRect(origin: .zero, size: size))
+            let viewport = OiSeedCucumberViewport(size: size)
+            var appearance = Appearance()
+            var selection: OiSeedCucumberPart = .stem
+            let surface = OiSeedCucumberTouchSurface(
+                appearance: Binding(get: { appearance }, set: { appearance = $0 }),
+                selection: Binding(get: { selection }, set: { selection = $0 })
+            )
+            let coordinator = surface.makeCoordinator()
+            for (part, layer, direction) in [(OiSeedCucumberPart.eyes, OiSeedCucumberLayer.rightEye, CGFloat(1)),
+                                              (.mouth, .mouth, -1)] {
+                var initial = Appearance()
+                initial.bodyHeight = height
+                initial.eyeSpacing = Appearance.eyeSpacingRange.upperBound
+                initial[.eyes].size = Appearance.sizeRange.upperBound
+                initial[.mouth].size = Appearance.sizeRange.upperBound
+                var slider = initial
+                let limit = direction * 1000
+                slider[part].y = limit
+                XCTAssertEqual(gap(slider), Appearance.minimumEyeMouthGap, accuracy: 0.001)
+                XCTAssertNotEqual(slider[part].y, limit)
+
+                appearance = initial
+                let frame = appearance.faceFrame(layer)
+                let drag = SeedCucumberTestPan()
+                view.addGestureRecognizer(drag)
+                drag.point = viewport.location(of: CGPoint(x: frame.midX, y: frame.midY))
+                drag.state = .began
+                coordinator.pan(drag)
+                XCTAssertEqual(selection, part)
+                drag.delta = CGPoint(x: 0, y: direction * 500)
+                drag.state = .changed
+                coordinator.pan(drag)
+                XCTAssertEqual(appearance[part].y, slider[part].y, accuracy: 0.001)
+                XCTAssertEqual(gap(appearance), Appearance.minimumEyeMouthGap, accuracy: 0.001)
+                drag.state = .ended
+                coordinator.pan(drag)
+                XCTAssertEqual(gap(appearance), Appearance.minimumEyeMouthGap, accuracy: 0.001)
+                view.removeGestureRecognizer(drag)
+            }
+        }
+
+        var compressed = Appearance()
+        compressed.bodyHeight = Appearance.heightRange.upperBound
+        compressed[.eyes].y = compressed.faceVerticalRange(for: .eyes).upperBound
+        XCTAssertEqual(gap(compressed), Appearance.minimumEyeMouthGap, accuracy: 0.001)
+        let previousEyeY = compressed[.eyes].y
+        let mouthY = compressed[.mouth].y
+        compressed.bodyHeight = Appearance.heightRange.lowerBound
+        XCTAssertEqual(gap(compressed), Appearance.minimumEyeMouthGap, accuracy: 0.001)
+        XCTAssertLessThan(compressed[.eyes].y, previousEyeY)
+        XCTAssertEqual(compressed[.mouth].y, mouthY)
+    }
+
+    func testSeedCucumberBodyScaleKeepsFootAndFacialGeometry() {
+        typealias Appearance = OiSeedCucumberAppearance
+        let original = Appearance()
+        let left = original.faceFrame(.leftEye)
+        let right = original.faceFrame(.rightEye)
+        let initialSpacing = CGSize(width: right.midX - left.midX, height: right.midY - left.midY)
+
+        for (width, height) in [(0.90, 1.0), (1.30, 1.0), (1.0, 0.85), (1.0, 1.20)] as [(CGFloat, CGFloat)] {
+            var resized = original
+            resized.bodyWidth = width
+            resized.bodyHeight = height
+            XCTAssertEqual(resized.bodyFrame.width, original.bodyFrame.width * width, accuracy: 0.001)
+            XCTAssertEqual(resized.bodyFrame.height, original.bodyFrame.height * height, accuracy: 0.001)
+            let foot = Appearance.bodyPivot.applying(resized.bodyTransform)
+            XCTAssertEqual(foot.x, Appearance.bodyPivot.x, accuracy: 0.001)
+            XCTAssertEqual(foot.y, Appearance.bodyPivot.y, accuracy: 0.001)
+
+            let left = resized.faceFrame(.leftEye)
+            let right = resized.faceFrame(.rightEye)
+            XCTAssertEqual(right.midX - left.midX, initialSpacing.width, accuracy: 0.001)
+            XCTAssertEqual(right.midY - left.midY, initialSpacing.height, accuracy: 0.001)
+            let initialCenter = CGPoint(x: original.faceFrame(.leftEye).midX + initialSpacing.width / 2,
+                                        y: original.faceFrame(.leftEye).midY + initialSpacing.height / 2)
+            let center = initialCenter.applying(resized.bodyTransform)
+            XCTAssertEqual((left.midX + right.midX) / 2, center.x, accuracy: 0.001)
+            XCTAssertEqual((left.midY + right.midY) / 2, center.y, accuracy: 0.001)
+            XCTAssertEqual(resized.faceFrame(.mouth).size, original.faceFrame(.mouth).size)
+
+            let base = Appearance.stemBase.applying(resized.bodyTransform)
+            XCTAssertEqual(resized.stemAttachment.x, base.x, accuracy: 0.001)
+            XCTAssertEqual(resized.stemAttachment.y, base.y, accuracy: 0.001)
+            XCTAssertEqual(resized.stemTip.x - base.x, original.stemTip.x - original.stemAttachment.x, accuracy: 0.001)
+            XCTAssertEqual(resized.stemTip.y - base.y, original.stemTip.y - original.stemAttachment.y, accuracy: 0.001)
+        }
+    }
+
+    private final class SeedCucumberTestPan: UIPanGestureRecognizer {
+        var point = CGPoint.zero
+        var delta = CGPoint.zero
+
+        override func location(in view: UIView?) -> CGPoint { point }
+        override func translation(in view: UIView?) -> CGPoint { delta }
+    }
+
     func testUpdatedConsentCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         for variant in variants {
             let page = VStack(spacing: 0) {
                 OiCreationProgressHeader(step: 1).padding(.horizontal, 20)
-                OiStoryConsentView(clauses: OiStoryConsentClause.figmaDrafts, showsHeader: false)
+                OiStoryConsentView(clauses: OiStoryConsentClause.writingClauses, showsHeader: false)
             }
             try await capture(page, name: "consent-three-clauses", variant: variant,
                               defaults: fixture.defaults, attach: true)
@@ -423,17 +720,16 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         for variant in variants {
             let cucumber = CreationCapturePage(step: 3, showsNavigation: true) {
-                OiCucumberCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
-                    assets: Self.assets, isFinished: true, onContinue: {})
+                OiCucumberCustomizationStep(customization: .constant(Self.customization), isFinished: true, onContinue: {})
                     .environment(\.scenePhase, .active)
             }
             try await capture(cucumber, name: "cucumber-finished", variant: variant, defaults: fixture.defaults, delay: .seconds(2), attach: true)
             let card = CreationCapturePage(step: 4, showsNavigation: true) {
                 OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
-                    assets: Self.assets, isFinished: true, onContinue: {})
+                    isFinished: true, onContinue: {})
             }
             try await capture(card, name: "card-finished", variant: variant, defaults: fixture.defaults, attach: true)
-            try await capture(NavigationStack { OiStoryConsentView(clauses: OiStoryConsentClause.figmaDrafts) },
+            try await capture(NavigationStack { OiStoryConsentView(clauses: OiStoryConsentClause.writingClauses) },
                 name: "consent-footprints", variant: variant, defaults: fixture.defaults, attach: true)
         }
     }
@@ -515,15 +811,6 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             onReload: {}, onDecision: { _, _ in }, onRetryDecision: {})
         try await capture(unconfirmed, name: "card-requests-unconfirmed-decision",
             variant: reference, defaults: fixture.defaults, attach: true)
-    }
-
-    func testEvidenceDesignPreviewCapture() async throws {
-        let fixture = try isolatedDefaults()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
-        for variant in variants {
-            try await capture(NavigationStack { OiEvidenceDesignPreview() },
-                              name: "evidence-preview", variant: variant, defaults: fixture.defaults, attach: true)
-        }
     }
 
     func testMYScreenCapturesWithoutRemoteStore() async throws {
@@ -816,9 +1103,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
 
         let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
-        let signedIn = OiRemoteStore(api: api,
-            drafts: OiDraftVault(directory: directory.appendingPathComponent("signed-in", isDirectory: true)),
-            vault: OiMemorySession())
+        let signedInDrafts = OiDraftVault(directory: directory.appendingPathComponent("signed-in", isDirectory: true))
+        let signedIn = OiRemoteStore(api: api, drafts: signedInDrafts, vault: OiMemorySession())
         let emptySession = OiMemorySession()
         try emptySession.write(nil)
         let signedOut = OiRemoteStore(api: api,
@@ -878,6 +1164,16 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                     defaults: fixture.defaults, delay: .milliseconds(450), attach: true)
             }
         }
+
+        for outcome in [OiSchoolEvidenceOutcome.completed, .rejected, .documentNeeded, .retakeNeeded, .manualReviewNeeded] {
+            let owner = try XCTUnwrap(signedIn.account?.id)
+            try await signedInDrafts.saveSchoolEvidenceReview(.init(outcome: outcome, reviewedAt: .now), owner: owner)
+            for variant in variants {
+                let screen = NavigationStack { OiSchoolEvidenceView(remote: signedIn) }
+                try await capture(screen, name: "school-evidence-result-\(outcome.rawValue)", variant: variant,
+                    defaults: fixture.defaults, delay: .milliseconds(450), attach: true)
+            }
+        }
     }
 
     func testCampusDetailAndSummaryCaptures() async throws {
@@ -904,6 +1200,64 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             }
             try await capture(summary, name: "campus-summary", variant: variant,
                 defaults: fixture.defaults, delay: .seconds(2))
+        }
+    }
+
+    func testSampleExperienceCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        XCTAssertNotNil(UIImage(named: "OiStoryCardCats"))
+        for variant in variants {
+            try await capture(OiSampleExperienceView(), name: "sample-map", variant: variant,
+                defaults: fixture.defaults, attach: true)
+            try await capture(NavigationStack { OiSampleMapView(isExpanded: true).modifier(OiSampleNoticeModifier()) }, name: "sample-list", variant: variant,
+                defaults: fixture.defaults, attach: true)
+            for expanded in [false, true] {
+                let bottomList = NavigationStack {
+                    OiSampleMapView(isExpanded: expanded)
+                        .defaultScrollAnchor(.bottom, for: .initialOffset)
+                        .modifier(OiSampleNoticeModifier())
+                }
+                try await capture(bottomList, name: "sample-\(expanded ? "list" : "map")-bottom", variant: variant,
+                    defaults: fixture.defaults, attach: true)
+            }
+            let story = CampusStoryExamples.stories[0]
+            try await capture(NavigationStack { OiSampleSummaryView(story: story, onCollect: {}).modifier(OiSampleNoticeModifier()) },
+                name: "sample-summary", variant: variant, defaults: fixture.defaults, attach: true)
+            try await capture(NavigationStack { OiSampleStoryDetailView(story: story, onCollect: {}).modifier(OiSampleNoticeModifier()) },
+                name: "sample-detail", variant: variant, defaults: fixture.defaults, attach: true)
+            for collected in [false, true] {
+                try await capture(OiSampleCollectionResult(isCollected: collected, onCollect: {}, onClose: {}),
+                    name: "sample-collection-\(collected)", variant: variant, defaults: fixture.defaults, attach: true)
+            }
+        }
+    }
+
+    func testSampleARArtworkAndCollectionOutline() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let loaded = await CucumberArtwork.load(imageURL: nil, assetName: "OiStoryCardCats")
+        let image = try XCTUnwrap(loaded)
+        let outline = try XCTUnwrap(CucumberArtwork.collectionOutline(image))
+        XCTAssertEqual(image.size, outline.size, "Empty and filled slots must fit the same normalized AR texture")
+        let source = try XCTUnwrap(image.cgImage)
+        let edge = try XCTUnwrap(outline.cgImage)
+        XCTAssertEqual(source.width, edge.width)
+        XCTAssertEqual(source.height, edge.height)
+        let sourceBytes = try XCTUnwrap(source.dataProvider?.data) as Data
+        let edgeBytes = try XCTUnwrap(edge.dataProvider?.data) as Data
+        XCTAssertNotEqual(sourceBytes, edgeBytes, "The slot is an outline, not the original photograph")
+        for collected in [0, 1, 3] {
+            let hud = ZStack {
+                Color(white: 0.25)
+                ARGameHUD(remainingSeconds: 30, collectedCount: collected, targetCount: 3, artwork: image)
+            }
+            try await capture(hud, name: "sample-ar-slots-\(collected)", variant: variants[0],
+                defaults: fixture.defaults, delay: .milliseconds(600), attach: true)
+        }
+        for name in ["OiSampleMap", "OiSampleSummaryMap", "OiCatsPortrait", "OiCatsExampleCard",
+                     "OiFarmer", "OiStoryLocation", "OiPoka"] + (1...11).map({ String(format: "OiSampleGallery%02d", $0) }) {
+            XCTAssertNotNil(UIImage(named: name), name)
         }
     }
 
@@ -1028,7 +1382,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     @discardableResult
     private func capture<V: View>(_ view: V, name: String, variant: Variant, defaults: UserDefaults,
                                  includesSafeArea: Bool = true,
-                                 delay: Duration = .milliseconds(180), attach: Bool = false) async throws -> Data {
+                                 delay: Duration = .milliseconds(180), attach: Bool = false,
+                                 checksBottomSheet: Bool = false) async throws -> Data {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first, "The isolated simulator test host must have a window scene")
@@ -1053,6 +1408,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         // Showing this owned window without making it key preserves all existing windows.
         window.isHidden = false
         defer {
+            if checksBottomSheet { root.dismiss(animated: false) }
             releaseCampusRenderers(in: host.view)
             host.willMove(toParent: nil)
             host.view.removeFromSuperview()
@@ -1073,6 +1429,16 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         host.view.setNeedsLayout()
         try await Task.sleep(for: delay)
         host.view.layoutIfNeeded()
+        if checksBottomSheet {
+            let presented = try XCTUnwrap(root.presentedViewController ?? host.presentedViewController)
+            let sheet = try XCTUnwrap(presented.presentationController)
+            XCTAssertTrue(sheet is UISheetPresentationController)
+            let frame = sheet.frameOfPresentedViewInContainerView
+            let bounds = try XCTUnwrap(sheet.containerView?.bounds)
+            XCTAssertGreaterThan(frame.minY, bounds.minY)
+            XCTAssertEqual(frame.maxY, bounds.maxY, accuracy: 1)
+        }
+        let renderView: UIView = checksBottomSheet ? window : host.view
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
@@ -1080,7 +1446,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let png = UIGraphicsImageRenderer(size: variant.size, format: format).pngData { context in
             UIColor.white.setFill()
             context.fill(CGRect(origin: .zero, size: variant.size))
-            rendered = host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+            rendered = renderView.drawHierarchy(in: renderView.bounds, afterScreenUpdates: true)
         }
         XCTAssertTrue(rendered, "The attached production view must draw its hierarchy")
         try assertNonemptyRender(png, size: variant.size)
@@ -1155,9 +1521,6 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         customization.secondColor = 0xF3F7E6
         return customization
     }
-
-    private static let assets = [OiAsset(id: "OiCats", kind: "cucumber", name: "기본 세트"),
-                                 OiAsset(id: "MYBasicCard", kind: "card", name: "기본 카드")]
 
     private static var card: MYCard {
         MYCard(id: "figma132-visual-fixture", title: draft.cucumberName, image: "OiCats", school: .postech,

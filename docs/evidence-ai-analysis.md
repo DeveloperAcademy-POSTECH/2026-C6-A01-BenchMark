@@ -1,5 +1,7 @@
 # 증빙 AI 시각 분석 — #116
 
+> **2026-11-09 / #258:** 이 문서는 종료한 기부 증빙 기능의 구현 기록이다. 아래 운영 배포·실행 절차는 더 이상 사용하지 않는다. [현재 적용 순서](donation-evidence-retirement.md).
+
 ## 구현 범위
 
 2026-11-02 사용자 요청에 따라 버튼·화면 없이 Supabase Edge Function `analyze-evidence`를 추가했다. 기존 `oi_capabilities()` 운영자 권한과 비공개 `oi-evidence` 저장소를 사용한다. 신규 테이블·마이그레이션·자동 승인·원격 배포는 포함하지 않는다.
@@ -12,7 +14,7 @@ AI는 시각적 조작 징후와 문서 내부 불일치를 검토하는 참고 
 | `no_obvious_signs` | 읽을 수 있는 자료에서 뚜렷한 징후를 찾지 못함. 원본 인증이 아님 |
 | `inconclusive` | 판독 상태·자료 누락·불확실성 때문에 판단하기 어려움 |
 
-결과에는 `readability`, `findings`(종류·위치·관찰 내용), `limitations`, `manual_checks`가 포함된다. `human_review_required: true`, `authenticity_verified: false`와 고정 안내문은 모델 응답과 별도로 서버가 붙인다. 분석 실패에는 결과를 만들지 않는다. 기존 운영자 작성 승인 API를 호출하거나 신청 상태를 변경하지 않는다.
+결과에는 `readability`, `findings`(종류·위치·관찰 내용), `limitations`, `manual_checks`가 포함된다. `human_review_required: true`, `authenticity_verified: false`와 고정 안내문은 모델 응답과 별도로 서버가 붙인다. 분석 실패에는 결과를 만들지 않는다. 운영자 검토 API를 호출하거나 제출 상태를 변경하지 않는다. #234 이후 증빙 검토 결과는 작성 권한과 별개다.
 
 ## 서버 설정과 호출
 
@@ -94,3 +96,11 @@ Needs confirmation:
 ## 2026-11-05 제출자 즉시 검사 (#161)
 
 사용자 요청으로 `analyze-donation-evidence`를 추가한다. 기존 `analyze-evidence`의 운영자 전용 권한은 유지하고, 새 경로는 인증된 제출자 본인의 `pending` 자료만 허용한다. 두 경로는 동일한 `analyzeDocument`·프롬프트·판정 규격을 사용한다. 새 경로는 실제 납입/진위를 확인하거나 작성 권한을 부여하지 않는다. iOS가 비공개 접수 후 호출하며, 결과는 앱의 현재 화면에 표시한다. 원격 배포와 검증 상태는 [기부 인증 구현 기록](../apps/ios/docs/donation-verification-161.md)을 따른다.
+
+## 운영자 AI 분석 동의 — #252
+
+2026-11-09. 기부 자료를 제출할 때 사용자는 **AI 검사에 동의하고 제출** 또는 **자료만 제출**을 선택한다. 동의문은 제출 파일의 OpenAI 전송과 운영자의 같은 파일 분석을 안내한다. 사용자가 제출 뒤 직접 한 번 검사하는 동의는 운영자에게 별도 권한을 부여하지 않는다.
+
+`20261109005000_oi_evidence_operator_ai_consent.sql`은 소유자가 명시적으로 동의한 경우에만 현재 제출 시각을 함께 기록한다. 기존 자료에는 동의 기록을 소급해 만들지 않는다. 같은 접수 요청의 재시도는 원래 선택을 유지하고 새 파일로 다시 제출할 때는 새 동의가 필요하다. 운영자 함수는 원본을 읽기 전과 OpenAI에 보내기 직전에 권한·제출본·동의를 확인한다. 기존·미동의 자료는 운영자가 직접 검토한다.
+
+운영 적용 시 먼저 새 `analyze-evidence`를 배포해 동의가 확인되지 않는 요청을 막고, 마이그레이션과 본 앱 업데이트를 적용한다. 새 함수는 동의 필드를 조회할 수 있을 때까지 AI 요청을 거부한다. 가상 파일로 자료만 제출·동의 제출·재제출을 각각 검증한다. [개인정보 공유와 명시적 동의 기준](https://developer.apple.com/app-store/review/guidelines/#privacy)

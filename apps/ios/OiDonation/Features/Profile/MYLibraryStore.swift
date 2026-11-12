@@ -37,6 +37,8 @@ struct MYCard: Identifiable, Hashable {
     let date: String
     var storyID: String? = nil
     var appearance = "MYBasicCard"
+    var cucumberPortraitPath: String? = nil
+    var cardArtworkPath: String? = nil
 }
 
 @MainActor @Observable
@@ -75,6 +77,7 @@ final class MYLibraryStore {
 
 enum MYDestination: Hashable {
     case workshop
+    case cucumberCustomization
     case farm
     case collection
     case school(MYSchool)

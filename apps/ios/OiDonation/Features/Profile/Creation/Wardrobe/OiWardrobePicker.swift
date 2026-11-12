@@ -6,9 +6,7 @@ private enum OiWardrobeTab: String, CaseIterable {
 }
 
 struct OiCucumberCustomizationStep: View {
-    @Binding var draft: OiStoryDraft
     @Binding var customization: OiDraftCustomization
-    let assets: [OiAsset]
     var canContinue = true
     var isFinished = false
     var onContinue: (() -> Void)?
@@ -16,6 +14,7 @@ struct OiCucumberCustomizationStep: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var photoScene = OiWardrobeScene()
     @State private var tab: OiWardrobeTab = .top
+    @State private var wardrobeScrollPosition = ScrollPosition()
     @State private var photoSlot: OiPhotoSlot?
     private var look: OiWardrobeLook { customization.wardrobe ?? OiWardrobeLook() }
 
@@ -51,6 +50,8 @@ struct OiCucumberCustomizationStep: View {
                             }
                         }.padding(.horizontal, 20).padding(.vertical, 16)
                     }
+                    .scrollPosition($wardrobeScrollPosition)
+                    .onChange(of: tab) { _, _ in wardrobeScrollPosition.scrollTo(edge: .top) }
                 }
             }
         }
@@ -86,7 +87,7 @@ struct OiCucumberCustomizationStep: View {
     @ViewBuilder private var wardrobeControls: some View {
         ScrollView(.horizontal, showsIndicators: false) {
           HStack(spacing: 20) {
-            ForEach(OiWardrobeTab.allCases, id: \.self) { category in
+            ForEach(OiWardrobeTab.allCases.filter(\.isAvailable), id: \.self) { category in
                 Button { tab = category } label: {
                     Text(category.rawValue).font(tab == category ? CampusStyle.semibold(16) : CampusStyle.medium(16))
                         .frame(minHeight: 44)
@@ -112,15 +113,8 @@ struct OiCucumberCustomizationStep: View {
         }
         Text("드래그로 돌려보세요. 옷에 맞는 오이가 함께 선택돼요.")
             .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-        Text("꾸민 모습은 이 기기의 초안·카드 미리보기에 보관돼요. 지도·AR 공개에는 기존 오이 프리셋이 사용돼요.")
+        Text("꾸민 모습은 내 지도에 바로 배치할 수 있어요. 공개 검토를 요청하면 이 모습도 함께 검토해요.")
             .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-        if !assets.filter({ $0.kind == "cucumber" }).isEmpty {
-            DisclosureGroup("지도·AR 공개 프리셋") {
-                Picker("공개 오이", selection: $draft.cucumberAsset) {
-                    ForEach(assets.filter { $0.kind == "cucumber" }) { asset in Text(asset.name).tag(asset.id) }
-                }.pickerStyle(.menu)
-            }.font(.footnote).tint(Color("OiGreen"))
-        }
         if let slot = selectedPhotoSlot { photoControls(slot) }
     }
 

@@ -10,6 +10,18 @@ import Foundation
 @MainActor
 protocol OiAuthenticating {
     func signIn(api: OiServiceAPI) async throws -> OiSession
+    func deletionProof(api: OiServiceAPI) async throws -> OiAccountDeletionProof
+}
+
+struct OiAccountDeletionProof {
+    let session: OiSession
+    var appleAuthorizationCode: String? = nil
+}
+
+extension OiAuthenticating {
+    func deletionProof(api: OiServiceAPI) async throws -> OiAccountDeletionProof {
+        OiAccountDeletionProof(session: try await signIn(api: api))
+    }
 }
 
 struct OiServiceAPI {
@@ -68,9 +80,8 @@ struct OiServiceAPI {
         catch APIError.httpStatus(let status) {
             switch status {
             case 401: throw OiServiceError.signInRequired
-            case 403: throw OiServiceError.server("요청 권한·작성 승인·임시 작성 모드 상태를 새로고침해 확인해 주세요. 기존 글과 사진은 보관됩니다.")
+            case 403: throw OiServiceError.server("현재 계정에서 이 요청을 처리할 수 없어요. 새로고침해 상태를 다시 확인해 주세요.")
             case 404 where path == "rest/v1/rpc/\(Self.resolveCardRequestRPC)": throw OiServiceError.conflict
-            case 404 where path == "rest/v1/rpc/oi_review_evidence": throw OiEvidenceReviewError.serverNotReady
             case 404 where path == "rest/v1/rpc/oi_operator_audit": throw OiAuditError.notDeployed
             case 409: throw OiServiceError.conflict
             case 400, 422: throw OiServiceError.invalidInput
@@ -80,41 +91,47 @@ struct OiServiceAPI {
         }
     }
 
+    func reportContent(story: UUID, reason: String, detail: String, token: String) async throws -> OiContentReportReceipt {
+        let body = try JSONSerialization.data(withJSONObject: ["p_story": story.uuidString, "p_reason": reason, "p_detail": detail])
+        let data = try await request("rest/v1/rpc/oi_report_content", method: "POST", token: token, body: body)
+        return try decoder.decode(OiContentReportReceipt.self, from: data)
+    }
+
+    func contentReports(offset: Int, token: String) async throws -> [OiContentReport] {
+        let data = try await request("rest/v1/rpc/oi_content_reports", method: "POST", token: token,
+            body: JSONSerialization.data(withJSONObject: ["p_offset": offset]))
+        return try decoder.decode([OiContentReport].self, from: data)
+    }
+
+    func reviewContent(report: UUID, action: String, note: String, token: String) async throws {
+        let data = try await request("rest/v1/rpc/oi_review_content", method: "POST", token: token,
+            body: JSONSerialization.data(withJSONObject: ["p_report": report.uuidString, "p_action": action, "p_note": note]))
+        let receipt = try decoder.decode(OiContentReportReceipt.self, from: data)
+        guard receipt.id == report, receipt.status == action else { throw OiServiceError.conflict }
+    }
+
     func accountDeletionStatus(token: String) async throws -> OiAccountDeletionStatus {
         let data = try await request("rest/v1/rpc/oi_account_deletion_status", method: "POST", token: token, body: Data("{}".utf8))
         return try decoder.decode(OiAccountDeletionStatus.self, from: data)
     }
 
-    func deleteAccount(_ account: UUID, token: String, proof: OiSession) async throws -> OiAccountDeletionReceipt {
-        let body = try JSONSerialization.data(withJSONObject: ["account_id": account.uuidString,
-            "consent": true, "proof": proof.accessToken])
+    func storeAppleAuthorization(_ code: String, token: String) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["code": code])
+        _ = try await request("functions/v1/apple-sign-in-token", method: "POST", token: token, body: body, timeout: 7)
+    }
+
+    func deleteAccount(_ account: UUID, token: String, proof: OiAccountDeletionProof) async throws -> OiAccountDeletionReceipt {
+        var payload: [String: Any] = ["account_id": account.uuidString, "consent": true, "proof": proof.session.accessToken]
+        if let code = proof.appleAuthorizationCode { payload["apple_code"] = code }
+        let body = try JSONSerialization.data(withJSONObject: payload)
         let data = try await request("functions/v1/delete-account", method: "POST", token: token, body: body, timeout: 50)
         let receipt = try decoder.decode(OiAccountDeletionReceipt.self, from: data)
         guard receipt.deleted, receipt.deletedMemberIds.contains(account),
-              receipt.deletedMemberIds.contains(proof.user.id) else { throw OiServiceError.conflict }
+              receipt.deletedMemberIds.contains(proof.session.user.id) else { throw OiServiceError.conflict }
         return receipt
     }
 
-    func reviewDonationEvidence(_ evidence: OiEvidence, token: String) async throws -> OiDonationEvidenceReview {
-        let response: Data
-        do {
-            response = try await request("functions/v1/analyze-donation-evidence", method: "POST", token: token,
-                body: JSONEncoder().encode(["evidence_id": evidence.id.uuidString]), timeout: 70)
-        } catch OiServiceError.unavailable {
-            throw OiServiceError.server("증빙은 접수됐지만 AI 검사를 완료하지 못했어요. AI 검사만 다시 시도해 주세요.")
-        }
-        let review = try decoder.decode(OiDonationEvidenceReview.self, from: response)
-        guard review.reviewType == "donation_evidence", review.evidenceId == evidence.id,
-              review.submittedAt == evidence.submittedAt, review.humanReviewRequired,
-              !review.authenticityVerified, review.summary?.isConsistent ?? true else { throw OiServiceError.conflict }
-        if review.summary?.sufficientEvidence == true {
-            guard review.assessment.verdict == .noObviousSigns, review.assessment.readability == .readable,
-                  review.assessment.findings.isEmpty else { throw OiServiceError.conflict }
-        }
-        return review
-    }
-
-    func reviewSchoolEvidence(_ data: Data, contentType: String, token: String) async throws -> OiSchoolEvidenceReview {
+    func reviewSchoolEvidence(_ data: Data, contentType: String, token: String) async throws -> OiSchoolEvidenceOutcome {
         let response: Data
         do {
             response = try await request("functions/v1/analyze-school-evidence", method: "POST", token: token,
@@ -124,10 +141,11 @@ struct OiServiceAPI {
         }
         let review = try decoder.decode(OiSchoolEvidenceReview.self, from: response)
         guard review.reviewType == "school_affiliation", review.humanReviewRequired,
-              !review.affiliationVerified, !review.authenticityVerified else {
-            throw OiServiceError.server("학교 증빙 검토 응답을 확인할 수 없어요.")
+              !review.affiliationVerified, !review.authenticityVerified,
+              let summary = review.summary, let outcome = OiSchoolEvidenceOutcome(reviewOutcome: summary.outcome) else {
+            throw OiServiceError.server("AI 자료 확인 결과를 읽지 못했어요. 다시 시도해 주세요.")
         }
-        return review
+        return outcome
     }
 
     func rows<Value: Decodable & Identifiable>(_ table: String, query: String = "", token: String? = nil, as type: Value.Type) async throws -> [Value] {
@@ -197,84 +215,6 @@ struct OiServiceAPI {
         try await cardRequestRPC("oi_card_requests", payload: [:], token: token, as: [OiCardRequest].self)
     }
 
-    func reviewEvidence(_ review: OiEvidenceReview, token: String) async throws -> OiEvidence {
-        let row = review.snapshot
-        var payload: [String: Any] = ["id": row.id.uuidString, "status": review.decision.rawValue,
-            "review_note": review.note, "expected_status": row.status,
-            "expected_object_path": row.objectPath as Any? ?? NSNull(),
-            "expected_submitted_at": row.submittedAt as Any? ?? NSNull(),
-            "expected_reviewed_at": row.reviewedAt as Any? ?? NSNull()]
-        if let limit = review.storyLimit { payload["story_limit"] = limit }
-        let body = try JSONSerialization.data(withJSONObject: ["p_payload": payload])
-        let data = try await request("rest/v1/rpc/oi_review_evidence", method: "POST", token: token, body: body)
-        return try decoder.decode(OiEvidence.self, from: data)
-    }
-
-    /// Original evidence never enters the shared URL cache or a signed-link viewer.
-    func evidenceDocument(path: String, token: String) async throws -> OiEvidenceDocument {
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = transport.session.configuration.protocolClasses
-        config.urlCache = nil; config.httpCookieStorage = nil
-        let session = URLSession(configuration: config)
-        defer { session.invalidateAndCancel() }
-        let escaped = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
-        guard let url = URL(string: "https://\(Self.projectHost)/storage/v1/object/authenticated/oi-evidence/\(escaped)") else {
-            throw OiEvidenceReviewError.invalidDocument
-        }
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
-        request.timeoutInterval = 30
-        request.setValue(key, forHTTPHeaderField: "apikey")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        do {
-            let data = try await APIClient(session: session, approvedHost: Self.projectHost).send(request)
-            try Task.checkCancellation()
-            return try OiEvidenceDocument(data: data)
-        } catch APIError.httpStatus(401) { throw OiServiceError.signInRequired }
-        catch APIError.httpStatus(403) { throw OiOperatorStoryError.accessDenied }
-    }
-
-    // Only the evidence ID is sent; the existing server owns external analysis.
-    func analyzeEvidence(_ snapshot: OiEvidence, token: String) async throws -> OiEvidenceAnalysis {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = transport.session.configuration.protocolClasses
-        configuration.urlCache = nil; configuration.httpCookieStorage = nil
-        let session = URLSession(configuration: configuration)
-        defer { session.invalidateAndCancel() }
-        guard let url = URL(string: "https://\(Self.projectHost)/functions/v1/analyze-evidence") else { throw OiServiceError.configuration }
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
-        request.httpMethod = "POST"; request.timeoutInterval = 75
-        request.setValue(key, forHTTPHeaderField: "apikey")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["evidence_id": snapshot.id.uuidString.lowercased()])
-        do {
-            let (data, response) = try await APIClient(session: session, approvedHost: Self.projectHost).response(request)
-            try Task.checkCancellation()
-            if response.statusCode != 200 {
-                struct Failure: Decodable { let error: String }
-                let code = (try? JSONDecoder().decode(Failure.self, from: data))?.error
-                switch response.statusCode {
-                case 401: throw OiServiceError.signInRequired
-                case 403: throw OiOperatorStoryError.accessDenied
-                case 404 where code == "evidence_not_found": throw OiEvidenceReviewError.missing
-                case 404: throw OiEvidenceAnalysisError.notDeployed
-                case 409: throw OiServiceError.conflict
-                case 413, 415, 422: throw OiEvidenceAnalysisError.documentUnavailable
-                case 429: throw OiEvidenceAnalysisError.busy
-                case 503 where code == "analysis_not_configured": throw OiEvidenceAnalysisError.notConfigured
-                case 504: throw OiEvidenceAnalysisError.timeout
-                default: throw OiEvidenceAnalysisError.unavailable
-                }
-            }
-            guard data.count <= 64 * 1024 else { throw OiEvidenceAnalysisError.invalidResult }
-            let result: OiEvidenceAnalysis
-            do { result = try decoder.decode(OiEvidenceAnalysis.self, from: data) }
-            catch { throw OiEvidenceAnalysisError.invalidResult }
-            try result.validate(for: snapshot)
-            return result
-        } catch URLError.timedOut { throw OiEvidenceAnalysisError.timeout }
-    }
-
     func sendCardRequest(storyID: UUID, requestID: UUID, token: String) async throws -> OiCardRequest.Status {
         let receipt = try await cardRequestRPC("oi_request_card",
             payload: ["p_story_id": storyID.uuidString, "p_request_id": requestID.uuidString],
@@ -329,15 +269,25 @@ struct OiServiceAPI {
 
     func upload(bucket: String, path: String, data: Data, contentType: String, token: String) async throws {
         let escaped = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
-        do { _ = try await request("storage/v1/object/\(bucket)/\(escaped)", method: "POST", token: token, body: data, contentType: contentType) }
-        catch let failure as OiServiceError {
-            switch failure {
-            case .conflict, .invalidInput:
-                do {
-                    let existing = try await request("storage/v1/object/authenticated/\(bucket)/\(escaped)", token: token)
-                    guard existing == data else { throw failure }
-                } catch { throw failure }
-            default: throw failure
+        let storyMedia = bucket == "oi-story-media"
+        do {
+            _ = try await request("storage/v1/object/\(bucket)/\(escaped)", method: "POST", token: token,
+                                  body: data, contentType: contentType, timeout: storyMedia ? 60 : 30)
+        } catch {
+            let timedOut = (error as? URLError)?.code == .timedOut
+            switch error {
+            case OiServiceError.conflict, OiServiceError.invalidInput: break
+            case _ where storyMedia && timedOut: break
+            default: throw error
+            }
+            // The server can commit a file before the upload response reaches the app.
+            let existing = try? await request("storage/v1/object/authenticated/\(bucket)/\(escaped)", token: token)
+            try Task.checkCancellation()
+            guard existing == data else {
+                if timedOut {
+                    throw OiServiceError.server("이미지 전송을 확인하지 못했어요. 초안을 저장했으니 연결을 확인한 뒤 다시 요청해 주세요.")
+                }
+                throw error
             }
         }
     }
@@ -422,5 +372,11 @@ struct OiServiceAPI {
         guard let url = URL(string: "https://\(Self.projectHost)/storage/v1\(value.signedURL)"),
               url.host == Self.projectHost, url.scheme == "https" else { throw OiServiceError.unavailable }
         return url
+    }
+
+    func downloadSignedObject(bucket: String, path: String, token: String?) async throws -> Data {
+        let url = try await signedURL(bucket: bucket, path: path, token: token)
+        let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
+        return try await transport.send(request)
     }
 }

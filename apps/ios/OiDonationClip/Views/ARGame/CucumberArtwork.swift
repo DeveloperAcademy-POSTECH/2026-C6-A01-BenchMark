@@ -5,6 +5,7 @@
 //  Created by 이돈혁 on 11/2/26.
 //
 
+import CoreImage
 import ImageIO
 import UIKit
 
@@ -57,6 +58,24 @@ enum CucumberArtwork {
             return Task.isCancelled ? nil : localArtwork
         }
     }
+
+    /// Derive the empty slot from the exact normalized AR texture, including ears, tail and teddy.
+    /// Keep its extent unchanged so filled and empty slots use identical aspect-fit geometry.
+    static func collectionOutline(_ image: UIImage) -> UIImage? {
+        guard let source = CIImage(image: image) else { return nil }
+        let alpha = CIVector(x: 0, y: 0, z: 0, w: 1)
+        let mask = source.applyingFilter("CIColorMatrix", parameters: [
+            "inputRVector": alpha, "inputGVector": alpha, "inputBVector": alpha, "inputAVector": alpha
+        ])
+        let expanded = mask.applyingFilter("CIMorphologyMaximum", parameters: [
+            kCIInputRadiusKey: max(2, source.extent.width * 0.018)
+        ])
+        let edge = expanded.applyingFilter("CISourceOutCompositing", parameters: [kCIInputBackgroundImageKey: mask])
+        guard let raster = outlineContext.createCGImage(edge, from: source.extent) else { return nil }
+        return UIImage(cgImage: raster, scale: image.scale, orientation: .up)
+    }
+
+    private static let outlineContext = CIContext()
 
     // Trim transparent padding once, before fitting into intro, tray, or AR slots.
     static func normalized(_ image: UIImage) -> UIImage? {

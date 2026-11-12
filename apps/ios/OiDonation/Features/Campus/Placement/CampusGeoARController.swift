@@ -4,14 +4,16 @@ import ARKit
 import RealityKit
 import AVFoundation
 import Observation
+import UIKit
 
-/// Uses a published story location while preserving the independent photo/palm camera.
+/// Tracks and captures the character at a published story's location.
 @MainActor @Observable final class CampusGeoARController: NSObject, ARSessionDelegate {
     enum Mode: String { case preparing = "AR 준비 중", geographic = "지리 추적", gps = "GPS 근사 배치", manual = "직접 바닥 보정" }
     private(set) var mode = Mode.preparing
     private(set) var message: String?
     private(set) var canChangeMode = false
     private(set) var placed = false
+    private(set) var isTakingPhoto = false
     var onStory: (() -> Void)?
     @ObservationIgnored private var view: RealityKit.ARView?
     @ObservationIgnored private var character: Entity?
@@ -24,8 +26,13 @@ import Observation
     private var localized = false
     private var interrupted = false
     private var failed = false
+    private var trackedAnchor = false
     private var generation = UUID()
     private var lastFrameCheck = 0.0
+
+    var canTakePhoto: Bool {
+        trackedAnchor && !isTakingPhoto && !interrupted && !failed && (mode != .geographic || localized)
+    }
 
     func makeView() -> RealityKit.ARView {
         if let view { return view }
@@ -37,7 +44,8 @@ import Observation
         return result
     }
 
-    func start(_ placement: CampusPlacement, location: CampusGeoLocation, wardrobe: OiWardrobeLook? = nil) async {
+    func start(_ placement: CampusPlacement, location: CampusGeoLocation, wardrobe: OiWardrobeLook? = nil,
+               loadPublishedModel: (() async throws -> Entity)? = nil) async {
         stop()
         self.placement = placement; self.location = location; isWardrobeTest = wardrobe != nil
         mode = .preparing; message = nil
@@ -51,11 +59,13 @@ import Observation
         guard allowed else { message = "설정에서 카메라 권한을 허용한 뒤 다시 시도해 주세요."; return }
         do {
             let entity: Entity
-            if let wardrobe { entity = try await OiWardrobeAsset.loadForPlacement(wardrobe) }
+            if let loadPublishedModel { entity = try await loadPublishedModel() }
+            else if let wardrobe { entity = try await OiWardrobeAsset.loadForPlacement(wardrobe) }
             else { entity = try await CampusOiAsset.load() }
             guard token == generation, !Task.isCancelled else { return }
             entity.name = "campus-geo-oi"
-            entity.scale = SIMD3(repeating: wardrobe == nil ? Float(placement.heightMeters) : 1)
+            let height = Float(placement.heightMeters)
+            entity.scale = SIMD3(repeating: loadPublishedModel != nil ? height / OiWardrobeAsset.placementHeight : wardrobe == nil ? height : 1)
             entity.orientation = CampusOiAsset.heading(placement.headingDegrees)
             character = entity
         } catch {
@@ -83,6 +93,8 @@ import Observation
         geoAnchor = nil
         anchor?.removeFromParent(); anchor = nil; placed = false
         character?.removeFromParent()
+        trackedAnchor = false
+        isTakingPhoto = false
     }
     private func prepare(_ mode: Mode) -> RealityKit.ARView? {
         guard active, let view, character != nil else { return nil }
@@ -121,6 +133,24 @@ import Observation
         character = nil
     }
 
+    func takePhoto(completion: @escaping @MainActor @Sendable (UIImage?) -> Void) {
+        guard !isTakingPhoto else { return }
+        guard canTakePhoto, let view, positionReady, anchor?.isAnchored == true, anchor?.isEnabled == true,
+              case .normal = view.session.currentFrame?.camera.trackingState else {
+            completion(nil)
+            return
+        }
+        let request = generation
+        isTakingPhoto = true
+        view.snapshot(saveToHDR: false) { @Sendable [weak self] image in
+            Task { @MainActor [weak self] in
+                guard let self, self.generation == request else { return }
+                self.isTakingPhoto = false
+                completion(self.canTakePhoto ? image : nil)
+            }
+        }
+    }
+
     private var positionReady: Bool {
         guard let placement, let location else { return false }
         return location.isReady(for: placement)
@@ -138,6 +168,8 @@ import Observation
         if case .normal = frame.camera.trackingState { normal = true } else { normal = false }
         let valid = positionReady && normal && (mode != .geographic || localized)
         anchor?.isEnabled = valid
+        let isTracked = valid && anchor?.isAnchored == true
+        if trackedAnchor != isTracked { trackedAnchor = isTracked }
         guard valid else {
             message = !positionReady ? "목표 25m 안에서 GPS 오차가 15m 이하인 최신 위치를 기다리고 있어요." : "주변을 천천히 비춰 카메라 추적과 위치 보정을 안정시켜 주세요."
             return
@@ -166,7 +198,7 @@ import Observation
         }
     }
     @objc private func tap(_ recognizer: UITapGestureRecognizer) {
-        guard active, !failed, !interrupted, let view, positionReady,
+        guard active, !failed, !interrupted, !isTakingPhoto, let view, positionReady,
               case .normal = view.session.currentFrame?.camera.trackingState else { return }
         let point = recognizer.location(in: view)
         if placed, anchor?.isEnabled == true {

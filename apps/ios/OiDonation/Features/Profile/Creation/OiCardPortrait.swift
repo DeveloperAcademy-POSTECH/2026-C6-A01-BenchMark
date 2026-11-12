@@ -56,7 +56,6 @@ struct OiCardPortraitCapture: View {
                 onCapture(data, cacheKey)
             } catch { /* A newer angle or a closed tab superseded this capture. */ }
         }
-        .onDisappear { scene.release() }
         .accessibilityLabel("커스텀 오이 3D 미리보기")
     }
 }
@@ -67,6 +66,7 @@ private struct OiCardPortraitSurface: UIViewRepresentable {
     let scene: OiWardrobeScene
     let look: OiWardrobeLook
     let orientation: OiCardOrientation
+    func makeCoordinator() -> OiWardrobeScene { scene }
     func makeUIView(context: Context) -> RealityKit.ARView {
         let view = scene.install()
         scene.transparentCardBackground()
@@ -75,7 +75,11 @@ private struct OiCardPortraitSurface: UIViewRepresentable {
         return view
     }
     func updateUIView(_ view: RealityKit.ARView, context: Context) {
+        guard scene.isInstalled(view) else { return }
         scene.cardOrientation(orientation)
         scene.update(look)
+    }
+    static func dismantleUIView(_ view: RealityKit.ARView, coordinator: OiWardrobeScene) {
+        coordinator.uninstall(view)
     }
 }

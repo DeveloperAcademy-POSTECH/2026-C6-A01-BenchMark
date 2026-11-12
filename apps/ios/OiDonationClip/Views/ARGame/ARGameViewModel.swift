@@ -11,6 +11,9 @@ import Observation
 @Observable
 @MainActor
 final class ARGameViewModel {
+    // Avoid the synthesized isolated deinit crash on early iOS 26 (Swift #88036).
+    nonisolated deinit {}
+
     enum State: Equatable {
         case introBackground
         case intro

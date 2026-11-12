@@ -46,7 +46,7 @@ struct OiOperatorAuditView: View {
             ForEach(model.records) { record in
                 Section {
                     Text(record.title).font(.headline)
-                    LabeledContent("처리 시각", value: OiEvidence.dateLabel(record.createdAt))
+                    LabeledContent("처리 시각", value: OiAuditRecord.dateLabel(record.createdAt))
                     LabeledContent("처리자", value: remote.profiles.first { $0.id == record.actorId }?.nickname ?? record.actorId.uuidString)
                     LabeledContent(record.targetLabel, value: record.targetId.uuidString)
                     LabeledContent("기록 번호", value: record.id)

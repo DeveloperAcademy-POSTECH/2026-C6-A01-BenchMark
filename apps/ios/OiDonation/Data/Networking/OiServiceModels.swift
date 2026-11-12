@@ -86,6 +86,20 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
     let revision: Int
     let createdAt: String
     var storageOwnerId: UUID? = nil
+    @OiStoryPlacementNumber var heightMeters: Double? = nil
+    @OiStoryPlacementNumber var headingDegrees: Double? = nil
+    var cucumberAppearance: OiCucumberAppearance? = nil
+    var cardSnapshotId: UUID? = nil
+
+    var cucumberArtwork: OiCucumberArtworkReference? {
+        cucumberAppearance.map { .init(ownerID: storageOwnerId ?? userId, storyID: id, appearance: $0) }
+    }
+
+    var cardArtworkPath: String? {
+        cardSnapshotId.map { StoryCard.artworkPath(owner: storageOwnerId ?? userId, story: id, snapshot: $0) }
+    }
+
+    var isRegisteredOnCampus: Bool { status == "pending" || status == "published" }
 
     var createdDateLabel: String {
         let parser = ISO8601DateFormatter()
@@ -99,6 +113,68 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
         formatter.timeZone = TimeZone(identifier: "Asia/Seoul")
         formatter.dateFormat = "yyyy.MM.dd"
         return formatter.string(from: date)
+    }
+}
+
+/// Only model choices and references to rendered PNGs leave the device.
+struct OiCucumberAppearance: Codable, Hashable {
+    let id: UUID
+    let top: String
+    let bottom: String
+    let costume: String?
+    let topColor: UInt32
+    let bottomColor: UInt32
+    let shoeColor: UInt32
+    let topTexture: Bool
+    let bottomTexture: Bool
+
+    var payload: [String: Any] {
+        var result: [String: Any] = ["id": id.uuidString.lowercased(), "top": top, "bottom": bottom,
+            "topColor": topColor, "bottomColor": bottomColor, "shoeColor": shoeColor,
+            "topTexture": topTexture, "bottomTexture": bottomTexture]
+        if let costume { result["costume"] = costume }
+        return result
+    }
+}
+
+struct OiCucumberArtworkReference: Hashable {
+    enum Part: String, Hashable, CaseIterable { case portrait, top, bottom }
+    let ownerID: UUID
+    let storyID: UUID
+    let appearance: OiCucumberAppearance
+
+    var parts: [Part] {
+        [.portrait] + (appearance.topTexture ? [.top] : []) + (appearance.bottomTexture ? [.bottom] : [])
+    }
+
+    func path(_ part: Part) -> String {
+        "\(ownerID.uuidString.lowercased())/\(storyID.uuidString.lowercased())/appearance/\(appearance.id.uuidString.lowercased())/\(part.rawValue).png"
+    }
+}
+
+/// Older servers can omit geometry or serialize a non-finite PostgreSQL value as a string.
+@propertyWrapper
+struct OiStoryPlacementNumber: Codable, Equatable {
+    var wrappedValue: Double?
+
+    init(wrappedValue: Double?) {
+        self.wrappedValue = wrappedValue.flatMap { $0.isFinite ? $0 : nil }
+    }
+
+    init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer()
+        self.init(wrappedValue: try? value.decode(Double.self))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var value = encoder.singleValueContainer()
+        try value.encode(wrappedValue)
+    }
+}
+
+private extension KeyedDecodingContainer {
+    func decode(_ type: OiStoryPlacementNumber.Type, forKey key: Key) throws -> OiStoryPlacementNumber {
+        try decodeIfPresent(type, forKey: key) ?? OiStoryPlacementNumber(wrappedValue: nil)
     }
 }
 
@@ -117,118 +193,6 @@ struct OiCardRequestReceipt: Decodable {
     let id: UUID
     let storyId: UUID
     let status: OiCardRequest.Status
-}
-
-struct OiEvidence: Codable, Identifiable, Equatable {
-    let id: UUID
-    let userId: UUID
-    let status: String
-    let objectPath: String?
-    let reviewNote: String?
-    var storageOwnerId: UUID? = nil
-    var createdAt: String? = nil
-    var submittedAt: String? = nil
-    var reviewedAt: String? = nil
-    var reviewerId: UUID? = nil
-}
-
-struct OiDonationEvidenceSummary: Decodable, Equatable {
-    enum Outcome: String, Decodable, CaseIterable {
-        case sufficientEvidence = "sufficient_evidence"
-        case needsMoreEvidence = "needs_more_evidence"
-        case manualReview = "manual_review"
-        case suspectedManipulation = "suspected_manipulation"
-        case duplicateEvidence = "duplicate_evidence"
-        case notDonation = "not_donation"
-
-        var label: String {
-            switch self {
-            case .sufficientEvidence: "증빙 충족"
-            case .needsMoreEvidence: "증빙 보완 필요"
-            case .manualReview: "운영자 추가 확인 필요"
-            case .suspectedManipulation: "수정 흔적 확인 필요"
-            case .duplicateEvidence: "중복 자료 확인 필요"
-            case .notDonation: "기부 완료 근거 부족"
-            }
-        }
-    }
-
-    struct Check: Decodable, Equatable {
-        let kind: String
-        let status: String
-        let detail: String
-    }
-
-    struct SourceReference: Decodable, Equatable, Identifiable {
-        let id: String
-        let url: String
-        let title: String
-        let kind: String
-        let verifiedAt: String
-
-        var safeURL: URL? {
-            guard let components = URLComponents(string: url), components.scheme == "https",
-                  components.user == nil, components.password == nil,
-                  components.port == nil || components.port == 443,
-                  let host = components.host?.lowercased(),
-                  host == "postech.ac.kr" || host.hasSuffix(".postech.ac.kr") else { return nil }
-            return components.url
-        }
-    }
-
-    let outcome: Outcome
-    let sufficientEvidence: Bool
-    let title: String
-    let reasons: [String]
-    let checks: [Check]
-    let sourceReferences: [SourceReference]
-
-    var isConsistent: Bool {
-        sufficientEvidence == (outcome == .sufficientEvidence)
-            && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !reasons.isEmpty
-            && reasons.allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    }
-}
-
-struct OiDonationEvidenceReview: Decodable, Equatable {
-    struct Assessment: Decodable, Equatable {
-        enum Verdict: String, Decodable { case suspicious, noObviousSigns = "no_obvious_signs", inconclusive }
-        enum Readability: String, Decodable { case readable, limited, unreadable }
-        struct Finding: Decodable, Equatable {
-            let category: String
-            let location: String
-            let observation: String
-        }
-        let verdict: Verdict
-        let readability: Readability
-        let findings: [Finding]
-        let limitations: [String]
-        let manualChecks: [String]
-
-        var title: String {
-            switch verdict {
-            case .noObviousSigns: "눈에 띄는 수정 흔적을 찾지 못했어요"
-            case .suspicious: "운영자의 추가 확인이 필요해요"
-            case .inconclusive: "자료만으로 판단하기 어려워요"
-            }
-        }
-    }
-    let reviewType: String
-    let evidenceId: UUID
-    let submittedAt: String
-    let analyzedAt: String
-    let humanReviewRequired: Bool
-    let authenticityVerified: Bool
-    let notice: String
-    let assessment: Assessment
-    var summary: OiDonationEvidenceSummary? = nil
-}
-
-struct OiWritingGrant: Codable, Identifiable, Equatable {
-    let id: UUID
-    let storyLimit: Int
-    let revokedAt: String?
 }
 
 struct OiOwnedStory: Codable, Identifiable {
@@ -296,20 +260,15 @@ struct OiCapabilities: Decodable {
     let `operator`: Bool
     let coinsEnabled: Bool
     let unapprovedDraftsEnabled: Bool?
+    let independentStoryCreation: Bool?
     let accountId: UUID?
     let accountMergeEnabled: Bool?
     let accountMemberIds: [UUID]?
     let accountProviders: [String]?
     let schoolProfileEnabled: Bool?
     let farmerOutfitEnabled: Bool?
-}
-
-/// Content validation is separate from permission. The server remains authoritative.
-enum OiWritingAccess {
-    static func canWrite(grantID: UUID?, grants: [OiWritingGrant], unapprovedDraftsEnabled: Bool) -> Bool {
-        if let grantID { return grants.contains { $0.id == grantID && $0.revokedAt == nil } }
-        return unapprovedDraftsEnabled
-    }
+    let publicCucumberAppearance: Bool?
+    let publicStoryCard: Bool?
 }
 
 struct OiStoryDraft: Codable, Equatable {
@@ -326,6 +285,8 @@ struct OiStoryDraft: Codable, Equatable {
     var cardAsset = "MYBasicCard"
     var latitude: Double?
     var longitude: Double?
+    var heightMeters: Double?
+    var headingDegrees: Double?
 
     init() {}
 
@@ -335,6 +296,7 @@ struct OiStoryDraft: Codable, Equatable {
         theme = story.theme; emotion = story.emotion; cucumberName = story.cucumberName
         cucumberAsset = story.cucumberAsset; cardAsset = story.cardAsset
         latitude = story.latitude; longitude = story.longitude
+        heightMeters = story.heightMeters; headingDegrees = story.headingDegrees
     }
 
     var valid: Bool {
@@ -348,25 +310,19 @@ struct OiStoryDraft: Codable, Equatable {
 
     func payload() throws -> [String: Any] {
         guard valid, let latitude, let longitude else { throw OiServiceError.invalidDraft }
-        return ["id": id.uuidString, "grant_id": grantId.map { $0.uuidString as Any } ?? NSNull(), "revision": revision,
+        var fields: [String: Any] = ["id": id.uuidString, "revision": revision,
                 "region_id": regionId, "title": title, "body": body, "theme": theme,
                 "emotion": emotion, "cucumber_name": cucumberName, "cucumber_asset": cucumberAsset,
                 "card_asset": cardAsset, "latitude": latitude, "longitude": longitude]
+        if let heightMeters { fields["height_meters"] = heightMeters }
+        if let headingDegrees { fields["heading_degrees"] = headingDegrees }
+        return fields
     }
 }
 
 nonisolated struct OiSchoolEvidenceReview: Decodable, Sendable {
-    nonisolated struct Summary: Codable, Sendable {
-        nonisolated struct Reference: Codable, Sendable {
-            let title: String
-            let url: URL
-        }
-
+    nonisolated struct Summary: Decodable, Sendable {
         let outcome: String
-        let title: String
-        let detail: String
-        let nextStep: String
-        let reference: Reference?
     }
 
     let reviewType: String
@@ -376,13 +332,79 @@ nonisolated struct OiSchoolEvidenceReview: Decodable, Sendable {
     let summary: Summary?
 }
 
+nonisolated enum OiSchoolEvidenceOutcome: String, Codable, Sendable {
+    // Keep the two legacy raw values so existing device receipts remain readable.
+    case completed, rejected
+    case documentNeeded = "school_document_needed"
+    case retakeNeeded = "retake_needed"
+    case manualReviewNeeded = "manual_review_needed"
+
+    init?(reviewOutcome: String) {
+        switch reviewOutcome {
+        case "school_evidence_visible": self = .completed
+        case "school_document_needed": self = .documentNeeded
+        case "retake_needed": self = .retakeNeeded
+        case "manual_review_needed": self = .manualReviewNeeded
+        default: return nil
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .completed: "AI 자료 확인 완료"
+        case .rejected: "추가 확인 필요"
+        case .documentNeeded: "학교 증빙 자료 필요"
+        case .retakeNeeded: "재촬영 필요"
+        case .manualReviewNeeded: "사람의 확인 필요"
+        }
+    }
+
+    var guidance: String {
+        switch self {
+        case .completed: "자료에서 학교 관련 표기를 확인했어요."
+        case .rejected: "이전에 저장한 결과에는 세부 사유가 없어요. 자료를 다시 확인해 주세요."
+        case .documentNeeded: "학교명과 소속을 확인할 수 있는 자료를 첨부해 주세요."
+        case .retakeNeeded: "자료의 글자가 잘 보이도록 다시 촬영해 주세요."
+        case .manualReviewNeeded: "AI만으로 판단하기 어려워요. 운영팀에 확인 방법을 문의해 주세요. 자동으로 검토가 접수되지는 않아요."
+        }
+    }
+}
+
 nonisolated struct OiSavedSchoolEvidenceReview: Codable, Sendable {
-    let summary: OiSchoolEvidenceReview.Summary
+    let outcome: OiSchoolEvidenceOutcome
     let reviewedAt: Date
+
+    private enum CodingKeys: String, CodingKey { case outcome, reviewedAt, summary }
+
+    init(outcome: OiSchoolEvidenceOutcome, reviewedAt: Date) {
+        self.outcome = outcome
+        self.reviewedAt = reviewedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        reviewedAt = try values.decode(Date.self, forKey: .reviewedAt)
+        if let outcome = try values.decodeIfPresent(OiSchoolEvidenceOutcome.self, forKey: .outcome) {
+            self.outcome = outcome
+        } else {
+            let previous = try values.decode(OiSchoolEvidenceReview.Summary.self, forKey: .summary)
+            guard let outcome = OiSchoolEvidenceOutcome(reviewOutcome: previous.outcome) else {
+                throw DecodingError.dataCorruptedError(forKey: .summary, in: values,
+                    debugDescription: "Unknown school evidence outcome")
+            }
+            self.outcome = outcome
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(outcome, forKey: .outcome)
+        try values.encode(reviewedAt, forKey: .reviewedAt)
+    }
 }
 
 enum OiServiceError: LocalizedError {
-    case configuration, signInRequired, writingApprovalRequired, invalidDraft, invalidCallback, unavailable, accountChanged, authenticationFailed
+    case configuration, signInRequired, storyCreationUnavailable, invalidDraft, invalidCallback, unavailable, accountChanged, authenticationFailed
     case server(String)
     case invalidInput, conflict
     case secureStorage(Int32)
@@ -393,7 +415,7 @@ enum OiServiceError: LocalizedError {
         case .configuration: "Supabase 연결 설정이 없습니다. 개발용 공개 키를 설정한 빌드를 사용해 주세요."
         case .signInRequired: "로그인이 필요합니다."
         case .authenticationFailed: "로그인을 완료하지 못했습니다. 계정과 로그인 설정을 확인한 뒤 다시 시도해 주세요."
-        case .writingApprovalRequired: "서버 저장·검토 요청에는 작성 승인이 필요해요. 기존 글과 사진은 보관됩니다."
+        case .storyCreationUnavailable: "지금은 이야기를 서버에 저장하거나 공개 검토를 요청할 수 없어요. 기기에 저장한 글과 사진은 보관돼요."
         case .invalidDraft: "모든 입력 항목과 캠퍼스의 야외 위치를 확인해 주세요."
         case .invalidCallback: "로그인 응답을 확인할 수 없습니다. 다시 로그인해 주세요."
         case .unavailable: "지금은 연결할 수 없습니다. 잠시 후 다시 시도해 주세요."
@@ -410,10 +432,10 @@ extension String {
         switch self {
         case "draft": "작성 중"
         case "pending": "운영자 검토 대기"
-        case "approved": "작성 승인"
+        case "approved": "검토 완료"
         case "rejected": "반려"
         case "changes_requested": "보완 요청"
-        case "revoked": "승인 취소"
+        case "revoked": "검토 결과 철회"
         case "published": "공개 중"
         case "hidden": "비공개"
         case "deleted": "삭제됨"
@@ -421,3 +443,18 @@ extension String {
         }
     }
 }
+
+
+struct OiContentReport: Decodable, Identifiable, Sendable {
+    let id: UUID
+    let storyId: UUID
+    let authorId: UUID
+    let title: String
+    let body: String
+    let reason: String
+    let detail: String
+    let status: String
+    let restricted: Bool
+    let reviewNote: String?
+}
+struct OiContentReportReceipt: Decodable { let id: UUID; let status: String }

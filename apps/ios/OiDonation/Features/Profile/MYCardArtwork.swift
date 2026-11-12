@@ -7,12 +7,24 @@
 
 import SwiftUI
 
-/// Composes a card from the stored story, never a bitmap containing another donor's story.
+/// Uses the approved artwork when available and composes cards for legacy stories.
 struct MYCardArtwork: View {
     let card: MYCard
+    @Environment(OiRemoteStore.self) private var remote: OiRemoteStore?
 
     var body: some View {
-        OiStoryCardArtwork(name: card.title, introduction: card.body, donor: card.donor,
-                           date: card.date, assetName: card.image, appearance: card.appearance)
+        if let path = card.cardArtworkPath {
+            OiCucumberPortraitImage(path: path, label: "\(card.title) 카드", load: load)
+                .aspectRatio(362 / 502, contentMode: .fit)
+        } else {
+            OiStoryCardArtwork(name: card.title, introduction: card.body, donor: card.donor,
+                date: card.date, assetName: card.image, appearance: card.appearance,
+                portraitPath: card.cucumberPortraitPath, loadPortrait: load)
+        }
+    }
+
+    private func load(_ path: String) async throws -> UIImage {
+        guard let remote else { throw OiServiceError.unavailable }
+        return try await remote.cucumberImage(path)
     }
 }

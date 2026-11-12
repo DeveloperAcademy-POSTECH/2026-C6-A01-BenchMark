@@ -14,15 +14,36 @@ struct CampusGeoARScreen: View {
     @State private var controller = CampusGeoARController()
     @State private var location = CampusGeoLocation()
     @State private var showingStory = false
+    @State private var photo: Photo?
+    @State private var showingPhotoError = false
     @State private var isVisible = false
     @State private var restartID = UUID()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
 
-    private func currentPlacement() async throws -> CampusPlacement {
+    private struct Photo: Identifiable {
+        let id = UUID()
+        let image: UIImage
+    }
+
+    private struct PublishedPlacement: Equatable {
+        let placement: CampusPlacement
+        let artwork: OiCucumberArtworkReference?
+    }
+
+    private func currentPlacement() async throws -> PublishedPlacement {
         let story = try await remote.publishedStory(placement.id)
-        return try CampusPlacement(id: story.id, storyID: story.id.uuidString,
-            latitude: story.latitude, longitude: story.longitude).validated()
+        guard let placement = story.campusPlacement else { throw CampusPlacementError.invalid }
+        return .init(placement: placement, artwork: story.cucumberArtwork)
+    }
+
+    private func render(_ current: PublishedPlacement) async {
+        livePlacement = current.placement
+        if let artwork = current.artwork {
+            await controller.start(current.placement, location: location) { try await remote.cucumberModel(artwork) }
+        } else {
+            await controller.start(current.placement, location: location)
+        }
     }
 
     var body: some View {
@@ -36,6 +57,9 @@ struct CampusGeoARScreen: View {
                 }
                 VStack(alignment: .leading, spacing: 6) {
                     if controller.mode != .preparing { Text(controller.mode.rawValue).font(.headline) }
+                    if let livePlacement {
+                        Text("오이 높이 \(livePlacement.heightCentimeters)cm").font(.caption)
+                    }
                     if let message = sharedError ?? controller.message {
                         Text(message).font(.subheadline)
                     } else if controller.mode == .preparing {
@@ -66,6 +90,7 @@ struct CampusGeoARScreen: View {
                             if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                         }
                     }.font(.caption)
+                    photoButton
                 }.buttonStyle(.bordered)
             }
             .padding(16)
@@ -78,24 +103,23 @@ struct CampusGeoARScreen: View {
             guard isCurrent(request) else { return }
             controller.stop()
             controller.onStory = {
-                guard isCurrent(request) else { return }
+                guard isCurrent(request), photo == nil else { return }
                 showingStory = true
             }
             sharedError = nil
             do {
-                let current = try await currentPlacement()
+                var current = try await currentPlacement()
                 guard isCurrent(request) else { return }
-                livePlacement = current
-                await controller.start(current, location: location)
+                await render(current)
                 // Refresh publication and coordinates while AR is visible. Hidden/deleted stories stop rendering.
                 while isCurrent(request) {
                     try await Task.sleep(for: .seconds(30))
                     guard isCurrent(request) else { return }
                     let updated = try await currentPlacement()
                     guard isCurrent(request) else { return }
-                    if updated != target {
-                        livePlacement = updated
-                        await controller.start(updated, location: location)
+                    if updated != current {
+                        current = updated
+                        await render(current)
                     }
                 }
             } catch {
@@ -116,6 +140,12 @@ struct CampusGeoARScreen: View {
         .onChange(of: showingStory) { _, showing in
             restartID = UUID()
             if showing { controller.stop() }
+        }
+        .sheet(item: $photo) { ARPhotoResultView(image: $0.image) }
+        .alert("사진을 찍지 못했어요", isPresented: $showingPhotoError) {
+            Button("확인", role: .cancel) { }
+        } message: {
+            Text("오이가 화면에 보일 때 다시 찍어 주세요.")
         }
         .sheet(isPresented: $showingStory) {
             NavigationStack {
@@ -139,6 +169,37 @@ struct CampusGeoARScreen: View {
                 }
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("AR로 돌아가기") { showingStory = false } } }
             }
+        }
+    }
+
+    private var photoButton: some View {
+        Button(action: takePhoto) {
+            Group {
+                if controller.isTakingPhoto {
+                    ProgressView().tint(.black)
+                } else {
+                    Image(systemName: "camera.fill").font(.title2)
+                }
+            }
+            .frame(width: 56, height: 56)
+            .foregroundStyle(.black)
+            .background(.white, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .opacity(controller.canTakePhoto || controller.isTakingPhoto ? 1 : 0.5)
+        .disabled(!controller.canTakePhoto)
+        .accessibilityLabel("AR 사진 촬영")
+        .accessibilityHint("배치된 오이와 카메라 배경을 함께 찍습니다.")
+        .accessibilityIdentifier("campus.geoAR.takePhoto")
+    }
+
+    private func takePhoto() {
+        let request = restartID
+        guard isCurrent(request), photo == nil else { return }
+        controller.takePhoto { image in
+            guard isCurrent(request), photo == nil else { return }
+            if let image { photo = Photo(image: image) }
+            else { showingPhotoError = true }
         }
     }
 

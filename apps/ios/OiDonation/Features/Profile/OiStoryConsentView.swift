@@ -21,7 +21,6 @@ struct OiStoryConsentView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 20) {
-
                     VStack(spacing: 50) {
                         ForEach(clauses) { clause in
                             clauseSection(clause)
@@ -199,6 +198,6 @@ struct OiStoryConsentView: View {
 
 #Preview {
     NavigationStack {
-        OiStoryConsentView(clauses: OiStoryConsentClause.figmaDrafts)
+        OiStoryConsentView(clauses: OiStoryConsentClause.writingClauses)
     }
 }

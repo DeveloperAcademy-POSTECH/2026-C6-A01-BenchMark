@@ -8,16 +8,19 @@ struct RootTabView: View {
     @State private var myDemo = MYLibraryStore()
     @State private var isARPresented = false
     @State private var isCameraCoverActive = false
-    @State private var remote = OiRemoteStore()
+    @State private var remote: OiRemoteStore
     @State private var showingStoryList = false
+    @State private var authoredPlacementToReveal: UUID?
     @State private var geoPlacement: CampusPlacement?
     @State private var collectionStory: CampusStory?
     @State private var collectionReturnsToAR = false
     @State private var pendingStoryList = false
+    @State private var showingSample = false
     @Environment(\.scenePhase) private var scenePhase
 
-    init(container: AppContainer = .pilot) {
+    init(container: AppContainer = .pilot, remote: OiRemoteStore? = nil) {
         self.container = container
+        _remote = State(initialValue: remote ?? OiRemoteStore())
     }
 
     var body: some View {
@@ -30,7 +33,9 @@ struct RootTabView: View {
                 onOpenProfile: { path.append(MYDestination.workshop) },
                 onOpenStory: { path.append(CampusDestination.summary($0)) },
                 remote: remote,
-                onCreateStory: { showingStoryList = true }
+                onCreateStory: { showingStoryList = true },
+                onOpenSample: { isCameraCoverActive = true; showingSample = true },
+                authoredPlacementToReveal: $authoredPlacementToReveal
             )
             .navigationDestination(isPresented: $showingStoryList) {
                 OiStoryListScreen(remote: remote)
@@ -59,16 +64,33 @@ struct RootTabView: View {
                 }
             }
             .navigationDestination(for: PublicLinkParser.Destination.self) { publicDestination($0) }
+            .navigationDestination(for: AppClipInvocation.self) { invocation in
+                AppClipExperienceView(storyRepository: container.storyRepository, invocation: invocation) { story, id in
+                    OiStorySafetyButton(storyID: id, authorID: story.donorID, authorName: story.donorDisplayName)
+                }
+                .navigationTitle("이야기·AR")
+                .navigationBarTitleDisplayMode(.inline)
+            }
         }
         .tint(.black)
+        .onChange(of: OiContentSafetyStore.shared.authors) { _, _ in
+            synchronizeRemote()
+            if let author = collectionStory?.authorID, OiContentSafetyStore.shared.isBlocked(author) {
+                isARPresented = false
+            }
+        }
         .onChange(of: remote.revision) { _, _ in synchronizeRemote() }
-        .onChange(of: remote.account?.id) { _, _ in myDemo.resetFilters() }
+        .onChange(of: remote.account?.id) { _, _ in
+            authoredPlacementToReveal = nil
+            myDemo.resetFilters()
+        }
         .onReceive(NotificationCenter.default.publisher(for: ASAuthorizationAppleIDProvider.credentialRevokedNotification)) { _ in
             guard remote.accountProviders.contains("apple") else { return }
             Task { await remote.signOut() }
         }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
+            OiContentSafetyStore.shared.reload()
             store.collectAction = { story in
                 guard collectionStory == nil else { return }
                 collectionReturnsToAR = isARPresented
@@ -81,6 +103,13 @@ struct RootTabView: View {
                     pendingStoryList = true
                     isARPresented = false
                 } else { showingStoryList = true }
+            }
+            store.showAuthoredPlacementAction = { id in
+                // Home resolves this navigation intent against the current account's placements.
+                guard remote.canPlaceOi else { return }
+                authoredPlacementToReveal = id
+                showingStoryList = false
+                path = NavigationPath()
             }
             store.mediaURL = { path in try await remote.mediaURL(bucket: "oi-story-media", path: path) }
             myDemo.campusStore = store
@@ -95,6 +124,9 @@ struct RootTabView: View {
             }
         }
         .preferredColorScheme(.light)
+        .fullScreenCover(isPresented: $showingSample, onDismiss: { isCameraCoverActive = false }) {
+            OiSampleExperienceView()
+        }
         .fullScreenCover(isPresented: $isARPresented, onDismiss: {
             // Restore the map only after the camera's dismissal has finished.
             isCameraCoverActive = false
@@ -116,6 +148,8 @@ struct RootTabView: View {
             if let url = activity.webpageURL { handlePublicLink(url) }
         }
         .environment(remote)
+        .environment(store)
+        .environment(\.campusCucumberPortraitLoader, { try await remote.cucumberImage($0) })
     }
 
     private func openGeoStory(_ story: CampusStory) {
@@ -137,7 +171,8 @@ struct RootTabView: View {
             return MYCard(id: story.id.uuidString, title: story.cucumberName, image: story.cucumberAsset,
                 school: MYSchool(id: school.id, name: school.name), order: index,
                 body: story.body, donor: remote.profiles.first(where: { $0.id == story.userId })?.nickname ?? "농부",
-                date: story.createdDateLabel, storyID: story.id.uuidString, appearance: story.cardAsset)
+                date: story.createdDateLabel, storyID: story.id.uuidString, appearance: story.cardAsset,
+                cucumberPortraitPath: story.cucumberArtwork?.path(.portrait), cardArtworkPath: story.cardArtworkPath)
         }
         myDemo.synchronize(nickname: remote.profile?.nickname ?? "농부", cards: cards,
             favorites: Set(remote.favorites.map(\.uuidString)))
@@ -145,13 +180,16 @@ struct RootTabView: View {
 
     private func handlePublicLink(_ url: URL) {
         if AppClipLink.matches(url) {
+            showingSample = false
             path = NavigationPath()
             pendingStoryList = false
             isARPresented = false
+            path.append(AppClipInvocation(url: url))
             return
         }
         if let host = container.approvedLinkHost,
                   let destination = PublicLinkParser(allowedHost: host).parse(url) {
+            showingSample = false
             path = NavigationPath()
             path.append(destination)
         }

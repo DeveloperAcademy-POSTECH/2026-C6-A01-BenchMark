@@ -52,10 +52,10 @@
 
 /* Begin PBXFileReference section */
 		C15811050000000000000002 /* OiSchoolEvidenceContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiSchoolEvidenceContractTests.swift; sourceTree = SOURCE_ROOT; };
-		C10911020000000000000001 /* OiCats PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiCats PNG"; path = OiDonation/Assets.xcassets/OiCats.imageset/61272.png; sourceTree = SOURCE_ROOT; };
-		C10911020000000000000002 /* OiGardener PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiGardener PNG"; path = OiDonation/Assets.xcassets/OiGardener.imageset/0e35d.png; sourceTree = SOURCE_ROOT; };
-		C10911020000000000000003 /* OiWizard PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiWizard PNG"; path = OiDonation/Assets.xcassets/OiWizard.imageset/9ac42.png; sourceTree = SOURCE_ROOT; };
-		C10911020000000000000004 /* OiTraveler PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiTraveler PNG"; path = OiDonation/Assets.xcassets/OiTraveler.imageset/aeb3a.png; sourceTree = SOURCE_ROOT; };
+		C10911020000000000000001 /* OiCats PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiCats PNG"; path = Resources/AppClipPresets/61272.png; sourceTree = SOURCE_ROOT; };
+		C10911020000000000000002 /* OiGardener PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiGardener PNG"; path = Resources/AppClipPresets/0e35d.png; sourceTree = SOURCE_ROOT; };
+		C10911020000000000000003 /* OiWizard PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiWizard PNG"; path = Resources/AppClipPresets/9ac42.png; sourceTree = SOURCE_ROOT; };
+		C10911020000000000000004 /* OiTraveler PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiTraveler PNG"; path = Resources/AppClipPresets/aeb3a.png; sourceTree = SOURCE_ROOT; };
 		B10000000000000000000007 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = OiDonationTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B10000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiRemoteStoreTests.swift; sourceTree = SOURCE_ROOT; };
 		C13211030000000000000010 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiFigmaFidelityVisualTests.swift; sourceTree = SOURCE_ROOT; };
@@ -84,27 +84,40 @@
 				Data/Networking/APIClient.swift,
 				Domain/Models/CollectedStoryCard.swift,
 				Domain/Models/Story.swift,
+				Domain/Models/OiContentSafetyStore.swift,
 				Domain/Models/StoryCard.swift,
+				Domain/Models/OiSampleStory.swift,
+				Features/Campus/CampusStory.swift,
+				Features/Campus/CampusStoryExamples.swift,
+				Features/Campus/CampusStyle.swift,
 				Domain/Repositories/StoryRepository.swift,
 				Domain/Routing/AppClipLink.swift,
 				Domain/Routing/PublicLinkParser.swift,
 				"Resources/Fonts/Paperlogy-2ExtraLight.ttf",
+				"Resources/Fonts/Paperlogy-3Light.ttf",
 				"Resources/Fonts/Paperlogy-4Regular.ttf",
 				"Resources/Fonts/Paperlogy-6SemiBold.ttf",
 				"Resources/Fonts/Paperlogy-7Bold.ttf",
-				"Resources/Fonts/PearToucan-Regular.ttf",
-				"Resources/Fonts/PearToucan-Light.ttf",
-				"Resources/Fonts/PearToucan-Bold.ttf",
+				"Resources/Fonts/Paperlogy-OFL.txt",
 				"Resources/ARCollectionAssets.xcassets",
 				"Resources/OiStoryCardAssets.xcassets",
 				"Shared/Components/ARCollectionResultView.swift",
 				"Shared/Components/OiStoryCardArtwork.swift",
+				"Shared/Components/OiContentSafetyView.swift",
+				"Shared/Components/OiSupportView.swift",
+				"Shared/Components/OiSampleExperienceView.swift",
+				"Shared/Components/OiSampleMapView.swift",
+				"Shared/Components/OiSampleStoryDetailView.swift",
+				"Resources/OiSampleAssets.xcassets",
+				"Resources/Fonts/Paperlogy-5Medium.ttf",
 			);
 			target = 87169564307CB1CF0090D456 /* OiDonationClip */;
 		};
 		C13211030000000000000001 /* Shared collection game in main app */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				AppClipViewModel.swift,
+				ContentView.swift,
 				Models/AppClipExperience.swift,
 				Views/StoryCard/AppClipStoryCardView.swift,
 				Views/ARGame/ARGameCameraView.swift,
@@ -428,9 +441,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				COMPRESS_PNG_FILES = NO;
 				CODE_SIGN_ENTITLEMENTS = OiDonationClip/OiDonationClip.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20261106;
+				CURRENT_PROJECT_VERSION = 20261108;
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -442,7 +456,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -456,7 +470,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -465,9 +479,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				COMPRESS_PNG_FILES = NO;
 				CODE_SIGN_ENTITLEMENTS = OiDonationClip/OiDonationClip.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20261106;
+				CURRENT_PROJECT_VERSION = 20261108;
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -479,7 +494,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -493,7 +508,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -625,7 +640,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = OiDonation/OiDonation.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20261106;
+				CURRENT_PROJECT_VERSION = 20261108;
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -653,7 +668,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -664,7 +679,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = OiDonation/OiDonation.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20261106;
+				CURRENT_PROJECT_VERSION = 20261108;
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -692,7 +707,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};

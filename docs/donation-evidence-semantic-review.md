@@ -1,6 +1,8 @@
 # 기부 증빙 의미 판정 v3
 
-2026-11-05 사용자 요청 / #161·PR #162. 문자·이체 내역·기부 영수증의 **근거 충분성**을 판정한다. 공식 영수증은 필수가 아니며, 최소 기부액·새 보상·작성 권한 자동 승인을 도입하지 않는다.
+> **2026-11-09 / #258:** 이 문서는 종료한 기부 증빙 기능의 구현 기록이다. 아래 운영 배포·실행 절차는 더 이상 사용하지 않는다. [현재 적용 순서](donation-evidence-retirement.md).
+
+2026-11-05 사용자 요청 / #161·PR #162. 문자·이체 내역·기부 영수증의 **근거 충분성**을 판정한다. 공식 영수증은 필수가 아니다. 2026-11-08 / #234부터 증빙은 선택 제출이며, AI 참고 검사나 운영자 검토에서 작성 권한을 부여하지 않는다.
 
 ## 판정 구조
 
@@ -9,7 +11,7 @@
 1. 모델은 문서 종류, 보이는 기관, 약정/예정/완료/취소, 실제 발신 헤더와 본문 번호 구분, 명시적 완료 근거, 날짜·수정 흔적, 존재할 때만 고유 거래 참조를 추출한다.
 2. 서버가 공식 출처의 확인일·기관·발신번호·입금 완료 의미·가독성·모순·중복 검사 결과를 조합해 판정한다. 날짜 비교는 한국 시간 기준이다.
 3. 결과는 `sufficient_evidence`, `needs_more_evidence`, `manual_review`, `suspected_manipulation`, `duplicate_evidence`, `not_donation` 중 하나다. `summary.sufficient_evidence`와 판정이 일치해야 한다.
-4. 충족 결과도 `human_review_required: true`, `authenticity_verified: false`, `writing_permission_granted: false`다. 작성 권한은 기존 운영자 승인 계약을 따른다.
+4. 충족 결과도 `human_review_required: true`, `authenticity_verified: false`, `writing_permission_granted: false`다. 마지막 필드는 구형 클라이언트 호환용이다. 증빙 결과는 이야기의 작성이나 공개에 영향을 주지 않는다.
 
 ## 문자의 충족 조건
 

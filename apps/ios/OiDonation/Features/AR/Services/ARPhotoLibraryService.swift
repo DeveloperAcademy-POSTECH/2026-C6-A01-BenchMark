@@ -26,7 +26,7 @@ struct ARPhotoLibraryService {
         let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         guard status == .authorized || status == .limited else {
             throw NSError(domain: "오이기부.PhotoLibrary", code: 1, userInfo: [NSLocalizedDescriptionKey:
-                "사진 추가 권한이 없습니다. 설정에서 허용하거나 공유 버튼으로 내보내세요."])
+                "사진 추가 권한이 없습니다. 설정에서 사진 추가를 허용해 주세요."])
         }
     }
 }

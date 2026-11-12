@@ -14,10 +14,15 @@ struct CampusStory: Identifiable, Hashable {
     let order: Int
     let popularity: Int
     let palette: Int
+    var authorID: UUID? = nil
     var remoteBody: String? = nil
     var remoteMediaPaths: [String] = []
+    var cucumberPortraitPath: String? = nil
+    var cardArtworkPath: String? = nil
     var latitude: Double? = nil
     var longitude: Double? = nil
+    var heightMeters: Double = 1
+    var headingDegrees: Double = 0
     /// Local design content is never a public donation or a server collection target.
     var example: CampusStoryExample? = nil
 
@@ -51,6 +56,7 @@ final class CampusStoryStore {
     private(set) var stories: [CampusStory]
     var collectAction: ((CampusStory) -> Void)?
     var createStoryAction: (() -> Void)?
+    var showAuthoredPlacementAction: ((UUID) -> Void)?
     var mediaURL: ((String) async throws -> URL)?
     private(set) var collected: Set<String>
 

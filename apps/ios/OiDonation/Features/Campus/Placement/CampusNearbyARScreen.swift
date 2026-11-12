@@ -89,18 +89,21 @@ struct CampusNearbyARScreen: View {
         await controller.start(location: location)
         guard !Task.isCancelled else { return }
         controller.onStory = { selected = $0 }
+        controller.loadCucumberModel = { try await remote.cucumberModel($0) }
         // Network refresh is independent of GPS updates. A failed read removes stale anchors.
         while !Task.isCancelled {
             do {
                 let records = try await remote.publishedStories()
                 try Task.checkCancellation()
+                var artwork: [String: OiCucumberArtworkReference] = [:]
                 publicItems = records.compactMap { story in
-                    guard let placement = try? CampusPlacement(id: story.id, storyID: story.id.uuidString,
-                        latitude: story.latitude, longitude: story.longitude).validated() else { return nil }
-                    return CampusNearbyOi(placement: placement, source: .shared)
+                    guard let placement = story.campusPlacement else { return nil }
+                    let item = CampusNearbyOi(placement: placement, source: .shared)
+                    artwork[item.id] = story.cucumberArtwork
+                    return item
                 }
-                sharedNotice = "공개 오이 \(publicItems.count)개 · 30초마다 갱신 · 공통 AR 모델로 표시"
-                controller.setItems(publicItems)
+                sharedNotice = "공개 오이 \(publicItems.count)개 · 30초마다 갱신"
+                controller.setItems(publicItems, artwork: artwork)
             } catch is CancellationError { return }
             catch {
                 guard !Task.isCancelled else { return }

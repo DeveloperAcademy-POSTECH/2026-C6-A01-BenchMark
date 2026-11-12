@@ -1,6 +1,17 @@
 # Supabase 전체 플로우 연동 — #100
 
-## 확정 범위 — 2026-10-28
+> **2026-11-09 / #258:** 기부 증빙 접수·검토 및 AI 분석은 #258에서 종료한다. 이전 기부 증빙 관련 단락은 당시 구현과 검증 기록이다. [현재 적용 순서](donation-evidence-retirement.md).
+
+## 2026-11-08 이야기 작성과 선택 기부 분리 — #234
+
+- `20261108163000_oi_independent_story_creation.sql`은 로그인·소유권·콘텐츠 검토를 유지하면서 작성 승인 ID와 잔여 횟수 조건을 제거한다. 기존 이야기·증빙·승인 연결은 보관하며, 새 이야기에는 `grant_id`를 연결하지 않는다. 구형 앱이 전달한 ID도 새 작성 권한으로 해석하지 않는다.
+- `oi_capabilities()`에 `independent_story_creation: true`를 추가한다. 이 값이 없는 서버에서는 새 앱이 작성이나 증빙 검토 처리를 시작하지 않는다. 기존 `unapproved_drafts_enabled`는 이름을 유지하되 전체 작성 가능 여부를 나타낸다. 마이그레이션 적용 시 ON으로 전환한다. OFF면 모든 계정의 초안 저장·사진 업로드/첨부·검토 요청·새 공개 승인을 막고, 기존 조회·자료·공개 상태를 보존한다. 다시 ON으로 전환하면 같은 초안에서 재개한다.
+- 증빙 검토는 `oi_review_evidence`로 처리한다. 비공개 접근·운영자 권한·자료 스냅샷 확인을 유지한다. 검토 완료로 승인 기록을 새로 만들지 않는다. 철회는 증빙 상태와 기존 승인 이력에만 남기며 이야기에는 영향을 주지 않는다. 증빙 선택·동의 및 보관은 [개인정보 처리방침](../README.md#개인정보-처리방침)을 따른다.
+- 출시 전 52gibu의 현재 DB 정의와 기존 작성 설정을 확인하고 **DB 마이그레이션 → `analyze-donation-evidence` Edge Function → 새 앱 검증** 순서로 적용한다. 격리 DB 검사는 저장소 기준 및 배포된 캠퍼스 높이·방향 호환 변형에 대해 수행한다. 운영 환경에서는 증빙 이력 없는 일반 시험 계정으로 저장·사진 업로드·검토 요청, 별도 운영자 계정으로 공개와 증빙 철회의 독립성을 확인한다. 이 작업의 운영 적용은 별도다.
+
+아래는 기존 DB 구축과 임시 작성 모드의 적용 기록이다. 작성 승인으로 돌아가는 옛 복구 절차는 #234 적용 후 사용하지 않는다.
+
+## 당시 확정 범위 — 2026-10-28
 
 - 기존 `52gibu` 프로젝트(`kfzfzarslqdqmrazohej`)를 사용한다. 새 프로젝트는 만들지 않는다.
 - DB 마이그레이션, RLS, Storage, API, iOS 연동과 원격 동작 검증까지 작업한다. 백업은 사용자의 요청에 따라 생략한다.
@@ -183,3 +194,11 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project app
 ![정상 로컬 서명에서 실제 로그인 진입](../apps/ios/docs/verification/mylive/account.png)
 
 기존 `campus.designExample.collectedIDs.v1` 예시 수집 캐시도 앱 시작 때 해당 키만 제거한다. 서버 수집·App Clip 기기 보관·다른 사용자 설정은 삭제하지 않는다. 격리된 UserDefaults 검사에서 예시 키 제거와 무관한 설정 보존을 확인했다.
+
+## Apple 로그인 토큰 철회 — #251
+
+본 앱의 Apple 로그인(`com.Spero.OiDonation`)에서 받은 일회용 코드는 `apple-sign-in-token`으로 보낸다. 함수는 Supabase의 사용자와 Apple 토큰 응답의 식별자를 대조한 뒤 갱신 토큰을 AES-256-GCM으로 암호화해 해당 Apple 로그인 식별자에 연결한다. 탈퇴 함수는 같은 계정의 재인증과 파일 정리가 끝나면 Apple로 다시 인증할 때 받은 코드 또는 저장한 토큰으로 연결된 Apple 토큰을 철회한다. 사용할 토큰이 없거나 Apple 요청에 실패해도 탈퇴를 완료하고 수동 연결 해제를 안내한다.
+
+1. 운영 서버에 `20261109004000_oi_apple_token_revocation.sql`을 적용한다.
+2. Apple Developer에서 본 앱의 Sign in with Apple 키를 준비한다. Supabase Edge Function 비밀 설정에 `APPLE_SIGN_IN_TEAM_ID`, `APPLE_SIGN_IN_KEY_ID`, `APPLE_SIGN_IN_PRIVATE_KEY`(PKCS#8 `.p8`), `APPLE_TOKEN_ENCRYPTION_KEY`(난수 32바이트를 Base64로 인코딩)를 넣는다. 동일한 암호화 키를 두 함수에서 사용하며 기존 암호문이 남아 있는 동안 해당 키를 유지한다.
+3. `apple-sign-in-token`과 `delete-account`를 JWT 검증을 유지한 채 배포한다. 시험 Apple 계정으로 로그인, 탈퇴, Apple 설정에서 앱 연결 해제를 확인하고 다시 가입한다. Apple·Google 통합 시험 계정은 Google로 재인증해도 이미 저장된 Apple 연결이 해제되는지 확인한다. [Apple의 토큰 철회 절차](https://developer.apple.com/documentation/technotes/tn3194-handling-account-deletions-and-revoking-tokens-for-sign-in-with-apple)

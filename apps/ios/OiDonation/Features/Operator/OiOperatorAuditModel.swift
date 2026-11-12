@@ -4,7 +4,7 @@ import Observation
 enum OiAuditCategory: String, CaseIterable, Identifiable {
     case all, evidence, stories, accounts
     var id: String { rawValue }
-    var title: String { switch self { case .all: "전체"; case .evidence: "증빙 검토"; case .stories: "이야기 처리"; case .accounts: "계정 통합" } }
+    var title: String { switch self { case .all: "전체"; case .evidence: "과거 증빙 검토"; case .stories: "이야기 처리"; case .accounts: "계정 통합" } }
 }
 
 struct OiAuditQuery: Equatable {
@@ -32,7 +32,7 @@ struct OiAuditRecord: Decodable, Identifiable, Equatable {
     let createdAt: String
     var title: String {
         switch action {
-        case "review_evidence:approved": "증빙 작성 승인"
+        case "review_evidence:approved": "기부 자료 검토 완료"
         case "review_evidence:changes_requested": "증빙 보완 요청"
         case "review_evidence:rejected": "증빙 반려"
         case "review_evidence:revoked": "증빙 승인 철회"
@@ -52,6 +52,16 @@ struct OiAuditRecord: Decodable, Identifiable, Equatable {
         if action == "merge_accounts" { return "통합된 원본 계정 ID" }
         if ["save_story", "save_campus_story", "attach_media", "submit_story", "reopen_story", "delete_story", "review_story"].contains(action) { return "이야기 ID" }
         return "대상 ID"
+    }
+
+    static func dateLabel(_ value: String?) -> String {
+        guard let value else { return "정보 없음" }
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let fractional = parser.date(from: value)
+        parser.formatOptions = [.withInternetDateTime]
+        guard let date = fractional ?? parser.date(from: value) else { return "날짜 확인 필요" }
+        return date.formatted(.dateTime.year().month().day().hour().minute().locale(Locale(identifier: "ko_KR")))
     }
 }
 
@@ -95,6 +105,9 @@ enum OiAuditError: LocalizedError {
 }
 
 @MainActor @Observable final class OiOperatorAuditModel {
+    // Avoid the synthesized isolated deinit crash on early iOS 26 (Swift #88036).
+    nonisolated deinit {}
+
     private(set) var records: [OiAuditRecord] = []
     private(set) var query: OiAuditQuery?
     private(set) var nextCursor: OiAuditCursor?

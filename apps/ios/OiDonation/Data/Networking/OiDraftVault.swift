@@ -19,7 +19,20 @@ struct OiLocalDraft: Codable, Identifiable, Equatable {
     var removedPhotoIDs: Set<UUID>?
     /// Local consent selections, never inferred from visiting a screen or legacy drafts.
     var agreedConsentClauseIDs: Set<String>?
+    var personalPlacement: OiPersonalPlacement?
+    /// Preferred photo order by `OiEditingPhoto.orderKey`; nil keeps the attachment order.
+    var photoOrder: [String]?
     var id: UUID { draft.id }
+}
+
+/// The last confirmed position on this account's device map, separate from edits and public review.
+struct OiPersonalPlacement: Codable, Equatable {
+    let regionID: String
+    let name: String
+    let latitude: Double
+    let longitude: Double
+    let heightMeters: Double
+    let headingDegrees: Double
 }
 
 struct OiDraftListing {
@@ -49,6 +62,7 @@ struct OiEvidenceOperation: Codable, Equatable {
     var phase: String
     var failure: String?
     var storageOwnerID: UUID? = nil
+    var operatorAIConsent: Bool? = nil
 
     func objectPath(owner: UUID) -> String {
         "\((storageOwnerID ?? owner).uuidString.lowercased())/\(requestID.uuidString.lowercased())/\(uploadID.uuidString.lowercased()).\(fileExtension)"
@@ -98,10 +112,12 @@ actor OiDraftVault {
         return try JSONDecoder().decode(OiLocalDraft.self, from: Data(contentsOf: url))
     }
 
-    func save(_ record: OiLocalDraft, owner: UUID) throws {
-        if let current = try load(owner: owner, id: record.id), current.version > record.version { return }
+    @discardableResult
+    func save(_ record: OiLocalDraft, owner: UUID) throws -> Bool {
+        if let current = try load(owner: owner, id: record.id), current.version > record.version { return false }
         let url = try ownerDirectory(owner).appending(path: "draft-\(record.id.uuidString).json")
         try write(JSONEncoder().encode(record), to: url)
+        return true
     }
 
     func list(owner: UUID) throws -> [OiLocalDraft] {
