@@ -322,6 +322,8 @@ MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하
 
 2026-11-11 후속으로 지도 프로필 버튼은 `MYDestination.cucumberCustomization`, 작업실 버튼은 `MYDestination.workshop`에 연결한다.
 
+2026-11-12 #289의 3D 미리보기는 본 앱에 번들된 `SeedCucumberMaster.usdz`를 RealityKit으로 불러온다. 기준 모델은 정면 원화의 실루엣, 피부 요철과 줄무늬, 얼굴과 꼭지를 반영하며 측면과 뒷면은 같은 피부가 이어지도록 제작했다. 버튼을 누른 시점의 `OiSeedCucumberAppearance`로 키와 체형을 반영하고, 움직인 얼굴은 `SeedCucumberSurface.json`의 표면 깊이에 맞춘다. 꼭지는 기존 편집 좌표의 변형을 적용하고 밑동을 고정한다. 자산 로딩, 편집값 반영, 화면 표시는 모두 기기에서 처리한다.
+
 `OiLocalDraft`의 선택적 `creationStep`·`customization`·`removedMediaPaths`는 구버전 초안을 그대로 읽을 수 있게 추가한다. `OiDraftCustomization`은 로컬 미리보기 전용이며 `OiStoryDraft.payload()`나 공유 DB를 확장하지 않는다. 업로드 사진 순서를 유지하고 기기 사본과 서버 경로를 중복 표시하지 않는다. 기존 `attach_media` RPC로 사진 연결을 변경하며, 변경 직후 목록 동기화가 실패해도 응답의 revision과 경로를 보존한다.
 
 위치 선택은 기존 `CampusExploreScene`을 재사용한다. 2026-11-05 후속 요청에 따라 `OiLocationPicker`가 장소 검색 → 지도 확인을 소유하고, `OiStoryLocationStep`은 번들 POSTECH POI 검색 목록을 표시한다. 별도 오이 모델 로딩 없이 지도 카메라의 광학 중심 광선과 `CampusHeightField`의 교차점으로 임시 좌표를 계산한다. 이동·회전·기울기·확대·탄성 복귀마다 갱신하며 유효하지 않으면 이전 유효 좌표도 비워 잘못 확정되지 않게 한다. 확인 버튼에서 카메라 이동을 멈추고 다시 검증한 뒤 초안에 전달한다. 지도 검색 복귀·화면 종료 시 숨은 RealityKit 렌더러를 해제하며 메인과 같은 `CampusMapLabels`를 사용한다. 현장 테스트 화면의 탭·`CampusPlacementTools`는 변경하지 않는다. 구현 경계와 검증 절차는 [이야기 생성 흐름](story-creation-flow.md)을 따른다.
@@ -610,6 +612,10 @@ AR 게임 시작 시 정규화된 캐릭터를 한 번 로드하여 카메라와
 2026-11-09 카드 공개 후속에서 `OiDraftCardPreview`의 편집 결과를 724×1004 PNG로 만들어 기존 비공개 버킷의 `storage_owner_id/story_id/card/snapshot_id.png`에 저장한다. `20261109003000`은 `public_story_card` 기능과 `oi_stories.card_snapshot_id`를 추가한다. 업로드와 접수 후에 작성자·운영자가 이미지를 확인할 수 있으며, 공개 승인은 검토한 이야기 리비전과 카드 ID를 함께 확인한다. 승인 후에는 현재 이미지에만 새 공개 링크를 발급한다. 카드 파일이 없는 예전 이야기는 기존 공개 카드와 호환된다.
 
 수정 후 재요청은 같은 카드와 오이의 이미지를 재사용한다. 업로드 응답이 시간 초과되면 저장된 파일 바이트를 확인하며, 접수 응답이 시간 초과되면 현재 리비전·상태·오이와 카드 ID가 요청과 일치할 때 접수로 처리한다.
+
+## 교육지구 구슬 웹 프로토타입 — 2026-11-12 / #293
+
+독립 시연 소스는 `apps/education-lights`에서 관리한다. `dist`는 외부 의존성 없는 정적 WebGL 페이지이며, 형상 생성과 모바일 LOD·저장·인증 시연 범위는 [실행 안내](../apps/education-lights/README.md)를 따른다. 기존 웹 앱의 라우팅·데이터베이스·운영 배포를 변경하지 않는다. OiDonation 지도 연결은 별도 PR #294에서 진행한다.
 
 ## 캠퍼스 지도 렌더링과 조회 비용 — 2026-11-11 / #287
 
