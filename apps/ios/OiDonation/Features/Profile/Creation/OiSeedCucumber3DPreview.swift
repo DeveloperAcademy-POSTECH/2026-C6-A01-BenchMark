@@ -165,8 +165,7 @@ private struct OiSeedCucumber3DSurface: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(camera: $camera) }
 
     func makeUIView(context: Context) -> RealityKit.ARView {
-        let view = RealityKit.ARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
-        view.renderOptions.formUnion([.disableMotionBlur, .disableDepthOfField, .disableCameraGrain])
+        let view = OiSeedCucumberRenderSetup.makeView()
         view.isAccessibilityElement = true
         view.accessibilityLabel = "편집한 오이 3D 미리보기"
         view.accessibilityHint = "아래 버튼으로 오이를 돌리거나 확대할 수 있어요."
@@ -205,12 +204,7 @@ private struct OiSeedCucumber3DSurface: UIViewRepresentable {
             cameraEntity.camera.far = max(20, radius * 400)
             anchor.addChild(cameraEntity)
             anchor.addChild(model)
-            for (direction, intensity) in [(SIMD3<Float>(-3, 5, 4), Float(1200)), ([3, 3, 2], 700), ([0, 4, -3], 800)] {
-                let light = DirectionalLight()
-                light.light.intensity = intensity
-                light.look(at: center, from: center + direction, relativeTo: nil)
-                anchor.addChild(light)
-            }
+            OiSeedCucumberRenderSetup.addLights(to: anchor, lookingAt: center)
             view.scene.addAnchor(anchor)
             pan.maximumNumberOfTouches = 1
             pan.delegate = self
@@ -241,6 +235,24 @@ private struct OiSeedCucumber3DSurface: UIViewRepresentable {
         @objc private func pinched(_ gesture: UIPinchGestureRecognizer) {
             camera.wrappedValue.magnify(by: Float(gesture.scale))
             gesture.scale = 1
+        }
+    }
+}
+
+@MainActor
+enum OiSeedCucumberRenderSetup {
+    static func makeView() -> RealityKit.ARView {
+        let view = RealityKit.ARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
+        view.renderOptions.formUnion([.disableMotionBlur, .disableDepthOfField, .disableCameraGrain])
+        return view
+    }
+
+    static func addLights(to anchor: AnchorEntity, lookingAt center: SIMD3<Float>) {
+        for (direction, intensity) in [(SIMD3<Float>(-3, 5, 4), Float(1200)), ([3, 3, 2], 700), ([0, 4, -3], 800)] {
+            let light = DirectionalLight()
+            light.light.intensity = intensity
+            light.look(at: center, from: center + direction, relativeTo: nil)
+            anchor.addChild(light)
         }
     }
 }

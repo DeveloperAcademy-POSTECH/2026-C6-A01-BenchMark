@@ -330,6 +330,8 @@ MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하
 
 2026-11-12 #289의 3D 미리보기는 본 앱에 번들된 `SeedCucumberMaster.usdz`를 RealityKit으로 불러온다. 기준 모델은 정면 원화의 실루엣, 피부 요철과 줄무늬, 얼굴과 꼭지를 반영하며 측면과 뒷면은 같은 피부가 이어지도록 제작했다. 버튼을 누른 시점의 `OiSeedCucumberAppearance`로 키와 체형을 반영하고, 움직인 얼굴은 `SeedCucumberSurface.json`의 표면 깊이에 맞춘다. 꼭지는 기존 편집 좌표의 변형을 적용하고 밑동을 고정한다. 자산 로딩, 편집값 반영, 화면 표시는 모두 기기에서 처리한다.
 
+2026-11-12 #299에서 STEP 3은 기존 미리보기 영역과 의상 카테고리를 사용한다. `OiStep3CucumberPreview`는 같은 정면 원화 뒤에서 `SeedCucumberMaster.usdz`의 RealityKit 장면을 미리 준비한다. 드래그가 먼저 들어오면 각도를 저장하고 렌더링이 준비되는 대로 같은 장면을 표시한다. 얼굴 편집의 적용 값은 `OiDraftCustomization.seedAppearance`에 저장하며 기존 초안의 누락 값은 기본 외형으로 표시한다. 의상 목록은 읽기 전용이고 기존 의상·카드·지도 데이터는 현재 계약을 사용한다.
+
 `OiLocalDraft`의 선택적 `creationStep`·`customization`·`removedMediaPaths`는 구버전 초안을 그대로 읽을 수 있게 추가한다. `OiDraftCustomization`은 로컬 미리보기 전용이며 `OiStoryDraft.payload()`나 공유 DB를 확장하지 않는다. 업로드 사진 순서를 유지하고 기기 사본과 서버 경로를 중복 표시하지 않는다. 기존 `attach_media` RPC로 사진 연결을 변경하며, 변경 직후 목록 동기화가 실패해도 응답의 revision과 경로를 보존한다.
 
 위치 선택은 기존 `CampusExploreScene`을 재사용한다. 2026-11-05 후속 요청에 따라 `OiLocationPicker`가 장소 검색 → 지도 확인을 소유하고, `OiStoryLocationStep`은 번들 POSTECH POI 검색 목록을 표시한다. 별도 오이 모델 로딩 없이 지도 카메라의 광학 중심 광선과 `CampusHeightField`의 교차점으로 임시 좌표를 계산한다. 이동·회전·기울기·확대·탄성 복귀마다 갱신하며 유효하지 않으면 이전 유효 좌표도 비워 잘못 확정되지 않게 한다. 확인 버튼에서 카메라 이동을 멈추고 다시 검증한 뒤 초안에 전달한다. 지도 검색 복귀·화면 종료 시 숨은 RealityKit 렌더러를 해제하며 메인과 같은 `CampusMapLabels`를 사용한다. 현장 테스트 화면의 탭·`CampusPlacementTools`는 변경하지 않는다. 구현 경계와 검증 절차는 [이야기 생성 흐름](story-creation-flow.md)을 따른다.
