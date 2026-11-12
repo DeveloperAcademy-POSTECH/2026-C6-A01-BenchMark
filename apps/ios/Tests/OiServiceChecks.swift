@@ -391,7 +391,7 @@ struct OiServiceChecks {
         // Old customization records can omit the wardrobe, card, and bare cucumber appearance.
         let oldCustomization = try JSONEncoder().encode(record.customization!)
         let oldRecovered = try JSONDecoder().decode(OiDraftCustomization.self, from: oldCustomization)
-        precondition(oldRecovered.wardrobe == nil && oldRecovered.card == nil && oldRecovered.seedAppearance == nil)
+        precondition(oldRecovered.wardrobe == nil && oldRecovered.card == nil && oldRecovered.seedAppearance == nil && oldRecovered.seedWhiteTshirt == nil)
         var seedAppearance = OiSeedCucumberAppearance()
         seedAppearance.bodyHeight = 1.1
         seedAppearance.bodyWidth = 1.2
@@ -401,6 +401,7 @@ struct OiServiceChecks {
         seedAppearance[.eyes] = .init(x: -15, y: -28, size: 1.25)
         seedAppearance[.mouth] = .init(x: 6, y: 18, size: 0.75)
         record.customization?.seedAppearance = seedAppearance
+        record.customization?.seedWhiteTshirt = true
         let future = try JSONDecoder().decode(OiWardrobeLook.self, from: Data(#"{"top":"future-garment","bottom":"retired-pants","topColor":4294967295}"#.utf8))
         precondition(future.top == .tshirt && future.bottom == .long && future.topColor == 0xFFFFFF)
         precondition(future.fabrics.isEmpty, "Legacy looks have no fabric override")
@@ -520,6 +521,7 @@ struct OiServiceChecks {
         precondition(recovered?.customization?.card?.characterOrientation == card.characterOrientation)
         print("PASS: card framing, 3D orientation and artwork survive draft recovery; legacy cards and public payload unchanged")
         precondition(recovered?.customization?.seedAppearance == seedAppearance, "Face, stem, and body edits must survive reopening the account draft")
+        precondition(recovered?.customization?.seedWhiteTshirt == true, "The STEP 3 shirt selection must survive reopening the account draft")
         precondition(recovered?.customization?.wardrobe == look, "Garments and all three colors must survive reopening the account draft")
         precondition(recovered?.customization?.wardrobe?.artwork == look.artwork)
         precondition(recovered?.customization?.wardrobe?.fabrics == look.fabrics)

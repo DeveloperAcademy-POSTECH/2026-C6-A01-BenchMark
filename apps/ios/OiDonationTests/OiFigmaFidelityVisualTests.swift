@@ -5,6 +5,7 @@
 //  Created by 이돈혁 on 11/3/26.
 //
 
+import Observation
 import RealityKit
 import SwiftUI
 import UIKit
@@ -575,6 +576,96 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
         try await capture(editor, name: "step3-seed-face-editor", variant: variant,
                           defaults: fixture.defaults, attach: true)
+    }
+
+    @Observable fileprivate final class Step3DraftFixture {
+        var value: OiDraftCustomization
+        init(_ value: OiDraftCustomization) { self.value = value }
+    }
+
+    func testStep3WhiteTshirtKeepsFaceAndRotatesInPlace() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let variant = try XCTUnwrap(variants.first { $0.name == "402x874" })
+        let appearance = editedSeedCucumber3DAppearance()
+        var original = OiDraftCustomization()
+        original.seedAppearance = appearance
+        var existingLook = OiWardrobeLook()
+        existingLook.costume = .baseball
+        original.wardrobe = existingLook
+        let draft = Step3DraftFixture(original)
+        let customization = Binding(get: { draft.value }, set: { draft.value = $0 })
+        let screen = CreationCapturePage(step: 3) {
+            OiCucumberCustomizationStep(customization: customization, onContinue: {})
+        }
+        .environment(\.scenePhase, .active)
+
+        try await capture(screen, name: "step3-white-tshirt-rotated", variant: variant, defaults: fixture.defaults,
+                          delay: .zero, attach: true, prepareRealityCapture: { host in
+            let surface = try await self.step3Surface(in: host)
+            try await self.waitForStep3 { surface.scene.findEntity(named: "SeedCucumber") != nil }
+            let model = try XCTUnwrap(surface.scene.findEntity(named: "SeedCucumber"))
+            let eye = try XCTUnwrap(model.findEntity(named: "LeftEye"))
+            let faceTransform = eye.transformMatrix(relativeTo: model)
+            let garmentName = OiSeedCucumberModel.whiteTshirtEntityName
+            XCTAssertNil(model.findEntity(named: garmentName))
+
+            draft.value.seedWhiteTshirt = true
+            try await self.waitForStep3 {
+                model.findEntity(named: garmentName) != nil && surface.accessibilityValue == "3D 미리보기"
+            }
+            let shirt = try XCTUnwrap(model.findEntity(named: garmentName))
+            let cameras = surface.scene.anchors.flatMap { anchor in
+                anchor.children.compactMap { $0 as? PerspectiveCamera }
+            }
+            let camera = try XCTUnwrap(cameras.first)
+            let front = camera.position(relativeTo: nil)
+            let rotation = try XCTUnwrap(surface.accessibilityCustomActions?.first)
+            let rotate = try XCTUnwrap(rotation.actionHandler)
+            XCTAssertTrue(rotate(rotation))
+            let turned = camera.position(relativeTo: nil)
+            XCTAssertGreaterThan(simd_distance(front, turned), 0.2)
+
+            draft.value.seedWhiteTshirt = nil
+            try await self.waitForStep3 { model.findEntity(named: garmentName) == nil }
+            draft.value.seedWhiteTshirt = true
+            try await self.waitForStep3 { model.findEntity(named: garmentName) != nil }
+            XCTAssertTrue(surface.scene.findEntity(named: "SeedCucumber") === model)
+            XCTAssertTrue(model.findEntity(named: "LeftEye") === eye)
+            XCTAssertTrue(model.findEntity(named: garmentName) === shirt, "The scene must reuse the prepared garment")
+            XCTAssertEqual(eye.transformMatrix(relativeTo: model).columns.3, faceTransform.columns.3)
+            XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), turned), 0, accuracy: 0.001)
+            return surface
+        })
+        XCTAssertEqual(draft.value.seedAppearance, appearance)
+        XCTAssertEqual(draft.value.wardrobe, original.wardrobe)
+    }
+
+    func testWhiteTshirtSharesBodyTransformAtEverySizeCorner() async throws {
+        let garment = try await OiSeedCucumberModel.loadWhiteTshirt()
+        for width in [OiSeedCucumberAppearance.widthRange.lowerBound, OiSeedCucumberAppearance.widthRange.upperBound] {
+            for height in [OiSeedCucumberAppearance.heightRange.lowerBound, OiSeedCucumberAppearance.heightRange.upperBound] {
+                var appearance = editedSeedCucumber3DAppearance()
+                appearance.bodyWidth = width
+                appearance.bodyHeight = height
+                appearance[.mouth] = .init(x: 80, y: 140, size: 2)
+                let model = try await OiSeedCucumberModel.make(appearance: appearance)
+                let body = try XCTUnwrap(model.findEntity(named: "Body"))
+                let mouth = try XCTUnwrap(model.findEntity(named: "Mouth"))
+                let bodyTransform = body.transformMatrix(relativeTo: model)
+                let mouthTransform = mouth.transformMatrix(relativeTo: model)
+                try OiSeedCucumberModel.setWhiteTshirt(garment, on: model)
+                let parent = try XCTUnwrap(garment.parent)
+                XCTAssertEqual(parent.scale, SIMD3(Float(width), Float(height), Float(width)))
+                var ancestor = body.parent
+                while let current = ancestor, current !== parent { ancestor = current.parent }
+                XCTAssertTrue(ancestor === parent, "The garment must inherit the same affine transform as the skin")
+                XCTAssertEqual(body.transformMatrix(relativeTo: model).columns.3, bodyTransform.columns.3)
+                XCTAssertEqual(mouth.transformMatrix(relativeTo: model).columns.3, mouthTransform.columns.3)
+                try OiSeedCucumberModel.setWhiteTshirt(nil, on: model)
+                XCTAssertNil(garment.parent)
+            }
+        }
     }
 
     private func step3Surface(in host: UIView) async throws -> RealityKit.ARView {
