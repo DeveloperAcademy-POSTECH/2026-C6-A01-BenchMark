@@ -48,7 +48,11 @@ struct CampusMapData: Decodable {
         if data.enu { data.surface = try CampusHeightField(directory: url.deletingLastPathComponent()) }
         return data
     }
-    func grounded(_ p:SIMD3<Float>)->SIMD3<Float>{var q=p;q.y=surface?.height(x:p.x,z:p.z) ?? p.y;return q}
+    func grounded(_ p:SIMD3<Float>)->SIMD3<Float>{
+        var q=p
+        q.y = CampusEducationSite.contains(p) ? CampusEducationSite.elevation : (surface?.height(x:p.x,z:p.z) ?? p.y)
+        return q
+    }
     func world(_ p:[Double])->SIMD3<Float>{grounded(SIMD3(Float(p[0]),p.count>2 ? Float(p[2]):0.15,Float(-p[1])))}
     func coordinate(_ p:SIMD3<Float>)->(latitude:Double,longitude:Double){
         if enu{return frame.coordinate(x:Double(p.x),y:Double(-p.z))}
@@ -67,7 +71,8 @@ struct CampusMapData: Decodable {
     }
     func placementError(at point:SIMD3<Float>)->String? {
         guard point.x.isFinite,point.z.isFinite,bounds.contains(where:{contains(point,polygon:$0)}) else{return "캠퍼스 경계 안의 바깥 공간을 선택해 주세요."}
-        if buildings.contains(where:{contains(point,polygon:$0.p)}) {return "건물 내부입니다. 바깥 공간을 선택해 주세요."}
+        if CampusEducationSite.contains(point) {return "교육지구 건립 예정 부지입니다. 부지 밖을 선택해 주세요."}
+        if buildings.contains(where:{$0.id != CampusEducationSite.retiredBuildingID && contains(point,polygon:$0.p)}) {return "건물 내부입니다. 바깥 공간을 선택해 주세요."}
         return nil
     }
     func nearestNode(to point:SIMD3<Float>)->String? {graph.min{simd_distance_squared(world($0.value.p),point)<simd_distance_squared(world($1.value.p),point)}?.key}

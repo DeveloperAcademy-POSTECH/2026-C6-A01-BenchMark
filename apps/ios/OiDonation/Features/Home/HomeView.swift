@@ -28,6 +28,7 @@ struct HomeView: View {
     @State private var pendingStoryID: String?
     @State private var showingRequests = false
     @State private var listIsAtTop = true
+    @State private var showingEducationDistrict = false
     @State private var loadedAuthoredSource: AuthoredPlacementSource?
     @State private var selectedAuthoredDestination: AuthoredDestination?
 
@@ -114,6 +115,12 @@ struct HomeView: View {
             case .school(let school): MYCollectionView(demo: myDemo, school: school, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
             }
         }
+        .sheet(isPresented: $showingEducationDistrict, onDismiss: { scene.finishEducationDistrict() }) {
+            CampusEducationDistrictView { covered in
+                if covered { scene.suspendRendering() }
+                else { scene.setVisible(isOnScreen && !isCameraCoverActive && scenePhase == .active) }
+            }
+        }
         .navigationDestination(item: $selectedAuthoredDestination) { destination in
             if let remote, remote.canPlaceOi {
                 switch destination {
@@ -193,6 +200,7 @@ struct HomeView: View {
     }
 
     private func configureSceneCallbacks() {
+        scene.onEducationDistrict = { showingEducationDistrict = true }
         if let remote {
             scene.loadCucumberPortrait = { try await remote.cucumberImage($0) }
             scene.loadCucumberModel = { try await remote.cucumberModel($0) }
@@ -379,7 +387,7 @@ struct HomeView: View {
                 .buttonStyle(.plain).glassEffect(.regular.interactive(), in: Circle())
                 .accessibilityLabel("캠퍼스 전체 지도").accessibilityIdentifier("campus.overview")
                 Spacer()
-                Color.clear.frame(width: 50, height: 1)
+                mapAppearanceMenu
             } else {
                 Button { showingSchools = true } label: {
                     HStack(spacing: 8) {
@@ -390,6 +398,7 @@ struct HomeView: View {
                 .buttonStyle(.plain).glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 20))
                 .accessibilityLabel("캠퍼스 선택").accessibilityIdentifier("campus.school")
                 Spacer()
+                mapAppearanceMenu
                 if let onOpenSample {
                     Button(action: onOpenSample) {
                         Text("체험하기").font(CampusStyle.medium(14))
@@ -405,6 +414,30 @@ struct HomeView: View {
                 searchAreaButton.alignmentGuide(.top) { ($0.height - 34) / 2 }.transition(.opacity)
             }
         }
+    }
+
+    private var mapAppearanceMenu: some View {
+        Menu {
+            ForEach(CampusMapAppearance.allCases) { appearance in
+                Button {
+                    scene.setAppearance(appearance)
+                } label: {
+                    if scene.appearance == appearance {
+                        Label(appearance.title, systemImage: "checkmark")
+                    } else {
+                        Text(appearance.title)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "paintpalette")
+                .font(.system(size: 19, weight: .medium))
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: Circle())
+        .accessibilityLabel("지도 색상, \(scene.appearance.title)")
+        .accessibilityIdentifier("campus.appearance")
     }
 
     private var searchAreaButton: some View {
