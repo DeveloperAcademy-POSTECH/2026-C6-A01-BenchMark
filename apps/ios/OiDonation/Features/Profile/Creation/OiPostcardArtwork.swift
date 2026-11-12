@@ -36,11 +36,11 @@ struct OiPostcardFront<Artwork: View>: View {
                     .offset(x: 23, y: CGFloat(26 + index * 13))
                     .accessibilityHidden(true)
             }
-            Text(date).font(.system(size: 17, weight: .ultraLight, design: .rounded))
+            Text(date).font(OiPostcardTypography.date)
                 .foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6)
-                .frame(width: 150, height: 24, alignment: .trailing).offset(x: 167, y: 41)
+                .frame(width: 150, height: 21, alignment: .trailing).offset(x: 167, y: 42)
                 .accessibilityLabel("작성 날짜 \(date)")
-            Text("OiD").font(.system(size: 17, weight: .light, design: .rounded)).tracking(1.12)
+            Text("OiD").font(OiPostcardTypography.mark).tracking(1.12)
                 .foregroundStyle(.white).fixedSize().rotationEffect(.degrees(-90))
                 .frame(width: 21, height: 58).offset(x: 43, y: 396)
                 .accessibilityHidden(true)
@@ -74,16 +74,18 @@ struct OiPostcardBack: View {
                     ScrollView { letter.fixedSize(horizontal: false, vertical: true) }.scrollIndicators(.hidden)
                 } else { letter.minimumScaleFactor(0.6) }
             }.frame(width: 292, height: 389, alignment: .topLeading).offset(x: 35, y: 30)
-            Text("FROM").font(.system(size: 7, weight: .light, design: .serif)).italic()
+            Text("FROM").font(OiPostcardTypography.from).opacity(0.98)
+                .frame(height: 10)
                 .offset(x: 35, y: 443)
-            Text(author).font(CampusStyle.body(12)).lineLimit(1).minimumScaleFactor(0.6)
-                .frame(width: 292, height: 20, alignment: .leading).offset(x: 35, y: 453)
+            Text(author).font(OiPostcardTypography.author).tracking(0.72).opacity(0.98)
+                .lineLimit(1).minimumScaleFactor(0.6)
+                .frame(width: 292, height: 15, alignment: .leading).offset(x: 35, y: 457)
         }.foregroundStyle(ink).frame(width: 362, height: 502)
             .mask(OiPostcardPaper()).dynamicTypeSize(.medium)
     }
     private var letter: some View {
         Text(message.isEmpty ? "아직 남긴 이야기가 없어요." : message)
-            .font(CampusStyle.hand(17)).tracking(0.17).lineSpacing(6)
+            .font(OiPostcardTypography.handwriting).tracking(0.17).lineSpacing(OiPostcardTypography.lineSpacing)
             .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }

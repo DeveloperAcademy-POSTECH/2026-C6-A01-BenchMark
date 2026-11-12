@@ -12,7 +12,7 @@
 
 `OiPostcardPaper`는 Figma `5400:6053`의 원본 SVG 안에 제공된 천공 mask 경로를 그대로 사용한다. iOS SVG 렌더러에서 지원하지 않는 blur/filter가 사진에 겹치지 않도록 장식·필터를 제외하고 mask만 추출했다. 도장·워터마크·물결은 각각 `5400:6139`·`5400:6229`·`5400:6142`~`5400:6144`의 원본 벡터다. 화면 전체 캡처를 에셋으로 사용하지 않는다.
 
-녹색 기본 종이의 두 색은 원본 gradient의 `#E8EECF`·`#D5DBC6`이다. 라일락·로즈는 편집용 추가 프리셋이며 직접 색상을 고를 수 있다. Figma의 REATIC·Nanum EongGeongKwiCe 글꼴은 저장소에 없어 날짜에는 시스템 글꼴, 본문에는 기존 GriunOMIRI를 사용한다.
+녹색 기본 종이의 두 색은 원본 gradient의 `#E8EECF`·`#D5DBC6`이다. 라일락·로즈는 편집용 추가 프리셋이며 직접 색상을 고를 수 있다. 글꼴의 적용 범위와 보류 항목은 아래 후속 기록을 따른다.
 
 ## 검증
 
@@ -30,3 +30,17 @@
 앞면 PNG에는 비개인적인 색상·효과 값만 versioned PNG Description에 함께 저장한다. 기존 파일 업로드·승인·공개 API 계약을 그대로 사용한다. 이미지 로더는 검증된 메타데이터를 UIImage의 약한 참조와 연결해 지도 뒷면에도 정확히 같은 배경을 적용한다. 메타데이터가 없는 예전 카드는 기존 색 추출 방식으로 표시한다. 본인 소유의 기기 초안은 기존 계정·작성자 경계를 확인해 편집 중인 배경을 미리 보여 준다.
 
 후속 검증: 피그마 배경 PNG의 네 지점 RGB와 허용 오차 6 이내, 종이/사진 배경의 연속성, 저장·로드 후 같은 스타일 복원, 동일 카드의 snapshot ID 안정성, 이전 초안 decode, 기존 카드 공개 검토 계약, 402×874·375×667 배경 선택 화면 캡처가 통과했다.
+
+## 2026-11-12 후속 · 엽서 글꼴
+
+Figma `5400:6603`의 본문은 **나눔손글씨 엉겅퀴체 Regular**, FROM은 **Edu AU VIC WA NT Pre Regular**다. 공식 원본 TTF를 변경하지 않고 `Resources/Fonts`에 포함한다. 엽서를 처음 표시할 때 한 번만 Core Text에 등록한다. 다른 화면의 GriunOMIRI·Paperlogy와 편집기 버튼 글꼴은 유지한다.
+
+본문은 17pt, 자간 0.17pt, 줄 기준 간격 25.5pt다. 실제 폰트 lineHeight에서 필요한 추가 줄 간격을 계산한다. FROM은 6pt로 표시하며, 작성자 영역은 Figma의 12pt·자간 0.72pt·y=457 위치를 사용한다. 날짜는 기존 자동 작성일을 그대로 사용한다. 앞면의 날짜·OiD는 14pt, OiD 자간은 1.12pt다.
+
+- 엉겅퀴체: [네이버 공식 배포](https://hangeul.naver.com/fonts/search?f=n), [CLOVA 이용 조건](https://clova.ai/handwriting). 원본 저작권과 공식 유의사항은 `NanumEongGeongKwiCe-LICENSE.txt`에 보관한다. 무료 앱에서 표시하며 폰트 자체를 판매하지 않는다.
+- Edu: [Google Fonts 원본](https://github.com/google/fonts/tree/main/ofl/eduauvicwantpre). 제공된 SIL OFL 1.1 전문을 `EduAUVICWANTPre-OFL.txt`로 함께 배포한다.
+- **보류**: REATIC Wide Bold(날짜·OiD), REATIC Narrow(작성자). Ch6/font/리틱체에서 원본을 찾았지만 LICENSE.txt가 폰트 파일의 무단 재배포를 금지한다. 2026-11-12 사용자가 앱 임베딩 허락을 아직 받지 않았으며 탑재를 보류하기로 했다. 리틱체 파일은 저장소·앱에 포함하지 않는다. 날짜·OiD는 시스템 rounded, 작성자는 기존 Paperlogy를 유지하므로 해당 영역까지 같은 글꼴이라고 주장하지 않는다.
+
+기존 승인된 앞면 PNG는 그대로 보존한다. 새 글꼴은 새로 만드는 엽서와 본문을 표시하는 뒷면에 반영되며, 기존 앞면을 변경하려면 다시 저장하고 공개 검토를 요청해야 한다.
+
+글꼴 후속 검증: `OiFlowChecks`의 글꼴 로딩·한글 glyph 지원·25.5pt 줄 간격, 날짜/뒤집기, 기존 초안 및 엽서 PNG 저장, 작은 화면 배경 편집 캡처 테스트 4개가 통과했다. 724×1004 뒷면 캡처에서 본문·FROM을 확인했으며 실기기 빌드의 앱 번들에 두 TTF와 이용 조건이 포함되고 REATIC은 포함되지 않음을 확인했다.

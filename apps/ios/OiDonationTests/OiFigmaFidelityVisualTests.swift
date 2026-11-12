@@ -5,6 +5,7 @@
 //  Created by 이돈혁 on 11/3/26.
 //
 
+import CoreText
 import RealityKit
 import SwiftUI
 import UIKit
@@ -345,6 +346,31 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertNil(OiPostcardBackgroundMetadata.style(for: blank))
         let shot = XCTAttachment(data: field, uniformTypeIdentifier: "public.png")
         shot.name = "figma-rose-background"; shot.lifetime = .keepAlways; add(shot)
+    }
+
+    func testPostcardBundledTypography() throws {
+        OiPostcardTypography.registerFonts()
+        let handwriting = try XCTUnwrap(UIFont(name: OiPostcardTypography.handwritingName, size: 17),
+                                        "The postcard must load the bundled Figma font rather than silently fall back")
+        XCTAssertEqual(handwriting.fontName, "NanumEongGeongKwiCe")
+        let from = try XCTUnwrap(UIFont(name: OiPostcardTypography.fromName, size: 6))
+        XCTAssertEqual(from.fontName, "EduAUVICWANTPre-Regular")
+        let characters = Array("함께한 순간을 오래 기억하며, 고마워요. 26.11.12".utf16)
+        var glyphs = [CGGlyph](repeating: 0, count: characters.count)
+        XCTAssertTrue(CTFontGetGlyphsForCharacters(handwriting as CTFont, characters, &glyphs, characters.count),
+                      "Korean postcard text must be supported by the actual handwriting font")
+        XCTAssertEqual(handwriting.lineHeight + OiPostcardTypography.lineSpacing, 25.5, accuracy: 0.01)
+
+        let back = OiPostcardBack(backgroundStyle: .init(color: 0xEECFDF),
+            message: "함께한 순간을 오래 기억하며\n고마운 마음을 캠퍼스에 남깁니다.\n\n친구들과 나눈 웃음과 응원이\n내일의 작은 용기가 되기를!",
+            author: "19학번 기계공학과 신수리")
+        let renderer = ImageRenderer(content: back)
+        renderer.scale = 2
+        let image = try XCTUnwrap(renderer.uiImage)
+        XCTAssertEqual(image.cgImage?.width, 724)
+        XCTAssertEqual(image.cgImage?.height, 1004)
+        let shot = XCTAttachment(data: try XCTUnwrap(image.pngData()), uniformTypeIdentifier: "public.png")
+        shot.name = "postcard-figma-typography"; shot.lifetime = .keepAlways; add(shot)
     }
 
     func testUnifiedBackgroundEditorCapture() async throws {
