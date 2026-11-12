@@ -26,6 +26,13 @@ struct OiCucumberCustomizationStep: View {
     private var allowsWardrobeEditing: Bool { previewMode == .wardrobe }
     private var seedAppearance: OiSeedCucumberAppearance { customization.seedAppearance ?? .init() }
     private var wearsWhiteTshirt: Bool { customization.seedWhiteTshirt == true }
+    private var wearsLongPants: Bool { customization.seedLongPants == true }
+    private var seedGarments: Set<OiSeedCucumberGarment> {
+        var garments: Set<OiSeedCucumberGarment> = []
+        if wearsWhiteTshirt { garments.insert(.whiteTshirt) }
+        if wearsLongPants { garments.insert(.longPants) }
+        return garments
+    }
     private var look: OiWardrobeLook { customization.wardrobe ?? OiWardrobeLook() }
 
     var body: some View {
@@ -93,7 +100,7 @@ struct OiCucumberCustomizationStep: View {
             } else if allowsWardrobeEditing {
                 Color.clear.frame(height: height)
             } else {
-                OiStep3CucumberPreview(appearance: seedAppearance, wearsWhiteTshirt: wearsWhiteTshirt,
+                OiStep3CucumberPreview(appearance: seedAppearance, garments: seedGarments,
                                       isActive: !showsFaceEditor)
                     .frame(height: height)
             }
@@ -214,8 +221,15 @@ struct OiCucumberCustomizationStep: View {
                 }
             case .bottom:
                 ForEach(OiWardrobeLook.Bottom.allCases, id: \.self) { bottom in
-                    item(bottom.title, image: "oi-thumb-\(bottom == .long ? "long-pants" : "shorts")", selected: look.costume == nil && look.bottom == bottom, id: bottom.rawValue) {
-                        change { $0.bottom = bottom; $0.costume = nil }
+                    let seedSelection = !allowsWardrobeEditing && bottom == .long ? wearsLongPants : nil
+                    item(bottom.title, image: "oi-thumb-\(bottom == .long ? "long-pants" : "shorts")",
+                         selected: look.costume == nil && look.bottom == bottom, id: bottom.rawValue,
+                         seedSelection: seedSelection) {
+                        if seedSelection != nil {
+                            customization.seedLongPants = wearsLongPants ? nil : true
+                        } else {
+                            change { $0.bottom = bottom; $0.costume = nil }
+                        }
                     }
                 }
             case .shoes:
@@ -260,7 +274,7 @@ struct OiCucumberCustomizationStep: View {
                 .buttonStyle(.plain).foregroundStyle(Color("OiDark"))
                 .accessibilityIdentifier("oi.wardrobe.item.\(id)")
                 .accessibilityLabel(title).accessibilityAddTraits(isSelected ? .isSelected : [])
-                .accessibilityHint(seedSelection.map { $0 ? "누르면 흰 반팔 티를 벗어요" : "흰 반팔 티를 입혀요" } ?? "")
+                .accessibilityHint(seedSelection.map { $0 ? "선택하면 벗어요" : "선택하면 착용해요" } ?? "")
         } else {
             tile.foregroundStyle(Color("OiDark"))
                 .accessibilityElement(children: .ignore)

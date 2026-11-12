@@ -720,6 +720,7 @@ struct OiStoryEditor: View {
         var cardCustomization = customization
         cardCustomization.seedAppearance = nil
         cardCustomization.seedWhiteTshirt = nil
+        cardCustomization.seedLongPants = nil
         return cardCustomization == OiDraftCustomization() ? currentStory?.cardArtworkPath : nil
     }
 

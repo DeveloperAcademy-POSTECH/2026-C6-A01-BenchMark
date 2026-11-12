@@ -10,8 +10,19 @@ import Foundation
 import RealityKit
 import simd
 
+enum OiSeedCucumberGarment: String, CaseIterable {
+    case whiteTshirt = "SeedCucumberWhiteTshirt"
+    case longPants = "SeedCucumberLongPants"
+
+    var title: String {
+        switch self {
+        case .whiteTshirt: OiWardrobeLook.Top.tshirt.title
+        case .longPants: OiWardrobeLook.Bottom.long.title
+        }
+    }
+}
+
 @MainActor enum OiSeedCucumberModel {
-    static let whiteTshirtEntityName = "SeedCucumberWhiteTshirt"
     private static let bodyTransformName = "SeedCucumberBodyTransform"
     private static let metresPerPixel: Float = 0.001
     private static let pivot = OiSeedCucumberAppearance.bodyPivot
@@ -90,27 +101,27 @@ import simd
         return root
     }
 
-    static func loadWhiteTshirt() async throws -> Entity {
-        let shirt = try await Entity(contentsOf: resource(whiteTshirtEntityName, suffix: "usdz"))
+    static func loadGarment(_ garment: OiSeedCucumberGarment) async throws -> Entity {
+        let asset = try await Entity(contentsOf: resource(garment.rawValue, suffix: "usdz"))
         try Task.checkCancellation()
-        let bounds = shirt.visualBounds(relativeTo: nil)
+        let bounds = asset.visualBounds(relativeTo: nil)
         guard bounds.extents.x.isFinite, bounds.extents.y.isFinite, bounds.extents.z.isFinite,
               bounds.extents.x > 0, bounds.extents.y > 0, bounds.extents.z > 0 else {
-            throw AssetError.invalidMesh(whiteTshirtEntityName)
+            throw AssetError.invalidMesh(garment.rawValue)
         }
-        shirt.name = whiteTshirtEntityName
-        return shirt
+        asset.name = garment.rawValue
+        return asset
     }
 
-    static func setWhiteTshirt(_ shirt: Entity?, on model: Entity) throws {
+    static func setGarment(_ garment: OiSeedCucumberGarment, asset: Entity?, on model: Entity) throws {
         guard let body = model.findEntity(named: bodyTransformName) else {
             throw AssetError.missingPart(bodyTransformName)
         }
-        let mounted = body.children.first { $0.name == whiteTshirtEntityName }
-        guard mounted !== shirt else { return }
+        let mounted = body.children.first { $0.name == garment.rawValue }
+        guard mounted !== asset else { return }
         mounted?.removeFromParent()
         // The garment is authored in the neutral body's coordinates and inherits its size and ground offset.
-        if let shirt { body.addChild(shirt) }
+        if let asset { body.addChild(asset) }
     }
 
     private static func resource(_ name: String, suffix: String) throws -> URL {

@@ -281,6 +281,7 @@ struct OiDraftCustomization: Codable, Equatable {
     /// Local STEP 3 appearance. Older drafts use the default bare cucumber.
     var seedAppearance: OiSeedCucumberAppearance?
     var seedWhiteTshirt: Bool?
+    var seedLongPants: Bool?
 }
 
 /// Card-space coordinates shared by the small editor frame and the final card.
