@@ -1163,12 +1163,44 @@ final class CampusEducationDistrictTests: XCTestCase {
         let url = try XCTUnwrap(Bundle.main.url(forResource: "education-district-points", withExtension: "bin"))
         let bytes = try Data(contentsOf: url)
         let hash = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
-        // Golden export of fine-packed-building-surfaces-5: no random or strided sampling.
-        XCTAssertEqual(hash, "ac8678bd21dd839682914ff169f0dfe790a40c7c2d8cf9929e42f6c32207d8a4")
+        // Golden export of the supplied Meshy surface, shared with the published web.
+        XCTAssertEqual(hash, "3ce3c0ee8a62779b701b3fa4547a0d7d5fcec3acfbb62ffd2ecaa66bb3b1f94b")
         let source = try CampusEducationDistrict.geometry()
         XCTAssertEqual(source.points.count, 96_000)
-        XCTAssertEqual(source.shell.count, 106_398)
-        XCTAssertEqual(source.groundOffset, 2.18, accuracy: 0.00001)
+        XCTAssertEqual(source.shell.count, 120_000)
+        XCTAssertEqual(source.groundOffset, 1.9686406, accuracy: 0.00001)
+    }
+
+    func testFullModelFitsClearedSiteAtPublishedAreaScale() throws {
+        let source = try CampusEducationDistrict.geometry()
+        for sample in source.points {
+            XCTAssertTrue(CampusEducationSite.contains(CampusEducationSite.world(sample.position)), "A supplied-model surface is outside the cleared site")
+        }
+        let data = try CampusMapData.load()
+        let library = try XCTUnwrap(data.buildings.first { $0.id == CampusEducationSite.libraryID })
+        let libraryArea = abs(library.p.indices.reduce(0.0) { value, i in
+            let a = library.p[i], b = library.p[(i + 1) % library.p.count]
+            return value + a[0] * b[1] - a[1] * b[0]
+        }) / 2 / (0.12 * 0.12)
+        XCTAssertGreaterThan(13_054.01 / libraryArea, 2)
+        XCTAssertEqual(12.8 * Double(CampusEducationSite.scale) / 0.12, 136.483, accuracy: 0.01)
+    }
+
+    func testOfflineExperienceLoadsSharedMeshySurface() async throws {
+        let model = EducationLightWebModel()
+        for _ in 0..<100 {
+            if !model.loading { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertFalse(model.loading, "Offline shared geometry did not load")
+        XCTAssertNil(model.failure)
+        let result = try await model.webView.evaluateJavaScript("window.prototypeDiagnostics()")
+        let diagnostics = try XCTUnwrap(result as? [String: Any])
+        XCTAssertEqual(diagnostics["revision"] as? String, "meshy-building-surface-20261112-v1")
+        XCTAssertEqual(diagnostics["capacity"] as? Int, 96_000)
+        XCTAssertEqual(diagnostics["depthTriangles"] as? Int, 40_000)
+        XCTAssertEqual(diagnostics["webgl"] as? Bool, true)
+        model.setActive(false)
     }
 
     func testBatchedBuildingAndLevelOfDetailSharePlacement() throws {
@@ -1204,7 +1236,7 @@ final class CampusEducationDistrictTests: XCTestCase {
         let library = try XCTUnwrap(data.buildings.first { $0.id == CampusEducationSite.libraryID })
         let landing = try XCTUnwrap(CampusEducationSite.libraryLanding(data: data))
         XCTAssertTrue(data.contains(landing, polygon: library.p), "The gallery must touch the actual library wall")
-        XCTAssertEqual(CampusEducationSite.local(landing).z, -0.185, accuracy: 0.001)
+        XCTAssertEqual(CampusEducationSite.local(landing).z, CampusEducationSite.bridgeAnchor.z, accuracy: 0.001)
         let front = CampusEducationSite.world([0, 0, 1]) - CampusEducationSite.center
         let towardC5 = SIMD3<Float>(62.19, CampusEducationSite.center.y, 35.25) - CampusEducationSite.center
         XCTAssertGreaterThan(simd_dot(simd_normalize(front), simd_normalize(towardC5)), 0.8)
@@ -1236,11 +1268,11 @@ final class CampusEducationDistrictTests: XCTestCase {
         let positions: [SIMD3<Float>] = [
             [49.3,2,43.8], [50.0,2,43.8], [49.65,2.5,44.2],
             [49.3,2,43.8], [49.65,2.5,44.2], [49.65,2,44.4],
-            [47.0,2,44.8], [47.6,2,44.8], [47.3,2.5,45.2]
+            [40.0,2,44.8], [40.6,2,44.8], [40.3,2.5,45.2]
         ]
         let source = CampusEducationSite.MeshBuffers(positions: positions,
             normals: Array(repeating: [0,1,0], count: positions.count), indices: Array(0..<9))
-        let trees = [CampusEducationSite.Tree(center: [49.666,44.078]), .init(center: [47.313,45.034])]
+        let trees = [CampusEducationSite.Tree(center: [49.666,44.078]), .init(center: [40.313,45.034])]
         let cleared = CampusEducationSite.clearingVegetation(source, trees: trees)
         XCTAssertEqual(cleared.indices, [6,7,8], "Remove the entire boundary crown, preserving the neighboring tree")
         XCTAssertEqual(cleared.positions, source.positions)
@@ -1274,7 +1306,7 @@ final class CampusEducationDistrictTests: XCTestCase {
              ("left", -.pi / 2, 0.55, 35), ("right", .pi / 2, 0.55, 35),
              ("back", .pi, 0.55, 35), ("site-overhead", -CampusEducationSite.heading, 1.56, 48)] {
             let angle = yaw + CampusEducationSite.heading
-            let target = CampusEducationSite.center + SIMD3<Float>(0, 1.5, 0)
+            let target = CampusEducationSite.center + SIMD3<Float>(0, 2.5, 0)
             camera.look(at: target, from: target + SIMD3(sin(angle) * cos(pitch), sin(pitch), cos(angle) * cos(pitch)) * radius, relativeTo: nil)
             try await Task.sleep(for: .milliseconds(500))
             let rendered = await withCheckedContinuation { continuation in

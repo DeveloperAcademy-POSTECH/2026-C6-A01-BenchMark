@@ -13,12 +13,20 @@ enum CampusEducationSite {
     static let retiredBuildingID = "136961801"
     static let libraryID = "136182168"
     static let c5ID = "397201294"
-    static let center = SIMD3<Float>(55, 0.45, 44.3)
+    static let center = SIMD3<Float>(52, 0.45, 41.1)
     static let heading: Float = 1.96
-    static let scale: Float = 0.86
+    // Uniform scale: the supplied model's gross footprint matches the published
+    // 13,054.01 m² building area. About 136 × 121 × 42 m, not surveyed dimensions.
+    static let scale: Float = 1.2795299
+    static let bridgeAnchor = SIMD3<Float>(-6.3734664, 1.076984, -2.9537949)
     static let boundary: [SIMD2<Float>] = [
-        [48.5, 40.5], [57.3, 36.7], [61.85, 47.95], [52.6, 52.15]
+        [59.288, 43.332], [56.934, 47.409], [51.462, 50.568],
+        [49.519, 50.568], [48.467, 49.961], [42.721, 40.008],
+        [42.721, 38.070], [44.401, 35.160], [48.073, 33.040],
+        [52.304, 33.040], [57.788, 36.207], [59.288, 38.804]
     ]
+    private static let minimum = boundary.reduce(SIMD2<Float>(repeating: .greatestFiniteMagnitude), simd_min)
+    private static let maximum = boundary.reduce(SIMD2<Float>(repeating: -.greatestFiniteMagnitude), simd_max)
     static let elevation: Float = 0.45
 
     static func cross(_ a: SIMD2<Float>, _ b: SIMD2<Float>) -> Float { a.x * b.y - a.y * b.x }
@@ -42,7 +50,7 @@ enum CampusEducationSite {
     /// Extend the web's -X gallery straight to the library's actual footprint edge.
     static func libraryLanding(data: CampusMapData) -> SIMD3<Float>? {
         guard let library = data.buildings.first(where: { $0.id == libraryID }) else { return nil }
-        let start = world([-6.35, 1.49, -0.185])
+        let start = world(bridgeAnchor)
         let axis = simd_quatf(angle: heading, axis: [0, 1, 0]).act(SIMD3<Float>(-1, 0, 0))
         let origin = SIMD2(start.x, start.z), direction = SIMD2(axis.x, axis.z)
         var distance: Float?
@@ -78,7 +86,8 @@ enum CampusEducationSite {
 
     static func trees(in trunks: MeshBuffers) -> [Tree] {
         components(trunks).map { ids in Tree(center: componentCenter(ids, in: trunks)) }
-            .filter { $0.center.x > 46 && $0.center.x < 64 && $0.center.y > 34 && $0.center.y < 55 }
+            .filter { $0.center.x > minimum.x - 2 && $0.center.x < maximum.x + 2 &&
+                      $0.center.y > minimum.y - 2 && $0.center.y < maximum.y + 2 }
     }
 
     /// Tree crowns and trunks occupy separate material tiles. Associate each complete
@@ -136,15 +145,15 @@ enum CampusEducationSite {
     /// foundations, vertical walls and roofs. Centroid-only deletion left wall fragments.
     /// Outside portions retain their interpolated normals; adjacent buildings are intact.
     static func clearing(_ source: MeshBuffers) -> MeshBuffers {
-        guard !source.positions.allSatisfy({ $0.x < 48.5 }), !source.positions.allSatisfy({ $0.x > 61.85 }),
-              !source.positions.allSatisfy({ $0.z < 36.7 }), !source.positions.allSatisfy({ $0.z > 52.15 }) else { return source }
+        guard !source.positions.allSatisfy({ $0.x < minimum.x }), !source.positions.allSatisfy({ $0.x > maximum.x }),
+              !source.positions.allSatisfy({ $0.z < minimum.y }), !source.positions.allSatisfy({ $0.z > maximum.y }) else { return source }
         var result = MeshBuffers(positions: source.positions, normals: source.normals, indices: [])
         result.indices.reserveCapacity(source.indices.count)
         for i in stride(from: 0, to: source.indices.count, by: 3) {
             let ids = Array(source.indices[i..<i + 3])
             let triangle = ids.map { Vertex(p: source.positions[Int($0)], n: source.normals[Int($0)]) }
-            if triangle.allSatisfy({ $0.p.x < 48.5 }) || triangle.allSatisfy({ $0.p.x > 61.85 }) ||
-                triangle.allSatisfy({ $0.p.z < 36.7 }) || triangle.allSatisfy({ $0.p.z > 52.15 }) {
+            if triangle.allSatisfy({ $0.p.x < minimum.x }) || triangle.allSatisfy({ $0.p.x > maximum.x }) ||
+                triangle.allSatisfy({ $0.p.z < minimum.y }) || triangle.allSatisfy({ $0.p.z > maximum.y }) {
                 result.indices += ids; continue
             }
             // A separating edge means the complete triangle is outside the parcel.

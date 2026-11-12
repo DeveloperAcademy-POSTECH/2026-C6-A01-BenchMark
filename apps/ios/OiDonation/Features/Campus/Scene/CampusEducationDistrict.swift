@@ -71,7 +71,8 @@ import UIKit
             model.addChild(try bridge(to: CampusEducationSite.local(landing)))
         }
         // One selection volume, not a collider or entity for each pearl.
-        model.collision = CollisionComponent(shapes: [.generateBox(size: [12.8, 4.6, 8.4]).offsetBy(translation: [0, 2.3, 0])], mode: .default, filter: .default)
+        let bounds = model.visualBounds(recursive: false, relativeTo: model)
+        model.collision = CollisionComponent(shapes: [.generateBox(size: bounds.extents).offsetBy(translation: bounds.center)], mode: .default, filter: .default)
         return model
     }
 
@@ -162,8 +163,9 @@ import UIKit
     }
 
     private static func bridge(to end: SIMD3<Float>) throws -> Entity {
-        let x0 = end.x, x1: Float = -6.20, z0: Float = -0.5, z1: Float = 0.13
-        let y0: Float = 1.33, y1: Float = 1.66
+        let anchor = CampusEducationSite.bridgeAnchor
+        let x0 = end.x, x1 = anchor.x + 0.08, z0 = anchor.z - 0.42, z1 = anchor.z + 0.42
+        let y0 = anchor.y - 0.18, y1 = anchor.y + 0.18
         var points: [Sample] = []
         let columns = max(2, Int(ceil((x1 - x0) / 0.045)))
         for i in 0...columns {
