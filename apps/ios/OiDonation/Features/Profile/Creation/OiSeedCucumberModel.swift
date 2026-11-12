@@ -12,12 +12,47 @@ import simd
 
 enum OiSeedCucumberGarment: String, CaseIterable {
     case whiteTshirt = "SeedCucumberWhiteTshirt"
+    case hoodie = "SeedCucumberHoodie"
+    case cardigan = "SeedCucumberCardigan"
+    case postechJacket = "SeedCucumberPostechJacket"
     case longPants = "SeedCucumberLongPants"
+    case shorts = "SeedCucumberShorts"
+
+    enum Slot: CaseIterable {
+        case top, bottom
+    }
+
+    init(top: OiWardrobeLook.Top) {
+        self = switch top {
+        case .tshirt: .whiteTshirt
+        case .hoodie: .hoodie
+        case .cardigan: .cardigan
+        case .postech: .postechJacket
+        }
+    }
+
+    init(bottom: OiWardrobeLook.Bottom) {
+        self = switch bottom {
+        case .long: .longPants
+        case .shorts: .shorts
+        }
+    }
+
+    var slot: Slot {
+        switch self {
+        case .whiteTshirt, .hoodie, .cardigan, .postechJacket: .top
+        case .longPants, .shorts: .bottom
+        }
+    }
 
     var title: String {
         switch self {
         case .whiteTshirt: OiWardrobeLook.Top.tshirt.title
+        case .hoodie: OiWardrobeLook.Top.hoodie.title
+        case .cardigan: OiWardrobeLook.Top.cardigan.title
+        case .postechJacket: OiWardrobeLook.Top.postech.title
         case .longPants: OiWardrobeLook.Bottom.long.title
+        case .shorts: OiWardrobeLook.Bottom.shorts.title
         }
     }
 }

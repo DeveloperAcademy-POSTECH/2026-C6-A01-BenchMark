@@ -244,11 +244,17 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
             if request?.appearance != appearance || (retryRequested && loadState == .failed) {
                 startModelLoad(appearance)
             }
-            for garment in OiSeedCucumberGarment.allCases {
+            for garment in previousSelection.subtracting(garments) {
+                if case let .loading(_, task) = garmentLoads[garment] {
+                    garmentLoads[garment] = nil
+                    task.cancel()
+                }
+            }
+            for garment in garments {
                 switch garmentLoads[garment] {
                 case nil:
                     startGarmentLoad(garment)
-                case .failed where garments.contains(garment) && (retryRequested || !previousSelection.contains(garment)):
+                case .failed where retryRequested || !previousSelection.contains(garment):
                     startGarmentLoad(garment)
                 default:
                     break
@@ -305,20 +311,31 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
         private func updateMountedGarments() {
             guard let model else { return }
             var changed = false
-            for garment in OiSeedCucumberGarment.allCases {
-                let asset: Entity?
-                if selectedGarments.contains(garment), case let .ready(loaded) = garmentLoads[garment] {
-                    asset = loaded
+            for slot in OiSeedCucumberGarment.Slot.allCases {
+                let previous = mountedGarments.keys.first { $0.slot == slot }
+                let selected = selectedGarments.first { $0.slot == slot }
+                guard previous != selected else { continue }
+                let replacement: Entity?
+                if let selected {
+                    // Keep the previous piece visible while its replacement loads.
+                    guard case let .ready(asset) = garmentLoads[selected] else { continue }
+                    replacement = asset
                 } else {
-                    asset = nil
+                    replacement = nil
                 }
-                guard mountedGarments[garment] !== asset else { continue }
                 do {
-                    try OiSeedCucumberModel.setGarment(garment, asset: asset, on: model)
-                    mountedGarments[garment] = asset
-                    changed = true
+                    if let previous {
+                        try OiSeedCucumberModel.setGarment(previous, asset: nil, on: model)
+                        mountedGarments[previous] = nil
+                        changed = true
+                    }
+                    if let selected, let replacement {
+                        try OiSeedCucumberModel.setGarment(selected, asset: replacement, on: model)
+                        mountedGarments[selected] = replacement
+                        changed = true
+                    }
                 } catch {
-                    garmentLoads[garment] = .failed
+                    if let selected { garmentLoads[selected] = .failed }
                 }
             }
             guard changed else { return }

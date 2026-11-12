@@ -282,6 +282,24 @@ struct OiDraftCustomization: Codable, Equatable {
     var seedAppearance: OiSeedCucumberAppearance?
     var seedWhiteTshirt: Bool?
     var seedLongPants: Bool?
+    var seedTop: String?
+    var seedBottom: String?
+
+    var selectedSeedTop: OiWardrobeLook.Top? {
+        get { seedTop.flatMap(OiWardrobeLook.Top.init(rawValue:)) ?? (seedWhiteTshirt == true ? .tshirt : nil) }
+        set {
+            seedTop = newValue?.rawValue
+            seedWhiteTshirt = nil
+        }
+    }
+
+    var selectedSeedBottom: OiWardrobeLook.Bottom? {
+        get { seedBottom.flatMap(OiWardrobeLook.Bottom.init(rawValue:)) ?? (seedLongPants == true ? .long : nil) }
+        set {
+            seedBottom = newValue?.rawValue
+            seedLongPants = nil
+        }
+    }
 }
 
 /// Card-space coordinates shared by the small editor frame and the final card.

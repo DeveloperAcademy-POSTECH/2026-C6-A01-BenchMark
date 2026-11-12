@@ -762,6 +762,57 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testStep3NewGarmentsReplaceOnlyTheirSlot() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let variant = try XCTUnwrap(variants.first { $0.name == "402x874" })
+        var original = OiDraftCustomization()
+        original.seedAppearance = editedSeedCucumber3DAppearance()
+        original.seedWhiteTshirt = true
+        original.seedLongPants = true
+        let draft = Step3DraftFixture(original)
+        let screen = CreationCapturePage(step: 3) {
+            OiCucumberCustomizationStep(customization: Binding(get: { draft.value }, set: { draft.value = $0 }))
+        }
+        .environment(\.scenePhase, .active)
+
+        try await capture(screen, name: "step3-new-wardrobe-outfit", variant: variant, defaults: fixture.defaults,
+                          delay: .zero, attach: true, prepareRealityCapture: { host in
+            let surface = try await self.step3Surface(in: host)
+            try await self.waitForStep3 { surface.accessibilityValue == "3D 미리보기" }
+            let model = try XCTUnwrap(surface.scene.findEntity(named: "SeedCucumber"))
+            let pants = try XCTUnwrap(model.findEntity(named: OiSeedCucumberGarment.longPants.rawValue))
+            let face = try XCTUnwrap(model.findEntity(named: "LeftEye"))
+            let camera = try self.step3Camera(in: surface)
+            let rotate = try XCTUnwrap(surface.accessibilityCustomActions?.first)
+            XCTAssertTrue(try XCTUnwrap(rotate.actionHandler)(rotate))
+            let viewpoint = camera.position(relativeTo: nil)
+
+            for top in [OiWardrobeLook.Top.hoodie, .cardigan, .postech] {
+                draft.value.selectedSeedTop = top
+                let garment = OiSeedCucumberGarment(top: top)
+                try await self.waitForStep3 { model.findEntity(named: garment.rawValue) != nil }
+                let activeTops = OiWardrobeLook.Top.allCases.filter {
+                    model.findEntity(named: OiSeedCucumberGarment(top: $0).rawValue) != nil
+                }
+                XCTAssertEqual(activeTops, [top])
+                XCTAssertTrue(model.findEntity(named: OiSeedCucumberGarment.longPants.rawValue) === pants)
+                XCTAssertTrue(model.findEntity(named: garment.rawValue)?.parent === pants.parent)
+            }
+
+            let jacket = try XCTUnwrap(model.findEntity(named: OiSeedCucumberGarment.postechJacket.rawValue))
+            draft.value.selectedSeedBottom = .shorts
+            try await self.waitForStep3 { model.findEntity(named: OiSeedCucumberGarment.shorts.rawValue) != nil }
+            XCTAssertNil(model.findEntity(named: OiSeedCucumberGarment.longPants.rawValue))
+            XCTAssertTrue(model.findEntity(named: OiSeedCucumberGarment.shorts.rawValue)?.parent === jacket.parent)
+            XCTAssertTrue(model.findEntity(named: OiSeedCucumberGarment.postechJacket.rawValue) === jacket)
+            XCTAssertTrue(model.findEntity(named: "LeftEye") === face)
+            XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), viewpoint), 0, accuracy: 0.001)
+            XCTAssertEqual(draft.value.seedAppearance, original.seedAppearance)
+            return surface
+        })
+    }
+
     private func step3Camera(in surface: RealityKit.ARView) throws -> PerspectiveCamera {
         let cameras = surface.scene.anchors.flatMap { anchor in
             anchor.children.compactMap { $0 as? PerspectiveCamera }

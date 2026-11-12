@@ -719,8 +719,8 @@ struct OiStoryEditor: View {
     private var reusedCardPath: String? {
         var cardCustomization = customization
         cardCustomization.seedAppearance = nil
-        cardCustomization.seedWhiteTshirt = nil
-        cardCustomization.seedLongPants = nil
+        cardCustomization.selectedSeedTop = nil
+        cardCustomization.selectedSeedBottom = nil
         return cardCustomization == OiDraftCustomization() ? currentStory?.cardArtworkPath : nil
     }
 

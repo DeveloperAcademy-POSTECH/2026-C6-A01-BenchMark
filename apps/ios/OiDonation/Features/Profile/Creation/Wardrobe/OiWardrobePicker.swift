@@ -25,12 +25,10 @@ struct OiCucumberCustomizationStep: View {
     @State private var showsFaceEditor = false
     private var allowsWardrobeEditing: Bool { previewMode == .wardrobe }
     private var seedAppearance: OiSeedCucumberAppearance { customization.seedAppearance ?? .init() }
-    private var wearsWhiteTshirt: Bool { customization.seedWhiteTshirt == true }
-    private var wearsLongPants: Bool { customization.seedLongPants == true }
     private var seedGarments: Set<OiSeedCucumberGarment> {
         var garments: Set<OiSeedCucumberGarment> = []
-        if wearsWhiteTshirt { garments.insert(.whiteTshirt) }
-        if wearsLongPants { garments.insert(.longPants) }
+        if let top = customization.selectedSeedTop { garments.insert(.init(top: top)) }
+        if let bottom = customization.selectedSeedBottom { garments.insert(.init(bottom: bottom)) }
         return garments
     }
     private var look: OiWardrobeLook { customization.wardrobe ?? OiWardrobeLook() }
@@ -209,11 +207,11 @@ struct OiCucumberCustomizationStep: View {
                 EmptyView()
             case .top:
                 ForEach(OiWardrobeLook.Top.allCases, id: \.self) { top in
-                    let seedSelection = !allowsWardrobeEditing && top == .tshirt ? wearsWhiteTshirt : nil
+                    let seedSelection = allowsWardrobeEditing ? nil : customization.selectedSeedTop == top
                     item(top.title, image: "oi-thumb-\(top.rawValue)", selected: look.costume == nil && look.top == top,
                          id: top.rawValue, seedSelection: seedSelection) {
-                        if seedSelection != nil {
-                            customization.seedWhiteTshirt = wearsWhiteTshirt ? nil : true
+                        if let seedSelection {
+                            customization.selectedSeedTop = seedSelection ? nil : top
                         } else {
                             change { $0.top = top; $0.costume = nil }
                         }
@@ -221,12 +219,12 @@ struct OiCucumberCustomizationStep: View {
                 }
             case .bottom:
                 ForEach(OiWardrobeLook.Bottom.allCases, id: \.self) { bottom in
-                    let seedSelection = !allowsWardrobeEditing && bottom == .long ? wearsLongPants : nil
+                    let seedSelection = allowsWardrobeEditing ? nil : customization.selectedSeedBottom == bottom
                     item(bottom.title, image: "oi-thumb-\(bottom == .long ? "long-pants" : "shorts")",
                          selected: look.costume == nil && look.bottom == bottom, id: bottom.rawValue,
                          seedSelection: seedSelection) {
-                        if seedSelection != nil {
-                            customization.seedLongPants = wearsLongPants ? nil : true
+                        if let seedSelection {
+                            customization.selectedSeedBottom = seedSelection ? nil : bottom
                         } else {
                             change { $0.bottom = bottom; $0.costume = nil }
                         }
