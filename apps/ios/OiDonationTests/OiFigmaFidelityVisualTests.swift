@@ -5,9 +5,11 @@
 //  Created by 이돈혁 on 11/3/26.
 //
 
+import RealityKit
 import SwiftUI
 import UIKit
 import XCTest
+import simd
 @testable import OiDonation
 
 /// Captures the production views with local test fixtures for human Figma comparison.
@@ -435,6 +437,170 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             try await capture(bodyDestination, name: "seed-cucumber-customization-body", variant: variant,
                               defaults: fixture.defaults, attach: true)
         }
+    }
+
+    func testSeedCucumber3DModelKeepsEditedPartsOnSkin() async throws {
+        typealias Appearance = OiSeedCucumberAppearance
+        let original = Appearance()
+        let edited = editedSeedCucumber3DAppearance()
+        var narrow = original
+        narrow.bodyWidth = Appearance.widthRange.lowerBound
+        narrow.bodyHeight = Appearance.heightRange.upperBound
+        narrow.eyeSpacing = Appearance.eyeSpacingRange.lowerBound
+        narrow[.eyes] = .init(x: 65, y: -65, size: 0.75)
+        narrow[.mouth] = .init(x: -60, y: 55, size: 0.8)
+        narrow.stemLength = Appearance.lengthRange.lowerBound
+        narrow.stemAngle = Appearance.angleRange.upperBound
+
+        let appearances = [original, edited, narrow]
+        var roots: [Entity] = []
+        for appearance in appearances {
+            roots.append(try await OiSeedCucumberModel.make(appearance: appearance))
+        }
+        for (index, root) in roots.enumerated() {
+            let body = try XCTUnwrap(root.findEntity(named: "Body"))
+            let bounds = body.visualBounds(relativeTo: root)
+            XCTAssertEqual(root.visualBounds(relativeTo: root).min.y, 0, accuracy: 0.005, "Pose \(index)")
+            XCTAssertGreaterThan(bounds.extents.z, bounds.extents.x * 0.25, "Pose \(index) must have body depth")
+            for name in ["LeftArm", "RightArm", "LeftLeg", "RightLeg"] {
+                let limb = try XCTUnwrap(root.findEntity(named: name))
+                XCTAssertGreaterThan(limb.visualBounds(relativeTo: root).extents.z, 0.01, "\(name) in pose \(index)")
+            }
+
+            let bodyTriangles = try cucumberTriangles(named: "Body", in: root)
+            var bodyRows: [Int: [CucumberTriangle]] = [:]
+            for triangle in bodyTriangles {
+                let firstRow = cucumberDepthRow(min(triangle.0.y, triangle.1.y, triangle.2.y))
+                let lastRow = cucumberDepthRow(max(triangle.0.y, triangle.1.y, triangle.2.y))
+                for row in firstRow...lastRow {
+                    bodyRows[row, default: []].append(triangle)
+                }
+            }
+            for name in ["LeftEye", "RightEye", "Mouth"] {
+                let face = try XCTUnwrap(root.findEntity(named: name))
+                XCTAssertGreaterThan(face.visualBounds(relativeTo: root).min.z, 0, "\(name) must face +Z")
+                let triangles = try cucumberTriangles(named: name, in: root)
+                for offset in stride(from: 0, to: triangles.count, by: max(1, triangles.count / 24)) {
+                    let triangle = triangles[offset]
+                    let center = (triangle.0 + triangle.1 + triangle.2) / 3
+                    let row = bodyRows[cucumberDepthRow(center.y), default: []]
+                    let skin = try XCTUnwrap(cucumberDepth(at: center, in: row), "\(name) left the body in pose \(index)")
+                    XCTAssertLessThan(abs(center.z - skin.upperBound), 0.025, "\(name) detached from the front skin in pose \(index)")
+                }
+            }
+
+            let stem = try XCTUnwrap(root.findEntity(named: "Stem"))
+            let stemTriangles = try cucumberTriangles(named: "Stem", in: root)
+            XCTAssertGreaterThan(stem.visualBounds(relativeTo: root).max.y, bounds.max.y, "Pose \(index) must show the stem")
+            XCTAssertTrue(stemTriangles.contains { triangle in
+                let center = (triangle.0 + triangle.1 + triangle.2) / 3
+                guard let skin = cucumberDepth(at: center, in: bodyRows[cucumberDepthRow(center.y), default: []]) else { return false }
+                return center.z > skin.lowerBound && center.z < skin.upperBound
+            }, "The stem must enter the body in pose \(index)")
+        }
+
+        func partBounds(_ name: String, pose: Int) throws -> BoundingBox {
+            let root = roots[pose]
+            return try XCTUnwrap(root.findEntity(named: name)).visualBounds(relativeTo: root)
+        }
+        let originalBody = try partBounds("Body", pose: 0)
+        let wideBody = try partBounds("Body", pose: 1)
+        let tallBody = try partBounds("Body", pose: 2)
+        XCTAssertGreaterThan(wideBody.extents.x, originalBody.extents.x)
+        XCTAssertLessThan(wideBody.extents.y, originalBody.extents.y)
+        XCTAssertLessThan(tallBody.extents.x, originalBody.extents.x)
+        XCTAssertGreaterThan(tallBody.extents.y, originalBody.extents.y)
+        let originalLeft = try partBounds("LeftEye", pose: 0)
+        let originalRight = try partBounds("RightEye", pose: 0)
+        let editedLeft = try partBounds("LeftEye", pose: 1)
+        let editedRight = try partBounds("RightEye", pose: 1)
+        XCTAssertLessThan(editedLeft.center.x + editedRight.center.x, originalLeft.center.x + originalRight.center.x)
+        XCTAssertGreaterThan(editedRight.center.x - editedLeft.center.x, originalRight.center.x - originalLeft.center.x)
+        XCTAssertGreaterThan(editedLeft.extents.x, originalLeft.extents.x)
+        XCTAssertGreaterThan(try partBounds("Mouth", pose: 1).center.x, try partBounds("Mouth", pose: 0).center.x)
+        XCTAssertLessThan(try partBounds("Mouth", pose: 1).center.y, try partBounds("Mouth", pose: 0).center.y)
+        XCTAssertLessThan(try partBounds("Stem", pose: 1).min.x, try partBounds("Stem", pose: 0).min.x)
+    }
+
+    func testSeedCucumber3DPreviewCapturesRealModel() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let variant = try XCTUnwrap(variants.first { $0.name == "402x874" })
+        let original = OiSeedCucumberAppearance()
+        let poses: [(name: String, appearance: OiSeedCucumberAppearance, yaw: Float)] = [
+            ("default", original, 0),
+            ("rear", original, .pi),
+            ("edited", editedSeedCucumber3DAppearance(), 0)
+        ]
+        for pose in poses {
+            let screen = OiSeedCucumber3DPreview(appearance: pose.appearance)
+                .environment(\.scenePhase, .active)
+            try await capture(screen, name: "seed-cucumber-3d-\(pose.name)", variant: variant, defaults: fixture.defaults,
+                              delay: .seconds(1), attach: true, cucumberCameraYaw: pose.yaw)
+        }
+    }
+
+    private func editedSeedCucumber3DAppearance() -> OiSeedCucumberAppearance {
+        var appearance = OiSeedCucumberAppearance()
+        appearance.bodyWidth = OiSeedCucumberAppearance.widthRange.upperBound
+        appearance.bodyHeight = OiSeedCucumberAppearance.heightRange.lowerBound
+        appearance[.eyes] = .init(x: -45, y: -35, size: 1.4)
+        appearance[.mouth] = .init(x: 25, y: 35, size: 1.15)
+        appearance.eyeSpacing = OiSeedCucumberAppearance.eyeSpacingRange.upperBound
+        appearance.stemLength = OiSeedCucumberAppearance.lengthRange.upperBound
+        appearance.stemAngle = -72
+        return appearance
+    }
+
+    private typealias CucumberTriangle = (SIMD3<Float>, SIMD3<Float>, SIMD3<Float>)
+
+    private func cucumberTriangles(named name: String, in root: Entity) throws -> [CucumberTriangle] {
+        let entity = try XCTUnwrap(root.findEntity(named: name))
+        let mesh = try XCTUnwrap(entity.components[ModelComponent.self]?.mesh)
+        let contents = mesh.contents
+        let triangles = try contents.instances.flatMap { instance in
+            let model = try XCTUnwrap(contents.models.first { $0.id == instance.model })
+            return try model.parts.flatMap { part -> [CucumberTriangle] in
+                let points = part.positions.elements.map { vertex in
+                    let point = instance.transform * SIMD4<Float>(vertex, 1)
+                    return entity.convert(position: SIMD3<Float>(point.x, point.y, point.z), to: root)
+                }
+                let indices = try XCTUnwrap(part.triangleIndices?.elements).map(Int.init)
+                XCTAssertEqual(indices.count % 3, 0)
+                guard indices.count.isMultiple(of: 3), indices.allSatisfy(points.indices.contains) else {
+                    XCTFail("Invalid indices in \(name)")
+                    return []
+                }
+                return stride(from: 0, to: indices.count, by: 3).map { offset in
+                    (points[indices[offset]], points[indices[offset + 1]], points[indices[offset + 2]])
+                }
+            }
+        }
+        XCTAssertFalse(triangles.isEmpty, "\(name) must contain renderable triangles")
+        return triangles
+    }
+
+    private func cucumberDepthRow(_ y: Float) -> Int {
+        Int(floor(y * 100))
+    }
+
+    private func cucumberDepth(at point: SIMD3<Float>, in triangles: [CucumberTriangle]) -> ClosedRange<Float>? {
+        var front = -Float.infinity
+        var back = Float.infinity
+        for (a, b, c) in triangles {
+            let side = b - a
+            let other = c - a
+            let offset = point - a
+            let determinant = side.x * other.y - side.y * other.x
+            guard abs(determinant) > 0.0000000001 else { continue }
+            let u = (offset.x * other.y - offset.y * other.x) / determinant
+            let v = (side.x * offset.y - side.y * offset.x) / determinant
+            guard u >= -0.0001, v >= -0.0001, u + v <= 1.0001 else { continue }
+            let depth = a.z + u * side.z + v * other.z
+            front = max(front, depth)
+            back = min(back, depth)
+        }
+        return back <= front ? back...front : nil
     }
 
     func testSeedCucumberEditingGeometry() {
@@ -1383,7 +1549,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     private func capture<V: View>(_ view: V, name: String, variant: Variant, defaults: UserDefaults,
                                  includesSafeArea: Bool = true,
                                  delay: Duration = .milliseconds(180), attach: Bool = false,
-                                 checksBottomSheet: Bool = false) async throws -> Data {
+                                 checksBottomSheet: Bool = false, cucumberCameraYaw: Float? = nil) async throws -> Data {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first, "The isolated simulator test host must have a window scene")
@@ -1439,6 +1605,12 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             XCTAssertEqual(frame.maxY, bounds.maxY, accuracy: 1)
         }
         let renderView: UIView = checksBottomSheet ? window : host.view
+        let realitySnapshot: (image: UIImage, frame: CGRect)?
+        if let cucumberCameraYaw {
+            realitySnapshot = try await captureCucumberSurface(in: renderView, yaw: cucumberCameraYaw)
+        } else {
+            realitySnapshot = nil
+        }
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
@@ -1447,6 +1619,9 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             UIColor.white.setFill()
             context.fill(CGRect(origin: .zero, size: variant.size))
             rendered = renderView.drawHierarchy(in: renderView.bounds, afterScreenUpdates: true)
+            if let realitySnapshot {
+                realitySnapshot.image.draw(in: realitySnapshot.frame)
+            }
         }
         XCTAssertTrue(rendered, "The attached production view must draw its hierarchy")
         try assertNonemptyRender(png, size: variant.size)
@@ -1464,6 +1639,45 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: output).count, png.count, "The saved capture must contain the rendered PNG")
         print("Figma132 capture: \(output.path)")
         return png
+    }
+
+    private func captureCucumberSurface(in view: UIView, yaw: Float) async throws -> (image: UIImage, frame: CGRect) {
+        var surface = cucumberSurface(in: view)
+        for _ in 0..<15 where surface == nil {
+            try await Task.sleep(for: .milliseconds(100))
+            surface = cucumberSurface(in: view)
+        }
+        let renderer = try XCTUnwrap(surface, "The real preview must install its RealityKit surface")
+        if yaw != 0 {
+            let cameras = renderer.scene.anchors.flatMap { anchor in
+                anchor.children.compactMap { $0 as? PerspectiveCamera }
+            }
+            let camera = try XCTUnwrap(cameras.first)
+            let model = try XCTUnwrap(renderer.scene.findEntity(named: "SeedCucumber"))
+            let bounds = model.visualBounds(relativeTo: nil)
+            var pose = OiSeedCucumber3DCamera()
+            pose.orbit(yaw: yaw, pitch: 0)
+            let position = pose.position(center: bounds.center, radius: simd_length(bounds.extents) / 2,
+                                         viewport: renderer.bounds.size)
+            camera.look(at: bounds.center, from: position, relativeTo: nil)
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        // UIKit's view snapshot omits the Metal surface.
+        let snapshot: UIImage? = await withCheckedContinuation { continuation in
+            renderer.snapshot(saveToHDR: false) { continuation.resume(returning: $0) }
+        }
+        let image = try XCTUnwrap(snapshot, "RealityKit must render the preview")
+        let pixels = try XCTUnwrap(image.cgImage)
+        let data = try XCTUnwrap(image.pngData())
+        try assertNonemptyRender(data, size: CGSize(width: pixels.width, height: pixels.height))
+        return (image, renderer.convert(renderer.bounds, to: view))
+    }
+
+    private func cucumberSurface(in view: UIView) -> RealityKit.ARView? {
+        if let surface = view as? RealityKit.ARView, surface.accessibilityIdentifier == "seedCucumber.3D.canvas" {
+            return surface
+        }
+        return view.subviews.lazy.compactMap { self.cucumberSurface(in: $0) }.first
     }
 
     private func releaseCampusRenderers(in view: UIView) {
