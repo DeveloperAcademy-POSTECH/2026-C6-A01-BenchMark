@@ -235,32 +235,26 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         var style = OiDraftCustomization()
         style.showsCharacter = false
         style.firstColor = 0xD9D9D9
-        style.card = OiCardDesign(borderFirst: 0xFFFFFF)
+        style.card = OiCardDesign(borderFill: .solid, borderFirst: 0xFFFFFF)
         let reference = try render(style, name: "card-regions-gray-white")
         style.firstColor = 0x285DB0
         let background = try render(style, name: "card-regions-blue-white")
         style.card?.borderFirst = 0xCE4068
         let border = try render(style, name: "card-regions-blue-pink")
 
-        // Background includes the outside margin and the interior. Changing only
-        // the border must not recolor either region (the former implementation did).
-        for point in [CGPoint(x: 7, y: 180), CGPoint(x: 180, y: 180)] {
+        // The photograph and paper are independent regions of the postcard.
+        let inner = CGPoint(x: 180, y: 180)
+        let a = try rgb(reference, x: Int(inner.x), y: Int(inner.y))
+        let b = try rgb(background, x: Int(inner.x), y: Int(inner.y))
+        let c = try rgb(border, x: Int(inner.x), y: Int(inner.y))
+        XCTAssertGreaterThan(distance(a, b), 80)
+        XCTAssertLessThan(distance(b, c), 6)
+        for point in [CGPoint(x: 18, y: 180), CGPoint(x: 180, y: 18)] {
             let a = try rgb(reference, x: Int(point.x), y: Int(point.y))
             let b = try rgb(background, x: Int(point.x), y: Int(point.y))
             let c = try rgb(border, x: Int(point.x), y: Int(point.y))
-            XCTAssertGreaterThan(distance(a, b), 80)
-            XCTAssertLessThan(distance(b, c), 6)
-        }
-        // Sample the two header areas away from glyphs and the left frame line.
-        for point in [CGPoint(x: 30, y: 22), CGPoint(x: 130, y: 22), CGPoint(x: 15, y: 180)] {
-            let a = try rgb(reference, x: Int(point.x), y: Int(point.y))
-            let b = try rgb(background, x: Int(point.x), y: Int(point.y))
-            let c = try rgb(border, x: Int(point.x), y: Int(point.y))
-            // Figma's name strip is translucent. It must respond primarily to
-            // border tint while retaining that deliberate background show-through.
-            XCTAssertLessThan(Double(distance(a, b)), Double(distance(b, c)) * 0.4,
-                              "Background dominates the border tint at \(point)")
-            XCTAssertGreaterThan(distance(b, c), 60, "Border/header stayed white at \(point)")
+            XCTAssertLessThan(distance(a, b), 6, "Image color must not tint the paper")
+            XCTAssertGreaterThan(distance(b, c), 60, "Paper color must affect the border")
         }
         style.fill = .gradient; style.firstColor = 0xD3DBC4; style.secondColor = 0xF3F7E6
         style.card?.borderFill = .gradient
@@ -268,6 +262,112 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         _ = try render(style, name: "card-regions-gradient")
         style.card?.pattern = 3; style.showsCharacter = true
         _ = try render(style, name: "card-regions-pattern-character")
+    }
+
+    func testPostcardPublicationAndDraftCompatibility() throws {
+        var style = Self.customization
+        style.showsCharacter = false
+        style.card = OiCardDesign()
+        style.card?.postcardDate = Date(timeIntervalSince1970: 1_799_779_200)
+        style.card?.photoMonochrome = true
+        let photo = try XCTUnwrap(UIImage(named: "DonationCampus"))
+        style.card?.backgroundPhoto = photo.pngData()
+        style.card?.backgroundPlacement = OiCardPlacement(x: 0.42, y: 0.48, scale: 1.3)
+        let preview = OiDraftCardPreview(draft: Self.draft, customization: style, donorName: "테스트 농부")
+        let publication = try preview.publication(colorScheme: .light)
+        let image = try XCTUnwrap(UIImage(data: publication.png))
+        XCTAssertEqual(image.cgImage?.width, 724)
+        XCTAssertEqual(image.cgImage?.height, 1004)
+        XCTAssertTrue(OiPostcardSnapshot.isPostcard(image), "The scalloped edge must stay transparent in the public PNG")
+        XCTAssertNotNil(OiPostcardSnapshot.color(image, x: 0.05, y: 0.10))
+        let opaque = UIGraphicsImageRenderer(size: CGSize(width: 362, height: 502)).image { c in
+            UIColor.white.setFill(); c.fill(CGRect(x: 0, y: 0, width: 362, height: 502))
+        }
+        XCTAssertFalse(OiPostcardSnapshot.isPostcard(opaque), "A legacy opaque card must not be mistaken for a postcard")
+        let data = try JSONEncoder().encode(style)
+        XCTAssertEqual(try JSONDecoder().decode(OiDraftCustomization.self, from: data), style)
+        var old = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(try XCTUnwrap(style.card))) as? [String: Any])
+        old.removeValue(forKey: "postcardDate"); old.removeValue(forKey: "photoMonochrome")
+        let legacy = try JSONDecoder().decode(OiCardDesign.self, from: JSONSerialization.data(withJSONObject: old))
+        XCTAssertNil(legacy.postcardDate); XCTAssertNil(legacy.photoMonochrome)
+        XCTAssertEqual(legacy.backgroundPlacement, style.card?.backgroundPlacement)
+        let attachment = XCTAttachment(data: publication.png, uniformTypeIdentifier: "public.png")
+        attachment.name = "postcard-published-front"; attachment.lifetime = .keepAlways; add(attachment)
+        for back in [false, true] {
+            let renderer = ImageRenderer(content: OiDraftCardPreview(draft: Self.draft, customization: style,
+                donorName: "테스트 농부", showingBack: back).frame(width: 362, height: 502))
+            let png = try XCTUnwrap(renderer.uiImage?.pngData())
+            let shot = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            shot.name = back ? "postcard-back" : "postcard-front"; shot.lifetime = .keepAlways; add(shot)
+        }
+    }
+
+    func testPostcardCapturesCurrentWardrobePortrait() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let captured = expectation(description: "Current 3D cucumber portrait")
+        var png: Data?
+        let view = OiCardPortraitCapture(look: OiWardrobeLook(), cacheKey: "postcard-runtime-test", onCapture: { data, _ in
+            png = data; captured.fulfill()
+        }).frame(width: 220, height: 308).opacity(0.001)
+        window.rootViewController = UIHostingController(rootView: view.environment(\.scenePhase, .active))
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
+        await fulfillment(of: [captured], timeout: 18)
+        let image = try XCTUnwrap(png.flatMap(UIImage.init(data:)))
+        XCTAssertGreaterThan(image.size.width, 10)
+        XCTAssertGreaterThan(image.size.height, 10)
+        let cg = try XCTUnwrap(image.cgImage)
+        let bitmap = try renderedBitmap(try XCTUnwrap(png), size: CGSize(width: cg.width, height: cg.height))
+        let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: cg.width * cg.height * 4)
+        let green = (0..<(cg.width * cg.height)).filter {
+            pixels[$0 * 4 + 3] > 200 && Int(pixels[$0 * 4 + 1]) > Int(pixels[$0 * 4]) + 15
+                && Int(pixels[$0 * 4 + 1]) > Int(pixels[$0 * 4 + 2]) + 15
+        }.count
+        XCTAssertGreaterThan(green, 100, "The hidden surface must still render the green 3D cucumber")
+        let attachment = XCTAttachment(data: try XCTUnwrap(png), uniformTypeIdentifier: "public.png")
+        attachment.name = "postcard-current-wardrobe-capture"; attachment.lifetime = .keepAlways; add(attachment)
+    }
+
+    func testPostcardPhotoTintFollowsPaperAndPreservesOriginal() throws {
+        let size = CGSize(width: 100, height: 150)
+        let original = UIGraphicsImageRenderer(size: size).image { c in
+            UIColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1).setFill()
+            c.fill(CGRect(origin: .zero, size: size))
+        }
+        let bytes = try XCTUnwrap(original.pngData())
+        var style = OiDraftCustomization()
+        style.card = OiCardDesign(borderFill: .solid)
+        style.card?.backgroundPhoto = bytes
+        func pixel(_ style: OiDraftCustomization) throws -> [Int] {
+            let renderer = ImageRenderer(content: OiCardBackground(customization: style, pattern: nil)
+                .frame(width: size.width, height: size.height))
+            let data = try XCTUnwrap(renderer.uiImage?.pngData())
+            let bitmap = try renderedBitmap(data, size: size)
+            let rgba = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: 100 * 150 * 4)
+            return (0..<3).map { Int(rgba[(75 * 100 + 50) * 4 + $0]) }
+        }
+        let natural = try pixel(style)
+        style.card?.photoMonochrome = true
+        style.card?.borderFirst = 0xD99090
+        let rose = try pixel(style)
+        style.card?.borderFirst = 0x9090D9
+        let blue = try pixel(style)
+        XCTAssertGreaterThan(rose[0], rose[2] + 20)
+        XCTAssertGreaterThan(blue[2], blue[0] + 20)
+        style.card?.photoMonochrome = false
+        XCTAssertEqual(try pixel(style), natural)
+        XCTAssertEqual(style.card?.backgroundPhoto, bytes, "Tinting must not rewrite the original photo")
+    }
+
+    func testPostcardHorizontalFlipAndDate() {
+        XCTAssertTrue(OiPostcardFlip.accepts(CGSize(width: -100, height: 5)))
+        XCTAssertTrue(OiPostcardFlip.accepts(CGSize(width: 100, height: 5)))
+        XCTAssertFalse(OiPostcardFlip.accepts(CGSize(width: 10, height: 100)))
+        XCTAssertFalse(OiPostcardFlip.accepts(CGSize(width: 25, height: 2)))
+        XCTAssertEqual(OiPostcardDate.string(from: "2026.11.12"), "26.11.12")
+        XCTAssertEqual(OiPostcardDate.string(from: "2026년 11월 12일"), "26.11.12")
     }
 
     func testCardPatternsRemainVisibleAcrossBackgrounds() throws {
@@ -353,7 +453,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
                     canContinue: true, onContinue: {})
             }
-            try await capture(card, name: "card-customization", variant: variant, defaults: fixture.defaults)
+            try await capture(card, name: "card-customization", variant: variant, defaults: fixture.defaults, attach: true)
         }
     }
 

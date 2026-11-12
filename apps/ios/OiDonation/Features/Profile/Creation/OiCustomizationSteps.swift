@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 private enum OiCardTab: String, CaseIterable {
-    case content = "내용", background = "배경", border = "테두리", pattern = "패턴", size = "오이크기"
+    case content = "내용", background = "배경", border = "엽서", pattern = "패턴", size = "오이 배치"
 }
 
 struct OiCardCustomizationStep: View {
@@ -15,8 +15,11 @@ struct OiCardCustomizationStep: View {
     var isFinished = false
     var onContinue: (() -> Void)?
     var onSizeEditingChanged: ((Bool) -> Void)? = nil
+    @State private var showingBack = false
     @State private var tab: OiCardTab = .content
     @State private var portrait: UIImage?
+    @State private var portraitFailed = false
+    @State private var captureAttempt = 0
     @State private var wardrobeKey: String?
     @State private var orientation = OiCardOrientation()
     private var portraitKey: String? {
@@ -26,7 +29,7 @@ struct OiCardCustomizationStep: View {
     @State private var nameInput = ""
     @FocusState private var editingName: Bool
     private var design: OiCardDesign { customization.card ?? OiCardDesign() }
-    private var needsPortrait: Bool { portraitKey != nil && (design.portraitKey != portraitKey || design.portraitPNG == nil) }
+    private var needsPortrait: Bool { customization.showsCharacter && portraitKey != nil && (design.portraitKey != portraitKey || design.portraitPNG == nil) }
 
     private var isSizeEditing: Bool { tab == .size && !isFinished }
 
@@ -36,6 +39,11 @@ struct OiCardCustomizationStep: View {
                 ? min(268.0, max(64.0, geometry.size.height * 0.38))
                 : min(308.0, max(205.0, geometry.size.height * 0.47))
             VStack(spacing: 0) {
+                Picker("엽서 면", selection: $showingBack) {
+                    Text("앞면").tag(false)
+                    Text("뒷면").tag(true)
+                }.pickerStyle(.segmented).padding(.horizontal, 60).padding(.top, 6)
+                    .accessibilityIdentifier("oi.postcard.side")
                 preview(height: previewHeight).padding(.horizontal, 20)
                     .padding(.top, isSizeEditing ? 8 : 14).padding(.bottom, isSizeEditing ? 12 : 24)
                 if isFinished {
@@ -53,7 +61,7 @@ struct OiCardCustomizationStep: View {
                             // Fit the card's real aspect ratio into the remaining space.
                             // No ScrollView owns gestures over the character editor.
                             let height = max(1, min(editor.size.height - 56,
-                                                    (editor.size.width - 40) * 472 / 332))
+                                                    (editor.size.width - 40) * 436 / 296))
                             placementEditor(height: height)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                                 .background(Color("OiBorder").opacity(0.75).ignoresSafeArea(edges: .bottom))
@@ -76,9 +84,9 @@ struct OiCardCustomizationStep: View {
                 .presentationCornerRadius(35)
                 .presentationBackground(Color("OiLight"))
         }
-        .onAppear { refreshPortrait(); nameInput = baseName; onSizeEditingChanged?(isSizeEditing) }
+        .onAppear { if design.postcardDate == nil { change { $0.postcardDate = Date() } }; refreshPortrait(); nameInput = baseName; onSizeEditingChanged?(isSizeEditing) }
         .onChange(of: customization.wardrobe) { _, _ in refreshPortrait() }
-        .onChange(of: tab) { _, _ in saveOrientation() }
+        .onChange(of: tab) { _, value in saveOrientation(); if value == .size { showingBack = false } }
         .onChange(of: isSizeEditing) { _, editing in onSizeEditingChanged?(editing) }
         .onDisappear { saveOrientation(); onSizeEditingChanged?(false) }
         .onChange(of: editingName) { _, focused in if !focused { commitName() } }
@@ -87,19 +95,30 @@ struct OiCardCustomizationStep: View {
 
     private func preview(height: CGFloat) -> some View {
         ZStack(alignment: .bottom) {
-            OiDraftCardPreview(draft: draft, customization: customization, donorName: donorName, portrait: portrait)
+            OiDraftCardPreview(draft: draft, customization: customization, donorName: donorName, portrait: portrait, showingBack: showingBack)
                 .frame(width: height * 362 / 502, height: height)
                 .overlay {
                     if needsPortrait, (tab != .size || isFinished), let look = customization.wardrobe {
                         OiCardPortraitCapture(look: look, cacheKey: portraitKey ?? "", orientation: orientation,
-                                              onCapture: acceptPortrait)
+                                              onCapture: acceptPortrait, onFailure: { portraitFailed = true })
+                            .id(captureAttempt)
                             .aspectRatio(332 / 472, contentMode: .fit)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .opacity(0.001).allowsHitTesting(false).accessibilityHidden(true)
+                    }
+                }
+                .overlay(alignment: .top) {
+                    if needsPortrait && tab != .size {
+                        Group {
+                            if portraitFailed {
+                                Button("오이 이미지 다시 만들기") { portraitFailed = false; captureAttempt += 1 }
+                            } else { ProgressView("오이를 엽서에 담는 중") }
+                        }.font(CampusStyle.body(11)).padding(8).background(.regularMaterial, in: Capsule())
                     }
                 }
             HStack(alignment: .bottom) {
                 VStack(spacing: 3) {
-                    Text("오이").font(CampusStyle.medium(16))
+                    Text("오이").font(CampusStyle.medium(13))
                     VStack(spacing: 0) {
                         visibilityButton("가림", visible: false)
                         visibilityButton("보임", visible: true)
@@ -130,7 +149,7 @@ struct OiCardCustomizationStep: View {
         HStack(spacing: 0) {
             ForEach(OiCardTab.allCases, id: \.self) { item in
                 Button { editingName = false; tab = item } label: {
-                    Text(item.rawValue).font(tab == item ? CampusStyle.semibold(16) : CampusStyle.medium(16))
+                    Text(item.rawValue).font(tab == item ? CampusStyle.semibold(14) : CampusStyle.medium(14))
                         .foregroundStyle(tab == item ? Color("OiGreen") : Color(white: 0.44))
                         .frame(maxWidth: .infinity).frame(height: 44)
                         .overlay(alignment: .bottom) {
@@ -156,7 +175,15 @@ struct OiCardCustomizationStep: View {
             portraitKey: portraitKey ?? "", onCapture: acceptPortrait, onInteractionEnded: saveOrientation)
     }
     private var contentEditor: some View {
-        VStack(alignment: .leading, spacing: 30) {
+        VStack(alignment: .leading, spacing: 24) {
+            HStack(spacing: 12) {
+                Button { customization.showsCharacter = false; showingBack = false; showingPhotoEditor = true } label: {
+                    Label("사진 넣기", systemImage: "photo.badge.plus").frame(maxWidth: .infinity, minHeight: 44)
+                }.buttonStyle(.bordered).accessibilityIdentifier("oi.postcard.source.photo")
+                Button { customization.showsCharacter = true; showingBack = false; tab = .size } label: {
+                    Label("내 오이 배치", systemImage: "leaf").frame(maxWidth: .infinity, minHeight: 44)
+                }.buttonStyle(.bordered).accessibilityIdentifier("oi.postcard.source.cucumber")
+            }.tint(Color("OiGreen"))
             VStack(alignment: .leading, spacing: 16) {
                 fieldHeading("오이 이름", hint: "‘오이’를 제외한 다섯 글자 이내로 작성해 주세요")
                 HStack(spacing: 4) {
@@ -183,32 +210,25 @@ struct OiCardCustomizationStep: View {
                 if nameInput.count > 5 { Text("다섯 글자까지 입력할 수 있어요.").font(.caption).foregroundStyle(.red) }
             }
             VStack(alignment: .leading, spacing: 16) {
-                fieldHeading("내용", hint: "미수정 시 이야기 작성 때 남긴 제목이 적용됩니다")
+                fieldHeading("엽서 내용", hint: "뒷면에 들어갈 이야기입니다")
                 VStack(alignment: .leading, spacing: 6) {
-                    TextField(draft.title.isEmpty ? "카드에 남길 내용" : draft.title,
-                              text: Binding(get: { design.caption ?? "" }, set: { text in
-                        change { $0.caption = limitedCaption(text) }
+                    TextField("엽서에 남길 이야기",
+                              text: Binding(get: { draft.body }, set: { text in
+                        draft.body = String(text.prefix(OiCreationStep.storyTextLimit))
                     }), axis: .vertical).lineLimit(3...5).font(CampusStyle.body(14)).lineSpacing(7)
                         .accessibilityIdentifier("oi.card.caption")
                     HStack {
-                        Text("\((design.caption ?? "").utf8.count) / 1500 byte").foregroundStyle(.secondary)
+                        Text("\(draft.body.count) / \(OiCreationStep.storyTextLimit)자").foregroundStyle(.secondary)
                         Spacer(); Image(systemName: "pencil").foregroundStyle(Color("OiGreen"))
                     }.font(CampusStyle.body(10))
                 }.padding(20).background(Color(white: 0.97), in: RoundedRectangle(cornerRadius: 30))
             }
             HStack(spacing: 20) {
-                Text("기부자").font(CampusStyle.medium(16))
-                ForEach([true, false], id: \.self) { anonymous in
-                    Button { change { $0.anonymous = anonymous } } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: design.anonymous == anonymous ? "checkmark.square.fill" : "square")
-                            Text(anonymous ? "익명" : "실명")
-                        }.font(CampusStyle.body(16))
-                    }.buttonStyle(.plain).tint(Color("OiGreen"))
-                }
+                Text("보낸 사람").font(CampusStyle.medium(16))
+                Text(donorName.isEmpty ? "계정에 등록된 이름" : donorName).font(CampusStyle.body(16))
             }
-            Text("이름 표시는 카드 미리보기에만 적용돼요.").font(.caption).foregroundStyle(.secondary)
-            if !design.anonymous && donorName.isEmpty {
+            Text("뒷면에는 공개 검토를 받은 이야기와 작성자 이름이 표시돼요.").font(.caption).foregroundStyle(.secondary)
+            if donorName.isEmpty {
                 Text("계정에 등록된 이름을 확인하면 카드에 표시돼요.").font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -225,7 +245,7 @@ struct OiCardCustomizationStep: View {
         let second = border ? design.borderSecond : customization.secondColor
         let colors = OiCardPalette.items(gradient: fill == .gradient, border: border)
         return VStack(alignment: .leading, spacing: 20) {
-            Picker(border ? "테두리 채우기" : "배경 채우기", selection: Binding(get: { fill }, set: { value in
+            Picker(border ? "엽서 종이 채우기" : "사진 영역 채우기", selection: Binding(get: { fill }, set: { value in
                 if border { change { $0.borderFill = value } } else { customization.fill = value }
             })) {
                 Text("단색").tag(OiDraftCustomization.Fill.solid)
@@ -265,6 +285,14 @@ struct OiCardCustomizationStep: View {
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }.buttonStyle(.plain).accessibilityIdentifier("oi.card.background.photo")
                 }
+            }
+            if !border {
+                Button { customization.showsCharacter = false; showingPhotoEditor = true } label: {
+                    Label("직접 사진 넣기 · 배치 수정", systemImage: "photo.badge.plus")
+                }.buttonStyle(.bordered).accessibilityIdentifier("oi.postcard.photo.edit")
+                Toggle("사진을 엽서 색에 맞춰 표현", isOn: Binding(get: { design.photoMonochrome ?? false }, set: { value in
+                    change { $0.photoMonochrome = value }
+                })).font(CampusStyle.body(13)).tint(Color("OiGreen"))
             }
             if !border && design.backgroundPhoto != nil {
                 HStack {
@@ -320,16 +348,8 @@ struct OiCardCustomizationStep: View {
         nameInput = String(nameInput.trimmingCharacters(in: .whitespacesAndNewlines).prefix(5))
         draft.cucumberName = nameInput.isEmpty ? "" : nameInput + "오이"
     }
-    private func limitedCaption(_ text: String) -> String {
-        var result = "", bytes = 0
-        for character in text {
-            let count = String(character).utf8.count
-            guard bytes + count <= 1500 else { break }
-            result.append(character); bytes += count
-        }
-        return result
-    }
     private func refreshPortrait() {
+        portraitFailed = false
         // Hash photo bytes only when the wardrobe changes, not on every drag frame.
         if let look = customization.wardrobe { wardrobeKey = OiCardPortrait.key(for: look) }
         else { wardrobeKey = nil }
@@ -347,6 +367,7 @@ struct OiCardCustomizationStep: View {
     }
     private func acceptPortrait(_ data: Data, _ key: String) {
         guard key == portraitKey else { return }
+        portraitFailed = false
         // Persist once after a rotation, not for every finger movement (PNG drafts can be large).
         change {
             $0.characterOrientation = orientation.normalized

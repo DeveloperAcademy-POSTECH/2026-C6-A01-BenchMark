@@ -1,0 +1,88 @@
+//
+//  CampusPostcard.swift
+//  OiDonation
+//
+//  Created by Codex on 2026/11/12.
+//
+
+import SwiftUI
+
+/// Published snapshots remain approved pixels. New postcard snapshots are shown
+/// directly; older stories use their approved photo or cucumber portrait.
+struct CampusPostcard: View {
+    let story: CampusStory
+    let store: CampusStoryStore
+    @State private var showingBack = false
+    @State private var snapshot: UIImage?
+    @State private var colors: (UInt32, UInt32) = (0xE8EECF, 0xD5DBC6)
+    @Environment(\.campusCucumberPortraitLoader) private var loadImage
+    @State private var failed = false
+    @State private var retry = 0
+    var body: some View {
+        VStack(spacing: 10) {
+            OiFlippablePostcard(showingBack: $showingBack) {
+                if let snapshot {
+                    Image(uiImage: snapshot).resizable().frame(width: 362, height: 502)
+                } else {
+                    OiPostcardFront(date: OiPostcardDate.string(from: story.date)) {
+                        ZStack {
+                            Color(oiRGB: 0x77835C)
+                            if let photo = story.remoteMediaPaths.first {
+                                OiStoryMediaImage(path: photo, contentMode: .fill) { path in
+                                    guard let resolver = store.mediaURL else { throw OiServiceError.unavailable }
+                                    return try await resolver(path)
+                                }
+                            } else { CampusCucumberPortrait(story: story) }
+                        }
+                    }
+                }
+            } back: {
+                OiPostcardBack(first: colors.0, second: colors.1, message: story.body,
+                               author: story.donor, scrollable: true)
+            }
+            Text("탭하거나 옆으로 밀어서 뒤집기").font(CampusStyle.body(12)).foregroundStyle(.secondary)
+            if failed {
+                Button("저장된 엽서 다시 불러오기") { retry += 1 }.font(.caption)
+            }
+        }
+        .id(story.id)
+        .task(id: "\(story.id)/\(story.cardArtworkPath ?? "")/\(retry)") {
+            snapshot = nil; failed = false; colors = (0xE8EECF, 0xD5DBC6)
+            guard let path = story.cardArtworkPath, let loadImage else { return }
+            do {
+                let image = try await loadImage(path)
+                try Task.checkCancellation()
+                if OiPostcardSnapshot.isPostcard(image) {
+                    colors = (OiPostcardSnapshot.color(image, x: 0.05, y: 0.10) ?? 0xE8EECF,
+                              OiPostcardSnapshot.color(image, x: 0.95, y: 0.90) ?? 0xD5DBC6)
+                    snapshot = image
+                }
+            } catch { if !Task.isCancelled { failed = true } }
+        }
+    }
+}
+
+/// Read a few approved snapshot pixels once, without changing the stored image.
+enum OiPostcardSnapshot {
+    static func isPostcard(_ image: UIImage) -> Bool {
+        // Figma's first left perforation is centered at y=31; legacy rounded
+        // cards are opaque here. Check both edges to avoid classifying a photo.
+        pixel(image, x: 0.003, y: 31.0 / 502).3 < 30 && pixel(image, x: 0.997, y: 31.0 / 502).3 < 30
+    }
+    static func color(_ image: UIImage, x: Double, y: Double) -> UInt32? {
+        let p = pixel(image, x: x, y: y)
+        guard p.3 > 240 else { return nil }
+        return UInt32(p.0) << 16 | UInt32(p.1) << 8 | UInt32(p.2)
+    }
+    private static func pixel(_ image: UIImage, x: Double, y: Double) -> (UInt8, UInt8, UInt8, UInt8) {
+        guard let cg = image.cgImage else { return (0, 0, 0, 255) }
+        var rgba = [UInt8](repeating: 0, count: 4)
+        rgba.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: 1, height: 1, bitsPerComponent: 8,
+                bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+            context.translateBy(x: -CGFloat(x) * CGFloat(cg.width), y: -CGFloat(1 - y) * CGFloat(cg.height))
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+        }
+        return (rgba[0], rgba[1], rgba[2], rgba[3])
+    }
+}

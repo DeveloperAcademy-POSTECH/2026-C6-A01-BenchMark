@@ -24,6 +24,13 @@ enum OiCardPalette {
                 : [0xFFFFFF,0xF4EBDD,0xD8CBB6,0xB6A097,0xB7BEBA,0x575958,0xC7D8C1,0xC2DDD4,0xC5DBEC,0xD6CCE6,0xEDCBD1,0xF0E2B0]
             second = first
         }
-        return names.indices.map { Swatch(name: names[$0], first: first[$0], second: second[$0]) }
+        let basic = names.indices.map { Swatch(name: names[$0], first: first[$0], second: second[$0]) }
+        guard border else { return basic }
+        let papers: [Swatch] = [
+            .init(name: "엽서 그린", first: 0xE8EECF, second: gradient ? 0xD5DBC6 : 0xE8EECF),
+            .init(name: "엽서 라일락", first: 0xE8D8E8, second: gradient ? 0xC5B3CC : 0xE8D8E8),
+            .init(name: "엽서 로즈", first: 0xF1D8D6, second: gradient ? 0xD5B9B4 : 0xF1D8D6)
+        ]
+        return papers + basic
     }
 }
