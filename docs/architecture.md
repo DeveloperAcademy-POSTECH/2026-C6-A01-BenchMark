@@ -330,9 +330,11 @@ MY 도감 정렬·핀 필터를 MYDemoStore의 공유 화면 상태로 관리하
 
 2026-11-12 #289의 3D 미리보기는 본 앱에 번들된 `SeedCucumberMaster.usdz`를 RealityKit으로 불러온다. 기준 모델은 정면 원화의 실루엣, 피부 요철과 줄무늬, 얼굴과 꼭지를 반영하며 측면과 뒷면은 같은 피부가 이어지도록 제작했다. 버튼을 누른 시점의 `OiSeedCucumberAppearance`로 키와 체형을 반영하고, 움직인 얼굴은 `SeedCucumberSurface.json`의 표면 깊이에 맞춘다. 꼭지는 기존 편집 좌표의 변형을 적용하고 밑동을 고정한다. 자산 로딩, 편집값 반영, 화면 표시는 모두 기기에서 처리한다.
 
-2026-11-12 #299에서 STEP 3은 기존 미리보기 영역과 의상 카테고리를 사용한다. `OiStep3CucumberPreview`는 같은 정면 원화 뒤에서 `SeedCucumberMaster.usdz`의 RealityKit 장면을 미리 준비한다. 드래그나 핀치가 먼저 들어오면 카메라 상태에 반영하고 렌더링이 준비되는 대로 같은 장면을 표시한다. 핀치는 카메라 거리만 조절하고 한 손가락 드래그는 회전 각도를 바꾼다. 얼굴 편집의 적용 값은 `OiDraftCustomization.seedAppearance`에 저장하며 기존 초안의 누락 값은 기본 외형으로 표시한다.
+2026-11-12 #299에서 STEP 3은 기존 미리보기 영역과 의상 카테고리를 사용한다. `OiStep3CucumberPreview`는 같은 정면 원화 뒤에서 `SeedCucumberMaster.usdz`의 RealityKit 장면을 미리 준비한다. 드래그나 핀치가 먼저 들어오면 카메라 상태에 반영하고 렌더링이 준비되는 대로 같은 장면을 표시한다. 핀치는 카메라 거리를 조절하고 가로 드래그는 회전 각도를 바꾼다. 확대 상태에서 세로 드래그는 카메라와 바라보는 지점을 함께 옮겨 오이의 위아래를 보여 준다. 기본 배율로 줄이면 중심으로 돌아온다. 얼굴 편집의 적용 값은 `OiDraftCustomization.seedAppearance`에 저장하며 기존 초안의 누락 값은 기본 외형으로 표시한다.
 
 `SeedCucumberWhiteTshirt.usdz`와 `SeedCucumberLongPants.usdz`는 `wardrobe-tshirt-long.usdz`의 상의·하의 메시를 기본 맨몸 오이 좌표에 맞춘 번들 에셋이다. 흰 긴바지의 색과 재질, 목록 썸네일은 기존 자산을 사용한다. 두 의상은 오이와 같은 키·체형 변환 아래에 각각 붙이며, 입거나 벗을 때 같은 씬과 카메라를 유지한다. STEP 3 착용 여부는 기기 초안의 선택적 필드 `seedWhiteTshirt`와 `seedLongPants`에 저장한다. 기존 의상 에셋과 카드·지도 데이터는 현재 계약을 사용한다.
+
+같은 날 후속 수정(#299)으로 흰 긴바지의 허리와 길이를 유지하면서 허벅지부터 밑단까지 통을 넓혔다. 두 바짓단과 발 사이의 간격은 기준 메시에서 확보하고, 키·체형 변경 시에도 몸과 반팔의 겹침 관계를 유지하도록 같은 변환을 적용한다.
 
 `OiLocalDraft`의 선택적 `creationStep`·`customization`·`removedMediaPaths`는 구버전 초안을 그대로 읽을 수 있게 추가한다. `OiDraftCustomization`은 로컬 미리보기 전용이며 `OiStoryDraft.payload()`나 공유 DB를 확장하지 않는다. 업로드 사진 순서를 유지하고 기기 사본과 서버 경로를 중복 표시하지 않는다. 기존 `attach_media` RPC로 사진 연결을 변경하며, 변경 직후 목록 동기화가 실패해도 응답의 revision과 경로를 보존한다.
 

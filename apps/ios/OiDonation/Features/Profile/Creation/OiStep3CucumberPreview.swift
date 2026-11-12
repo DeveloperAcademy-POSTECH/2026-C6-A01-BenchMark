@@ -32,6 +32,7 @@ private final class OiStep3CucumberOrbit {
 
     var yaw: Float = 0
     var zoom: Float = 1
+    var verticalOffset: Float = 0
     var requestsPreview = false
 }
 
@@ -154,6 +155,10 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
             case failed
         }
 
+        private enum PanDirection {
+            case rotate, vertical
+        }
+
         private weak var host: OiStep3CucumberRenderHost?
         private let anchor = AnchorEntity(world: .zero)
         private let camera = PerspectiveCamera()
@@ -165,7 +170,8 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
         private var loadState = LoadState.loading
         private var onPresentationChange: ((OiStep3CucumberPresentation) -> Void)?
         private var depthCenter: Float?
-        private var orbitFrame: (center: SIMD3<Float>, distance: Float)?
+        private var orbitFrame: (center: SIMD3<Float>, distance: Float, height: Float)?
+        private var panDirection: PanDirection?
         private var shows3D = false
         private var lastRetry = 0
         private var model: Entity?
@@ -186,9 +192,20 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
             renderer.isAccessibilityElement = true
             renderer.accessibilityIdentifier = "oi.step3.cucumber.surface"
             renderer.accessibilityLabel = "오이 미리보기"
-            renderer.accessibilityHint = "드래그해서 돌리고 두 손가락으로 확대하거나 축소할 수 있어요. 동작 메뉴에서도 조절할 수 있어요."
+            renderer.accessibilityHint = "가로로 드래그해 돌리고 두 손가락으로 확대하거나 축소할 수 있어요. 확대하면 위아래로도 움직일 수 있어요."
             renderer.accessibilityValue = "정면 이미지"
-            renderer.accessibilityCustomActions = [
+            updateAccessibilityActions(for: renderer)
+            renderer.scene.addAnchor(anchor)
+
+            pan.maximumNumberOfTouches = 1
+            pan.delegate = self
+            pinch.delegate = self
+            renderer.addGestureRecognizer(pan)
+            renderer.addGestureRecognizer(pinch)
+        }
+
+        private func updateAccessibilityActions(for renderer: RealityKit.ARView) {
+            var actions = [
                 UIAccessibilityCustomAction(name: "왼쪽으로 돌리기") { [weak self] _ in
                     self?.rotate(by: -.pi / 6) ?? false
                 },
@@ -202,13 +219,17 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
                     self?.magnify(by: 1 / 1.15) ?? false
                 }
             ]
-            renderer.scene.addAnchor(anchor)
-
-            pan.maximumNumberOfTouches = 1
-            pan.delegate = self
-            pinch.delegate = self
-            renderer.addGestureRecognizer(pan)
-            renderer.addGestureRecognizer(pinch)
+            if orbit.zoom > 1 {
+                actions.append(contentsOf: [
+                    UIAccessibilityCustomAction(name: "위쪽 보기") { [weak self] _ in
+                        self?.panVertically(by: 0.1) ?? false
+                    },
+                    UIAccessibilityCustomAction(name: "아래쪽 보기") { [weak self] _ in
+                        self?.panVertically(by: -0.1) ?? false
+                    }
+                ])
+            }
+            renderer.accessibilityCustomActions = actions
         }
 
         func update(appearance: OiSeedCucumberAppearance, garments: Set<OiSeedCucumberGarment>, retry: Int,
@@ -320,6 +341,7 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
             presentationTask = nil
             onPresentationChange = nil
             host.didLayout = nil
+            panDirection = nil
             host.renderer.removeGestureRecognizer(pan)
             host.renderer.removeGestureRecognizer(pinch)
             host.renderer.accessibilityCustomActions = nil
@@ -409,24 +431,32 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
                 depthCenter
             )
             let halfFOV = camera.camera.fieldOfViewInDegrees * .pi / 360
-            let distance = Float(size.height / 2) * metresPerPoint / tan(halfFOV)
+            let height = Float(size.height) * metresPerPoint
+            let distance = height * 0.5 / tan(halfFOV)
             camera.camera.far = max(20, distance / OiStep3CucumberOrbit.zoomRange.lowerBound * 2)
-            orbitFrame = (center, distance)
+            orbitFrame = (center, distance, height)
             updateOrbit()
             return true
         }
 
         private func updateOrbit() {
-            guard let (center, fittedDistance) = orbitFrame else { return }
+            guard let (center, fittedDistance, fittedHeight) = orbitFrame else { return }
             let distance = fittedDistance / orbit.zoom
             let offset = SIMD3(sin(orbit.yaw) * distance, 0, cos(orbit.yaw) * distance)
-            camera.look(at: center, from: center + offset, relativeTo: nil)
+            let target = center + SIMD3(0, orbit.verticalOffset * fittedHeight, 0)
+            camera.look(at: target, from: target + offset, relativeTo: nil)
         }
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             guard gestureRecognizer === pan else { return true }
-            let velocity = pan.velocity(in: pan.view)
-            return abs(velocity.x) > abs(velocity.y)
+            return direction(for: pan) != nil
+        }
+
+        private func direction(for gesture: UIPanGestureRecognizer) -> PanDirection? {
+            let velocity = gesture.velocity(in: gesture.view)
+            let motion = velocity == .zero ? gesture.translation(in: gesture.view) : velocity
+            if abs(motion.x) > abs(motion.y) { return .rotate }
+            return orbit.zoom > 1 && motion.y != 0 ? .vertical : nil
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
@@ -436,12 +466,27 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
         }
 
         @objc private func didPan(_ gesture: UIPanGestureRecognizer) {
-            guard gesture.state == .began || gesture.state == .changed else { return }
-            let dx = Float(gesture.translation(in: gesture.view).x)
+            switch gesture.state {
+            case .began:
+                panDirection = direction(for: gesture)
+            case .changed:
+                break
+            default:
+                panDirection = nil
+                return
+            }
+            let translation = gesture.translation(in: gesture.view)
             gesture.setTranslation(.zero, in: gesture.view)
             guard pinch.state != .began && pinch.state != .changed else { return }
-            guard dx != 0 else { return }
-            _ = rotate(by: -dx * 0.01)
+            switch panDirection {
+            case .rotate where translation.x != 0:
+                _ = rotate(by: -Float(translation.x) * 0.01)
+            case .vertical:
+                guard let height = host?.renderer.bounds.height, height > 0 else { return }
+                _ = panVertically(by: Float(translation.y / height) / orbit.zoom)
+            default:
+                break
+            }
         }
 
         @objc private func didPinch(_ gesture: UIPinchGestureRecognizer) {
@@ -460,13 +505,32 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
             return true
         }
 
+        private func clampedVerticalOffset(_ offset: Float) -> Float {
+            // Keep the zoomed viewport within the original vertical framing.
+            let limit = max(0, (1 - 1 / orbit.zoom) * 0.5)
+            return min(limit, max(-limit, offset))
+        }
+
+        private func panVertically(by offset: Float) -> Bool {
+            guard host != nil, loadState != .failed, orbit.zoom > 1, offset.isFinite else { return false }
+            let position = clampedVerticalOffset(orbit.verticalOffset + offset)
+            guard position != orbit.verticalOffset else { return false }
+            orbit.verticalOffset = position
+            updateOrbit()
+            requestPreview()
+            return true
+        }
+
         private func magnify(by factor: Float) -> Bool {
-            guard host != nil, loadState != .failed, factor.isFinite, factor > 0 else { return false }
+            guard let host, loadState != .failed, factor.isFinite, factor > 0 else { return false }
             let range = OiStep3CucumberOrbit.zoomRange
             let zoom = min(range.upperBound, max(range.lowerBound, orbit.zoom * factor))
             if orbit.zoom != zoom {
+                let wasZoomedIn = orbit.zoom > 1
                 orbit.zoom = zoom
+                orbit.verticalOffset = clampedVerticalOffset(orbit.verticalOffset)
                 updateOrbit()
+                if wasZoomedIn != (zoom > 1) { updateAccessibilityActions(for: host.renderer) }
             }
             requestPreview()
             return true

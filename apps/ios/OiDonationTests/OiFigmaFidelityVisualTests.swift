@@ -601,22 +601,50 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             try await self.waitForStep3 { surface.accessibilityValue == "3D 미리보기" }
 
             let camera = try self.step3Camera(in: surface)
-            let normal = camera.position(relativeTo: nil).z
+            let normal = camera.position(relativeTo: nil)
             try self.applyStep3Pinch(pinch, state: .changed, scale: 10)
             let closest = camera.position(relativeTo: nil).z
-            XCTAssertLessThan(closest, normal)
+            XCTAssertLessThan(closest, normal.z)
             try self.applyStep3Pinch(pinch, state: .changed, scale: 10)
             XCTAssertEqual(camera.position(relativeTo: nil).z, closest, accuracy: 0.001)
             try self.applyStep3Pinch(pinch, state: .changed, scale: 0.9)
             XCTAssertGreaterThan(camera.position(relativeTo: nil).z, closest)
 
+            try self.applyStep3Pinch(pinch, state: .ended, scale: 1)
+            let centered = camera.position(relativeTo: nil)
+            let forward = camera.orientation(relativeTo: nil).act(SIMD3<Float>(0, 0, -1))
+            let pan = Step3TestPan()
+            pan.dragVelocity = CGPoint(x: 0, y: 200)
+            try self.applyStep3Pan(pan, in: surface, state: .began, delta: CGPoint(x: 0, y: 20))
+            XCTAssertGreaterThan(camera.position(relativeTo: nil).y, centered.y)
+
+            try self.applyStep3Pan(pan, in: surface, state: .changed, delta: CGPoint(x: 4000, y: 1000))
+            let top = camera.position(relativeTo: nil)
+            try self.applyStep3Pan(pan, in: surface, state: .changed, delta: CGPoint(x: 0, y: 1000))
+            XCTAssertEqual(camera.position(relativeTo: nil).y, top.y, accuracy: 0.001)
+            try self.applyStep3Pan(pan, in: surface, state: .changed, delta: CGPoint(x: 0, y: -2000))
+            let bottom = camera.position(relativeTo: nil)
+            XCTAssertLessThan(bottom.y, centered.y)
+            XCTAssertEqual(bottom.x, centered.x, accuracy: 0.001)
+            XCTAssertEqual(bottom.z, centered.z, accuracy: 0.001)
+            XCTAssertEqual(simd_distance(camera.orientation(relativeTo: nil).act(SIMD3<Float>(0, 0, -1)), forward),
+                           0, accuracy: 0.001)
+            try self.applyStep3Pan(pan, in: surface, state: .ended, delta: .zero)
+
+            try self.applyStep3Pinch(pinch, state: .began, scale: 1)
+            XCTAssertEqual(camera.position(relativeTo: nil).y, bottom.y, accuracy: 0.001)
             try self.applyStep3Pinch(pinch, state: .changed, scale: 0.1)
             let farthest = camera.position(relativeTo: nil).z
-            XCTAssertGreaterThan(farthest, normal)
+            XCTAssertGreaterThan(farthest, normal.z)
+            XCTAssertEqual(camera.position(relativeTo: nil).y, normal.y, accuracy: 0.001)
             try self.applyStep3Pinch(pinch, state: .changed, scale: 0.1)
             XCTAssertEqual(camera.position(relativeTo: nil).z, farthest, accuracy: 0.001)
             try self.applyStep3Pinch(pinch, state: .changed, scale: 1.1)
             XCTAssertLessThan(camera.position(relativeTo: nil).z, farthest)
+            try self.applyStep3Pinch(pinch, state: .ended, scale: 1)
+            try self.applyStep3Pan(pan, in: surface, state: .began, delta: CGPoint(x: 0, y: 60))
+            XCTAssertEqual(camera.position(relativeTo: nil).y, normal.y, accuracy: 0.001)
+            try self.applyStep3Pan(pan, in: surface, state: .ended, delta: .zero)
             return surface
         })
     }
@@ -672,6 +700,13 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             try self.applyStep3Pinch(pinch, state: .changed, scale: 1.24)
             let zoomed = camera.position(relativeTo: nil)
             XCTAssertGreaterThan(simd_distance(turned, zoomed), 0.2)
+            try self.applyStep3Pinch(pinch, state: .ended, scale: 1)
+            let pan = Step3TestPan()
+            pan.dragVelocity = CGPoint(x: 0, y: -200)
+            try self.applyStep3Pan(pan, in: surface, state: .began, delta: CGPoint(x: 0, y: -15))
+            try self.applyStep3Pan(pan, in: surface, state: .ended, delta: .zero)
+            let reframed = camera.position(relativeTo: nil)
+            XCTAssertLessThan(reframed.y, zoomed.y)
 
             draft.value.seedWhiteTshirt = nil
             try await self.waitForStep3 { model.findEntity(named: shirtName) == nil }
@@ -688,7 +723,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             XCTAssertTrue(surface.scene.findEntity(named: "SeedCucumber") === model)
             XCTAssertTrue(model.findEntity(named: "LeftEye") === eye)
             XCTAssertEqual(eye.transformMatrix(relativeTo: model).columns.3, faceTransform.columns.3)
-            XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), zoomed), 0, accuracy: 0.001)
+            XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), reframed), 0, accuracy: 0.001)
             return surface
         })
         XCTAssertEqual(draft.value.seedAppearance, appearance)
@@ -740,10 +775,45 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
 
     private func applyStep3Pinch(_ pinch: UIPinchGestureRecognizer, state: UIGestureRecognizer.State,
                                  scale: CGFloat) throws {
-        pinch.state = state
-        pinch.scale = scale
         let target = try XCTUnwrap(pinch.delegate)
-        XCTAssertTrue(UIApplication.shared.sendAction(NSSelectorFromString("didPinch:"), to: target, from: pinch, for: nil))
+        // Send the recognizer callback without changing UIKit's active touch state.
+        let gesture = Step3TestPinch()
+        gesture.state = state
+        gesture.scale = scale
+        XCTAssertTrue(UIApplication.shared.sendAction(NSSelectorFromString("didPinch:"), to: target, from: gesture, for: nil))
+    }
+
+    private final class Step3TestPinch: UIPinchGestureRecognizer {
+        private var simulatedState: State = .possible
+
+        override var state: State {
+            get { simulatedState }
+            set { simulatedState = newValue }
+        }
+    }
+
+    private final class Step3TestPan: UIPanGestureRecognizer {
+        private var simulatedState: State = .possible
+        var dragVelocity = CGPoint.zero
+        var delta = CGPoint.zero
+
+        override var state: State {
+            get { simulatedState }
+            set { simulatedState = newValue }
+        }
+
+        override func velocity(in view: UIView?) -> CGPoint { dragVelocity }
+        override func translation(in view: UIView?) -> CGPoint { delta }
+        override func setTranslation(_ translation: CGPoint, in view: UIView?) { delta = translation }
+    }
+
+    private func applyStep3Pan(_ pan: Step3TestPan, in surface: RealityKit.ARView,
+                               state: UIGestureRecognizer.State, delta: CGPoint) throws {
+        let installedPan = surface.gestureRecognizers?.compactMap { $0 as? UIPanGestureRecognizer }.first
+        let target = try XCTUnwrap(installedPan?.delegate)
+        pan.state = state
+        pan.delta = delta
+        XCTAssertTrue(UIApplication.shared.sendAction(NSSelectorFromString("didPan:"), to: target, from: pan, for: nil))
     }
 
     private func step3Surface(in host: UIView) async throws -> RealityKit.ARView {
