@@ -349,13 +349,18 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         updateCamera()
     }
 
-    func suspendForARCamera() {
+    func suspendRendering() {
         setVisible(false)
-        // Release before presenting another RealityKit renderer; navigation values stay here.
+        // Release the renderer and its scene while keeping navigation values and asset templates.
+        guard let canvas, canvas.map != nil else { return }
         clearStoryPins()
-        canvas?.map?.scene.removeAnchor(root)
-        canvas?.removeRenderer()
-        panTouchCount = 0
+        canvas.removeRenderer()
+        root = AnchorEntity(world: .zero)
+        placementLayer = Entity()
+        authoredLayer = Entity()
+        storyLayer = Entity()
+        draftEntity = nil
+        placementReticle = nil
     }
 
     private func attachRenderer(to canvas: CampusMapCanvas) {
@@ -570,7 +575,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                 guard let image = try? await loadCucumberPortrait(path), !Task.isCancelled,
                       let self, let button, let artwork = self.cacheStoryPortrait(image, key: path as NSString) else { return }
                 button.setImage(artwork, for: .normal)
-                self.canvas?.setNeedsLayout()
+                self.canvas?.invalidateProjection()
             })
         }
     }
@@ -1539,6 +1544,7 @@ final class CampusMapCanvas: UIView {
     private(set) var map: RealityKit.ARView?
     let backdrop = CAGradientLayer()
     var didLayout: (() -> Void)?
+    private var lastLayoutBounds: CGRect?
     override init(frame: CGRect) {
         super.init(frame: frame)
         backdrop.startPoint = CGPoint(x: 0.7, y: 0)
@@ -1572,8 +1578,15 @@ final class CampusMapCanvas: UIView {
         map?.removeFromSuperview()
         map = nil
     }
+    func invalidateProjection() {
+        lastLayoutBounds = nil
+        setNeedsLayout()
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
+        guard bounds != lastLayoutBounds else { return }
+        lastLayoutBounds = bounds
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         backdrop.frame = bounds

@@ -76,14 +76,17 @@ struct CampusSummaryView: View {
             await scene.load()
             if let region = CampusRegion.campus.first(where: { $0.id == story.regionID }) { scene.focusBackdrop(region) }
         }
-        .onAppear { isOnScreen = true; scene.setVisible(!isCameraCoverActive && scenePhase == .active) }
-        .onDisappear { isOnScreen = false; scene.suspendForARCamera() }
-        .onChange(of: scenePhase) { _, phase in
-            scene.setVisible(isOnScreen && !isCameraCoverActive && phase == .active)
-        }
-        .onChange(of: isCameraCoverActive) { _, active in
-            if active { scene.suspendForARCamera() }
-            else { scene.setVisible(isOnScreen && scenePhase == .active) }
+        .onAppear { isOnScreen = true; updateMapVisibility() }
+        .onDisappear { isOnScreen = false; scene.suspendRendering() }
+        .onChange(of: scenePhase) { _, _ in updateMapVisibility() }
+        .onChange(of: isCameraCoverActive) { _, _ in updateMapVisibility() }
+    }
+
+    private func updateMapVisibility() {
+        if !isOnScreen || isCameraCoverActive || scenePhase == .background {
+            scene.suspendRendering()
+        } else {
+            scene.setVisible(scenePhase == .active)
         }
     }
 

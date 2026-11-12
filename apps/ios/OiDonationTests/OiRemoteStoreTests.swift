@@ -110,6 +110,10 @@ final class OiTestBackend {
         var refreshRequestCount = 0
         var grantOwnerQueries: [String] = []
         var retiredEvidenceRequests: [String] = []
+        var catalogReads = 0
+        var boundedMetricsStatus = 200
+        var boundedMetricsIDs: [[String]] = []
+        var legacyMetricsReads = 0
     }
     private var state = State()
 
@@ -347,7 +351,18 @@ final class OiTestBackend {
                 "school_admission_year":owner == Self.owner && state.schoolID == state.schoolMetadataSchoolID ? state.schoolAdmissionYear as Any? ?? NSNull() : NSNull(),
                 "school_department":owner == Self.owner && state.schoolID == state.schoolMetadataSchoolID ? state.schoolDepartment as Any? ?? NSNull() : NSNull()]
         }
-        else if path.hasSuffix("/rpc/oi_collection_metrics") { result = [] }
+        else if path.hasSuffix("/rpc/oi_collection_metrics_for_stories") {
+            let ids = body["p_story_ids"] as? [String] ?? []
+            state.boundedMetricsIDs.append(ids)
+            status = state.boundedMetricsStatus
+            result = ids.map { ["story_id": $0, "collection_count": 3] }
+        }
+        else if path.hasSuffix("/rpc/oi_collection_metrics") {
+            state.legacyMetricsReads += 1
+            if let id = state.story?["id"] as? String, state.story?["status"] as? String == "published" {
+                result = [["story_id": id, "collection_count": 3]]
+            }
+        }
         else if path.hasSuffix("/oi_stories") {
             if state.failReads { status = 503 }
             else if let story = state.story, state.isOperator || story["user_id"] as? String == owner.uuidString {
@@ -360,6 +375,7 @@ final class OiTestBackend {
                 if matchesID && matchesState { result = [story] }
             }
         } else if path.hasSuffix("/oi_schools") {
+            state.catalogReads += 1
             result = [["id":"postech","name":"POSTECH"]] + (state.includesSecondSchool ? [["id":"other","name":"Other School"]] : [])
         }
         else if path.hasSuffix("/oi_regions") { result = [["id":"pond","school_id":"postech","name":"Pond"]] }
@@ -454,6 +470,69 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertTrue(store.hasLoadedRemote)
         XCTAssertTrue(store.canStartStory)
         XCTAssertTrue(backend.snapshot().retiredEvidenceRequests.isEmpty)
+    }
+
+    @MainActor func testPollingReusesCatalogWithoutRepublishingUnchangedData() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let firstRevision = store.revision
+        let firstCatalogReads = backend.snapshot().catalogReads
+
+        await store.refresh(reuseCatalog: true)
+        XCTAssertEqual(backend.snapshot().catalogReads, firstCatalogReads)
+        XCTAssertEqual(store.revision, firstRevision)
+
+        backend.configure { $0.includesSecondSchool = true }
+        await store.refresh()
+        XCTAssertEqual(backend.snapshot().catalogReads, firstCatalogReads + 1)
+        XCTAssertTrue(store.schools.contains { $0.id == "other" })
+        XCTAssertGreaterThan(store.revision, firstRevision)
+    }
+
+    @MainActor func testBoundedMetricsOnlyFallbackForMissingRPCAndStopReadingHiddenStories() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let saved = await store.save(draft())
+        let id = try XCTUnwrap(saved?.id)
+        XCTAssertTrue(backend.snapshot().boundedMetricsIDs.isEmpty)
+
+        backend.configure { $0.story?["status"] = "published"; $0.boundedMetricsStatus = 503 }
+        await store.refresh()
+        XCTAssertNil(store.loadError)
+        XCTAssertNotNil(store.syncWarning)
+        XCTAssertEqual(store.stories.map(\.id), [id])
+        XCTAssertEqual(backend.snapshot().legacyMetricsReads, 0)
+
+        backend.configure { $0.boundedMetricsStatus = 200 }
+        await store.refresh()
+        XCTAssertNil(store.loadError)
+        XCTAssertNil(store.syncWarning)
+        XCTAssertEqual(store.collectionCounts[id], 3)
+        XCTAssertEqual(backend.snapshot().boundedMetricsIDs.last, [id.uuidString])
+
+        backend.configure { $0.boundedMetricsStatus = 404 }
+        await store.refresh()
+        XCTAssertNil(store.loadError)
+        XCTAssertEqual(store.collectionCounts[id], 3)
+        XCTAssertEqual(backend.snapshot().legacyMetricsReads, 1)
+
+        backend.configure { $0.story?["status"] = "hidden" }
+        await store.refresh(reuseCatalog: true)
+        XCTAssertTrue(store.stories.isEmpty)
+        XCTAssertTrue(store.collectionCounts.isEmpty)
+        XCTAssertEqual(backend.snapshot().legacyMetricsReads, 1)
+    }
+
+    @MainActor func testBoundedMetricsPagesAtMostTwoHundredIDs() async throws {
+        let (_, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let ids = (1...201).map { _ in UUID() }
+        let metrics = try await api.collectionMetrics(for: ids, token: nil)
+        XCTAssertEqual(metrics.map(\.storyId), ids)
+        XCTAssertEqual(backend.snapshot().boundedMetricsIDs.map(\.count), [200, 1])
     }
 
     @MainActor func testConfirmedDeletionPurgesOnlyDeletedAccountLocalDrafts() async throws {

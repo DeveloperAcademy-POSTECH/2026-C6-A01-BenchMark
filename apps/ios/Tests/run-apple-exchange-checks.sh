@@ -8,8 +8,11 @@ cleanup() {
 }
 trap cleanup EXIT
 xcrun swiftc -swift-version 5 -parse-as-library -module-cache-path "$CHECK_DIR/module-cache" \
+  "$IOS_ROOT/OiDonation/Domain/Models/StoryCard.swift" \
   "$IOS_ROOT/OiDonation/Data/Networking/APIClient.swift" \
   "$IOS_ROOT/OiDonation/Data/Networking/OiServiceModels.swift" \
+  "$IOS_ROOT/OiDonation/Features/Operator/OiOperatorStoriesModel.swift" \
+  "$IOS_ROOT/OiDonation/Features/Operator/OiOperatorAuditModel.swift" \
   "$IOS_ROOT/OiDonation/Data/Networking/OiServiceAPI.swift" \
   "$IOS_ROOT/Tests/OiAppleExchangeChecks.swift" -o "$CHECK_DIR/checks"
 "$CHECK_DIR/checks"
