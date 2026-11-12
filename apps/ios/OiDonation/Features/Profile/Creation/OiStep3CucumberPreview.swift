@@ -11,13 +11,14 @@ import UIKit
 
 struct OiStep3CucumberPreview: View {
     let appearance: OiSeedCucumberAppearance
+    var wearsWhiteTshirt = false
     var isActive = true
 
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         if isActive && scenePhase != .background {
-            OiStep3CucumberStage(appearance: appearance)
+            OiStep3CucumberStage(appearance: appearance, wearsWhiteTshirt: wearsWhiteTshirt)
         } else {
             OiSeedCucumberFrontArtwork(appearance: appearance)
         }
@@ -26,10 +27,21 @@ struct OiStep3CucumberPreview: View {
 
 private enum OiStep3CucumberPresentation: Equatable {
     case front, waitingForRotation, rotating, failed
+    case waitingForWhiteTshirt(shows3D: Bool)
+    case whiteTshirtFailed(shows3D: Bool)
+
+    var shows3D: Bool {
+        switch self {
+        case .rotating: true
+        case let .waitingForWhiteTshirt(shows3D), let .whiteTshirtFailed(shows3D): shows3D
+        case .front, .waitingForRotation, .failed: false
+        }
+    }
 }
 
 private struct OiStep3CucumberStage: View {
     let appearance: OiSeedCucumberAppearance
+    let wearsWhiteTshirt: Bool
 
     @State private var presentation: (appearance: OiSeedCucumberAppearance, value: OiStep3CucumberPresentation)?
     @State private var retry = 0
@@ -41,10 +53,10 @@ private struct OiStep3CucumberStage: View {
 
     var body: some View {
         ZStack {
-            OiStep3CucumberSurface(appearance: appearance, retry: retry) { value in
+            OiStep3CucumberSurface(appearance: appearance, wearsWhiteTshirt: wearsWhiteTshirt, retry: retry) { value in
                 presentation = (appearance, value)
             }
-            if currentPresentation != .rotating {
+            if !currentPresentation.shows3D {
                 // A mounted surface can load and draw behind the front illustration.
                 // The same gesture target remains under the finger across the handoff.
                 OiSeedCucumberFrontArtwork(appearance: appearance)
@@ -57,27 +69,37 @@ private struct OiStep3CucumberStage: View {
         .overlay(alignment: .top) {
             switch currentPresentation {
             case .waitingForRotation:
-                ProgressView().accessibilityLabel("3D 미리보기 준비 중")
-                    .padding(8)
-                    .background(.regularMaterial, in: Capsule())
-                    .allowsHitTesting(false)
+                progress("3D 미리보기 준비 중")
+            case .waitingForWhiteTshirt:
+                progress("흰 반팔 티 준비 중")
             case .failed:
-                Button("3D 미리보기 다시 시도") {
-                    presentation = (appearance, .front)
-                    retry += 1
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .accessibilityIdentifier("oi.step3.cucumber.retry")
+                retryButton("3D 미리보기 다시 시도")
+            case .whiteTshirtFailed:
+                retryButton("흰 반팔 티 다시 시도")
             case .front, .rotating:
                 EmptyView()
             }
         }
     }
+
+    private func progress(_ label: String) -> some View {
+        ProgressView().accessibilityLabel(label)
+            .padding(8)
+            .background(.regularMaterial, in: Capsule())
+            .allowsHitTesting(false)
+    }
+
+    private func retryButton(_ title: String) -> some View {
+        Button(title) { retry += 1 }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .accessibilityIdentifier("oi.step3.cucumber.retry")
+    }
 }
 
 private struct OiStep3CucumberSurface: UIViewRepresentable {
     let appearance: OiSeedCucumberAppearance
+    let wearsWhiteTshirt: Bool
     let retry: Int
     let onPresentationChange: (OiStep3CucumberPresentation) -> Void
 
@@ -94,7 +116,8 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
     func updateUIView(_ host: OiStep3CucumberRenderHost, context: Context) {
         let traits = UITraitCollection(userInterfaceStyle: colorScheme == .dark ? .dark : .light)
         host.renderer.environment.background = .color(UIColor.systemBackground.resolvedColor(with: traits))
-        context.coordinator.update(appearance: appearance, retry: retry, onPresentationChange: onPresentationChange)
+        context.coordinator.update(appearance: appearance, wearsWhiteTshirt: wearsWhiteTshirt, retry: retry,
+                                   onPresentationChange: onPresentationChange)
     }
 
     static func dismantleUIView(_ host: OiStep3CucumberRenderHost, coordinator: Coordinator) {
@@ -106,11 +129,17 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
         private struct Request: Sendable {
             let id = UUID()
             let appearance: OiSeedCucumberAppearance
-            let retry: Int
         }
 
         private enum LoadState: Equatable {
             case loading, awaitingFrame, warming, ready, failed
+        }
+
+        private enum WhiteTshirtLoadState {
+            case idle
+            case loading(UUID, Task<Void, Never>)
+            case ready(Entity)
+            case failed
         }
 
         private weak var host: OiStep3CucumberRenderHost?
@@ -125,6 +154,15 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
         private var orbitFrame: (center: SIMD3<Float>, distance: Float)?
         private var yaw: Float = 0
         private var wantsRotation = false
+        private var shows3D = false
+        private var lastRetry = 0
+        private var model: Entity?
+        private var wearsWhiteTshirt = false
+        private var whiteTshirtLoadState = WhiteTshirtLoadState.idle
+        private var mountedWhiteTshirt: Entity?
+        private var frameRevision = 0
+        private var lastPresentation: OiStep3CucumberPresentation?
+        private var presentationTask: Task<Void, Never>?
 
         func install(in host: OiStep3CucumberRenderHost) {
             self.host = host
@@ -151,16 +189,37 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
             renderer.addGestureRecognizer(pan)
         }
 
-        func update(appearance: OiSeedCucumberAppearance, retry: Int,
+        func update(appearance: OiSeedCucumberAppearance, wearsWhiteTshirt: Bool, retry: Int,
                     onPresentationChange: @escaping (OiStep3CucumberPresentation) -> Void) {
             self.onPresentationChange = onPresentationChange
-            if let request, request.appearance == appearance, request.retry == retry { return }
-            let next = Request(appearance: appearance, retry: retry)
+            let retryRequested = retry != lastRetry
+            let selectionChanged = self.wearsWhiteTshirt != wearsWhiteTshirt
+            lastRetry = retry
+            self.wearsWhiteTshirt = wearsWhiteTshirt
+
+            if request?.appearance != appearance || (retryRequested && loadState == .failed) {
+                startModelLoad(appearance)
+            }
+            switch whiteTshirtLoadState {
+            case .idle:
+                startWhiteTshirtLoad()
+            case .failed where retryRequested || (selectionChanged && wearsWhiteTshirt):
+                startWhiteTshirtLoad()
+            default:
+                break
+            }
+            if selectionChanged { updateMountedWhiteTshirt() }
+            if selectionChanged || retryRequested || lastPresentation == nil { schedulePresentation() }
+        }
+
+        private func startModelLoad(_ appearance: OiSeedCucumberAppearance) {
+            let next = Request(appearance: appearance)
             request = next
             loadState = .loading
             yaw = 0
             wantsRotation = false
-            host?.renderer.accessibilityValue = "정면 이미지"
+            shows3D = false
+            lastPresentation = nil
             loadTask?.cancel()
             clearScene()
             loadTask = Task { @MainActor [weak self] in
@@ -176,11 +235,62 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
             }
         }
 
+        private func startWhiteTshirtLoad() {
+            let id = UUID()
+            let task = Task { @MainActor [weak self] in
+                do {
+                    let shirt = try await OiSeedCucumberModel.loadWhiteTshirt()
+                    try Task.checkCancellation()
+                    self?.whiteTshirtLoaded(shirt, id: id)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    self?.whiteTshirtLoaded(nil, id: id)
+                }
+            }
+            whiteTshirtLoadState = .loading(id, task)
+        }
+
+        private func whiteTshirtLoaded(_ shirt: Entity?, id: UUID) {
+            guard case let .loading(currentID, _) = whiteTshirtLoadState, currentID == id else { return }
+            whiteTshirtLoadState = shirt.map { .ready($0) } ?? .failed
+            updateMountedWhiteTshirt()
+            publishPresentation()
+        }
+
+        private func updateMountedWhiteTshirt() {
+            guard let model else { return }
+            let selected: Entity?
+            if wearsWhiteTshirt, case let .ready(shirt) = whiteTshirtLoadState {
+                selected = shirt
+            } else {
+                selected = nil
+            }
+            guard mountedWhiteTshirt !== selected else { return }
+            do {
+                try OiSeedCucumberModel.setWhiteTshirt(selected, on: model)
+                mountedWhiteTshirt = selected
+                frameRevision += 1
+                // Keep the original scene and angle. The front cover only lifts after
+                // the selected garment has had a chance to render on that scene.
+                if !shows3D, loadState == .ready {
+                    loadState = .awaitingFrame
+                    layoutChanged()
+                }
+            } catch {
+                whiteTshirtLoadState = .failed
+            }
+        }
+
         func uninstall(from host: OiStep3CucumberRenderHost) {
             guard self.host === host else { return }
             request = nil
             loadTask?.cancel()
             loadTask = nil
+            if case let .loading(_, task) = whiteTshirtLoadState { task.cancel() }
+            whiteTshirtLoadState = .idle
+            presentationTask?.cancel()
+            presentationTask = nil
             onPresentationChange = nil
             host.didLayout = nil
             host.renderer.removeGestureRecognizer(pan)
@@ -204,8 +314,10 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
             camera.camera.near = 0.01
             anchor.addChild(camera)
             anchor.addChild(model)
+            self.model = model
             OiSeedCucumberRenderSetup.addLights(to: anchor, lookingAt: bounds.center)
             loadState = .awaitingFrame
+            updateMountedWhiteTshirt()
             layoutChanged()
         }
 
@@ -213,22 +325,28 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
             guard let host, let request, fitCamera(to: host.bounds.size) else { return }
             guard host.window != nil, loadState == .awaitingFrame else { return }
             loadState = .warming
+            let revision = frameRevision
             // Confirm that the attached renderer can produce a frame before removing
             // the artwork. This warms the same model and renderer used for rotation.
             host.renderer.snapshot(saveToHDR: false) { [weak self] image in
                 let rendered = image != nil
-                Task { @MainActor in self?.didWarmFrame(rendered, request: request) }
+                Task { @MainActor in self?.didWarmFrame(rendered, request: request, revision: revision) }
             }
         }
 
-        private func didWarmFrame(_ rendered: Bool, request: Request) {
+        private func didWarmFrame(_ rendered: Bool, request: Request, revision: Int) {
             guard request.id == self.request?.id, loadState == .warming else { return }
+            if revision != frameRevision {
+                loadState = .awaitingFrame
+                layoutChanged()
+                return
+            }
             guard rendered else {
                 fail(request: request)
                 return
             }
             loadState = .ready
-            if wantsRotation { reveal() }
+            publishPresentation()
         }
 
         private func fail(request: Request) {
@@ -236,10 +354,13 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
             loadTask = nil
             loadState = .failed
             clearScene()
-            onPresentationChange?(.failed)
+            publishPresentation()
         }
 
         private func clearScene() {
+            mountedWhiteTshirt?.removeFromParent()
+            mountedWhiteTshirt = nil
+            model = nil
             depthCenter = nil
             orbitFrame = nil
             for child in Array(anchor.children) { child.removeFromParent() }
@@ -292,17 +413,39 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
             updateOrbit()
             guard !wantsRotation else { return true }
             wantsRotation = true
-            if loadState == .ready {
-                reveal()
-            } else {
-                onPresentationChange?(.waitingForRotation)
-            }
+            publishPresentation()
             return true
         }
 
-        private func reveal() {
-            host?.renderer.accessibilityValue = "3D 미리보기"
-            onPresentationChange?(.rotating)
+        private func schedulePresentation() {
+            guard presentationTask == nil else { return }
+            // UIViewRepresentable updates cannot synchronously write SwiftUI state.
+            presentationTask = Task { @MainActor [weak self] in
+                guard let self, !Task.isCancelled else { return }
+                presentationTask = nil
+                publishPresentation()
+            }
+        }
+
+        private func publishPresentation() {
+            guard let host else { return }
+            if loadState == .ready, wantsRotation || mountedWhiteTshirt != nil { shows3D = true }
+            let presentation: OiStep3CucumberPresentation
+            if loadState == .failed {
+                presentation = .failed
+            } else if wearsWhiteTshirt, case .failed = whiteTshirtLoadState {
+                presentation = .whiteTshirtFailed(shows3D: shows3D)
+            } else if wearsWhiteTshirt && (mountedWhiteTshirt == nil || !shows3D) {
+                presentation = .waitingForWhiteTshirt(shows3D: shows3D)
+            } else if shows3D {
+                presentation = .rotating
+            } else {
+                presentation = wantsRotation ? .waitingForRotation : .front
+            }
+            guard presentation != lastPresentation else { return }
+            lastPresentation = presentation
+            host.renderer.accessibilityValue = presentation.shows3D ? "3D 미리보기" : "정면 이미지"
+            onPresentationChange?(presentation)
         }
     }
 }

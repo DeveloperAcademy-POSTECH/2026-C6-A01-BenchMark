@@ -25,6 +25,7 @@ struct OiCucumberCustomizationStep: View {
     @State private var showsFaceEditor = false
     private var allowsWardrobeEditing: Bool { previewMode == .wardrobe }
     private var seedAppearance: OiSeedCucumberAppearance { customization.seedAppearance ?? .init() }
+    private var wearsWhiteTshirt: Bool { customization.seedWhiteTshirt == true }
     private var look: OiWardrobeLook { customization.wardrobe ?? OiWardrobeLook() }
 
     var body: some View {
@@ -92,7 +93,8 @@ struct OiCucumberCustomizationStep: View {
             } else if allowsWardrobeEditing {
                 Color.clear.frame(height: height)
             } else {
-                OiStep3CucumberPreview(appearance: seedAppearance, isActive: !showsFaceEditor)
+                OiStep3CucumberPreview(appearance: seedAppearance, wearsWhiteTshirt: wearsWhiteTshirt,
+                                      isActive: !showsFaceEditor)
                     .frame(height: height)
             }
             if photoSlot == nil {
@@ -200,8 +202,14 @@ struct OiCucumberCustomizationStep: View {
                 EmptyView()
             case .top:
                 ForEach(OiWardrobeLook.Top.allCases, id: \.self) { top in
-                    item(top.title, image: "oi-thumb-\(top.rawValue)", selected: look.costume == nil && look.top == top, id: top.rawValue) {
-                        change { $0.top = top; $0.costume = nil }
+                    let seedSelection = !allowsWardrobeEditing && top == .tshirt ? wearsWhiteTshirt : nil
+                    item(top.title, image: "oi-thumb-\(top.rawValue)", selected: look.costume == nil && look.top == top,
+                         id: top.rawValue, seedSelection: seedSelection) {
+                        if seedSelection != nil {
+                            customization.seedWhiteTshirt = wearsWhiteTshirt ? nil : true
+                        } else {
+                            change { $0.top = top; $0.costume = nil }
+                        }
                     }
                 }
             case .bottom:
@@ -231,8 +239,9 @@ struct OiCucumberCustomizationStep: View {
         }
     }
 
-    @ViewBuilder private func item(_ title: String, image: String, selected: Bool, id: String, action: @escaping () -> Void) -> some View {
-        let isSelected = allowsWardrobeEditing && selected
+    @ViewBuilder private func item(_ title: String, image: String, selected: Bool, id: String,
+                                   seedSelection: Bool? = nil, action: @escaping () -> Void) -> some View {
+        let isSelected = seedSelection ?? (allowsWardrobeEditing && selected)
         let tile = VStack(spacing: 5) {
             if let url = Bundle.main.url(forResource: image, withExtension: "png") ?? Bundle.main.url(forResource: image, withExtension: "jpg"), let thumbnail = UIImage(contentsOfFile: url.path) {
                 Image(uiImage: thumbnail).resizable().scaledToFit().frame(height: 68)
@@ -246,11 +255,12 @@ struct OiCucumberCustomizationStep: View {
             .overlay(alignment: .topTrailing) {
                 if isSelected { Image(systemName: "checkmark.circle.fill").font(.caption).foregroundStyle(Color("OiGreen")).padding(5).accessibilityHidden(true) }
             }
-        if allowsWardrobeEditing {
+        if allowsWardrobeEditing || seedSelection != nil {
             Button(action: action) { tile }
                 .buttonStyle(.plain).foregroundStyle(Color("OiDark"))
                 .accessibilityIdentifier("oi.wardrobe.item.\(id)")
                 .accessibilityLabel(title).accessibilityAddTraits(isSelected ? .isSelected : [])
+                .accessibilityHint(seedSelection.map { $0 ? "누르면 흰 반팔 티를 벗어요" : "흰 반팔 티를 입혀요" } ?? "")
         } else {
             tile.foregroundStyle(Color("OiDark"))
                 .accessibilityElement(children: .ignore)

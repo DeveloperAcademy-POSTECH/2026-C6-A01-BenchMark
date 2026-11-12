@@ -11,6 +11,8 @@ import RealityKit
 import simd
 
 @MainActor enum OiSeedCucumberModel {
+    static let whiteTshirtEntityName = "SeedCucumberWhiteTshirt"
+    private static let bodyTransformName = "SeedCucumberBodyTransform"
     private static let metresPerPixel: Float = 0.001
     private static let pivot = OiSeedCucumberAppearance.bodyPivot
     private static let faceParts: [(String, OiSeedCucumberLayer)] = [
@@ -30,6 +32,7 @@ import simd
         let root = Entity()
         root.name = "SeedCucumber"
         let sized = Entity()
+        sized.name = bodyTransformName
         root.addChild(sized)
         sized.addChild(asset)
 
@@ -85,6 +88,29 @@ import simd
         sized.position.y = -floor
         try Task.checkCancellation()
         return root
+    }
+
+    static func loadWhiteTshirt() async throws -> Entity {
+        let shirt = try await Entity(contentsOf: resource(whiteTshirtEntityName, suffix: "usdz"))
+        try Task.checkCancellation()
+        let bounds = shirt.visualBounds(relativeTo: nil)
+        guard bounds.extents.x.isFinite, bounds.extents.y.isFinite, bounds.extents.z.isFinite,
+              bounds.extents.x > 0, bounds.extents.y > 0, bounds.extents.z > 0 else {
+            throw AssetError.invalidMesh(whiteTshirtEntityName)
+        }
+        shirt.name = whiteTshirtEntityName
+        return shirt
+    }
+
+    static func setWhiteTshirt(_ shirt: Entity?, on model: Entity) throws {
+        guard let body = model.findEntity(named: bodyTransformName) else {
+            throw AssetError.missingPart(bodyTransformName)
+        }
+        let mounted = body.children.first { $0.name == whiteTshirtEntityName }
+        guard mounted !== shirt else { return }
+        mounted?.removeFromParent()
+        // The garment is authored in the neutral body's coordinates and inherits its size and ground offset.
+        if let shirt { body.addChild(shirt) }
     }
 
     private static func resource(_ name: String, suffix: String) throws -> URL {
