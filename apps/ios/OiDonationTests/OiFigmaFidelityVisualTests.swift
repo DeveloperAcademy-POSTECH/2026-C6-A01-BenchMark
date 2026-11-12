@@ -526,11 +526,17 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         let variant = try XCTUnwrap(variants.first { $0.name == "402x874" })
-        for (name, appearance) in [("default", OiSeedCucumberAppearance()), ("edited", editedSeedCucumber3DAppearance())] {
-            let screen = OiSeedCucumber3DPreview(appearance: appearance)
+        let original = OiSeedCucumberAppearance()
+        let poses: [(name: String, appearance: OiSeedCucumberAppearance, yaw: Float)] = [
+            ("default", original, 0),
+            ("rear", original, .pi),
+            ("edited", editedSeedCucumber3DAppearance(), 0)
+        ]
+        for pose in poses {
+            let screen = OiSeedCucumber3DPreview(appearance: pose.appearance)
                 .environment(\.scenePhase, .active)
-            try await capture(screen, name: "seed-cucumber-3d-\(name)", variant: variant, defaults: fixture.defaults,
-                              delay: .seconds(1), attach: true, snapshotRealityKit: true)
+            try await capture(screen, name: "seed-cucumber-3d-\(pose.name)", variant: variant, defaults: fixture.defaults,
+                              delay: .seconds(1), attach: true, cucumberCameraYaw: pose.yaw)
         }
     }
 
@@ -1543,7 +1549,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     private func capture<V: View>(_ view: V, name: String, variant: Variant, defaults: UserDefaults,
                                  includesSafeArea: Bool = true,
                                  delay: Duration = .milliseconds(180), attach: Bool = false,
-                                 checksBottomSheet: Bool = false, snapshotRealityKit: Bool = false) async throws -> Data {
+                                 checksBottomSheet: Bool = false, cucumberCameraYaw: Float? = nil) async throws -> Data {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first, "The isolated simulator test host must have a window scene")
@@ -1599,7 +1605,12 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             XCTAssertEqual(frame.maxY, bounds.maxY, accuracy: 1)
         }
         let renderView: UIView = checksBottomSheet ? window : host.view
-        let realitySnapshot = snapshotRealityKit ? try await captureCucumberSurface(in: renderView) : nil
+        let realitySnapshot: (image: UIImage, frame: CGRect)?
+        if let cucumberCameraYaw {
+            realitySnapshot = try await captureCucumberSurface(in: renderView, yaw: cucumberCameraYaw)
+        } else {
+            realitySnapshot = nil
+        }
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
@@ -1630,13 +1641,27 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         return png
     }
 
-    private func captureCucumberSurface(in view: UIView) async throws -> (image: UIImage, frame: CGRect) {
+    private func captureCucumberSurface(in view: UIView, yaw: Float) async throws -> (image: UIImage, frame: CGRect) {
         var surface = cucumberSurface(in: view)
         for _ in 0..<15 where surface == nil {
             try await Task.sleep(for: .milliseconds(100))
             surface = cucumberSurface(in: view)
         }
         let renderer = try XCTUnwrap(surface, "The real preview must install its RealityKit surface")
+        if yaw != 0 {
+            let cameras = renderer.scene.anchors.flatMap { anchor in
+                anchor.children.compactMap { $0 as? PerspectiveCamera }
+            }
+            let camera = try XCTUnwrap(cameras.first)
+            let model = try XCTUnwrap(renderer.scene.findEntity(named: "SeedCucumber"))
+            let bounds = model.visualBounds(relativeTo: nil)
+            var pose = OiSeedCucumber3DCamera()
+            pose.orbit(yaw: yaw, pitch: 0)
+            let position = pose.position(center: bounds.center, radius: simd_length(bounds.extents) / 2,
+                                         viewport: renderer.bounds.size)
+            camera.look(at: bounds.center, from: position, relativeTo: nil)
+            try await Task.sleep(for: .milliseconds(100))
+        }
         // UIKit's view snapshot omits the Metal surface.
         let snapshot: UIImage? = await withCheckedContinuation { continuation in
             renderer.snapshot(saveToHDR: false) { continuation.resume(returning: $0) }
