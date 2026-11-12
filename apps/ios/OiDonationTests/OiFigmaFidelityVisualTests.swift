@@ -348,6 +348,78 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         shot.name = "figma-rose-background"; shot.lifetime = .keepAlways; add(shot)
     }
 
+    func testPostcardAutomaticCharacterBackdrop() throws {
+        let clearPortrait = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { _ in }
+        var customization = Self.customization
+        customization.showsCharacter = true
+        customization.card = OiCardDesign()
+        customization.card?.postcardDate = Date(timeIntervalSince1970: 1_799_779_200)
+        func render(_ value: OiDraftCustomization, back: Bool = false) throws -> UIImage {
+            let renderer = ImageRenderer(content: OiDraftCardPreview(draft: Self.draft,
+                customization: value, portrait: clearPortrait, showingBack: back).frame(width: 362, height: 502))
+            renderer.scale = 1
+            return try XCTUnwrap(renderer.uiImage)
+        }
+        func interior(_ image: UIImage) throws -> UInt32 {
+            try XCTUnwrap(OiPostcardSnapshot.color(image, x: 50.0 / 362, y: 180.0 / 502))
+        }
+        customization.card?.postcardBackground = .init(color: 0xEECFDF, fill: .solid)
+        let front = try render(customization)
+        XCTAssertEqual(try interior(front), 0x835C6E, "The portrait window must match the Figma rose backdrop")
+        XCTAssertEqual(OiPostcardSnapshot.color(front, x: 18.0 / 362, y: 180.0 / 502), 0xEECFDF,
+                       "The automatic portrait backdrop must not recolor the paper border")
+        let backBefore = try render(customization, back: true).pngData()
+        customization.showsCharacter = false
+        XCTAssertEqual(try interior(render(customization)), 0xEECFDF, "Photo-only cards keep the selected paper background")
+        XCTAssertEqual(try render(customization, back: true).pngData(), backBefore,
+                       "Showing a cucumber must not change the story side")
+        customization.showsCharacter = true
+        customization.card?.postcardBackground?.fill = .gradient
+        XCTAssertEqual(try interior(render(customization)), 0x835C6E,
+                       "The portrait window stays a distinct solid color over gradient paper")
+        customization.card?.characterPlacement = .init(x: 0.8, y: 0.2, scale: 1.7)
+        XCTAssertEqual(try interior(render(customization)), 0x835C6E,
+                       "The background window must not move or resize with the cucumber")
+
+        customization.card?.characterPlacement = OiCardPlacement()
+        customization.card?.postcardBackground = .init(color: 0xE8EECF, fill: .solid)
+        let green = try interior(render(customization))
+        XCTAssertNotEqual(green, 0x835C6E, "Changing the selected paper must update the companion color")
+        XCTAssertGreaterThan((green >> 8) & 255, green & 255, "Green paper must produce a green companion")
+        for color in [0x000000, 0xFFFFFF, 0x1C3040, 0x86AED0] as [UInt32] {
+            customization.card?.postcardBackground?.color = color
+            XCTAssertNotEqual(try interior(render(customization)), color, "Custom RGB colors need a distinct image window")
+        }
+        let darkGray = OiPostcardCharacterBackdrop.color(for: 0x575757)
+        let nearbyGray = OiPostcardCharacterBackdrop.color(for: 0x5C5C5C)
+        XCTAssertLessThan(abs(Int(darkGray & 255) - Int(nearbyGray & 255)), 10,
+                          "Nearby RGB choices must not cause a sudden backdrop brightness jump")
+        let publication = try OiDraftCardPreview(draft: Self.draft, customization: customization,
+            portrait: clearPortrait).publication(colorScheme: .light)
+        let published = try XCTUnwrap(UIImage(data: publication.png))
+        XCTAssertEqual(published.cgImage?.width, 724)
+        XCTAssertEqual(published.cgImage?.height, 1004)
+        OiPostcardBackgroundMetadata.remember(png: publication.png, image: published)
+        XCTAssertEqual(OiPostcardBackgroundMetadata.style(for: published), customization.card?.postcardBackground)
+
+        let portrait = try XCTUnwrap(UIImage(named: "OiCatsPortrait"))
+        let sheet = VStack(spacing: 20) {
+            ForEach([[0xEECFDF, 0xE8EECF, 0xB6D8E8], [0xEAE4D2, 0xFFFFFF, 0x1C3040]] as [[UInt32]], id: \.self) { row in
+                HStack(spacing: 20) {
+                    ForEach(row, id: \.self) { color in
+                        var style = customization
+                        let _ = style.card?.postcardBackground = .init(color: color)
+                        OiDraftCardPreview(draft: Self.draft, customization: style, portrait: portrait)
+                            .frame(width: 362, height: 502)
+                    }
+                }
+            }
+        }.padding(20).background(.black)
+        let renderer = ImageRenderer(content: sheet); renderer.scale = 1
+        let shot = XCTAttachment(data: try XCTUnwrap(renderer.uiImage?.pngData()), uniformTypeIdentifier: "public.png")
+        shot.name = "postcard-automatic-character-backgrounds"; shot.lifetime = .keepAlways; add(shot)
+    }
+
     func testPostcardBundledTypography() throws {
         OiPostcardTypography.registerFonts()
         let handwriting = try XCTUnwrap(UIFont(name: OiPostcardTypography.handwritingName, size: 17),

@@ -105,6 +105,22 @@ enum OiPostcardInk {
     }
 }
 
+/// A deterministic companion color for the 296 × 436 portrait window.
+/// No extra photo, network generation or saved draft field is needed.
+enum OiPostcardCharacterBackdrop {
+    static func color(for paper: UInt32) -> UInt32 {
+        // Exact paper/backdrop pairing from Figma 5400:6786 and 5400:6871.
+        if paper == 0xEECFDF { return 0x835C6E }
+        var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
+        UIColor(Color(oiRGB: paper)).getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+        // Preserve the chosen hue and enrich pale tones. A minimum brightness
+        // keeps near-black paper usable without jumps while dragging the color picker.
+        let depth = max(0.16, brightness * 0.55)
+        let chroma = min(1, max(saturation, min(0.30, saturation * 2.3)))
+        return Color(UIColor(hue: hue, saturation: chroma, brightness: depth, alpha: 1)).oiRGB
+    }
+}
+
 /// Only a horizontal gesture flips; vertical drags remain available for reading.
 enum OiPostcardFlip {
     static func accepts(_ translation: CGSize) -> Bool {

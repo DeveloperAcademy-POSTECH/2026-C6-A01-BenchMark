@@ -262,6 +262,10 @@ struct OiCardCustomizationStep: View {
             }.pickerStyle(.segmented).accessibilityIdentifier("oi.postcard.background.effect")
             Text("배경색 하나로 엽서 앞·뒷면을 함께 꾸며요. 그라데이션은 은은한 밝고 어두운 톤을 자동으로 더해요.")
                 .font(CampusStyle.body(12)).foregroundStyle(.secondary)
+            if customization.showsCharacter {
+                Text("오이 뒤에는 선택한 배경에 어울리는 짙은 색이 자동으로 들어가요.")
+                    .font(CampusStyle.body(12)).foregroundStyle(.secondary)
+            }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 6), spacing: 12) {
                 ForEach(OiCardPalette.backgrounds) { item in
                     Button { updateBackground { $0.color = item.first } } label: {

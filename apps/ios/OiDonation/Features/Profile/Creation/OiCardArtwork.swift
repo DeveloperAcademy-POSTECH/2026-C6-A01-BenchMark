@@ -62,7 +62,10 @@ struct OiCardBackground: View {
             let photoTint = paper.photoMonochrome == true && paper.backgroundPhoto != nil
             ZStack {
                 Group {
-                    if let style = paper.postcardBackground {
+                    if customization.showsCharacter, let style = paper.postcardBackground {
+                        // Figma 5400:6871: the portrait window has its own darker color.
+                        Color(oiRGB: OiPostcardCharacterBackdrop.color(for: style.color))
+                    } else if let style = paper.postcardBackground {
                         // Crop the very same full-paper background into the artwork window.
                         OiPostcardBackground(style: style)
                             .frame(width: geometry.size.width * 362 / 296, height: geometry.size.height * 502 / 436)
