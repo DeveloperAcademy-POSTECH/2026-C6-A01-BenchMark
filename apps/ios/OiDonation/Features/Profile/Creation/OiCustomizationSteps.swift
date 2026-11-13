@@ -196,7 +196,7 @@ struct OiCardCustomizationStep: View {
             placement: customization.showsCharacter ? designBinding(\.characterPlacement) : designBinding(\.backgroundPlacement),
             frameHeight: height, compact: true, minimalChrome: true,
             backdropColor: customization.showsCharacter && design.usesCharacterBackdrop
-                ? OiPostcardCharacterBackdrop.color(for: style.paperColor) : nil,
+                ? OiPostcardCharacterBackdrop.color(for: design) : nil,
             look: customization.showsCharacter ? customization.wardrobe : nil,
             orientation: customization.showsCharacter && customization.wardrobe != nil ? $orientation : nil,
             portraitKey: portraitKey ?? "", onCapture: acceptPortrait, onInteractionEnded: saveOrientation)
@@ -297,15 +297,7 @@ struct OiCardCustomizationStep: View {
                 Text("스탠다드").tag(false)
                 Text("커스텀").tag(true)
             }.pickerStyle(.segmented).accessibilityIdentifier("oi.postcard.background.mode")
-            Toggle(isOn: Binding(get: { design.usesCharacterBackdrop }, set: { enabled in
-                change { $0.characterBackdropEnabled = enabled }
-            })) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("오이 뒤 배경 넣기").font(CampusStyle.medium(14))
-                    Text("앞면 오이에 어울리는 색을 자동으로 골라요.").font(CampusStyle.body(10)).foregroundStyle(.secondary)
-                }
-            }.disabled(!customization.showsCharacter || showingBack)
-                .accessibilityIdentifier("oi.card.character.backdrop.toggle")
+            characterBackdropControls
             if customBackground { customColors }
             else {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 16) {
@@ -325,6 +317,39 @@ struct OiCardCustomizationStep: View {
                 }
             }
         }.tint(Color("OiGreen"))
+    }
+    private var characterBackdropControls: some View {
+        let color = OiPostcardCharacterBackdrop.color(for: design)
+        let available = customization.showsCharacter && !showingBack
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Toggle(isOn: Binding(get: { design.usesCharacterBackdrop }, set: { enabled in
+                    change { $0.characterBackdropEnabled = enabled }
+                })) {
+                    Text("오이 뒤 배경 넣기").font(CampusStyle.medium(14))
+                }.disabled(!available)
+                    .accessibilityIdentifier("oi.card.character.backdrop.toggle")
+                OiPostcardColorRing(title: "오이 뒤 배경", color: Binding(
+                    get: { OiPostcardCharacterBackdrop.color(for: design) },
+                    set: { color in change { $0.characterBackdropColor = color } }), pickerHeight: 300,
+                    onReset: { change { $0.characterBackdropColor = nil } })
+                    .overlay { Circle().fill(Color(oiRGB: color)).frame(width: 18, height: 18).allowsHitTesting(false) }
+                    .disabled(!available || !design.usesCharacterBackdrop)
+                    .opacity(available && design.usesCharacterBackdrop ? 1 : 0.4)
+                    .accessibilityIdentifier("oi.card.character.backdrop.color")
+            }
+            HStack(spacing: 8) {
+                Text(design.characterBackdropColor == nil ? "종이색에 맞춘 자동 색상" : "직접 선택한 색상")
+                Text(String(format: "#%06X", color)).monospacedDigit()
+                Spacer(minLength: 0)
+                if design.characterBackdropColor != nil {
+                    Button("자동 색상") { change { $0.characterBackdropColor = nil } }
+                        .underline().frame(minHeight: 32)
+                        .disabled(!available || !design.usesCharacterBackdrop)
+                        .accessibilityIdentifier("oi.card.character.backdrop.automatic")
+                }
+            }.font(CampusStyle.body(11)).foregroundStyle(.secondary)
+        }
     }
     private var customColors: some View {
         GeometryReader { proxy in

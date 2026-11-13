@@ -354,6 +354,8 @@ struct OiCardDesign: Codable, Equatable {
     var postcardLogo: String? = nil
     /// Nil keeps legacy automatic backdrops and leaves new layouts transparent.
     var characterBackdropEnabled: Bool? = nil
+    /// Nil follows the paper's automatic companion color; an explicit RGB is kept when hidden.
+    var characterBackdropColor: UInt32? = nil
     var usesCharacterBackdrop: Bool {
         characterBackdropEnabled ?? (postcardLayoutVersion != 2 && postcardBackground != nil)
     }
