@@ -1,4 +1,7 @@
-"""Blender 4.5: export the supplied Meshy surface for web + native campus.
+"""Legacy Blender 4.5 exporter for the 2026-11-12 Meshy model.
+
+Retained to reproduce the earlier asset, not to generate the current building.
+Use export-education-geometry.mjs to import the reviewed reference-led web surface.
 
 blender --background --factory-startup SOURCE.blend --python THIS.py -- OUTPUT.bin
 The source .blend is read-only. No volume fill, reconstruction or mesh fitting.
