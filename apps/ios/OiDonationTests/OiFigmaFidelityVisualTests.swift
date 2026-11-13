@@ -300,8 +300,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let preview = OiDraftCardPreview(draft: Self.draft, customization: style, donorName: "테스트 농부")
         let publication = try preview.publication(colorScheme: .light)
         let image = try XCTUnwrap(UIImage(data: publication.png))
-        XCTAssertEqual(image.cgImage?.width, 724)
-        XCTAssertEqual(image.cgImage?.height, 1004)
+        XCTAssertEqual(image.cgImage?.width, 1086)
+        XCTAssertEqual(image.cgImage?.height, 1506)
         XCTAssertTrue(OiPostcardSnapshot.isPostcard(image), "The scalloped edge must stay transparent in the public PNG")
         XCTAssertNotNil(OiPostcardSnapshot.color(image, x: 0.05, y: 0.10))
         let opaque = UIGraphicsImageRenderer(size: CGSize(width: 362, height: 502)).image { c in
@@ -324,6 +324,65 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             let shot = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
             shot.name = back ? "postcard-back" : "postcard-front"; shot.lifetime = .keepAlways; add(shot)
         }
+    }
+
+    func testDuplexPostcardExportsBothSidesAndTracksBackChanges() throws {
+        var draft = Self.draft
+        var style = Self.customization
+        style.showsCharacter = false
+        style.card = OiCardDesign()
+        style.card?.postcardDate = Date(timeIntervalSince1970: 1_799_779_200)
+        let first = try OiDraftCardPreview(draft: draft, customization: style, donorName: "가상 작성자").publication(colorScheme: .light)
+        XCTAssertEqual(first.format, 2)
+        XCTAssertEqual(first.parts.count, 4)
+        for part in StoryCard.Part.allCases {
+            let image = try XCTUnwrap(UIImage(data: XCTUnwrap(first.parts[part])))
+            XCTAssertEqual(image.cgImage?.width, part == .front || part == .back ? 1086 : 724)
+            XCTAssertEqual(image.cgImage?.height, part == .front || part == .back ? 1506 : 1004)
+            XCTAssertTrue(OiPostcardSnapshot.isPostcard(image))
+            let attachment = XCTAttachment(data: try XCTUnwrap(first.parts[part]), uniformTypeIdentifier: "public.png")
+            attachment.name = "duplex-card-\(part.rawValue)"; attachment.lifetime = .keepAlways; add(attachment)
+        }
+        draft.body = "뒷면 이야기만 수정했습니다."
+        let second = try OiDraftCardPreview(draft: draft, customization: style, donorName: "가상 작성자").publication(colorScheme: .light)
+        XCTAssertEqual(first.png, second.png, "A back edit keeps the approved front intact")
+        XCTAssertNotEqual(first.id, second.id, "The version must include the back, not just the front")
+        XCTAssertNotEqual(first.parts[.back], second.parts[.back])
+        let images = try OiCardExportImages(second)
+        XCTAssertNotNil(images.back)
+        XCTAssertNil(try OiCardExportImages(OiStoryCardPublication(png: first.png)).back)
+        XCTAssertLessThan(try OiCardImageExport.fittingFontSize(String(repeating: "캠퍼스에서 함께한 추억을 기억합니다. ", count: 30)), 17)
+        XCTAssertThrowsError(try OiCardImageExport.fittingFontSize(String(repeating: "긴 이야기\n", count: 4000)))
+        var unfinished = OiDraftCustomization()
+        unfinished.wardrobe = OiWardrobeLook()
+        XCTAssertThrowsError(try OiDraftCardPreview(draft: draft, customization: unfinished).publication(colorScheme: .light),
+                             "A missing custom portrait must never export an unrelated fallback character")
+    }
+
+    func testDuplexCardExportAndAppClipCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var style = Self.customization
+        style.wardrobe = nil
+        let portrait = try XCTUnwrap(UIImage(named: "OiCatsPortrait"))
+        let publication = try OiDraftCardPreview(draft: Self.draft, customization: style,
+            donorName: "가상 작성자", portrait: portrait).publication(colorScheme: .light)
+        let front = directory.appendingPathComponent("front.png")
+        let back = directory.appendingPathComponent("back.png")
+        try publication.png.write(to: front)
+        try XCTUnwrap(publication.parts[.back]).write(to: back)
+        let story = Story(storyID: UUID().uuidString, donorID: UUID(), donorDisplayName: "가상 작성자",
+            title: "캠퍼스의 추억", content: Self.draft.body, publishedAt: Date(),
+            location: .init(locationID: "pond", displayName: "연못"), tags: [], cucumberID: "fixture", cucumberName: "가상 오이")
+        let card = StoryCard(cardID: "fixture", storyID: story.storyID, imageURL: front,
+            backImageURL: back, frontPreviewURL: front, backPreviewURL: back)
+        try await capture(OiCardExportSheet { try OiCardExportImages(publication) }, name: "duplex-export-sheet",
+            variant: variants[0], defaults: fixture.defaults, delay: .milliseconds(300), attach: true)
+        try await capture(AppClipCardPreview(card: card, story: story), name: "appclip-duplex-front",
+            variant: variants[0], defaults: fixture.defaults, delay: .milliseconds(300), attach: true)
     }
 
     func testUnifiedPostcardBackgroundAndMetadata() throws {
@@ -420,8 +479,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let publication = try OiDraftCardPreview(draft: Self.draft, customization: customization,
             portrait: clearPortrait).publication(colorScheme: .light)
         let published = try XCTUnwrap(UIImage(data: publication.png))
-        XCTAssertEqual(published.cgImage?.width, 724)
-        XCTAssertEqual(published.cgImage?.height, 1004)
+        XCTAssertEqual(published.cgImage?.width, 1086)
+        XCTAssertEqual(published.cgImage?.height, 1506)
         OiPostcardBackgroundMetadata.remember(png: publication.png, image: published)
         XCTAssertEqual(OiPostcardBackgroundMetadata.style(for: published), customization.card?.postcardBackground)
 

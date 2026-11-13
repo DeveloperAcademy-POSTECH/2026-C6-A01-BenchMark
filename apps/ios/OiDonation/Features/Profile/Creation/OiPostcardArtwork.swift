@@ -60,6 +60,7 @@ struct OiPostcardBack: View {
     let message: String
     let author: String
     var scrollable = false
+    var exportFontSize: CGFloat? = nil
     private var ink: Color { Color(oiRGB: OiPostcardInk.color(backgroundStyle?.color ?? first)) }
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -85,7 +86,8 @@ struct OiPostcardBack: View {
     }
     private var letter: some View {
         Text(message.isEmpty ? "아직 남긴 이야기가 없어요." : message)
-            .font(OiPostcardTypography.handwriting).tracking(0.17).lineSpacing(OiPostcardTypography.lineSpacing)
+            .font(exportFontSize.map { .custom(OiPostcardTypography.handwritingName, fixedSize: $0) } ?? OiPostcardTypography.handwriting)
+            .tracking(0.17).lineSpacing(OiPostcardTypography.lineSpacing * (exportFontSize ?? 17) / 17)
             .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }

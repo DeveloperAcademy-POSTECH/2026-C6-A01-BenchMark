@@ -24,13 +24,18 @@ struct OiDraftCardPreview: View {
     }
 
     @MainActor func publication(colorScheme: ColorScheme) throws -> OiStoryCardPublication {
-        let renderer = ImageRenderer(content: composition.frame(width: 362, height: 502)
-            .environment(\.colorScheme, colorScheme))
-        renderer.scale = 2
-        guard let image = renderer.uiImage else { throw OiPhotoDataError.unreadable }
-        let png = design.postcardBackground.flatMap { OiPostcardBackgroundMetadata.png(image: image, style: $0) } ?? image.pngData()
-        guard let png else { throw OiPhotoDataError.unreadable }
-        return try OiStoryCardPublication(png: png)
+        guard !customization.showsCharacter || customization.wardrobe == nil || portrait != nil || design.portraitPNG != nil else {
+            throw OiCardExportError.imageUnavailable
+        }
+        let size = try OiCardImageExport.fittingFontSize(draft.body)
+        let back = OiPostcardBack(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond,
+            backgroundStyle: design.postcardBackground, message: draft.body, author: donorName, exportFontSize: size)
+        let front = try OiCardImageExport.render(composition, colorScheme: colorScheme)
+        let rear = try OiCardImageExport.render(back, colorScheme: colorScheme)
+        let png = design.postcardBackground.flatMap { OiPostcardBackgroundMetadata.png(image: front, style: $0) } ?? front.pngData()
+        guard let png, let backPNG = rear.pngData() else { throw OiPhotoDataError.unreadable }
+        return try OiStoryCardPublication(front: png, back: backPNG,
+            frontPreview: OiCardImageExport.preview(front), backPreview: OiCardImageExport.preview(rear))
     }
     private var composition: some View {
         OiPostcardFront(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond,

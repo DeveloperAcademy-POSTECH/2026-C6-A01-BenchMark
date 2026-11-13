@@ -90,7 +90,8 @@ struct AppClipExperienceView<SafetyButton: View>: View {
                             experience: experience,
                             onBack: { isPlaying = false },
                             onRequestFullApp: onRequestFullApp,
-                            validateCollection: { await viewModel.canCollectCurrentStory() }
+                            validateCollection: { await viewModel.canCollectCurrentStory() },
+                            reloadCard: { try await viewModel.refreshedCard() }
                         )
                     } else {
                         ScrollView {
@@ -99,6 +100,12 @@ struct AppClipExperienceView<SafetyButton: View>: View {
                                 Text(experience.story.title).font(.title.bold())
                                 Text(experience.story.donorDisplayName + " · " + experience.story.location.displayName)
                                     .font(.subheadline).foregroundStyle(.secondary)
+                                AppClipCardPreview(card: experience.storyCard, story: experience.story,
+                                    reloadCard: { try await viewModel.refreshedCard() })
+                                    .aspectRatio(362 / 502, contentMode: .fit)
+                                if experience.storyCard.backImageURL != nil {
+                                    Text("카드를 탭하면 앞·뒷면을 볼 수 있어요.").font(.footnote).foregroundStyle(.secondary)
+                                }
                                 Text(experience.story.content).textSelection(.enabled)
                                 if let id = UUID(uuidString: experience.story.storyID) {
                                     storySafetyButton(experience.story, id)
