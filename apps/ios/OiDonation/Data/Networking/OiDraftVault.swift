@@ -314,11 +314,17 @@ struct OiCardOrientation: Codable, Equatable {
     }
 }
 
+/// One color drives the paper, artwork backdrop, and soft Figma gradient.
+struct OiPostcardBackgroundStyle: Codable, Equatable {
+    var color: UInt32 = 0xEECFDF
+    var fill: OiDraftCustomization.Fill = .gradient
+}
+
 /// Kept in the protected local draft, never added implicitly to the public API payload.
 struct OiCardDesign: Codable, Equatable {
-    var borderFill: OiDraftCustomization.Fill = .solid
-    var borderFirst: UInt32 = 0xD9D9D9
-    var borderSecond: UInt32 = 0xFFFFFF
+    var borderFill: OiDraftCustomization.Fill = .gradient
+    var borderFirst: UInt32 = 0xE8EECF
+    var borderSecond: UInt32 = 0xD5DBC6
     var pattern: Int? = nil
     var caption: String? = nil
     var anonymous = false
@@ -329,6 +335,10 @@ struct OiCardDesign: Codable, Equatable {
     var backgroundPhoto: Data? = nil
     var portraitPNG: Data? = nil
     var portraitKey: String? = nil
+    var postcardDate: Date? = nil
+    var photoMonochrome: Bool? = nil
+    /// Nil keeps the appearance of drafts saved before the unified background editor.
+    var postcardBackground: OiPostcardBackgroundStyle? = nil
 }
 
 enum OiDenim: String, CaseIterable, Codable, Identifiable {
