@@ -48,6 +48,21 @@ struct OiPostcardGradientColors: Equatable {
 }
 
 extension OiPostcardBackgroundStyle {
+    func customOpacity(at index: Int) -> Double {
+        OiCardOpacity.normalized(index == 0 ? startOpacity : index == 1 ? middleOpacity : endOpacity)
+    }
+
+    mutating func setCustomOpacity(_ value: Double, at index: Int) {
+        let colors = customColors
+        setCustomColor(index == 0 ? colors.start : index == 1 ? colors.middle : colors.end, at: index)
+        switch index {
+        case 0: startOpacity = OiCardOpacity.normalized(value)
+        case 1: middleOpacity = OiCardOpacity.normalized(value)
+        case 2: endOpacity = OiCardOpacity.normalized(value)
+        default: break
+        }
+    }
+
     var customColors: OiPostcardGradientColors {
         if let preset, let selected = OiPostcardPreset(rawValue: preset) { return selected.colors }
         return .init(start: color, middle: middleColor ?? color, end: endColor ?? color)
@@ -84,7 +99,7 @@ enum OiPostcardAuthor {
 enum OiPostcardBackLogoStyle {
     static func color(for style: OiPostcardBackgroundStyle) -> UInt32 {
         if let selected = style.backLogoColor { return selected }
-        let paper = style.paperColor, ink = OiPostcardInk.color(paper)
+        let paper = style.visiblePaperColor, ink = OiPostcardInk.color(paper)
         func channel(_ shift: Int) -> UInt32 {
             UInt32((Double((paper >> shift) & 255) * 0.85 + Double((ink >> shift) & 255) * 0.15).rounded())
         }
@@ -105,6 +120,7 @@ struct OiPostcardPostechLogo: View {
 struct OiPostcardDecorations: View {
     let stamp: Int?
     let logo: String?
+    var logoOpacity: Double = 1
     var body: some View {
         ZStack(alignment: .topLeading) {
             if let stamp, (1...12).contains(stamp) {
@@ -117,7 +133,7 @@ struct OiPostcardDecorations: View {
             }
             if logo == "white" || logo == "black" {
                 Image("OiPostcardLogo-" + (logo ?? "white")).resizable()
-                    .frame(width: 362, height: 502)
+                    .frame(width: 362, height: 502).opacity(OiCardOpacity.normalized(logoOpacity))
             }
         }.frame(width: 362, height: 502, alignment: .topLeading).accessibilityHidden(true)
     }

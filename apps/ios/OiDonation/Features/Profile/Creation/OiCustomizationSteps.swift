@@ -197,6 +197,7 @@ struct OiCardCustomizationStep: View {
             frameHeight: height, compact: true, minimalChrome: true,
             backdropColor: customization.showsCharacter && design.usesCharacterBackdrop
                 ? OiPostcardCharacterBackdrop.color(for: design) : nil,
+            backdropOpacity: OiCardOpacity.normalized(design.characterBackdropOpacity),
             look: customization.showsCharacter ? customization.wardrobe : nil,
             orientation: customization.showsCharacter && customization.wardrobe != nil ? $orientation : nil,
             portraitKey: portraitKey ?? "", onCapture: acceptPortrait, onInteractionEnded: saveOrientation)
@@ -304,6 +305,7 @@ struct OiCardCustomizationStep: View {
                     ForEach(OiPostcardPreset.allCases) { preset in
                         Button {
                             updateBackground { $0.preset = preset.rawValue; $0.color = preset.color; $0.middleColor = nil; $0.endColor = nil; $0.fill = .gradient }
+                            updateBackground { $0.startOpacity = nil; $0.middleOpacity = nil; $0.endOpacity = nil }
                             change { $0.postcardLayoutVersion = 2 }
                         } label: {
                             VStack(spacing: 5) {
@@ -332,18 +334,20 @@ struct OiCardCustomizationStep: View {
                 OiPostcardColorRing(title: "오이 뒤 배경", color: Binding(
                     get: { OiPostcardCharacterBackdrop.color(for: design) },
                     set: { color in change { $0.characterBackdropColor = color } }), pickerHeight: 300,
-                    onReset: { change { $0.characterBackdropColor = nil } })
-                    .overlay { Circle().fill(Color(oiRGB: color)).frame(width: 18, height: 18).allowsHitTesting(false) }
+                    onReset: { change { $0.characterBackdropColor = nil; $0.characterBackdropOpacity = nil } },
+                    opacity: opacityBinding(\.characterBackdropOpacity))
+                    .overlay { Circle().fill(Color(oiRGB: color)).opacity(OiCardOpacity.normalized(design.characterBackdropOpacity))
+                        .frame(width: 18, height: 18).allowsHitTesting(false) }
                     .disabled(!available || !design.usesCharacterBackdrop)
                     .opacity(available && design.usesCharacterBackdrop ? 1 : 0.4)
                     .accessibilityIdentifier("oi.card.character.backdrop.color")
             }
             HStack(spacing: 8) {
                 Text(design.characterBackdropColor == nil ? "종이색에 맞춘 자동 색상" : "직접 선택한 색상")
-                Text(String(format: "#%06X", color)).monospacedDigit()
+                Text(String(format: "#%06X · %d%%", color, Int((OiCardOpacity.normalized(design.characterBackdropOpacity) * 100).rounded()))).monospacedDigit()
                 Spacer(minLength: 0)
-                if design.characterBackdropColor != nil {
-                    Button("자동 색상") { change { $0.characterBackdropColor = nil } }
+                if design.characterBackdropColor != nil || design.characterBackdropOpacity != nil {
+                    Button("자동 색상") { change { $0.characterBackdropColor = nil; $0.characterBackdropOpacity = nil } }
                         .underline().frame(minHeight: 32)
                         .disabled(!available || !design.usesCharacterBackdrop)
                         .accessibilityIdentifier("oi.card.character.backdrop.automatic")
@@ -365,7 +369,8 @@ struct OiCardCustomizationStep: View {
                         .frame(width: widths, height: 1).offset(x: x + 10, y: y + 10)
                     Image(index == 1 ? "OiPostcardDiagram-imgEllipse44" : "OiPostcardDiagram-imgEllipse45")
                         .resizable().frame(width: 20, height: 20)
-                        .overlay { Circle().fill(Color(oiRGB: selectedColor(index))).padding(1) }
+                        .overlay { Circle().fill(Color(oiRGB: selectedColor(index)))
+                            .opacity(style.customOpacity(at: index)).padding(1) }
                         .offset(x: x, y: y).accessibilityHidden(true)
                     colorControl(index).offset(x: 190, y: [52.0,138,225][index])
                 }
@@ -382,10 +387,14 @@ struct OiCardCustomizationStep: View {
             OiPostcardColorRing(title: ["시작", "중간", "끝"][index], color: Binding(get: { selectedColor(index) }, set: { color in
                 updateBackground { $0.setCustomColor(color, at: index) }
                 change { $0.postcardLayoutVersion = 2 }
+            }), opacity: Binding(get: { style.customOpacity(at: index) }, set: { alpha in
+                updateBackground { $0.setCustomOpacity(alpha, at: index) }
+                change { $0.postcardLayoutVersion = 2 }
             })).accessibilityIdentifier("oi.card.background.picker.\(index)")
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(["시작", "중간", "끝"][index]) Color").font(CampusStyle.semibold(13)).foregroundStyle(Color(white: 0.19))
-                Text(String(format: "RGB 0-255 #%06X", value)).font(CampusStyle.body(10)).foregroundStyle(Color(white: 0.66))
+                Text(String(format: "#%06X · %d%%", value, Int((style.customOpacity(at: index) * 100).rounded())))
+                    .font(CampusStyle.body(10)).foregroundStyle(Color(white: 0.66))
             }
         }.accessibilityIdentifier("oi.card.background.color.\(index)")
     }
@@ -397,13 +406,16 @@ struct OiCardCustomizationStep: View {
         let color = OiPostcardBackLogoStyle.color(for: style)
         return VStack(alignment: .leading, spacing: 20) {
             HStack(alignment: .center, spacing: 24) {
-                OiPostcardPostechLogo(color: color).frame(width: 144, height: 144)
+                OiPostcardPostechLogo(color: color).opacity(OiCardOpacity.normalized(style.backLogoOpacity))
+                    .frame(width: 144, height: 144)
                 VStack(alignment: .leading, spacing: 12) {
                     Text("포스텍 로고 색상").font(CampusStyle.medium(16))
                     HStack(spacing: 10) {
                         OiPostcardColorRing(title: "포스텍 로고", color: Binding(
                             get: { OiPostcardBackLogoStyle.color(for: style) },
-                            set: { color in updateBackground { $0.backLogoColor = color } }), pickerHeight: 360)
+                            set: { color in updateBackground { $0.backLogoColor = color } }), pickerHeight: 360,
+                            opacity: Binding(get: { OiCardOpacity.normalized(style.backLogoOpacity) },
+                                set: { alpha in updateBackground { $0.backLogoOpacity = alpha } }))
                             .accessibilityIdentifier("oi.card.back.logo.color")
                         Text(String(format: "#%06X", color)).font(CampusStyle.body(12)).foregroundStyle(.secondary)
                     }
@@ -414,22 +426,28 @@ struct OiCardCustomizationStep: View {
         }.padding(.top, 16)
     }
     private var frontLogoEditor: some View {
-        HStack(alignment: .top, spacing: 20) {
-            ForEach(["white", "black"], id: \.self) { logo in
-                Button { change { $0.postcardLayoutVersion = 2; $0.postcardLogo = $0.postcardLogo == logo ? nil : logo } } label: {
-                    VStack(spacing: 10) {
-                        GeometryReader { _ in
-                            RoundedRectangle(cornerRadius: 20).fill(Color(white: logo == "white" ? 0.2 : 0.96))
-                            Image("OiPostcardLogoSwatch-" + logo).resizable().frame(width: 20, height: 80)
-                                .offset(x: 16, y: 114)
-                        }.frame(height: 205).clipShape(RoundedRectangle(cornerRadius: 20))
-                            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color(white: 0.76), lineWidth: 2))
-                            .overlay { if design.postcardLogo == logo { RoundedRectangle(cornerRadius: 20).stroke(Color("OiGreen"), lineWidth: 2) } }
-                        Text(logo == "white" ? "White Logo" : "Black Logo").font(CampusStyle.medium(20)).foregroundStyle(Color(white: 0.19))
-                    }
-                }.buttonStyle(.plain).accessibilityLabel(logo == "white" ? "흰색 로고" : "검정색 로고")
+        VStack(spacing: 16) {
+            HStack(alignment: .top, spacing: 20) {
+                ForEach(["white", "black"], id: \.self) { logo in
+                    Button { change { $0.postcardLayoutVersion = 2; $0.postcardLogo = $0.postcardLogo == logo ? nil : logo } } label: {
+                        VStack(spacing: 10) {
+                            GeometryReader { _ in
+                                RoundedRectangle(cornerRadius: 20).fill(Color(white: logo == "white" ? 0.2 : 0.96))
+                                Image("OiPostcardLogoSwatch-" + logo).resizable().frame(width: 20, height: 80)
+                                    .offset(x: 16, y: 114)
+                            }.frame(height: 205).clipShape(RoundedRectangle(cornerRadius: 20))
+                                .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color(white: 0.76), lineWidth: 2))
+                                .overlay { if design.postcardLogo == logo { RoundedRectangle(cornerRadius: 20).stroke(Color("OiGreen"), lineWidth: 2) } }
+                            Text(logo == "white" ? "White Logo" : "Black Logo").font(CampusStyle.medium(20)).foregroundStyle(Color(white: 0.19))
+                        }
+                    }.buttonStyle(.plain).accessibilityLabel(logo == "white" ? "흰색 로고" : "검정색 로고")
+                }
+            }.padding(.top, 16)
+            if design.postcardLogo != nil {
+                OiPostcardOpacityControl(opacity: opacityBinding(\.postcardLogoOpacity))
+                    .accessibilityIdentifier("oi.card.front.logo.opacity")
             }
-        }.padding(.top, 16)
+        }
     }
     private var stampEditor: some View {
         VStack(alignment: .trailing, spacing: 8) {
@@ -519,6 +537,10 @@ struct OiCardCustomizationStep: View {
     }
     private func designBinding<Value>(_ key: WritableKeyPath<OiCardDesign, Value>) -> Binding<Value> {
         Binding(get: { design[keyPath: key] }, set: { value in change { $0[keyPath: key] = value } })
+    }
+    private func opacityBinding(_ key: WritableKeyPath<OiCardDesign, Double?>) -> Binding<Double> {
+        Binding(get: { OiCardOpacity.normalized(design[keyPath: key]) },
+            set: { value in change { $0[keyPath: key] = OiCardOpacity.normalized(value) } })
     }
 }
 

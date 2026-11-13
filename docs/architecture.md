@@ -661,6 +661,12 @@ AR 게임 시작 시 정규화된 캐릭터를 한 번 로드하여 카메라와
 
 배경 색상링 후속: optional `characterBackdropColor` RGB를 보호 초안에 저장한다. `OiPostcardCharacterBackdrop.color(for: OiCardDesign)`가 유효한 직접 선택값 또는 종이색 기반 자동값을 반환하며 앞면 합성과 배치 편집기가 함께 사용한다. 시스템 선택기의 연속 바인딩으로 미리보기를 갱신하고 자동 색상 버튼은 RGB만 nil로 되돌린다. 숨김·사진 전용·뒷면에서는 적용하지 않으며 공개 파일 계약은 유지한다.
 
+2026-11-14 불투명도 후속: 선택기는 RGB와 optional alpha 바인딩을 분리하고, 색 변화 없이 alpha만 선택하면 기존 자동 RGB를 보존한다. 3색/뒷면 로고 alpha는 공유 스타일과 1KB 이하 PNG 메타데이터, 앞면 로고/오이 뒤 배경 alpha는 보호 초안에 저장한다. alpha는 0~1로 정규화하고 공개 메타데이터에서는 범위 밖 값을 거부한다. 흰 종이에 색 잉크를 합성해 카드 내부의 투명 구멍을 방지하며 기존 nil은 계수 1로 렌더링한다.
+
 ### 2026-11-13 · NFC 스크래치 엽서 (#291)
 
 비공개 `benchmark_private.oi_nfc_tags`가 태그 ID와 이야기를 연결한다. 익명 `oi_nfc_postcard(tag)`는 활성 태그이면서 공개·비제한 이야기일 때만 이야기 ID를 반환하고, 운영자 전용 `oi_operator_set_nfc_tag`·`oi_operator_nfc_tags`가 연결과 목록을 담당하며 기존 감사 기록에 남긴다. 카드는 #308의 형식 2 계약으로 통일한다. `card/<snapshot>.png` 앞면 원본과 `card/<snapshot>/back.png` 뒷면 원본, 같은 폴더의 `front-preview.png`·`back-preview.png`를 함께 제출·검토한다. 카드 ID는 네 파일의 해시로 만들며, 본문을 수정하면 뒷면과 검토 ID도 갱신한다. App Clip은 승인된 양면 미리보기를 사용하고, 형식 2의 뒷면 조회 실패는 재시도로 처리한다. 기존 형식 1만 텍스트 뒷면 대체를 허용한다. App Clip은 `RealStoryRepository`로 이야기·앞뒷면·첫 사진·공개 기부자 정보를 받아 `ScratchPostcardView`에 전달하고, 수집은 저장 직전 공개 여부와 현재 태그 연결을 재확인한 뒤 기존 `StoryCollectionStore`를 사용한다. NFC 마이그레이션의 운영 적용과 실기기 확인은 별도로 남아 있다. [구현과 적용 순서](nfc-postcard.md).
+
+2026-11-14 색상 시트 후속: `OiPostcardColorSheet`가 dismiss를 소유한다. 초기화가 있으면 기존 상단 툴바 위치에 UIKit 기본 초기화 항목과 `.done`/`.prominent` 확인 항목을 사용한다. 초기화가 없으면 정식 자식 컨트롤러로 포함한 시스템 선택기의 Color 행에 단일 `UIButton.Configuration.prominentGlass()` 체크를 배치한다. iOS 26/27의 제목 행 높이·스포이트 방향 차이를 구분해 체크를 반대편에 대칭으로 두고 선택 탭과 겹치지 않게 한다. 시스템 블루 tint만 사용하고 직접 배경/전경 색상·중첩 glass를 제거한다. 시트 높이·스포이트·아래쪽 alpha·큰 detent는 유지하며 내부 뷰 조작은 하지 않는다.
+
+2026-11-14 첨부 이미지 표시 후속: `OiCardBackground`의 사진·색조 합성은 `!showsCharacter`일 때만 수행한다. 사진 파일의 존재와 오이 뒤 배경 토글로 선택 상태를 추정하지 않는다. 기존 사진·배치는 초안에 보존하고 공통 카드 합성에서 미리보기·내보내기·새 제출을 동일하게 처리한다.
