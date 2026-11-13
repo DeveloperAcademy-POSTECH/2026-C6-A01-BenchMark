@@ -1,61 +1,95 @@
 {
-  "revision": "fine-packed-building-surfaces-5",
-  "sourceSHA256": "e960efac6267bfe96658aa0670923cec8b327c13720175bb0933b96ffaf4bac9",
-  "assetSHA256": "ac8678bd21dd839682914ff169f0dfe790a40c7c2d8cf9929e42f6c32207d8a4",
-  "pointCount": 96000,
-  "shellVertexCount": 106398,
-  "byteCount": 3964796,
-  "groundOffset": 2.18,
-  "lod": {
-    "far": 24000,
-    "near": 96000,
-    "selection": "prefix, never stride or random subsampling"
+  "revision": "four-view-architecture-20261113-v4",
+  "solidVertices": 60810,
+  "pitch": 0.05914306640625,
+  "surfacePatches": 43,
+  "features": [
+    "asymmetric-kinked-wrap",
+    "sloped-undercut",
+    "left-truncated-hall",
+    "open-court",
+    "three-distinct-terrace-plans",
+    "low-fan-amphitheatre",
+    "rounded-left-podium",
+    "recessed-entry",
+    "projecting-bridge",
+    "diagonal-link"
+  ],
+  "inferred": [
+    "Physical dimensions and deep rear connections are not documented by the images.",
+    "Gallery depths, hidden terrace junctions and amphitheatre riser heights are approximate."
+  ],
+  "coordinates": "Y up, front +Z; lengths are concept units, not meters.",
+  "method": "Reference-led independent architectural surface patches. Analytic perimeter rows, clipped planar lattices, seam ownership and silhouette-preserving LOD.",
+  "gridSpacing": 0.05914306640625,
+  "pointCount": 110869,
+  "rawPhaseCounts": [
+    37282,
+    24825,
+    24868,
+    23894
+  ],
+  "lodCounts": [
+    37282,
+    62107,
+    110869
+  ],
+  "assetSHA256": "a1d41bd69331402833d94c4c374b1c3c0455234c9e635e3b4d8e4664c233a008",
+  "depthProxySHA256": "7b4e340157af0ff5c845c7c40073f87aea606e4d7a63401b5d4a27e6b7ae3f38",
+  "solidSHA256": "9ca337550b6aaaae652c67c0270722ef65e29c57b0153b8515b661832b281c30",
+  "bounds": {
+    "min": [
+      -7.25,
+      -2.299,
+      -4.47
+    ],
+    "max": [
+      7.418423393509261,
+      2.964,
+      5.79
+    ]
   },
-  "groups": {
-    "diagonal terrace brace": 76,
-    "podium glazing 2": 7591,
-    "podium glazing 1": 8903,
-    "left stone podium": 8362,
-    "terrace paving 2": 4014,
-    "courtyard glazing": 4516,
-    "silver louvre facade": 16582,
-    "roof louvre rim": 6193,
-    "tapered hall louvers": 6044,
-    "terrace balustrade 0": 480,
-    "terrace paving 1": 4701,
-    "left planted terrace": 3358,
-    "terrace 2": 1448,
-    "podium glazing 0": 4372,
-    "hall roof perimeter coping": 120,
-    "terrace paving 0": 4780,
-    "open courtyard floor": 2214,
-    "left glass bridge": 286,
-    "architectural edges": 542,
-    "terrace 1 coping": 649,
-    "hall skylight ribs": 58,
-    "terrace 0": 1830,
-    "hall roof glass": 1082,
-    "bridge beams": 24,
-    "terrace balustrade 2": 384,
-    "terrace 1": 1697,
-    "terrace 0 coping": 690,
-    "hall roof perimeter": 211,
-    "podium mullions": 554,
-    "hall glass base": 623,
-    "left parapet": 524,
-    "amphitheatre 3": 176,
-    "lantern roof ribs": 13,
-    "amphitheatre 1": 229,
-    "terrace balustrade 1": 450,
-    "amphitheatre 6": 100,
-    "left parapet coping": 300,
-    "amphitheatre 5": 125,
-    "left glass bridge roof": 124,
-    "courtyard lantern": 335,
-    "amphitheatre 0": 254,
-    "terrace 2 coping": 553,
-    "amphitheatre 2": 204,
-    "amphitheatre 4": 151,
-    "courtyard lantern roof": 78
+  "depthTriangles": 20270,
+  "budgetOmissionRatio": 0,
+  "surfaceOnly": true,
+  "sourceImages": [
+    "01-front.png",
+    "02-left.png",
+    "03-right.png",
+    "04-back.png"
+  ],
+  "chartCount": 43,
+  "chartSamples": 132374,
+  "seamMergeRadius": 0.027797241210937497,
+  "seamDuplicatesRemoved": 9355,
+  "buriedSurfaceSamplesRemoved": 12150,
+  "shellVertexCount": 60810,
+  "groundOffset": 2.2990000247955322,
+  "byteCount": 3834072,
+  "bridgeAnchor": [
+    -7.25,
+    1.7005,
+    -0.18
+  ],
+  "lod": {
+    "mapFar": 37282,
+    "mapNear": 62107,
+    "webMobile": 62107
+  },
+  "planningScale": {
+    "mapScale": 1.12,
+    "center": [
+      51,
+      1.05,
+      41.3
+    ],
+    "heading": 1.96,
+    "estimatedWidthDepthHeightM": [
+      136.90528500608647,
+      95.76,
+      49.12133333333334
+    ],
+    "method": "Uniform visual scale against library/C5 and protected road corridors; approximate, not surveyed. Official building area is not equated with the model envelope.",
+    "source": "https://www.postech.ac.kr/kor/innovation/education_district_cp.do"
   }
 }

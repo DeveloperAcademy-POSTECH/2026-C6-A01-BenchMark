@@ -8,6 +8,8 @@ struct CampusMapData: Decodable {
         let name: String
         let buildingIDs: [String]
     }
+    struct Road: Decodable { let wayId: String; let a: [Double]; let b: [Double]; let widthMeters: Double; let kind: String? }
+    var roads: [Road]? = nil
     var buildingLabelGroups: [BuildingLabelGroup]? = nil
     struct Place: Decodable, Identifiable {let id:String;let name:String;let category:String;let p:[Double];let node:String;let buildingId:String?}
     struct Node: Decodable {let p:[Double];let links:[String];let wgs84:[Double]?}
@@ -17,7 +19,7 @@ struct CampusMapData: Decodable {
     let coordinateSystem:CoordinateSystem?
     let initialView:InitialView?
     var surface:CampusHeightField?
-    enum CodingKeys:String,CodingKey {case origin,unitsPerMeter,bounds,buildings,pois,graph,coordinateSystem,initialView,buildingLabelGroups}
+    enum CodingKeys:String,CodingKey {case origin,unitsPerMeter,bounds,buildings,pois,graph,coordinateSystem,initialView,buildingLabelGroups,roads}
     private var enu:Bool {coordinateSystem?.horizontalFrameVersion?.hasPrefix("WGS84_ENU") == true}
     private var frame:CampusGeoreference{CampusGeoreference(longitude:origin[0],latitude:origin[1],scale:unitsPerMeter)}
     let origin:[Double]
@@ -45,7 +47,10 @@ struct CampusMapData: Decodable {
               data.buildings.allSatisfy({ $0.p.allSatisfy(validPoint) }) else {
             throw CocoaError(.fileReadCorruptFile)
         }
-        if data.enu { data.surface = try CampusHeightField(directory: url.deletingLastPathComponent()) }
+        if data.enu {
+            data.surface = try CampusHeightField(directory: url.deletingLastPathComponent())
+            data.surface?.grading = CampusEducationSite.TerrainGrading(data: data)
+        }
         return data
     }
     func grounded(_ p:SIMD3<Float>)->SIMD3<Float>{
