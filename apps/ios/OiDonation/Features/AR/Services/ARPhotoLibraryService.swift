@@ -16,14 +16,29 @@ struct ARPhotoLibraryService {
     }
 
     func save(_ image: UIImage) async throws {
-        try await save([image])
+        try await authorize()
+        try await PHPhotoLibrary.shared().performChanges {
+            PHAssetChangeRequest.creationRequestForAsset(from: image)
+        }
     }
 
     func save(_ images: [UIImage]) async throws {
         guard !images.isEmpty else { return }
+        let pngs = try images.map { image -> Data in
+            guard let data = image.pngData() else {
+                throw NSError(domain: "오이기부.PhotoLibrary", code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "저장할 카드 이미지를 준비하지 못했어요."])
+            }
+            return data
+        }
         try await authorize()
         try await PHPhotoLibrary.shared().performChanges {
-            for image in images { PHAssetChangeRequest.creationRequestForAsset(from: image) }
+            for data in pngs {
+                let request = PHAssetCreationRequest.forAsset()
+                let options = PHAssetResourceCreationOptions()
+                options.uniformTypeIdentifier = "public.png"
+                request.addResource(with: .photo, data: data, options: options)
+            }
         }
     }
 
