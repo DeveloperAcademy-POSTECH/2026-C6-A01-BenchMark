@@ -495,14 +495,8 @@ struct ScratchPostcardView: View {
 
 /// Fonts used by the postcard views.
 enum ScratchPostcardFont {
-    /// 양진체 (YANGJIN, SIL OFL 1.1) for the cucumber name, registered at App Clip launch.
-    static let yangjin = "YANGJIN"
-
-    static var cucumberName: Font {
-        UIFont(name: yangjin, size: 26) != nil
-            ? .custom(yangjin, size: 26)
-            : .custom("Paperlogy-7Bold", size: 26)
-    }
+    /// Figma uses REATIC Wide; the App Clip keeps Paperlogy to stay under the 15MB NFC size limit.
+    static let cucumberName = Font.custom("Paperlogy-7Bold", size: 26)
 }
 
 /// Shows the checkmark only after the postcard has been saved.

@@ -65,4 +65,5 @@ on conflict (tag_id) do update set story_id = excluded.story_id, active = exclud
 
 - `supabase/tests/run-account-merge-db-checks.py`: 기존 마이그레이션 전체와 새 파일을 임시 로컬 PostgreSQL 17에 적용했다. 기존 검사와 `oi-nfc-postcard-tags.sql`(권한, 태그 형식, 공개·중지·교체·숨김·삭제, 감사, 뒷면 공개 범위)이 통과했다.
 - iOS: App Clip·전체 앱 시뮬레이터 빌드와 `Tests/run-app-clip-checks.sh`가 통과했다. 임시 가짜 저장소로 App Clip 시작 화면과 볼 수 없는 태그 화면을 시뮬레이터에서 확인했다(임시 코드는 제거).
+- App Clip 용량: Release 아카이브를 개발 서명·전체 기기 변형으로 내보내 `scripts/check-app-clip-release.py`로 측정했다. 양진체(1.7MB)를 넣으면 iPhone 변형이 16,022,792바이트로 15MB를 넘어 제거했고, 제거 후 최대 14,549,830바이트(기기별 약 14.32~14.40MB)로 통과했다. `run-app-clip-font-checks.sh`도 통과했다. 정보 칸 이름은 Figma의 리틱체(REATIC) 대신 Paperlogy Bold를 쓴다. 리틱체는 라이선스가 임의 수정·무단 재배포를 금지해 앱 탑재 허락이 필요하고, 파일 하나가 약 2.7MB라 허락을 받아도 App Clip에는 용량 조정이 함께 필요하다.
 - 미검증: 운영 서버 적용, 실제 계정으로 뒷면 PNG 업로드·운영자 검토 표시, 실제 서버 데이터로 App Clip 표시, 손가락 긁기·뒤집기·대체 뒷면 표시, 실기기 NFC 호출, App Clip 용량 측정.

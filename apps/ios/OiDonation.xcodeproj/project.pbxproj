@@ -109,8 +109,6 @@
 				"Shared/Components/OiSampleStoryDetailView.swift",
 				"Resources/OiSampleAssets.xcassets",
 				"Resources/Fonts/Paperlogy-5Medium.ttf",
-				"Resources/Fonts/Yangjin-v0.9.ttf",
-				"Resources/Fonts/Yangjin-OFL.txt",
 			);
 			target = 87169564307CB1CF0090D456 /* OiDonationClip */;
 		};
