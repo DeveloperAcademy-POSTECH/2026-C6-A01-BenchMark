@@ -1051,6 +1051,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         let bytes = try await api.downloadSignedObject(bucket: OiPublishedCucumberImage.bucket, path: path, token: accessToken)
         try Task.checkCancellation()
         guard started == generation else { throw OiServiceError.accountChanged }
-        return UIImage(cgImage: try OiPublishedCucumberImage.decode(bytes, part: part))
+        let image = UIImage(cgImage: try OiPublishedCucumberImage.decode(bytes, part: part))
+        if part == .portrait { OiPostcardBackgroundMetadata.remember(png: bytes, image: image) }
+        return image
     }
 }

@@ -5,6 +5,7 @@
 //  Created by 이돈혁 on 11/3/26.
 //
 
+import CoreText
 import RealityKit
 import SwiftUI
 import UIKit
@@ -110,6 +111,29 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             XCTAssertFalse(field.isScrollEnabled)
             field.resignFirstResponder()
         }
+    }
+
+    func testStoryTextBindingPreservesLegacyDrafts() {
+        let original = String(repeating: "추억", count: 30)
+        var text = original
+        let binding = OiStoryWritingStep.limitedText(Binding(get: { text }, set: { text = $0 }))
+        XCTAssertEqual(binding.wrappedValue, original)
+
+        let shortened = String(original.dropLast())
+        binding.wrappedValue = shortened
+        XCTAssertEqual(text, shortened, "Deleting one character must preserve all remaining legacy text")
+        binding.wrappedValue = shortened + "가"
+        XCTAssertEqual(text, shortened, "An over-limit draft may be shortened but not extended")
+
+        let atLimit = String(repeating: "가", count: OiCreationStep.storyTextLimit)
+        binding.wrappedValue = atLimit
+        XCTAssertEqual(text, atLimit)
+        binding.wrappedValue = String(repeating: "나", count: OiCreationStep.storyTextLimit + 1)
+        XCTAssertEqual(text, atLimit, "Over-limit pastes must be rejected, not silently truncated")
+
+        binding.wrappedValue = "짧은 이야기"
+        binding.wrappedValue += "!"
+        XCTAssertEqual(text, "짧은 이야기!")
     }
 
     private struct StoryPasteFixture: View {
@@ -235,32 +259,26 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         var style = OiDraftCustomization()
         style.showsCharacter = false
         style.firstColor = 0xD9D9D9
-        style.card = OiCardDesign(borderFirst: 0xFFFFFF)
+        style.card = OiCardDesign(borderFill: .solid, borderFirst: 0xFFFFFF)
         let reference = try render(style, name: "card-regions-gray-white")
         style.firstColor = 0x285DB0
         let background = try render(style, name: "card-regions-blue-white")
         style.card?.borderFirst = 0xCE4068
         let border = try render(style, name: "card-regions-blue-pink")
 
-        // Background includes the outside margin and the interior. Changing only
-        // the border must not recolor either region (the former implementation did).
-        for point in [CGPoint(x: 7, y: 180), CGPoint(x: 180, y: 180)] {
+        // The photograph and paper are independent regions of the postcard.
+        let inner = CGPoint(x: 180, y: 180)
+        let a = try rgb(reference, x: Int(inner.x), y: Int(inner.y))
+        let b = try rgb(background, x: Int(inner.x), y: Int(inner.y))
+        let c = try rgb(border, x: Int(inner.x), y: Int(inner.y))
+        XCTAssertGreaterThan(distance(a, b), 80)
+        XCTAssertLessThan(distance(b, c), 6)
+        for point in [CGPoint(x: 18, y: 180), CGPoint(x: 180, y: 18)] {
             let a = try rgb(reference, x: Int(point.x), y: Int(point.y))
             let b = try rgb(background, x: Int(point.x), y: Int(point.y))
             let c = try rgb(border, x: Int(point.x), y: Int(point.y))
-            XCTAssertGreaterThan(distance(a, b), 80)
-            XCTAssertLessThan(distance(b, c), 6)
-        }
-        // Sample the two header areas away from glyphs and the left frame line.
-        for point in [CGPoint(x: 30, y: 22), CGPoint(x: 130, y: 22), CGPoint(x: 15, y: 180)] {
-            let a = try rgb(reference, x: Int(point.x), y: Int(point.y))
-            let b = try rgb(background, x: Int(point.x), y: Int(point.y))
-            let c = try rgb(border, x: Int(point.x), y: Int(point.y))
-            // Figma's name strip is translucent. It must respond primarily to
-            // border tint while retaining that deliberate background show-through.
-            XCTAssertLessThan(Double(distance(a, b)), Double(distance(b, c)) * 0.4,
-                              "Background dominates the border tint at \(point)")
-            XCTAssertGreaterThan(distance(b, c), 60, "Border/header stayed white at \(point)")
+            XCTAssertLessThan(distance(a, b), 6, "Image color must not tint the paper")
+            XCTAssertGreaterThan(distance(b, c), 60, "Paper color must affect the border")
         }
         style.fill = .gradient; style.firstColor = 0xD3DBC4; style.secondColor = 0xF3F7E6
         style.card?.borderFill = .gradient
@@ -268,6 +286,282 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         _ = try render(style, name: "card-regions-gradient")
         style.card?.pattern = 3; style.showsCharacter = true
         _ = try render(style, name: "card-regions-pattern-character")
+    }
+
+    func testPostcardPublicationAndDraftCompatibility() throws {
+        var style = Self.customization
+        style.showsCharacter = false
+        style.card = OiCardDesign()
+        style.card?.postcardDate = Date(timeIntervalSince1970: 1_799_779_200)
+        style.card?.photoMonochrome = true
+        let photo = try XCTUnwrap(UIImage(named: "DonationCampus"))
+        style.card?.backgroundPhoto = photo.pngData()
+        style.card?.backgroundPlacement = OiCardPlacement(x: 0.42, y: 0.48, scale: 1.3)
+        let preview = OiDraftCardPreview(draft: Self.draft, customization: style, donorName: "테스트 농부")
+        let publication = try preview.publication(colorScheme: .light)
+        let image = try XCTUnwrap(UIImage(data: publication.png))
+        XCTAssertEqual(image.cgImage?.width, 724)
+        XCTAssertEqual(image.cgImage?.height, 1004)
+        XCTAssertTrue(OiPostcardSnapshot.isPostcard(image), "The scalloped edge must stay transparent in the public PNG")
+        XCTAssertNotNil(OiPostcardSnapshot.color(image, x: 0.05, y: 0.10))
+        let opaque = UIGraphicsImageRenderer(size: CGSize(width: 362, height: 502)).image { c in
+            UIColor.white.setFill(); c.fill(CGRect(x: 0, y: 0, width: 362, height: 502))
+        }
+        XCTAssertFalse(OiPostcardSnapshot.isPostcard(opaque), "A legacy opaque card must not be mistaken for a postcard")
+        let data = try JSONEncoder().encode(style)
+        XCTAssertEqual(try JSONDecoder().decode(OiDraftCustomization.self, from: data), style)
+        var old = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(try XCTUnwrap(style.card))) as? [String: Any])
+        old.removeValue(forKey: "postcardDate"); old.removeValue(forKey: "photoMonochrome"); old.removeValue(forKey: "postcardBackground")
+        let legacy = try JSONDecoder().decode(OiCardDesign.self, from: JSONSerialization.data(withJSONObject: old))
+        XCTAssertNil(legacy.postcardDate); XCTAssertNil(legacy.photoMonochrome)
+        XCTAssertEqual(legacy.backgroundPlacement, style.card?.backgroundPlacement)
+        let attachment = XCTAttachment(data: publication.png, uniformTypeIdentifier: "public.png")
+        attachment.name = "postcard-published-front"; attachment.lifetime = .keepAlways; add(attachment)
+        for back in [false, true] {
+            let renderer = ImageRenderer(content: OiDraftCardPreview(draft: Self.draft, customization: style,
+                donorName: "테스트 농부", showingBack: back).frame(width: 362, height: 502))
+            let png = try XCTUnwrap(renderer.uiImage?.pngData())
+            let shot = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            shot.name = back ? "postcard-back" : "postcard-front"; shot.lifetime = .keepAlways; add(shot)
+        }
+    }
+
+    func testUnifiedPostcardBackgroundAndMetadata() throws {
+        let style = OiPostcardBackgroundStyle(color: 0xEECFDF, fill: .gradient)
+        var customization = Self.customization
+        customization.showsCharacter = false
+        customization.card = OiCardDesign()
+        customization.card?.postcardBackground = style
+        let renderer = ImageRenderer(content: OiPostcardBackground(style: style).frame(width: 362, height: 502))
+        renderer.scale = 1
+        let field = try XCTUnwrap(renderer.uiImage?.pngData())
+        let bitmap = try renderedBitmap(field, size: CGSize(width: 362, height: 502))
+        let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: 362 * 502 * 4)
+        func rgb(_ x: Int, _ y: Int) -> [Int] { (0..<3).map { Int(pixels[(y * 362 + x) * 4 + $0]) } }
+        XCTAssertGreaterThan(rgb(180, 250)[0], rgb(340, 80)[0] + 5, "The top-right Figma haze must be darker than the center")
+        // Sampled from the Figma 5400:6605 PNG, away from the perforated edge.
+        for (x, y, reference) in [(180, 180, [230, 194, 214]), (180, 322, [230, 190, 210]),
+                                   (18, 180, [233, 191, 212]), (180, 18, [232, 197, 215])] {
+            for channel in 0..<3 {
+                XCTAssertLessThanOrEqual(abs(rgb(x, y)[channel] - reference[channel]), 6)
+            }
+        }
+
+        let inner = ImageRenderer(content: OiCardBackground(customization: customization, pattern: nil)
+            .frame(width: 296, height: 436))
+        inner.scale = 1
+        let crop = try renderedBitmap(try XCTUnwrap(inner.uiImage?.pngData()), size: CGSize(width: 296, height: 436))
+        let cropPixels = try XCTUnwrap(crop.data).bindMemory(to: UInt8.self, capacity: 296 * 436 * 4)
+        for channel in 0..<3 {
+            XCTAssertLessThanOrEqual(abs(Int(cropPixels[(100 * 296 + 80) * 4 + channel]) - rgb(113, 133)[channel]), 2,
+                                    "Paper and artwork backgrounds must form one continuous field")
+        }
+        let preview = OiDraftCardPreview(draft: Self.draft, customization: customization)
+        let first = try preview.publication(colorScheme: .light)
+        let second = try preview.publication(colorScheme: .light)
+        XCTAssertEqual(first.id, second.id, "Identical cards must keep a stable review snapshot ID")
+        let image = try XCTUnwrap(UIImage(data: first.png))
+        OiPostcardBackgroundMetadata.remember(png: first.png, image: image)
+        XCTAssertEqual(OiPostcardBackgroundMetadata.style(for: image), style, "A remote image must restore the exact back background")
+        XCTAssertEqual(try JSONDecoder().decode(OiDraftCustomization.self, from: JSONEncoder().encode(customization)), customization)
+        let blank = UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).image { _ in }
+        OiPostcardBackgroundMetadata.remember(png: try XCTUnwrap(blank.pngData()), image: blank)
+        XCTAssertNil(OiPostcardBackgroundMetadata.style(for: blank))
+        let shot = XCTAttachment(data: field, uniformTypeIdentifier: "public.png")
+        shot.name = "figma-rose-background"; shot.lifetime = .keepAlways; add(shot)
+    }
+
+    func testPostcardAutomaticCharacterBackdrop() throws {
+        let clearPortrait = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { _ in }
+        var customization = Self.customization
+        customization.showsCharacter = true
+        customization.card = OiCardDesign()
+        customization.card?.postcardDate = Date(timeIntervalSince1970: 1_799_779_200)
+        func render(_ value: OiDraftCustomization, back: Bool = false) throws -> UIImage {
+            let renderer = ImageRenderer(content: OiDraftCardPreview(draft: Self.draft,
+                customization: value, portrait: clearPortrait, showingBack: back).frame(width: 362, height: 502))
+            renderer.scale = 1
+            return try XCTUnwrap(renderer.uiImage)
+        }
+        func interior(_ image: UIImage) throws -> UInt32 {
+            try XCTUnwrap(OiPostcardSnapshot.color(image, x: 50.0 / 362, y: 180.0 / 502))
+        }
+        customization.card?.postcardBackground = .init(color: 0xEECFDF, fill: .solid)
+        let front = try render(customization)
+        XCTAssertEqual(try interior(front), 0x835C6E, "The portrait window must match the Figma rose backdrop")
+        XCTAssertEqual(OiPostcardSnapshot.color(front, x: 18.0 / 362, y: 180.0 / 502), 0xEECFDF,
+                       "The automatic portrait backdrop must not recolor the paper border")
+        let backBefore = try render(customization, back: true).pngData()
+        customization.showsCharacter = false
+        XCTAssertEqual(try interior(render(customization)), 0xEECFDF, "Photo-only cards keep the selected paper background")
+        XCTAssertEqual(try render(customization, back: true).pngData(), backBefore,
+                       "Showing a cucumber must not change the story side")
+        customization.showsCharacter = true
+        customization.card?.postcardBackground?.fill = .gradient
+        XCTAssertEqual(try interior(render(customization)), 0x835C6E,
+                       "The portrait window stays a distinct solid color over gradient paper")
+        customization.card?.characterPlacement = .init(x: 0.8, y: 0.2, scale: 1.7)
+        XCTAssertEqual(try interior(render(customization)), 0x835C6E,
+                       "The background window must not move or resize with the cucumber")
+
+        customization.card?.characterPlacement = OiCardPlacement()
+        customization.card?.postcardBackground = .init(color: 0xE8EECF, fill: .solid)
+        let green = try interior(render(customization))
+        XCTAssertNotEqual(green, 0x835C6E, "Changing the selected paper must update the companion color")
+        XCTAssertGreaterThan((green >> 8) & 255, green & 255, "Green paper must produce a green companion")
+        for color in [0x000000, 0xFFFFFF, 0x1C3040, 0x86AED0] as [UInt32] {
+            customization.card?.postcardBackground?.color = color
+            XCTAssertNotEqual(try interior(render(customization)), color, "Custom RGB colors need a distinct image window")
+        }
+        let darkGray = OiPostcardCharacterBackdrop.color(for: 0x575757)
+        let nearbyGray = OiPostcardCharacterBackdrop.color(for: 0x5C5C5C)
+        XCTAssertLessThan(abs(Int(darkGray & 255) - Int(nearbyGray & 255)), 10,
+                          "Nearby RGB choices must not cause a sudden backdrop brightness jump")
+        let publication = try OiDraftCardPreview(draft: Self.draft, customization: customization,
+            portrait: clearPortrait).publication(colorScheme: .light)
+        let published = try XCTUnwrap(UIImage(data: publication.png))
+        XCTAssertEqual(published.cgImage?.width, 724)
+        XCTAssertEqual(published.cgImage?.height, 1004)
+        OiPostcardBackgroundMetadata.remember(png: publication.png, image: published)
+        XCTAssertEqual(OiPostcardBackgroundMetadata.style(for: published), customization.card?.postcardBackground)
+
+        let portrait = try XCTUnwrap(UIImage(named: "OiCatsPortrait"))
+        let sheet = VStack(spacing: 20) {
+            ForEach([[0xEECFDF, 0xE8EECF, 0xB6D8E8], [0xEAE4D2, 0xFFFFFF, 0x1C3040]] as [[UInt32]], id: \.self) { row in
+                HStack(spacing: 20) {
+                    ForEach(row, id: \.self) { color in
+                        var style = customization
+                        let _ = style.card?.postcardBackground = .init(color: color)
+                        OiDraftCardPreview(draft: Self.draft, customization: style, portrait: portrait)
+                            .frame(width: 362, height: 502)
+                    }
+                }
+            }
+        }.padding(20).background(.black)
+        let renderer = ImageRenderer(content: sheet); renderer.scale = 1
+        let shot = XCTAttachment(data: try XCTUnwrap(renderer.uiImage?.pngData()), uniformTypeIdentifier: "public.png")
+        shot.name = "postcard-automatic-character-backgrounds"; shot.lifetime = .keepAlways; add(shot)
+    }
+
+    func testPostcardBundledTypography() throws {
+        OiPostcardTypography.registerFonts()
+        let handwriting = try XCTUnwrap(UIFont(name: OiPostcardTypography.handwritingName, size: 17),
+                                        "The postcard must load the bundled Figma font rather than silently fall back")
+        XCTAssertEqual(handwriting.fontName, "NanumEongGeongKwiCe")
+        let from = try XCTUnwrap(UIFont(name: OiPostcardTypography.fromName, size: 6))
+        XCTAssertEqual(from.fontName, "EduAUVICWANTPre-Regular")
+        let characters = Array("함께한 순간을 오래 기억하며, 고마워요. 26.11.12".utf16)
+        var glyphs = [CGGlyph](repeating: 0, count: characters.count)
+        XCTAssertTrue(CTFontGetGlyphsForCharacters(handwriting as CTFont, characters, &glyphs, characters.count),
+                      "Korean postcard text must be supported by the actual handwriting font")
+        XCTAssertEqual(handwriting.lineHeight + OiPostcardTypography.lineSpacing, 25.5, accuracy: 0.01)
+
+        let back = OiPostcardBack(backgroundStyle: .init(color: 0xEECFDF),
+            message: "함께한 순간을 오래 기억하며\n고마운 마음을 캠퍼스에 남깁니다.\n\n친구들과 나눈 웃음과 응원이\n내일의 작은 용기가 되기를!",
+            author: "19학번 기계공학과 신수리")
+        let renderer = ImageRenderer(content: back)
+        renderer.scale = 2
+        let image = try XCTUnwrap(renderer.uiImage)
+        XCTAssertEqual(image.cgImage?.width, 724)
+        XCTAssertEqual(image.cgImage?.height, 1004)
+        let shot = XCTAttachment(data: try XCTUnwrap(image.pngData()), uniformTypeIdentifier: "public.png")
+        shot.name = "postcard-figma-typography"; shot.lifetime = .keepAlways; add(shot)
+    }
+
+    func testUnifiedBackgroundEditorCapture() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        var customization = Self.customization
+        customization.card = OiCardDesign()
+        customization.card?.postcardBackground = OiPostcardBackgroundStyle()
+        for variant in variants.prefix(2) {
+            let editor = VStack(spacing: 14) {
+                OiDraftCardPreview(draft: Self.draft, customization: customization)
+                    .frame(width: 150, height: 208)
+                ScrollView {
+                    OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(customization)).backgroundEditor
+                        .padding(20)
+                }
+            }.background(.white)
+            try await capture(editor, name: "unified-background-editor", variant: variant,
+                              defaults: fixture.defaults, includesSafeArea: true, attach: true)
+        }
+        let sheet = HStack(spacing: 16) {
+            ForEach([0xEECFDF, 0xE8EECF, 0xEECFCF] as [UInt32], id: \.self) { color in
+                OiPostcardBack(backgroundStyle: .init(color: color), message: "함께한 순간을 오래 기억하며, 고마운 마음을 캠퍼스에 남깁니다.", author: "오이 농부")
+            }
+        }.padding(20).background(.black)
+        let renderer = ImageRenderer(content: sheet)
+        let shot = XCTAttachment(data: try XCTUnwrap(renderer.uiImage?.pngData()), uniformTypeIdentifier: "public.png")
+        shot.name = "unified-postcard-gradients"; shot.lifetime = .keepAlways; add(shot)
+    }
+
+    func testPostcardCapturesCurrentWardrobePortrait() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let captured = expectation(description: "Current 3D cucumber portrait")
+        var png: Data?
+        let view = OiCardPortraitCapture(look: OiWardrobeLook(), cacheKey: "postcard-runtime-test", onCapture: { data, _ in
+            png = data; captured.fulfill()
+        }).frame(width: 220, height: 308).opacity(0.001)
+        window.rootViewController = UIHostingController(rootView: view.environment(\.scenePhase, .active))
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
+        await fulfillment(of: [captured], timeout: 18)
+        let image = try XCTUnwrap(png.flatMap(UIImage.init(data:)))
+        XCTAssertGreaterThan(image.size.width, 10)
+        XCTAssertGreaterThan(image.size.height, 10)
+        let cg = try XCTUnwrap(image.cgImage)
+        let bitmap = try renderedBitmap(try XCTUnwrap(png), size: CGSize(width: cg.width, height: cg.height))
+        let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: cg.width * cg.height * 4)
+        let green = (0..<(cg.width * cg.height)).filter {
+            pixels[$0 * 4 + 3] > 200 && Int(pixels[$0 * 4 + 1]) > Int(pixels[$0 * 4]) + 15
+                && Int(pixels[$0 * 4 + 1]) > Int(pixels[$0 * 4 + 2]) + 15
+        }.count
+        XCTAssertGreaterThan(green, 100, "The hidden surface must still render the green 3D cucumber")
+        let attachment = XCTAttachment(data: try XCTUnwrap(png), uniformTypeIdentifier: "public.png")
+        attachment.name = "postcard-current-wardrobe-capture"; attachment.lifetime = .keepAlways; add(attachment)
+    }
+
+    func testPostcardPhotoTintFollowsPaperAndPreservesOriginal() throws {
+        let size = CGSize(width: 100, height: 150)
+        let original = UIGraphicsImageRenderer(size: size).image { c in
+            UIColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1).setFill()
+            c.fill(CGRect(origin: .zero, size: size))
+        }
+        let bytes = try XCTUnwrap(original.pngData())
+        var style = OiDraftCustomization()
+        style.card = OiCardDesign(borderFill: .solid)
+        style.card?.backgroundPhoto = bytes
+        func pixel(_ style: OiDraftCustomization) throws -> [Int] {
+            let renderer = ImageRenderer(content: OiCardBackground(customization: style, pattern: nil)
+                .frame(width: size.width, height: size.height))
+            let data = try XCTUnwrap(renderer.uiImage?.pngData())
+            let bitmap = try renderedBitmap(data, size: size)
+            let rgba = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: 100 * 150 * 4)
+            return (0..<3).map { Int(rgba[(75 * 100 + 50) * 4 + $0]) }
+        }
+        let natural = try pixel(style)
+        style.card?.photoMonochrome = true
+        style.card?.borderFirst = 0xD99090
+        let rose = try pixel(style)
+        style.card?.borderFirst = 0x9090D9
+        let blue = try pixel(style)
+        XCTAssertGreaterThan(rose[0], rose[2] + 20)
+        XCTAssertGreaterThan(blue[2], blue[0] + 20)
+        style.card?.photoMonochrome = false
+        XCTAssertEqual(try pixel(style), natural)
+        XCTAssertEqual(style.card?.backgroundPhoto, bytes, "Tinting must not rewrite the original photo")
+    }
+
+    func testPostcardHorizontalFlipAndDate() {
+        XCTAssertTrue(OiPostcardFlip.accepts(CGSize(width: -100, height: 5)))
+        XCTAssertTrue(OiPostcardFlip.accepts(CGSize(width: 100, height: 5)))
+        XCTAssertFalse(OiPostcardFlip.accepts(CGSize(width: 10, height: 100)))
+        XCTAssertFalse(OiPostcardFlip.accepts(CGSize(width: 25, height: 2)))
+        XCTAssertEqual(OiPostcardDate.string(from: "2026.11.12"), "26.11.12")
+        XCTAssertEqual(OiPostcardDate.string(from: "2026년 11월 12일"), "26.11.12")
     }
 
     func testCardPatternsRemainVisibleAcrossBackgrounds() throws {
@@ -353,7 +647,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
                     canContinue: true, onContinue: {})
             }
-            try await capture(card, name: "card-customization", variant: variant, defaults: fixture.defaults)
+            try await capture(card, name: "card-customization", variant: variant, defaults: fixture.defaults, attach: true)
         }
     }
 
