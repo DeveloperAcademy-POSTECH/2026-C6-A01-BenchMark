@@ -432,6 +432,10 @@ struct OiStoryEditor: View {
 
     private func canSelectProgressStage(_ stage: Int) -> Bool {
         guard !wardrobePhotoEditing else { return false }
+        if step == .consent, stage == OiCreationStep.cucumber.progress,
+           ProcessInfo.processInfo.arguments.contains("-oi-test-step3") {
+            return true
+        }
         if stage <= step.progress { return step != .consent || consentState.allRequiredClausesAreAgreed }
         guard canLeaveCurrentStep else { return false }
         return stage <= OiCreationStep.story.progress || storyInputIsComplete
@@ -643,6 +647,9 @@ struct OiStoryEditor: View {
 
     private var publicationAvailabilityMessage: String? {
         if !canWrite { return OiWritingGuidance.unavailable }
+        if !remote.canPublishDuplexCard {
+            return "서버의 카드 양면 저장 업데이트가 필요해요. 내 카드와 초안은 보존돼 있어요."
+        }
         if !remote.canPublishStoryCard {
             return "서버가 꾸민 카드의 공개를 지원할 때 다시 요청해 주세요. 내 카드와 초안은 저장돼 있어요."
         }

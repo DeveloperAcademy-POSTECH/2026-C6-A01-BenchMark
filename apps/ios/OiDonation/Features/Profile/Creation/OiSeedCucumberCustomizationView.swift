@@ -11,6 +11,12 @@ struct OiSeedCucumberCustomizationView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var appearance: OiSeedCucumberAppearance
     @State private var selection: OiSeedCucumberPart
+    @State private var previewRequest: PreviewRequest?
+
+    private struct PreviewRequest: Identifiable {
+        let id = UUID()
+        let appearance: OiSeedCucumberAppearance
+    }
 
     init(appearance: OiSeedCucumberAppearance = .init(), selection: OiSeedCucumberPart = .eyes) {
         _appearance = State(initialValue: appearance)
@@ -20,8 +26,22 @@ struct OiSeedCucumberCustomizationView: View {
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                preview
-                    .frame(height: geometry.size.height * (dynamicTypeSize.isAccessibilitySize ? 0.4 : 0.53))
+                VStack(spacing: 0) {
+                    preview
+                    Button {
+                        previewRequest = PreviewRequest(appearance: appearance)
+                    } label: {
+                        Label("3D 랜더링", systemImage: "cube")
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 8)
+                            .frame(minHeight: 44)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(Color("OiGreen"))
+                    .padding(.bottom, 8)
+                    .accessibilityIdentifier("seedCucumber.3D.open")
+                }
+                .frame(height: max(64, geometry.size.height * (dynamicTypeSize.isAccessibilitySize ? 0.4 : 0.53)))
                 Divider()
                 ScrollView {
                     controls
@@ -33,6 +53,9 @@ struct OiSeedCucumberCustomizationView: View {
         .background(Color(.systemBackground).ignoresSafeArea())
         .navigationTitle("오이 커스텀")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $previewRequest) { request in
+            OiSeedCucumber3DPreview(appearance: request.appearance)
+        }
     }
 
     private var preview: some View {

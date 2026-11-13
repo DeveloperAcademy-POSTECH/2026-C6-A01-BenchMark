@@ -1,0 +1,95 @@
+{
+  "revision": "four-view-architecture-20261113-v4",
+  "solidVertices": 60810,
+  "pitch": 0.05914306640625,
+  "surfacePatches": 43,
+  "features": [
+    "asymmetric-kinked-wrap",
+    "sloped-undercut",
+    "left-truncated-hall",
+    "open-court",
+    "three-distinct-terrace-plans",
+    "low-fan-amphitheatre",
+    "rounded-left-podium",
+    "recessed-entry",
+    "projecting-bridge",
+    "diagonal-link"
+  ],
+  "inferred": [
+    "Physical dimensions and deep rear connections are not documented by the images.",
+    "Gallery depths, hidden terrace junctions and amphitheatre riser heights are approximate."
+  ],
+  "coordinates": "Y up, front +Z; lengths are concept units, not meters.",
+  "method": "Reference-led independent architectural surface patches. Analytic perimeter rows, clipped planar lattices, seam ownership and silhouette-preserving LOD.",
+  "gridSpacing": 0.05914306640625,
+  "pointCount": 110869,
+  "rawPhaseCounts": [
+    37282,
+    24825,
+    24868,
+    23894
+  ],
+  "lodCounts": [
+    37282,
+    62107,
+    110869
+  ],
+  "assetSHA256": "a1d41bd69331402833d94c4c374b1c3c0455234c9e635e3b4d8e4664c233a008",
+  "depthProxySHA256": "7b4e340157af0ff5c845c7c40073f87aea606e4d7a63401b5d4a27e6b7ae3f38",
+  "solidSHA256": "9ca337550b6aaaae652c67c0270722ef65e29c57b0153b8515b661832b281c30",
+  "bounds": {
+    "min": [
+      -7.25,
+      -2.299,
+      -4.47
+    ],
+    "max": [
+      7.418423393509261,
+      2.964,
+      5.79
+    ]
+  },
+  "depthTriangles": 20270,
+  "budgetOmissionRatio": 0,
+  "surfaceOnly": true,
+  "sourceImages": [
+    "01-front.png",
+    "02-left.png",
+    "03-right.png",
+    "04-back.png"
+  ],
+  "chartCount": 43,
+  "chartSamples": 132374,
+  "seamMergeRadius": 0.027797241210937497,
+  "seamDuplicatesRemoved": 9355,
+  "buriedSurfaceSamplesRemoved": 12150,
+  "shellVertexCount": 60810,
+  "groundOffset": 2.2990000247955322,
+  "byteCount": 3834072,
+  "bridgeAnchor": [
+    -7.25,
+    1.7005,
+    -0.18
+  ],
+  "lod": {
+    "mapFar": 37282,
+    "mapNear": 62107,
+    "webMobile": 62107
+  },
+  "planningScale": {
+    "mapScale": 1.12,
+    "center": [
+      51,
+      1.05,
+      41.3
+    ],
+    "heading": 1.96,
+    "estimatedWidthDepthHeightM": [
+      136.90528500608647,
+      95.76,
+      49.12133333333334
+    ],
+    "method": "Uniform visual scale against library/C5 and protected road corridors; approximate, not surveyed. Official building area is not equated with the model envelope.",
+    "source": "https://www.postech.ac.kr/kor/innovation/education_district_cp.do"
+  }
+}

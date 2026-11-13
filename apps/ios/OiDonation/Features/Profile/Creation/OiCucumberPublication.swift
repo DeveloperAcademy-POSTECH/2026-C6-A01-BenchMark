@@ -53,6 +53,8 @@ struct OiCucumberPublication {
 struct OiStoryCardPublication {
     let id: UUID
     let png: Data
+    let parts: [StoryCard.Part: Data]
+    var format: Int { parts.isEmpty ? 1 : 2 }
 
     init(png: Data) throws {
         _ = try OiPublishedCucumberImage.decode(png, part: .portrait)
@@ -60,6 +62,22 @@ struct OiStoryCardPublication {
         id = UUID(uuid: (b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
                          b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]))
         self.png = png
+        parts = [:]
+    }
+
+    init(front: Data, back: Data, frontPreview: Data, backPreview: Data) throws {
+        let values: [StoryCard.Part: Data] = [.front: front, .back: back, .frontPreview: frontPreview, .backPreview: backPreview]
+        var hash = SHA256()
+        hash.update(data: Data("oi-card-duplex-v2".utf8))
+        for part in StoryCard.Part.allCases {
+            _ = try OiPublishedCucumberImage.decode(values[part]!, part: .portrait)
+            hash.update(data: Data(SHA256.hash(data: values[part]!)))
+        }
+        let bytes = Array(hash.finalize().prefix(16))
+        id = UUID(uuid: (bytes[0],bytes[1],bytes[2],bytes[3],bytes[4],bytes[5],bytes[6],bytes[7],
+                         bytes[8],bytes[9],bytes[10],bytes[11],bytes[12],bytes[13],bytes[14],bytes[15]))
+        png = front
+        parts = values
     }
 }
 

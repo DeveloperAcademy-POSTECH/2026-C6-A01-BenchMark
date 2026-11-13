@@ -289,8 +289,9 @@ struct OiStoryWritingStep: View {
         .padding(.top, 20)
     }
 
-    private func limitedText(_ text: Binding<String>) -> Binding<String> {
-        Binding(get: { text.wrappedValue }, set: { newValue in
+    static func limitedText(_ text: Binding<String>) -> Binding<String> {
+        let textLimit = OiCreationStep.storyTextLimit
+        return Binding(get: { text.wrappedValue }, set: { newValue in
             let previousCount = text.wrappedValue.count
             let newCount = newValue.count
             // Keep longer drafts intact on restore and let the author shorten them.
@@ -312,7 +313,7 @@ struct OiStoryWritingStep: View {
                 .hidden()
                 .accessibilityHidden(true)
                 .overlay(alignment: .topLeading) {
-                    TextEditor(text: limitedText(text))
+                    TextEditor(text: Self.limitedText(text))
                         .scrollContentBackground(.hidden)
                         .scrollDisabled(true)
                         .focused(focusedField, equals: field)

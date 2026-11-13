@@ -15,6 +15,7 @@ struct AppClipStoryCardView: View {
     var notice: String? = nil
     let onCollect: () -> Void
     let onCancel: () -> Void
+    var reloadCard: (() async throws -> StoryCard)? = nil
 
     private var story: Story { experience.story }
 
@@ -34,7 +35,7 @@ struct AppClipStoryCardView: View {
             onCollect: onCollect,
             onCancel: onCancel
         ) {
-            StoryCardImage(url: experience.storyCard.imageURL, story: story)
+            AppClipCardPreview(card: experience.storyCard, story: story, reloadCard: reloadCard)
         }
     }
 
@@ -48,9 +49,18 @@ struct AppClipStoryCardView: View {
     }()
 }
 
-private struct StoryCardImage: View {
-    let url: URL?
+struct AppClipCardPreview: View {
+    let card: StoryCard
     let story: Story
+    var reloadCard: (() async throws -> StoryCard)? = nil
+    @State private var refreshed: StoryCard?
+    @State private var showingBack = false
+    @State private var refreshing = false
+    @State private var refreshError: String?
+    private var current: StoryCard { refreshed ?? card }
+    private var url: URL? {
+        showingBack ? current.backPreviewURL ?? current.backImageURL : current.frontPreviewURL ?? current.imageURL
+    }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var reloadID = 0
 
@@ -100,7 +110,11 @@ private struct StoryCardImage: View {
         .environment(\.colorScheme, .light)
         .clipped()
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("스토리 카드")
+        .accessibilityLabel("스토리 카드 \(showingBack ? "뒷면" : "앞면")")
+        .accessibilityHint(current.backImageURL == nil ? "" : "탭하여 앞·뒷면 뒤집기")
+        .onTapGesture { if current.backImageURL != nil { showingBack.toggle() } }
+        .accessibilityAction(named: "카드 뒤집기") { if current.backImageURL != nil { showingBack.toggle() } }
+        .onChange(of: card.imageURL) { _, _ in refreshed = nil; showingBack = false }
     }
 
     private static func dateLabel(_ date: Date) -> String {
@@ -121,8 +135,19 @@ private struct StoryCardImage: View {
                     description: Text("잠시 후 다시 확인해 주세요.")
                 )
                 if canRetry {
-                    Button("다시 불러오기") { reloadID += 1 }
+                    Button("다시 불러오기") {
+                        Task {
+                            refreshing = true; refreshError = nil
+                            defer { refreshing = false }
+                            do {
+                                if let reloadCard { refreshed = try await reloadCard() }
+                                try Task.checkCancellation()
+                                reloadID += 1
+                            } catch { if !Task.isCancelled { refreshError = "공개 카드 상태를 확인하지 못했어요. 다시 시도해 주세요." } }
+                        }
+                    }.disabled(refreshing)
                         .buttonStyle(.borderedProminent)
+                    if let refreshError { Text(refreshError).font(.footnote) }
                 }
             }
         }

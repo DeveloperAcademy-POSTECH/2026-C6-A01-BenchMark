@@ -8,10 +8,31 @@
 import RealityKit
 import UIKit
 import XCTest
+import CryptoKit
 @testable import OiDonation
 
 @MainActor
 final class CampusMapInteractionTests: XCTestCase {
+    func testMapProjectsOverlaysWhenViewportOrArtworkChanges() {
+        let canvas = CampusMapCanvas(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        var layouts = 0
+        canvas.didLayout = { layouts += 1 }
+
+        canvas.layoutSubviews()
+        canvas.layoutSubviews()
+        XCTAssertEqual(layouts, 1)
+
+        canvas.bounds.size.width = 420
+        canvas.layoutSubviews()
+        XCTAssertEqual(layouts, 2)
+
+        canvas.invalidateProjection()
+        canvas.invalidateProjection()
+        canvas.layoutSubviews()
+        canvas.layoutSubviews()
+        XCTAssertEqual(layouts, 3)
+    }
+
     func testPublicOiAppearsAndOpensOnOverviewBeforeSelectingARegion() async throws {
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: windowScene)
@@ -24,7 +45,7 @@ final class CampusMapInteractionTests: XCTestCase {
         controller.view.addSubview(canvas)
         window.isHidden = false
         defer {
-            scene.suspendForARCamera()
+            scene.suspendRendering()
             window.isHidden = true
             window.rootViewController = nil
             window.windowScene = nil
@@ -179,7 +200,7 @@ final class CampusMapInteractionTests: XCTestCase {
         controller.view.addSubview(canvas)
         window.isHidden = false
         defer {
-            scene.suspendForARCamera()
+            scene.suspendRendering()
             window.isHidden = true
             window.rootViewController = nil
             window.windowScene = nil
@@ -255,7 +276,7 @@ final class CampusMapInteractionTests: XCTestCase {
         rotated.sendActions(for: .touchUpInside)
         XCTAssertEqual(opened, story.id)
 
-        scene.suspendForARCamera()
+        scene.suspendRendering()
         scene.setVisible(true)
         let restored = try XCTUnwrap(canvas.map?.scene.findEntity(named: name))
         XCTAssertLessThan(simd_distance(restored.orientation(relativeTo: nil).act([0, 0, 1]), forward), 0.001)
@@ -276,7 +297,7 @@ final class CampusMapInteractionTests: XCTestCase {
         controller.view.addSubview(canvas)
         window.isHidden = false
         defer {
-            scene.suspendForARCamera()
+            scene.suspendRendering()
             window.isHidden = true
             window.rootViewController = nil
             window.windowScene = nil
@@ -383,7 +404,7 @@ final class CampusMapInteractionTests: XCTestCase {
         tilt.state = .ended
         scene.perform(NSSelectorFromString("pan:"), with: tilt)
 
-        scene.suspendForARCamera()
+        scene.suspendRendering()
         scene.setVisible(true)
         XCTAssertNotNil(canvas.map?.scene.findEntity(named: modelName))
 
@@ -412,7 +433,7 @@ final class CampusMapInteractionTests: XCTestCase {
         window.isHidden = false
         defer {
             scene.endPlacement()
-            scene.suspendForARCamera()
+            scene.suspendRendering()
             canvas.removeFromSuperview()
             window.isHidden = true
             window.rootViewController = nil
@@ -508,7 +529,7 @@ final class CampusMapInteractionTests: XCTestCase {
         controller.view.addSubview(canvas)
         window.isHidden = false
         defer {
-            scene.suspendForARCamera()
+            scene.suspendRendering()
             window.isHidden = true
             window.rootViewController = nil
             window.windowScene = nil
@@ -581,7 +602,7 @@ final class CampusMapInteractionTests: XCTestCase {
         scene.updatePlacementPreviewTouches([:])
         XCTAssertEqual(committed, movedAgain)
         XCTAssertEqual(camera.position(relativeTo: nil), cameraStart)
-        scene.suspendForARCamera(); scene.setVisible(true)
+        scene.suspendRendering(); scene.setVisible(true)
         let restored = try XCTUnwrap(canvas.map?.scene.findEntity(named: modelName))
         let restoredGround = data.world(latitude: movedAgain.latitude, longitude: movedAgain.longitude)
         XCTAssertLessThan(simd_distance(restored.position(relativeTo: nil), restoredGround), 0.001)
@@ -601,7 +622,7 @@ final class CampusMapInteractionTests: XCTestCase {
         controller.view.addSubview(canvas)
         window.isHidden = false
         defer {
-            scene.suspendForARCamera()
+            scene.suspendRendering()
             canvas.removeFromSuperview()
             window.isHidden = true
             window.rootViewController = nil
@@ -683,7 +704,7 @@ final class CampusMapInteractionTests: XCTestCase {
         controller.view.addSubview(canvas)
         window.isHidden = false
         defer {
-            scene.suspendForARCamera()
+            scene.suspendRendering()
             canvas.removeFromSuperview()
             window.isHidden = true
             window.rootViewController = nil
@@ -814,7 +835,7 @@ final class CampusMapInteractionTests: XCTestCase {
         controller.view.addSubview(canvas)
         window.isHidden = false
         defer {
-            scene.suspendForARCamera()
+            scene.suspendRendering()
             canvas.removeFromSuperview()
             window.isHidden = true
             window.rootViewController = nil
@@ -936,6 +957,113 @@ final class CampusMapInteractionTests: XCTestCase {
         XCTAssertLessThan(simd_distance(pose().target, hiddenDestination), 0.01, "Backgrounding must clear the old edge-return motion")
     }
 
+    func testMapStartsInApricotCreamDespiteLegacyPreference() {
+        let key = "campus.map.appearance"
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: key)
+        defer {
+            if let previous { defaults.set(previous, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+        }
+        for legacyValue in [nil, "original", "apricotCream"] as [String?] {
+            defaults.set(legacyValue, forKey: key)
+            XCTAssertEqual(CampusExploreScene().appearance, .apricotCream)
+        }
+    }
+
+    func testMapAppearancePreservesCameraGeometryAndOriginalColors() async throws {
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        let scene = CampusExploreScene()
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controller.view.addSubview(canvas)
+        window.isHidden = false
+        defer {
+            scene.suspendRendering()
+            canvas.removeFromSuperview()
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+        }
+        scene.setAppearance(.original)
+        await scene.load()
+        XCTAssertTrue(scene.ready, scene.error ?? "Map should load")
+        window.layoutIfNeeded()
+        canvas.layoutIfNeeded()
+        func root() throws -> Entity {
+            try XCTUnwrap(canvas.map?.scene.anchors.flatMap { Array($0.children) }
+                .first { $0.name.hasPrefix("POSTECH v09") })
+        }
+        func colors(_ entity: Entity) -> [String: UIColor] {
+            Dictionary(uniqueKeysWithValues: entity.children.compactMap { child in
+                guard let model = child as? ModelEntity,
+                      let material = model.model?.materials.first as? SimpleMaterial else { return nil }
+                return (child.name, material.color.tint)
+            })
+        }
+        func assertBackdropBelowMap() throws {
+            let layers = try XCTUnwrap(canvas.layer.sublayers)
+            let backdropIndex = try XCTUnwrap(layers.firstIndex(of: canvas.backdrop))
+            let mapIndex = try XCTUnwrap(layers.firstIndex(of: try XCTUnwrap(canvas.map).layer))
+            XCTAssertLessThan(backdropIndex, mapIndex, "The opaque gradient must not cover the rendered map")
+        }
+        try assertBackdropBelowMap()
+        let original = try root()
+        let originalColors = colors(original)
+        let bounds = original.visualBounds(relativeTo: nil)
+        let camera = try XCTUnwrap(canvas.map?.scene.anchors.flatMap { Array($0.children) }.compactMap { $0 as? PerspectiveCamera }.first)
+        let cameraTransform = camera.transform
+        try await capture("palette-original-overview", in: canvas)
+        scene.setAppearance(.apricotCream)
+        XCTAssertNil(scene.error)
+        XCTAssertFalse(try XCTUnwrap(canvas.map).isOpaque)
+        XCTAssertEqual(canvas.backdrop.colors as? [CGColor], CampusMapAppearance.apricotCream.backdropColors.map(\.cgColor))
+        let litView = try XCTUnwrap(canvas.map)
+        let sun = try XCTUnwrap(litView.scene.anchors.first?.findEntity(named: "campus-sun") as? DirectionalLight)
+        XCTAssertNotNil(sun.shadow)
+        XCTAssertNotNil(litView.environment.lighting.resource)
+        XCTAssertEqual(litView.environment.lighting.intensityExponent, 1)
+        let apricot = try root()
+        XCTAssertEqual(apricot.children.count, original.children.count)
+        XCTAssertEqual(apricot.visualBounds(relativeTo: nil).extents, bounds.extents)
+        XCTAssertEqual(apricot.visualBounds(relativeTo: nil).center, bounds.center)
+        XCTAssertEqual(camera.transform, cameraTransform)
+        XCTAssertNotEqual(colors(apricot), originalColors)
+        XCTAssertEqual(colors(original), originalColors, "Recoloring a clone must not mutate the template")
+        try await capture("palette-apricot-overview", in: canvas)
+        scene.focus(try XCTUnwrap(CampusRegion.campus.first { $0.id == "pond" }), stories: [])
+        try await capture("palette-apricot-pond", in: canvas)
+        let focusedCamera = camera.transform
+        let mapData = try XCTUnwrap(scene.data)
+        let pondRegion = try XCTUnwrap(CampusRegion.campus.first { $0.id == "pond" })
+        let pond = mapData.world(try XCTUnwrap(mapData.pois.first { $0.id == pondRegion.placeID }).p)
+        camera.look(at: pond + SIMD3(0, 5, 0), from: pond + SIMD3(4, 23, 43), relativeTo: nil)
+        try await capture("palette-apricot-low-angle", in: canvas)
+        camera.transform = focusedCamera
+        scene.setAppearance(.original)
+        XCTAssertEqual(canvas.backdrop.colors as? [CGColor], CampusMapAppearance.original.backdropColors.map(\.cgColor))
+        XCTAssertEqual(colors(try root()), originalColors)
+        XCTAssertEqual(camera.transform, focusedCamera)
+        let originalSun = try XCTUnwrap(litView.scene.anchors.first?.findEntity(named: "campus-sun") as? DirectionalLight)
+        XCTAssertEqual(originalSun.shadow?.depthBias, DirectionalLight().shadow?.depthBias)
+        XCTAssertNil(litView.environment.lighting.resource)
+        XCTAssertEqual(originalSun.light.intensity, 2200)
+        try await capture("palette-original-pond", in: canvas)
+        scene.setAppearance(.apricotCream)
+        scene.suspendRendering()
+        scene.setVisible(true)
+        try assertBackdropBelowMap()
+        XCTAssertEqual(canvas.backdrop.colors as? [CGColor], CampusMapAppearance.apricotCream.backdropColors.map(\.cgColor))
+        XCTAssertEqual(colors(try root()), colors(apricot), "Renderer recreation must retain the chosen palette")
+        XCTAssertNotNil(canvas.map?.environment.lighting.resource)
+        XCTAssertNotNil((canvas.map?.scene.anchors.first?.findEntity(named: "campus-sun") as? DirectionalLight)?.shadow)
+        XCTAssertEqual(CampusExploreScene().appearance, .apricotCream)
+    }
+
     private func waitUntil(_ description: String, timeout: TimeInterval = 3, condition: () -> Bool,
                            file: StaticString = #filePath, line: UInt = #line) async throws {
         let clock = ContinuousClock()
@@ -1039,4 +1167,262 @@ private final class TestTilt: UIPanGestureRecognizer {
     override func translation(in view: UIView?) -> CGPoint { delta }
     override func setTranslation(_ translation: CGPoint, in view: UIView?) { delta = translation }
     override func velocity(in view: UIView?) -> CGPoint { panVelocity }
+}
+
+@MainActor
+final class CampusEducationDistrictTests: XCTestCase {
+    func testBundledGeometryIsTheCompleteWebSurface() throws {
+        let url = try XCTUnwrap(Bundle.main.url(forResource: "education-district-points", withExtension: "bin"))
+        let bytes = try Data(contentsOf: url)
+        let hash = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        // Golden export of the latest reviewed four-view web surface.
+        XCTAssertEqual(hash, "a1d41bd69331402833d94c4c374b1c3c0455234c9e635e3b4d8e4664c233a008")
+        let source = try CampusEducationDistrict.geometry()
+        XCTAssertEqual(source.points.count, 110_869)
+        XCTAssertEqual(source.shell.count, 60_810)
+        XCTAssertEqual(source.groundOffset, 2.299, accuracy: 0.00001)
+    }
+
+    func testFullModelFitsRoadConstrainedSiteAtUniformEstimatedScale() throws {
+        let source = try CampusEducationDistrict.geometry()
+        for sample in source.points {
+            XCTAssertTrue(CampusEducationSite.contains(CampusEducationSite.world(sample.position)), "A supplied-model surface is outside the cleared site")
+        }
+        let data = try CampusMapData.load()
+        let library = try XCTUnwrap(data.buildings.first { $0.id == CampusEducationSite.libraryID })
+        let libraryArea = abs(library.p.indices.reduce(0.0) { value, i in
+            let a = library.p[i], b = library.p[(i + 1) % library.p.count]
+            return value + a[0] * b[1] - a[1] * b[0]
+        }) / 2 / (0.12 * 0.12)
+        let boundary = CampusEducationSite.boundary
+        let parcelArea = abs(boundary.indices.reduce(0.0) { value, i in
+            let a = boundary[i], b = boundary[(i + 1) % boundary.count]
+            return value + Double(a.x * b.y - a.y * b.x)
+        }) / 2 / (data.unitsPerMeter * data.unitsPerMeter)
+        XCTAssertGreaterThan(parcelArea / libraryArea, 1.8)
+        XCTAssertLessThan(parcelArea / libraryArea, 2.0)
+        XCTAssertEqual(14.6684234 * Double(CampusEducationSite.scale) / 0.12, 136.905, accuracy: 0.01)
+        let roads = CampusEducationSite.TerrainGrading(data: data).roads
+        XCTAssertFalse(roads.isEmpty)
+        for road in roads {
+            let minimum = source.points.reduce(Float.greatestFiniteMagnitude) { distance, sample in
+                let p = CampusEducationSite.world(sample.position)
+                return min(distance, CampusEducationSite.TerrainGrading.segmentDistance([p.x,p.z], road.a, road.b))
+            }
+            // Include the physical radius of the largest pearl, not just its center.
+            XCTAssertGreaterThan(minimum - 0.031 * CampusEducationSite.scale, road.radius - 0.035)
+        }
+    }
+
+    func testOfflineExperienceLoadsSharedReferenceSurface() async throws {
+        let model = EducationLightWebModel()
+        for _ in 0..<100 {
+            if !model.loading { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertFalse(model.loading, "Offline shared geometry did not load")
+        XCTAssertNil(model.failure)
+        let result = try await model.webView.evaluateJavaScript("window.prototypeDiagnostics()")
+        let diagnostics = try XCTUnwrap(result as? [String: Any])
+        XCTAssertEqual(diagnostics["revision"] as? String, "four-view-architecture-20261113-v4")
+        XCTAssertEqual(diagnostics["capacity"] as? Int, 110_869)
+        XCTAssertEqual(diagnostics["depthTriangles"] as? Int, 20_270)
+        XCTAssertEqual(diagnostics["webgl"] as? Bool, true)
+        model.setActive(false)
+    }
+
+    func testBatchedBuildingAndLevelOfDetailSharePlacement() throws {
+        let data = try CampusMapData.load()
+        let entity = try CampusEducationDistrict.makeEntity(data: data)
+        let position = entity.position
+        let orientation = entity.orientation
+        let bounds = entity.visualBounds(recursive: false, relativeTo: entity)
+        XCTAssertEqual(Set(entity.children.map(\.name)), ["education.library-connector"])
+        XCTAssertNil(entity.findEntity(named: "education.cleared-parcel"), "The campus grass replaces the old gray pad")
+        XCTAssertNil(entity.findEntity(named: "education.surface-depth"), "Surface pearls must not have an opaque building behind them")
+        let bridge = try XCTUnwrap(entity.findEntity(named: "education.library-connector") as? ModelEntity)
+        XCTAssertTrue(bridge.children.isEmpty, "The library connector must also be made only of pearls")
+        XCTAssertEqual(entity.collision?.shapes.count, 1)
+        XCTAssertEqual(entity.name, "campus.education-district")
+        XCTAssertGreaterThan(bounds.extents.x, 10)
+        XCTAssertLessThan(bounds.extents.y, 6)
+        CampusEducationDistrict.update(entity, near: true)
+        XCTAssertEqual(entity.position, position)
+        XCTAssertEqual(entity.orientation, orientation)
+        let close = entity.visualBounds(recursive: false, relativeTo: entity)
+        XCTAssertLessThan(simd_distance(close.extents, bounds.extents), 0.6)
+        XCTAssertFalse(data.buildings.contains { $0.id != CampusEducationDistrict.retiredBuildingID && data.contains(position, polygon: $0.p) })
+    }
+
+    func testSiteClearsPosvilleButPreservesLibraryAndC5AndConnectsBridge() throws {
+        let data = try CampusMapData.load()
+        let retired = try XCTUnwrap(data.buildings.first { $0.id == CampusEducationSite.retiredBuildingID })
+        for p in retired.p { XCTAssertTrue(CampusEducationSite.contains([Float(p[0]), 0, Float(-p[1])])) }
+        for id in [CampusEducationSite.libraryID, CampusEducationSite.c5ID] {
+            let building = try XCTUnwrap(data.buildings.first { $0.id == id })
+            for p in building.p { XCTAssertFalse(CampusEducationSite.contains([Float(p[0]), 0, Float(-p[1])])) }
+        }
+        let library = try XCTUnwrap(data.buildings.first { $0.id == CampusEducationSite.libraryID })
+        let landing = try XCTUnwrap(CampusEducationSite.libraryLanding(data: data))
+        XCTAssertTrue(data.contains(landing, polygon: library.p), "The gallery must touch the actual library wall")
+        XCTAssertEqual(CampusEducationSite.local(landing).z, CampusEducationSite.bridgeAnchor.z, accuracy: 0.001)
+        let front = CampusEducationSite.world([0, 0, 1]) - CampusEducationSite.center
+        let towardC5 = SIMD3<Float>(62.19, CampusEducationSite.center.y, 35.25) - CampusEducationSite.center
+        XCTAssertGreaterThan(simd_dot(simd_normalize(front), simd_normalize(towardC5)), 0.8)
+        XCTAssertEqual(data.grounded([53.4, 7, 39.4]).y, CampusEducationSite.elevation)
+    }
+
+    func testGradingMeetsPadAndPreservesRoadsAndFoundations() throws {
+        let data = try CampusMapData.load()
+        let field = try XCTUnwrap(data.surface)
+        let grading = try XCTUnwrap(field.grading)
+        for p in CampusEducationSite.boundary {
+            XCTAssertEqual(try XCTUnwrap(field.height(x:p.x,z:p.y)), CampusEducationSite.elevation, accuracy: 0.001)
+        }
+        for road in grading.roads {
+            for t: Float in [0,0.25,0.5,0.75,1] {
+                let p = road.a + (road.b-road.a)*t
+                XCTAssertEqual(field.height(x:p.x,z:p.y), field.rawHeight(x:p.x,z:p.y), "Do not move existing road elevations")
+            }
+        }
+        for id in [CampusEducationSite.libraryID, CampusEducationSite.c5ID] {
+            let building = try XCTUnwrap(data.buildings.first { $0.id == id })
+            for p in building.p {
+                XCTAssertEqual(field.height(x:Float(p[0]),z:Float(-p[1])), field.rawHeight(x:Float(p[0]),z:Float(-p[1])))
+            }
+        }
+        // Sample uphill from the rear parcel edge: continuous grading, not a cliff.
+        var changed = 0
+        for x in stride(from: Float(41), through: 49, by: 0.1) {
+            let a = try XCTUnwrap(field.height(x:x,z:42))
+            let b = try XCTUnwrap(field.height(x:x+0.01,z:42))
+            XCTAssertLessThan(abs(b-a), 0.08)
+            if abs(field.gradingDelta(x:x,z:42)) > 0.01 { changed += 1 }
+        }
+        XCTAssertGreaterThan(changed, 20)
+    }
+
+    func testClearingRemovesIntersectingGroundAndWallsWithoutCentroidGaps() {
+        // A large triangle crosses the entire site while its centroid is outside it.
+        let positions: [SIMD3<Float>] = [[40,0,25], [80,0,25], [55,0,80],
+            [50.18,0,40.04], [56.07,0,37.47], [50.18,3,40.04],
+            [20,0,20], [21,0,20], [20,1,20]]
+        let source = CampusEducationSite.MeshBuffers(positions: positions,
+            normals: Array(repeating: [0,1,0], count: positions.count), indices: Array(0..<9))
+        let result = CampusEducationSite.clearing(source)
+        XCTAssertEqual(result.positions.count, result.normals.count)
+        XCTAssertTrue(result.indices.suffix(3).elementsEqual([6,7,8]), "Unrelated geometry must remain unchanged")
+        XCTAssertFalse(result.indices.contains(3), "Posville's boundary wall must be removed too")
+        for i in stride(from: 0, to: result.indices.count, by: 3) {
+            let a = result.positions[Int(result.indices[i])]
+            let b = result.positions[Int(result.indices[i + 1])]
+            let c = result.positions[Int(result.indices[i + 2])]
+            for weights: SIMD3<Float> in [[0.333,0.333,0.334], [0.8,0.1,0.1], [0.1,0.8,0.1], [0.1,0.1,0.8]] {
+                XCTAssertFalse(CampusEducationSite.contains(a * weights.x + b * weights.y + c * weights.z))
+            }
+        }
+    }
+
+    func testParkingAndAccessSpursBecomeGrassButMainRoadRemains() throws {
+        let data = try CampusMapData.load()
+        let landscape = CampusEducationLandscape(data:data)
+        let field = try XCTUnwrap(data.surface)
+        // An old pavement spans the site and main road. Clipping must preserve
+        // the road portion instead of deleting the entire intersecting triangle.
+        let positions: [SIMD3<Float>] = [[38,0.5,28],[38,0.5,54],[65,0.5,54],[65,0.5,28]]
+        let old = CampusEducationSite.MeshBuffers(positions:positions,
+            normals:Array(repeating:[0,1,0],count:4),indices:[0,1,2,0,2,3])
+        let pavement = landscape.clearing(old, preservingFootpaths:false)
+        let pathCrossings = landscape.pathCrossings(old)
+        let grass = landscape.grass(surface:field)
+        func covered(_ p: SIMD2<Float>, by mesh: CampusEducationSite.MeshBuffers) -> Bool {
+            stride(from:0,to:mesh.indices.count,by:3).contains { i in
+                let triangle = mesh.indices[i..<i+3].map { mesh.positions[Int($0)] }.map { SIMD2($0.x,$0.z) }
+                let signs = triangle.indices.map { j in
+                    CampusEducationSite.cross(triangle[(j+1)%3]-triangle[j],p-triangle[j])
+                }
+                return signs.allSatisfy { $0 >= -0.00001 } || signs.allSatisfy { $0 <= 0.00001 }
+            }
+        }
+        // Old parking below the building, its remaining east edge, and both spurs.
+        for p: SIMD2<Float> in [[53,44],[56,48],[58.4,44],[56.9,35.7],[58.7,39.35]] {
+            XCTAssertTrue(landscape.contains(p))
+            XCTAssertFalse(covered(p,by:pavement), "Old gray pavement remains at \(p)")
+            XCTAssertTrue(covered(p,by:grass), "Restored ground has a hole at \(p)")
+        }
+        for p: SIMD2<Float> in [[58.024,35.25],[59.71,38.9],[62.526,45.005],[55.437,50.186]] {
+            XCTAssertFalse(landscape.contains(p))
+            XCTAssertTrue(covered(p,by:pavement), "Existing main/library road was removed")
+            XCTAssertFalse(covered(p,by:grass), "New grass overlaps a protected road")
+        }
+        for p: SIMD2<Float> in [[56.483,35.877],[58.367,39.526]] {
+            XCTAssertFalse(covered(p,by:pavement), "No leftover asphalt bars where retired spurs crossed a footpath")
+            XCTAssertTrue(covered(p,by:pathCrossings), "Keep the existing footpath continuous through each former crossing")
+        }
+        XCTAssertFalse(covered([59.71,38.9],by:pathCrossings), "Do not recolor the main road as a footpath")
+        XCTAssertLessThan(grass.positions.count,20_000)
+        XCTAssertEqual(grass.positions.count,grass.normals.count)
+        for (p,n) in zip(grass.positions,grass.normals) {
+            XCTAssertEqual(p.y,try XCTUnwrap(field.groundHeight(x:p.x,z:p.z)),accuracy:0.0001)
+            XCTAssertEqual(simd_length(n),1,accuracy:0.0001)
+            XCTAssertGreaterThan(n.y,0)
+        }
+        for i in stride(from:0,to:grass.indices.count,by:3) {
+            let a = grass.positions[Int(grass.indices[i])], b = grass.positions[Int(grass.indices[i+1])], c = grass.positions[Int(grass.indices[i+2])]
+            XCTAssertGreaterThanOrEqual(simd_cross(b-a,c-a).y,0, "No folded or vertical grass skirts")
+        }
+    }
+
+    func testParcelBoundaryTreesAreRemovedWholeAcrossMaterialSeams() {
+        let positions: [SIMD3<Float>] = [
+            [49.3,2,43.8], [50.0,2,43.8], [49.65,2.5,44.2],
+            [49.3,2,43.8], [49.65,2.5,44.2], [49.65,2,44.4],
+            [40.0,2,44.8], [40.6,2,44.8], [40.3,2.5,45.2]
+        ]
+        let source = CampusEducationSite.MeshBuffers(positions: positions,
+            normals: Array(repeating: [0,1,0], count: positions.count), indices: Array(0..<9))
+        let trees = [CampusEducationSite.Tree(center: [49.666,44.078]), .init(center: [40.313,45.034])]
+        let cleared = CampusEducationSite.clearingVegetation(source, trees: trees)
+        XCTAssertEqual(cleared.indices, [6,7,8], "Remove the entire boundary crown, preserving the neighboring tree")
+        XCTAssertEqual(cleared.positions, source.positions)
+        XCTAssertEqual(cleared.normals, source.normals)
+    }
+
+    func testNativeMapEducationSiteFromEveryDirection() async throws {
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        let scene = CampusExploreScene()
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controller.view.addSubview(canvas)
+        window.isHidden = false
+        defer {
+            scene.suspendRendering(); canvas.removeFromSuperview()
+            window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+        }
+        await scene.load()
+        XCTAssertTrue(scene.ready)
+        window.layoutIfNeeded(); canvas.layoutIfNeeded()
+        scene.selectEducationDistrict()
+        try await Task.sleep(for: .seconds(1))
+        let map = try XCTUnwrap(canvas.map)
+        let camera = try XCTUnwrap(map.scene.anchors.flatMap { Array($0.children) }.compactMap { $0 as? PerspectiveCamera }.first)
+        // Inspect the actual loaded map, after its parcel triangles were removed.
+        for (name, yaw, pitch, radius) in [("front", Float(0), Float(0.5), Float(50)),
+             ("left", -.pi / 2, 0.55, 50), ("right", .pi / 2, 0.55, 50),
+             ("back", .pi, 0.55, 50), ("site-overhead", -CampusEducationSite.heading, 1.56, 62)] {
+            let angle = yaw + CampusEducationSite.heading
+            let target = CampusEducationSite.center + SIMD3<Float>(0, 2.5, 0)
+            camera.look(at: target, from: target + SIMD3(sin(angle) * cos(pitch), sin(pitch), cos(angle) * cos(pitch)) * radius, relativeTo: nil)
+            try await Task.sleep(for: .milliseconds(500))
+            let rendered = await withCheckedContinuation { continuation in
+                map.snapshot(saveToHDR: false) { continuation.resume(returning: $0) }
+            }
+            let attachment = XCTAttachment(image: try XCTUnwrap(rendered))
+            attachment.name = "education-" + name; attachment.lifetime = .keepAlways; add(attachment)
+        }
+    }
 }

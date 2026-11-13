@@ -6,6 +6,7 @@ final class CampusHeightField {
     struct Metadata:Decodable {let patches:[Patch];let verticalOffset:Float}
     struct Patch:Decodable {let file:String;let width:Int;let height:Int;let minX:Float;let minY:Float;let step:Float}
     private let patches:[(Patch,[Float])]
+    var grading: CampusEducationSite.TerrainGrading?
     let offset:Float
     init(directory:URL)throws {
         let meta=try JSONDecoder().decode(Metadata.self,from:Data(contentsOf:directory.appendingPathComponent("campus-height.json")));offset=meta.verticalOffset
@@ -16,7 +17,23 @@ final class CampusHeightField {
             return(p,values)
         }
     }
-    func height(x:Float,z:Float)->Float?{
+    func height(x:Float,z:Float)->Float? {
+        guard let raw = rawHeight(x:x,z:z) else { return nil }
+        let weight = grading?.weight(x:x,z:z) ?? 0
+        return raw + (CampusEducationSite.elevation - raw) * weight
+    }
+    func gradingDelta(x:Float,z:Float)->Float {
+        let weight = grading?.weight(x:x,z:z) ?? 0
+        guard weight > 0, let raw = rawHeight(x:x,z:z) else { return 0 }
+        // Tree bases move with the terrain, without the picking offset.
+        return (CampusEducationSite.elevation - (raw - offset)) * weight
+    }
+    func groundHeight(x:Float,z:Float)->Float? {
+        guard let raw = rawHeight(x:x,z:z) else { return nil }
+        let weight = grading?.weight(x:x,z:z) ?? 0
+        return (raw - offset) * (1 - weight) + CampusEducationSite.elevation * weight
+    }
+    func rawHeight(x:Float,z:Float)->Float?{
         for (p,v) in patches {
             let fx=(x-p.minX)/p.step,fy=(-z-p.minY)/p.step
             guard fx>=0,fy>=0,fx<Float(p.width-1),fy<Float(p.height-1) else{continue}

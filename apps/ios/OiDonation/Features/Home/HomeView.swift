@@ -9,7 +9,6 @@ struct HomeView: View {
     let onOpenStory: (String) -> Void
     var remote: OiRemoteStore? = nil
     var onCreateStory: (() -> Void)? = nil
-    var onOpenSample: (() -> Void)? = nil
     var authoredPlacementToReveal: Binding<UUID?> = .constant(nil)
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -23,10 +22,12 @@ struct HomeView: View {
     @State private var isOnScreen = false
     @State private var showingSearchChoice = false
     @State private var pendingSearchMode: CampusSearchMode?
+    @State private var isSearchCoverActive = false
     @State private var searchMode: CampusSearchMode?
     @State private var pendingStoryID: String?
     @State private var showingRequests = false
     @State private var listIsAtTop = true
+    @State private var showingEducationDistrict = false
     @State private var loadedAuthoredSource: AuthoredPlacementSource?
     @State private var selectedAuthoredDestination: AuthoredDestination?
 
@@ -85,7 +86,6 @@ struct HomeView: View {
                 if let error = scene.error {
                     ContentUnavailableView { Label("지도를 불러올 수 없어요", systemImage: "map") } description: { Text(error) } actions: {
                         Button("다시 시도") { Task { await scene.load() } }
-                        if let onOpenSample { Button("이야기·AR 체험", action: onOpenSample) }
                     }.background(.regularMaterial)
                 }
             }
@@ -113,6 +113,12 @@ struct HomeView: View {
             case .school(let school): MYCollectionView(demo: myDemo, school: school, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
             }
         }
+        .sheet(isPresented: $showingEducationDistrict, onDismiss: { scene.finishEducationDistrict() }) {
+            CampusEducationDistrictView { covered in
+                if covered { scene.suspendRendering() }
+                else { scene.setVisible(isOnScreen && !isCameraCoverActive && scenePhase == .active) }
+            }
+        }
         .navigationDestination(item: $selectedAuthoredDestination) { destination in
             if let remote, remote.canPlaceOi {
                 switch destination {
@@ -128,13 +134,20 @@ struct HomeView: View {
             }
         }
         .sheet(isPresented: $showingSearchChoice, onDismiss: {
-            searchMode = pendingSearchMode; pendingSearchMode = nil
+            if let pendingSearchMode {
+                isSearchCoverActive = true
+                scene.suspendRendering()
+                searchMode = pendingSearchMode
+                self.pendingSearchMode = nil
+            }
         }) {
             CampusSearchChoiceSheet { pendingSearchMode = $0; showingSearchChoice = false }
         }
         .fullScreenCover(item: $searchMode, onDismiss: {
             // Push only after the search cover has gone, so it cannot cover the destination.
+            isSearchCoverActive = false
             if let id = pendingStoryID { pendingStoryID = nil; openStory(id) }
+            else { updateMapVisibility() }
         }) { mode in
             CampusSearchView(mode: mode, entries: searchEntries, isExample: store.isExample, remote: remote) {
                 pendingStoryID = $0.id; searchMode = nil
@@ -152,7 +165,7 @@ struct HomeView: View {
         .onAppear {
             pruneAuthoredPlacements(authoredSource)
             isOnScreen = true
-            scene.setVisible(!isCameraCoverActive && scenePhase == .active)
+            updateMapVisibility()
             revealAuthoredPlacement()
         }
         .onChange(of: authoredSource) { _, source in
@@ -164,16 +177,9 @@ struct HomeView: View {
             if id != nil { selectedAuthoredDestination = nil }
             revealAuthoredPlacement()
         }
-        .onDisappear { isOnScreen = false; scene.suspendForARCamera() }
-        .onChange(of: scenePhase) { _, phase in scene.setVisible(isOnScreen && !isCameraCoverActive && phase == .active) }
-        .onChange(of: isCameraCoverActive) { _, active in
-            // Full-screen presentation doesn't always trigger this nested view's onAppear again.
-            if active {
-                scene.suspendForARCamera()
-            } else {
-                scene.setVisible(isOnScreen && scenePhase == .active)
-            }
-        }
+        .onDisappear { isOnScreen = false; scene.suspendRendering() }
+        .onChange(of: scenePhase) { _, _ in updateMapVisibility() }
+        .onChange(of: isCameraCoverActive) { _, _ in updateMapVisibility() }
         .onChange(of: store.stories) { _, stories in
             scene.setOverviewStories(stories)
             if let region {
@@ -183,7 +189,16 @@ struct HomeView: View {
         }
     }
 
+    private func updateMapVisibility() {
+        if !isOnScreen || isCameraCoverActive || isSearchCoverActive || scenePhase == .background {
+            scene.suspendRendering()
+        } else {
+            scene.setVisible(scenePhase == .active)
+        }
+    }
+
     private func configureSceneCallbacks() {
+        scene.onEducationDistrict = { showingEducationDistrict = true }
         if let remote {
             scene.loadCucumberPortrait = { try await remote.cucumberImage($0) }
             scene.loadCucumberModel = { try await remote.cucumberModel($0) }
@@ -211,7 +226,7 @@ struct HomeView: View {
             if item.visibility == .published, store.story(id.uuidString) != nil {
                 openStory(id.uuidString)
             } else {
-                scene.suspendForARCamera()
+                scene.suspendRendering()
                 selectedAuthoredDestination = source.stories.contains(where: { $0.id == id }) ? .story(id) : .personal(id)
             }
         }
@@ -353,7 +368,7 @@ struct HomeView: View {
     private func openStory(_ id: String) {
         // The summary uses its own non-AR renderer. Release this one before the push,
         // just as for AR, then rebuild it with the saved camera values on return.
-        scene.suspendForARCamera()
+        scene.suspendRendering()
         onOpenStory(id)
     }
 
@@ -370,7 +385,6 @@ struct HomeView: View {
                 .buttonStyle(.plain).glassEffect(.regular.interactive(), in: Circle())
                 .accessibilityLabel("캠퍼스 전체 지도").accessibilityIdentifier("campus.overview")
                 Spacer()
-                Color.clear.frame(width: 50, height: 1)
             } else {
                 Button { showingSchools = true } label: {
                     HStack(spacing: 8) {
@@ -381,14 +395,6 @@ struct HomeView: View {
                 .buttonStyle(.plain).glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 20))
                 .accessibilityLabel("캠퍼스 선택").accessibilityIdentifier("campus.school")
                 Spacer()
-                if let onOpenSample {
-                    Button(action: onOpenSample) {
-                        Text("체험하기").font(CampusStyle.medium(14))
-                            .padding(.horizontal, 12).frame(minHeight: 44)
-                            .contentShape(Capsule())
-                    }.buttonStyle(.plain).glassEffect(.regular.interactive(), in: Capsule())
-                        .accessibilityLabel("이야기·AR 체험 열기").accessibilityIdentifier("campus.sample")
-                }
             }
         }
         .overlay(alignment: .top) {
