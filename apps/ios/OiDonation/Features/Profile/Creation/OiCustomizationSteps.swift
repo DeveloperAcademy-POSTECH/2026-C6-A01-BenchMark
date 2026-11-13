@@ -213,9 +213,8 @@ struct OiCardCustomizationStep: View {
                 fieldHeading("엽서 내용", hint: "뒷면에 들어갈 이야기입니다")
                 VStack(alignment: .leading, spacing: 6) {
                     TextField("엽서에 남길 이야기",
-                              text: Binding(get: { draft.body }, set: { text in
-                        draft.body = String(text.prefix(OiCreationStep.storyTextLimit))
-                    }), axis: .vertical).lineLimit(3...5).font(CampusStyle.body(14)).lineSpacing(7)
+                              text: OiStoryWritingStep.limitedText($draft.body),
+                              axis: .vertical).lineLimit(3...5).font(CampusStyle.body(14)).lineSpacing(7)
                         .accessibilityIdentifier("oi.card.caption")
                     HStack {
                         Text("\(draft.body.count) / \(OiCreationStep.storyTextLimit)자").foregroundStyle(.secondary)

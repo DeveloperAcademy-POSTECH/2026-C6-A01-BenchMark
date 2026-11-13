@@ -113,6 +113,29 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testStoryTextBindingPreservesLegacyDrafts() {
+        let original = String(repeating: "추억", count: 30)
+        var text = original
+        let binding = OiStoryWritingStep.limitedText(Binding(get: { text }, set: { text = $0 }))
+        XCTAssertEqual(binding.wrappedValue, original)
+
+        let shortened = String(original.dropLast())
+        binding.wrappedValue = shortened
+        XCTAssertEqual(text, shortened, "Deleting one character must preserve all remaining legacy text")
+        binding.wrappedValue = shortened + "가"
+        XCTAssertEqual(text, shortened, "An over-limit draft may be shortened but not extended")
+
+        let atLimit = String(repeating: "가", count: OiCreationStep.storyTextLimit)
+        binding.wrappedValue = atLimit
+        XCTAssertEqual(text, atLimit)
+        binding.wrappedValue = String(repeating: "나", count: OiCreationStep.storyTextLimit + 1)
+        XCTAssertEqual(text, atLimit, "Over-limit pastes must be rejected, not silently truncated")
+
+        binding.wrappedValue = "짧은 이야기"
+        binding.wrappedValue += "!"
+        XCTAssertEqual(text, "짧은 이야기!")
+    }
+
     private struct StoryPasteFixture: View {
         @State private var draft = OiStoryDraft()
         @FocusState private var focusedField: OiStoryWritingStep.Field?
