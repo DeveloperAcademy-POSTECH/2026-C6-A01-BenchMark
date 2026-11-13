@@ -16,6 +16,7 @@ import SwiftUI
 struct ScratchPostcardView: View {
     let postcard: ScratchPostcard
     var onClose: () -> Void
+    let validateCollection: () async throws -> Bool
 
     private enum Phase { case scratching, revealing, revealed }
     private enum Toast: Equatable { case saved, failed(String) }
@@ -50,6 +51,8 @@ struct ScratchPostcardView: View {
     @State private var toast: Toast?
     @State private var revealTask: Task<Void, Never>?
     @State private var toastTask: Task<Void, Never>?
+    @State private var saving = false
+    @State private var saveTask: Task<Void, Never>?
     @State private var safeAreaInsets = EdgeInsets()
 
     private var isRevealed: Bool { phase == .revealed }
@@ -127,6 +130,7 @@ struct ScratchPostcardView: View {
         .onDisappear {
             revealTask?.cancel()
             toastTask?.cancel()
+            saveTask?.cancel()
         }
     }
 
@@ -342,7 +346,7 @@ struct ScratchPostcardView: View {
                     .frame(height: Layout.buttonHeight)
                     .background(Self.green.opacity(isSaved ? 0.7 : 1), in: RoundedRectangle(cornerRadius: 20))
             }
-            .disabled(isSaved)
+            .disabled(isSaved || saving)
             .accessibilityHint("이 엽서를 수집했다는 기록을 이 기기에 남겨요. 전체 앱을 설치하면 도감에서 볼 수 있어요")
         }
         .buttonStyle(.plain)
@@ -475,10 +479,21 @@ struct ScratchPostcardView: View {
     // MARK: - Saving
 
     private func save() {
-        if collectionStore.collect(postcard.card) {
-            show(.saved)
-        } else {
-            show(.failed(collectionStore.persistenceError ?? "엽서를 저장하지 못했어요. 다시 시도해 주세요."))
+        guard !saving, !isSaved else { return }
+        saving = true
+        saveTask = Task { @MainActor in
+            defer { saving = false }
+            do {
+                guard try await validateCollection() else {
+                    show(.failed("이 엽서는 더 이상 수집할 수 없어요. 닫고 태그를 다시 확인해 주세요."))
+                    return
+                }
+                try Task.checkCancellation()
+                if collectionStore.collect(postcard.card) { show(.saved) }
+                else { show(.failed(collectionStore.persistenceError ?? "엽서를 저장하지 못했어요. 다시 시도해 주세요.")) }
+            } catch is CancellationError {} catch {
+                if !Task.isCancelled { show(.failed("공개 상태를 확인하지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.")) }
+            }
         }
     }
 

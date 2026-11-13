@@ -67,13 +67,13 @@ final class ScratchPostcardLoader {
                 return
             }
             async let front = Self.image(details.frontURL)
-            async let back = try? Self.image(details.backURL)
+            async let back = Self.image(details.backURL)
             async let cover = try? Self.image(details.coverPhotoURL)
             async let character = try? Self.image(story.cucumberImageURL)
             let postcard = ScratchPostcard(
                 tagID: tag, story: story, card: card,
                 donorLine: details.donorLine ?? story.donorDisplayName,
-                front: try await front, back: await back ?? nil,
+                front: try await front, back: try await back,
                 coverPhoto: await cover ?? nil, character: await character ?? nil
             )
             guard requestID == current, !Task.isCancelled else { return }
@@ -116,7 +116,8 @@ struct ScratchPostcardScreen: View {
         Group {
             switch loader.state {
             case .loaded(let postcard):
-                ScratchPostcardView(postcard: postcard, onClose: onClose)
+                ScratchPostcardView(postcard: postcard, onClose: onClose,
+                    validateCollection: { try await repository.canCollectNFCPostcard(tag: tagID, storyID: postcard.story.storyID) })
             case .loading:
                 ProgressView("엽서를 불러오는 중")
                     .font(.custom("Paperlogy-4Regular", size: 15))

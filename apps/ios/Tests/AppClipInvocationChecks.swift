@@ -9,6 +9,27 @@ import Foundation
 
 private enum CheckError: Error { case failed }
 
+private actor MutableNFCRepository: StoryRepository {
+    let id = UUID()
+    private var linked: String?
+    private var visible = true
+    private var fails = false
+    init() { linked = id.uuidString }
+    func configure(linked: String?, visible: Bool = true, fails: Bool = false) {
+        self.linked = linked; self.visible = visible; self.fails = fails
+    }
+    func fetchNFCPostcardStoryID(tag: String) async throws -> String? {
+        if fails { throw CheckError.failed }
+        return visible ? linked : nil
+    }
+    func fetchPublicStory(storyID: String) async throws -> Story? {
+        guard visible else { return nil }
+        return Story(storyID: id.uuidString, donorID: id, donorDisplayName: "가상 농부", title: "가상 엽서", content: "가상 검사",
+            publishedAt: Date(), location: .init(locationID: "pond", displayName: "가상 장소"), tags: [], cucumberID: id.uuidString, cucumberName: "가상 오이")
+    }
+    func fetchPublicStoryCard(storyID: String) async throws -> StoryCard? { nil }
+}
+
 /// Story links in the checks use the production App Clip URL with fixed UUIDs; the repository maps them back to names.
 private enum TestStoryLink {
     static let names = ["first", "delayed", "stale-failure", "missing", "missing-card", "failed", "cancelled"]
@@ -79,7 +100,11 @@ private actor BrowseRepository: StoryRepository {
             publishedAt: Date(), location: StoryLocation(locationID: "pond", displayName: "검사 장소"), tags: [], cucumberID: id.uuidString, cucumberName: "검사 오이")
     }
     func fetchPublicStoryCard(storyID: String) async throws -> StoryCard? {
-        StoryCard(cardID: id.uuidString, storyID: id.uuidString, imageURL: nil)
+        if removed { return nil }
+        return StoryCard(cardID: id.uuidString, storyID: id.uuidString, imageURL: nil,
+            backImageURL: URL(string: "https://example.com/back.png"),
+            frontPreviewURL: URL(string: "https://example.com/front-preview.png"),
+            backPreviewURL: URL(string: "https://example.com/back-preview.png"))
     }
 }
 
@@ -116,6 +141,27 @@ private final class ControlledGameClock {
 struct AppClipInvocationChecks {
     @MainActor
     static func main() async {
+        let nfc = MutableNFCRepository()
+        let nfcID = await nfc.id.uuidString
+        do {
+            let allowed = try await nfc.canCollectNFCPostcard(tag: "pond-01", storyID: nfcID)
+            require(allowed, "current public NFC story can be saved")
+            await nfc.configure(linked: nil)
+            let retired = try await nfc.canCollectNFCPostcard(tag: "pond-01", storyID: nfcID)
+            require(!retired, "a retired tag cannot save a previously displayed card")
+            await nfc.configure(linked: UUID().uuidString)
+            let replaced = try await nfc.canCollectNFCPostcard(tag: "pond-01", storyID: nfcID)
+            require(!replaced, "a replaced tag cannot save the previous story")
+            await nfc.configure(linked: nfcID, visible: false)
+            let hidden = try await nfc.canCollectNFCPostcard(tag: "pond-01", storyID: nfcID)
+            require(!hidden, "a hidden story cannot be saved")
+            await nfc.configure(linked: nfcID, fails: true)
+            do {
+                _ = try await nfc.canCollectNFCPostcard(tag: "pond-01", storyID: nfcID)
+                fatalError("Offline validation must not authorize collection")
+            } catch {}
+        } catch { fatalError("NFC validation check failed: \(error)") }
+        print("PASS: NFC collect revalidates public story, tag retirement/reassignment and network failure")
         let valid = [
             AppClipLink.defaultURLString,
             "https://APPCLIP.APPLE.COM/id?p=com.Spero.OiDonation.Clip",
@@ -171,6 +217,11 @@ struct AppClipInvocationChecks {
         require(AppClipLink.postcardID(in: url(AppClipLink.defaultURLString + "&postcard=Bad%20ID")) == nil, "reject malformed postcard id")
         require(AppClipLink.postcardID(in: url("https://example.com/id?p=com.Spero.OiDonation.Clip&postcard=pond-01")) == nil, "reject postcard on other host")
         await browse.handleInvocationURL(invocationURL: storyURL)
+        do {
+            let refreshed = try await browse.refreshedCard()
+            require(refreshed.backImageURL != nil && refreshed.frontPreviewURL != nil && refreshed.backPreviewURL != nil,
+                    "refresh renews both sides without loading images or needing an account")
+        } catch { fatalError("Public card refresh must succeed: \(error)") }
         require(browse.state == .ready && browse.story?.storyID == browseID.uuidString, "production configuration reaches actual story without a custom host")
         let canCollect = await browse.canCollectCurrentStory()
         require(canCollect, "published story can be collected")
@@ -178,6 +229,10 @@ struct AppClipInvocationChecks {
         appRouter.open(storyURL)
         require(appRouter.storyPath == [.story(browseID.uuidString)], "installed app opens the same story")
         await browseRepository.removeStory()
+        do {
+            _ = try await browse.refreshedCard()
+            fatalError("A hidden card must not receive fresh signed URLs")
+        } catch {}
         let removedCanCollect = await browse.canCollectCurrentStory()
         require(!removedCanCollect, "withdrawn story cannot be saved after an AR round")
         browse.showWelcome()

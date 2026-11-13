@@ -71,26 +71,7 @@ $$;
 revoke all on function public.oi_operator_nfc_tags() from public,anon,authenticated;
 grant execute on function public.oi_operator_nfc_tags() to authenticated;
 
--- Postcard back (A): rendered by the app next to the front and uploaded as
--- card/<card_snapshot_id>-back.png. Sharing the reviewed snapshot ID means approving a card publishes
--- its matching back, and replacing the card retires the old back. The file is optional so stories
--- submitted by older app versions keep working; readers fall back to drawing the text themselves.
-create function benchmark_private.oi_story_card_back_path(owner_id uuid, story_id uuid, snapshot_id uuid)
-returns text language sql immutable strict set search_path='' as $$
-  select owner_id::text||'/'||story_id::text||'/card/'||snapshot_id::text||'-back.png';
-$$;
-revoke all on function benchmark_private.oi_story_card_back_path(uuid,uuid,uuid) from public;
-grant execute on function benchmark_private.oi_story_card_back_path(uuid,uuid,uuid) to anon,authenticated;
-
-create policy oi_story_card_back_read on storage.objects for select to anon,authenticated using (
-  bucket_id='oi-story-media' and (storage.foldername(name))[3]='card'
-  and metadata->>'mimetype'='image/png' and exists (
-    select 1 from public.oi_stories s
-    where s.id::text=(storage.foldername(name))[2]
-      and (s.status='published' or (s.status<>'deleted' and s.user_id=(select benchmark_private.oi_account_id())))
-      and name=benchmark_private.oi_story_card_back_path(s.storage_owner_id,s.id,s.card_snapshot_id)
-  )
-);
-
+-- Card files use the reviewed format-2 contract from 20261113070000.
+-- Do not grant access to alternate, unreviewed '-back.png' files.
 notify pgrst,'reload schema';
 commit;

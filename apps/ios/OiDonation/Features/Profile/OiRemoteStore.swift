@@ -28,6 +28,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     private(set) var unapprovedDraftsEnabled = false
     private(set) var canPublishCucumberAppearance = false
     private(set) var canPublishStoryCard = false
+    private(set) var canPublishDuplexCard = false
 
     var canPlaceOi: Bool { account != nil && !needsReauthentication && !isAccountDeletionPending }
 
@@ -290,6 +291,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         isSchoolProfileAvailable = false; isFarmerOutfitAvailable = false; farmerOutfit = nil
         canPublishCucumberAppearance = false
         canPublishStoryCard = false
+        canPublishDuplexCard = false
         localSignOutWarning = nil; loadError = nil; syncWarning = nil; error = nil; revision += 1
     }
 
@@ -376,6 +378,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             var payload: [String: Any] = ["id": story.id.uuidString, "revision": story.revision, "status": wanted]
             if publish, let appearance = story.cucumberAppearance { payload["appearance_id"] = appearance.id.uuidString.lowercased() }
             if publish, let snapshot = story.cardSnapshotId { payload["card_snapshot_id"] = snapshot.uuidString.lowercased() }
+            if publish, story.cardSnapshotFormat == 2 { payload["card_snapshot_format"] = 2 }
             let receipt = try await api.mutate("review_story", payload: payload, token: accessToken, as: OiLiveStory.self)
             guard started == generation else { throw OiServiceError.accountChanged }
             guard receipt.id == story.id, receipt.status == wanted, receipt.revision > story.revision,
@@ -481,6 +484,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         story.remoteMediaPaths = mediaPaths(storyID: item.id)
         story.cucumberPortraitPath = item.cucumberArtwork?.path(.portrait)
         story.cardArtworkPath = item.cardArtworkPath
+        story.cardBackArtworkPath = item.cardBackArtworkPath
         story.latitude = item.latitude; story.longitude = item.longitude
         if let placement = item.campusPlacement {
             story.heightMeters = placement.heightMeters
@@ -582,6 +586,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         unapprovedDraftsEnabled = capabilities?.independentStoryCreation == true && capabilities?.unapprovedDraftsEnabled == true
         canPublishCucumberAppearance = capabilities?.publicCucumberAppearance == true
         canPublishStoryCard = capabilities?.publicStoryCard == true
+        canPublishDuplexCard = capabilities?.duplexStoryCard == true
         isAccountMergeAvailable = capabilities?.accountMergeEnabled == true; accountMemberIDs = members
         isSchoolProfileAvailable = capabilities?.schoolProfileEnabled == true
         isFarmerOutfitAvailable = capabilities?.farmerOutfitEnabled == true; farmerOutfit = fetchedFarmerOutfit
@@ -669,6 +674,10 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
                      card: OiStoryCardPublication? = nil) async -> OiLiveStory? {
         guard canStartStory else { error = OiServiceError.storyCreationUnavailable.localizedDescription; return nil }
         var payload: [String: Any] = ["id": story.id.uuidString, "revision": story.revision]
+        guard card?.format != 2 || canPublishDuplexCard else {
+            error = "서버의 카드 양면 저장 업데이트가 필요해요. 내 카드와 초안은 보존돼 있어요."
+            return nil
+        }
         guard cucumber == nil || canPublishCucumberAppearance else {
             error = "서버가 꾸민 오이의 공개를 지원할 때 다시 요청해 주세요. 내 지도와 초안은 저장돼 있어요."
             return nil
@@ -681,10 +690,11 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         let started = generation
         let expectedAppearance = cucumber?.appearance ?? story.cucumberAppearance
         let expectedCard = card?.id ?? story.cardSnapshotId
+        let expectedFormat = card?.format ?? story.cardSnapshotFormat ?? 1
         func confirmsSubmission(_ result: OiLiveStory) -> Bool {
             result.id == story.id && result.userId == story.userId && result.status == "pending" &&
             result.revision == story.revision + 1 && result.cucumberAppearance == expectedAppearance &&
-            result.cardSnapshotId == expectedCard
+            result.cardSnapshotId == expectedCard && (result.cardSnapshotFormat ?? 1) == expectedFormat
         }
         isBusy = true; error = nil
         defer { isBusy = false }
@@ -704,17 +714,17 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             if let card, card.id != story.cardSnapshotId {
                 try Task.checkCancellation()
                 guard started == generation else { throw OiServiceError.accountChanged }
-                let path = StoryCard.artworkPath(owner: storageOwner, story: story.id, snapshot: card.id)
-                try await api.upload(bucket: OiPublishedCucumberImage.bucket, path: path,
-                                     data: card.png, contentType: "image/png", token: accessToken)
-                if let back = card.backPNG {
+                let parts = card.parts.isEmpty ? [.front: card.png] : card.parts
+                for part in StoryCard.Part.allCases {
+                    guard let data = parts[part] else { continue }
                     try Task.checkCancellation()
                     guard started == generation else { throw OiServiceError.accountChanged }
-                    let backPath = StoryCard.backArtworkPath(owner: storageOwner, story: story.id, snapshot: card.id)
-                    try await api.upload(bucket: OiPublishedCucumberImage.bucket, path: backPath,
-                                         data: back, contentType: "image/png", token: accessToken)
+                    let path = StoryCard.artworkPath(owner: storageOwner, story: story.id, snapshot: card.id, part: part)
+                    try await api.upload(bucket: OiPublishedCucumberImage.bucket, path: path,
+                                         data: data, contentType: "image/png", token: accessToken)
                 }
                 payload["card_snapshot_id"] = card.id.uuidString.lowercased()
+                payload["card_snapshot_format"] = card.format
             }
             try Task.checkCancellation()
             guard started == generation else { throw OiServiceError.accountChanged }

@@ -1,6 +1,8 @@
 # 오이기부 아키텍처 및 팀 협업 제안
 
-2026-11-11 지도 색상 후속: 사용자 선택에 따라 살구 크림 지도 복사본을 추가했다. 앱은 원본 `campus-mobile.oimesh`를 공유하고 복제한 엔티티의 재질만 바꾸며, 홈 팔레트 메뉴에서 원본/살구 크림을 전환한다. 고정 주광·중립 환경광·확대 비율에 맞는 그림자를 함께 적용한다. 지형·좌표·배치·카메라는 유지한다. [재생성과 검증](campus-map-appearance.md)을 참고한다.
+2026-11-13 #308: 카드 양면은 기존 `card_snapshot_id`와 새 `card_snapshot_format=2`로 네 PNG를 묶는다. 앞면의 기존 경로를 유지하며 뒷면·미리보기는 같은 버전 하위 경로에 보관한다. 본 앱은 완성된 이미지로 저장·공유하고 App Clip은 미리보기를 면별로 내려받는다. 게시 승인 시 이미지 버전·형식을 확인해 구형 운영자 앱이 양면을 보지 않고 승인하지 못하게 한다. 기존 단면 형식과 호환하며 운영 DB 적용은 별도 승인 대상이다. [계약·적용·검증](duplex-story-cards.md).
+
+2026-11-13 #305: 본 앱·App Clip의 예시 체험 진입과 홈 팔레트 메뉴를 제거했다. `CampusExploreScene`은 이전 색상 저장값을 읽지 않고 살구 크림으로 시작한다. 원본 `campus-mobile.oimesh`를 공유하고 복제한 엔티티의 재질만 바꾸며, 고정 주광·중립 환경광·확대 비율에 맞는 그림자를 적용한다. 지형·좌표·배치·카메라는 유지한다. 예시 체험 컴포넌트와 원본 색상 렌더링은 기존 회귀 검증용으로 보존한다. [재생성과 검증](campus-map-appearance.md)을 참고한다.
 
 - 작성일: 2026-10-11
 - 상태: **2026-10-27 제품 경계 갱신, 설계 제안 및 과거 구현 기록**. 문서 갱신은 신규 기능 구현·학교 승인·모든 설계의 승인을 의미하지 않는다.
@@ -647,4 +649,4 @@ AR 게임 시작 시 정규화된 캐릭터를 한 번 로드하여 카메라와
 
 ### 2026-11-13 · NFC 스크래치 엽서 (#291)
 
-비공개 `benchmark_private.oi_nfc_tags`가 태그 ID와 이야기를 연결한다. 익명 `oi_nfc_postcard(tag)`는 활성 태그이면서 공개·비제한 이야기일 때만 이야기 ID를 반환하고, 운영자 전용 `oi_operator_set_nfc_tag`·`oi_operator_nfc_tags`가 연결과 목록을 담당하며 기존 감사 기록에 남긴다. 엽서 뒷면은 `card/<card_snapshot_id>-back.png`로 앞면과 같은 검토 ID를 공유하고, 카드 ID는 앞·뒷면 해시로 만들어 본문만 바뀌어도 다시 검토된다. 뒷면 파일은 선택 사항이라 이전 앱의 제출을 막지 않는다. App Clip은 `RealStoryRepository`로 이야기·앞뒷면·첫 사진·공개 기부자 정보를 받아 `ScratchPostcardView`에 전달하고, 수집은 기존 `StoryCollectionStore`를 사용한다. [구현과 적용 순서](nfc-postcard.md).
+비공개 `benchmark_private.oi_nfc_tags`가 태그 ID와 이야기를 연결한다. 익명 `oi_nfc_postcard(tag)`는 활성 태그이면서 공개·비제한 이야기일 때만 이야기 ID를 반환하고, 운영자 전용 `oi_operator_set_nfc_tag`·`oi_operator_nfc_tags`가 연결과 목록을 담당하며 기존 감사 기록에 남긴다. 카드는 #308의 형식 2 계약으로 통일한다. `card/<snapshot>.png` 앞면 원본과 `card/<snapshot>/back.png` 뒷면 원본, 같은 폴더의 `front-preview.png`·`back-preview.png`를 함께 제출·검토한다. 카드 ID는 네 파일의 해시로 만들며, 본문을 수정하면 뒷면과 검토 ID도 갱신한다. App Clip은 승인된 양면 미리보기를 사용하고, 형식 2의 뒷면 조회 실패는 재시도로 처리한다. 기존 형식 1만 텍스트 뒷면 대체를 허용한다. App Clip은 `RealStoryRepository`로 이야기·앞뒷면·첫 사진·공개 기부자 정보를 받아 `ScratchPostcardView`에 전달하고, 수집은 저장 직전 공개 여부와 현재 태그 연결을 재확인한 뒤 기존 `StoryCollectionStore`를 사용한다. NFC 마이그레이션의 운영 적용과 실기기 확인은 별도로 남아 있다. [구현과 적용 순서](nfc-postcard.md).

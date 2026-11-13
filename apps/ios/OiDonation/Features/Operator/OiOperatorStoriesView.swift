@@ -78,7 +78,7 @@ struct OiOperatorStoryDetailView: View {
     @State private var showingConfirmation = false
     @State private var checkedAppearance: OiCucumberArtworkReference?
     @State private var appearanceImages: [OiCucumberArtworkReference.Part: UIImage] = [:]
-    @State private var checkedCard: (path: String, image: UIImage, back: UIImage?)?
+    @State private var checkedCards: [String: UIImage] = [:]
     @State private var appearanceError = false
     @State private var imageAttempt = 0
     @State private var selectedArtwork: ReviewArtwork?
@@ -91,9 +91,9 @@ struct OiOperatorStoryDetailView: View {
     }
 
     private var artwork: OiCucumberArtworkReference? { model.detail?.story.cucumberArtwork }
-    private var cardPath: String? { model.detail?.story.cardArtworkPath }
+    private var cardPaths: [String] { model.detail?.story.cardArtworkPaths ?? [] }
     private var artworkReady: Bool {
-        (artwork == nil || checkedAppearance == artwork) && (cardPath == nil || checkedCard?.path == cardPath)
+        (artwork == nil || checkedAppearance == artwork) && cardPaths.allSatisfy { checkedCards[$0] != nil }
     }
 
     var body: some View {
@@ -129,8 +129,8 @@ struct OiOperatorStoryDetailView: View {
             }
         }
         .task(id: storyID) { await loadLatest() }
-        .task(id: ArtworkLoad(artwork: artwork, cardPath: cardPath, attempt: imageAttempt)) {
-            await loadArtwork(artwork, cardPath: cardPath)
+        .task(id: ArtworkLoad(artwork: artwork, cardPaths: cardPaths, attempt: imageAttempt)) {
+            await loadArtwork(artwork, cardPaths: cardPaths)
         }
         .fullScreenCover(item: $selectedArtwork) { selection in
             CampusArtworkOverlay(title: selection.title) { Image(uiImage: selection.image).resizable().scaledToFit() }
@@ -218,25 +218,18 @@ struct OiOperatorStoryDetailView: View {
                 }
             }
         }
-        if let path = story.cardArtworkPath {
+        if !story.cardArtworkPaths.isEmpty {
             Section("작성자가 꾸민 카드") {
-                if let checkedCard, checkedCard.path == path {
-                    Button {
-                        selectedArtwork = ReviewArtwork(id: path, title: "작성자가 꾸민 카드", image: checkedCard.image)
-                    } label: {
-                        Image(uiImage: checkedCard.image).resizable().scaledToFit().frame(maxHeight: 320)
-                    }.buttonStyle(.plain).accessibilityLabel("꾸민 카드 크게 보기")
-                    // The back is published with the same snapshot, so it is reviewed here too (#291).
-                    if let back = checkedCard.back {
-                        Button {
-                            selectedArtwork = ReviewArtwork(id: path + "#back", title: "엽서 뒷면", image: back)
-                        } label: {
-                            Image(uiImage: back).resizable().scaledToFit().frame(maxHeight: 320)
-                        }.buttonStyle(.plain).accessibilityLabel("엽서 뒷면 크게 보기")
-                    } else {
-                        Text("엽서 뒷면 이미지가 없거나 불러오지 못했어요. 이전 버전 앱에서 제출한 이야기는 뒷면 이미지가 없어요.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                        Button("뒷면 다시 불러오기") { imageAttempt += 1 }
+                if story.cardArtworkPaths.allSatisfy({ checkedCards[$0] != nil }) {
+                    ForEach(Array(story.cardArtworkPaths.enumerated()), id: \.element) { index, path in
+                        let title = ["카드 앞면", "카드 뒷면", "앞면 미리보기", "뒷면 미리보기"][index]
+                        if let image = checkedCards[path] {
+                            Button {
+                                selectedArtwork = ReviewArtwork(id: path, title: title, image: image)
+                            } label: {
+                                VStack { Text(title); Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 320) }
+                            }.buttonStyle(.plain).accessibilityLabel("\(title) 크게 보기")
+                        }
                     }
                 } else if appearanceError {
                     Text("카드 이미지를 확인하지 못했어요.")
@@ -282,12 +275,12 @@ struct OiOperatorStoryDetailView: View {
 
     private struct ArtworkLoad: Hashable {
         let artwork: OiCucumberArtworkReference?
-        let cardPath: String?
+        let cardPaths: [String]
         let attempt: Int
     }
 
-    private func loadArtwork(_ reference: OiCucumberArtworkReference?, cardPath path: String?) async {
-        checkedAppearance = nil; appearanceImages = [:]; checkedCard = nil; appearanceError = false
+    private func loadArtwork(_ reference: OiCucumberArtworkReference?, cardPaths paths: [String]) async {
+        checkedAppearance = nil; appearanceImages = [:]; checkedCards = [:]; appearanceError = false
         do {
             if let reference {
                 var images: [OiCucumberArtworkReference.Part: UIImage] = [:]
@@ -298,19 +291,15 @@ struct OiOperatorStoryDetailView: View {
                 guard artwork == reference else { return }
                 appearanceImages = images; checkedAppearance = reference
             }
-            if let path {
-                let image = try await remote.cucumberImage(path)
-                // Optional: stories from older app versions have no back file.
-                var back: UIImage?
-                if let backPath = model.detail?.story.cardBackArtworkPath {
-                    back = try? await remote.cucumberImage(backPath)
-                }
+            var cards: [String: UIImage] = [:]
+            for path in paths {
+                cards[path] = try await remote.cucumberImage(path)
                 try Task.checkCancellation()
-                guard cardPath == path else { return }
-                checkedCard = (path, image, back)
             }
+            guard cardPaths == paths else { return }
+            checkedCards = cards
         } catch {
-            if !Task.isCancelled, artwork == reference, cardPath == path { appearanceError = true }
+            if !Task.isCancelled, artwork == reference, cardPaths == paths { appearanceError = true }
         }
     }
 }

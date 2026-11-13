@@ -74,7 +74,7 @@ select pg_temp.check_true((select story_id is null from benchmark_private.oi_nfc
 select pg_temp.check_true((select count(*)=5 from benchmark_private.oi_audit
   where actor_id='29100000-0000-4000-8000-000000000003' and action like 'nfc_tag:%'),'tag changes are audited');
 
--- Postcard back follows the reviewed card snapshot of a published story.
+-- Alternate optional back files must remain private, even if their snapshot ID is current.
 reset role;
 update public.oi_stories set card_snapshot_id='29100000-0000-4000-8000-000000000031' where id='29100000-0000-4000-8000-000000000011';
 insert into public.oi_stories(id,user_id,storage_owner_id,grant_id,region_id,title,body,theme,emotion,cucumber_name,cucumber_asset,card_asset,latitude,longitude,status,card_snapshot_id)
@@ -85,11 +85,10 @@ insert into storage.objects(bucket_id,name,metadata) values
  ('oi-story-media','29100000-0000-4000-8000-000000000001/29100000-0000-4000-8000-000000000013/card/29100000-0000-4000-8000-000000000033-back.png','{"mimetype":"image/png","size":1024}');
 set local role anon;
 select set_config('request.jwt.claim.sub','',true);
-select pg_temp.check_true((select count(*)=1 from storage.objects where name like '%-back.png'),'only the approved back of a published story is public');
-select pg_temp.check_true((select name like '%000000000031-back.png' from storage.objects where name like '%-back.png'),'back matches the reviewed snapshot');
+select pg_temp.check_true((select count(*)=0 from storage.objects where name like '%-back.png'),'unreviewed alternate backs stay private');
 set local role authenticated;
 select set_config('request.jwt.claim.sub','29100000-0000-4000-8000-000000000002',true);
-select pg_temp.check_true((select count(*)=1 from storage.objects where name like '%-back.png'),'other accounts cannot read pending or stale backs');
+select pg_temp.check_true((select count(*)=0 from storage.objects where name like '%-back.png'),'other accounts cannot read alternate backs');
 
 select 'PASS: NFC postcard tag roles, validation, visibility, retirement, relinking, story removal, audit and postcard back visibility; synthetic changes rolled back' as result;
 rollback;

@@ -63,6 +63,8 @@ extension OiDonationClipApp {
     private func handleInvocation(_ url: URL?) {
         if let url, let tag = AppClipLink.postcardID(in: url) {
             scratchPostcardSession = ScratchPostcardSession(tagID: tag)
+        } else {
+            scratchPostcardSession = nil
         }
         invocation = AppClipInvocation(url: url)
     }

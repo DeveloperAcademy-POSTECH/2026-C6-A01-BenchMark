@@ -90,6 +90,7 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
     @OiStoryPlacementNumber var headingDegrees: Double? = nil
     var cucumberAppearance: OiCucumberAppearance? = nil
     var cardSnapshotId: UUID? = nil
+    var cardSnapshotFormat: Int? = nil
 
     var cucumberArtwork: OiCucumberArtworkReference? {
         cucumberAppearance.map { .init(ownerID: storageOwnerId ?? userId, storyID: id, appearance: $0) }
@@ -100,7 +101,14 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
     }
 
     var cardBackArtworkPath: String? {
-        cardSnapshotId.map { StoryCard.backArtworkPath(owner: storageOwnerId ?? userId, story: id, snapshot: $0) }
+        guard cardSnapshotFormat == 2, let snapshot = cardSnapshotId else { return nil }
+        return StoryCard.artworkPath(owner: storageOwnerId ?? userId, story: id, snapshot: snapshot, part: .back)
+    }
+
+    var cardArtworkPaths: [String] {
+        guard let snapshot = cardSnapshotId else { return [] }
+        let parts: [StoryCard.Part] = cardSnapshotFormat == 2 ? StoryCard.Part.allCases : [.front]
+        return parts.map { StoryCard.artworkPath(owner: storageOwnerId ?? userId, story: id, snapshot: snapshot, part: $0) }
     }
 
     var isRegisteredOnCampus: Bool { status == "pending" || status == "published" }
@@ -273,6 +281,7 @@ struct OiCapabilities: Decodable {
     let farmerOutfitEnabled: Bool?
     let publicCucumberAppearance: Bool?
     let publicStoryCard: Bool?
+    var duplexStoryCard: Bool? = nil
 }
 
 struct OiStoryDraft: Codable, Equatable {

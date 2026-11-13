@@ -26,7 +26,7 @@ extension StoryRepository {
 /// Public reads deliberately never use an owner or operator session.
 /// What the App Clip needs beyond `Story` to draw a scratch postcard.
 struct PublicPostcardDetails: Sendable {
-    /// Approved postcard front (724×1004 PNG), or nil for stories without a card snapshot.
+    /// Approved postcard preview, or the legacy original when no preview exists.
     let frontURL: URL?
     /// Postcard back rendered with the front; nil for stories submitted by older app versions.
     let backURL: URL?
@@ -39,6 +39,16 @@ struct PublicPostcardDetails: Sendable {
 extension StoryRepository {
     func fetchNFCPostcardStoryID(tag: String) async throws -> String? { nil }
     func fetchPublicPostcardDetails(storyID: String) async throws -> PublicPostcardDetails? { nil }
+
+    /// Revalidate publication and tag assignment immediately before recording a collection.
+    func canCollectNFCPostcard(tag: String, storyID: String) async throws -> Bool {
+        guard AppClipLink.isValidPostcardTag(tag), let expected = UUID(uuidString: storyID),
+              let story = try await fetchPublicStory(storyID: storyID), UUID(uuidString: story.storyID) == expected else { return false }
+        try Task.checkCancellation()
+        let current = try await fetchNFCPostcardStoryID(tag: tag)
+        try Task.checkCancellation()
+        return current.flatMap(UUID.init(uuidString:)) == expected
+    }
 }
 
 struct RealStoryRepository: StoryRepository {
@@ -58,6 +68,7 @@ struct RealStoryRepository: StoryRepository {
         let storageOwnerId: UUID?
         let cucumberAppearance: Appearance?
         let cardSnapshotId: UUID?
+        let cardSnapshotFormat: Int?
     }
     private struct Profile: Decodable {
         let id: UUID; let nickname: String
@@ -191,7 +202,16 @@ struct RealStoryRepository: StoryRepository {
         } else { imageURL = nil }
         try Task.checkCancellation()
         guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
-        return StoryCard(cardID: row.id.uuidString, storyID: row.id.uuidString, imageURL: imageURL)
+        var card = StoryCard(cardID: row.id.uuidString, storyID: row.id.uuidString, imageURL: imageURL)
+        if row.cardSnapshotFormat == 2, let snapshot = row.cardSnapshotId {
+            let owner = row.storageOwnerId ?? row.userId
+            card.backImageURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id, snapshot: snapshot, part: .back))
+            card.frontPreviewURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id, snapshot: snapshot, part: .frontPreview))
+            card.backPreviewURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id, snapshot: snapshot, part: .backPreview))
+        }
+        try Task.checkCancellation()
+        guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
+        return card
     }
 
     // MARK: - NFC postcard (#291)
@@ -222,9 +242,14 @@ struct RealStoryRepository: StoryRepository {
         let owner = row.storageOwnerId ?? row.userId
         var frontURL: URL?, backURL: URL?
         if let snapshot = row.cardSnapshotId {
-            frontURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id, snapshot: snapshot))
-            // Missing for stories submitted before the back was uploaded; the caller draws the text instead.
-            backURL = try? await publishedArtworkURL(path: StoryCard.backArtworkPath(owner: owner, story: row.id, snapshot: snapshot))
+            let isDuplex = row.cardSnapshotFormat == 2
+            frontURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id,
+                snapshot: snapshot, part: isDuplex ? .frontPreview : .front))
+            if isDuplex {
+                // A failed format-2 back must be retried, never replaced by an unreviewed fallback.
+                backURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id,
+                    snapshot: snapshot, part: .backPreview))
+            }
         }
         var components = URLComponents()
         components.scheme = "https"; components.host = transport.approvedHost; components.path = "/rest/v1/oi_story_media"
