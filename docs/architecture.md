@@ -644,3 +644,7 @@ AR 게임 시작 시 정규화된 캐릭터를 한 번 로드하여 카메라와
 편집기는 같은 362×502 엽서와 296×436 이미지 좌표계를 사용한다. 종이 색, 사진 색조, 날짜 및 사진·오이 배치는 계정별 초안에 보관한다. 신규 `postcardDate`·`photoMonochrome`은 optional로 추가하여 기존 Codable 초안의 복원을 유지한다. 승인 제출은 기존 724×1004 PNG 한 장 및 검토 리비전 계약을 재사용하며 서버 스키마·권한은 변경하지 않는다. [에셋과 검증](postcard-customization.md).
 
 2026-11-12 #301 후속: `postcardBackground` 단일 스타일을 종이·이미지 배경·뒷면에서 공유한다. 이전 초안은 기존 설정을 유지하다 편집 시 단일 배경으로 가져온다. Core Image 색 번짐은 색상별로 캐시하며, 공개 PNG의 versioned Description에 색상·효과만 포함해 기기가 바뀌어도 뒷면을 재구성한다. 서버 스키마와 파일 검토 계약은 변경하지 않는다.
+
+### 2026-11-13 · NFC 스크래치 엽서 (#291)
+
+비공개 `benchmark_private.oi_nfc_tags`가 태그 ID와 이야기를 연결한다. 익명 `oi_nfc_postcard(tag)`는 활성 태그이면서 공개·비제한 이야기일 때만 이야기 ID를 반환하고, 운영자 전용 `oi_operator_set_nfc_tag`·`oi_operator_nfc_tags`가 연결과 목록을 담당하며 기존 감사 기록에 남긴다. 엽서 뒷면은 `card/<card_snapshot_id>-back.png`로 앞면과 같은 검토 ID를 공유하고, 카드 ID는 앞·뒷면 해시로 만들어 본문만 바뀌어도 다시 검토된다. 뒷면 파일은 선택 사항이라 이전 앱의 제출을 막지 않는다. App Clip은 `RealStoryRepository`로 이야기·앞뒷면·첫 사진·공개 기부자 정보를 받아 `ScratchPostcardView`에 전달하고, 수집은 기존 `StoryCollectionStore`를 사용한다. [구현과 적용 순서](nfc-postcard.md).
