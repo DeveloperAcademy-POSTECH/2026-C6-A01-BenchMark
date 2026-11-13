@@ -78,7 +78,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private(set) var error: String?
     private(set) var ready = false
     private(set) var hasMovedFromOverview = false
-    private(set) var appearance = CampusMapAppearance.saved
+    // Released maps always use apricot cream, including devices with an old palette preference.
+    private(set) var appearance: CampusMapAppearance = .apricotCream
     var onEducationDistrict: (() -> Void)?
     @ObservationIgnored private var educationEntity: ModelEntity?
     @ObservationIgnored private var educationButton: UIButton?
@@ -265,7 +266,6 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             shadowDistance = 0
             updateMapShadows()
             if canvas?.map != nil, Self.cachedMesh != nil { try installMap() }
-            appearance.save()
             canvas?.setAppearance(appearance)
         } catch {
             self.appearance = previous

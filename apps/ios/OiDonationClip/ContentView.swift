@@ -23,7 +23,6 @@ struct AppClipExperienceView<SafetyButton: View>: View {
     @State private var showingBlocked = false
     @Environment(\.scenePhase) private var phase
     @State private var showingSupport = false
-    @State private var showingSample = false
 
     init(
         storyRepository: any StoryRepository,
@@ -52,12 +51,6 @@ struct AppClipExperienceView<SafetyButton: View>: View {
                     Section {
                         Text("오이기부").font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
                         Text("공개 이야기를 읽고 AR에서 오이 카드를 모아 보세요.")
-                    }
-                    Section {
-                        Button("이야기·AR 체험") { showingSample = true }
-                            .frame(minHeight: 44).accessibilityIdentifier("appclip.sample")
-                        Text("기부나 로그인 없이 예시 이야기를 읽고 AR을 체험해 보세요. 실제 도감에는 저장되지 않아요.")
-                            .font(.footnote).foregroundStyle(.secondary)
                     }
                     Section("공개 이야기") {
                         ForEach(visibleStories) { story in
@@ -140,7 +133,6 @@ struct AppClipExperienceView<SafetyButton: View>: View {
             }.font(.footnote).background(.regularMaterial)
         }
         .sheet(isPresented: $showingSupport) { OiSupportView() }
-        .fullScreenCover(isPresented: $showingSample) { OiSampleExperienceView() }
         .sheet(isPresented: $showingBlocked) { OiBlockedAuthorsView() }
         .onChange(of: OiContentSafetyStore.shared.authors) { _, _ in
             if let story = viewModel.story, OiContentSafetyStore.shared.isBlocked(story.donorID) {
@@ -152,7 +144,7 @@ struct AppClipExperienceView<SafetyButton: View>: View {
             if viewModel.state == .welcome { await viewModel.loadPublicStories(reset: true) }
         }
         .onChange(of: invocation) { _, invocation in selection = invocation }
-        .onChange(of: selection?.id) { _, _ in isPlaying = false; showingSample = false }
+        .onChange(of: selection?.id) { _, _ in isPlaying = false }
         .onChange(of: viewModel.state) { _, state in if state != .ready { isPlaying = false } }
         .task(id: selection?.id) {
             guard let selection else { return }
