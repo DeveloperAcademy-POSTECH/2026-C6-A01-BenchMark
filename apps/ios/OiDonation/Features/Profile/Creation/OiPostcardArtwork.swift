@@ -122,19 +122,32 @@ enum OiPostcardInk {
 }
 
 /// A deterministic companion color for the 296 × 436 portrait window.
-/// No extra photo, network generation or saved draft field is needed.
+/// The automatic palette is local; an optional draft RGB can override it.
 enum OiPostcardCharacterBackdrop {
+    static func color(for design: OiCardDesign) -> UInt32 {
+        if let selected = design.characterBackdropColor, selected <= 0xFFFFFF { return selected }
+        return color(for: design.postcardBackground?.paperColor ?? design.borderFirst)
+    }
+
     static func color(for paper: UInt32) -> UInt32 {
-        // Exact paper/backdrop pairing from Figma 5400:6786 and 5400:6871.
-        if paper == 0xEECFDF { return 0x835C6E }
+        // Exact paper/backdrop pairs from Figma 5441:19270, 19640, 18718 and 18994.
+        if let reference = referenceColors[paper] { return reference }
         var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
         UIColor(Color(oiRGB: paper)).getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
-        // Preserve the chosen hue and enrich pale tones. A minimum brightness
-        // keeps near-black paper usable without jumps while dragging the color picker.
+        // The reference backdrops share ~30% saturation and ~51% brightness.
+        // Keep the paper's hue, enrich pale colors gently, and cap vivid custom
+        // papers at that muted saturation instead of producing a neon backdrop.
         let depth = max(0.16, brightness * 0.55)
-        let chroma = min(1, max(saturation, min(0.30, saturation * 2.3)))
+        let chroma = min(0.30, saturation * 2.3)
         return Color(UIColor(hue: hue, saturation: chroma, brightness: depth, alpha: 1)).oiRGB
     }
+
+    private static let referenceColors: [UInt32: UInt32] = [
+        0xEECFDF: 0x835C6E, // rose
+        0xEEE7CF: 0x83785C, // sand
+        0xE8EECF: 0x77835C, // lime
+        0xCFE1EE: 0x5C7183  // blue
+    ]
 }
 
 /// Only a horizontal gesture flips; vertical drags remain available for reading.

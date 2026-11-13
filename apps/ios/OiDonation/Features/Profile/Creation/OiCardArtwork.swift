@@ -73,7 +73,7 @@ struct OiCardBackground: View {
             ZStack {
                 Group {
                     if customization.showsCharacter, paper.usesCharacterBackdrop {
-                        Color(oiRGB: OiPostcardCharacterBackdrop.color(for: paper.postcardBackground?.paperColor ?? paper.borderFirst))
+                        Color(oiRGB: OiPostcardCharacterBackdrop.color(for: paper))
                     } else if paper.postcardLayoutVersion == 2 {
                         Color.clear
                     } else if let style = paper.postcardBackground {

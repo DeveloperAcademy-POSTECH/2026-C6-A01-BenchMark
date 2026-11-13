@@ -13,6 +13,7 @@ struct OiPostcardColorRing: View {
     let title: String
     @Binding var color: UInt32
     var pickerHeight: CGFloat = 500
+    var onReset: (() -> Void)? = nil
     @State private var showingPicker = false
 
     var body: some View {
@@ -21,11 +22,41 @@ struct OiPostcardColorRing: View {
             .accessibilityLabel("\(title) 색상 선택")
             .accessibilityValue(String(format: "#%06X", color))
             .sheet(isPresented: $showingPicker) {
-                OiPostcardNativeColorPicker(title: "\(title) Color", color: $color) { showingPicker = false }
-                    .presentationDetents([.height(pickerHeight), .large])
+                VStack(spacing: 0) {
+                    if let onReset {
+                        HStack {
+                            Spacer()
+                            OiPostcardColorResetButton(reset: onReset).frame(width: 72, height: 44)
+                        }.padding(.horizontal, 20).padding(.top, 8)
+                    }
+                    OiPostcardNativeColorPicker(title: "\(title) Color", color: $color) { showingPicker = false }
+                }.presentationDetents([.height(pickerHeight), .large])
                     .presentationBackgroundInteraction(.enabled(upThrough: .height(pickerHeight)))
                     .presentationDragIndicator(.visible)
             }
+    }
+}
+
+/// Keep the reset control in the sheet header while the picker continues updating the card.
+private struct OiPostcardColorResetButton: UIViewRepresentable {
+    let reset: () -> Void
+    func makeCoordinator() -> Coordinator { Coordinator(reset: reset) }
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .system)
+        var configuration = UIButton.Configuration.plain()
+        configuration.title = "초기화"
+        configuration.baseForegroundColor = UIColor(Color("OiGreen"))
+        button.configuration = configuration
+        button.accessibilityIdentifier = "oi.postcard.color.reset"
+        button.accessibilityHint = "오이 뒤 배경을 자동 추천 색상으로 되돌립니다"
+        button.addAction(UIAction { [weak coordinator = context.coordinator] _ in coordinator?.reset() },
+            for: .primaryActionTriggered)
+        return button
+    }
+    func updateUIView(_ button: UIButton, context: Context) { context.coordinator.reset = reset }
+    final class Coordinator {
+        var reset: () -> Void
+        init(reset: @escaping () -> Void) { self.reset = reset }
     }
 }
 

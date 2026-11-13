@@ -657,6 +657,10 @@ AR 게임 시작 시 정규화된 캐릭터를 한 번 로드하여 카메라와
 
 자동 오이 배경 후속: `OiCardDesign.characterBackdropEnabled` optional 선택값을 `usesCharacterBackdrop`에서 해석한다. 새 레이아웃은 기본 끔, 이전 레이아웃은 통합 배경이 존재할 때만 이전 자동 색을 유지한다. 사진 가림은 명시적 true에서만 적용해 기존 사진+오이 초안을 보존한다. 배경은 원본 이미지 영역에 고정하고 캐릭터의 변환과 분리하며, 같은 색을 이미지 배치 편집기에 전달한다. 앞면 출력 픽셀에 포함되므로 별도 서버 필드·마이그레이션은 추가하지 않는다.
 
+2026-11-13 #317 자동 배색: 피그마에서 확인한 네 종이/RGB 조합은 정확한 상수로 매핑하고, 나머지는 종이 hue·최대 30% saturation·55% brightness로 계산한다(기존 최소 brightness 16%). 명시적 RGB가 우선하며 시트 초기화는 이 선택만 해제한다.
+
+배경 색상링 후속: optional `characterBackdropColor` RGB를 보호 초안에 저장한다. `OiPostcardCharacterBackdrop.color(for: OiCardDesign)`가 유효한 직접 선택값 또는 종이색 기반 자동값을 반환하며 앞면 합성과 배치 편집기가 함께 사용한다. 시스템 선택기의 연속 바인딩으로 미리보기를 갱신하고 자동 색상 버튼은 RGB만 nil로 되돌린다. 숨김·사진 전용·뒷면에서는 적용하지 않으며 공개 파일 계약은 유지한다.
+
 ### 2026-11-13 · NFC 스크래치 엽서 (#291)
 
 비공개 `benchmark_private.oi_nfc_tags`가 태그 ID와 이야기를 연결한다. 익명 `oi_nfc_postcard(tag)`는 활성 태그이면서 공개·비제한 이야기일 때만 이야기 ID를 반환하고, 운영자 전용 `oi_operator_set_nfc_tag`·`oi_operator_nfc_tags`가 연결과 목록을 담당하며 기존 감사 기록에 남긴다. 카드는 #308의 형식 2 계약으로 통일한다. `card/<snapshot>.png` 앞면 원본과 `card/<snapshot>/back.png` 뒷면 원본, 같은 폴더의 `front-preview.png`·`back-preview.png`를 함께 제출·검토한다. 카드 ID는 네 파일의 해시로 만들며, 본문을 수정하면 뒷면과 검토 ID도 갱신한다. App Clip은 승인된 양면 미리보기를 사용하고, 형식 2의 뒷면 조회 실패는 재시도로 처리한다. 기존 형식 1만 텍스트 뒷면 대체를 허용한다. App Clip은 `RealStoryRepository`로 이야기·앞뒷면·첫 사진·공개 기부자 정보를 받아 `ScratchPostcardView`에 전달하고, 수집은 저장 직전 공개 여부와 현재 태그 연결을 재확인한 뒤 기존 `StoryCollectionStore`를 사용한다. NFC 마이그레이션의 운영 적용과 실기기 확인은 별도로 남아 있다. [구현과 적용 순서](nfc-postcard.md).
