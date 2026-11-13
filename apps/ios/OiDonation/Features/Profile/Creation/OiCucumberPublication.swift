@@ -53,13 +53,21 @@ struct OiCucumberPublication {
 struct OiStoryCardPublication {
     let id: UUID
     let png: Data
+    /// Postcard back with the story text (#291). Hashed into `id` so editing only the letter still
+    /// produces a new snapshot that the operator reviews again.
+    let backPNG: Data?
 
-    init(png: Data) throws {
+    init(png: Data, backPNG: Data? = nil) throws {
         _ = try OiPublishedCucumberImage.decode(png, part: .portrait)
-        let b = Array(SHA256.hash(data: png).prefix(16))
+        if let backPNG { _ = try OiPublishedCucumberImage.decode(backPNG, part: .portrait) }
+        var hash = SHA256()
+        hash.update(data: png)
+        if let backPNG { hash.update(data: Data(SHA256.hash(data: backPNG))) }
+        let b = Array(hash.finalize().prefix(16))
         id = UUID(uuid: (b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
                          b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]))
         self.png = png
+        self.backPNG = backPNG
     }
 }
 

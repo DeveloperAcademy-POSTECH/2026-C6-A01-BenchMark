@@ -707,6 +707,13 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
                 let path = StoryCard.artworkPath(owner: storageOwner, story: story.id, snapshot: card.id)
                 try await api.upload(bucket: OiPublishedCucumberImage.bucket, path: path,
                                      data: card.png, contentType: "image/png", token: accessToken)
+                if let back = card.backPNG {
+                    try Task.checkCancellation()
+                    guard started == generation else { throw OiServiceError.accountChanged }
+                    let backPath = StoryCard.backArtworkPath(owner: storageOwner, story: story.id, snapshot: card.id)
+                    try await api.upload(bucket: OiPublishedCucumberImage.bucket, path: backPath,
+                                         data: back, contentType: "image/png", token: accessToken)
+                }
                 payload["card_snapshot_id"] = card.id.uuidString.lowercased()
             }
             try Task.checkCancellation()

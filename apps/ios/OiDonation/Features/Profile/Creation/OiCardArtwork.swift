@@ -12,10 +12,7 @@ struct OiDraftCardPreview: View {
     var body: some View {
         GeometryReader { proxy in
             Group {
-                if showingBack {
-                    OiPostcardBack(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond,
-                        backgroundStyle: design.postcardBackground, message: draft.body, author: donorName)
-                } else { composition }
+                if showingBack { back } else { composition }
             }.frame(width: 362, height: 502)
                 .scaleEffect(proxy.size.width / 362, anchor: .topLeading)
         }.aspectRatio(362 / 502, contentMode: .fit)
@@ -30,7 +27,16 @@ struct OiDraftCardPreview: View {
         guard let image = renderer.uiImage else { throw OiPhotoDataError.unreadable }
         let png = design.postcardBackground.flatMap { OiPostcardBackgroundMetadata.png(image: image, style: $0) } ?? image.pngData()
         guard let png else { throw OiPhotoDataError.unreadable }
-        return try OiStoryCardPublication(png: png)
+        // The back is flattened too, so the App Clip can show it without bundling the handwriting fonts.
+        let backRenderer = ImageRenderer(content: back.frame(width: 362, height: 502)
+            .environment(\.colorScheme, colorScheme))
+        backRenderer.scale = 2
+        guard let backPNG = backRenderer.uiImage?.pngData() else { throw OiPhotoDataError.unreadable }
+        return try OiStoryCardPublication(png: png, backPNG: backPNG)
+    }
+    private var back: some View {
+        OiPostcardBack(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond,
+            backgroundStyle: design.postcardBackground, message: draft.body, author: donorName)
     }
     private var composition: some View {
         OiPostcardFront(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond,

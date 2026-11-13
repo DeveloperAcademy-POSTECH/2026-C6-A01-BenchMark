@@ -99,6 +99,10 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
         cardSnapshotId.map { StoryCard.artworkPath(owner: storageOwnerId ?? userId, story: id, snapshot: $0) }
     }
 
+    var cardBackArtworkPath: String? {
+        cardSnapshotId.map { StoryCard.backArtworkPath(owner: storageOwnerId ?? userId, story: id, snapshot: $0) }
+    }
+
     var isRegisteredOnCampus: Bool { status == "pending" || status == "published" }
 
     var createdDateLabel: String {

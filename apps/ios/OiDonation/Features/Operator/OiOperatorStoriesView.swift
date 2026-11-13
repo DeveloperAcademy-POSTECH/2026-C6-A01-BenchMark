@@ -78,7 +78,7 @@ struct OiOperatorStoryDetailView: View {
     @State private var showingConfirmation = false
     @State private var checkedAppearance: OiCucumberArtworkReference?
     @State private var appearanceImages: [OiCucumberArtworkReference.Part: UIImage] = [:]
-    @State private var checkedCard: (path: String, image: UIImage)?
+    @State private var checkedCard: (path: String, image: UIImage, back: UIImage?)?
     @State private var appearanceError = false
     @State private var imageAttempt = 0
     @State private var selectedArtwork: ReviewArtwork?
@@ -226,6 +226,18 @@ struct OiOperatorStoryDetailView: View {
                     } label: {
                         Image(uiImage: checkedCard.image).resizable().scaledToFit().frame(maxHeight: 320)
                     }.buttonStyle(.plain).accessibilityLabel("꾸민 카드 크게 보기")
+                    // The back is published with the same snapshot, so it is reviewed here too (#291).
+                    if let back = checkedCard.back {
+                        Button {
+                            selectedArtwork = ReviewArtwork(id: path + "#back", title: "엽서 뒷면", image: back)
+                        } label: {
+                            Image(uiImage: back).resizable().scaledToFit().frame(maxHeight: 320)
+                        }.buttonStyle(.plain).accessibilityLabel("엽서 뒷면 크게 보기")
+                    } else {
+                        Text("엽서 뒷면 이미지가 없거나 불러오지 못했어요. 이전 버전 앱에서 제출한 이야기는 뒷면 이미지가 없어요.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                        Button("뒷면 다시 불러오기") { imageAttempt += 1 }
+                    }
                 } else if appearanceError {
                     Text("카드 이미지를 확인하지 못했어요.")
                     Button("카드 다시 불러오기") { imageAttempt += 1 }
@@ -288,9 +300,14 @@ struct OiOperatorStoryDetailView: View {
             }
             if let path {
                 let image = try await remote.cucumberImage(path)
+                // Optional: stories from older app versions have no back file.
+                var back: UIImage?
+                if let backPath = model.detail?.story.cardBackArtworkPath {
+                    back = try? await remote.cucumberImage(backPath)
+                }
                 try Task.checkCancellation()
                 guard cardPath == path else { return }
-                checkedCard = (path, image)
+                checkedCard = (path, image, back)
             }
         } catch {
             if !Task.isCancelled, artwork == reference, cardPath == path { appearanceError = true }
