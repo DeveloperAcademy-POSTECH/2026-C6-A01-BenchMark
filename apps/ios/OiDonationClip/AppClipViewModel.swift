@@ -15,7 +15,6 @@ final class AppClipViewModel {
     nonisolated deinit {}
 
     private let storyRepository: any StoryRepository
-    private let linkParser: PublicLinkParser?
     private var invocationID = UUID()
     private var listRequestID = UUID()
     private var nextOffset = 0
@@ -70,8 +69,7 @@ final class AppClipViewModel {
     private(set) var storyID: String?
     private(set) var experience: AppClipExperience?
     var story: Story? { experience?.story }
-    init(linkParser: PublicLinkParser? = nil, storyRepository: any StoryRepository) {
-        self.linkParser = linkParser
+    init(storyRepository: any StoryRepository) {
         self.storyRepository = storyRepository
     }
     func handleInvocationURL(invocationURL: URL?) async {
@@ -86,17 +84,12 @@ final class AppClipViewModel {
             state = .invalidLink
             return
         }
-        let id: String
-        if AppClipLink.matches(invocationURL) {
-            guard let selected = AppClipLink.storyID(in: invocationURL) else {
-                state = .welcome
-                return
-            }
-            id = selected
-        } else if case .story(let selected) = linkParser?.parse(invocationURL) {
-            id = selected
-        } else {
+        guard AppClipLink.matches(invocationURL) else {
             state = .invalidLink
+            return
+        }
+        guard let id = AppClipLink.storyID(in: invocationURL) else {
+            state = .welcome
             return
         }
 

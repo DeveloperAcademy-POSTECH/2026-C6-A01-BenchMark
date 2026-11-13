@@ -13,6 +13,9 @@ import StoreKit
 struct OiDonationClipApp: App {
     @State private var isOverlayPresented = false
     @State private var invocation: AppClipInvocation?
+    /// A new session per presentation so reopening always starts with a fresh card.
+    @State private var scratchPostcardSession: ScratchPostcardSession?
+    private let storyRepository = RealStoryRepository()
 
     init() {
         for name in [
@@ -21,7 +24,8 @@ struct OiDonationClipApp: App {
             "Paperlogy-4Regular",
             "Paperlogy-5Medium",
             "Paperlogy-6SemiBold",
-            "Paperlogy-7Bold"
+            "Paperlogy-7Bold",
+            "Yangjin-v0.9"
         ] {
             if let url = Bundle.main.url(forResource: name, withExtension: "ttf")
                 ?? Bundle.main.url(forResource: name, withExtension: "ttf", subdirectory: "Fonts") {
@@ -33,20 +37,35 @@ struct OiDonationClipApp: App {
     var body: some Scene {
         WindowGroup {
             AppClipExperienceView(
-                storyRepository: RealStoryRepository(),
+                storyRepository: storyRepository,
                 invocation: invocation,
                 onRequestFullApp: { isOverlayPresented = true }
             ) { story, id in
                 AppClipStorySafetyButton(story: story, id: id)
             }
-            .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
-                invocation = AppClipInvocation(url: activity.webpageURL)
+            .fullScreenCover(item: $scratchPostcardSession) { session in
+                ScratchPostcardScreen(tagID: session.tagID, repository: storyRepository,
+                                      onClose: { scratchPostcardSession = nil })
+                    .id(session.id)
             }
-            .onOpenURL { url in invocation = AppClipInvocation(url: url) }
+            .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                handleInvocation(activity.webpageURL)
+            }
+            .onOpenURL { url in handleInvocation(url) }
             .appStoreOverlay(isPresented: $isOverlayPresented) {
                 SKOverlay.AppClipConfiguration(position: .bottom)
             }
         }
+    }
+}
+
+extension OiDonationClipApp {
+    /// NFC postcard links open the scratch postcard for the tag; every other link keeps the existing story flow.
+    private func handleInvocation(_ url: URL?) {
+        if let url, let tag = AppClipLink.postcardID(in: url) {
+            scratchPostcardSession = ScratchPostcardSession(tagID: tag)
+        }
+        invocation = AppClipInvocation(url: url)
     }
 }
 
@@ -62,4 +81,9 @@ private struct AppClipStorySafetyButton: View {
                 OiContentSafetyView(storyID: id, authorID: story.donorID, authorName: story.donorDisplayName)
             }
     }
+}
+
+private struct ScratchPostcardSession: Identifiable {
+    let id = UUID()
+    let tagID: String
 }

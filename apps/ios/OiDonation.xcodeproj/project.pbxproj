@@ -92,7 +92,6 @@
 				Features/Campus/CampusStyle.swift,
 				Domain/Repositories/StoryRepository.swift,
 				Domain/Routing/AppClipLink.swift,
-				Domain/Routing/PublicLinkParser.swift,
 				"Resources/Fonts/Paperlogy-2ExtraLight.ttf",
 				"Resources/Fonts/Paperlogy-3Light.ttf",
 				"Resources/Fonts/Paperlogy-4Regular.ttf",
@@ -110,6 +109,8 @@
 				"Shared/Components/OiSampleStoryDetailView.swift",
 				"Resources/OiSampleAssets.xcassets",
 				"Resources/Fonts/Paperlogy-5Medium.ttf",
+				"Resources/Fonts/Yangjin-v0.9.ttf",
+				"Resources/Fonts/Yangjin-OFL.txt",
 			);
 			target = 87169564307CB1CF0090D456 /* OiDonationClip */;
 		};
