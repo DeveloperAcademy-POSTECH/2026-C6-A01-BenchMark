@@ -51,6 +51,7 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.websiteDataStore = .default()
+        configuration.setURLSchemeHandler(EducationSurfaceURLSchemeHandler(), forURLScheme: "oi-education")
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
         webView.navigationDelegate = self
@@ -63,6 +64,7 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
         #endif
         configuration.userContentController.add(EducationWeakMessageHandler(self), name: "building")
         let reporting = """
+        window.EDUCATION_GEOMETRY_URL = 'oi-education://bundle/surface.bin';
         window.addEventListener('error', event => {
           window.webkit.messageHandlers.building.postMessage({kind:'error', message:String(event.message)});
         });
@@ -123,6 +125,34 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
             if navigationAction.navigationType == .linkActivated, url.scheme == "https" { UIApplication.shared.open(url) }
         }
     }
+}
+
+/// Serve the same packaged surface used by RealityKit. Keep the existing file
+/// origin (and its saved demo stories), without embedding a second base64 copy.
+private final class EducationSurfaceURLSchemeHandler: NSObject, WKURLSchemeHandler {
+    func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+        guard let url = urlSchemeTask.request.url,
+              url.host == "bundle", url.path == "/surface.bin",
+              let asset = Bundle.main.url(forResource: "education-district-points", withExtension: "bin") else {
+            urlSchemeTask.didFailWithError(URLError(.fileDoesNotExist))
+            return
+        }
+        do {
+            let data = try Data(contentsOf: asset, options: .mappedIfSafe)
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: [
+                "Content-Type": "application/octet-stream",
+                "Content-Length": String(data.count),
+                "Access-Control-Allow-Origin": "*"
+            ])!
+            urlSchemeTask.didReceive(response)
+            urlSchemeTask.didReceive(data)
+            urlSchemeTask.didFinish()
+        } catch {
+            urlSchemeTask.didFailWithError(error)
+        }
+    }
+
+    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {}
 }
 
 // WKUserContentController retains its handlers; this proxy avoids retaining the model.
