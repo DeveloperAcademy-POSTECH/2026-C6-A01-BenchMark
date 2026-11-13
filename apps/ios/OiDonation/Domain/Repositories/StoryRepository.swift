@@ -37,6 +37,7 @@ struct RealStoryRepository: StoryRepository {
         let storageOwnerId: UUID?
         let cucumberAppearance: Appearance?
         let cardSnapshotId: UUID?
+        let cardSnapshotFormat: Int?
     }
     private struct Profile: Decodable { let id: UUID; let nickname: String }
     private struct Region: Decodable { let id: String; let name: String }
@@ -166,6 +167,15 @@ struct RealStoryRepository: StoryRepository {
         } else { imageURL = nil }
         try Task.checkCancellation()
         guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
-        return StoryCard(cardID: row.id.uuidString, storyID: row.id.uuidString, imageURL: imageURL)
+        var card = StoryCard(cardID: row.id.uuidString, storyID: row.id.uuidString, imageURL: imageURL)
+        if row.cardSnapshotFormat == 2, let snapshot = row.cardSnapshotId {
+            let owner = row.storageOwnerId ?? row.userId
+            card.backImageURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id, snapshot: snapshot, part: .back))
+            card.frontPreviewURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id, snapshot: snapshot, part: .frontPreview))
+            card.backPreviewURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id, snapshot: snapshot, part: .backPreview))
+        }
+        try Task.checkCancellation()
+        guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
+        return card
     }
 }

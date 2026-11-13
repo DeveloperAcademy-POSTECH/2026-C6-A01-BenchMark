@@ -61,7 +61,11 @@ private actor BrowseRepository: StoryRepository {
             publishedAt: Date(), location: StoryLocation(locationID: "pond", displayName: "검사 장소"), tags: [], cucumberID: id.uuidString, cucumberName: "검사 오이")
     }
     func fetchPublicStoryCard(storyID: String) async throws -> StoryCard? {
-        StoryCard(cardID: id.uuidString, storyID: id.uuidString, imageURL: nil)
+        if removed { return nil }
+        return StoryCard(cardID: id.uuidString, storyID: id.uuidString, imageURL: nil,
+            backImageURL: URL(string: "https://example.com/back.png"),
+            frontPreviewURL: URL(string: "https://example.com/front-preview.png"),
+            backPreviewURL: URL(string: "https://example.com/back-preview.png"))
     }
 }
 
@@ -147,6 +151,11 @@ struct AppClipInvocationChecks {
         require(!AppClipLink.matches(url(AppClipLink.defaultURLString + "&story=bad")), "reject malformed story")
         require(!AppClipLink.matches(url(storyURL.absoluteString + "&story=" + browseID.uuidString)), "reject duplicated story parameter")
         await browse.handleInvocationURL(invocationURL: storyURL)
+        do {
+            let refreshed = try await browse.refreshedCard()
+            require(refreshed.backImageURL != nil && refreshed.frontPreviewURL != nil && refreshed.backPreviewURL != nil,
+                    "refresh renews both sides without loading images or needing an account")
+        } catch { fatalError("Public card refresh must succeed: \(error)") }
         require(browse.state == .ready && browse.story?.storyID == browseID.uuidString, "production configuration reaches actual story without a custom host")
         let canCollect = await browse.canCollectCurrentStory()
         require(canCollect, "published story can be collected")
@@ -154,6 +163,10 @@ struct AppClipInvocationChecks {
         appRouter.open(storyURL)
         require(appRouter.storyPath == [.story(browseID.uuidString)], "installed app opens the same story")
         await browseRepository.removeStory()
+        do {
+            _ = try await browse.refreshedCard()
+            fatalError("A hidden card must not receive fresh signed URLs")
+        } catch {}
         let removedCanCollect = await browse.canCollectCurrentStory()
         require(!removedCanCollect, "withdrawn story cannot be saved after an AR round")
         browse.showWelcome()

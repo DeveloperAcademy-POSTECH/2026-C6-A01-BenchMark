@@ -16,9 +16,14 @@ struct ARPhotoLibraryService {
     }
 
     func save(_ image: UIImage) async throws {
+        try await save([image])
+    }
+
+    func save(_ images: [UIImage]) async throws {
+        guard !images.isEmpty else { return }
         try await authorize()
         try await PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.creationRequestForAsset(from: image)
+            for image in images { PHAssetChangeRequest.creationRequestForAsset(from: image) }
         }
     }
 

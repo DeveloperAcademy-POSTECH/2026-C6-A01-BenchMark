@@ -41,6 +41,8 @@ final class OiTestBackend {
         var independentStoryCreation: Bool? = true
         var publicCucumberAppearance = false
         var publicStoryCard = false
+        var duplexStoryCard = false
+        var failCardBackUpload = false
         var failCucumberTextureUpload = false
         var timeOutCardUploadAfterCommit = false
         var timeOutSubmitAfterCommit = false
@@ -196,7 +198,8 @@ final class OiTestBackend {
         } else if path.contains("/storage/v1/object/") {
             let key = path.replacingOccurrences(of: "/storage/v1/object/", with: "")
             if key.contains("/card/") || key.contains("/appearance/") { state.artworkUploadAttempts += 1 }
-            if state.failCucumberTextureUpload && key.hasSuffix("/top.png") { status = 503 }
+            if state.failCardBackUpload && key.hasSuffix("/back.png") { status = 503 }
+            else if state.failCucumberTextureUpload && key.hasSuffix("/top.png") { status = 503 }
             else if state.uploads[key] != nil { status = 409 }
             else { state.uploads[key] = raw; result = ["Key":key] }
             if status == 200, key.contains("/card/"), state.timeOutCardUploadAfterCommit {
@@ -216,6 +219,7 @@ final class OiTestBackend {
                 story["created_at"] = "2026-10-28T00:00:00Z"
                 if state.story?["id"] as? String == payload["id"] as? String {
                     story["card_snapshot_id"] = state.story?["card_snapshot_id"]
+                    story["card_snapshot_format"] = state.story?["card_snapshot_format"]
                     story["cucumber_appearance"] = state.story?["cucumber_appearance"]
                 }
                 state.story = story; result = story
@@ -233,6 +237,7 @@ final class OiTestBackend {
                 state.submittedTitle = state.story?["title"] as? String
                 if let appearance = payload["cucumber_appearance"] { state.story?["cucumber_appearance"] = appearance }
                 if let card = payload["card_snapshot_id"] { state.story?["card_snapshot_id"] = card }
+                if let format = payload["card_snapshot_format"] { state.story?["card_snapshot_format"] = format }
                 state.story?["status"] = "pending"
                 let nextRevision = (state.story?["revision"] as? Int ?? 0)+1
                 state.story?["revision"] = nextRevision
@@ -305,6 +310,7 @@ final class OiTestBackend {
             if let independent = state.independentStoryCreation { capabilities["independent_story_creation"] = independent }
             if state.publicCucumberAppearance { capabilities["public_cucumber_appearance"] = true }
             if state.publicStoryCard { capabilities["public_story_card"] = true }
+            if state.duplexStoryCard { capabilities["duplex_story_card"] = true }
             if let canonical = state.canonicalAccountID {
                 capabilities["account_id"] = canonical.uuidString
                 capabilities["account_merge_enabled"] = true
@@ -2335,7 +2341,7 @@ final class OiRemoteStoreTests: XCTestCase {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
         backend.configure {
-            $0.isOperator = true; $0.publicStoryCard = true; $0.publicCucumberAppearance = true
+            $0.isOperator = true; $0.publicStoryCard = true; $0.publicCucumberAppearance = true; $0.duplexStoryCard = true
             $0.timeOutCardUploadAfterCommit = true
         }
         await store.start()
@@ -2348,8 +2354,8 @@ final class OiRemoteStoreTests: XCTestCase {
         let card = try preview.publication(colorScheme: .light)
         XCTAssertEqual(try preview.publication(colorScheme: .light).id, card.id)
         let image = try OiPublishedCucumberImage.decode(card.png, part: .portrait)
-        XCTAssertEqual(image.width, 724)
-        XCTAssertEqual(image.height, 1004)
+        XCTAssertEqual(image.width, 1086)
+        XCTAssertEqual(image.height, 1506)
         let cucumber = try OiCucumberPublication(look: OiWardrobeLook(), portrait: card.png)
 
         let draftReceipt = await store.save(input)
@@ -2365,6 +2371,11 @@ final class OiRemoteStoreTests: XCTestCase {
         let approved = try await store.reviewOperatorStory(pending, publish: true).story
         let publicCard = try await repository.fetchPublicStoryCard(storyID: saved.id.uuidString)
         XCTAssertEqual(publicCard?.imageURL?.path, "/storage/v1/object/sign/oi-story-media/" + cardPath)
+        XCTAssertEqual(pending.cardSnapshotFormat, 2)
+        XCTAssertNotNil(publicCard?.backImageURL)
+        XCTAssertNotNil(publicCard?.frontPreviewURL)
+        XCTAssertNotNil(publicCard?.backPreviewURL)
+        for path in pending.cardArtworkPaths { XCTAssertNotNil(backend.snapshot().uploads["oi-story-media/" + path]) }
         XCTAssertEqual(store.campusStory(approved).cardArtworkPath, cardPath)
         let uploadCount = backend.snapshot().artworkUploadAttempts
 
@@ -2386,6 +2397,32 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(backend.snapshot().artworkUploadAttempts, uploadCount)
         let pendingCard = try await repository.fetchPublicStoryCard(storyID: saved.id.uuidString)
         XCTAssertNil(pendingCard)
+    }
+
+    @MainActor func testDuplexCardPartialUploadAndOldServerPreserveDraft() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.publicStoryCard = true }
+        await store.start()
+        let input = draft()
+        let card = try OiDraftCardPreview(draft: input, customization: OiDraftCustomization()).publication(colorScheme: .light)
+        let savedReceipt = await store.save(input)
+        let saved = try XCTUnwrap(savedReceipt)
+        let oldServer = await store.submitStory(saved, card: card)
+        XCTAssertNil(oldServer)
+        XCTAssertEqual(backend.snapshot().artworkUploadAttempts, 0, "Never silently downgrade a two-sided card")
+        backend.configure { $0.duplexStoryCard = true; $0.failCardBackUpload = true }
+        await store.refresh()
+        let partial = await store.submitStory(saved, card: card)
+        XCTAssertNil(partial)
+        XCTAssertEqual(backend.snapshot().submitCount, 0)
+        XCTAssertEqual(store.ownStories.first?.status, "draft")
+        backend.configure { $0.failCardBackUpload = false }
+        let retried = await store.submitStory(saved, card: card)
+        XCTAssertEqual(retried?.status, "pending")
+        XCTAssertEqual(retried?.cardSnapshotFormat, 2)
+        XCTAssertEqual(backend.snapshot().uploads.keys.filter { $0.contains("/card/") }.count, 4)
+        XCTAssertEqual(backend.snapshot().submitCount, 1)
     }
 }
 

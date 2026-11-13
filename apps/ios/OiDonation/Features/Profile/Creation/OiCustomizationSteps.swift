@@ -26,6 +26,7 @@ struct OiCardCustomizationStep: View {
         wardrobeKey.map { $0 + "-angle-" + orientation.cacheIdentity }
     }
     @State private var showingPhotoEditor = false
+    @State private var showingExport = false
     @State private var nameInput = ""
     @FocusState private var editingName: Bool
     private var design: OiCardDesign { customization.card ?? OiCardDesign() }
@@ -83,6 +84,13 @@ struct OiCardCustomizationStep: View {
                 .presentationDragIndicator(.hidden)
                 .presentationCornerRadius(35)
                 .presentationBackground(Color("OiLight"))
+        }
+        .sheet(isPresented: $showingExport) {
+            OiCardExportSheet {
+                let card = try OiDraftCardPreview(draft: draft, customization: customization,
+                    donorName: donorName, portrait: portrait).publication(colorScheme: .light)
+                return try OiCardExportImages(card)
+            }
         }
         .onAppear { prepareBackground(); if design.postcardDate == nil { change { $0.postcardDate = Date() } }; refreshPortrait(); nameInput = baseName; onSizeEditingChanged?(isSizeEditing) }
         .onChange(of: customization.wardrobe) { _, _ in refreshPortrait() }
@@ -320,7 +328,9 @@ struct OiCardCustomizationStep: View {
             if design.pattern != nil { Button("패턴 해제") { change { $0.pattern = nil } }.font(.caption).tint(Color("OiGreen")) }
         }
     }
-    private var storageDetails: some View {
+    @ViewBuilder private var storageDetails: some View {
+        Button("카드 이미지 저장·공유", systemImage: "square.and.arrow.up") { showingExport = true }
+            .disabled(needsPortrait).accessibilityIdentifier("oi.card.export.open")
         DisclosureGroup("저장·공개 안내") {
             Text("꾸민 카드는 이 기기에 저장돼요. 공개 검토를 요청하면 카드 이미지도 검토하고, 승인된 모습을 다른 사람에게 보여줘요.")
                 .font(.caption).foregroundStyle(.secondary).padding(.vertical, 8)

@@ -144,4 +144,15 @@ final class AppClipViewModel {
         experience = nil
         state = .welcome
     }
+
+    func refreshedCard() async throws -> StoryCard {
+        guard let storyID, state == .ready else { throw URLError(.cancelled) }
+        let request = invocationID
+        guard let card = try await storyRepository.fetchPublicStoryCard(storyID: storyID) else {
+            throw URLError(.resourceUnavailable)
+        }
+        try Task.checkCancellation()
+        guard request == invocationID, self.storyID == storyID, state == .ready else { throw URLError(.cancelled) }
+        return card
+    }
 }
