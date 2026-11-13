@@ -1107,6 +1107,97 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         })
     }
 
+    func testStep3CatalogGarmentsLoadFromAppBundle() async throws {
+        @MainActor func verifyGarment(_ garment: OiSeedCucumberGarment) async throws {
+            let asset = try await OiSeedCucumberModel.loadGarment(garment)
+            XCTAssertEqual(asset.name, garment.rawValue)
+            XCTAssertTrue(hasModel(in: asset), "\(garment.title) must contain a renderable mesh")
+        }
+        @MainActor func hasModel(in entity: Entity) -> Bool {
+            entity.components[ModelComponent.self] != nil || entity.children.contains(where: hasModel)
+        }
+
+        let costumes = OiWardrobeLook.Costume.allCases
+        XCTAssertEqual(Set(OiSeedCucumberGarment.allCases.filter { $0.slot == .costume }),
+                       Set(costumes.map { .costume($0) }))
+        try await verifyGarment(.sneakers)
+        for costume in costumes {
+            try await verifyGarment(.costume(costume))
+        }
+    }
+
+    func testStep3SetsReplaceOutfitsAndRestoreModularItems() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let variant = try XCTUnwrap(variants.first { $0.name == "402x874" })
+        var original = OiDraftCustomization()
+        original.seedAppearance = editedSeedCucumber3DAppearance()
+        original.selectedSeedTop = .hoodie
+        original.selectedSeedBottom = .shorts
+        original.toggleSeedSneakers()
+        let draft = Step3DraftFixture(original)
+        let screen = CreationCapturePage(step: 3) {
+            OiCucumberCustomizationStep(customization: Binding(get: { draft.value }, set: { draft.value = $0 }))
+        }
+        .environment(\.scenePhase, .active)
+
+        try await capture(screen, name: "step3-wardrobe-set", variant: variant, defaults: fixture.defaults,
+                          delay: .zero, attach: true, prepareRealityCapture: { host in
+            let surface = try await self.step3Surface(in: host)
+            try await self.waitForStep3 { surface.accessibilityValue == "3D 미리보기" }
+            let model = try XCTUnwrap(surface.scene.findEntity(named: "SeedCucumber"))
+            let eye = try XCTUnwrap(model.findEntity(named: "LeftEye"))
+            let eyeTransform = eye.transformMatrix(relativeTo: model)
+            let camera = try self.step3Camera(in: surface)
+            let rotate = try XCTUnwrap(surface.accessibilityCustomActions?.first)
+            XCTAssertTrue(try XCTUnwrap(rotate.actionHandler)(rotate))
+            let viewpoint = camera.position(relativeTo: nil)
+            let customOutfit: Set<OiSeedCucumberGarment> = [.hoodie, .shorts, .sneakers]
+            let postechOutfit: Set<OiSeedCucumberGarment> = [.postechJacket, .longPants, .sneakers]
+
+            @MainActor func mounted() -> Set<OiSeedCucumberGarment> {
+                Set(OiSeedCucumberGarment.allCases.filter { model.findEntity(named: $0.rawValue) != nil })
+            }
+            @MainActor func waitForReplacement(from previous: Set<OiSeedCucumberGarment>,
+                                               to next: Set<OiSeedCucumberGarment>) async throws {
+                try await self.waitForStep3 {
+                    let current = mounted()
+                    XCTAssertTrue(current == previous || current == next, "A set change must replace all affected slots together")
+                    return current == next
+                }
+                XCTAssertEqual(mounted(), next)
+                XCTAssertTrue(surface.scene.findEntity(named: "SeedCucumber") === model)
+                XCTAssertTrue(model.findEntity(named: "LeftEye") === eye)
+                XCTAssertEqual(eye.transformMatrix(relativeTo: model).columns.3, eyeTransform.columns.3)
+                XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), viewpoint), 0, accuracy: 0.001)
+            }
+
+            XCTAssertEqual(mounted(), customOutfit)
+            let dinosaur: Set<OiSeedCucumberGarment> = [.costume(.dinosaur)]
+            draft.value.selectSeedSet(.costume(.dinosaur))
+            try await waitForReplacement(from: customOutfit, to: dinosaur)
+
+            let baseball: Set<OiSeedCucumberGarment> = [.costume(.baseball)]
+            draft.value.selectSeedSet(.costume(.baseball))
+            try await waitForReplacement(from: dinosaur, to: baseball)
+
+            draft.value.selectSeedSet(.postech)
+            try await waitForReplacement(from: baseball, to: postechOutfit)
+            draft.value.selectSeedSet(.postech)
+            try await waitForReplacement(from: postechOutfit, to: customOutfit)
+
+            draft.value.selectSeedSet(.costume(.dinosaur))
+            try await waitForReplacement(from: customOutfit, to: dinosaur)
+            draft.value.toggleSeedSneakers()
+            try await waitForReplacement(from: dinosaur, to: customOutfit)
+            XCTAssertEqual(draft.value, original)
+
+            draft.value.selectSeedSet(.costume(.dinosaur))
+            try await waitForReplacement(from: customOutfit, to: dinosaur)
+            return surface
+        })
+    }
+
     private func step3Camera(in surface: RealityKit.ARView) throws -> PerspectiveCamera {
         let cameras = surface.scene.anchors.flatMap { anchor in
             anchor.children.compactMap { $0 as? PerspectiveCamera }

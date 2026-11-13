@@ -26,9 +26,15 @@ struct OiCucumberCustomizationStep: View {
     private var allowsWardrobeEditing: Bool { previewMode == .wardrobe }
     private var seedAppearance: OiSeedCucumberAppearance { customization.seedAppearance ?? .init() }
     private var seedGarments: Set<OiSeedCucumberGarment> {
+        switch customization.selectedSeedSet {
+        case .costume(let costume): return [.costume(costume)]
+        case .postech: return [.postechJacket, .longPants, .sneakers]
+        case nil: break
+        }
         var garments: Set<OiSeedCucumberGarment> = []
         if let top = customization.selectedSeedTop { garments.insert(.init(top: top)) }
         if let bottom = customization.selectedSeedBottom { garments.insert(.init(bottom: bottom)) }
+        if customization.seedSneakers == true { garments.insert(.sneakers) }
         return garments
     }
     private var look: OiWardrobeLook { customization.wardrobe ?? OiWardrobeLook() }
@@ -207,11 +213,12 @@ struct OiCucumberCustomizationStep: View {
                 EmptyView()
             case .top:
                 ForEach(OiWardrobeLook.Top.allCases, id: \.self) { top in
-                    let seedSelection = allowsWardrobeEditing ? nil : customization.selectedSeedTop == top
+                    let seedSelection = allowsWardrobeEditing ? nil
+                        : customization.selectedSeedSet == nil && customization.selectedSeedTop == top
                     item(top.title, image: "oi-thumb-\(top.rawValue)", selected: look.costume == nil && look.top == top,
                          id: top.rawValue, seedSelection: seedSelection) {
-                        if let seedSelection {
-                            customization.selectedSeedTop = seedSelection ? nil : top
+                        if seedSelection != nil {
+                            customization.selectSeedTop(top)
                         } else {
                             change { $0.top = top; $0.costume = nil }
                         }
@@ -219,32 +226,53 @@ struct OiCucumberCustomizationStep: View {
                 }
             case .bottom:
                 ForEach(OiWardrobeLook.Bottom.allCases, id: \.self) { bottom in
-                    let seedSelection = allowsWardrobeEditing ? nil : customization.selectedSeedBottom == bottom
+                    let seedSelection = allowsWardrobeEditing ? nil
+                        : customization.selectedSeedSet == nil && customization.selectedSeedBottom == bottom
                     item(bottom.title, image: "oi-thumb-\(bottom == .long ? "long-pants" : "shorts")",
                          selected: look.costume == nil && look.bottom == bottom, id: bottom.rawValue,
                          seedSelection: seedSelection) {
-                        if let seedSelection {
-                            customization.selectedSeedBottom = seedSelection ? nil : bottom
+                        if seedSelection != nil {
+                            customization.selectSeedBottom(bottom)
                         } else {
                             change { $0.bottom = bottom; $0.costume = nil }
                         }
                     }
                 }
             case .shoes:
-                item("흰 운동화", image: "oi-thumb-sneakers", selected: look.costume == nil, id: "sneakers") {
-                    change { $0.shoeColor = 0xFFFFFF; $0.costume = nil }
+                let seedSelection = allowsWardrobeEditing ? nil
+                    : customization.selectedSeedSet == nil && customization.seedSneakers == true
+                item("흰 운동화", image: "oi-thumb-sneakers", selected: look.costume == nil,
+                     id: "sneakers", seedSelection: seedSelection) {
+                    if seedSelection != nil {
+                        customization.toggleSeedSneakers()
+                    } else {
+                        change { $0.shoeColor = 0xFFFFFF; $0.costume = nil }
+                    }
                 }
             case .set:
                 ForEach(OiWardrobeLook.Costume.allCases) { costume in
-                    item(costume.title, image: costume.thumbnailName, selected: look.costume == costume, id: "set-" + costume.rawValue) {
-                        change { $0.costume = costume }
+                    let seedSelection = allowsWardrobeEditing ? nil : customization.selectedSeedSet == .costume(costume)
+                    item(costume.title, image: costume.thumbnailName, selected: look.costume == costume,
+                         id: "set-" + costume.rawValue, seedSelection: seedSelection) {
+                        if seedSelection != nil {
+                            customization.selectSeedSet(.costume(costume))
+                        } else {
+                            change { $0.costume = costume }
+                        }
                     }
                 }
-                item("포스텍 과잠 세트", image: "oi-look-postech", selected: look.costume == nil && look.top == .postech && look.bottom == .long, id: "set-postech") {
-                    var replacement = OiWardrobeLook()
-                    replacement.top = .postech
-                    replacement.artwork = look.artwork; replacement.fabrics = look.fabrics
-                    customization.wardrobe = replacement
+                let seedSelection = allowsWardrobeEditing ? nil : customization.selectedSeedSet == .postech
+                item("포스텍 과잠 세트", image: "oi-look-postech",
+                     selected: look.costume == nil && look.top == .postech && look.bottom == .long,
+                     id: "set-postech", seedSelection: seedSelection) {
+                    if seedSelection != nil {
+                        customization.selectSeedSet(.postech)
+                    } else {
+                        var replacement = OiWardrobeLook()
+                        replacement.top = .postech
+                        replacement.artwork = look.artwork; replacement.fabrics = look.fabrics
+                        customization.wardrobe = replacement
+                    }
                 }
             }
         }

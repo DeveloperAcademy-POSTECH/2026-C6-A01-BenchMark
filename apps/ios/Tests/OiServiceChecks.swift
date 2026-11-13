@@ -393,6 +393,7 @@ struct OiServiceChecks {
         let oldRecovered = try JSONDecoder().decode(OiDraftCustomization.self, from: oldCustomization)
         precondition(oldRecovered.wardrobe == nil && oldRecovered.card == nil && oldRecovered.seedAppearance == nil)
         precondition(oldRecovered.seedWhiteTshirt == nil && oldRecovered.seedLongPants == nil)
+        precondition(oldRecovered.seedSneakers == nil && oldRecovered.selectedSeedSet == nil)
         var seedAppearance = OiSeedCucumberAppearance()
         seedAppearance.bodyHeight = 1.1
         seedAppearance.bodyWidth = 1.2
@@ -412,6 +413,8 @@ struct OiServiceChecks {
         precondition(legacyOutfit.selectedSeedTop == .tshirt && legacyOutfit.selectedSeedBottom == .long)
         record.customization?.selectedSeedTop = .cardigan
         record.customization?.selectedSeedBottom = .shorts
+        record.customization?.toggleSeedSneakers()
+        record.customization?.selectSeedSet(.costume(.scientistGoggles))
         let future = try JSONDecoder().decode(OiWardrobeLook.self, from: Data(#"{"top":"future-garment","bottom":"retired-pants","topColor":4294967295}"#.utf8))
         precondition(future.top == .tshirt && future.bottom == .long && future.topColor == 0xFFFFFF)
         precondition(future.fabrics.isEmpty, "Legacy looks have no fabric override")
@@ -533,6 +536,27 @@ struct OiServiceChecks {
         precondition(recovered?.customization?.seedAppearance == seedAppearance, "Face, stem, and body edits must survive reopening the account draft")
         precondition(recovered?.customization?.selectedSeedTop == .cardigan, "The STEP 3 top selection must survive reopening the account draft")
         precondition(recovered?.customization?.selectedSeedBottom == .shorts, "The STEP 3 bottom selection must survive reopening the account draft")
+        guard var restoredOutfit = recovered?.customization else { preconditionFailure("Missing STEP 3 draft customization") }
+        precondition(restoredOutfit.selectedSeedSet == .costume(.scientistGoggles) && restoredOutfit.seedSneakers == true)
+        restoredOutfit.selectSeedSet(.costume(.scientistGoggles))
+        precondition(restoredOutfit.selectedSeedSet == nil && restoredOutfit.seedSneakers == true)
+        precondition(restoredOutfit.selectedSeedTop == .cardigan && restoredOutfit.selectedSeedBottom == .shorts)
+        restoredOutfit.selectSeedSet(.postech)
+        let savedPostechSet = try JSONDecoder().decode(OiDraftCustomization.self, from: JSONEncoder().encode(restoredOutfit))
+        precondition(savedPostechSet.selectedSeedSet == .postech)
+        restoredOutfit.selectSeedTop(.hoodie)
+        precondition(restoredOutfit.selectedSeedSet == nil && restoredOutfit.selectedSeedTop == .hoodie)
+        precondition(restoredOutfit.selectedSeedBottom == .shorts && restoredOutfit.seedSneakers == true)
+        restoredOutfit.toggleSeedSneakers()
+        precondition(restoredOutfit.seedSneakers != true)
+        restoredOutfit.selectSeedSet(.costume(.dinosaur))
+        restoredOutfit.toggleSeedSneakers()
+        precondition(restoredOutfit.selectedSeedSet == nil && restoredOutfit.seedSneakers == true)
+        restoredOutfit.selectSeedSet(.costume(.dinosaur))
+        restoredOutfit.toggleSeedSneakers()
+        precondition(restoredOutfit.selectedSeedSet == nil && restoredOutfit.seedSneakers == true,
+                     "Choosing shoes while wearing a set must equip the shoes")
+        print("PASS: STEP 3 set and sneakers survive draft reopening and restore modular choices")
         precondition(recovered?.customization?.seedWhiteTshirt == nil && recovered?.customization?.seedLongPants == nil)
         var removedOutfit = legacyOutfit
         removedOutfit.selectedSeedTop = nil

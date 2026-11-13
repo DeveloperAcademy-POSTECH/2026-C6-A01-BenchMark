@@ -261,6 +261,7 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
                 }
             }
             if selectionChanged { updateMountedGarments() }
+            discardInactiveCostumes()
             if selectionChanged || retryRequested || lastPresentation == nil { schedulePresentation() }
         }
 
@@ -310,6 +311,11 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
 
         private func updateMountedGarments() {
             guard let model else { return }
+            // Keep the entire current look on screen until every piece of the new look is ready.
+            guard selectedGarments.allSatisfy({ garment in
+                if case .ready = garmentLoads[garment] { return true }
+                return false
+            }) else { return }
             var changed = false
             for slot in OiSeedCucumberGarment.Slot.allCases {
                 let previous = mountedGarments.keys.first { $0.slot == slot }
@@ -339,12 +345,21 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
                 }
             }
             guard changed else { return }
+            discardInactiveCostumes()
+            OiSeedCucumberModel.updateCoverage(for: Set(mountedGarments.keys), on: model)
             frameRevision += 1
             // Reveal the warmed frame for the latest outfit while keeping the camera in place.
             if !shows3D, loadState == .ready {
                 loadState = .awaitingFrame
                 layoutChanged()
             }
+        }
+
+        private func discardInactiveCostumes() {
+            let inactive = garmentLoads.keys.filter {
+                $0.slot == .costume && !selectedGarments.contains($0) && mountedGarments[$0] == nil
+            }
+            for garment in inactive { garmentLoads[garment] = nil }
         }
 
         func uninstall(from host: OiStep3CucumberRenderHost) {

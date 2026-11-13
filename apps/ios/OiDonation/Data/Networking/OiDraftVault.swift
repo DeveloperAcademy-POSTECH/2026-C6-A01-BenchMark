@@ -284,6 +284,8 @@ struct OiDraftCustomization: Codable, Equatable {
     var seedLongPants: Bool?
     var seedTop: String?
     var seedBottom: String?
+    var seedSneakers: Bool?
+    var seedSet: String?
 
     var selectedSeedTop: OiWardrobeLook.Top? {
         get { seedTop.flatMap(OiWardrobeLook.Top.init(rawValue:)) ?? (seedWhiteTshirt == true ? .tshirt : nil) }
@@ -298,6 +300,54 @@ struct OiDraftCustomization: Codable, Equatable {
         set {
             seedBottom = newValue?.rawValue
             seedLongPants = nil
+        }
+    }
+
+    var selectedSeedSet: OiSeedCucumberSet? {
+        get { seedSet.flatMap(OiSeedCucumberSet.init(rawValue:)) }
+        set { seedSet = newValue?.rawValue }
+    }
+
+    mutating func selectSeedTop(_ top: OiWardrobeLook.Top) {
+        selectedSeedTop = selectedSeedSet == nil && selectedSeedTop == top ? nil : top
+        selectedSeedSet = nil
+    }
+
+    mutating func selectSeedBottom(_ bottom: OiWardrobeLook.Bottom) {
+        selectedSeedBottom = selectedSeedSet == nil && selectedSeedBottom == bottom ? nil : bottom
+        selectedSeedSet = nil
+    }
+
+    mutating func toggleSeedSneakers() {
+        seedSneakers = selectedSeedSet != nil || seedSneakers != true ? true : nil
+        selectedSeedSet = nil
+    }
+
+    mutating func selectSeedSet(_ set: OiSeedCucumberSet) {
+        selectedSeedSet = selectedSeedSet == set ? nil : set
+    }
+}
+
+enum OiSeedCucumberSet: Equatable, RawRepresentable, CaseIterable {
+    case costume(OiWardrobeLook.Costume)
+    case postech
+
+    static var allCases: [Self] { OiWardrobeLook.Costume.allCases.map(Self.costume) + [.postech] }
+
+    init?(rawValue: String) {
+        if rawValue == "postech" {
+            self = .postech
+        } else if let costume = OiWardrobeLook.Costume(rawValue: rawValue) {
+            self = .costume(costume)
+        } else {
+            return nil
+        }
+    }
+
+    var rawValue: String {
+        switch self {
+        case .costume(let costume): costume.rawValue
+        case .postech: "postech"
         }
     }
 }

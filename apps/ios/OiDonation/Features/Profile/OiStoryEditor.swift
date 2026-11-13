@@ -721,6 +721,8 @@ struct OiStoryEditor: View {
         cardCustomization.seedAppearance = nil
         cardCustomization.selectedSeedTop = nil
         cardCustomization.selectedSeedBottom = nil
+        cardCustomization.seedSneakers = nil
+        cardCustomization.selectedSeedSet = nil
         return cardCustomization == OiDraftCustomization() ? currentStory?.cardArtworkPath : nil
     }
 
