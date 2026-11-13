@@ -33,6 +33,11 @@ struct CampusPostcard: View {
               localRecord.value.id == UUID(uuidString: story.id) else { return nil }
         return localRecord.value
     }
+    private var fallbackAuthor: String {
+        let design = localDraft?.customization?.card
+        return OiPostcardAuthor.text(mode: (design?.postcardBackground ?? backgroundStyle)?.authorMode,
+            name: story.donor, academic: design?.postcardAcademicAuthor ?? "")
+    }
     var body: some View {
         VStack(spacing: 10) {
             OiFlippablePostcard(showingBack: $showingBack) {
@@ -62,7 +67,7 @@ struct CampusPostcard: View {
                     OiPostcardBack(first: colors.0, second: colors.1,
                                backgroundStyle: localDraft?.customization?.card?.postcardBackground ?? backgroundStyle,
                                message: localDraft?.draft.body ?? story.body,
-                               author: story.donor, scrollable: true)
+                               author: fallbackAuthor, scrollable: true)
                 }
             }
             Text("탭하거나 옆으로 밀어서 뒤집기").font(CampusStyle.body(12)).foregroundStyle(.secondary)

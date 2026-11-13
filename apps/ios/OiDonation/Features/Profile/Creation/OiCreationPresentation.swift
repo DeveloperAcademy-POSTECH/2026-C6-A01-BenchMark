@@ -4,6 +4,7 @@ enum OiCreationStep: String, CaseIterable {
     case consent, story, photos, location, cucumber, card
 
     static let storyTextLimit = 45
+    static let storyBodyByteLimit = 1_500
     static let storyPhotoLimit = 3
 
     var title: String {
@@ -45,7 +46,7 @@ enum OiCreationStep: String, CaseIterable {
         case .consent: true
         case .story:
             [draft.title, draft.body, draft.theme, draft.emotion].allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                && draft.title.count <= Self.storyTextLimit && draft.body.count <= Self.storyTextLimit
+                && draft.title.count <= Self.storyTextLimit && draft.body.utf8.count <= Self.storyBodyByteLimit
                 && draft.theme.count <= 30 && draft.emotion.count <= 30
         case .photos: true
         case .location:

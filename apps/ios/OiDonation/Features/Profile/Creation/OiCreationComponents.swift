@@ -281,7 +281,7 @@ struct OiStoryWritingStep: View {
             OiCreationSection(title: "제목 입력", hint: "(띄어쓰기 포함 \(textLimit)자 이내)") {
                 inputBox($draft.title, field: .title, label: "이야기 제목", identifier: "oi.draft.title")
             }
-            OiCreationSection(title: "이야기 입력", hint: "(띄어쓰기 포함 \(textLimit)자 이내)") {
+            OiCreationSection(title: "이야기 입력", hint: "(띄어쓰기 포함 1,500byte 이내)") {
                 inputBox($draft.body, field: .body, label: "이야기 내용", identifier: "oi.draft.body")
             }
         }
@@ -301,6 +301,17 @@ struct OiStoryWritingStep: View {
         })
     }
 
+    static func limitedStoryText(_ text: Binding<String>) -> Binding<String> {
+        Binding(get: { text.wrappedValue }, set: { value in
+            let previousBytes = text.wrappedValue.utf8.count
+            let bytes = value.utf8.count
+            // Restore old stories without truncation; allow shortening an over-limit draft.
+            guard bytes <= OiCreationStep.storyBodyByteLimit ||
+                    (previousBytes > OiCreationStep.storyBodyByteLimit && bytes < previousBytes) else { return }
+            text.wrappedValue = value
+        })
+    }
+
     private func inputBox(_ text: Binding<String>, field: Field, label: String, identifier: String) -> some View {
         // Measure the bound text so typing, pasting, and restoring use the same layout.
         // The invisible character gives a trailing line break room for the caret.
@@ -313,7 +324,7 @@ struct OiStoryWritingStep: View {
                 .hidden()
                 .accessibilityHidden(true)
                 .overlay(alignment: .topLeading) {
-                    TextEditor(text: Self.limitedText(text))
+                    TextEditor(text: field == .body ? Self.limitedStoryText(text) : Self.limitedText(text))
                         .scrollContentBackground(.hidden)
                         .scrollDisabled(true)
                         .focused(focusedField, equals: field)

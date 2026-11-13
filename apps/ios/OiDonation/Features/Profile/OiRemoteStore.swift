@@ -1061,6 +1061,15 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         return url
     }
 
+    func storyPhotoData(_ path: String) async throws -> Data {
+        guard let api, let owner = account?.id else { throw OiServiceError.accountChanged }
+        let started = generation
+        let bytes = try await api.downloadSignedObject(bucket: "oi-story-media", path: path, token: try await token())
+        try Task.checkCancellation()
+        guard started == generation, account?.id == owner else { throw OiServiceError.accountChanged }
+        return bytes
+    }
+
     func cucumberImage(_ path: String, part: OiCucumberArtworkReference.Part = .portrait) async throws -> UIImage {
         guard let api else { throw OiServiceError.configuration }
         let started = generation

@@ -314,10 +314,20 @@ struct OiCardOrientation: Codable, Equatable {
     }
 }
 
-/// One color drives the paper, artwork backdrop, and soft Figma gradient.
+/// Shared postcard style; optional custom colors preserve earlier single-color drafts.
 struct OiPostcardBackgroundStyle: Codable, Equatable {
     var color: UInt32 = 0xEECFDF
     var fill: OiDraftCustomization.Fill = .gradient
+    /// Optional additions preserve the appearance of earlier one-color drafts.
+    var preset: String? = nil
+    var middleColor: UInt32? = nil
+    var endColor: UInt32? = nil
+    /// A display rule only; personal profile values never enter PNG style metadata.
+    var authorMode: String? = nil
+    /// Optional RGB for the back's POSTECH watermark; nil keeps the earlier automatic tint.
+    var backLogoColor: UInt32? = nil
+    /// Custom fields use the middle as the paper base, not the upper-right accent.
+    var paperColor: UInt32 { middleColor ?? color }
 }
 
 /// Kept in the protected local draft, never added implicitly to the public API payload.
@@ -339,6 +349,16 @@ struct OiCardDesign: Codable, Equatable {
     var photoMonochrome: Bool? = nil
     /// Nil keeps the appearance of drafts saved before the unified background editor.
     var postcardBackground: OiPostcardBackgroundStyle? = nil
+    var postcardLayoutVersion: Int? = nil
+    var postcardStamp: Int? = nil
+    var postcardLogo: String? = nil
+    /// Nil keeps legacy automatic backdrops and leaves new layouts transparent.
+    var characterBackdropEnabled: Bool? = nil
+    var usesCharacterBackdrop: Bool {
+        characterBackdropEnabled ?? (postcardLayoutVersion != 2 && postcardBackground != nil)
+    }
+    /// Academic text stays in the protected draft and rendered card, not style metadata.
+    var postcardAcademicAuthor: String? = nil
 }
 
 enum OiDenim: String, CaseIterable, Codable, Identifiable {
