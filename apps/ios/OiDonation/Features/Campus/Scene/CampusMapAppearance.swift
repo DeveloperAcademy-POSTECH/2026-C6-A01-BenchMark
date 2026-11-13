@@ -8,19 +8,9 @@
 import RealityKit
 import UIKit
 
-enum CampusMapAppearance: String, CaseIterable, Identifiable {
+enum CampusMapAppearance {
     case original
     case apricotCream
-
-    var id: String { rawValue }
-    var title: String { self == .original ? "기존 색상" : "살구 크림" }
-    private static let preferenceKey = "campus.map.appearance"
-
-    static var saved: Self {
-        Self(rawValue: UserDefaults.standard.string(forKey: preferenceKey) ?? "") ?? .apricotCream
-    }
-
-    func save() { UserDefaults.standard.set(rawValue, forKey: Self.preferenceKey) }
 
     var background: UIColor {
         self == .original

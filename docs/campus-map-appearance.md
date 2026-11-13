@@ -4,7 +4,7 @@
 
 ## 앱 동작
 
-메인 지도 오른쪽 위 팔레트 버튼에서 `기존 색상` / `살구 크림`을 선택한다. 기본값은 살구 크림이며 선택은 기기에 저장한다. `CampusMeshLoader`의 `campus-mobile.oimesh` 원본은 유지한다. `CampusMapAppearance`가 엔티티를 복제하고 복사본 재질만 변경한다. 메시 리소스는 공유하므로 21MB 지도 파일을 앱에 중복 탑재하지 않는다. 카메라, 지형 높이, 건물 이름, 위치 좌표, 오이/스토리 배치는 유지한다.
+2026-11-13 #305: 메인 지도 전체·지역 화면의 팔레트 버튼을 제거하고 살구 크림으로 고정한다. 예전에 저장한 `campus.map.appearance` 값은 읽거나 갱신하지 않는다. 원본 색상 렌더링은 비교 회귀 검사에서만 사용한다. `CampusMeshLoader`의 `campus-mobile.oimesh` 원본은 유지한다. `CampusMapAppearance`가 엔티티를 복제하고 복사본 재질만 변경한다. 메시 리소스는 공유하므로 21MB 지도 파일을 앱에 중복 탑재하지 않는다. 카메라, 지형 높이, 건물 이름, 위치 좌표, 오이/스토리 배치는 유지한다.
 
 같은 날 시안 비교 후, 시안 이미지에 보이는 연두 잔디·녹색 수목·살구 건물·청록색 물을 기준으로 앱 조명 아래의 재질 색상을 보정했다. 지도 밖에는 크림 살구(`#FFF6E5`)에서 옅은 연녹색(`#E4EDC8`)으로 이어지는 화면 기준 그라데이션을 둔다. 배경은 투명한 RealityKit 뷰 아래에 배치하므로 카메라를 회전해도 방향과 색이 변하지 않는다. 기존 색상 모드의 배경은 원래 단색을 유지한다.
 
@@ -31,7 +31,10 @@ python3 scripts/recolor-campus.py --output-dir /tmp/postech-apricot-copy
 ## 검증
 
 - 변환 스크립트: 507개 조각, 지형·법선·인덱스·알파 불변, 원본/복사본 SHA256 기록.
+- `CampusMapInteractionTests/testMapStartsInApricotCreamDespiteLegacyPreference`: 이전 색상 선택값 유무에 관계없이 새 지도는 살구 크림으로 시작한다.
 - `OiFlowChecks` → `CampusMapInteractionTests/testMapAppearancePreservesCameraGeometryAndOriginalColors`: 원본 재질 보존, 지도 경계/카메라 불변, 원본 복귀, 렌더러 재생성 후 색상·배경·환경광·그림자 유지, 전체 지도·연못·낮은 각도 이미지 첨부.
 - 기존 캠퍼스 이야기, 지도 명칭/클러스터/제스처 계산, 배치 좌표 검사 스크립트.
 
 2026-11-11 기기 검증: iOS 26.7.2 Jun iPhone에 서명된 Debug 빌드를 설치·실행하고 실제 화면 캡처에서 살구 크림 전체 지도 표시를 확인했다. 시뮬레이터에서는 확대·낮은 각도·전체 렌더 및 지도 상호작용 테스트 5개를 검증했다.
+
+2026-11-13 #305 검증: iOS 27.2 시뮬레이터에서 이전 색상 저장값 무시, 색상·조명·렌더러 복원, 핀치·회전, 전체 지도 공개 오이 선택 테스트 4개가 통과했다. 본 앱·App Clip 컴파일과 `run-campus-checks.sh`, `run-app-clip-checks.sh`도 통과했다. 실제 iPhone 설치·확인은 이번 변경에서 수행하지 않았다.

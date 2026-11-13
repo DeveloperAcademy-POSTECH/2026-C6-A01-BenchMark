@@ -9,7 +9,6 @@ struct HomeView: View {
     let onOpenStory: (String) -> Void
     var remote: OiRemoteStore? = nil
     var onCreateStory: (() -> Void)? = nil
-    var onOpenSample: (() -> Void)? = nil
     var authoredPlacementToReveal: Binding<UUID?> = .constant(nil)
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -87,7 +86,6 @@ struct HomeView: View {
                 if let error = scene.error {
                     ContentUnavailableView { Label("지도를 불러올 수 없어요", systemImage: "map") } description: { Text(error) } actions: {
                         Button("다시 시도") { Task { await scene.load() } }
-                        if let onOpenSample { Button("이야기·AR 체험", action: onOpenSample) }
                     }.background(.regularMaterial)
                 }
             }
@@ -387,7 +385,6 @@ struct HomeView: View {
                 .buttonStyle(.plain).glassEffect(.regular.interactive(), in: Circle())
                 .accessibilityLabel("캠퍼스 전체 지도").accessibilityIdentifier("campus.overview")
                 Spacer()
-                mapAppearanceMenu
             } else {
                 Button { showingSchools = true } label: {
                     HStack(spacing: 8) {
@@ -398,15 +395,6 @@ struct HomeView: View {
                 .buttonStyle(.plain).glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 20))
                 .accessibilityLabel("캠퍼스 선택").accessibilityIdentifier("campus.school")
                 Spacer()
-                mapAppearanceMenu
-                if let onOpenSample {
-                    Button(action: onOpenSample) {
-                        Text("체험하기").font(CampusStyle.medium(14))
-                            .padding(.horizontal, 12).frame(minHeight: 44)
-                            .contentShape(Capsule())
-                    }.buttonStyle(.plain).glassEffect(.regular.interactive(), in: Capsule())
-                        .accessibilityLabel("이야기·AR 체험 열기").accessibilityIdentifier("campus.sample")
-                }
             }
         }
         .overlay(alignment: .top) {
@@ -414,30 +402,6 @@ struct HomeView: View {
                 searchAreaButton.alignmentGuide(.top) { ($0.height - 34) / 2 }.transition(.opacity)
             }
         }
-    }
-
-    private var mapAppearanceMenu: some View {
-        Menu {
-            ForEach(CampusMapAppearance.allCases) { appearance in
-                Button {
-                    scene.setAppearance(appearance)
-                } label: {
-                    if scene.appearance == appearance {
-                        Label(appearance.title, systemImage: "checkmark")
-                    } else {
-                        Text(appearance.title)
-                    }
-                }
-            }
-        } label: {
-            Image(systemName: "paintpalette")
-                .font(.system(size: 19, weight: .medium))
-                .frame(width: 44, height: 44)
-        }
-        .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: Circle())
-        .accessibilityLabel("지도 색상, \(scene.appearance.title)")
-        .accessibilityIdentifier("campus.appearance")
     }
 
     private var searchAreaButton: some View {

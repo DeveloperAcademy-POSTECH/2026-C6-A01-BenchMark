@@ -957,9 +957,21 @@ final class CampusMapInteractionTests: XCTestCase {
         XCTAssertLessThan(simd_distance(pose().target, hiddenDestination), 0.01, "Backgrounding must clear the old edge-return motion")
     }
 
+    func testMapStartsInApricotCreamDespiteLegacyPreference() {
+        let key = "campus.map.appearance"
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: key)
+        defer {
+            if let previous { defaults.set(previous, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+        }
+        for legacyValue in [nil, "original", "apricotCream"] as [String?] {
+            defaults.set(legacyValue, forKey: key)
+            XCTAssertEqual(CampusExploreScene().appearance, .apricotCream)
+        }
+    }
+
     func testMapAppearancePreservesCameraGeometryAndOriginalColors() async throws {
-        let previous = CampusMapAppearance.saved
-        defer { previous.save() }
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: windowScene)
         let controller = UIViewController()
@@ -1049,7 +1061,7 @@ final class CampusMapInteractionTests: XCTestCase {
         XCTAssertEqual(colors(try root()), colors(apricot), "Renderer recreation must retain the chosen palette")
         XCTAssertNotNil(canvas.map?.environment.lighting.resource)
         XCTAssertNotNil((canvas.map?.scene.anchors.first?.findEntity(named: "campus-sun") as? DirectionalLight)?.shadow)
-        XCTAssertEqual(CampusMapAppearance.saved, .apricotCream)
+        XCTAssertEqual(CampusExploreScene().appearance, .apricotCream)
     }
 
     private func waitUntil(_ description: String, timeout: TimeInterval = 3, condition: () -> Bool,
