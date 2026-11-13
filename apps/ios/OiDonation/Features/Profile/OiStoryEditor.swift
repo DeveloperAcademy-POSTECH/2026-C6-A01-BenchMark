@@ -631,7 +631,7 @@ struct OiStoryEditor: View {
             issues.append(.init(step: .consent, message: "공개하려면 이야기와 게시물 조치 규정에 동의해 주세요."))
         }
         if !OiCreationStep.story.canContinue(draft: draft) {
-            issues.append(.init(step: .story, message: "테마와 감정을 선택하고 제목과 이야기를 각각 \(OiCreationStep.storyTextLimit)자 이내로 입력해 주세요."))
+            issues.append(.init(step: .story, message: "테마와 감정을 선택하고 제목은 45자, 이야기는 1,500byte 이내로 입력해 주세요."))
         }
         if !OiCreationStep.location.canContinue(draft: draft) {
             issues.append(.init(step: .location, message: "캠퍼스 위치를 선택해 주세요."))
@@ -790,10 +790,24 @@ struct OiStoryEditor: View {
         case .card:
             OiCardCustomizationStep(draft: $draft, customization: $customization,
                 donorName: remote.profile?.publicName ?? "",
+                academicAuthor: OiPostcardAuthor.academic(department: remote.profile?.department, year: remote.profile?.admissionYear),
+                storyPhotos: editingPhotos, loadStoryPhoto: cardStoryPhoto,
                 onContinue: { customizationReady = true },
                 onSizeEditingChanged: { cardSizeEditing = $0 })
 
         }
+    }
+
+    private func cardStoryPhoto(_ photo: OiEditingPhoto) async throws -> Data {
+        guard let owner, remote.account?.id == owner else { throw OiServiceError.accountChanged }
+        let data: Data
+        switch photo {
+        case .local(let id): data = try await remote.localPhoto(id: id, owner: owner)
+        case .uploaded(let path): data = try await remote.storyPhotoData(path)
+        }
+        try Task.checkCancellation()
+        guard remote.account?.id == owner else { throw OiServiceError.accountChanged }
+        return try OiPhotoProcessor.prepare(data)
     }
 
     private var completion: some View {

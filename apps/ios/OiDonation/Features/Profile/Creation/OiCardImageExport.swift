@@ -19,12 +19,13 @@ enum OiCardExportError: LocalizedError {
 }
 
 @MainActor enum OiCardImageExport {
-    static func publication(front: UIImage, message: String, author: String) throws -> OiStoryCardPublication {
+    static func publication(front: UIImage, message: String, author: String, academicAuthor: String = "") throws -> OiStoryCardPublication {
         let style = OiPostcardBackgroundMetadata.style(for: front)
         let first = OiPostcardSnapshot.color(front, x: 0.05, y: 0.10) ?? 0xE8EECF
         let second = OiPostcardSnapshot.color(front, x: 0.95, y: 0.90) ?? 0xD5DBC6
         let back = try render(OiPostcardBack(first: first, second: second, backgroundStyle: style,
-            message: message, author: author, exportFontSize: fittingFontSize(message)))
+            message: message, author: OiPostcardAuthor.text(mode: style?.authorMode, name: author, academic: academicAuthor),
+            exportFontSize: fittingFontSize(message)))
         let frontPNG = style.flatMap { OiPostcardBackgroundMetadata.png(image: front, style: $0) } ?? front.pngData()
         guard let frontPNG, let backPNG = back.pngData() else { throw OiCardExportError.imageUnavailable }
         return try OiStoryCardPublication(front: frontPNG, back: backPNG,

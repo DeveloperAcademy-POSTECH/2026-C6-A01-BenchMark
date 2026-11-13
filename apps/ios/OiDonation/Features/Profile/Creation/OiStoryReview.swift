@@ -339,7 +339,8 @@ struct OiStoryReview<StoryPhoto: View>: View {
 
     private func cardPublication() throws -> OiStoryCardPublication {
         if let savedCard {
-            return try OiCardImageExport.publication(front: savedCard, message: draft.body, author: donorName)
+            return try OiCardImageExport.publication(front: savedCard, message: draft.body, author: donorName,
+                academicAuthor: OiPostcardAuthor.academic(department: remote.profile?.department, year: remote.profile?.admissionYear))
         }
         return try draftCard.publication(colorScheme: .light)
     }
