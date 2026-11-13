@@ -15,8 +15,9 @@ import UIKit
     static let heading = CampusEducationSite.heading
     static let scale = CampusEducationSite.scale
     static let officialURL = URL(string: "https://www.postech.ac.kr/kor/innovation/education_district_cp.do")!
-    static let farCount = 24_000
-    static let nearCount = 96_000
+    static let farCount = 37_282
+    static let nearCount = 62_107
+    static let totalCount = 110_869
     private static var meshes: (far: MeshResource, near: MeshResource)?
 
     struct Sample {
@@ -39,7 +40,7 @@ import UIKit
             func float(_ offset: Int) -> Float { Float(bitPattern: uint(offset)) }
             func vector(_ offset: Int) -> SIMD3<Float> { [float(offset), float(offset + 4), float(offset + 8)] }
             let count = Int(uint(8)), shellCount = Int(uint(12)), ground = float(16)
-            guard count == nearCount, shellCount > 0, shellCount < 500_000, shellCount % 3 == 0,
+            guard count == totalCount, shellCount > 0, shellCount < 500_000, shellCount % 3 == 0,
                   bytes.count == 20 + count * 28 + shellCount * 12, ground.isFinite else { throw CocoaError(.fileReadCorruptFile) }
             let points = (0..<count).map { i in
                 Sample(position: vector(20 + i * 28), normal: vector(32 + i * 28), brightness: float(44 + i * 28))
@@ -55,8 +56,8 @@ import UIKit
         if meshes == nil {
             let source = try geometry()
             // Prefixes are the web's spatially interleaved tiers. Striding loses rows.
-            meshes = (try pearls(Array(source.points.prefix(farCount)), radius: 0.036, ground: source.groundOffset),
-                      try pearls(source.points, radius: 0.023, ground: source.groundOffset))
+            meshes = (try pearls(Array(source.points.prefix(farCount)), radius: 0.031, ground: source.groundOffset),
+                      try pearls(Array(source.points.prefix(nearCount)), radius: 0.025, ground: source.groundOffset))
         }
         let model = ModelEntity(mesh: meshes!.far, materials: materials)
         model.name = "campus.education-district"
@@ -66,7 +67,6 @@ import UIKit
         model.components.set(DynamicLightShadowComponent(castsShadow: false))
         // Only the web's surface pearls form the building. Do not add a solid
         // backing or an occlusion material: gaps must reveal the surrounding map.
-        model.addChild(try siteSurface(data: data))
         if let landing = CampusEducationSite.libraryLanding(data: data) {
             model.addChild(try bridge(to: CampusEducationSite.local(landing)))
         }
@@ -100,7 +100,7 @@ import UIKit
         }
     }
 
-    /// Smooth normals on eight triangles per sphere: 768k triangles for all 96k dots,
+    /// Smooth normals on eight triangles per sphere: 497k triangles for the near 62k tier,
     /// no per-frame position uploads, entities, animation or transparency sorting.
     private static func pearls(_ points: [Sample], radius: Float, ground: Float = 0) throws -> MeshResource {
         let unit: [SIMD3<Float>] = [[0,1,0], [1,0,0], [0,0,1], [-1,0,0], [0,0,-1], [0,-1,0]]
@@ -109,7 +109,7 @@ import UIKit
         positions.reserveCapacity(points.count * 6); normals.reserveCapacity(points.count * 6)
         indices.reserveCapacity(points.count * 24); materialIDs.reserveCapacity(points.count * 8)
         for point in points {
-            let base = point.position + SIMD3(0, ground, 0) + point.normal * 0.012
+            let base = point.position + SIMD3(0, ground, 0)
             let index = UInt32(positions.count)
             for v in unit { positions.append(base + v * radius); normals.append(v) }
             for f in faces { indices.append(f + index) }
@@ -124,64 +124,26 @@ import UIKit
         return try MeshResource.generate(from: [descriptor])
     }
 
-    private static func parcelMesh(_ points: [SIMD3<Float>]) throws -> MeshResource {
-        var descriptor = MeshDescriptor(name: "Education cleared parcel surface")
-        descriptor.positions = MeshBuffers.Positions(points)
-        descriptor.primitives = .triangles((0..<UInt32(points.count)).map { $0 })
-        return try MeshResource.generate(from: [descriptor])
-    }
-
-    private static func siteSurface(data: CampusMapData) throws -> ModelEntity {
-        // A continuous flat paved parcel with retaining sides, replacing the old
-        // parking/terrain triangles. It stops short of C5, library and the road.
-        let top = CampusEducationSite.boundary.map { CampusEducationSite.local([$0.x, CampusEducationSite.elevation, $0.y]) }
-        var vertices: [SIMD3<Float>] = []
-        for i in 1..<top.count - 1 { vertices += [top[0], top[i + 1], top[i]] }
-        for i in CampusEducationSite.boundary.indices {
-            let a = CampusEducationSite.boundary[i], b = CampusEducationSite.boundary[(i + 1) % top.count]
-            let steps = max(1, Int(ceil(simd_distance(a, b) / 0.12)))
-            for step in 0..<steps {
-                let u = a + (b - a) * Float(step) / Float(steps)
-                let v = a + (b - a) * Float(step + 1) / Float(steps)
-                let hu = data.surface?.height(x: u.x, z: u.y) ?? CampusEducationSite.elevation
-                let hv = data.surface?.height(x: v.x, z: v.y) ?? CampusEducationSite.elevation
-                let p = CampusEducationSite.local([u.x, max(hu, CampusEducationSite.elevation) + 0.025, u.y])
-                let q = CampusEducationSite.local([v.x, max(hv, CampusEducationSite.elevation) + 0.025, v.y])
-                // Follow the original terrain at the cut edge, including the uphill
-                // Posville foundation. Double-sided retaining faces close that gap.
-                // Overlap the coarse height-field sample to avoid hairline cracks.
-                let r = CampusEducationSite.local([v.x, min(hv, CampusEducationSite.elevation) - 0.15, v.y])
-                let s = CampusEducationSite.local([u.x, min(hu, CampusEducationSite.elevation) - 0.15, u.y])
-                vertices += [p,q,r, p,r,s]
-            }
-        }
-        var material = SimpleMaterial(color: UIColor(red: 0.75, green: 0.77, blue: 0.76, alpha: 1), roughness: 1, isMetallic: false)
-        material.faceCulling = .none
-        let surface = ModelEntity(mesh: try parcelMesh(vertices), materials: [material])
-        surface.name = "education.cleared-parcel"
-        return surface
-    }
-
     private static func bridge(to end: SIMD3<Float>) throws -> Entity {
         let anchor = CampusEducationSite.bridgeAnchor
-        let x0 = end.x, x1 = anchor.x + 0.08, z0 = anchor.z - 0.42, z1 = anchor.z + 0.42
+        let x0 = end.x, x1 = anchor.x + 0.08, z0 = anchor.z - 0.57, z1 = anchor.z + 0.57
         let y0 = anchor.y - 0.18, y1 = anchor.y + 0.18
         var points: [Sample] = []
-        let columns = max(2, Int(ceil((x1 - x0) / 0.045)))
+        let columns = max(2, Int(ceil((x1 - x0) / 0.059143)))
         for i in 0...columns {
             let x = x0 + (x1 - x0) * Float(i) / Float(columns)
-            for j in 0...14 {
-                let z = z0 + (z1 - z0) * Float(j) / 14
+            for j in 0...20 {
+                let z = z0 + (z1 - z0) * Float(j) / 20
                 points.append(Sample(position: [x, y0, z], normal: [0,-1,0], brightness: 0.8))
                 points.append(Sample(position: [x, y1, z], normal: [0,1,0], brightness: 0.9))
             }
-            for j in 0...7 {
-                let y = y0 + (y1 - y0) * Float(j) / 7
-                points.append(Sample(position: [x,y,z0], normal: [0,0,-1], brightness: j == 0 || j == 7 ? 1 : 0.6))
-                points.append(Sample(position: [x,y,z1], normal: [0,0,1], brightness: j == 0 || j == 7 ? 1 : 0.6))
+            for j in 1..<6 {
+                let y = y0 + (y1 - y0) * Float(j) / 6
+                points.append(Sample(position: [x,y,z0], normal: [0,0,-1], brightness: 0.75))
+                points.append(Sample(position: [x,y,z1], normal: [0,0,1], brightness: 0.75))
             }
         }
-        let gallery = ModelEntity(mesh: try pearls(points, radius: 0.026), materials: materials)
+        let gallery = ModelEntity(mesh: try pearls(points, radius: 0.025), materials: materials)
         gallery.name = "education.library-connector"
         gallery.components.set(DynamicLightShadowComponent(castsShadow: false))
         return gallery
