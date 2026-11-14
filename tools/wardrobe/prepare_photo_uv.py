@@ -3,11 +3,22 @@ Original assemblies, points, topology and normals stay unchanged. Run in Blender
 """
 from pathlib import Path
 from pxr import Usd, UsdGeom, UsdShade, Sdf, Gf, Vt, UsdUtils
-import json, tempfile, hashlib, sys
+import argparse, json, tempfile, hashlib, sys
 import numpy as np
 ROOT=Path(__file__).resolve().parents[2]
 OUT=ROOT/'apps/ios/OiDonation/Resources/WardrobePhotoUV'
-REPORT=Path(sys.argv[sys.argv.index('--')+1])
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('report', type=Path)
+parser.add_argument('--model', action='append', help='Model stem to regenerate; omit for all modular outfits')
+args = parser.parse_args(sys.argv[sys.argv.index('--')+1:])
+REPORT = args.report
+sources = sorted((ROOT/'apps/ios/OiDonation/Resources/Wardrobe').glob('*.usdz'))
+sources = [p for p in sources if not p.stem.startswith('wardrobe-costume-')]
+if args.model:
+    missing = set(args.model) - {p.stem for p in sources}
+    if missing:
+        parser.error('Unknown modular models: ' + ', '.join(sorted(missing)))
+    sources = [p for p in sources if p.stem in args.model]
 OUT.mkdir(exist_ok=True,parents=True); REPORT.mkdir(exist_ok=True,parents=True)
 records=[]
 def visibility(points, faces, resolution=384):
@@ -31,7 +42,7 @@ def visibility(points, faces, resolution=384):
     return front,back
 
 
-for source,role in [(p,role) for p in sorted((ROOT/'apps/ios/OiDonation/Resources/Wardrobe').glob('*.usdz')) if not p.stem.startswith('wardrobe-costume-') for role in ['Top','Bottom'] if not (role=='Top' and 'postech' in p.name)]:
+for source,role in [(p,role) for p in sources for role in ['Top','Bottom'] if not (role=='Top' and 'postech' in p.name)]:
     name='photo-'+source.stem+'-'+role.lower()
     original_hash=hashlib.sha256(source.read_bytes()).hexdigest()
     stage=Usd.Stage.Open(str(source))

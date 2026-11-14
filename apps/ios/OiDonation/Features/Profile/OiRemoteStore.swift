@@ -28,6 +28,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     private(set) var unapprovedDraftsEnabled = false
     private(set) var canPublishCucumberAppearance = false
     private(set) var canPublishStoryCard = false
+    private(set) var canPublishDuplexCard = false
 
     var canPlaceOi: Bool { account != nil && !needsReauthentication && !isAccountDeletionPending }
 
@@ -64,6 +65,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     private var generation = UUID()
     private var loadSequence = 0
     private var localSignOutWarning: String?
+    @ObservationIgnored private var catalogLoadedAt: ContinuousClock.Instant?
+    @ObservationIgnored private var usesLegacyCollectionMetrics = false
     private var committedMediaPaths: [UUID:[String]] = [:]
     private let authentication: any OiAuthenticating
     private let drafts: OiDraftVault
@@ -288,6 +291,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         isSchoolProfileAvailable = false; isFarmerOutfitAvailable = false; farmerOutfit = nil
         canPublishCucumberAppearance = false
         canPublishStoryCard = false
+        canPublishDuplexCard = false
         localSignOutWarning = nil; loadError = nil; syncWarning = nil; error = nil; revision += 1
     }
 
@@ -346,6 +350,17 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         try await withOperatorSession { api, token in try await api.operatorAudit(query, after: cursor, token: token) }
     }
 
+    /// NFC postcard tags (#310). The server checks operator rights again and audits every change.
+    func operatorNFCTags() async throws -> [OiNFCTag] {
+        try await withOperatorSession { api, token in try await api.operatorNFCTags(token: token) }
+    }
+
+    func setNFCTag(_ tagID: String, story: UUID?, active: Bool, note: String) async throws -> OiNFCTagReceipt {
+        try await withOperatorSession { api, token in
+            try await api.setNFCTag(tagID, story: story, active: active, note: note, token: token)
+        }
+    }
+
     func operatorStory(_ id: UUID) async throws -> OiOperatorStoryDetail {
         try await withOperatorSession { api, token in
             let stories = try await api.rows("oi_stories", query: "id=eq.\(id.uuidString)&status=in.(pending,published,hidden)",
@@ -374,6 +389,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             var payload: [String: Any] = ["id": story.id.uuidString, "revision": story.revision, "status": wanted]
             if publish, let appearance = story.cucumberAppearance { payload["appearance_id"] = appearance.id.uuidString.lowercased() }
             if publish, let snapshot = story.cardSnapshotId { payload["card_snapshot_id"] = snapshot.uuidString.lowercased() }
+            if publish, story.cardSnapshotFormat == 2 { payload["card_snapshot_format"] = 2 }
             let receipt = try await api.mutate("review_story", payload: payload, token: accessToken, as: OiLiveStory.self)
             guard started == generation else { throw OiServiceError.accountChanged }
             guard receipt.id == story.id, receipt.status == wanted, receipt.revision > story.revision,
@@ -440,14 +456,14 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         }
     }
 
-    func refresh() async {
+    func refresh(reuseCatalog: Bool = false) async {
         guard !isBusy, !isRefreshing else { return }
         let started = generation
         let previousErrorRevision = errorRevision
         isRefreshing = true
         defer { if started == generation { isRefreshing = false } }
         do {
-            try await load()
+            try await load(reuseCatalog: reuseCatalog)
             if started == generation, errorRevision == previousErrorRevision { error = nil }
         } catch {
             guard started == generation, !Task.isCancelled, !OiServiceFailure.isCancellation(error) else { return }
@@ -479,6 +495,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         story.remoteMediaPaths = mediaPaths(storyID: item.id)
         story.cucumberPortraitPath = item.cucumberArtwork?.path(.portrait)
         story.cardArtworkPath = item.cardArtworkPath
+        story.cardBackArtworkPath = item.cardBackArtworkPath
         story.latitude = item.latitude; story.longitude = item.longitude
         if let placement = item.campusPlacement {
             story.heightMeters = placement.heightMeters
@@ -487,7 +504,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         return story
     }
 
-    private func load() async throws {
+    private func load(reuseCatalog: Bool = false) async throws {
         guard let api else { throw OiServiceError.configuration }
         let started = generation
         loadSequence += 1
@@ -506,11 +523,16 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         else { capabilities = nil }
         let resolvedOwner = capabilities?.accountId ?? account?.id
         let members = Set(capabilities?.accountMemberIds ?? resolvedOwner.map { [$0] } ?? [])
-        let fetchedSchools = try await api.rows("oi_schools", query: "order=id.asc", as: OiSchool.self)
-        let fetchedRegions = try await api.rows("oi_regions", query: "order=id.asc", as: OiRegion.self)
-        let fetchedAssets = try await api.rows("oi_assets", query: "order=id.asc", as: OiAsset.self)
-        let fetched = try await api.rows("oi_stories", query: "order=created_at.desc,id.asc", token: accessToken, as: OiLiveStory.self)
-        let fetchedProfiles = try await api.rows("oi_profiles", token: accessToken, as: OiProfile.self)
+        // Only public reference data is cached for timer-driven refreshes.
+        let catalogIsFresh = reuseCatalog && catalogLoadedAt.map { $0.duration(to: .now) < .seconds(300) } == true
+        let fetchedSchools = catalogIsFresh ? schools : try await api.rows("oi_schools", query: "order=id.asc", as: OiSchool.self)
+        let fetchedRegions = catalogIsFresh ? regions : try await api.rows("oi_regions", query: "order=id.asc", as: OiRegion.self)
+        let fetchedAssets = catalogIsFresh ? assets : try await api.rows("oi_assets", query: "order=id.asc", as: OiAsset.self)
+        let publicFilter = accessToken == nil ? "&status=eq.published" : ""
+        let fetched = try await api.rows("oi_stories", query: "order=created_at.desc,id.asc" + publicFilter,
+                                         token: accessToken, as: OiLiveStory.self)
+        let published = fetched.filter { $0.status == "published" }
+        let fetchedProfiles = try await api.rows("oi_profiles", query: "order=id.asc", token: accessToken, as: OiProfile.self)
         var ownProfile = fetchedProfiles.first { $0.id == resolvedOwner }
         if capabilities?.schoolProfileEnabled == true, let resolvedOwner, let accessToken {
             ownProfile = try await api.schoolProfile(owner: resolvedOwner, token: accessToken)
@@ -520,7 +542,21 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             fetchedFarmerOutfit = try await api.farmerOutfit(owner: resolvedOwner, token: accessToken)
         }
         let fetchedMedia = try await api.rows("oi_story_media", query: "order=position.asc,id.asc", token: accessToken, as: OiMedia.self)
-        let metrics = try await api.collectionMetrics(token: accessToken)
+        let counts: [UUID: Int]
+        var metricsWarning: String?
+        let publishedIDs = published.map(\.id)
+        do {
+            let metrics = try await collectionMetrics(for: publishedIDs, using: api, token: accessToken)
+            counts = metrics.reduce(into: [:]) { $0[$1.storyId] = $1.collectionCount }
+        } catch OiServiceError.signInRequired {
+            throw OiServiceError.signInRequired
+        } catch {
+            if Task.isCancelled || OiServiceFailure.isCancellation(error) { throw error }
+            // A statistics outage must not block updates to published and hidden stories.
+            let visibleIDs = Set(publishedIDs)
+            counts = collectionCounts.filter { visibleIDs.contains($0.key) }
+            metricsWarning = "오이 수집 수를 갱신하지 못했어요. 다시 불러오면 확인할 수 있어요."
+        }
         var collected: [OiOwnedStory] = []; var starred: [OiOwnedStory] = []
         if let accessToken {
             collected = try await api.rows("oi_collections", query: "order=created_at.desc,story_id.asc", token: accessToken, as: OiOwnedStory.self)
@@ -544,23 +580,42 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             try vault.write(current)
             resetAccountState(); session = current; account = resolved
         }
+        let owned = fetched.filter { $0.userId == account?.id && $0.status != "deleted" }
+        let starredIDs = Set(starred.map(\.storyId))
+        let contentChanged = !hasLoadedRemote || schools != fetchedSchools || regions != fetchedRegions || assets != fetchedAssets
+            || loadedStories != published || ownStories != owned || profile != ownProfile || profiles != fetchedProfiles
+            || media != fetchedMedia || collections != collected || favorites != starredIDs || collectionCounts != counts
+            || !committedMediaPaths.isEmpty || members != accountMemberIDs || recoveryWarning != localRecoveryWarning
+        if !catalogIsFresh { catalogLoadedAt = .now }
         schools = fetchedSchools; regions = fetchedRegions; assets = fetchedAssets
-        loadedStories = fetched.filter { $0.status == "published" }
-        ownStories = fetched.filter { $0.userId == account?.id && $0.status != "deleted" }
+        loadedStories = published
+        ownStories = owned
         reviewStories = capabilities?.operator == true ? fetched.filter { ["pending","published","hidden"].contains($0.status) } : []
         profile = ownProfile
         profiles = fetchedProfiles; media = fetchedMedia; committedMediaPaths = [:]
-        collections = collected; favorites = Set(starred.map(\.storyId)); isOperator = capabilities?.operator == true
+        collections = collected; favorites = starredIDs; isOperator = capabilities?.operator == true
         unapprovedDraftsEnabled = capabilities?.independentStoryCreation == true && capabilities?.unapprovedDraftsEnabled == true
         canPublishCucumberAppearance = capabilities?.publicCucumberAppearance == true
         canPublishStoryCard = capabilities?.publicStoryCard == true
+        canPublishDuplexCard = capabilities?.duplexStoryCard == true
         isAccountMergeAvailable = capabilities?.accountMergeEnabled == true; accountMemberIDs = members
         isSchoolProfileAvailable = capabilities?.schoolProfileEnabled == true
         isFarmerOutfitAvailable = capabilities?.farmerOutfitEnabled == true; farmerOutfit = fetchedFarmerOutfit
         accountProviders = capabilities?.accountProviders ?? []
         localRecoveryWarning = recoveryWarning
-        collectionCounts = metrics.reduce(into: [:]) { $0[$1.storyId] = $1.collectionCount }
-        hasLoadedRemote = true; needsReauthentication = false; loadError = nil; syncWarning = localSignOutWarning; revision += 1
+        collectionCounts = counts
+        hasLoadedRemote = true; needsReauthentication = false; loadError = nil; syncWarning = localSignOutWarning ?? metricsWarning
+        if contentChanged { revision += 1 }
+    }
+
+    private func collectionMetrics(for ids: [UUID], using api: OiServiceAPI, token: String?) async throws -> [OiCollectionMetric] {
+        guard !ids.isEmpty else { return [] }
+        if !usesLegacyCollectionMetrics {
+            do { return try await api.collectionMetrics(for: ids, token: token) }
+            catch OiCollectionMetricsError.boundedQueryNotDeployed { usesLegacyCollectionMetrics = true }
+        }
+        let requested = Set(ids)
+        return try await api.legacyCollectionMetrics(token: token).filter { requested.contains($0.storyId) }
     }
 
     private func refreshAfterCommit() async {
@@ -630,6 +685,10 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
                      card: OiStoryCardPublication? = nil) async -> OiLiveStory? {
         guard canStartStory else { error = OiServiceError.storyCreationUnavailable.localizedDescription; return nil }
         var payload: [String: Any] = ["id": story.id.uuidString, "revision": story.revision]
+        guard card?.format != 2 || canPublishDuplexCard else {
+            error = "서버의 카드 양면 저장 업데이트가 필요해요. 내 카드와 초안은 보존돼 있어요."
+            return nil
+        }
         guard cucumber == nil || canPublishCucumberAppearance else {
             error = "서버가 꾸민 오이의 공개를 지원할 때 다시 요청해 주세요. 내 지도와 초안은 저장돼 있어요."
             return nil
@@ -642,10 +701,11 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         let started = generation
         let expectedAppearance = cucumber?.appearance ?? story.cucumberAppearance
         let expectedCard = card?.id ?? story.cardSnapshotId
+        let expectedFormat = card?.format ?? story.cardSnapshotFormat ?? 1
         func confirmsSubmission(_ result: OiLiveStory) -> Bool {
             result.id == story.id && result.userId == story.userId && result.status == "pending" &&
             result.revision == story.revision + 1 && result.cucumberAppearance == expectedAppearance &&
-            result.cardSnapshotId == expectedCard
+            result.cardSnapshotId == expectedCard && (result.cardSnapshotFormat ?? 1) == expectedFormat
         }
         isBusy = true; error = nil
         defer { isBusy = false }
@@ -665,10 +725,17 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             if let card, card.id != story.cardSnapshotId {
                 try Task.checkCancellation()
                 guard started == generation else { throw OiServiceError.accountChanged }
-                let path = StoryCard.artworkPath(owner: storageOwner, story: story.id, snapshot: card.id)
-                try await api.upload(bucket: OiPublishedCucumberImage.bucket, path: path,
-                                     data: card.png, contentType: "image/png", token: accessToken)
+                let parts = card.parts.isEmpty ? [.front: card.png] : card.parts
+                for part in StoryCard.Part.allCases {
+                    guard let data = parts[part] else { continue }
+                    try Task.checkCancellation()
+                    guard started == generation else { throw OiServiceError.accountChanged }
+                    let path = StoryCard.artworkPath(owner: storageOwner, story: story.id, snapshot: card.id, part: part)
+                    try await api.upload(bucket: OiPublishedCucumberImage.bucket, path: path,
+                                         data: data, contentType: "image/png", token: accessToken)
+                }
                 payload["card_snapshot_id"] = card.id.uuidString.lowercased()
+                payload["card_snapshot_format"] = card.format
             }
             try Task.checkCancellation()
             guard started == generation else { throw OiServiceError.accountChanged }
@@ -1005,6 +1072,15 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         return url
     }
 
+    func storyPhotoData(_ path: String) async throws -> Data {
+        guard let api, let owner = account?.id else { throw OiServiceError.accountChanged }
+        let started = generation
+        let bytes = try await api.downloadSignedObject(bucket: "oi-story-media", path: path, token: try await token())
+        try Task.checkCancellation()
+        guard started == generation, account?.id == owner else { throw OiServiceError.accountChanged }
+        return bytes
+    }
+
     func cucumberImage(_ path: String, part: OiCucumberArtworkReference.Part = .portrait) async throws -> UIImage {
         guard let api else { throw OiServiceError.configuration }
         let started = generation
@@ -1012,6 +1088,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         let bytes = try await api.downloadSignedObject(bucket: OiPublishedCucumberImage.bucket, path: path, token: accessToken)
         try Task.checkCancellation()
         guard started == generation else { throw OiServiceError.accountChanged }
-        return UIImage(cgImage: try OiPublishedCucumberImage.decode(bytes, part: part))
+        let image = UIImage(cgImage: try OiPublishedCucumberImage.decode(bytes, part: part))
+        if part == .portrait { OiPostcardBackgroundMetadata.remember(png: bytes, image: image) }
+        return image
     }
 }

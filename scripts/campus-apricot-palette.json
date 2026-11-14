@@ -1,0 +1,785 @@
+{
+  "name": "살구 크림",
+  "background": "FFF8E9",
+  "materials": [
+    {
+      "sourceLinearRGB": [
+        0.56,
+        0.58,
+        0.56
+      ],
+      "sRGB": "E5E6D9",
+      "materials": [
+        "Mobile C02 cantilever piers 0.560,0.580,0.560"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.08,
+        0.14,
+        0.16
+      ],
+      "sRGB": "729B97",
+      "materials": [
+        "Mobile C02 entry 0.080,0.140,0.160"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.43,
+        0.44,
+        0.41
+      ],
+      "sRGB": "E4DBCB",
+      "materials": [
+        "Mobile C02 foundation 0.430,0.440,0.410"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.46,
+        0.5,
+        0.49
+      ],
+      "sRGB": "B7CCC5",
+      "materials": [
+        "Mobile C02 frames 0.460,0.500,0.490"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.055,
+        0.12,
+        0.15
+      ],
+      "sRGB": "90D5DF",
+      "materials": [
+        "Mobile C02 glazing 0.055,0.120,0.150"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.08,
+        0.34,
+        0.39
+      ],
+      "sRGB": "90D5DF",
+      "materials": [
+        "Mobile C02 glazing 0.080,0.340,0.390"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.1,
+        0.29,
+        0.3
+      ],
+      "sRGB": "90D5DF",
+      "materials": [
+        "Mobile C02 glazing 0.100,0.290,0.300"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.11,
+        0.27,
+        0.28
+      ],
+      "sRGB": "90D5DF",
+      "materials": [
+        "Mobile C02 glazing 0.110,0.270,0.280"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.13,
+        0.25,
+        0.25
+      ],
+      "sRGB": "90D5DF",
+      "materials": [
+        "Mobile C02 glazing 0.130,0.250,0.250"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.16,
+        0.29,
+        0.3
+      ],
+      "sRGB": "90D5DF",
+      "materials": [
+        "Mobile C02 glazing 0.160,0.290,0.300"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.2,
+        0.3,
+        0.31
+      ],
+      "sRGB": "90D5DF",
+      "materials": [
+        "Mobile C02 glazing 0.200,0.300,0.310"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.24,
+        0.33,
+        0.32
+      ],
+      "sRGB": "90D5DF",
+      "materials": [
+        "Mobile C02 glazing 0.240,0.330,0.320"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.25,
+        0.43,
+        0.5
+      ],
+      "sRGB": "90D5DF",
+      "materials": [
+        "Mobile C02 glazing 0.250,0.430,0.500"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.43,
+        0.18,
+        0.105
+      ],
+      "sRGB": "FFC49F",
+      "materials": [
+        "Mobile C02 RC brick 0.430,0.180,0.105"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.38,
+        0.42,
+        0.43
+      ],
+      "sRGB": "D9DECA",
+      "materials": [
+        "Mobile C02 roof 0.380,0.420,0.430"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.42,
+        0.48,
+        0.48
+      ],
+      "sRGB": "D9DECA",
+      "materials": [
+        "Mobile C02 roof 0.420,0.480,0.480"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.43,
+        0.2,
+        0.1
+      ],
+      "sRGB": "FABD96",
+      "materials": [
+        "Mobile C02 roof 0.430,0.200,0.100"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.44,
+        0.45,
+        0.43
+      ],
+      "sRGB": "D9DECA",
+      "materials": [
+        "Mobile C02 roof 0.440,0.450,0.430"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.46,
+        0.47,
+        0.46
+      ],
+      "sRGB": "D9DECA",
+      "materials": [
+        "Mobile C02 roof 0.460,0.470,0.460"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.48,
+        0.5,
+        0.51
+      ],
+      "sRGB": "D9DECA",
+      "materials": [
+        "Mobile C02 roof 0.480,0.500,0.510"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.49,
+        0.51,
+        0.49
+      ],
+      "sRGB": "D9DECA",
+      "materials": [
+        "Mobile C02 roof 0.490,0.510,0.490"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.5,
+        0.51,
+        0.46
+      ],
+      "sRGB": "D9DECA",
+      "materials": [
+        "Mobile C02 roof 0.500,0.510,0.460"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.68,
+        0.69,
+        0.64
+      ],
+      "sRGB": "F5EBD8",
+      "materials": [
+        "Mobile C02 trim 0.680,0.690,0.640",
+        "Mobile R01 stone.001"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.62,
+        0.47,
+        0.26
+      ],
+      "sRGB": "B89966",
+      "materials": [
+        "Mobile C02 V06 brass clock hands 0.620,0.470,0.260"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.18,
+        0.075,
+        0.085
+      ],
+      "sRGB": "E6B49C",
+      "materials": [
+        "Mobile C02 V06 burgundy frame 0.180,0.075,0.085"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.21,
+        0.4,
+        0.54
+      ],
+      "sRGB": "90D5DF",
+      "materials": [
+        "Mobile C02 V06 C5 blue glass 0.210,0.400,0.540"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.235,
+        0.245,
+        0.255
+      ],
+      "sRGB": "A9BDB7",
+      "materials": [
+        "Mobile C02 V06 C5 dark panels 0.235,0.245,0.255"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.16,
+        0.29,
+        0.33
+      ],
+      "sRGB": "90D5DF",
+      "materials": [
+        "Mobile C02 V06 cool glazing 0.160,0.290,0.330"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.69,
+        0.69,
+        0.64
+      ],
+      "sRGB": "D9DECA",
+      "materials": [
+        "Mobile C02 V06 PAL pale roof 0.690,0.690,0.640"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.66,
+        0.69,
+        0.69
+      ],
+      "sRGB": "B7CCC5",
+      "materials": [
+        "Mobile C02 V06 pale metal 0.660,0.690,0.690"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.7,
+        0.65,
+        0.61
+      ],
+      "sRGB": "FFF5DF",
+      "materials": [
+        "Mobile C02 V06 pale pink granite 0.700,0.650,0.610"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.07,
+        0.28,
+        0.39
+      ],
+      "sRGB": "8BB4B4",
+      "materials": [
+        "Mobile C02 V06 POSPLEX blue frame 0.070,0.280,0.390"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.12,
+        0.47,
+        0.48
+      ],
+      "sRGB": "90D5DF",
+      "materials": [
+        "Mobile C02 V06 POSPLEX turquoise glass 0.120,0.470,0.480"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.79,
+        0.81,
+        0.79
+      ],
+      "sRGB": "FFF5DF",
+      "materials": [
+        "Mobile C02 V06 POSPLEX white 0.790,0.810,0.790",
+        "Mobile C02 wall 0.790,0.810,0.790"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.045,
+        0.13,
+        0.15
+      ],
+      "sRGB": "90D5DF",
+      "materials": [
+        "Mobile C02 V08 door glass 0.045,0.130,0.150"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.62,
+        0.65,
+        0.63
+      ],
+      "sRGB": "E5E6D9",
+      "materials": [
+        "Mobile C02 V08 facade return 0.620,0.650,0.630"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.38,
+        0.43,
+        0.44
+      ],
+      "sRGB": "B7CCC5",
+      "materials": [
+        "Mobile C02 V08 rail metal 0.380,0.430,0.440"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.28,
+        0.3,
+        0.29
+      ],
+      "sRGB": "D7D4C5",
+      "materials": [
+        "Mobile C02 V08 stair riser 0.280,0.300,0.290"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.42,
+        0.44,
+        0.42
+      ],
+      "sRGB": "E9E6DA",
+      "materials": [
+        "Mobile C02 V08 stair stone 0.420,0.440,0.420"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.23,
+        0.25,
+        0.27
+      ],
+      "sRGB": "FFF5DF",
+      "materials": [
+        "Mobile C02 wall 0.230,0.250,0.270"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.29,
+        0.32,
+        0.32
+      ],
+      "sRGB": "FFF5DF",
+      "materials": [
+        "Mobile C02 wall 0.290,0.320,0.320"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.52,
+        0.26,
+        0.16
+      ],
+      "sRGB": "FFC49F",
+      "materials": [
+        "Mobile C02 wall 0.520,0.260,0.160"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.56,
+        0.62,
+        0.64
+      ],
+      "sRGB": "FFF5DF",
+      "materials": [
+        "Mobile C02 wall 0.560,0.620,0.640"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.64,
+        0.66,
+        0.64
+      ],
+      "sRGB": "FFF5DF",
+      "materials": [
+        "Mobile C02 wall 0.640,0.660,0.640"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.68,
+        0.45,
+        0.21
+      ],
+      "sRGB": "FFC49F",
+      "materials": [
+        "Mobile C02 wall 0.680,0.450,0.210"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.68,
+        0.71,
+        0.7
+      ],
+      "sRGB": "FFF5DF",
+      "materials": [
+        "Mobile C02 wall 0.680,0.710,0.700"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.72,
+        0.76,
+        0.76
+      ],
+      "sRGB": "FFF5DF",
+      "materials": [
+        "Mobile C02 wall 0.720,0.760,0.760"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.73,
+        0.68,
+        0.62
+      ],
+      "sRGB": "FFF5DF",
+      "materials": [
+        "Mobile C02 wall 0.730,0.680,0.620"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.77,
+        0.74,
+        0.67
+      ],
+      "sRGB": "FFF5DF",
+      "materials": [
+        "Mobile C02 wall 0.770,0.740,0.670"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.78,
+        0.79,
+        0.76
+      ],
+      "sRGB": "FFF5DF",
+      "materials": [
+        "Mobile C02 wall 0.780,0.790,0.760"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.84,
+        0.81,
+        0.68
+      ],
+      "sRGB": "FFF5DF",
+      "materials": [
+        "Mobile C02 wall 0.840,0.810,0.680"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.045,
+        0.062,
+        0.065
+      ],
+      "sRGB": "729B97",
+      "materials": [
+        "Mobile C02 window reveal 0.045,0.062,0.065"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.055,
+        0.3,
+        0.34
+      ],
+      "sRGB": "90D5DF",
+      "materials": [
+        "Mobile R01 glass.001"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.11,
+        0.38,
+        0.41
+      ],
+      "sRGB": "90D5DF",
+      "materials": [
+        "Mobile R01 glass2.001"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.4,
+        0.47,
+        0.46
+      ],
+      "sRGB": "B7CCC5",
+      "materials": [
+        "Mobile R01 metal.001"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.47,
+        0.51,
+        0.5
+      ],
+      "sRGB": "D9DECA",
+      "materials": [
+        "Mobile R01 roof.001"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.79,
+        0.8,
+        0.77
+      ],
+      "sRGB": "FFF5DF",
+      "materials": [
+        "Mobile R01 white",
+        "Mobile R01 white.001"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.17,
+        0.19,
+        0.19
+      ],
+      "sRGB": "AAADA5",
+      "materials": [
+        "Mobile V02 asphalt"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.18,
+        0.14,
+        0.09
+      ],
+      "sRGB": "9C8259",
+      "materials": [
+        "Mobile V02 bark"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.13,
+        0.29,
+        0.23
+      ],
+      "sRGB": "A7CCB5",
+      "materials": [
+        "Mobile V02 court"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.71,
+        0.7,
+        0.64
+      ],
+      "sRGB": "FFF8E9",
+      "materials": [
+        "Mobile V02 curb"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.26,
+        0.32,
+        0.15
+      ],
+      "sRGB": "B9D48D",
+      "materials": [
+        "Mobile V02 grass"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.12,
+        0.23,
+        0.08
+      ],
+      "sRGB": "5C9442",
+      "materials": [
+        "Mobile V02 leaf"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.27,
+        0.33,
+        0.12
+      ],
+      "sRGB": "8DB354",
+      "materials": [
+        "Mobile V02 leaf2"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.55,
+        0.6,
+        0.6
+      ],
+      "sRGB": "BECFC8",
+      "materials": [
+        "Mobile V02 metal"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.52,
+        0.52,
+        0.48
+      ],
+      "sRGB": "F5F1E3",
+      "materials": [
+        "Mobile V02 paving"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.25,
+        0.22,
+        0.15
+      ],
+      "sRGB": "D8D1B6",
+      "materials": [
+        "Mobile V02 soil"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.34,
+        0.12,
+        0.075
+      ],
+      "sRGB": "E8BEA8",
+      "materials": [
+        "Mobile V02 sport"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.06,
+        0.22,
+        0.22
+      ],
+      "sRGB": "4FB8C3",
+      "materials": [
+        "Mobile V02 water"
+      ]
+    },
+    {
+      "sourceLinearRGB": [
+        0.85,
+        0.85,
+        0.77
+      ],
+      "sRGB": "FFFCF4",
+      "materials": [
+        "Mobile V02 white"
+      ]
+    }
+  ],
+  "backgroundGradient": [
+    "FFF6E5",
+    "FAF6E2",
+    "E4EDC8"
+  ],
+  "calibration": "Calibrated against apricot concept pixels in the native fixed-daylight renderer; swatch RGB is not a final rendered pixel value."
+}

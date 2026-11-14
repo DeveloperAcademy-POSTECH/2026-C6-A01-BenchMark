@@ -7,97 +7,58 @@ struct OiDraftCardPreview: View {
     let customization: OiDraftCustomization
     var donorName = ""
     var portrait: UIImage? = nil
+    var showingBack = false
     private var design: OiCardDesign { customization.card ?? OiCardDesign() }
+    private var author: String {
+        OiPostcardAuthor.text(mode: design.postcardBackground?.authorMode, name: donorName,
+                              academic: design.postcardAcademicAuthor ?? "")
+    }
     var body: some View {
         GeometryReader { proxy in
-            composition.frame(width: 362, height: 502)
+            Group {
+                if showingBack {
+                    OiPostcardBack(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond,
+                        backgroundStyle: design.postcardBackground, message: draft.body, author: author,
+                        exportFontSize: try? OiCardImageExport.fittingFontSize(draft.body))
+                } else { composition }
+            }.frame(width: 362, height: 502)
                 .scaleEffect(proxy.size.width / 362, anchor: .topLeading)
         }.aspectRatio(362 / 502, contentMode: .fit)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("카드 미리보기, \(draft.cucumberName), \(design.caption ?? draft.title)")
+            .accessibilityLabel("엽서 \(showingBack ? "뒷면" : "앞면") 미리보기, \(draft.cucumberName)")
     }
 
     @MainActor func publication(colorScheme: ColorScheme) throws -> OiStoryCardPublication {
-        let renderer = ImageRenderer(content: composition.frame(width: 362, height: 502)
-            .environment(\.colorScheme, colorScheme))
-        renderer.scale = 2
-        guard let png = renderer.uiImage?.pngData() else { throw OiPhotoDataError.unreadable }
-        return try OiStoryCardPublication(png: png)
-    }
-    private var cardCaption: String {
-        if let caption = design.caption, !caption.isEmpty { return caption }
-        return draft.title.isEmpty ? "오래 남는 나의 이야기" : draft.title
-    }
-    private var headerInk: Color {
-        // The header occupies the top of a diagonal gradient, close to its first stop.
-        let second = design.borderFill == .solid ? design.borderFirst : design.borderSecond
-        func channel(_ shift: UInt32) -> Double {
-            let value = (Double((design.borderFirst >> shift) & 255) * 0.9
-                         + Double((second >> shift) & 255) * 0.1) / 255
-            return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        guard !customization.showsCharacter || customization.wardrobe == nil || portrait != nil || design.portraitPNG != nil else {
+            throw OiCardExportError.imageUnavailable
         }
-        let luminance = 0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0)
-        return luminance > 0.179 ? .black : .white
+        let size = try OiCardImageExport.fittingFontSize(draft.body)
+        let back = OiPostcardBack(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond,
+            backgroundStyle: design.postcardBackground, message: draft.body, author: author, exportFontSize: size)
+        let front = try OiCardImageExport.render(composition, colorScheme: colorScheme)
+        let rear = try OiCardImageExport.render(back, colorScheme: colorScheme)
+        let png = design.postcardBackground.flatMap { OiPostcardBackgroundMetadata.png(image: front, style: $0) } ?? front.pngData()
+        guard let png, let backPNG = rear.pngData() else { throw OiPhotoDataError.unreadable }
+        return try OiStoryCardPublication(front: png, back: backPNG,
+            frontPreview: OiCardImageExport.preview(front), backPreview: OiCardImageExport.preview(rear))
     }
     private var composition: some View {
-        ZStack(alignment: .topLeading) {
-            OiCardGradient(fill: customization.fill, first: customization.firstColor, second: customization.secondColor)
-            ZStack(alignment: .topLeading) {
-                OiCardBackground(customization: customization, pattern: design.pattern, gradientInset: 15)
-                    .frame(width: 332, height: 472)
+        OiPostcardFront(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond,
+                        backgroundStyle: design.postcardBackground, date: OiPostcardDate.string(design.postcardDate ?? Date()), design: design) {
+            ZStack {
+                OiCardBackground(customization: customization, pattern: design.pattern)
                 if customization.showsCharacter {
-                    if let portrait {
-                        OiCardPlacedImage(image: portrait, placement: design.characterPlacement)
-                    } else if let bytes = design.portraitPNG, let image = UIImage(data: bytes) {
+                    if let image = portrait ?? design.portraitPNG.flatMap(UIImage.init(data:)) {
                         OiCardPlacedImage(image: image, placement: design.characterPlacement)
                     } else {
                         OiCreationCharacterImage(asset: draft.cucumberAsset)
-                            .frame(width: 332, height: 472)
                     }
                 }
-                LinearGradient(colors: [.clear, .clear, .black.opacity(0.62)], startPoint: .top, endPoint: .bottom)
-                VStack(alignment: .leading, spacing: 10) {
-                    Spacer()
-                    Text(cardCaption)
-                        .font(.custom("Paperlogy-4Regular", size: 17)).lineSpacing(3).lineLimit(3)
-                        .foregroundStyle(.white).shadow(color: .black.opacity(0.7), radius: 1, y: 1)
-                    HStack(spacing: 5) {
-                        ForEach(Array([draft.theme, draft.emotion].filter { !$0.isEmpty }.enumerated()), id: \.offset) { _, tag in
-                            Text(tag).font(CampusStyle.body(10)).padding(.horizontal, 9).padding(.vertical, 3)
-                                .background(.white, in: Capsule())
-                        }
-                    }
-                    HStack {
-                        Image("OiStoryCardMark").resizable().scaledToFit().frame(width: 16, height: 16)
-                            .padding(3).background(Color("OiLight"), in: RoundedRectangle(cornerRadius: 4))
-                        Spacer()
-                        Text(design.anonymous ? "익명" : donorName).font(CampusStyle.body(10)).lineLimit(1)
-                            .foregroundStyle(.white)
-                        Spacer()
-                        Image(systemName: "wave.3.right").font(.system(size: 20)).foregroundStyle(.white)
-                    }
-                }.padding(14).frame(width: 332, height: 472)
-                // One gradient paints the Figma outline and both header sections.
-                // The outer margin belongs to the background, not the border.
-                OiCardGradient(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond)
-                    .frame(width: 332, height: 472)
-                    .mask(alignment: .topLeading) {
-                        ZStack(alignment: .topLeading) {
-                            Image("OiCardEditableHeader").resizable()
-                                .frame(width: 332 * 180.301 / 205, height: 472 * 29.639 / 291.446)
-                            Image("OiCardEditableFrame").resizable().frame(width: 332, height: 472)
-                        }
-                    }
-                Text("NORMAL").font(.custom("Paperlogy-7Bold", size: 14))
-                    .foregroundStyle(headerInk).frame(width: 64, height: 48).offset(x: 4)
-                Text(draft.cucumberName.isEmpty ? "나의 오이" : draft.cucumberName)
-                    .font(.custom("Paperlogy-3Light", size: 21)).lineLimit(1).minimumScaleFactor(0.55)
-                    .foregroundStyle(headerInk)
-                    .frame(width: 184, height: 48, alignment: .leading).offset(x: 82)
-            }.frame(width: 332, height: 472).clipShape(RoundedRectangle(cornerRadius: 9)).offset(x: 15, y: 15)
-        }.clipShape(RoundedRectangle(cornerRadius: 15)).dynamicTypeSize(.medium)
+            }
+        }
     }
 }
+
 
 /// Shared by the card and its pattern swatches so a selection previews the actual
 /// background color/photo. Isolate blending from the portrait, text and border.
@@ -107,16 +68,33 @@ struct OiCardBackground: View {
     var gradientInset: CGFloat = 0
     var body: some View {
         GeometryReader { geometry in
+            let paper = customization.card ?? OiCardDesign()
+            let photoTint = !customization.showsCharacter && paper.photoMonochrome == true && paper.backgroundPhoto != nil
             ZStack {
-                OiCardGradient(fill: customization.fill, first: customization.firstColor,
-                               second: customization.secondColor)
-                    // Match the full-card gradient through the inset content area.
-                    .frame(width: geometry.size.width + gradientInset * 2,
-                           height: geometry.size.height + gradientInset * 2)
-                    .frame(width: geometry.size.width, height: geometry.size.height)
-                if let design = customization.card, let bytes = design.backgroundPhoto,
+                Group {
+                    if customization.showsCharacter, paper.usesCharacterBackdrop {
+                        Color(oiRGB: OiPostcardCharacterBackdrop.color(for: paper))
+                            .opacity(OiCardOpacity.normalized(paper.characterBackdropOpacity))
+                    } else if paper.postcardLayoutVersion == 2 {
+                        Color.clear
+                    } else if let style = paper.postcardBackground {
+                        // Crop the very same full-paper background into the artwork window.
+                        OiPostcardBackground(style: style)
+                            .frame(width: geometry.size.width * 362 / 296, height: geometry.size.height * 502 / 436)
+                    } else {
+                        OiCardGradient(fill: photoTint ? paper.borderFill : customization.fill,
+                                       first: photoTint ? paper.borderFirst : customization.firstColor,
+                                       second: photoTint ? paper.borderSecond : customization.secondColor)
+                            .frame(width: geometry.size.width + gradientInset * 2,
+                                   height: geometry.size.height + gradientInset * 2)
+                    }
+                }.frame(width: geometry.size.width, height: geometry.size.height)
+                if !customization.showsCharacter,
+                   let design = customization.card, let bytes = design.backgroundPhoto,
                    let photo = UIImage(data: bytes) {
                     OiCardPlacedImage(image: photo, placement: design.backgroundPlacement)
+                        .saturation(design.photoMonochrome == true ? 0 : 1)
+                        .blendMode(design.photoMonochrome == true ? .luminosity : .normal)
                 }
                 if let pattern, let image = OiCardPatternTexture.image(for: pattern) {
                     Image(uiImage: image).resizable().scaledToFill()
@@ -160,6 +138,9 @@ struct OiCardPlacementEditor: View {
     var title = "캐릭터를 눌러 선택한 뒤\n드래그·핀치로 배치하세요."
     var frameHeight: CGFloat = 232.3
     var compact = false
+    var minimalChrome = false
+    var backdropColor: UInt32? = nil
+    var backdropOpacity: Double = 1
     var emptyMessage = "오이 이미지를 준비하고 있어요"
     var look: OiWardrobeLook? = nil
     var orientation: Binding<OiCardOrientation>? = nil
@@ -170,7 +151,7 @@ struct OiCardPlacementEditor: View {
     @State private var portraitFailed = false
     var body: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 8) {
+            if !minimalChrome { HStack(spacing: 8) {
                 if orientation != nil {
                     Label("360°", systemImage: "rotate.3d")
                         .font(.system(size: 16, weight: .medium))
@@ -191,9 +172,11 @@ struct OiCardPlacementEditor: View {
                 }.font(CampusStyle.body(12)).tint(Color("OiGreen"))
                     .frame(minWidth: 44, minHeight: compact ? 32 : 24)
                     .accessibilityIdentifier("oi.card.placement.reset")
-            }.frame(height: compact ? 32 : nil)
+            }.frame(height: compact ? 32 : nil) }
             ZStack {
-                RoundedRectangle(cornerRadius: 5).fill(.white)
+                RoundedRectangle(cornerRadius: 5).fill(backdropColor.map {
+                    Color(oiRGB: $0).opacity(OiCardOpacity.normalized(backdropOpacity))
+                } ?? .white)
                 if let look, let orientation, let onCapture {
                     GeometryReader { proxy in
                         let p = placement.normalized
@@ -208,10 +191,10 @@ struct OiCardPlacementEditor: View {
                     }.clipped()
                 } else if let image { OiCardPlacedImage(image: image, placement: placement) }
                 else { Text(emptyMessage).font(CampusStyle.body(11)).multilineTextAlignment(.center).foregroundStyle(.secondary).padding(12) }
-                RoundedRectangle(cornerRadius: 5).stroke(Color("OiGreen"), lineWidth: 1)
+                if !minimalChrome { RoundedRectangle(cornerRadius: 5).stroke(Color("OiGreen"), lineWidth: 1) }
                 OiCardPlacementGestures(placement: $placement, orientation: orientation,
                                         onInteractionEnded: onInteractionEnded)
-            }.frame(width: frameHeight * 332 / 472, height: frameHeight)
+            }.frame(width: frameHeight * 296 / 436, height: frameHeight)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(look == nil ? "카드 이미지 위치와 크기" : "오이 3D 방향과 카드 위치, 크기")
                 .accessibilityValue("\(Int(placement.normalized.scale * 100))퍼센트")

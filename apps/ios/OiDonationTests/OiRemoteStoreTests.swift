@@ -41,6 +41,9 @@ final class OiTestBackend {
         var independentStoryCreation: Bool? = true
         var publicCucumberAppearance = false
         var publicStoryCard = false
+        var duplexStoryCard = false
+        var failCardBackUpload = false
+        var failCardBackRead = false
         var failCucumberTextureUpload = false
         var timeOutCardUploadAfterCommit = false
         var timeOutSubmitAfterCommit = false
@@ -89,6 +92,10 @@ final class OiTestBackend {
         var auditRecords: [[String: Any]] = []
         var auditBodies: [[String: Any]] = []
         var auditStatus = 200
+        var nfcTags: [[String: Any]] = []
+        var nfcBodies: [[String: Any]] = []
+        var nfcStatus = 200
+        var nfcMismatchedReceipt = false
         var holdAuditRead = false
         var failRefreshToken = false
         var failLogout = false
@@ -110,6 +117,10 @@ final class OiTestBackend {
         var refreshRequestCount = 0
         var grantOwnerQueries: [String] = []
         var retiredEvidenceRequests: [String] = []
+        var catalogReads = 0
+        var boundedMetricsStatus = 200
+        var boundedMetricsIDs: [[String]] = []
+        var legacyMetricsReads = 0
     }
     private var state = State()
 
@@ -185,14 +196,16 @@ final class OiTestBackend {
             } else { status = 403 }
         } else if path.hasPrefix("/storage/v1/object/sign/") && (path.contains("/appearance/") || path.contains("/card/")) {
             let key = String(path.dropFirst("/storage/v1/object/sign/".count))
-            if let image = state.uploads[key] {
+            if state.failCardBackRead && key.hasSuffix("/back-preview.png") { status = 503 }
+            else if let image = state.uploads[key] {
                 if request.httpMethod == "POST" { result = ["signedURL": String(path.dropFirst("/storage/v1".count)) + "?token=fixture"] }
                 else { bytes = image }
             } else { status = 404 }
         } else if path.contains("/storage/v1/object/") {
             let key = path.replacingOccurrences(of: "/storage/v1/object/", with: "")
             if key.contains("/card/") || key.contains("/appearance/") { state.artworkUploadAttempts += 1 }
-            if state.failCucumberTextureUpload && key.hasSuffix("/top.png") { status = 503 }
+            if state.failCardBackUpload && key.hasSuffix("/back.png") { status = 503 }
+            else if state.failCucumberTextureUpload && key.hasSuffix("/top.png") { status = 503 }
             else if state.uploads[key] != nil { status = 409 }
             else { state.uploads[key] = raw; result = ["Key":key] }
             if status == 200, key.contains("/card/"), state.timeOutCardUploadAfterCommit {
@@ -212,6 +225,7 @@ final class OiTestBackend {
                 story["created_at"] = "2026-10-28T00:00:00Z"
                 if state.story?["id"] as? String == payload["id"] as? String {
                     story["card_snapshot_id"] = state.story?["card_snapshot_id"]
+                    story["card_snapshot_format"] = state.story?["card_snapshot_format"]
                     story["cucumber_appearance"] = state.story?["cucumber_appearance"]
                 }
                 state.story = story; result = story
@@ -229,6 +243,7 @@ final class OiTestBackend {
                 state.submittedTitle = state.story?["title"] as? String
                 if let appearance = payload["cucumber_appearance"] { state.story?["cucumber_appearance"] = appearance }
                 if let card = payload["card_snapshot_id"] { state.story?["card_snapshot_id"] = card }
+                if let format = payload["card_snapshot_format"] { state.story?["card_snapshot_format"] = format }
                 state.story?["status"] = "pending"
                 let nextRevision = (state.story?["revision"] as? Int ?? 0)+1
                 state.story?["revision"] = nextRevision
@@ -261,6 +276,23 @@ final class OiTestBackend {
                     if state.loseReviewResponse { status = 503; state.loseReviewResponse = false }
                 }
             } else { result = ["id":payload["id"] ?? ""] }
+        } else if path.hasSuffix("/rpc/oi_operator_nfc_tags") {
+            status = state.isOperator ? state.nfcStatus : 403
+            result = state.nfcTags
+        } else if path.hasSuffix("/rpc/oi_operator_set_nfc_tag") {
+            state.nfcBodies.append(body)
+            status = state.isOperator ? state.nfcStatus : 403
+            let story = body["p_story"] as? String
+            var row: [String: Any] = ["tag_id": body["p_tag"] ?? "", "story_id": story.map { $0 as Any } ?? NSNull(),
+                                      "active": state.nfcMismatchedReceipt ? !(body["p_active"] as? Bool ?? true) : body["p_active"] ?? true,
+                                      "note": body["p_note"] ?? "", "updated_at": "2026-11-13T09:00:00Z"]
+            if status == 200 {
+                state.nfcTags.removeAll { $0["tag_id"] as? String == body["p_tag"] as? String }
+                row["story_title"] = story == nil ? NSNull() : "Fixture story"
+                row["story_status"] = story == nil ? NSNull() : "published"
+                state.nfcTags.append(row)
+            }
+            result = row
         } else if path.hasSuffix("/rpc/oi_operator_audit") {
             state.auditBodies.append(body); status = state.auditStatus
             if !state.isOperator { status = 403 }
@@ -301,6 +333,7 @@ final class OiTestBackend {
             if let independent = state.independentStoryCreation { capabilities["independent_story_creation"] = independent }
             if state.publicCucumberAppearance { capabilities["public_cucumber_appearance"] = true }
             if state.publicStoryCard { capabilities["public_story_card"] = true }
+            if state.duplexStoryCard { capabilities["duplex_story_card"] = true }
             if let canonical = state.canonicalAccountID {
                 capabilities["account_id"] = canonical.uuidString
                 capabilities["account_merge_enabled"] = true
@@ -347,7 +380,18 @@ final class OiTestBackend {
                 "school_admission_year":owner == Self.owner && state.schoolID == state.schoolMetadataSchoolID ? state.schoolAdmissionYear as Any? ?? NSNull() : NSNull(),
                 "school_department":owner == Self.owner && state.schoolID == state.schoolMetadataSchoolID ? state.schoolDepartment as Any? ?? NSNull() : NSNull()]
         }
-        else if path.hasSuffix("/rpc/oi_collection_metrics") { result = [] }
+        else if path.hasSuffix("/rpc/oi_collection_metrics_for_stories") {
+            let ids = body["p_story_ids"] as? [String] ?? []
+            state.boundedMetricsIDs.append(ids)
+            status = state.boundedMetricsStatus
+            result = ids.map { ["story_id": $0, "collection_count": 3] }
+        }
+        else if path.hasSuffix("/rpc/oi_collection_metrics") {
+            state.legacyMetricsReads += 1
+            if let id = state.story?["id"] as? String, state.story?["status"] as? String == "published" {
+                result = [["story_id": id, "collection_count": 3]]
+            }
+        }
         else if path.hasSuffix("/oi_stories") {
             if state.failReads { status = 503 }
             else if let story = state.story, state.isOperator || story["user_id"] as? String == owner.uuidString {
@@ -360,6 +404,7 @@ final class OiTestBackend {
                 if matchesID && matchesState { result = [story] }
             }
         } else if path.hasSuffix("/oi_schools") {
+            state.catalogReads += 1
             result = [["id":"postech","name":"POSTECH"]] + (state.includesSecondSchool ? [["id":"other","name":"Other School"]] : [])
         }
         else if path.hasSuffix("/oi_regions") { result = [["id":"pond","school_id":"postech","name":"Pond"]] }
@@ -456,6 +501,69 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertTrue(backend.snapshot().retiredEvidenceRequests.isEmpty)
     }
 
+    @MainActor func testPollingReusesCatalogWithoutRepublishingUnchangedData() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let firstRevision = store.revision
+        let firstCatalogReads = backend.snapshot().catalogReads
+
+        await store.refresh(reuseCatalog: true)
+        XCTAssertEqual(backend.snapshot().catalogReads, firstCatalogReads)
+        XCTAssertEqual(store.revision, firstRevision)
+
+        backend.configure { $0.includesSecondSchool = true }
+        await store.refresh()
+        XCTAssertEqual(backend.snapshot().catalogReads, firstCatalogReads + 1)
+        XCTAssertTrue(store.schools.contains { $0.id == "other" })
+        XCTAssertGreaterThan(store.revision, firstRevision)
+    }
+
+    @MainActor func testBoundedMetricsOnlyFallbackForMissingRPCAndStopReadingHiddenStories() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let saved = await store.save(draft())
+        let id = try XCTUnwrap(saved?.id)
+        XCTAssertTrue(backend.snapshot().boundedMetricsIDs.isEmpty)
+
+        backend.configure { $0.story?["status"] = "published"; $0.boundedMetricsStatus = 503 }
+        await store.refresh()
+        XCTAssertNil(store.loadError)
+        XCTAssertNotNil(store.syncWarning)
+        XCTAssertEqual(store.stories.map(\.id), [id])
+        XCTAssertEqual(backend.snapshot().legacyMetricsReads, 0)
+
+        backend.configure { $0.boundedMetricsStatus = 200 }
+        await store.refresh()
+        XCTAssertNil(store.loadError)
+        XCTAssertNil(store.syncWarning)
+        XCTAssertEqual(store.collectionCounts[id], 3)
+        XCTAssertEqual(backend.snapshot().boundedMetricsIDs.last, [id.uuidString])
+
+        backend.configure { $0.boundedMetricsStatus = 404 }
+        await store.refresh()
+        XCTAssertNil(store.loadError)
+        XCTAssertEqual(store.collectionCounts[id], 3)
+        XCTAssertEqual(backend.snapshot().legacyMetricsReads, 1)
+
+        backend.configure { $0.story?["status"] = "hidden" }
+        await store.refresh(reuseCatalog: true)
+        XCTAssertTrue(store.stories.isEmpty)
+        XCTAssertTrue(store.collectionCounts.isEmpty)
+        XCTAssertEqual(backend.snapshot().legacyMetricsReads, 1)
+    }
+
+    @MainActor func testBoundedMetricsPagesAtMostTwoHundredIDs() async throws {
+        let (_, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let ids = (1...201).map { _ in UUID() }
+        let metrics = try await api.collectionMetrics(for: ids, token: nil)
+        XCTAssertEqual(metrics.map(\.storyId), ids)
+        XCTAssertEqual(backend.snapshot().boundedMetricsIDs.map(\.count), [200, 1])
+    }
+
     @MainActor func testConfirmedDeletionPurgesOnlyDeletedAccountLocalDrafts() async throws {
         let (store, backend, vault, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
@@ -484,6 +592,69 @@ final class OiRemoteStoreTests: XCTestCase {
         let parser = ISO8601DateFormatter()
         return try OiAuditQuery(from: XCTUnwrap(parser.date(from: "2026-11-03T00:00:00Z")),
                                until: XCTUnwrap(parser.date(from: "2026-11-05T00:00:00Z")), category: category)
+    }
+
+    @MainActor func testOperatorNFCTagsListAndSaveSendExactValues() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        let story = UUID(uuidString: "b1000000-0000-4000-8000-0000000000aa")!
+        backend.configure {
+            $0.isOperator = true
+            $0.nfcTags = [["tag_id": "pond-01", "story_id": story.uuidString.lowercased(), "active": true, "note": "연못 벤치",
+                           "updated_at": "2026-11-13T08:00:00Z", "story_title": "연못 이야기", "story_status": "published"],
+                          ["tag_id": "lib-02", "story_id": NSNull(), "active": false, "note": "",
+                           "updated_at": NSNull(), "story_title": NSNull(), "story_status": NSNull()]]
+        }
+        await store.start()
+        let tags = try await store.operatorNFCTags()
+        XCTAssertEqual(tags.map(\.tagId), ["pond-01", "lib-02"])
+        XCTAssertTrue(tags[0].opensPostcard); XCTAssertEqual(tags[0].storyId, story)
+        XCTAssertFalse(tags[1].opensPostcard); XCTAssertEqual(tags[1].statusText, "중지됨")
+        XCTAssertEqual(tags[0].url.absoluteString, "https://appclip.apple.com/id?p=com.Spero.OiDonation.Clip&postcard=pond-01")
+
+        let receipt = try await store.setNFCTag("lib-02", story: story, active: true, note: "  도서관 입구  ")
+        XCTAssertEqual(receipt.storyId, story); XCTAssertTrue(receipt.active)
+        let body = try XCTUnwrap(backend.snapshot().nfcBodies.last)
+        XCTAssertEqual(body["p_tag"] as? String, "lib-02")
+        XCTAssertEqual(body["p_story"] as? String, story.uuidString.lowercased())
+        XCTAssertEqual(body["p_active"] as? Bool, true)
+        XCTAssertEqual(body["p_note"] as? String, "도서관 입구")
+
+        _ = try await store.setNFCTag("pond-01", story: nil, active: false, note: "")
+        XCTAssertTrue(backend.snapshot().nfcBodies.last?["p_story"] is NSNull, "Unlinking sends an explicit null story")
+    }
+
+    func testOperatorNFCTagSuggestionIsValidUnambiguousAndUnused() {
+        let taken: Set<String> = ["oi-aaaaaa"]
+        for _ in 0..<200 {
+            let id = OiNFCTagID.suggestion(avoiding: taken)
+            XCTAssertTrue(AppClipLink.isValidPostcardTag(id), id)
+            XCTAssertTrue(id.hasPrefix("oi-")); XCTAssertEqual(id.count, 9)
+            XCTAssertFalse(taken.contains(id))
+            XCTAssertTrue(id.dropFirst(3).allSatisfy { !"0o1li".contains($0) }, id)
+        }
+    }
+
+    @MainActor func testOperatorNFCTagsRejectInvalidInputMissingRPCAndMismatchedReceipt() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        do { _ = try await store.setNFCTag("Pond 01", story: nil, active: true, note: ""); XCTFail("Invalid tag must not be sent") }
+        catch { XCTAssertEqual(error as? OiNFCTagError, .invalidTag) }
+        XCTAssertTrue(backend.snapshot().nfcBodies.isEmpty)
+
+        backend.configure { $0.nfcStatus = 404 }
+        do { _ = try await store.operatorNFCTags(); XCTFail("Missing RPC must be reported") }
+        catch { XCTAssertEqual(error as? OiNFCTagError, .notDeployed) }
+
+        backend.configure { $0.nfcStatus = 200; $0.nfcMismatchedReceipt = true }
+        do { _ = try await store.setNFCTag("pond-01", story: nil, active: true, note: ""); XCTFail("Receipt must match the request") }
+        catch { XCTAssertEqual(error as? OiNFCTagError, .mismatchedReceipt) }
+
+        backend.configure { $0.nfcMismatchedReceipt = false; $0.isOperator = false }
+        do { _ = try await store.operatorNFCTags(); XCTFail("Non-operators must not read tags") }
+        catch { XCTAssertNotEqual(error as? OiNFCTagError, .notDeployed) }
     }
 
     @MainActor func testOperatorAuditPagesKeepCursorAndApplyCategory() async throws {
@@ -2256,7 +2427,7 @@ final class OiRemoteStoreTests: XCTestCase {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
         backend.configure {
-            $0.isOperator = true; $0.publicStoryCard = true; $0.publicCucumberAppearance = true
+            $0.isOperator = true; $0.publicStoryCard = true; $0.publicCucumberAppearance = true; $0.duplexStoryCard = true
             $0.timeOutCardUploadAfterCommit = true
         }
         await store.start()
@@ -2269,8 +2440,8 @@ final class OiRemoteStoreTests: XCTestCase {
         let card = try preview.publication(colorScheme: .light)
         XCTAssertEqual(try preview.publication(colorScheme: .light).id, card.id)
         let image = try OiPublishedCucumberImage.decode(card.png, part: .portrait)
-        XCTAssertEqual(image.width, 724)
-        XCTAssertEqual(image.height, 1004)
+        XCTAssertEqual(image.width, 1086)
+        XCTAssertEqual(image.height, 1506)
         let cucumber = try OiCucumberPublication(look: OiWardrobeLook(), portrait: card.png)
 
         let draftReceipt = await store.save(input)
@@ -2286,6 +2457,20 @@ final class OiRemoteStoreTests: XCTestCase {
         let approved = try await store.reviewOperatorStory(pending, publish: true).story
         let publicCard = try await repository.fetchPublicStoryCard(storyID: saved.id.uuidString)
         XCTAssertEqual(publicCard?.imageURL?.path, "/storage/v1/object/sign/oi-story-media/" + cardPath)
+        XCTAssertEqual(pending.cardSnapshotFormat, 2)
+        XCTAssertNotNil(publicCard?.backImageURL)
+        XCTAssertNotNil(publicCard?.frontPreviewURL)
+        XCTAssertNotNil(publicCard?.backPreviewURL)
+        let details = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
+        XCTAssertEqual(details?.frontURL, publicCard?.frontPreviewURL, "NFC uses the same reviewed preview as the general Clip")
+        XCTAssertEqual(details?.backURL, publicCard?.backPreviewURL)
+        backend.configure { $0.failCardBackRead = true }
+        do {
+            _ = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
+            XCTFail("A missing format-2 back must not silently fall back to generated text")
+        } catch {}
+        backend.configure { $0.failCardBackRead = false }
+        for path in pending.cardArtworkPaths { XCTAssertNotNil(backend.snapshot().uploads["oi-story-media/" + path]) }
         XCTAssertEqual(store.campusStory(approved).cardArtworkPath, cardPath)
         let uploadCount = backend.snapshot().artworkUploadAttempts
 
@@ -2307,6 +2492,32 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(backend.snapshot().artworkUploadAttempts, uploadCount)
         let pendingCard = try await repository.fetchPublicStoryCard(storyID: saved.id.uuidString)
         XCTAssertNil(pendingCard)
+    }
+
+    @MainActor func testDuplexCardPartialUploadAndOldServerPreserveDraft() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.publicStoryCard = true }
+        await store.start()
+        let input = draft()
+        let card = try OiDraftCardPreview(draft: input, customization: OiDraftCustomization()).publication(colorScheme: .light)
+        let savedReceipt = await store.save(input)
+        let saved = try XCTUnwrap(savedReceipt)
+        let oldServer = await store.submitStory(saved, card: card)
+        XCTAssertNil(oldServer)
+        XCTAssertEqual(backend.snapshot().artworkUploadAttempts, 0, "Never silently downgrade a two-sided card")
+        backend.configure { $0.duplexStoryCard = true; $0.failCardBackUpload = true }
+        await store.refresh()
+        let partial = await store.submitStory(saved, card: card)
+        XCTAssertNil(partial)
+        XCTAssertEqual(backend.snapshot().submitCount, 0)
+        XCTAssertEqual(store.ownStories.first?.status, "draft")
+        backend.configure { $0.failCardBackUpload = false }
+        let retried = await store.submitStory(saved, card: card)
+        XCTAssertEqual(retried?.status, "pending")
+        XCTAssertEqual(retried?.cardSnapshotFormat, 2)
+        XCTAssertEqual(backend.snapshot().uploads.keys.filter { $0.contains("/card/") }.count, 4)
+        XCTAssertEqual(backend.snapshot().submitCount, 1)
     }
 }
 
@@ -3316,6 +3527,135 @@ final class OiCostumePhotoTests: XCTestCase {
 /// A valid ZIP alone cannot catch unsupported materials or missing bundled textures.
 @MainActor
 final class OiWardrobeAssetTests: XCTestCase {
+    func testFittedCardiganShortsKeepShapeWhenPhotosAreAppliedAndRemoved() async throws {
+        var plain = OiWardrobeLook(); plain.top = .cardigan; plain.bottom = .shorts
+        plain.topColor = 0xD7CBB8; plain.bottomColor = 0xD7CBB8
+        let (base, _) = try await OiWardrobeAsset.prepare(plain)
+        let bottom = try XCTUnwrap(base.findEntity(named: "Bottom"))
+        // The original protruding shorts reached +0.192m; the approved fit ends at +0.157m.
+        XCTAssertEqual(bottom.visualBounds(relativeTo: base).max.z, 0.156525, accuracy: 0.001)
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32)).image { context in
+            UIColor.magenta.setFill(); context.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+        }
+        let asset = try OiPhotoRenderer.asset(image)
+        var printed = plain
+        for slot in OiPhotoSlot.allCases {
+            let design = OiPhotoDesign(layers: [OiPhotoLayer(source: asset.id), OiPhotoLayer(source: asset.id, side: .back)])
+            try printed.artwork.set(design, sources: [asset.id: asset.data], for: slot.itemID(in: printed))
+        }
+        let restored = try JSONDecoder().decode(OiWardrobeLook.self, from: JSONEncoder().encode(printed))
+        XCTAssertEqual(restored, printed)
+        let (root, overlays) = try await OiWardrobeAsset.prepare(restored)
+        XCTAssertEqual(overlays.count, OiPhotoSlot.allCases.count)
+        for slot in OiPhotoSlot.allCases {
+            let garment = try XCTUnwrap(root.findEntity(named: slot.role))
+            let overlay = try XCTUnwrap(overlays[slot])
+            let expected = garment.visualBounds(relativeTo: root)
+            let actual = overlay.visualBounds(relativeTo: nil)
+            for axis in 0..<3 {
+                XCTAssertEqual(actual.min[axis], expected.min[axis], accuracy: 0.00001, slot.role)
+                XCTAssertEqual(actual.max[axis], expected.max[axis], accuracy: 0.00001, slot.role)
+            }
+        }
+        OiWardrobeAsset.assemble(restored, root: root, overlays: overlays)
+        for slot in OiPhotoSlot.allCases {
+            XCTAssertFalse(try XCTUnwrap(root.findEntity(named: slot.role)).isEnabled)
+            XCTAssertTrue(overlays[slot]?.parent === root)
+        }
+        let (removed, remaining) = try await OiWardrobeAsset.prepare(plain, existing: root)
+        OiWardrobeAsset.assemble(plain, root: removed, overlays: remaining)
+        XCTAssertTrue(remaining.isEmpty)
+        for slot in OiPhotoSlot.allCases {
+            XCTAssertTrue(try XCTUnwrap(removed.findEntity(named: slot.role)).isEnabled)
+        }
+        XCTAssertEqual(removed.visualBounds(relativeTo: nil).extents.y, 1.5, accuracy: 0.005)
+
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let controller = UIViewController()
+        window.frame = CGRect(x: 0, y: 0, width: 480, height: 600)
+        window.rootViewController = controller; window.isHidden = false
+        let scene = OiWardrobeScene()
+        let view = scene.install(); view.frame = window.bounds
+        controller.view.addSubview(view)
+        defer {
+            scene.uninstall(view); view.removeFromSuperview()
+            window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+        }
+        for (name, look) in [("plain", plain), ("photos", restored), ("removed", plain)] {
+            scene.update(look)
+            for _ in 0..<200 where scene.loading { try await Task.sleep(for: .milliseconds(100)) }
+            XCTAssertFalse(scene.loading); XCTAssertNil(scene.error)
+            for (angleName, angle) in [("side", -Float.pi / 2), ("angle", -Float.pi / 3)] {
+                scene.angle(angle)
+                try await Task.sleep(for: .milliseconds(650))
+                let image: UIImage? = await withCheckedContinuation { c in
+                    view.snapshot(saveToHDR: false) { c.resume(returning: $0) }
+                }
+                let attachment = XCTAttachment(image: try XCTUnwrap(image))
+                attachment.name = "cardigan-fit-\(name)-\(angleName)"
+                attachment.lifetime = .keepAlways; add(attachment)
+            }
+        }
+    }
+
+    func testModularOutfitsKeepApprovedSkinAndRenderInWardrobe() async throws {
+        func checkSkin(_ entity: Entity, role: String = "") -> Int {
+            let current = entity.name.hasPrefix("Skin_") ? entity.name : role
+            var count = 0
+            if current.hasPrefix("Skin_"), let model = entity.components[ModelComponent.self] {
+                for material in model.materials {
+                    guard let skin = material as? PhysicallyBasedMaterial else {
+                        XCTFail("Skin must load as PBR: \(entity.name)"); continue
+                    }
+                    XCTAssertNotNil(skin.baseColor.texture, entity.name)
+                    XCTAssertNotNil(skin.normal.texture, entity.name)
+                    XCTAssertEqual(skin.roughness.scale, 155 / 255, accuracy: 0.0001, entity.name)
+                    XCTAssertNil(skin.roughness.texture, entity.name)
+                    XCTAssertEqual(skin.metallic.scale, 0, entity.name)
+                    count += 1
+                }
+            }
+            return count + entity.children.reduce(0) { $0 + checkSkin($1, role: current) }
+        }
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let controller = UIViewController()
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 500)
+        window.rootViewController = controller; window.isHidden = false
+        let scene = OiWardrobeScene()
+        let view = scene.install(); view.frame = window.bounds
+        controller.view.addSubview(view)
+        defer {
+            scene.uninstall(view); view.removeFromSuperview()
+            window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+        }
+        for top in OiWardrobeLook.Top.allCases {
+            for bottom in OiWardrobeLook.Bottom.allCases {
+                var look = OiWardrobeLook(); look.top = top; look.bottom = bottom
+                let (model, overlays) = try await OiWardrobeAsset.prepare(look)
+                let expected = bottom == .shorts ? 5 : 3
+                XCTAssertEqual(checkSkin(model), expected, look.modelName)
+                OiWardrobeAsset.assemble(look, root: model, overlays: overlays)
+                XCTAssertEqual(checkSkin(model), expected, "Clothing tint must preserve the skin material")
+                XCTAssertEqual(model.visualBounds(relativeTo: nil).extents.y, 1.5, accuracy: 0.005)
+                scene.update(look)
+                for _ in 0..<200 {
+                    if !scene.loading { break }
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                XCTAssertFalse(scene.loading, look.modelName); XCTAssertNil(scene.error, look.modelName)
+                try await Task.sleep(for: .seconds(1))
+                let image: UIImage? = await withCheckedContinuation { c in
+                    view.snapshot(saveToHDR: false) { c.resume(returning: $0) }
+                }
+                let attachment = XCTAttachment(image: try XCTUnwrap(image, look.modelName))
+                attachment.name = "wardrobe-skin-" + look.modelName
+                attachment.lifetime = .keepAlways; add(attachment)
+            }
+        }
+    }
+
     @MainActor func testCardRotationSymbolExists() {
         XCTAssertNotNil(UIImage(systemName: "rotate.3d"))
     }

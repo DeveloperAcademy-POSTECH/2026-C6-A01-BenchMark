@@ -7,9 +7,9 @@
 
 import Foundation
 
-struct OiSchool: Codable, Identifiable { let id: String; let name: String }
-struct OiRegion: Codable, Identifiable { let id: String; let schoolId: String; let name: String }
-struct OiAsset: Codable, Identifiable { let id: String; let kind: String; let name: String }
+struct OiSchool: Codable, Equatable, Identifiable { let id: String; let name: String }
+struct OiRegion: Codable, Equatable, Identifiable { let id: String; let schoolId: String; let name: String }
+struct OiAsset: Codable, Equatable, Identifiable { let id: String; let kind: String; let name: String }
 
 struct OiAccount: Codable, Equatable {
     let id: UUID
@@ -90,6 +90,7 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
     @OiStoryPlacementNumber var headingDegrees: Double? = nil
     var cucumberAppearance: OiCucumberAppearance? = nil
     var cardSnapshotId: UUID? = nil
+    var cardSnapshotFormat: Int? = nil
 
     var cucumberArtwork: OiCucumberArtworkReference? {
         cucumberAppearance.map { .init(ownerID: storageOwnerId ?? userId, storyID: id, appearance: $0) }
@@ -97,6 +98,17 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
 
     var cardArtworkPath: String? {
         cardSnapshotId.map { StoryCard.artworkPath(owner: storageOwnerId ?? userId, story: id, snapshot: $0) }
+    }
+
+    var cardBackArtworkPath: String? {
+        guard cardSnapshotFormat == 2, let snapshot = cardSnapshotId else { return nil }
+        return StoryCard.artworkPath(owner: storageOwnerId ?? userId, story: id, snapshot: snapshot, part: .back)
+    }
+
+    var cardArtworkPaths: [String] {
+        guard let snapshot = cardSnapshotId else { return [] }
+        let parts: [StoryCard.Part] = cardSnapshotFormat == 2 ? StoryCard.Part.allCases : [.front]
+        return parts.map { StoryCard.artworkPath(owner: storageOwnerId ?? userId, story: id, snapshot: snapshot, part: $0) }
     }
 
     var isRegisteredOnCampus: Bool { status == "pending" || status == "published" }
@@ -195,7 +207,7 @@ struct OiCardRequestReceipt: Decodable {
     let status: OiCardRequest.Status
 }
 
-struct OiOwnedStory: Codable, Identifiable {
+struct OiOwnedStory: Codable, Equatable, Identifiable {
     let storyId: UUID
     let createdAt: String?
     var id: UUID { storyId }
@@ -206,7 +218,7 @@ struct OiCollectionMetric: Decodable {
     let collectionCount: Int
 }
 
-struct OiMedia: Codable, Identifiable {
+struct OiMedia: Codable, Equatable, Identifiable {
     let id: UUID
     let storyId: UUID
     let objectPath: String
@@ -269,6 +281,7 @@ struct OiCapabilities: Decodable {
     let farmerOutfitEnabled: Bool?
     let publicCucumberAppearance: Bool?
     let publicStoryCard: Bool?
+    var duplexStoryCard: Bool? = nil
 }
 
 struct OiStoryDraft: Codable, Equatable {

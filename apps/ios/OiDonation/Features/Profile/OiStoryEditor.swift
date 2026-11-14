@@ -431,9 +431,14 @@ struct OiStoryEditor: View {
     }
 
     private func canSelectProgressStage(_ stage: Int) -> Bool {
-        guard !wardrobePhotoEditing, canLeaveCurrentStep else { return false }
-        if stage <= step.progress { return true }
-        return stage <= OiCreationStep.story.progress || OiCreationStep.location.canContinue(draft: draft)
+        guard !wardrobePhotoEditing else { return false }
+        if step == .consent, stage == OiCreationStep.cucumber.progress,
+           ProcessInfo.processInfo.arguments.contains("-oi-test-step3") {
+            return true
+        }
+        if stage <= step.progress { return step != .consent || consentState.allRequiredClausesAreAgreed }
+        guard canLeaveCurrentStep else { return false }
+        return stage <= OiCreationStep.story.progress || storyInputIsComplete
     }
 
     private func navigate(to destination: OiCreationStep) {
@@ -467,15 +472,21 @@ struct OiStoryEditor: View {
     }
 
     private var canLeaveCurrentStep: Bool {
-        step != .consent || consentState.allRequiredClausesAreAgreed
+        switch step {
+        case .consent: consentState.allRequiredClausesAreAgreed
+        case .story: storyInputIsComplete
+        default: true
+        }
+    }
+
+    /// Theme, emotion, title, story, at least one photo and a campus location are all required before the cucumber step.
+    private var storyInputIsComplete: Bool {
+        OiCreationStep.story.canContinue(draft: draft) && hasValidStoryPhotoCount
+            && OiCreationStep.location.canContinue(draft: draft)
     }
 
     private func advance() {
         guard canLeaveCurrentStep else { return }
-        if step == .story, !OiCreationStep.location.canContinue(draft: draft) {
-            navigate(to: .location)
-            return
-        }
         if let next = step.next { navigate(to: next) } else { showingPreview = true }
     }
 
@@ -620,7 +631,7 @@ struct OiStoryEditor: View {
             issues.append(.init(step: .consent, message: "공개하려면 이야기와 게시물 조치 규정에 동의해 주세요."))
         }
         if !OiCreationStep.story.canContinue(draft: draft) {
-            issues.append(.init(step: .story, message: "테마와 감정을 선택하고 제목과 이야기를 각각 \(OiCreationStep.storyTextLimit)자 이내로 입력해 주세요."))
+            issues.append(.init(step: .story, message: "테마와 감정을 선택하고 제목은 45자, 이야기는 1,500byte 이내로 입력해 주세요."))
         }
         if !OiCreationStep.location.canContinue(draft: draft) {
             issues.append(.init(step: .location, message: "캠퍼스 위치를 선택해 주세요."))
@@ -636,6 +647,9 @@ struct OiStoryEditor: View {
 
     private var publicationAvailabilityMessage: String? {
         if !canWrite { return OiWritingGuidance.unavailable }
+        if !remote.canPublishDuplexCard {
+            return "서버의 카드 양면 저장 업데이트가 필요해요. 내 카드와 초안은 보존돼 있어요."
+        }
         if !remote.canPublishStoryCard {
             return "서버가 꾸민 카드의 공개를 지원할 때 다시 요청해 주세요. 내 카드와 초안은 저장돼 있어요."
         }
@@ -764,8 +778,6 @@ struct OiStoryEditor: View {
         case .consent, .photos, .location: EmptyView() // Presented separately above.
         case .story:
             VStack(alignment: .leading, spacing: 50) {
-                Text("내 지도에 오이를 배치하려면 위치를 골라 주세요. 이야기와 사진은 공개할 때 필요해요.")
-                    .font(CampusStyle.body(14)).foregroundStyle(.secondary)
                 OiStoryWritingStep(draft: $draft, focusedField: $focusedStoryField)
                 OiStoryAttachmentSections(photoCount: editingPhotos.count,
                     latitude: draft.latitude, longitude: draft.longitude,
@@ -778,10 +790,24 @@ struct OiStoryEditor: View {
         case .card:
             OiCardCustomizationStep(draft: $draft, customization: $customization,
                 donorName: remote.profile?.publicName ?? "",
+                academicAuthor: OiPostcardAuthor.academic(department: remote.profile?.department, year: remote.profile?.admissionYear),
+                storyPhotos: editingPhotos, loadStoryPhoto: cardStoryPhoto,
                 onContinue: { customizationReady = true },
                 onSizeEditingChanged: { cardSizeEditing = $0 })
 
         }
+    }
+
+    private func cardStoryPhoto(_ photo: OiEditingPhoto) async throws -> Data {
+        guard let owner, remote.account?.id == owner else { throw OiServiceError.accountChanged }
+        let data: Data
+        switch photo {
+        case .local(let id): data = try await remote.localPhoto(id: id, owner: owner)
+        case .uploaded(let path): data = try await remote.storyPhotoData(path)
+        }
+        try Task.checkCancellation()
+        guard remote.account?.id == owner else { throw OiServiceError.accountChanged }
+        return try OiPhotoProcessor.prepare(data)
     }
 
     private var completion: some View {

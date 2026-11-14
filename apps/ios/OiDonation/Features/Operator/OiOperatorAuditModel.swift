@@ -44,12 +44,15 @@ struct OiAuditRecord: Decodable, Identifiable, Equatable {
         case "delete_story": "이야기 삭제"
         case "review_story": "이야기 공개 상태 검토"
         case "merge_accounts": "계정 통합"
+        case "nfc_tag:link": "NFC 태그 연결"
+        case "nfc_tag:unlink": "NFC 태그 연결 해제·중지"
         default: "기타 처리 (\(action))"
         }
     }
     var targetLabel: String {
         if action.hasPrefix("review_evidence:") { return "증빙 ID" }
         if action == "merge_accounts" { return "통합된 원본 계정 ID" }
+        if action.hasPrefix("nfc_tag:") { return "이야기 ID" }
         if ["save_story", "save_campus_story", "attach_media", "submit_story", "reopen_story", "delete_story", "review_story"].contains(action) { return "이야기 ID" }
         return "대상 ID"
     }

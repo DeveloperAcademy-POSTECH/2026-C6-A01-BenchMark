@@ -314,11 +314,47 @@ struct OiCardOrientation: Codable, Equatable {
     }
 }
 
+enum OiCardOpacity {
+    static func normalized(_ value: Double?) -> Double {
+        guard let value, value.isFinite else { return 1 }
+        return max(0, min(1, value))
+    }
+}
+
+/// Shared postcard style; optional custom colors preserve earlier single-color drafts.
+struct OiPostcardBackgroundStyle: Codable, Equatable {
+    var color: UInt32 = 0xEECFDF
+    var fill: OiDraftCustomization.Fill = .gradient
+    /// Optional additions preserve the appearance of earlier one-color drafts.
+    var preset: String? = nil
+    var middleColor: UInt32? = nil
+    var endColor: UInt32? = nil
+    /// A display rule only; personal profile values never enter PNG style metadata.
+    var authorMode: String? = nil
+    /// Optional RGB for the back's POSTECH watermark; nil keeps the earlier automatic tint.
+    var backLogoColor: UInt32? = nil
+    /// Nil is fully opaque, preserving cards created before alpha editing.
+    var startOpacity: Double? = nil
+    var middleOpacity: Double? = nil
+    var endOpacity: Double? = nil
+    var backLogoOpacity: Double? = nil
+    /// Custom fields use the middle as the paper base, not the upper-right accent.
+    var paperColor: UInt32 { middleColor ?? color }
+    /// Paper remains white under translucent ink so exports do not acquire holes.
+    var visiblePaperColor: UInt32 {
+        let alpha = OiCardOpacity.normalized(middleColor == nil ? startOpacity : middleOpacity)
+        func channel(_ shift: Int) -> UInt32 {
+            UInt32((Double((paperColor >> shift) & 255) * alpha + 255 * (1 - alpha)).rounded())
+        }
+        return channel(16) << 16 | channel(8) << 8 | channel(0)
+    }
+}
+
 /// Kept in the protected local draft, never added implicitly to the public API payload.
 struct OiCardDesign: Codable, Equatable {
-    var borderFill: OiDraftCustomization.Fill = .solid
-    var borderFirst: UInt32 = 0xD9D9D9
-    var borderSecond: UInt32 = 0xFFFFFF
+    var borderFill: OiDraftCustomization.Fill = .gradient
+    var borderFirst: UInt32 = 0xE8EECF
+    var borderSecond: UInt32 = 0xD5DBC6
     var pattern: Int? = nil
     var caption: String? = nil
     var anonymous = false
@@ -329,6 +365,24 @@ struct OiCardDesign: Codable, Equatable {
     var backgroundPhoto: Data? = nil
     var portraitPNG: Data? = nil
     var portraitKey: String? = nil
+    var postcardDate: Date? = nil
+    var photoMonochrome: Bool? = nil
+    /// Nil keeps the appearance of drafts saved before the unified background editor.
+    var postcardBackground: OiPostcardBackgroundStyle? = nil
+    var postcardLayoutVersion: Int? = nil
+    var postcardStamp: Int? = nil
+    var postcardLogo: String? = nil
+    /// Nil keeps legacy automatic backdrops and leaves new layouts transparent.
+    var characterBackdropEnabled: Bool? = nil
+    /// Nil follows the paper's automatic companion color; an explicit RGB is kept when hidden.
+    var characterBackdropColor: UInt32? = nil
+    var characterBackdropOpacity: Double? = nil
+    var postcardLogoOpacity: Double? = nil
+    var usesCharacterBackdrop: Bool {
+        characterBackdropEnabled ?? (postcardLayoutVersion != 2 && postcardBackground != nil)
+    }
+    /// Academic text stays in the protected draft and rendered card, not style metadata.
+    var postcardAcademicAuthor: String? = nil
 }
 
 enum OiDenim: String, CaseIterable, Codable, Identifiable {

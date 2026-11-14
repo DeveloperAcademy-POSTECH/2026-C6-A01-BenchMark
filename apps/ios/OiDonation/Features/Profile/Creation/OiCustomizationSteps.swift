@@ -4,40 +4,50 @@ import UniformTypeIdentifiers
 import UIKit
 
 private enum OiCardTab: String, CaseIterable {
-    case content = "내용", background = "배경", border = "테두리", pattern = "패턴", size = "오이크기"
+    case content = "내용", background = "배경", logo = "로고", stamp = "스탬프", size = "이미지"
 }
 
 struct OiCardCustomizationStep: View {
     @Binding var draft: OiStoryDraft
     @Binding var customization: OiDraftCustomization
     var donorName = ""
+    var academicAuthor = ""
+    var storyPhotos: [OiEditingPhoto] = []
+    var loadStoryPhoto: ((OiEditingPhoto) async throws -> Data)? = nil
     var canContinue = true
     var isFinished = false
     var onContinue: (() -> Void)?
     var onSizeEditingChanged: ((Bool) -> Void)? = nil
+    @State private var showingBack = false
     @State private var tab: OiCardTab = .content
+    @State private var customBackground = false
     @State private var portrait: UIImage?
+    @State private var portraitFailed = false
+    @State private var captureAttempt = 0
     @State private var wardrobeKey: String?
     @State private var orientation = OiCardOrientation()
-    private var portraitKey: String? {
-        wardrobeKey.map { $0 + "-angle-" + orientation.cacheIdentity }
-    }
     @State private var showingPhotoEditor = false
+    @State private var showingAttachments = false
+    @State private var showingExport = false
     @State private var nameInput = ""
     @FocusState private var editingName: Bool
+    @FocusState private var editingCaption: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private var design: OiCardDesign { customization.card ?? OiCardDesign() }
-    private var needsPortrait: Bool { portraitKey != nil && (design.portraitKey != portraitKey || design.portraitPNG == nil) }
-
+    private var style: OiPostcardBackgroundStyle {
+        design.postcardBackground ?? OiPostcardBackgroundStyle(color: design.borderFirst, fill: design.borderFill)
+    }
+    private var portraitKey: String? { wardrobeKey.map { $0 + "-angle-" + orientation.cacheIdentity } }
+    private var needsPortrait: Bool {
+        customization.showsCharacter && portraitKey != nil && (design.portraitKey != portraitKey || design.portraitPNG == nil)
+    }
     private var isSizeEditing: Bool { tab == .size && !isFinished }
 
     var body: some View {
         GeometryReader { geometry in
-            let previewHeight = isSizeEditing
-                ? min(268.0, max(64.0, geometry.size.height * 0.38))
-                : min(308.0, max(205.0, geometry.size.height * 0.47))
+            let previewHeight = min(308.0, max(180.0, geometry.size.height * 0.47))
             VStack(spacing: 0) {
-                preview(height: previewHeight).padding(.horizontal, 20)
-                    .padding(.top, isSizeEditing ? 8 : 14).padding(.bottom, isSizeEditing ? 12 : 24)
+                preview(height: previewHeight).padding(.horizontal, 20).padding(.bottom, 26)
                 if isFinished {
                     ScrollView {
                         VStack(spacing: 16) {
@@ -50,35 +60,50 @@ struct OiCardCustomizationStep: View {
                     tabs.padding(.horizontal, 20).padding(.bottom, 8)
                     if isSizeEditing {
                         GeometryReader { editor in
-                            // Fit the card's real aspect ratio into the remaining space.
-                            // No ScrollView owns gestures over the character editor.
-                            let height = max(1, min(editor.size.height - 56,
-                                                    (editor.size.width - 40) * 472 / 332))
-                            placementEditor(height: height)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                                .background(Color("OiBorder").opacity(0.75).ignoresSafeArea(edges: .bottom))
+                            let paperHeight = max(1, min(editor.size.height - 50, (editor.size.width - 80) * 502 / 362))
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(customization.showsCharacter ? "캐릭터를 눌러 선택한 뒤\n드래그·핀치로 배치하세요." : "이미지를 눌러 선택한 뒤\n드래그·핀치로 배치하세요.")
+                                    .font(CampusStyle.body(10)).foregroundStyle(Color("OiGreen"))
+                                    .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 6)
+                                ZStack {
+                                    OiPostcardBackground(style: style)
+                                        .frame(width: paperHeight * 362 / 502, height: paperHeight).mask(OiPostcardPaper())
+                                    placementEditor(height: paperHeight * 436 / 502)
+                                }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                                .background(Color(white: 0.67).ignoresSafeArea(edges: .bottom))
                         }
                     } else {
                         ScrollView {
-                            VStack(alignment: .leading, spacing: 20) {
+                            VStack(alignment: .leading, spacing: 24) {
                                 controls
-                                storageDetails
-                            }.padding(.horizontal, 20).padding(.bottom, 20)
+                                storageDetails.padding(.top, 12)
+                            }.padding(.horizontal, 20).padding(.bottom, 24)
                         }.scrollDismissesKeyboard(.interactively)
                     }
                 }
             }
         }
+        .sheet(isPresented: $showingAttachments) { attachmentPicker }
         .sheet(isPresented: $showingPhotoEditor) {
             OiCardBackgroundPhotoEditor(design: cardBinding)
-                .presentationDetents([.height(410)])
-                .presentationDragIndicator(.hidden)
-                .presentationCornerRadius(35)
-                .presentationBackground(Color("OiLight"))
+                .presentationDetents([.height(410)]).presentationDragIndicator(.hidden)
+                .presentationCornerRadius(35).presentationBackground(Color("OiLight"))
         }
-        .onAppear { refreshPortrait(); nameInput = baseName; onSizeEditingChanged?(isSizeEditing) }
+        .sheet(isPresented: $showingExport) {
+            OiCardExportSheet {
+                let card = try OiDraftCardPreview(draft: draft, customization: customization,
+                    donorName: donorName, portrait: portrait).publication(colorScheme: .light)
+                return try OiCardExportImages(card)
+            }
+        }
+        .onAppear {
+            prepareBackground()
+            if design.postcardDate == nil { change { $0.postcardDate = Date() } }
+            refreshPortrait(); nameInput = baseName; onSizeEditingChanged?(isSizeEditing)
+        }
         .onChange(of: customization.wardrobe) { _, _ in refreshPortrait() }
-        .onChange(of: tab) { _, _ in saveOrientation() }
+        .onChange(of: tab) { _, _ in saveOrientation(); editingName = false; editingCaption = false }
         .onChange(of: isSizeEditing) { _, editing in onSizeEditingChanged?(editing) }
         .onDisappear { saveOrientation(); onSizeEditingChanged?(false) }
         .onChange(of: editingName) { _, focused in if !focused { commitName() } }
@@ -87,232 +112,395 @@ struct OiCardCustomizationStep: View {
 
     private func preview(height: CGFloat) -> some View {
         ZStack(alignment: .bottom) {
-            OiDraftCardPreview(draft: draft, customization: customization, donorName: donorName, portrait: portrait)
+            OiDraftCardPreview(draft: draft, customization: customization, donorName: donorName,
+                               portrait: portrait, showingBack: showingBack)
                 .frame(width: height * 362 / 502, height: height)
                 .overlay {
                     if needsPortrait, (tab != .size || isFinished), let look = customization.wardrobe {
                         OiCardPortraitCapture(look: look, cacheKey: portraitKey ?? "", orientation: orientation,
-                                              onCapture: acceptPortrait)
-                            .aspectRatio(332 / 472, contentMode: .fit)
+                            onCapture: acceptPortrait, onFailure: { portraitFailed = true })
+                            .id(captureAttempt).aspectRatio(332 / 472, contentMode: .fit)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .opacity(0.001).allowsHitTesting(false).accessibilityHidden(true)
+                    }
+                }
+                .overlay(alignment: .top) {
+                    if needsPortrait && tab != .size {
+                        Group {
+                            if portraitFailed { Button("오이 이미지 다시 만들기") { portraitFailed = false; captureAttempt += 1 } }
+                            else { ProgressView("오이를 엽서에 담는 중") }
+                        }.font(CampusStyle.body(11)).padding(8).background(.regularMaterial, in: Capsule())
                     }
                 }
             HStack(alignment: .bottom) {
                 VStack(spacing: 3) {
-                    Text("오이").font(CampusStyle.medium(16))
+                    Text("오이").font(CampusStyle.semibold(16))
                     VStack(spacing: 0) {
-                        visibilityButton("가림", visible: false)
-                        visibilityButton("보임", visible: true)
+                        faceButton("앞", back: false)
+                        faceButton("뒤", back: true)
                     }.padding(2).background(Color(white: 0.85), in: Capsule())
                 }
                 Spacer()
                 if let onContinue {
-                    Button { editingName = false; commitName(); onContinue() } label: {
-                        Text(isFinished ? "다시 꾸미기" : "완료").underline()
-                            .font(CampusStyle.medium(16)).padding(.horizontal, 16).padding(.vertical, 7)
-                            .background(Color("OiBorder"), in: Capsule())
+                    Button { editingName = false; editingCaption = false; commitName(); onContinue() } label: {
+                        Text(isFinished ? "다시 꾸미기" : "완료").underline().font(CampusStyle.body(16))
+                            .padding(.horizontal, 16).padding(.vertical, 6).background(Color("OiBorder"), in: Capsule())
                     }.buttonStyle(OiCreationPressStyle()).foregroundStyle(.black)
-                        .disabled(!canContinue || needsPortrait)
-                        .accessibilityIdentifier("oi.customization.done")
+                        .disabled(!canContinue || needsPortrait).accessibilityIdentifier("oi.customization.done")
                 }
             }
         }.frame(maxWidth: .infinity).frame(height: height)
     }
-    private func visibilityButton(_ title: String, visible: Bool) -> some View {
-        Button { customization.showsCharacter = visible } label: {
-            Text(title).font(CampusStyle.body(10)).frame(width: 30, height: 42)
-                .background(customization.showsCharacter == visible ? Color.white : .clear, in: Capsule())
-        }.buttonStyle(.plain).foregroundStyle(.black)
-            .accessibilityLabel("카드 오이 \(title)")
-            .accessibilityAddTraits(customization.showsCharacter == visible ? .isSelected : [])
+    private func faceButton(_ title: String, back: Bool) -> some View {
+        Button { showingBack = back } label: {
+            Text(title).font(showingBack == back ? CampusStyle.semibold(10) : CampusStyle.body(10))
+                .frame(width: 30, height: 42).background(showingBack == back ? Color.white : .clear, in: Capsule())
+        }.buttonStyle(.plain).foregroundStyle(.black).accessibilityLabel("카드 \(back ? "뒷면" : "앞면")")
+            .accessibilityAddTraits(showingBack == back ? .isSelected : []).accessibilityIdentifier("oi.postcard.side.\(back ? "back" : "front")")
     }
-    private var tabs: some View {
+    @ViewBuilder private var tabs: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            ScrollView(.horizontal) { tabButtons }.scrollIndicators(.hidden)
+        } else { tabButtons }
+    }
+    private var tabButtons: some View {
         HStack(spacing: 0) {
             ForEach(OiCardTab.allCases, id: \.self) { item in
-                Button { editingName = false; tab = item } label: {
-                    Text(item.rawValue).font(tab == item ? CampusStyle.semibold(16) : CampusStyle.medium(16))
+                Button { tab = item } label: {
+                    Text(item.rawValue).font(tab == item ? .custom("Paperlogy-7Bold", size: 16, relativeTo: .body) : CampusStyle.medium(16))
                         .foregroundStyle(tab == item ? Color("OiGreen") : Color(white: 0.44))
-                        .frame(maxWidth: .infinity).frame(height: 44)
+                        .frame(minWidth: 39).frame(height: 40)
                         .overlay(alignment: .bottom) {
                             if tab == item { Color("OiGreen").frame(width: 39, height: 2).padding(.bottom, 3) }
                         }
                 }.buttonStyle(.plain).accessibilityIdentifier("oi.card.tab.\(item.rawValue)")
                     .accessibilityAddTraits(tab == item ? .isSelected : [])
+                if item != OiCardTab.allCases.last {
+                    if dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 24) }
+                    else { Spacer(minLength: 0) }
+                }
             }
         }
     }
     @ViewBuilder private var controls: some View {
         switch tab {
         case .content: contentEditor
-        case .background, .border: paletteEditor(border: tab == .border)
-        case .pattern: patterns
-        case .size: EmptyView() // The non-scrolling, height-constrained editor above owns this tab.
+        case .background: backgroundEditor
+        case .logo: logoEditor
+        case .stamp: stampEditor
+        case .size: EmptyView()
         }
     }
     private func placementEditor(height: CGFloat) -> some View {
-        OiCardPlacementEditor(image: portrait, placement: designBinding(\.characterPlacement),
-            frameHeight: height, compact: true,
-            look: customization.wardrobe, orientation: customization.wardrobe == nil ? nil : $orientation,
+        OiCardPlacementEditor(image: customization.showsCharacter ? portrait : design.backgroundPhoto.flatMap(UIImage.init(data:)),
+            placement: customization.showsCharacter ? designBinding(\.characterPlacement) : designBinding(\.backgroundPlacement),
+            frameHeight: height, compact: true, minimalChrome: true,
+            backdropColor: customization.showsCharacter && design.usesCharacterBackdrop
+                ? OiPostcardCharacterBackdrop.color(for: design) : nil,
+            backdropOpacity: OiCardOpacity.normalized(design.characterBackdropOpacity),
+            look: customization.showsCharacter ? customization.wardrobe : nil,
+            orientation: customization.showsCharacter && customization.wardrobe != nil ? $orientation : nil,
             portraitKey: portraitKey ?? "", onCapture: acceptPortrait, onInteractionEnded: saveOrientation)
     }
     private var contentEditor: some View {
-        VStack(alignment: .leading, spacing: 30) {
-            VStack(alignment: .leading, spacing: 16) {
-                fieldHeading("오이 이름", hint: "‘오이’를 제외한 다섯 글자 이내로 작성해 주세요")
-                HStack(spacing: 4) {
-                    ZStack(alignment: .leading) {
-                        HStack(spacing: 5) {
-                            ForEach(0..<5) { index in
-                                let chars = Array(nameInput)
-                                Text(index < chars.count ? String(chars[index]) : "-")
-                                    .font(CampusStyle.body(16)).frame(width: 31, height: 36)
-                                    .background(.white, in: RoundedRectangle(cornerRadius: 11))
-                            }
-                        }.opacity(editingName ? 0 : 1)
-                        TextField("이름", text: $nameInput).focused($editingName)
-                            .opacity(editingName ? 1 : 0.02).font(CampusStyle.body(16))
-                            .submitLabel(.done).onSubmit { editingName = false }
-                            .accessibilityIdentifier("oi.draft.cucumberName")
-                    }.frame(width: 175)
-                    Text("오이").font(CampusStyle.body(16))
-                    Spacer(minLength: 5)
-                    Button(editingName ? "완료" : "수정") { editingName.toggle() }
-                        .font(CampusStyle.body(10)).underline().tint(Color("OiGreen"))
-                }.padding(.horizontal, 20).padding(.vertical, 16)
-                    .background(Color(white: 0.97), in: RoundedRectangle(cornerRadius: 30))
-                if nameInput.count > 5 { Text("다섯 글자까지 입력할 수 있어요.").font(.caption).foregroundStyle(.red) }
-            }
-            VStack(alignment: .leading, spacing: 16) {
-                fieldHeading("내용", hint: "미수정 시 이야기 작성 때 남긴 제목이 적용됩니다")
+        VStack(alignment: .leading, spacing: 40) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 35) {
+                    Text("이미지").font(CampusStyle.medium(16))
+                    HStack(spacing: 20) {
+                        choice("첨부한 이미지", selected: !customization.showsCharacter) {
+                            customization.showsCharacter = false
+                            if !storyPhotos.isEmpty && loadStoryPhoto != nil { showingAttachments = true }
+                            else { showingPhotoEditor = true }
+                        }.accessibilityIdentifier("oi.postcard.source.photo")
+                        choice("오이 이미지", selected: customization.showsCharacter) { customization.showsCharacter = true }
+                            .accessibilityIdentifier("oi.postcard.source.cucumber")
+                    }
+                }
+                Text("우표 위의 이미지 또는 오이캐릭터의 크기는 위의 ‘이미지’ 탭에서 조정할 수 있습니다")
+                    .font(CampusStyle.body(10)).foregroundStyle(Color(white: 0.67)).fixedSize(horizontal: false, vertical: true)
+            }.frame(height: dynamicTypeSize.isAccessibilitySize ? nil : 20, alignment: .top)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("내용").font(CampusStyle.medium(16))
                 VStack(alignment: .leading, spacing: 6) {
-                    TextField(draft.title.isEmpty ? "카드에 남길 내용" : draft.title,
-                              text: Binding(get: { design.caption ?? "" }, set: { text in
-                        change { $0.caption = limitedCaption(text) }
-                    }), axis: .vertical).lineLimit(3...5).font(CampusStyle.body(14)).lineSpacing(7)
+                    TextField("엽서에 남길 이야기", text: OiStoryWritingStep.limitedStoryText($draft.body), axis: .vertical)
+                        .lineLimit(3...5).font(CampusStyle.body(16)).lineSpacing(5).focused($editingCaption)
                         .accessibilityIdentifier("oi.card.caption")
                     HStack {
-                        Text("\((design.caption ?? "").utf8.count) / 1500 byte").foregroundStyle(.secondary)
-                        Spacer(); Image(systemName: "pencil").foregroundStyle(Color("OiGreen"))
+                        Text("\(draft.body.utf8.count) / 1,500byte").foregroundStyle(Color(white: 0.67))
+                        Spacer()
+                        Button(editingCaption ? "완료" : "수정") { editingCaption.toggle() }.underline().tint(Color("OiGreen"))
                     }.font(CampusStyle.body(10))
-                }.padding(20).background(Color(white: 0.97), in: RoundedRectangle(cornerRadius: 30))
+                }.padding(.horizontal, 20).padding(.vertical, 16)
+                    .background(Color(white: 0.97), in: RoundedRectangle(cornerRadius: 30))
+                Text("줄바꿈 및 띄어쓰기를 조절해주세요! 내용이 너무 튀어나오지 않는지 확인해서 수정해주세요!")
+                    .font(CampusStyle.body(10)).foregroundStyle(Color(white: 0.67)).fixedSize(horizontal: false, vertical: true)
             }
-            HStack(spacing: 20) {
+            HStack(spacing: 35) {
                 Text("기부자").font(CampusStyle.medium(16))
-                ForEach([true, false], id: \.self) { anonymous in
-                    Button { change { $0.anonymous = anonymous } } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: design.anonymous == anonymous ? "checkmark.square.fill" : "square")
-                            Text(anonymous ? "익명" : "실명")
-                        }.font(CampusStyle.body(16))
-                    }.buttonStyle(.plain).tint(Color("OiGreen"))
+                HStack(spacing: 14) {
+                    authorChoice("익명", mode: "anonymous")
+                    authorChoice("학과, 학번만", mode: "academic")
+                    authorChoice("실명", mode: "name")
                 }
             }
-            Text("이름 표시는 카드 미리보기에만 적용돼요.").font(.caption).foregroundStyle(.secondary)
-            if !design.anonymous && donorName.isEmpty {
-                Text("계정에 등록된 이름을 확인하면 카드에 표시돼요.").font(.caption).foregroundStyle(.secondary)
+            if style.authorMode == "academic", academicAuthor.isEmpty {
+                Text("계정에 공개할 학과와 학번을 등록하면 선택할 수 있어요.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
-        }
-    }
-    private func fieldHeading(_ title: String, hint: String) -> some View {
-        HStack(alignment: .lastTextBaseline, spacing: 10) {
-            Text(title).font(CampusStyle.medium(16))
-            Text(hint).font(CampusStyle.body(9)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-        }
-    }
-    private func paletteEditor(border: Bool) -> some View {
-        let fill = border ? design.borderFill : customization.fill
-        let first = border ? design.borderFirst : customization.firstColor
-        let second = border ? design.borderSecond : customization.secondColor
-        let colors = OiCardPalette.items(gradient: fill == .gradient, border: border)
-        return VStack(alignment: .leading, spacing: 20) {
-            Picker(border ? "테두리 채우기" : "배경 채우기", selection: Binding(get: { fill }, set: { value in
-                if border { change { $0.borderFill = value } } else { customization.fill = value }
-            })) {
-                Text("단색").tag(OiDraftCustomization.Fill.solid)
-                Text("그라데이션").tag(OiDraftCustomization.Fill.gradient)
-            }.pickerStyle(.segmented)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 6), spacing: 12) {
-                ForEach(colors) { item in
-                    Button {
-                        if border { change { $0.borderFirst = item.first; $0.borderSecond = item.second } }
-                        else { customization.firstColor = item.first; customization.secondColor = item.second }
-                    } label: {
-                        VStack(spacing: 5) {
-                            OiCardGradient(fill: fill, first: item.first, second: item.second)
-                                .frame(width: 40, height: 40).clipShape(Circle())
-                                .overlay(Circle().strokeBorder(Color.black.opacity(0.12), lineWidth: 0.8))
-                                .overlay {
-                                    if first == item.first && (fill == .solid || second == item.second) {
-                                        Circle().strokeBorder(Color("OiGreen"), lineWidth: 2)
-                                    }
-                                }
-                            Text(item.name).font(CampusStyle.body(10)).lineLimit(1).minimumScaleFactor(0.8)
-                        }.frame(maxWidth: .infinity, minHeight: 57)
-                    }.buttonStyle(.plain).accessibilityLabel(item.name)
-                }
-            }.padding(.horizontal, 8)
-            if fill == .gradient { Text("직접 색상 선택").font(CampusStyle.semibold(14)) }
-            HStack(spacing: 16) {
-                colorControl(fill == .gradient ? "시작 Color" : "직접 색상 선택", border: border, second: false)
-                if fill == .gradient {
-                    colorControl("끝 Color", border: border, second: true)
-                } else if !border {
-                    Button { showingPhotoEditor = true } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "photo.badge.plus").font(.system(size: 16))
-                                .frame(width: 40, height: 40).background(Color(white: 0.94), in: Circle())
-                            Text("직접 이미지 추가").font(CampusStyle.semibold(12))
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                    }.buttonStyle(.plain).accessibilityIdentifier("oi.card.background.photo")
-                }
-            }
-            if !border && design.backgroundPhoto != nil {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("오이 이름").font(CampusStyle.medium(16))
                 HStack {
-                    Button("배경 사진 배치 수정") { showingPhotoEditor = true }
-                    Spacer()
-                    Button("사진 삭제", role: .destructive) { change { $0.backgroundPhoto = nil } }
-                }.font(.caption)
+                    TextField("다섯 글자 이내", text: $nameInput).focused($editingName)
+                        .submitLabel(.done).onSubmit { editingName = false }.accessibilityIdentifier("oi.draft.cucumberName")
+                    Text("오이").foregroundStyle(.secondary)
+                }.font(CampusStyle.body(16)).padding(16).background(Color(white: 0.97), in: RoundedRectangle(cornerRadius: 16))
+                if nameInput.count > 5 { Text("다섯 글자까지 입력할 수 있어요.").font(.caption).foregroundStyle(.red) }
             }
+        }.foregroundStyle(.black)
+    }
+    private func choice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 5).stroke(.black, lineWidth: 1).frame(width: 20, height: 20)
+                    if selected { Image(systemName: "checkmark").font(.system(size: 12, weight: .semibold)) }
+                }
+                Text(title).font(CampusStyle.body(17)).fixedSize()
+            }.frame(minHeight: 30)
+        }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
+    }
+    private func authorChoice(_ title: String, mode: String) -> some View {
+        choice(title, selected: (style.authorMode ?? "name") == mode) {
+            updateBackground { $0.authorMode = mode }
+            change { $0.postcardAcademicAuthor = mode == "academic" ? academicAuthor : nil }
+        }.disabled(mode == "academic" && academicAuthor.isEmpty || mode == "name" && donorName.isEmpty)
+            .accessibilityIdentifier("oi.card.author.\(mode)")
+    }
+    private func prepareBackground() {
+        if customization.card == nil {
+            var value = OiCardDesign()
+            value.postcardLayoutVersion = 2
+            value.postcardBackground = .init(color: 0xD9D9D9, fill: .solid)
+            customization.card = value
+        } else if design.postcardBackground == nil {
+            change { $0.postcardBackground = .init(color: $0.borderFirst, fill: $0.borderFill) }
         }
+        customBackground = style.middleColor != nil || style.endColor != nil
     }
-    private func colorControl(_ title: String, border: Bool, second: Bool) -> some View {
-        let value = border ? (second ? design.borderSecond : design.borderFirst) : (second ? customization.secondColor : customization.firstColor)
-        return HStack(spacing: 8) {
-            ColorPicker(title, selection: Binding(get: { Color(oiRGB: value) }, set: { color in
-                if border { change { if second { $0.borderSecond = color.oiRGB } else { $0.borderFirst = color.oiRGB } } }
-                else if second { customization.secondColor = color.oiRGB }
-                else { customization.firstColor = color.oiRGB }
-            }), supportsOpacity: false).labelsHidden().frame(width: 40, height: 40)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(CampusStyle.medium(12))
-                Text(String(format: "#%06X", value)).font(CampusStyle.body(10)).foregroundStyle(.secondary)
-            }
-        }.frame(maxWidth: .infinity, alignment: .leading)
+    private func updateBackground(_ edit: (inout OiPostcardBackgroundStyle) -> Void) {
+        var value = style; edit(&value)
+        change { $0.postcardBackground = value; $0.borderFirst = value.color; $0.borderFill = value.fill }
     }
-    private var patterns: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 15), count: 4), spacing: 15) {
-                ForEach(1...8, id: \.self) { number in
-                    Button { change { $0.pattern = $0.pattern == number ? nil : number } } label: {
-                        GeometryReader { geometry in
-                            OiCardBackground(customization: customization, pattern: number)
-                                .frame(width: max(1, geometry.size.width - 6), height: 103).clipped()
-                                .padding(3).background(Color("OiBorder")).clipShape(RoundedRectangle(cornerRadius: 10))
-                                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(design.pattern == number ? Color("OiGreen") : .clear, lineWidth: 3))
-                        }.frame(height: 109)
-                    }.buttonStyle(.plain).accessibilityLabel("패턴 \(number)")
-                        .accessibilityAddTraits(design.pattern == number ? .isSelected : [])
+    var backgroundEditor: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Picker("배경", selection: $customBackground) {
+                Text("스탠다드").tag(false)
+                Text("커스텀").tag(true)
+            }.pickerStyle(.segmented).accessibilityIdentifier("oi.postcard.background.mode")
+            characterBackdropControls
+            if customBackground { customColors }
+            else {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 16) {
+                    ForEach(OiPostcardPreset.allCases) { preset in
+                        Button {
+                            updateBackground { $0.preset = preset.rawValue; $0.color = preset.color; $0.middleColor = nil; $0.endColor = nil; $0.fill = .gradient }
+                            updateBackground { $0.startOpacity = nil; $0.middleOpacity = nil; $0.endOpacity = nil }
+                            change { $0.postcardLayoutVersion = 2 }
+                        } label: {
+                            VStack(spacing: 5) {
+                                Image(preset.swatch).resizable().scaledToFit().frame(height: 111)
+                                    .overlay { if style.preset == preset.rawValue { RoundedRectangle(cornerRadius: 2).stroke(Color("OiGreen"), lineWidth: 2) } }
+                                Text(preset.title).font(CampusStyle.body(14)).foregroundStyle(Color(white: 0.19))
+                            }.frame(maxWidth: .infinity)
+                        }.buttonStyle(.plain).accessibilityLabel(preset.title)
+                            .accessibilityAddTraits(style.preset == preset.rawValue ? .isSelected : [])
+                    }
                 }
             }
-            if design.pattern != nil { Button("패턴 해제") { change { $0.pattern = nil } }.font(.caption).tint(Color("OiGreen")) }
+        }.tint(Color("OiGreen"))
+    }
+    private var characterBackdropControls: some View {
+        let color = OiPostcardCharacterBackdrop.color(for: design)
+        let available = customization.showsCharacter && !showingBack
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Toggle(isOn: Binding(get: { design.usesCharacterBackdrop }, set: { enabled in
+                    change { $0.characterBackdropEnabled = enabled }
+                })) {
+                    Text("오이 뒤 배경 넣기").font(CampusStyle.medium(14))
+                }.disabled(!available)
+                    .accessibilityIdentifier("oi.card.character.backdrop.toggle")
+                OiPostcardColorRing(title: "오이 뒤 배경", color: Binding(
+                    get: { OiPostcardCharacterBackdrop.color(for: design) },
+                    set: { color in change { $0.characterBackdropColor = color } }), pickerHeight: 300,
+                    onReset: { change { $0.characterBackdropColor = nil; $0.characterBackdropOpacity = nil } },
+                    opacity: opacityBinding(\.characterBackdropOpacity))
+                    .overlay { Circle().fill(Color(oiRGB: color)).opacity(OiCardOpacity.normalized(design.characterBackdropOpacity))
+                        .frame(width: 18, height: 18).allowsHitTesting(false) }
+                    .disabled(!available || !design.usesCharacterBackdrop)
+                    .opacity(available && design.usesCharacterBackdrop ? 1 : 0.4)
+                    .accessibilityIdentifier("oi.card.character.backdrop.color")
+            }
+            HStack(spacing: 8) {
+                Text(design.characterBackdropColor == nil ? "종이색에 맞춘 자동 색상" : "직접 선택한 색상")
+                Text(String(format: "#%06X · %d%%", color, Int((OiCardOpacity.normalized(design.characterBackdropOpacity) * 100).rounded()))).monospacedDigit()
+                Spacer(minLength: 0)
+                if design.characterBackdropColor != nil || design.characterBackdropOpacity != nil {
+                    Button("자동 색상") { change { $0.characterBackdropColor = nil; $0.characterBackdropOpacity = nil } }
+                        .underline().frame(minHeight: 32)
+                        .disabled(!available || !design.usesCharacterBackdrop)
+                        .accessibilityIdentifier("oi.card.character.backdrop.automatic")
+                }
+            }.font(CampusStyle.body(11)).foregroundStyle(.secondary)
         }
     }
-    private var storageDetails: some View {
+    private var customColors: some View {
+        GeometryReader { proxy in
+            let scale = proxy.size.width / 362
+            ZStack(alignment: .topLeading) {
+                Text("직접 색상 선택").font(CampusStyle.semibold(16)).offset(x: 8, y: 18)
+                Image("OiPostcardDiagram-imgVector40").resizable().frame(width: 139, height: 216.5).offset(x: 14, y: 50)
+                ForEach(0..<3) { index in
+                    let x: CGFloat = [127, 74, 18][index]
+                    let y: CGFloat = [63, 148, 235][index]
+                    let widths: CGFloat = [54,108,164][index]
+                    Image("OiPostcardDiagram-imgVector\([43,41,42][index])").resizable()
+                        .frame(width: widths, height: 1).offset(x: x + 10, y: y + 10)
+                    Image(index == 1 ? "OiPostcardDiagram-imgEllipse44" : "OiPostcardDiagram-imgEllipse45")
+                        .resizable().frame(width: 20, height: 20)
+                        .overlay { Circle().fill(Color(oiRGB: selectedColor(index)))
+                            .opacity(style.customOpacity(at: index)).padding(1) }
+                        .offset(x: x, y: y).accessibilityHidden(true)
+                    colorControl(index).offset(x: 190, y: [52.0,138,225][index])
+                }
+            }.frame(width: 362, height: 282, alignment: .topLeading).scaleEffect(scale, anchor: .topLeading)
+        }.frame(height: 282)
+    }
+    private func selectedColor(_ index: Int) -> UInt32 {
+        let colors = style.customColors
+        return index == 0 ? colors.start : index == 1 ? colors.middle : colors.end
+    }
+    private func colorControl(_ index: Int) -> some View {
+        let value = selectedColor(index)
+        return HStack(spacing: 10) {
+            OiPostcardColorRing(title: ["시작", "중간", "끝"][index], color: Binding(get: { selectedColor(index) }, set: { color in
+                updateBackground { $0.setCustomColor(color, at: index) }
+                change { $0.postcardLayoutVersion = 2 }
+            }), opacity: Binding(get: { style.customOpacity(at: index) }, set: { alpha in
+                updateBackground { $0.setCustomOpacity(alpha, at: index) }
+                change { $0.postcardLayoutVersion = 2 }
+            })).accessibilityIdentifier("oi.card.background.picker.\(index)")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(["시작", "중간", "끝"][index]) Color").font(CampusStyle.semibold(13)).foregroundStyle(Color(white: 0.19))
+                Text(String(format: "#%06X · %d%%", value, Int((style.customOpacity(at: index) * 100).rounded())))
+                    .font(CampusStyle.body(10)).foregroundStyle(Color(white: 0.66))
+            }
+        }.accessibilityIdentifier("oi.card.background.color.\(index)")
+    }
+    @ViewBuilder private var logoEditor: some View {
+        if showingBack { backLogoEditor }
+        else { frontLogoEditor }
+    }
+    private var backLogoEditor: some View {
+        let color = OiPostcardBackLogoStyle.color(for: style)
+        return VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .center, spacing: 24) {
+                OiPostcardPostechLogo(color: color).opacity(OiCardOpacity.normalized(style.backLogoOpacity))
+                    .frame(width: 144, height: 144)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("포스텍 로고 색상").font(CampusStyle.medium(16))
+                    HStack(spacing: 10) {
+                        OiPostcardColorRing(title: "포스텍 로고", color: Binding(
+                            get: { OiPostcardBackLogoStyle.color(for: style) },
+                            set: { color in updateBackground { $0.backLogoColor = color } }), pickerHeight: 360,
+                            opacity: Binding(get: { OiCardOpacity.normalized(style.backLogoOpacity) },
+                                set: { alpha in updateBackground { $0.backLogoOpacity = alpha } }))
+                            .overlay {
+                                Circle().fill(Color(oiRGB: color))
+                                    .opacity(OiCardOpacity.normalized(style.backLogoOpacity))
+                                    .frame(width: 18, height: 18)
+                                    .allowsHitTesting(false).accessibilityHidden(true)
+                            }
+                            .accessibilityIdentifier("oi.card.back.logo.color")
+                        Text(String(format: "#%06X", color)).font(CampusStyle.body(12)).foregroundStyle(.secondary)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Text("색상을 고르면 위 카드 뒷면에 바로 적용돼요.")
+                .font(CampusStyle.body(12)).foregroundStyle(.secondary)
+        }.padding(.top, 16)
+    }
+    private var frontLogoEditor: some View {
+        VStack(spacing: 16) {
+            HStack(alignment: .top, spacing: 20) {
+                ForEach(["white", "black"], id: \.self) { logo in
+                    Button { change { $0.postcardLayoutVersion = 2; $0.postcardLogo = $0.postcardLogo == logo ? nil : logo } } label: {
+                        VStack(spacing: 10) {
+                            GeometryReader { _ in
+                                RoundedRectangle(cornerRadius: 20).fill(Color(white: logo == "white" ? 0.2 : 0.96))
+                                Image("OiPostcardLogoSwatch-" + logo).resizable().frame(width: 20, height: 80)
+                                    .offset(x: 16, y: 114)
+                            }.frame(height: 205).clipShape(RoundedRectangle(cornerRadius: 20))
+                                .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color(white: 0.76), lineWidth: 2))
+                                .overlay { if design.postcardLogo == logo { RoundedRectangle(cornerRadius: 20).stroke(Color("OiGreen"), lineWidth: 2) } }
+                            Text(logo == "white" ? "White Logo" : "Black Logo").font(CampusStyle.medium(20)).foregroundStyle(Color(white: 0.19))
+                        }
+                    }.buttonStyle(.plain).accessibilityLabel(logo == "white" ? "흰색 로고" : "검정색 로고")
+                }
+            }.padding(.top, 16)
+            if design.postcardLogo != nil {
+                OiPostcardOpacityControl(opacity: opacityBinding(\.postcardLogoOpacity))
+                    .accessibilityIdentifier("oi.card.front.logo.opacity")
+            }
+        }
+    }
+    private var stampEditor: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
+                ForEach(1...12, id: \.self) { number in
+                    Button { change { $0.postcardLayoutVersion = 2; $0.postcardStamp = $0.postcardStamp == number ? nil : number } } label: {
+                        Image("OiPostcardStamp-\(number <= 6 ? "white" : "black")\((number-1)%6+1)")
+                            .resizable().scaledToFit().padding(.horizontal, 14).padding(.vertical, 8)
+                            .frame(maxWidth: .infinity).frame(height: 54)
+                            .background(Color(white: number <= 6 ? 0.2 : 0.96), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(design.postcardStamp == number ? Color("OiGreen") : .clear, lineWidth: 2))
+                    }.buttonStyle(.plain).accessibilityLabel("\(number <= 6 ? "흰색" : "검정색") 스탬프 \((number-1)%6+1)")
+                }
+            }
+            Text("택 1").font(CampusStyle.body(12)).foregroundStyle(Color(white: 0.19))
+        }
+    }
+    private var attachmentPicker: some View {
+        NavigationStack {
+            List {
+                ForEach(Array(storyPhotos.enumerated()), id: \.element.id) { index, photo in
+                    OiCardAttachmentOption(number: index + 1, load: { try await loadStoryPhoto?(photo) }) { bytes in
+                        change { $0.backgroundPhoto = bytes; $0.backgroundPlacement = OiCardPlacement() }
+                        showingAttachments = false
+                    }
+                }
+            }.navigationTitle("첨부한 이미지").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("닫기") { showingAttachments = false } } }
+        }
+    }
+    @ViewBuilder private var storageDetails: some View {
+        Button("카드 이미지 저장·공유", systemImage: "square.and.arrow.up") { showingExport = true }
+            .disabled(needsPortrait).accessibilityIdentifier("oi.card.export.open")
         DisclosureGroup("저장·공개 안내") {
-            Text("꾸민 카드는 이 기기에 저장돼요. 공개 검토를 요청하면 카드 이미지도 검토하고, 승인된 모습을 다른 사람에게 보여줘요.")
+            Text("기부자 선택은 카드에 표시할 정보만 바꿉니다. 이야기의 공개 작성자 정보는 계정 설정을 따릅니다. 꾸민 카드는 이 기기에 저장되며 공개 검토에서 양면을 함께 확인합니다.")
                 .font(.caption).foregroundStyle(.secondary).padding(.vertical, 8)
         }.font(.caption).tint(Color("OiGreen"))
     }
+    #if DEBUG
+    func tabForTest(_ title: String, custom: Bool = false, back: Bool = false) -> Self {
+        var result = self
+        result._tab = State(initialValue: OiCardTab(rawValue: title) ?? .content)
+        result._customBackground = State(initialValue: custom)
+        result._showingBack = State(initialValue: back)
+        return result
+    }
+    #endif
     private var baseName: String { draft.cucumberName.hasSuffix("오이") ? String(draft.cucumberName.dropLast(2)) : draft.cucumberName }
     private func commitName() {
         // Visiting an older draft must not silently truncate a previously valid name.
@@ -320,16 +508,8 @@ struct OiCardCustomizationStep: View {
         nameInput = String(nameInput.trimmingCharacters(in: .whitespacesAndNewlines).prefix(5))
         draft.cucumberName = nameInput.isEmpty ? "" : nameInput + "오이"
     }
-    private func limitedCaption(_ text: String) -> String {
-        var result = "", bytes = 0
-        for character in text {
-            let count = String(character).utf8.count
-            guard bytes + count <= 1500 else { break }
-            result.append(character); bytes += count
-        }
-        return result
-    }
     private func refreshPortrait() {
+        portraitFailed = false
         // Hash photo bytes only when the wardrobe changes, not on every drag frame.
         if let look = customization.wardrobe { wardrobeKey = OiCardPortrait.key(for: look) }
         else { wardrobeKey = nil }
@@ -347,6 +527,7 @@ struct OiCardCustomizationStep: View {
     }
     private func acceptPortrait(_ data: Data, _ key: String) {
         guard key == portraitKey else { return }
+        portraitFailed = false
         // Persist once after a rotation, not for every finger movement (PNG drafts can be large).
         change {
             $0.characterOrientation = orientation.normalized
@@ -362,6 +543,10 @@ struct OiCardCustomizationStep: View {
     }
     private func designBinding<Value>(_ key: WritableKeyPath<OiCardDesign, Value>) -> Binding<Value> {
         Binding(get: { design[keyPath: key] }, set: { value in change { $0[keyPath: key] = value } })
+    }
+    private func opacityBinding(_ key: WritableKeyPath<OiCardDesign, Double?>) -> Binding<Double> {
+        Binding(get: { OiCardOpacity.normalized(design[keyPath: key]) },
+            set: { value in change { $0[keyPath: key] = OiCardOpacity.normalized(value) } })
     }
 }
 

@@ -40,6 +40,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
     @State private var invalidCapture = false
     @State private var checkedPortrait = false
     @State private var savedCard: UIImage?
+    @State private var showingExport = false
     @State private var artworkLoadFailed = false
     @State private var artworkLoadAttempt = 0
     @State private var renderError: String?
@@ -274,6 +275,9 @@ struct OiStoryReview<StoryPhoto: View>: View {
             .frame(maxWidth: 240).frame(maxWidth: .infinity)
             Text("승인 전에는 작성자와 검토 담당자만 이 카드를 볼 수 있어요. 승인되면 이 모습 그대로 공개돼요.")
                 .font(CampusStyle.body(12)).foregroundStyle(.secondary)
+            Button("카드 이미지 저장·공유", systemImage: "square.and.arrow.up") { showingExport = true }
+                .disabled(!artworkReady || artworkLoadFailed || isSubmitting)
+                .sheet(isPresented: $showingExport) { OiCardExportSheet { try OiCardExportImages(cardPublication()) } }
         }
     }
 
@@ -318,7 +322,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
                                  enabled: canSubmit && !isSubmitting && artworkReady) {
                 renderError = nil
                 do {
-                    let card = try savedCardPath == nil ? draftCard.publication(colorScheme: colorScheme) : nil
+                    let card = try cardPublication()
                     onSubmit(portraitPNG, card)
                 } catch {
                     renderError = "꾸민 카드 이미지를 준비하지 못했어요. 카드 설정을 확인해 주세요."
@@ -331,6 +335,14 @@ struct OiStoryReview<StoryPhoto: View>: View {
         .frame(maxWidth: .infinity)
         .background(alignment: .top) { Color(.systemBackground).ignoresSafeArea(edges: .bottom) }
         .overlay(alignment: .top) { Divider() }
+    }
+
+    private func cardPublication() throws -> OiStoryCardPublication {
+        if let savedCard {
+            return try OiCardImageExport.publication(front: savedCard, message: draft.body, author: donorName,
+                academicAuthor: OiPostcardAuthor.academic(department: remote.profile?.department, year: remote.profile?.admissionYear))
+        }
+        return try draftCard.publication(colorScheme: .light)
     }
 
     private func sectionHeader(_ title: String, symbol: String, edit step: OiCreationStep) -> some View {

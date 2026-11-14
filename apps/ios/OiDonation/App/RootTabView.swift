@@ -15,7 +15,6 @@ struct RootTabView: View {
     @State private var collectionStory: CampusStory?
     @State private var collectionReturnsToAR = false
     @State private var pendingStoryList = false
-    @State private var showingSample = false
     @Environment(\.scenePhase) private var scenePhase
 
     init(container: AppContainer = .pilot, remote: OiRemoteStore? = nil) {
@@ -34,7 +33,6 @@ struct RootTabView: View {
                 onOpenStory: { path.append(CampusDestination.summary($0)) },
                 remote: remote,
                 onCreateStory: { showingStoryList = true },
-                onOpenSample: { isCameraCoverActive = true; showingSample = true },
                 authoredPlacementToReveal: $authoredPlacementToReveal
             )
             .navigationDestination(isPresented: $showingStoryList) {
@@ -44,14 +42,7 @@ struct RootTabView: View {
                 switch destination {
                 case .summary(let id):
                     if let story = store.story(id) {
-                        CampusSummaryView(story: story, store: store, isCameraCoverActive: isCameraCoverActive)
-                            .toolbar {
-                                if story.latitude != nil && story.longitude != nil {
-                                    ToolbarItem(placement: .topBarTrailing) {
-                                        Button("현장 AR", systemImage: "arkit") { openGeoStory(story) }
-                                    }
-                                }
-                            }
+                        summaryView(story)
                     } else {
                         ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc")
                     }
@@ -64,6 +55,11 @@ struct RootTabView: View {
                 }
             }
             .navigationDestination(for: PublicLinkParser.Destination.self) { publicDestination($0) }
+            .navigationDestination(for: CampusNFCPostcardRoute.self) { route in
+                CampusNFCPostcardView(route: route, repository: container.storyRepository, store: store, remote: remote) {
+                    summaryView($0)
+                }
+            }
             .navigationDestination(for: AppClipInvocation.self) { invocation in
                 AppClipExperienceView(storyRepository: container.storyRepository, invocation: invocation) { story, id in
                     OiStorySafetyButton(storyID: id, authorID: story.donorID, authorName: story.donorDisplayName)
@@ -120,13 +116,10 @@ struct RootTabView: View {
             if remote.isConfigured { await remote.refresh() } else { await remote.start() }
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(30)) } catch { return }
-                await remote.refresh()
+                await remote.refresh(reuseCatalog: true)
             }
         }
         .preferredColorScheme(.light)
-        .fullScreenCover(isPresented: $showingSample, onDismiss: { isCameraCoverActive = false }) {
-            OiSampleExperienceView()
-        }
         .fullScreenCover(isPresented: $isARPresented, onDismiss: {
             // Restore the map only after the camera's dismissal has finished.
             isCameraCoverActive = false
@@ -178,9 +171,28 @@ struct RootTabView: View {
             favorites: Set(remote.favorites.map(\.uuidString)))
     }
 
+    /// The map's cucumber summary (Figma 5400:5071), also opened by NFC postcard tags (#324).
+    private func summaryView(_ story: CampusStory) -> some View {
+        CampusSummaryView(story: story, store: store, isCameraCoverActive: isCameraCoverActive)
+            .toolbar {
+                if story.latitude != nil && story.longitude != nil {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("현장 AR", systemImage: "arkit") { openGeoStory(story) }
+                    }
+                }
+            }
+    }
+
     private func handlePublicLink(_ url: URL) {
+        // An NFC postcard tag opens the linked story's summary instead of the App Clip story list.
+        if let tag = AppClipLink.postcardID(in: url) {
+            path = NavigationPath()
+            pendingStoryList = false
+            isARPresented = false
+            path.append(CampusNFCPostcardRoute(tagID: tag))
+            return
+        }
         if AppClipLink.matches(url) {
-            showingSample = false
             path = NavigationPath()
             pendingStoryList = false
             isARPresented = false
@@ -189,7 +201,6 @@ struct RootTabView: View {
         }
         if let host = container.approvedLinkHost,
                   let destination = PublicLinkParser(allowedHost: host).parse(url) {
-            showingSample = false
             path = NavigationPath()
             path.append(destination)
         }
