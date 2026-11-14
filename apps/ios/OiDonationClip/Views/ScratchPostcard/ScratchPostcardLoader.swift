@@ -68,13 +68,19 @@ final class ScratchPostcardLoader {
             }
             async let front = Self.image(details.frontURL)
             async let back = Self.image(details.backURL)
-            async let cover = try? Self.image(details.coverPhotoURL)
             async let character = try? Self.image(story.cucumberImageURL)
+            let frontImage = try await front
+            // The card to scratch shows the same picture as the approved front (#326). Only stories
+            // without a postcard front fall back to their first photo.
+            var cover = frontImage.flatMap(Self.postcardWindow)
+            if cover == nil, frontImage == nil {
+                cover = (try? await Self.image(details.coverPhotoURL)) ?? nil
+            }
             let postcard = ScratchPostcard(
                 tagID: tag, story: story, card: card,
                 donorLine: details.donorLine ?? story.donorDisplayName,
-                front: try await front, back: try await back,
-                coverPhoto: await cover ?? nil, character: await character ?? nil
+                front: frontImage, back: try await back,
+                coverPhoto: cover, character: await character ?? nil
             )
             guard requestID == current, !Task.isCancelled else { return }
             state = .loaded(postcard)
@@ -84,6 +90,15 @@ final class ScratchPostcardLoader {
             guard requestID == current, !Task.isCancelled else { return }
             state = .failed
         }
+    }
+
+    /// The 296×436 picture window at (33, 33) of the 362×502 postcard front.
+    nonisolated static func postcardWindow(_ front: UIImage) -> UIImage? {
+        guard let cg = front.cgImage, cg.width > 0, cg.height > 0 else { return nil }
+        let sx = CGFloat(cg.width) / 362, sy = CGFloat(cg.height) / 502
+        let rect = CGRect(x: 33 * sx, y: 33 * sy, width: 296 * sx, height: 436 * sy).integral
+        guard let cropped = cg.cropping(to: rect) else { return nil }
+        return UIImage(cgImage: cropped, scale: front.scale, orientation: front.imageOrientation)
     }
 
     nonisolated private enum ImageError: Error { case rejected }

@@ -23,6 +23,8 @@ struct CampusPostcard: View {
     @Environment(\.campusCucumberPortraitLoader) private var loadImage
     @State private var failed = false
     @State private var retry = 0
+    /// True once the approved front has been read (or found to be a legacy card) for the current story.
+    @State private var artworkResolved = false
     private var localOwner: UUID? {
         guard story.cardArtworkPath == nil, let remote, !remote.needsReauthentication,
               let owner = remote.account?.id, owner == story.authorID else { return nil }
@@ -46,6 +48,12 @@ struct CampusPostcard: View {
                         donorName: remote?.profile?.publicName ?? "").frame(width: 362, height: 502)
                 } else if let snapshot {
                     Image(uiImage: snapshot).resizable().frame(width: 362, height: 502)
+                } else if story.cardArtworkPath != nil && !artworkResolved && !failed {
+                    // Never preview a story photo that the approved front may not use (#326).
+                    OiPostcardFront(date: OiPostcardDate.string(from: story.date)) {
+                        ZStack { Color(oiRGB: 0x77835C); ProgressView().tint(.white) }
+                    }
+                    .accessibilityLabel("엽서를 불러오는 중")
                 } else {
                     OiPostcardFront(date: OiPostcardDate.string(from: story.date)) {
                         ZStack {
@@ -100,6 +108,7 @@ struct CampusPostcard: View {
         .id(story.id)
         .task(id: "\(story.id)/\(story.cardArtworkPath ?? "")/\(story.cardBackArtworkPath ?? "")/\(localOwner?.uuidString ?? "")/\(retry)") {
             snapshot = nil; backSnapshot = nil; localRecord = nil; backgroundStyle = nil; failed = false; colors = (0xE8EECF, 0xD5DBC6)
+            artworkResolved = false
             guard let path = story.cardArtworkPath, let loadImage else {
                 if let remote, let owner = localOwner, let id = UUID(uuidString: story.id),
                    let record = try? await remote.localDraft(id: id, owner: owner), !Task.isCancelled {
@@ -116,6 +125,7 @@ struct CampusPostcard: View {
                     backgroundStyle = OiPostcardBackgroundMetadata.style(for: image)
                     snapshot = image
                 }
+                artworkResolved = true
                 if let backPath = story.cardBackArtworkPath {
                     let back = try await loadImage(backPath)
                     try Task.checkCancellation()
