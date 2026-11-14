@@ -40,6 +40,13 @@ struct OiStoryReview<StoryPhoto: View>: View {
     @State private var invalidCapture = false
     @State private var checkedPortrait = false
     @State private var savedCard: UIImage?
+    @State private var savedCoverPNG: Data?
+
+    private var savedCoverPath: String? {
+        guard let savedCardPath, let story = remote.ownStories.first(where: { $0.cardArtworkPath == savedCardPath }),
+              story.cardSnapshotFormat == 3 else { return nil }
+        return story.cardArtworkPaths.last
+    }
     @State private var showingExport = false
     @State private var artworkLoadFailed = false
     @State private var artworkLoadAttempt = 0
@@ -288,7 +295,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
     private var artworkReady: Bool {
         if customization.wardrobe != nil && portraitPNG == nil { return false }
         if savedPortraitPath != nil && portrait == nil { return false }
-        return savedCardPath == nil || savedCard != nil
+        return (savedCardPath == nil || savedCard != nil) && (savedCoverPath == nil || savedCoverPNG != nil)
     }
 
     private var issuePanel: some View {
@@ -340,9 +347,10 @@ struct OiStoryReview<StoryPhoto: View>: View {
     private func cardPublication() throws -> OiStoryCardPublication {
         if let savedCard {
             return try OiCardImageExport.publication(front: savedCard, message: draft.body, author: donorName,
-                academicAuthor: OiPostcardAuthor.academic(department: remote.profile?.department, year: remote.profile?.admissionYear))
+                academicAuthor: OiPostcardAuthor.academic(department: remote.profile?.department, year: remote.profile?.admissionYear),
+                cover: remote.canPublishStoryCardCover ? savedCoverPNG : nil)
         }
-        return try draftCard.publication(colorScheme: .light)
+        return try draftCard.publication(colorScheme: .light, includeCover: remote.canPublishStoryCardCover)
     }
 
     private func sectionHeader(_ title: String, symbol: String, edit step: OiCreationStep) -> some View {
@@ -402,6 +410,10 @@ struct OiStoryReview<StoryPhoto: View>: View {
             }
             if let savedCardPath {
                 savedCard = try await remote.cucumberImage(savedCardPath)
+                if let savedCoverPath {
+                    savedCoverPNG = try await remote.cucumberImage(savedCoverPath).pngData()
+                    guard savedCoverPNG != nil else { throw OiCardExportError.imageUnavailable }
+                }
             }
         } catch {
             if !OiServiceFailure.isCancellation(error) { artworkLoadFailed = true }

@@ -42,6 +42,9 @@ final class OiTestBackend {
         var publicCucumberAppearance = false
         var publicStoryCard = false
         var duplexStoryCard = false
+        var storyCardCover = false
+        var failCardCoverUpload = false
+        var failCardCoverRead = false
         var failCardBackUpload = false
         var failCardBackRead = false
         var failCucumberTextureUpload = false
@@ -196,7 +199,8 @@ final class OiTestBackend {
             } else { status = 403 }
         } else if path.hasPrefix("/storage/v1/object/sign/") && (path.contains("/appearance/") || path.contains("/card/")) {
             let key = String(path.dropFirst("/storage/v1/object/sign/".count))
-            if state.failCardBackRead && key.hasSuffix("/back-preview.png") { status = 503 }
+            if state.failCardCoverRead && key.hasSuffix("/cover.png") { status = 503 }
+            else if state.failCardBackRead && key.hasSuffix("/back-preview.png") { status = 503 }
             else if let image = state.uploads[key] {
                 if request.httpMethod == "POST" { result = ["signedURL": String(path.dropFirst("/storage/v1".count)) + "?token=fixture"] }
                 else { bytes = image }
@@ -204,7 +208,8 @@ final class OiTestBackend {
         } else if path.contains("/storage/v1/object/") {
             let key = path.replacingOccurrences(of: "/storage/v1/object/", with: "")
             if key.contains("/card/") || key.contains("/appearance/") { state.artworkUploadAttempts += 1 }
-            if state.failCardBackUpload && key.hasSuffix("/back.png") { status = 503 }
+            if state.failCardCoverUpload && key.hasSuffix("/cover.png") { status = 503 }
+            else if state.failCardBackUpload && key.hasSuffix("/back.png") { status = 503 }
             else if state.failCucumberTextureUpload && key.hasSuffix("/top.png") { status = 503 }
             else if state.uploads[key] != nil { status = 409 }
             else { state.uploads[key] = raw; result = ["Key":key] }
@@ -334,6 +339,7 @@ final class OiTestBackend {
             if state.publicCucumberAppearance { capabilities["public_cucumber_appearance"] = true }
             if state.publicStoryCard { capabilities["public_story_card"] = true }
             if state.duplexStoryCard { capabilities["duplex_story_card"] = true }
+            if state.storyCardCover { capabilities["story_card_cover"] = true }
             if let canonical = state.canonicalAccountID {
                 capabilities["account_id"] = canonical.uuidString
                 capabilities["account_merge_enabled"] = true
@@ -2492,6 +2498,63 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(backend.snapshot().artworkUploadAttempts, uploadCount)
         let pendingCard = try await repository.fetchPublicStoryCard(storyID: saved.id.uuidString)
         XCTAssertNil(pendingCard)
+    }
+
+    @MainActor func testCoverCapabilityUploadsReviewsAndReadsFiveParts() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.publicStoryCard = true; $0.duplexStoryCard = true; $0.storyCardCover = true }
+        await store.start()
+        XCTAssertTrue(store.canPublishStoryCardCover)
+        let input = draft()
+        let card = try OiDraftCardPreview(draft: input, customization: OiDraftCustomization()).publication(colorScheme: .light, includeCover: true)
+        let savedReceipt = await store.save(input)
+        let saved = try XCTUnwrap(savedReceipt)
+        backend.configure { $0.failCardCoverUpload = true }
+        let partial = await store.submitStory(saved, card: card)
+        XCTAssertNil(partial)
+        XCTAssertEqual(backend.snapshot().submitCount, 0)
+        XCTAssertEqual(store.ownStories.first?.status, "draft")
+        backend.configure { $0.failCardCoverUpload = false }
+        let receipt = await store.submitStory(saved, card: card)
+        let pending = try XCTUnwrap(receipt)
+        XCTAssertEqual(pending.cardSnapshotFormat, 3)
+        XCTAssertEqual(pending.cardArtworkPaths.count, 5)
+        XCTAssertTrue(pending.cardArtworkPaths.last?.hasSuffix("/cover.png") == true)
+        XCTAssertNotNil(pending.cardBackArtworkPath)
+        for path in pending.cardArtworkPaths { XCTAssertNotNil(backend.snapshot().uploads["oi-story-media/" + path]) }
+        let repository = RealStoryRepository(key: "sb_publishable_testing", session: session)
+        let privateDetails = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
+        XCTAssertNil(privateDetails)
+        let approved = try await store.reviewOperatorStory(pending, publish: true).story
+        XCTAssertEqual(approved.cardSnapshotFormat, 3)
+        let details = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
+        XCTAssertTrue(details?.coverURL?.path.hasSuffix("/cover.png") == true)
+        XCTAssertTrue(details?.frontURL?.path.hasSuffix("/front-preview.png") == true)
+        XCTAssertTrue(details?.backURL?.path.hasSuffix("/back-preview.png") == true)
+        backend.configure { $0.failCardCoverRead = true }
+        let fallback = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
+        XCTAssertNil(fallback?.coverURL)
+        XCTAssertNotNil(fallback?.frontURL, "A missing optional cover preserves the approved front fallback")
+    }
+
+    @MainActor func testCoverFallsBackToSameDuplexVersionOnOlderServer() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.publicStoryCard = true; $0.duplexStoryCard = true }
+        await store.start()
+        XCTAssertFalse(store.canPublishStoryCardCover)
+        let input = draft()
+        let preview = OiDraftCardPreview(draft: input, customization: OiDraftCustomization())
+        let card = try preview.publication(colorScheme: .light, includeCover: true)
+        let legacy = try card.withoutCover()
+        XCTAssertEqual(legacy.id, try preview.publication(colorScheme: .light).id)
+        let savedReceipt = await store.save(input)
+        let receipt = await store.submitStory(try XCTUnwrap(savedReceipt), card: card)
+        XCTAssertEqual(receipt?.cardSnapshotFormat, 2)
+        XCTAssertEqual(receipt?.cardSnapshotId, legacy.id)
+        XCTAssertEqual(backend.snapshot().uploads.keys.filter { $0.contains("/card/") }.count, 4)
+        XCTAssertFalse(backend.snapshot().uploads.keys.contains { $0.hasSuffix("/cover.png") })
     }
 
     @MainActor func testDuplexCardPartialUploadAndOldServerPreserveDraft() async throws {

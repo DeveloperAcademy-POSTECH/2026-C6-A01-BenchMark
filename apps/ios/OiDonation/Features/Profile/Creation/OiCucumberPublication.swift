@@ -54,7 +54,12 @@ struct OiStoryCardPublication {
     let id: UUID
     let png: Data
     let parts: [StoryCard.Part: Data]
-    var format: Int { parts.isEmpty ? 1 : 2 }
+    var format: Int { parts[.cover] != nil ? 3 : (parts.isEmpty ? 1 : 2) }
+
+    func withoutCover() throws -> Self {
+        guard format == 3 else { return self }
+        return try Self(front: png, back: parts[.back]!, frontPreview: parts[.frontPreview]!, backPreview: parts[.backPreview]!)
+    }
 
     init(png: Data) throws {
         _ = try OiPublishedCucumberImage.decode(png, part: .portrait)
@@ -65,11 +70,12 @@ struct OiStoryCardPublication {
         parts = [:]
     }
 
-    init(front: Data, back: Data, frontPreview: Data, backPreview: Data) throws {
-        let values: [StoryCard.Part: Data] = [.front: front, .back: back, .frontPreview: frontPreview, .backPreview: backPreview]
+    init(front: Data, back: Data, frontPreview: Data, backPreview: Data, cover: Data? = nil) throws {
+        var values: [StoryCard.Part: Data] = [.front: front, .back: back, .frontPreview: frontPreview, .backPreview: backPreview]
+        if let cover { values[.cover] = cover }
         var hash = SHA256()
-        hash.update(data: Data("oi-card-duplex-v2".utf8))
-        for part in StoryCard.Part.allCases {
+        hash.update(data: Data((cover == nil ? "oi-card-duplex-v2" : "oi-card-cover-v3").utf8))
+        for part in StoryCard.Part.parts(format: cover == nil ? 2 : 3) {
             _ = try OiPublishedCucumberImage.decode(values[part]!, part: .portrait)
             hash.update(data: Data(SHA256.hash(data: values[part]!)))
         }
