@@ -34,6 +34,14 @@ insert into storage.objects(bucket_id,name,owner_id) values
  ('oi-evidence','d1690000-0000-4000-8000-000000000002/d1690000-0000-4000-8000-000000000021/proof.png','d1690000-0000-4000-8000-000000000002'),
  ('oi-evidence','d1690000-0000-4000-8000-000000000003/other/photo.png','d1690000-0000-4000-8000-000000000003');
 
+-- Cover files from both the current snapshot and an abandoned upload belong to
+-- the linked account, even without Storage owner metadata.
+update public.oi_stories set card_snapshot_format=3,card_snapshot_id='d1690000-0000-4000-8000-000000000041'
+where id='d1690000-0000-4000-8000-000000000031';
+insert into storage.objects(bucket_id,name,metadata) values
+ ('oi-story-media','d1690000-0000-4000-8000-000000000002/d1690000-0000-4000-8000-000000000031/card/d1690000-0000-4000-8000-000000000041/cover.png','{"mimetype":"image/png","size":2048}'),
+ ('oi-story-media','d1690000-0000-4000-8000-000000000002/d1690000-0000-4000-8000-000000000031/card/d1690000-0000-4000-8000-000000000042/cover.png','{"mimetype":"image/png","size":2048}');
+
 do $$
 begin
   if has_function_privilege('authenticated','public.oi_delete_account(text,uuid,uuid,uuid,uuid,uuid)','execute')
@@ -65,7 +73,7 @@ create function pg_temp.delete_fixture(action text) returns jsonb language sql a
 $$;
 do $$
 begin
- if jsonb_array_length(pg_temp.delete_fixture('prepare')->'files')<>1 then raise exception 'inventory is not account scoped'; end if;
+ if jsonb_array_length(pg_temp.delete_fixture('prepare')->'files')<>3 then raise exception 'inventory is not account scoped'; end if;
  if public.oi_apple_revocation_credentials('d1690000-0000-4000-8000-000000000001') #>> '{0,encrypted_token}' is distinct from repeat('b',40)
    then raise exception 'linked Apple token missing'; end if;
  begin
@@ -96,6 +104,20 @@ reset role;
 
 -- Mimic successful Storage API cleanup in the local fake storage schema.
 delete from storage.objects where owner_id='d1690000-0000-4000-8000-000000000002';
+do $$ begin
+ if jsonb_array_length(pg_temp.delete_fixture('prepare')->'files')<>2
+   or exists(select 1 from jsonb_array_elements(pg_temp.delete_fixture('prepare')->'files') f
+     where f->>'bucket'<>'oi-story-media' or f->>'name' not like '%/cover.png')
+   then raise exception 'current and abandoned covers missing from deletion inventory'; end if;
+ begin
+   perform pg_temp.delete_fixture('finish');
+   raise exception 'remaining covers did not block account deletion';
+ exception when sqlstate 'PT409' then null; end;
+end; $$;
+-- The Edge Function deletes these exact inventory paths through Storage API.
+delete from storage.objects where bucket_id='oi-story-media'
+ and name in (select f->>'name' from jsonb_array_elements(pg_temp.delete_fixture('prepare')->'files') f);
+
 do $$
 declare receipt jsonb;
 begin
@@ -103,6 +125,7 @@ begin
  if receipt->>'deleted' is distinct from 'true' or receipt->>'apple_revocation_required' is distinct from 'true'
     or jsonb_array_length(receipt->'deleted_member_ids')<>2 then raise exception 'invalid deletion receipt'; end if;
  if exists(select 1 from auth.users where id in ('d1690000-0000-4000-8000-000000000001','d1690000-0000-4000-8000-000000000002'))
+    or exists(select 1 from storage.objects where name like 'd1690000-0000-4000-8000-000000000002/%')
     or exists(select 1 from benchmark_private.oi_apple_tokens)
     or exists(select 1 from public.oi_stories where id='d1690000-0000-4000-8000-000000000031')
     or exists(select 1 from public.oi_evidence_requests where id='d1690000-0000-4000-8000-000000000021')
