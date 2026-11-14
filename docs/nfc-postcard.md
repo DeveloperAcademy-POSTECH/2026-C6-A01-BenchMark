@@ -54,7 +54,7 @@ on conflict (tag_id) do update set story_id = excluded.story_id, active = exclud
 
 ## 적용 순서
 
-1. 운영 Supabase에 마이그레이션 적용 (앱 배포보다 먼저).
+1. **운영 적용 완료: 2026-11-13 17:01:23 KST(CLI 완료 시각).** 52gibu에 `20261113090000_oi_nfc_postcard_tags.sql` 한 개와 배포 이력만 같은 트랜잭션으로 적용했다. #311의 `20261113070000`은 재적용하지 않았다. 아래 운영 검증 기록을 따른다.
 2. 새 앱 빌드(Xcode·TestFlight)로 NFC용 이야기를 작성하고 공개 검토를 요청한다. 운영자가 앞·뒷면을 확인하고 승인한다.
 3. 운영자가 태그를 연결한다.
 4. Xcode `OiDonationClip` 스킴의 `_XCAppClipURL`을 태그 URL로 바꾸거나 App Store Connect의 App Clip 테스트 링크로 확인한다.
@@ -65,10 +65,20 @@ on conflict (tag_id) do update set story_id = excluded.story_id, active = exclud
 - `supabase/tests/run-account-merge-db-checks.py`: 기존 마이그레이션 전체와 새 파일을 임시 로컬 PostgreSQL 17에 적용했다. 기존 검사와 `oi-nfc-postcard-tags.sql`(권한, 태그 형식, 공개·중지·교체·숨김·삭제, 감사, 뒷면 공개 범위)이 통과했다.
 - iOS: App Clip·전체 앱 시뮬레이터 빌드와 `Tests/run-app-clip-checks.sh`가 통과했다. 임시 가짜 저장소로 App Clip 시작 화면과 볼 수 없는 태그 화면을 시뮬레이터에서 확인했다(임시 코드는 제거).
 - App Clip 용량: Release 아카이브를 개발 서명·전체 기기 변형으로 내보내 `scripts/check-app-clip-release.py`로 측정했다. 양진체(1.7MB)를 넣으면 iPhone 변형이 16,022,792바이트로 15MB를 넘어 제거했고, 제거 후 통합 수정본 최대 14,341,765바이트(기기별 약 14.11~14.19MB)로 통과했다. `run-app-clip-font-checks.sh`도 통과했다. 정보 칸 이름은 Figma의 리틱체(REATIC) 대신 Paperlogy Bold를 쓴다. 리틱체는 라이선스가 임의 수정·무단 재배포를 금지해 앱 탑재 허락이 필요하고, 파일 하나가 약 2.7MB라 허락을 받아도 App Clip에는 용량 조정이 함께 필요하다.
-- 미검증: 운영 서버 적용, 실제 계정으로 뒷면 PNG 업로드·운영자 검토 표시, 실제 서버 데이터로 App Clip 표시, 손가락 긁기·뒤집기·대체 뒷면 표시, 실기기 NFC 호출.
+- 미검증: 실제 계정으로 뒷면 PNG 업로드·운영자 검토 표시, 실제 서버 데이터로 App Clip 표시, 손가락 긁기·뒤집기·대체 뒷면 표시, 실기기 NFC 호출.
 
 ## #307·#311 통합 수정 (2026-11-13)
 
-NFC 태그·스크래치 UI는 유지하고 카드 모델·생성·업로드·검토는 #311 구현으로 통일했다. 신규 NFC 조회는 승인된 `front-preview.png`·`back-preview.png`를 읽는다. 잘못 공개되던 별도 `snapshot-back.png` 경로를 제거하고 회귀 검사에 이 파일의 비공개 보장을 추가했다. 저장 직전 공개·태그 재확인과 중복 요청·취소 처리를 적용했다. `20261113090000` NFC 마이그레이션은 아직 운영 적용하지 않았으며, 이미 승인·적용된 #308의 `20261113070000`은 변경하지 않는다.
+NFC 태그·스크래치 UI는 유지하고 카드 모델·생성·업로드·검토는 #311 구현으로 통일했다. 신규 NFC 조회는 승인된 `front-preview.png`·`back-preview.png`를 읽는다. 잘못 공개되던 별도 `snapshot-back.png` 경로를 제거하고 회귀 검사에 이 파일의 비공개 보장을 추가했다. 저장 직전 공개·태그 재확인과 중복 요청·취소 처리를 적용했다. 통합 수정 당시 미적용이던 `20261113090000`은 아래 운영 적용 기록과 같이 배포했다. 이미 승인·적용된 #308의 `20261113070000`은 변경하지 않았다.
 
 통합 회귀 검증: 로컬 PostgreSQL 전체 마이그레이션·권한 검사와 App Clip 명령행 검사를 통과했다. `OiFlowChecks` 관련 89건 중 86건 통과·명시적 opt-in 3건 건너뜀·실패 0건이다. 형식 2의 뒷면 조회 실패, 태그 중지·교체, 비공개 전환, 네트워크 실패 시 수집 방지와 검토되지 않은 별도 뒷면의 비공개를 확인했다. 본 앱·App Clip Release 아카이브, 전체 변형 내보내기, 15MB 용량 검사와 글꼴 검사도 통과했다.
+
+## 운영 적용·검증 — 2026-11-13 (#291)
+
+- 사용자 명시 승인에 따라 최신 develop `677b3be`의 파일을 사용했다. `2c7cc92`의 통합 수정본과 동일하며, 끝의 `Card files use the reviewed format-2 contract` 주석과 원본 일치를 확인했다.
+- 적용 전 읽기 전용 검사(17:00:12 KST): 최근 이력의 최신 버전은 `20261113070000`, NFC `20261113090000`은 없었다. NFC 비공개 표와 세 함수 모두 없었다.
+- Supabase CLI의 52gibu 명시 대상 SQL 실행으로 해당 파일과 `schema_migrations` 이력 한 행을 **단일 트랜잭션**에 적용했다(완료 17:01:23 KST). 실행 시 사전 조건을 다시 검사하고 검증 실패 시 전체 rollback하도록 구성했다. 기록된 SQL은 저장소 원본과 일치한다.
+- 사후 검사(17:03:41 KST): 추가 이력은 `20261113090000` 한 개뿐이고 기존 이력 삭제는 없다. 표·세 함수 존재, 표 RLS 활성화, anon/authenticated 직접 SELECT 불가를 확인했다. 기존 Storage 공개 정책은 전후 해시가 모두 같았다.
+- anon 실행 권한은 `oi_nfc_postcard(text)` **true**, `oi_operator_set_nfc_tag(text,uuid,boolean,text)`·`oi_operator_nfc_tags()` **false**다. `BEGIN READ ONLY` 안에서 실제 anon 역할의 `oi_nfc_postcard('no-such-tag') IS NULL`과 태그 **0건**을 검사한 뒤 `ROLLBACK`했다.
+- CLI `--read-only` 계정은 사용자 정의 함수 실행이 제한되고 SET 문도 허용하지 않아 최초 함수 호출 검사가 거절됐다. 위 SQL 읽기 전용 트랜잭션으로 분리해 통과했으며, 적용 트랜잭션 실패나 추가 변경은 없었다.
+- 다른 미적용 파일 `20261111101610_oi_bounded_collection_metrics.sql`은 **적용하지 않았다**. 실제 태그 연결·이야기·계정·공개 상태를 만들거나 변경하지 않았고, 가상 자료 삽입 검사도 실행하지 않았다. 실기기 NFC 호출과 운영 데이터의 엽서 표시 확인은 남아 있다.
