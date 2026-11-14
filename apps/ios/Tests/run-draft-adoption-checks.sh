@@ -8,5 +8,6 @@ xcrun swiftc -parse-as-library -module-cache-path "$ADOPTION_CHECK_DIR/modules" 
   "$IOS_ROOT/OiDonation/Domain/Models/StoryCard.swift" \
   "$IOS_ROOT/OiDonation/Data/Networking/OiServiceModels.swift" \
   "$IOS_ROOT/OiDonation/Data/Networking/OiDraftVault.swift" \
+  "$IOS_ROOT/OiDonation/Features/Profile/Creation/OiSeedCucumberAppearance.swift" \
   "$IOS_ROOT/Tests/OiDraftAdoptionChecks.swift" -o "$ADOPTION_CHECK_DIR/checks"
 "$ADOPTION_CHECK_DIR/checks"

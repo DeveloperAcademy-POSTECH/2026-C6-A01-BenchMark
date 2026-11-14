@@ -278,6 +278,78 @@ struct OiDraftCustomization: Codable, Equatable {
     /// Nil preserves the existing preset for older drafts. A look is local until the shared asset API exists.
     var wardrobe: OiWardrobeLook?
     var card: OiCardDesign?
+    /// Local STEP 3 appearance. Older drafts use the default bare cucumber.
+    var seedAppearance: OiSeedCucumberAppearance?
+    var seedWhiteTshirt: Bool?
+    var seedLongPants: Bool?
+    var seedTop: String?
+    var seedBottom: String?
+    var seedSneakers: Bool?
+    var seedSet: String?
+
+    var selectedSeedTop: OiWardrobeLook.Top? {
+        get { seedTop.flatMap(OiWardrobeLook.Top.init(rawValue:)) ?? (seedWhiteTshirt == true ? .tshirt : nil) }
+        set {
+            seedTop = newValue?.rawValue
+            seedWhiteTshirt = nil
+        }
+    }
+
+    var selectedSeedBottom: OiWardrobeLook.Bottom? {
+        get { seedBottom.flatMap(OiWardrobeLook.Bottom.init(rawValue:)) ?? (seedLongPants == true ? .long : nil) }
+        set {
+            seedBottom = newValue?.rawValue
+            seedLongPants = nil
+        }
+    }
+
+    var selectedSeedSet: OiSeedCucumberSet? {
+        get { seedSet.flatMap(OiSeedCucumberSet.init(rawValue:)) }
+        set { seedSet = newValue?.rawValue }
+    }
+
+    mutating func selectSeedTop(_ top: OiWardrobeLook.Top) {
+        selectedSeedTop = selectedSeedSet == nil && selectedSeedTop == top ? nil : top
+        selectedSeedSet = nil
+    }
+
+    mutating func selectSeedBottom(_ bottom: OiWardrobeLook.Bottom) {
+        selectedSeedBottom = selectedSeedSet == nil && selectedSeedBottom == bottom ? nil : bottom
+        selectedSeedSet = nil
+    }
+
+    mutating func toggleSeedSneakers() {
+        seedSneakers = selectedSeedSet != nil || seedSneakers != true ? true : nil
+        selectedSeedSet = nil
+    }
+
+    mutating func selectSeedSet(_ set: OiSeedCucumberSet) {
+        selectedSeedSet = selectedSeedSet == set ? nil : set
+    }
+}
+
+enum OiSeedCucumberSet: Equatable, RawRepresentable, CaseIterable {
+    case costume(OiWardrobeLook.Costume)
+    case postech
+
+    static var allCases: [Self] { OiWardrobeLook.Costume.allCases.map(Self.costume) + [.postech] }
+
+    init?(rawValue: String) {
+        if rawValue == "postech" {
+            self = .postech
+        } else if let costume = OiWardrobeLook.Costume(rawValue: rawValue) {
+            self = .costume(costume)
+        } else {
+            return nil
+        }
+    }
+
+    var rawValue: String {
+        switch self {
+        case .costume(let costume): costume.rawValue
+        case .postech: "postech"
+        }
+    }
 }
 
 /// Card-space coordinates shared by the small editor frame and the final card.

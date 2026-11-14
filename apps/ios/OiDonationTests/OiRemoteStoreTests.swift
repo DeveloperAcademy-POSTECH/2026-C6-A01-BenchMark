@@ -1610,6 +1610,7 @@ final class OiRemoteStoreTests: XCTestCase {
         }
     }
 
+    #if DEBUG
     /// Opt-in sheet/save regression, with only synthetic local photos (no library interaction).
     @MainActor func testInteractiveWardrobePhotoSheet() async throws {
         guard ProcessInfo.processInfo.environment["OI_WARDROBE_SHEET_CHECK"] == "1" else {
@@ -1632,7 +1633,11 @@ final class OiRemoteStoreTests: XCTestCase {
         let previousKey = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
         window.rootViewController = UIHostingController(rootView: Color.white.fullScreenCover(isPresented: .constant(true)) {
-            NavigationStack { OiStoryEditor(remote: store, localID: local.id).environment(\.scenePhase, .active) }
+            NavigationStack {
+                OiStoryEditor(remote: store, localID: local.id)
+                    .useWardrobeEditorForTest()
+                    .environment(\.scenePhase, .active)
+            }
         })
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
@@ -1650,6 +1655,7 @@ final class OiRemoteStoreTests: XCTestCase {
         }
         XCTFail("Wardrobe sheet interaction route did not finish")
     }
+    #endif
 
     /// Exercises the production editor with local photos and no network writes.
     @MainActor func testInteractivePhotoCancelAndLocation() async throws {

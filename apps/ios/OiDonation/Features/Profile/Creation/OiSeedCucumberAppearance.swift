@@ -57,7 +57,7 @@ enum OiSeedCucumberLayer: CaseIterable {
     static let faceLayers: [Self] = [.leftEye, .rightEye, .mouth]
 }
 
-struct OiSeedCucumberAppearance {
+struct OiSeedCucumberAppearance: Codable, Equatable, Sendable {
     static let sourceSize = CGSize(width: 1058, height: 1658)
     // Ground line of the visible body artwork, excluding transparent padding.
     static let bodyPivot = CGPoint(x: sourceSize.width / 2, y: 1549)
@@ -73,7 +73,7 @@ struct OiSeedCucumberAppearance {
     static let heightRange: ClosedRange<CGFloat> = 0.85...1.20
     static let widthRange: ClosedRange<CGFloat> = 0.90...1.30
 
-    struct Face {
+    struct Face: Codable, Equatable, Sendable {
         var x: CGFloat = 0
         var y: CGFloat = 0
         var size: CGFloat = 1
@@ -154,6 +154,14 @@ struct OiSeedCucumberAppearance {
 
     var stemAttachment: CGPoint { Self.stemBase.applying(bodyTransform) }
 
+    var stemWarp: OiSeedCucumberStemWarp {
+        OiSeedCucumberStemWarp(attachment: stemAttachment, length: stemLength, angle: stemAngle)
+    }
+
+    func stemPoint(for source: CGPoint) -> CGPoint {
+        stemWarp.point(for: source)
+    }
+
     var stemTip: CGPoint { stemPoint(for: Self.stemDefaultTip) }
 
     mutating func moveStemTip(to tip: CGPoint) {
@@ -170,6 +178,64 @@ struct OiSeedCucumberAppearance {
 
     static func clamp(_ value: CGFloat, to range: ClosedRange<CGFloat>) -> CGFloat {
         min(max(value, range.lowerBound), range.upperBound)
+    }
+}
+
+struct OiSeedCucumberStemWarp {
+    private static let root = OiSeedCucumberAppearance.stemBase
+    private static let tip = OiSeedCucumberAppearance.stemDefaultTip
+    private static let reach = hypot(tip.x - root.x, tip.y - root.y)
+    // The root stays rigid. This radius keeps the radial mapping increasing
+    // even at half length, so the compressed texture cannot fold.
+    private static let fixedRootRadius: CGFloat = 18
+
+    let attachment: CGPoint
+    let length: CGFloat
+    let angle: CGFloat
+
+    private var reachChange: CGFloat { (length - 1) * Self.reach }
+    private var radians: CGFloat { angle * .pi / 180 }
+
+    private func bendWeight(at radius: CGFloat) -> CGFloat {
+        let t = min(1, max(0, (radius - Self.fixedRootRadius) / (Self.reach - Self.fixedRootRadius)))
+        return t * t * (3 - 2 * t)
+    }
+
+    func mappedRadius(_ radius: CGFloat) -> CGFloat {
+        radius + reachChange * bendWeight(at: radius)
+    }
+
+    func point(for source: CGPoint) -> CGPoint {
+        let x = source.x - Self.root.x
+        let y = source.y - Self.root.y
+        let radius = hypot(x, y)
+        if radius <= Self.fixedRootRadius {
+            return CGPoint(x: attachment.x + x, y: attachment.y + y)
+        }
+        let rotation = radians * bendWeight(at: radius)
+        let scale = mappedRadius(radius) / radius
+        return CGPoint(x: attachment.x + scale * (cos(rotation) * x - sin(rotation) * y),
+                       y: attachment.y + scale * (sin(rotation) * x + cos(rotation) * y))
+    }
+
+    func inverseMultiplier(at radius: CGFloat) -> (cosine: CGFloat, sine: CGFloat) {
+        guard radius > Self.fixedRootRadius else { return (1, 0) }
+        let sourceRadius: CGFloat
+        if radius >= Self.reach + reachChange {
+            sourceRadius = radius - reachChange
+        } else {
+            var lower = Self.fixedRootRadius
+            var upper = Self.reach
+            for _ in 0..<12 {
+                let middle = (lower + upper) / 2
+                if mappedRadius(middle) < radius { lower = middle }
+                else { upper = middle }
+            }
+            sourceRadius = (lower + upper) / 2
+        }
+        let rotation = -radians * bendWeight(at: sourceRadius)
+        let scale = sourceRadius / radius
+        return (cos(rotation) * scale, sin(rotation) * scale)
     }
 }
 
