@@ -89,6 +89,7 @@ struct OiServiceAPI {
             case 404 where path == "rest/v1/rpc/\(Self.resolveCardRequestRPC)": throw OiServiceError.conflict
             case 404 where path == Self.boundedCollectionMetricsPath: throw OiCollectionMetricsError.boundedQueryNotDeployed
             case 404 where path == "rest/v1/rpc/oi_operator_audit": throw OiAuditError.notDeployed
+            case 404 where OiNFCTagError.rpcPaths.contains(path): throw OiNFCTagError.notDeployed
             case 409: throw OiServiceError.conflict
             case 400, 422: throw OiServiceError.invalidInput
             case 429: throw OiServiceError.server("요청이 많습니다. 잠시 후 다시 시도해 주세요.")
