@@ -42,14 +42,7 @@ struct RootTabView: View {
                 switch destination {
                 case .summary(let id):
                     if let story = store.story(id) {
-                        CampusSummaryView(story: story, store: store, isCameraCoverActive: isCameraCoverActive)
-                            .toolbar {
-                                if story.latitude != nil && story.longitude != nil {
-                                    ToolbarItem(placement: .topBarTrailing) {
-                                        Button("현장 AR", systemImage: "arkit") { openGeoStory(story) }
-                                    }
-                                }
-                            }
+                        summaryView(story)
                     } else {
                         ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc")
                     }
@@ -62,6 +55,11 @@ struct RootTabView: View {
                 }
             }
             .navigationDestination(for: PublicLinkParser.Destination.self) { publicDestination($0) }
+            .navigationDestination(for: CampusNFCPostcardRoute.self) { route in
+                CampusNFCPostcardView(route: route, repository: container.storyRepository, store: store, remote: remote) {
+                    summaryView($0)
+                }
+            }
             .navigationDestination(for: AppClipInvocation.self) { invocation in
                 AppClipExperienceView(storyRepository: container.storyRepository, invocation: invocation) { story, id in
                     OiStorySafetyButton(storyID: id, authorID: story.donorID, authorName: story.donorDisplayName)
@@ -173,7 +171,27 @@ struct RootTabView: View {
             favorites: Set(remote.favorites.map(\.uuidString)))
     }
 
+    /// The map's cucumber summary (Figma 5400:5071), also opened by NFC postcard tags (#324).
+    private func summaryView(_ story: CampusStory) -> some View {
+        CampusSummaryView(story: story, store: store, isCameraCoverActive: isCameraCoverActive)
+            .toolbar {
+                if story.latitude != nil && story.longitude != nil {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("현장 AR", systemImage: "arkit") { openGeoStory(story) }
+                    }
+                }
+            }
+    }
+
     private func handlePublicLink(_ url: URL) {
+        // An NFC postcard tag opens the linked story's summary instead of the App Clip story list.
+        if let tag = AppClipLink.postcardID(in: url) {
+            path = NavigationPath()
+            pendingStoryList = false
+            isARPresented = false
+            path.append(CampusNFCPostcardRoute(tagID: tag))
+            return
+        }
         if AppClipLink.matches(url) {
             path = NavigationPath()
             pendingStoryList = false
