@@ -17,7 +17,12 @@ struct StoryCard: Identifiable, Sendable {
     var backPreviewURL: URL? = nil
 
     enum Part: String, CaseIterable, Sendable {
-        case front, back, frontPreview = "front-preview", backPreview = "back-preview"
+        case front, back, frontPreview = "front-preview", backPreview = "back-preview", cover
+
+        static let duplex: [Self] = [.front, .back, .frontPreview, .backPreview]
+        static func parts(format: Int) -> [Self] {
+            format == 3 ? duplex + [.cover] : (format == 2 ? duplex : [.front])
+        }
     }
 
     static func artworkPath(owner: UUID, story: UUID, snapshot: UUID, part: Part) -> String {

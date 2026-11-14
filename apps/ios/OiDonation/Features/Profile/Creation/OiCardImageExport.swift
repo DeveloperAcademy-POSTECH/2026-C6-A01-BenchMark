@@ -19,7 +19,7 @@ enum OiCardExportError: LocalizedError {
 }
 
 @MainActor enum OiCardImageExport {
-    static func publication(front: UIImage, message: String, author: String, academicAuthor: String = "") throws -> OiStoryCardPublication {
+    static func publication(front: UIImage, message: String, author: String, academicAuthor: String = "", cover: Data? = nil) throws -> OiStoryCardPublication {
         let style = OiPostcardBackgroundMetadata.style(for: front)
         let first = OiPostcardSnapshot.color(front, x: 0.05, y: 0.10) ?? 0xE8EECF
         let second = OiPostcardSnapshot.color(front, x: 0.95, y: 0.90) ?? 0xD5DBC6
@@ -29,7 +29,7 @@ enum OiCardExportError: LocalizedError {
         let frontPNG = style.flatMap { OiPostcardBackgroundMetadata.png(image: front, style: $0) } ?? front.pngData()
         guard let frontPNG, let backPNG = back.pngData() else { throw OiCardExportError.imageUnavailable }
         return try OiStoryCardPublication(front: frontPNG, back: backPNG,
-            frontPreview: preview(front), backPreview: preview(back))
+            frontPreview: preview(front), backPreview: preview(back), cover: cover)
     }
 
     static func render<Content: View>(_ content: Content, colorScheme: ColorScheme = .light) throws -> UIImage {
@@ -38,6 +38,15 @@ enum OiCardExportError: LocalizedError {
         renderer.scale = 3
         guard let image = renderer.uiImage else { throw OiCardExportError.imageUnavailable }
         return image
+    }
+
+    /// Only the clean picture window leaves the device; decorations never enter this image.
+    static func cover(_ cleanFront: UIImage) throws -> Data {
+        guard let cg = cleanFront.cgImage,
+              let crop = cg.cropping(to: CGRect(x: CGFloat(cg.width) * 33 / 362, y: CGFloat(cg.height) * 33 / 502,
+                width: CGFloat(cg.width) * 296 / 362, height: CGFloat(cg.height) * 436 / 502).integral),
+              let data = UIImage(cgImage: crop).pngData() else { throw OiCardExportError.imageUnavailable }
+        return data
     }
 
     static func preview(_ image: UIImage) throws -> Data {

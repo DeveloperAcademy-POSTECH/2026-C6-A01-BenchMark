@@ -29,7 +29,7 @@ function token(id, time = now) {
 }
 
 function fixture({ failStorage = false, forbidden = false, appleIdentities, exchangeSubject = subject,
-  revokeStatus = 200, proofUser = linked } = {}) {
+  revokeStatus = 200, proofUser = linked, paths = [path] } = {}) {
   const calls = [];
   let file = true;
   const handler = createHandler({ url: base, publicKey: "fake-public", serviceKey: "fake-service",
@@ -63,7 +63,7 @@ function fixture({ failStorage = false, forbidden = false, appleIdentities, exch
     }
     if (route === "/storage/v1/object/oi-story-media") {
       assert.equal(options.method, "DELETE");
-      assert.deepEqual(body, { prefixes: [path] });
+      assert.deepEqual(body, { prefixes: paths });
       if (failStorage) return Response.json({}, { status: 500 });
       file = false;
       return Response.json([]);
@@ -73,7 +73,7 @@ function fixture({ failStorage = false, forbidden = false, appleIdentities, exch
     assert.equal(body.p_user, owner);
     assert.equal(body.p_proof_user, proofUser);
     if (forbidden) return Response.json({}, { status: 403 });
-    if (body.p_action === "prepare") return Response.json({ files: file ? [{ bucket: "oi-story-media", name: path }] : [] });
+    if (body.p_action === "prepare") return Response.json({ files: file ? paths.map(name => ({ bucket: "oi-story-media", name })) : [] });
     assert.equal(body.p_action, "finish");
     assert.equal(file, false);
     return Response.json({ deleted: true, apple_revocation_required: true, deleted_member_ids: [owner, linked] });
@@ -96,6 +96,19 @@ test("failed storage cleanup never deletes Auth users", async () => {
   assert.equal(response.status, 503);
   assert.equal((await response.json()).error, "deletion_incomplete");
   assert.ok(!calls.some(x => x.body?.p_action === "finish"));
+});
+const covers = ["snapshot-current", "snapshot-abandoned"].map(snapshot => `${linked}/story/card/${snapshot}/cover.png`);
+test("deletes current and abandoned covers through Storage before account finalization", async () => {
+  const { request, calls } = fixture({ paths: [path, ...covers] });
+  assert.equal((await request()).status, 200);
+  const deletion = calls.findIndex(call => call.route === "/storage/v1/object/oi-story-media");
+  assert.deepEqual(calls[deletion].body.prefixes, [path, ...covers]);
+  assert.ok(calls.findIndex(call => call.body?.p_action === "finish") > deletion);
+});
+test("cover cleanup failure leaves the account available for deletion retry", async () => {
+  const { request, calls } = fixture({ paths: covers, failStorage: true });
+  assert.equal((await request()).status, 503);
+  assert.ok(!calls.some(call => call.body?.p_action === "finish"));
 });
 test("blocks foreign proof without touching storage", async () => {
   const { request, calls } = fixture({ forbidden: true });

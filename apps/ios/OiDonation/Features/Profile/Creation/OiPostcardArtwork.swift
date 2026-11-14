@@ -24,6 +24,7 @@ struct OiPostcardFront<Artwork: View>: View {
     var backgroundStyle: OiPostcardBackgroundStyle? = nil
     var date = ""
     var design: OiCardDesign? = nil
+    var decorationsVisible = true
     @ViewBuilder var artwork: () -> Artwork
 
     var body: some View {
@@ -31,34 +32,36 @@ struct OiPostcardFront<Artwork: View>: View {
             if let backgroundStyle { OiPostcardBackground(style: backgroundStyle) }
             else { OiCardGradient(fill: fill, first: first, second: second) }
             artwork().frame(width: 296, height: 436).clipped().offset(x: 33, y: 33)
-            if design?.postcardLayoutVersion == 2 {
-                Rectangle().stroke(Color(white: 0.62), lineWidth: 0.6)
-                    .frame(width: 296, height: 436).offset(x: 33, y: 33)
-                OiPostcardDecorations(stamp: design?.postcardStamp, logo: design?.postcardLogo,
-                    logoOpacity: OiCardOpacity.normalized(design?.postcardLogoOpacity))
-            } else {
-                ForEach(0..<3) { index in
-                    Image("OiPostcardWave\(index + 1)").resizable()
-                        .frame(width: 121, height: index == 1 ? 17 : 16)
-                        .offset(x: 23, y: CGFloat(26 + index * 13))
+            if decorationsVisible {
+                if design?.postcardLayoutVersion == 2 {
+                    Rectangle().stroke(Color(white: 0.62), lineWidth: 0.6)
+                        .frame(width: 296, height: 436).offset(x: 33, y: 33)
+                    OiPostcardDecorations(stamp: design?.postcardStamp, logo: design?.postcardLogo,
+                        logoOpacity: OiCardOpacity.normalized(design?.postcardLogoOpacity))
+                } else {
+                    ForEach(0..<3) { index in
+                        Image("OiPostcardWave\(index + 1)").resizable()
+                            .frame(width: 121, height: index == 1 ? 17 : 16)
+                            .offset(x: 23, y: CGFloat(26 + index * 13))
+                            .accessibilityHidden(true)
+                    }
+                    Text(date).font(OiPostcardTypography.date)
+                        .foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6)
+                        .frame(width: 150, height: 21, alignment: .trailing).offset(x: 167, y: 42)
+                        .accessibilityLabel("작성 날짜 \(date)")
+                    Text("OiD").font(OiPostcardTypography.mark).tracking(1.12)
+                        .foregroundStyle(.white).fixedSize().rotationEffect(.degrees(-90))
+                        .frame(width: 21, height: 58).offset(x: 43, y: 396)
                         .accessibilityHidden(true)
                 }
-                Text(date).font(OiPostcardTypography.date)
-                    .foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6)
-                    .frame(width: 150, height: 21, alignment: .trailing).offset(x: 167, y: 42)
-                    .accessibilityLabel("작성 날짜 \(date)")
-                Text("OiD").font(OiPostcardTypography.mark).tracking(1.12)
-                    .foregroundStyle(.white).fixedSize().rotationEffect(.degrees(-90))
-                    .frame(width: 21, height: 58).offset(x: 43, y: 396)
+                Image("OiPostcardSeal").renderingMode(.template).resizable()
+                    .foregroundStyle(Color(oiRGB: OiPostcardInk.color(backgroundStyle?.visiblePaperColor ?? first)))
+                    .frame(width: design?.postcardLayoutVersion == 2 ? 98 : 116,
+                           height: design?.postcardLayoutVersion == 2 ? 98 : 116)
+                    .offset(x: design?.postcardLayoutVersion == 2 ? 243 : 229,
+                            y: design?.postcardLayoutVersion == 2 ? 380 : 365)
                     .accessibilityHidden(true)
             }
-            Image("OiPostcardSeal").renderingMode(.template).resizable()
-                .foregroundStyle(Color(oiRGB: OiPostcardInk.color(backgroundStyle?.visiblePaperColor ?? first)))
-                .frame(width: design?.postcardLayoutVersion == 2 ? 98 : 116,
-                       height: design?.postcardLayoutVersion == 2 ? 98 : 116)
-                .offset(x: design?.postcardLayoutVersion == 2 ? 243 : 229,
-                        y: design?.postcardLayoutVersion == 2 ? 380 : 365)
-                .accessibilityHidden(true)
         }.frame(width: 362, height: 502).mask(OiPostcardPaper()).dynamicTypeSize(.medium)
     }
 }

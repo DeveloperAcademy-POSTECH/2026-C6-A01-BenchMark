@@ -742,6 +742,50 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testStickerFreeCoverKeepsPhotoAndPlacementWithoutDecorations() throws {
+        var customization = Self.customization
+        customization.showsCharacter = false
+        var design = OiCardDesign()
+        design.postcardLayoutVersion = 2
+        let photo = UIGraphicsImageRenderer(size: CGSize(width: 296, height: 436)).image { context in
+            UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 148, height: 436))
+            UIColor.blue.setFill(); context.fill(CGRect(x: 148, y: 0, width: 148, height: 436))
+        }
+        design.backgroundPhoto = photo.pngData()
+        customization.card = design
+        let first = try OiDraftCardPreview(draft: Self.draft, customization: customization).publication(colorScheme: .light, includeCover: true)
+        XCTAssertEqual(first.format, 3)
+        XCTAssertEqual(first.parts.count, 5)
+        let cover = try XCTUnwrap(first.parts[.cover])
+        let image = try XCTUnwrap(UIImage(data: cover))
+        XCTAssertEqual(image.cgImage?.width, 888)
+        XCTAssertEqual(image.cgImage?.height, 1308)
+        customization.card?.postcardLogo = "black"
+        customization.card?.postcardStamp = 1
+        let decorated = try OiDraftCardPreview(draft: Self.draft, customization: customization).publication(colorScheme: .light, includeCover: true)
+        XCTAssertNotEqual(first.png, decorated.png, "The approved front still contains its selected decorations")
+        XCTAssertEqual(cover, decorated.parts[.cover], "Logo and stamp changes cannot enter the clean window")
+        let reused = try OiCardImageExport.publication(front: UIImage(data: first.png)!, message: "새 이야기", author: "가상 작성자", cover: cover)
+        XCTAssertEqual(reused.format, 3)
+        XCTAssertEqual(reused.parts[.cover], cover, "Reuse the already approved clean cover when the original is absent")
+        customization.card?.backgroundPlacement.x = 0.65
+        customization.card?.backgroundPlacement.scale = 1.5
+        let moved = try OiDraftCardPreview(draft: Self.draft, customization: customization).publication(colorScheme: .light, includeCover: true)
+        XCTAssertNotEqual(cover, moved.parts[.cover], "Cover must respect the author's image placement")
+        let changed = try OiStoryCardPublication(front: first.png, back: XCTUnwrap(first.parts[.back]),
+            frontPreview: XCTUnwrap(first.parts[.frontPreview]), backPreview: XCTUnwrap(first.parts[.backPreview]), cover: moved.parts[.cover])
+        XCTAssertNotEqual(first.id, changed.id, "Cover pixels participate in the immutable bundle version")
+        XCTAssertThrowsError(try OiStoryCardPublication(front: first.png, back: XCTUnwrap(first.parts[.back]),
+            frontPreview: XCTUnwrap(first.parts[.frontPreview]), backPreview: XCTUnwrap(first.parts[.backPreview]),
+            cover: XCTUnwrap(photo.jpegData(compressionQuality: 0.8))), "Cover uploads must be PNG too")
+        for publication in [first, decorated] {
+            for part in [StoryCard.Part.front, .cover] {
+                let attachment = XCTAttachment(data: try XCTUnwrap(publication.parts[part]), uniformTypeIdentifier: "public.png")
+                attachment.name = "cover-comparison-\(part.rawValue)"; attachment.lifetime = .keepAlways; add(attachment)
+            }
+        }
+    }
+
     func testDuplexPostcardExportsBothSidesAndTracksBackChanges() throws {
         var draft = Self.draft
         var style = Self.customization
@@ -751,7 +795,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let first = try OiDraftCardPreview(draft: draft, customization: style, donorName: "가상 작성자").publication(colorScheme: .light)
         XCTAssertEqual(first.format, 2)
         XCTAssertEqual(first.parts.count, 4)
-        for part in StoryCard.Part.allCases {
+        for part in StoryCard.Part.duplex {
             let image = try XCTUnwrap(UIImage(data: XCTUnwrap(first.parts[part])))
             XCTAssertEqual(image.cgImage?.width, part == .front || part == .back ? 1086 : 724)
             XCTAssertEqual(image.cgImage?.height, part == .front || part == .back ? 1506 : 1004)

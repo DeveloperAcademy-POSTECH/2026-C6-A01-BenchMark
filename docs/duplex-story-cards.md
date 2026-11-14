@@ -54,3 +54,67 @@
 - `run-app-clip-checks.sh`: 링크·공개 목록·재조회·수집 취소 검사. 기존 Swift 동시성 경고는 남아 있다.
 - 운영 DB의 가상 파일 메타데이터를 통한 제출·승인·익명 읽기·공개 해제 검사는 통과했다. 실제 PNG 업로드·서명 URL 다운로드 전체 흐름, 실제 iPhone 사진첩 저장·공유 완료, NFC를 통한 실제 App Clip 호출은 아직 확인하지 않았다.
 - 운영 검사 후 가상 사용자·파일 메타데이터 0건을 확인했다. 익명 HTTPS API에서 새 카드 형식 열의 조회(이야기 내용 없이 `limit=0`)도 통과했다.
+
+## 스티커 없는 표지 서버 — #331
+
+2026-11-14 서버 작업. **서버 PR #333을 develop에 병합하고 2026-11-14 운영 52gibu 적용 완료.** 위 #308의 운영 적용 기록은 형식 2에 대한 기록이다. 아래 iOS 후속 작업으로 표지 생성·업로드·표시·운영자 검토를 연결한다.
+
+- 새 마이그레이션 `20261114120000_oi_postcard_cover.sql` 하나로 형식 허용값을 1·2·3으로 확장한다. 형식 2·3은 snapshot ID가 필수이며 기본값은 계속 1이다.
+- 형식 3은 위 네 파일과 `owner/story/card/snapshot/cover.png`를 같은 카드 버전으로 제출한다. 형식 1·2의 경로와 순서는 유지한다. 새 표지의 픽셀 크기·내용 해시는 후속 앱 내보내기 작업에서 결정하며, 서버는 기존 검증 방식대로 Storage 메타데이터의 `image/png`와 1~8,388,608byte를 검사한다. PNG 바이트 디코딩 검사를 새로 추가하는 것은 아니다.
+- `oi_check_story_card`는 부품 목록을 순회하므로 제출·공개 승인 모두 표지의 존재·MIME·크기를 검사한다. 일부 파일이 없거나 잘못되면 이야기 상태·리비전·카드 참조를 바꾸지 않는다.
+- 승인 요청은 형식 2 이상이면 현재 snapshot ID와 **정확히 같은 형식**을 요구한다. 형식 3을 생략·1·2로 승인하려는 구형 운영자 요청을 거절한다. 기존 형식 1의 승인과 작성자의 새 버전 재제출 규칙은 유지한다.
+- 비공개 표지는 작성자가 읽고, 운영자는 기존 검토 권한으로 읽는다. 타인·anon은 `published` 이야기의 현재 snapshot 표지만 읽는다. 옛 snapshot·미참조 표지를 공개하지 않으며 공개 해제·논리 삭제·탈퇴 준비에 기존 접근 차단 규칙을 적용한다.
+- 탈퇴 삭제 목록은 계정의 Storage 경로 전체를 포함한다. 현재 표지와 미완료 업로드 표지를 Storage API로 지운 후에만 계정 삭제가 완료된다. 별도 파일 삭제 함수나 Edge Function 변경은 필요하지 않다.
+- 로그인 클라이언트용 `oi_capabilities()`에 `story_card_cover: true`를 추가하고 기존 capability와 호출 권한은 유지한다. 앱은 후속 작업에서 이 값을 확인해 형식 3을 선택한다.
+
+### 검증 방법과 범위
+
+2026-11-14 로컬 결과: 전체 DB 회귀 검사(두 마이그레이션 이력 및 drift 거절·롤백 6건)와 Node 테스트 44개가 모두 통과했다. 작업 전용 PostgreSQL의 종료 및 소켓 제거도 확인했다.
+
+```sh
+python3 supabase/tests/run-account-merge-db-checks.py
+npm --prefix supabase test
+```
+
+DB 검사는 작업 전용 Unix 소켓 PostgreSQL과 가상 파일 메타데이터를 사용한다. 기존 형식 1·2의 저장·검토 요청·공개 승인·조회 회귀 검사와 새 `oi-postcard-cover.sql`을 기존 두 마이그레이션 이력에서 실행한다. 새 검사는 표지 누락/JPEG/8MiB 초과/0byte 거절, 8MiB 허용, 실패 원자성, 초안·검토 중 작성자/타인/anon 권한, 운영자 검토, 잘못된 버전·형식 승인 차단, 승인 시 재검사, 현재 버전만 익명 공개, 재제출·논리 삭제 후 접근 차단을 포함한다.
+
+탈퇴 SQL 검사는 연결 계정의 현재·미참조 표지가 삭제 목록에 포함되고 표지가 남으면 완료가 거절되는지 확인한다. Edge Function의 Node 검사는 같은 표지 경로가 Storage DELETE에 전달되고 삭제 실패 시 Auth 계정 삭제를 완료하지 않는지 확인한다. 실제 운영 Storage에 PNG를 업로드·다운로드·삭제하는 통합 검사는 이번 로컬 검증에 포함하지 않는다.
+
+`oi_mutate`의 두 치환 지점과 capability 앵커가 없거나 중복된 여섯 가지 상황에서 마이그레이션이 거절되고, 제약·함수·정책 변경 전체가 rollback되는지도 검사한다.
+
+### 리뷰 후 운영 적용 순서
+
+1. 서버 PR을 리뷰하고 최신 운영 함수 정의에서 아래 세 앵커의 개수가 모두 1인지 **읽기 전용 drift 검사**를 한다. 다르면 적용하지 않고 차이를 검토한다.
+2. 승인된 새 마이그레이션만 적용하고 배포 이력을 기록한다. 기존 파일을 수정하거나 미적용 마이그레이션 전체를 일괄 push하지 않는다. 마이그레이션 자체에서도 같은 앵커를 검사하고 불일치 시 트랜잭션 전체를 중단한다.
+3. 로그인 세션에서 `select public.oi_capabilities();` 결과의 `story_card_cover=true`를 확인한다. 형식 1·2 호환과 가상 형식 3의 실제 Storage 업로드·검토·익명 다운로드·탈퇴 삭제를 확인한다.
+4. 이후 별도 앱 작업으로 표지 렌더링·업로드·표시·운영자 검토를 연결한다. 기존 공개 이야기를 자동으로 형식 3으로 바꾸지 않는다.
+
+```sql
+with definitions as (
+  select pg_get_functiondef('benchmark_private.oi_mutate(text,jsonb)'::regprocedure) as mutation,
+         pg_get_functiondef('public.oi_capabilities()'::regprocedure) as capabilities
+), anchors as (
+  select mutation as definition, anchor from definitions cross join (values
+    ($a$if story.card_snapshot_format not in (1,2) then$a$),
+    ($a$(story.card_snapshot_format=2 and coalesce(payload->>'card_snapshot_format','')<>'2')$a$)
+  ) as mutation_anchors(anchor)
+  union all
+  select capabilities, $a$'duplex_story_card',true$a$ from definitions
+)
+select anchor, (length(definition)-length(replace(definition,anchor,'')))/length(anchor) as occurrences
+from anchors;
+```
+
+### iOS·App Clip 표지 연결 — 2026-11-14 / #331
+
+- 클라이언트는 `story_card_cover`를 읽고, 지원 서버에서 기기 원본으로 새 카드를 렌더링할 때 형식 3을 제출한다. 기능이 없으면 네 파일·형식 2를 유지한다. 로그아웃 시 지원 상태도 초기화한다.
+- 표지는 앞면과 동일한 사진·오이·배경·위치·확대·색조를 사용하되 로고·스탬프·물결·날짜·인장·테두리를 제외한 사진 창만 PNG(888×1308)로 만든다. 원본 사진 전체나 편집 설정을 업로드하지 않는다. 표지 바이트도 snapshot 해시에 포함한다.
+- 원본 없이 서버에서 가져온 승인 앞면만 재사용하는 경로는 형식 2를 유지한다. 이미 형식 3인 카드에는 승인된 표지도 함께 불러와 새 뒷면과 형식 3으로 다시 묶으며, 표지를 읽지 못하면 제출을 막고 재시도한다. 이미 공개된 이미지를 잘라 스티커 없는 표지라고 제출하지 않는다. 해당 기기에서 카드를 다시 편집·렌더링하면 형식 3으로 제출할 수 있다.
+- 업로드 중 표지를 포함한 어느 파일이든 실패하면 검토 요청을 보내지 않는다. 재시도는 같은 버전을 재사용한다. 형식 3을 준비했어도 서버가 지원하지 않으면 표지를 제외하고 기존 형식 2 해시를 다시 계산해 네 파일만 제출한다.
+- 운영자 화면은 다섯 파일이 모두 준비되어야 승인할 수 있으며 `스티커 없는 표지`도 확대해 확인한다. 승인 요청과 응답 검증에는 정확한 형식 3을 포함한다.
+- 공개 조회는 형식 2·3의 앞·뒷면 미리보기를 유지하고 형식 3에서만 현재 snapshot의 표지 URL을 받는다. App Clip은 표지를 우선 사용한다. 표지 URL 발급/다운로드 실패는 기존 승인 앞면의 사진 창으로 대체하며, 앞면 자체가 없는 이전 이야기만 첫 이야기 사진을 사용한다. 양면 파일 조회 실패는 기존처럼 재시도한다.
+- 본 앱의 앞·뒷면 개인 저장·공유에는 표지를 추가하지 않는다. 표지는 NFC 스크래치 화면의 서버 검토용 부품이다.
+
+서버 적용 기록: 세 치환 앵커가 각각 한 번 존재하는 drift 검사를 통과한 후 `20261114120000` 한 개와 이력만 같은 트랜잭션으로 적용했다. 실제 로그인 역할의 `oi_capabilities()`에서 `story_card_cover`, `duplex_story_card`, `public_story_card` 모두 true임을 확인했다. 기존 함수 권한·버킷 비공개·관련 없는 Storage 정책은 보존했다. 상세 기록은 PR #333 본문을 따른다.
+
+검증 결과: iOS 27.2 `OiFlowChecks` 전체 211개(208개 통과·기존 수동 3개 skip·실패 0), 최종 수정본 관련 3개 재실행 통과. 본 앱·내장 App Clip 빌드 및 기존 App Clip/Swift 서버 계약 회귀 검사도 통과했다. 렌더링 첨부에서 앞면의 인장이 표지에서 제거되는지 확인했다. 실제 NFC 호출과 운영 파일 업로드·다운로드 전체 흐름은 실기기 후속 검증으로 남긴다.

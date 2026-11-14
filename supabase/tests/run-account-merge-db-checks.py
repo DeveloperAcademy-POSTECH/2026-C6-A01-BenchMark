@@ -35,6 +35,41 @@ def run(command, **options):
         raise RuntimeError(f'Check failed (exit {result.returncode}): {command[0]}\n{log_path.read_text()[-3000:]}')
     return result
 
+def check_postcard_cover_drift(connection, migration):
+    def query(sql):
+        return subprocess.run(connection + ['-qAtc', sql], capture_output=True, text=True, check=True, timeout=20).stdout.strip()
+
+    # Catalog state must survive a failure even after constraint/policy/parts edits
+    # and, for capability drift, the mutation function patch have already executed.
+    catalog = """select jsonb_build_object(
+      'mutate',pg_get_functiondef('benchmark_private.oi_mutate(text,jsonb)'::regprocedure),
+      'capabilities',pg_get_functiondef('public.oi_capabilities()'::regprocedure),
+      'parts',pg_get_functiondef('benchmark_private.oi_story_card_parts(uuid,uuid,uuid,integer)'::regprocedure),
+      'checks',(select jsonb_agg(pg_get_constraintdef(oid) order by conname) from pg_constraint
+        where conrelid='public.oi_stories'::regclass and contype='c'),
+      'policy',(select pg_get_expr(polqual,polrelid) from pg_policy
+        where polrelid='storage.objects'::regclass and polname='oi_duplex_story_card_read'));"""
+    patches = [
+        ('benchmark_private.oi_mutate(text,jsonb)', 'oi_mutate', 'if story.card_snapshot_format not in (1,2) then'),
+        ('benchmark_private.oi_mutate(text,jsonb)', 'oi_mutate',
+         "(story.card_snapshot_format=2 and coalesce(payload->>'card_snapshot_format','')<>'2')"),
+        ('public.oi_capabilities()', 'oi_capabilities', "'duplex_story_card',true"),
+    ]
+    for signature, name, anchor in patches:
+        definition = query(f"select pg_get_functiondef('{signature}'::regprocedure);")
+        assert definition.count(anchor) == 1
+        for duplicate in (False, True):
+            changed = anchor + f' /* {anchor} */' if duplicate else anchor.replace(',', ', ', 1)
+            run(connection, input=definition.replace(anchor, changed), text=True)
+            before = query(catalog)
+            try:
+                rejected = subprocess.run(connection + ['-f', str(migration)], capture_output=True, text=True, timeout=20)
+                assert rejected.returncode != 0 and f'{name} drift requires postcard cover review' in rejected.stderr, rejected.stderr
+                assert query(catalog) == before, 'Postcard cover migration did not roll back completely'
+            finally:
+                run(connection, input=definition, text=True)
+    print('PASS: postcard cover rejects missing/duplicate mutation and capability anchors; all six failures roll back')
+
 def check_fingerprint_concurrency(connection):
     # Both requests enter before either commits. Equal SHA or transaction digests
     # must serialize, so exactly one caller observes the newly registered peer.
@@ -200,6 +235,8 @@ grant execute on function auth.jwt() to anon,authenticated;
         print('PASS: deployed save_campus_story, height_meters and heading_degrees behavior survives canonical ownership patch')
         for database in (connection, remote_connection):
             for migration in post_retirement:
+                if database is connection and migration.name.endswith('_oi_postcard_cover.sql'):
+                    check_postcard_cover_drift(database, migration)
                 run(database + ['-f', str(migration)])
             run(database + ['-f', 'supabase/tests/oi-donation-evidence-retired.sql'])
             run(database + ['-f', 'supabase/tests/oi-account-deletion.sql'])
@@ -207,7 +244,9 @@ grant execute on function auth.jwt() to anon,authenticated;
             run(database + ['-f', 'supabase/tests/oi-nfc-postcard-tags.sql'])
 
             run(database + ['-f', 'supabase/tests/oi-duplex-story-card.sql'])
+            run(database + ['-f', 'supabase/tests/oi-postcard-cover.sql'])
             run(database + ['-f', 'supabase/tests/oi-public-cucumber-appearance.sql'])
+        print('PASS: card formats 1/2/3, cover validation/access/review, and deletion on both histories')
         print('PASS: retired evidence RPCs and uploads, retained private records and deletion, story moderation on both histories')
         # Unknown owning function edits must stop the migration before any schema change commits.
         run(connection + ['-c', 'create database unknown_drift'])

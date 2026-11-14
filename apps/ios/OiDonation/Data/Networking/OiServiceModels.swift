@@ -101,13 +101,13 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
     }
 
     var cardBackArtworkPath: String? {
-        guard cardSnapshotFormat == 2, let snapshot = cardSnapshotId else { return nil }
+        guard [2, 3].contains(cardSnapshotFormat ?? 1), let snapshot = cardSnapshotId else { return nil }
         return StoryCard.artworkPath(owner: storageOwnerId ?? userId, story: id, snapshot: snapshot, part: .back)
     }
 
     var cardArtworkPaths: [String] {
         guard let snapshot = cardSnapshotId else { return [] }
-        let parts: [StoryCard.Part] = cardSnapshotFormat == 2 ? StoryCard.Part.allCases : [.front]
+        let parts = StoryCard.Part.parts(format: cardSnapshotFormat ?? 1)
         return parts.map { StoryCard.artworkPath(owner: storageOwnerId ?? userId, story: id, snapshot: snapshot, part: $0) }
     }
 
@@ -282,6 +282,7 @@ struct OiCapabilities: Decodable {
     let publicCucumberAppearance: Bool?
     let publicStoryCard: Bool?
     var duplexStoryCard: Bool? = nil
+    var storyCardCover: Bool? = nil
 }
 
 struct OiStoryDraft: Codable, Equatable {

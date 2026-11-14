@@ -29,6 +29,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     private(set) var canPublishCucumberAppearance = false
     private(set) var canPublishStoryCard = false
     private(set) var canPublishDuplexCard = false
+    private(set) var canPublishStoryCardCover = false
 
     var canPlaceOi: Bool { account != nil && !needsReauthentication && !isAccountDeletionPending }
 
@@ -292,6 +293,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         canPublishCucumberAppearance = false
         canPublishStoryCard = false
         canPublishDuplexCard = false
+        canPublishStoryCardCover = false
         localSignOutWarning = nil; loadError = nil; syncWarning = nil; error = nil; revision += 1
     }
 
@@ -389,11 +391,12 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             var payload: [String: Any] = ["id": story.id.uuidString, "revision": story.revision, "status": wanted]
             if publish, let appearance = story.cucumberAppearance { payload["appearance_id"] = appearance.id.uuidString.lowercased() }
             if publish, let snapshot = story.cardSnapshotId { payload["card_snapshot_id"] = snapshot.uuidString.lowercased() }
-            if publish, story.cardSnapshotFormat == 2 { payload["card_snapshot_format"] = 2 }
+            if publish, let format = story.cardSnapshotFormat, format >= 2 { payload["card_snapshot_format"] = format }
             let receipt = try await api.mutate("review_story", payload: payload, token: accessToken, as: OiLiveStory.self)
             guard started == generation else { throw OiServiceError.accountChanged }
             guard receipt.id == story.id, receipt.status == wanted, receipt.revision > story.revision,
-                  receipt.cardSnapshotId == story.cardSnapshotId else {
+                  receipt.cardSnapshotId == story.cardSnapshotId,
+                  (receipt.cardSnapshotFormat ?? 1) == (story.cardSnapshotFormat ?? 1) else {
                 throw OiOperatorStoryError.unconfirmedResult
             }
             applyReceipt(receipt, action: "review_story", payload: [:])
@@ -598,6 +601,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         canPublishCucumberAppearance = capabilities?.publicCucumberAppearance == true
         canPublishStoryCard = capabilities?.publicStoryCard == true
         canPublishDuplexCard = capabilities?.duplexStoryCard == true
+        canPublishStoryCardCover = capabilities?.storyCardCover == true
         isAccountMergeAvailable = capabilities?.accountMergeEnabled == true; accountMemberIDs = members
         isSchoolProfileAvailable = capabilities?.schoolProfileEnabled == true
         isFarmerOutfitAvailable = capabilities?.farmerOutfitEnabled == true; farmerOutfit = fetchedFarmerOutfit
@@ -682,10 +686,13 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     }
 
     func submitStory(_ story: OiLiveStory, cucumber: OiCucumberPublication? = nil,
-                     card: OiStoryCardPublication? = nil) async -> OiLiveStory? {
+                     card proposedCard: OiStoryCardPublication? = nil) async -> OiLiveStory? {
         guard canStartStory else { error = OiServiceError.storyCreationUnavailable.localizedDescription; return nil }
+        let card: OiStoryCardPublication?
+        do { card = try canPublishStoryCardCover ? proposedCard : proposedCard?.withoutCover() }
+        catch { self.error = error.localizedDescription; return nil }
         var payload: [String: Any] = ["id": story.id.uuidString, "revision": story.revision]
-        guard card?.format != 2 || canPublishDuplexCard else {
+        guard (card?.format ?? 1) < 2 || canPublishDuplexCard else {
             error = "서버의 카드 양면 저장 업데이트가 필요해요. 내 카드와 초안은 보존돼 있어요."
             return nil
         }
