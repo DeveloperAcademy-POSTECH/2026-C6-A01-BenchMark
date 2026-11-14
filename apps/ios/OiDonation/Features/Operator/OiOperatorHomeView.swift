@@ -39,6 +39,7 @@ struct OiOperatorHomeView: View {
                 if canAccess {
                     if section == .stories { OiOperatorStoriesView(remote: remote) }
                     else if section == .content { OiOperatorContentView(remote: remote) }
+                    else if section == .nfcTags { OiOperatorNFCTagsView(remote: remote) }
                     else { OiOperatorAuditView(remote: remote) }
                 } else { accessStatus }
             }
@@ -71,6 +72,7 @@ struct OiOperatorHomeView: View {
                 menuLink(.content)
                 menuLink(.stories)
             }
+            Section("NFC 엽서") { menuLink(.nfcTags) }
             Section("운영 기록") { menuLink(.audit) }
             Section {
                 Text("검토에서 승인한 이야기는 다른 사람의 지도와 AR에 공개됩니다.")
@@ -118,18 +120,24 @@ struct OiOperatorHomeView: View {
 }
 
 enum OiOperatorSection: String, Hashable {
-    case stories, audit, content
+    case stories, audit, content, nfcTags
     var title: String {
-        switch self { case .content: "콘텐츠 신고"; case .stories: "이야기 검토"; case .audit: "운영 감사 기록" }
+        switch self {
+        case .content: "콘텐츠 신고"; case .stories: "이야기 검토"; case .audit: "운영 감사 기록"; case .nfcTags: "NFC 태그"
+        }
     }
     var detail: String {
         switch self {
         case .content: "신고 검토·게시물 비공개·작성자 제한"
         case .stories: "이야기 내용 확인 및 공개·비공개 관리"
         case .audit: "운영 처리 내역 확인"
+        case .nfcTags: "캠퍼스 태그와 공개 이야기 연결·중지"
         }
     }
     var symbol: String {
-        switch self { case .content: "flag"; case .stories: "text.book.closed"; case .audit: "clock.arrow.circlepath" }
+        switch self {
+        case .content: "flag"; case .stories: "text.book.closed"; case .audit: "clock.arrow.circlepath"
+        case .nfcTags: "wave.3.right.circle"
+        }
     }
 }

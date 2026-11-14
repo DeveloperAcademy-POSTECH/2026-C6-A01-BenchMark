@@ -92,6 +92,10 @@ final class OiTestBackend {
         var auditRecords: [[String: Any]] = []
         var auditBodies: [[String: Any]] = []
         var auditStatus = 200
+        var nfcTags: [[String: Any]] = []
+        var nfcBodies: [[String: Any]] = []
+        var nfcStatus = 200
+        var nfcMismatchedReceipt = false
         var holdAuditRead = false
         var failRefreshToken = false
         var failLogout = false
@@ -272,6 +276,23 @@ final class OiTestBackend {
                     if state.loseReviewResponse { status = 503; state.loseReviewResponse = false }
                 }
             } else { result = ["id":payload["id"] ?? ""] }
+        } else if path.hasSuffix("/rpc/oi_operator_nfc_tags") {
+            status = state.isOperator ? state.nfcStatus : 403
+            result = state.nfcTags
+        } else if path.hasSuffix("/rpc/oi_operator_set_nfc_tag") {
+            state.nfcBodies.append(body)
+            status = state.isOperator ? state.nfcStatus : 403
+            let story = body["p_story"] as? String
+            var row: [String: Any] = ["tag_id": body["p_tag"] ?? "", "story_id": story.map { $0 as Any } ?? NSNull(),
+                                      "active": state.nfcMismatchedReceipt ? !(body["p_active"] as? Bool ?? true) : body["p_active"] ?? true,
+                                      "note": body["p_note"] ?? "", "updated_at": "2026-11-13T09:00:00Z"]
+            if status == 200 {
+                state.nfcTags.removeAll { $0["tag_id"] as? String == body["p_tag"] as? String }
+                row["story_title"] = story == nil ? NSNull() : "Fixture story"
+                row["story_status"] = story == nil ? NSNull() : "published"
+                state.nfcTags.append(row)
+            }
+            result = row
         } else if path.hasSuffix("/rpc/oi_operator_audit") {
             state.auditBodies.append(body); status = state.auditStatus
             if !state.isOperator { status = 403 }
@@ -571,6 +592,69 @@ final class OiRemoteStoreTests: XCTestCase {
         let parser = ISO8601DateFormatter()
         return try OiAuditQuery(from: XCTUnwrap(parser.date(from: "2026-11-03T00:00:00Z")),
                                until: XCTUnwrap(parser.date(from: "2026-11-05T00:00:00Z")), category: category)
+    }
+
+    @MainActor func testOperatorNFCTagsListAndSaveSendExactValues() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        let story = UUID(uuidString: "b1000000-0000-4000-8000-0000000000aa")!
+        backend.configure {
+            $0.isOperator = true
+            $0.nfcTags = [["tag_id": "pond-01", "story_id": story.uuidString.lowercased(), "active": true, "note": "연못 벤치",
+                           "updated_at": "2026-11-13T08:00:00Z", "story_title": "연못 이야기", "story_status": "published"],
+                          ["tag_id": "lib-02", "story_id": NSNull(), "active": false, "note": "",
+                           "updated_at": NSNull(), "story_title": NSNull(), "story_status": NSNull()]]
+        }
+        await store.start()
+        let tags = try await store.operatorNFCTags()
+        XCTAssertEqual(tags.map(\.tagId), ["pond-01", "lib-02"])
+        XCTAssertTrue(tags[0].opensPostcard); XCTAssertEqual(tags[0].storyId, story)
+        XCTAssertFalse(tags[1].opensPostcard); XCTAssertEqual(tags[1].statusText, "중지됨")
+        XCTAssertEqual(tags[0].url.absoluteString, "https://appclip.apple.com/id?p=com.Spero.OiDonation.Clip&postcard=pond-01")
+
+        let receipt = try await store.setNFCTag("lib-02", story: story, active: true, note: "  도서관 입구  ")
+        XCTAssertEqual(receipt.storyId, story); XCTAssertTrue(receipt.active)
+        let body = try XCTUnwrap(backend.snapshot().nfcBodies.last)
+        XCTAssertEqual(body["p_tag"] as? String, "lib-02")
+        XCTAssertEqual(body["p_story"] as? String, story.uuidString.lowercased())
+        XCTAssertEqual(body["p_active"] as? Bool, true)
+        XCTAssertEqual(body["p_note"] as? String, "도서관 입구")
+
+        _ = try await store.setNFCTag("pond-01", story: nil, active: false, note: "")
+        XCTAssertTrue(backend.snapshot().nfcBodies.last?["p_story"] is NSNull, "Unlinking sends an explicit null story")
+    }
+
+    func testOperatorNFCTagSuggestionIsValidUnambiguousAndUnused() {
+        let taken: Set<String> = ["oi-aaaaaa"]
+        for _ in 0..<200 {
+            let id = OiNFCTagID.suggestion(avoiding: taken)
+            XCTAssertTrue(AppClipLink.isValidPostcardTag(id), id)
+            XCTAssertTrue(id.hasPrefix("oi-")); XCTAssertEqual(id.count, 9)
+            XCTAssertFalse(taken.contains(id))
+            XCTAssertTrue(id.dropFirst(3).allSatisfy { !"0o1li".contains($0) }, id)
+        }
+    }
+
+    @MainActor func testOperatorNFCTagsRejectInvalidInputMissingRPCAndMismatchedReceipt() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        do { _ = try await store.setNFCTag("Pond 01", story: nil, active: true, note: ""); XCTFail("Invalid tag must not be sent") }
+        catch { XCTAssertEqual(error as? OiNFCTagError, .invalidTag) }
+        XCTAssertTrue(backend.snapshot().nfcBodies.isEmpty)
+
+        backend.configure { $0.nfcStatus = 404 }
+        do { _ = try await store.operatorNFCTags(); XCTFail("Missing RPC must be reported") }
+        catch { XCTAssertEqual(error as? OiNFCTagError, .notDeployed) }
+
+        backend.configure { $0.nfcStatus = 200; $0.nfcMismatchedReceipt = true }
+        do { _ = try await store.setNFCTag("pond-01", story: nil, active: true, note: ""); XCTFail("Receipt must match the request") }
+        catch { XCTAssertEqual(error as? OiNFCTagError, .mismatchedReceipt) }
+
+        backend.configure { $0.nfcMismatchedReceipt = false; $0.isOperator = false }
+        do { _ = try await store.operatorNFCTags(); XCTFail("Non-operators must not read tags") }
+        catch { XCTAssertNotEqual(error as? OiNFCTagError, .notDeployed) }
     }
 
     @MainActor func testOperatorAuditPagesKeepCursorAndApplyCategory() async throws {

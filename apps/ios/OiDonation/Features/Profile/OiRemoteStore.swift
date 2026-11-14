@@ -350,6 +350,17 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         try await withOperatorSession { api, token in try await api.operatorAudit(query, after: cursor, token: token) }
     }
 
+    /// NFC postcard tags (#310). The server checks operator rights again and audits every change.
+    func operatorNFCTags() async throws -> [OiNFCTag] {
+        try await withOperatorSession { api, token in try await api.operatorNFCTags(token: token) }
+    }
+
+    func setNFCTag(_ tagID: String, story: UUID?, active: Bool, note: String) async throws -> OiNFCTagReceipt {
+        try await withOperatorSession { api, token in
+            try await api.setNFCTag(tagID, story: story, active: active, note: note, token: token)
+        }
+    }
+
     func operatorStory(_ id: UUID) async throws -> OiOperatorStoryDetail {
         try await withOperatorSession { api, token in
             let stories = try await api.rows("oi_stories", query: "id=eq.\(id.uuidString)&status=in.(pending,published,hidden)",
