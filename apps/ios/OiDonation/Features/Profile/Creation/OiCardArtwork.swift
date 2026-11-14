@@ -69,11 +69,12 @@ struct OiCardBackground: View {
     var body: some View {
         GeometryReader { geometry in
             let paper = customization.card ?? OiCardDesign()
-            let photoTint = paper.photoMonochrome == true && paper.backgroundPhoto != nil
+            let photoTint = !customization.showsCharacter && paper.photoMonochrome == true && paper.backgroundPhoto != nil
             ZStack {
                 Group {
                     if customization.showsCharacter, paper.usesCharacterBackdrop {
                         Color(oiRGB: OiPostcardCharacterBackdrop.color(for: paper))
+                            .opacity(OiCardOpacity.normalized(paper.characterBackdropOpacity))
                     } else if paper.postcardLayoutVersion == 2 {
                         Color.clear
                     } else if let style = paper.postcardBackground {
@@ -88,7 +89,7 @@ struct OiCardBackground: View {
                                    height: geometry.size.height + gradientInset * 2)
                     }
                 }.frame(width: geometry.size.width, height: geometry.size.height)
-                if !(customization.showsCharacter && paper.characterBackdropEnabled == true),
+                if !customization.showsCharacter,
                    let design = customization.card, let bytes = design.backgroundPhoto,
                    let photo = UIImage(data: bytes) {
                     OiCardPlacedImage(image: photo, placement: design.backgroundPlacement)
@@ -139,6 +140,7 @@ struct OiCardPlacementEditor: View {
     var compact = false
     var minimalChrome = false
     var backdropColor: UInt32? = nil
+    var backdropOpacity: Double = 1
     var emptyMessage = "오이 이미지를 준비하고 있어요"
     var look: OiWardrobeLook? = nil
     var orientation: Binding<OiCardOrientation>? = nil
@@ -172,7 +174,9 @@ struct OiCardPlacementEditor: View {
                     .accessibilityIdentifier("oi.card.placement.reset")
             }.frame(height: compact ? 32 : nil) }
             ZStack {
-                RoundedRectangle(cornerRadius: 5).fill(backdropColor.map { Color(oiRGB: $0) } ?? .white)
+                RoundedRectangle(cornerRadius: 5).fill(backdropColor.map {
+                    Color(oiRGB: $0).opacity(OiCardOpacity.normalized(backdropOpacity))
+                } ?? .white)
                 if let look, let orientation, let onCapture {
                     GeometryReader { proxy in
                         let p = placement.normalized

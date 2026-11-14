@@ -14,6 +14,7 @@ struct OiPostcardColorRing: View {
     @Binding var color: UInt32
     var pickerHeight: CGFloat = 500
     var onReset: (() -> Void)? = nil
+    var opacity: Binding<Double>? = nil
     @State private var showingPicker = false
 
     var body: some View {
@@ -22,41 +23,39 @@ struct OiPostcardColorRing: View {
             .accessibilityLabel("\(title) 색상 선택")
             .accessibilityValue(String(format: "#%06X", color))
             .sheet(isPresented: $showingPicker) {
-                VStack(spacing: 0) {
-                    if let onReset {
-                        HStack {
-                            Spacer()
-                            OiPostcardColorResetButton(reset: onReset).frame(width: 72, height: 44)
-                        }.padding(.horizontal, 20).padding(.top, 8)
-                    }
-                    OiPostcardNativeColorPicker(title: "\(title) Color", color: $color) { showingPicker = false }
-                }.presentationDetents([.height(pickerHeight), .large])
+                OiPostcardColorSheet(color: $color, opacity: opacity, onReset: onReset)
+                    .presentationDetents([.height(pickerHeight), .large])
                     .presentationBackgroundInteraction(.enabled(upThrough: .height(pickerHeight)))
                     .presentationDragIndicator(.visible)
             }
     }
+
 }
 
-/// Keep the reset control in the sheet header while the picker continues updating the card.
-private struct OiPostcardColorResetButton: UIViewRepresentable {
-    let reset: () -> Void
-    func makeCoordinator() -> Coordinator { Coordinator(reset: reset) }
-    func makeUIView(context: Context) -> UIButton {
-        let button = UIButton(type: .system)
-        var configuration = UIButton.Configuration.plain()
-        configuration.title = "초기화"
-        configuration.baseForegroundColor = UIColor(Color("OiGreen"))
-        button.configuration = configuration
-        button.accessibilityIdentifier = "oi.postcard.color.reset"
-        button.accessibilityHint = "오이 뒤 배경을 자동 추천 색상으로 되돌립니다"
-        button.addAction(UIAction { [weak coordinator = context.coordinator] _ in coordinator?.reset() },
-            for: .primaryActionTriggered)
-        return button
+/// Reset sheets retain their upper toolbar; other sheets use the native Color row.
+private struct OiPostcardColorSheet: View {
+    @Binding var color: UInt32
+    var opacity: Binding<Double>?
+    var onReset: (() -> Void)?
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        OiPostcardNativeColorPicker(title: "Color", color: $color, opacity: opacity,
+            onReset: onReset) { dismiss() }
     }
-    func updateUIView(_ button: UIButton, context: Context) { context.coordinator.reset = reset }
-    final class Coordinator {
-        var reset: () -> Void
-        init(reset: @escaping () -> Void) { self.reset = reset }
+}
+
+struct OiPostcardOpacityControl: View {
+    @Binding var opacity: Double
+    var body: some View {
+        HStack(spacing: 12) {
+            Text("불투명도").font(.caption)
+            Slider(value: $opacity, in: 0...1, step: 0.01)
+                .accessibilityLabel("불투명도")
+                .accessibilityIdentifier("oi.postcard.opacity.slider")
+            Text("\(Int((OiCardOpacity.normalized(opacity) * 100).rounded()))%")
+                .font(.caption.monospacedDigit()).frame(width: 44, alignment: .trailing)
+        }.frame(minHeight: 36)
     }
 }
 
@@ -86,26 +85,101 @@ private struct OiPostcardColorRingButton: UIViewRepresentable {
 struct OiPostcardNativeColorPicker: UIViewControllerRepresentable {
     let title: String
     @Binding var color: UInt32
+    var opacity: Binding<Double>? = nil
+    var onReset: (() -> Void)? = nil
     let onFinish: () -> Void
 
+    private var selectedColor: UIColor {
+        UIColor(Color(oiRGB: color)).withAlphaComponent(OiCardOpacity.normalized(opacity?.wrappedValue))
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
-    func makeUIViewController(context: Context) -> UIColorPickerViewController {
+    func makeUIViewController(context: Context) -> UIViewController {
         let picker = UIColorPickerViewController()
-        picker.supportsAlpha = false
-        picker.selectedColor = UIColor(Color(oiRGB: color))
+        picker.supportsAlpha = opacity != nil
+        picker.selectedColor = selectedColor
         picker.title = title
         picker.delegate = context.coordinator
-        return picker
+        if onReset != nil {
+            // System bar items supply the confirmation appearance without nested glass.
+            let apply = UIBarButtonItem(barButtonSystemItem: .done,
+                target: context.coordinator, action: #selector(Coordinator.finish))
+            apply.style = .prominent
+            apply.accessibilityLabel = "색상 적용"
+            apply.accessibilityIdentifier = "oi.postcard.color.apply"
+            picker.navigationItem.rightBarButtonItem = apply
+            let reset = UIBarButtonItem(title: "초기화", style: .plain,
+                target: context.coordinator, action: #selector(Coordinator.reset))
+            reset.accessibilityIdentifier = "oi.postcard.color.reset"
+            picker.navigationItem.leftBarButtonItem = reset
+            picker.navigationItem.title = ""
+            picker.navigationItem.largeTitleDisplayMode = .never
+            let navigation = UINavigationController(rootViewController: picker)
+            navigation.navigationBar.tintColor = .systemBlue
+            return navigation
+        }
+        let container = UIViewController()
+        container.addChild(picker)
+        container.view.addSubview(picker.view)
+        picker.view.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            picker.view.leadingAnchor.constraint(equalTo: container.view.leadingAnchor),
+            picker.view.trailingAnchor.constraint(equalTo: container.view.trailingAnchor),
+            picker.view.topAnchor.constraint(equalTo: container.view.topAnchor),
+            picker.view.bottomAnchor.constraint(equalTo: container.view.bottomAnchor)
+        ])
+        picker.didMove(toParent: container)
+        let apply = UIButton(type: .system)
+        var configuration = UIButton.Configuration.prominentGlass()
+        configuration.image = UIImage(systemName: "checkmark")
+        configuration.cornerStyle = .capsule
+        apply.configuration = configuration
+        apply.tintColor = .systemBlue
+        apply.accessibilityLabel = "색상 적용"
+        apply.accessibilityIdentifier = "oi.postcard.color.apply"
+        apply.addAction(UIAction { [weak coordinator = context.coordinator] _ in
+            coordinator?.parent.onFinish()
+        }, for: .primaryActionTriggered)
+        container.view.addSubview(apply)
+        apply.translatesAutoresizingMaskIntoConstraints = false
+        // iOS 26 has a leading eyedropper and a 56pt title row; iOS 27 moves it
+        // to the trailing edge and uses 72pt. Mirror it without touching native views.
+        let horizontal: NSLayoutConstraint
+        let titleRowHeight: CGFloat
+        if #available(iOS 27, *) {
+            horizontal = apply.leadingAnchor.constraint(equalTo: container.view.safeAreaLayoutGuide.leadingAnchor, constant: 10)
+            titleRowHeight = 72
+        } else {
+            horizontal = apply.trailingAnchor.constraint(equalTo: container.view.safeAreaLayoutGuide.trailingAnchor, constant: -10)
+            titleRowHeight = 56
+        }
+        NSLayoutConstraint.activate([
+            apply.topAnchor.constraint(equalTo: container.view.safeAreaLayoutGuide.topAnchor, constant: (titleRowHeight - 44) / 2),
+            horizontal,
+            apply.widthAnchor.constraint(equalToConstant: 44),
+            apply.heightAnchor.constraint(equalToConstant: 44)
+        ])
+        return container
     }
-    func updateUIViewController(_ picker: UIColorPickerViewController, context: Context) {
+    func updateUIViewController(_ container: UIViewController, context: Context) {
         context.coordinator.parent = self
-        if Color(picker.selectedColor).oiRGB != color { picker.selectedColor = UIColor(Color(oiRGB: color)) }
+        let picker = (container as? UINavigationController)?.viewControllers.first as? UIColorPickerViewController
+            ?? container.children.first as? UIColorPickerViewController
+        guard let picker else { return }
+        if Color(picker.selectedColor).oiRGB != color ||
+            abs(Double(picker.selectedColor.cgColor.alpha) - Double(selectedColor.cgColor.alpha)) > 0.0001 {
+            picker.selectedColor = selectedColor
+        }
     }
     final class Coordinator: NSObject, UIColorPickerViewControllerDelegate {
         var parent: OiPostcardNativeColorPicker
         init(_ parent: OiPostcardNativeColorPicker) { self.parent = parent }
+        @objc func finish() { parent.onFinish() }
+        @objc func reset() { parent.onReset?() }
         func colorPickerViewController(_ picker: UIColorPickerViewController, didSelect color: UIColor, continuously: Bool) {
-            parent.color = Color(color).oiRGB
+            let rgb = Color(color).oiRGB
+            if parent.color != rgb { parent.color = rgb }
+            parent.opacity?.wrappedValue = OiCardOpacity.normalized(Double(color.cgColor.alpha))
         }
         func colorPickerViewControllerDidFinish(_ picker: UIColorPickerViewController) { parent.onFinish() }
     }

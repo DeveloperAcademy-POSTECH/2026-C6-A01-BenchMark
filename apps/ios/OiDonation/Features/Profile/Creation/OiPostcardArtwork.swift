@@ -34,7 +34,8 @@ struct OiPostcardFront<Artwork: View>: View {
             if design?.postcardLayoutVersion == 2 {
                 Rectangle().stroke(Color(white: 0.62), lineWidth: 0.6)
                     .frame(width: 296, height: 436).offset(x: 33, y: 33)
-                OiPostcardDecorations(stamp: design?.postcardStamp, logo: design?.postcardLogo)
+                OiPostcardDecorations(stamp: design?.postcardStamp, logo: design?.postcardLogo,
+                    logoOpacity: OiCardOpacity.normalized(design?.postcardLogoOpacity))
             } else {
                 ForEach(0..<3) { index in
                     Image("OiPostcardWave\(index + 1)").resizable()
@@ -52,7 +53,7 @@ struct OiPostcardFront<Artwork: View>: View {
                     .accessibilityHidden(true)
             }
             Image("OiPostcardSeal").renderingMode(.template).resizable()
-                .foregroundStyle(Color(oiRGB: OiPostcardInk.color(backgroundStyle?.paperColor ?? first)))
+                .foregroundStyle(Color(oiRGB: OiPostcardInk.color(backgroundStyle?.visiblePaperColor ?? first)))
                 .frame(width: design?.postcardLayoutVersion == 2 ? 98 : 116,
                        height: design?.postcardLayoutVersion == 2 ? 98 : 116)
                 .offset(x: design?.postcardLayoutVersion == 2 ? 243 : 229,
@@ -71,7 +72,7 @@ struct OiPostcardBack: View {
     let author: String
     var scrollable = false
     var exportFontSize: CGFloat? = nil
-    private var ink: Color { Color(oiRGB: OiPostcardInk.color(backgroundStyle?.paperColor ?? first)) }
+    private var ink: Color { Color(oiRGB: OiPostcardInk.color(backgroundStyle?.visiblePaperColor ?? first)) }
     var body: some View {
         ZStack(alignment: .topLeading) {
             if let backgroundStyle { OiPostcardBackground(style: backgroundStyle) }
@@ -83,7 +84,8 @@ struct OiPostcardBack: View {
                     Image("OiPostcardWatermark").renderingMode(.template).resizable()
                         .foregroundStyle(ink.opacity(0.15))
                 }
-            }.frame(width: 213, height: 213).offset(x: 129, y: 259).accessibilityHidden(true)
+            }.opacity(OiCardOpacity.normalized(backgroundStyle?.backLogoOpacity))
+                .frame(width: 213, height: 213).offset(x: 129, y: 259).accessibilityHidden(true)
             Group {
                 if scrollable {
                     ScrollView { letter.fixedSize(horizontal: false, vertical: true) }.scrollIndicators(.hidden)
@@ -213,15 +215,21 @@ enum OiPostcardDate {
 struct OiPostcardBackground: View {
     let style: OiPostcardBackgroundStyle
     var body: some View {
+        ZStack { Color.white; colors }
+    }
+    @ViewBuilder private var colors: some View {
         if let key = style.preset, let preset = OiPostcardPreset(rawValue: key) {
-            Image(preset.asset).resizable()
+            Image(preset.asset).resizable().opacity(OiCardOpacity.normalized(style.startOpacity))
         } else if let middle = style.middleColor, let end = style.endColor {
-            if let image = OiPostcardBackgroundTexture.image(start: style.color, middle: middle, end: end) {
+            if let image = OiPostcardBackgroundTexture.image(start: style.color, middle: middle, end: end,
+                startOpacity: OiCardOpacity.normalized(style.startOpacity),
+                middleOpacity: OiCardOpacity.normalized(style.middleOpacity),
+                endOpacity: OiCardOpacity.normalized(style.endOpacity)) {
                 Image(uiImage: image).resizable()
-            } else { Color(oiRGB: middle) }
+            } else { Color(oiRGB: middle).opacity(OiCardOpacity.normalized(style.middleOpacity)) }
         } else if style.fill == .gradient, let image = OiPostcardBackgroundTexture.image(color: style.color) {
-            Image(uiImage: image).resizable()
-        } else { Color(oiRGB: style.color) }
+            Image(uiImage: image).resizable().opacity(OiCardOpacity.normalized(style.startOpacity))
+        } else { Color(oiRGB: style.color).opacity(OiCardOpacity.normalized(style.startOpacity)) }
     }
 }
 
@@ -255,17 +263,22 @@ enum OiPostcardBackgroundTexture {
         }
     }()
 
-    static func image(start: UInt32, middle: UInt32, end: UInt32) -> UIImage? {
-        let key = "figma-fields-v1-\(start)-\(middle)-\(end)" as NSString
+    static func image(start: UInt32, middle: UInt32, end: UInt32,
+                      startOpacity: Double = 1, middleOpacity: Double = 1, endOpacity: Double = 1) -> UIImage? {
+        let a = OiCardOpacity.normalized(startOpacity), b = OiCardOpacity.normalized(middleOpacity)
+        let c = OiCardOpacity.normalized(endOpacity)
+        let key = "figma-fields-v2-\(start)-\(middle)-\(end)-\(a)-\(b)-\(c)" as NSString
         if let image = cache.object(forKey: key) { return image }
         guard customMasks.count == 2 else { return nil }
         let extent = CGRect(x: 0, y: 0, width: 362, height: 502)
-        var output = CIImage(color: CIColor(color: UIColor(Color(oiRGB: middle)))).cropped(to: extent)
-        for (mask, color) in zip(customMasks, [end, start]) {
+        let base = CIImage(color: CIColor(color: UIColor(Color(oiRGB: middle)).withAlphaComponent(b))).cropped(to: extent)
+        var output = base.composited(over: CIImage(color: CIColor.white).cropped(to: extent))
+        for (mask, field) in zip(customMasks, [(end, c), (start, a)]) {
+            let (color, opacity) = field
             let zero = CIVector(x: 0, y: 0, z: 0, w: 0)
             let tinted = mask.applyingFilter("CIColorMatrix", parameters: [
                 "inputRVector": zero, "inputGVector": zero, "inputBVector": zero,
-                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1),
+                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: opacity),
                 "inputBiasVector": CIVector(x: CGFloat((color >> 16) & 255) / 255,
                     y: CGFloat((color >> 8) & 255) / 255, z: CGFloat(color & 255) / 255, w: 0)
             ])
@@ -343,11 +356,13 @@ enum OiPostcardBackgroundTexture {
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let pngProperties = properties[kCGImagePropertyPNGDictionary] as? [CFString: Any],
               let value = pngProperties[kCGImagePropertyPNGDescription] as? String,
-              value.hasPrefix(prefix), value.count < 512,
+              value.hasPrefix(prefix), value.count < 1024,
               let data = Data(base64Encoded: String(value.dropFirst(prefix.count))),
               let style = try? JSONDecoder().decode(OiPostcardBackgroundStyle.self, from: data),
               [style.color, style.middleColor ?? 0, style.endColor ?? 0, style.backLogoColor ?? 0]
-                .allSatisfy({ $0 <= 0xFFFFFF }) else { return }
+                .allSatisfy({ $0 <= 0xFFFFFF }),
+              [style.startOpacity, style.middleOpacity, style.endOpacity, style.backLogoOpacity]
+                .compactMap({ $0 }).allSatisfy({ $0.isFinite && (0...1).contains($0) }) else { return }
         styles.setObject(data as NSData, forKey: image)
     }
     static func style(for image: UIImage) -> OiPostcardBackgroundStyle? {
