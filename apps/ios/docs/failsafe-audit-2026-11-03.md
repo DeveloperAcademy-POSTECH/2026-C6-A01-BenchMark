@@ -103,3 +103,10 @@ Needs confirmation:
 - 독립 iOS 검사 22개, App Clip 폰트·AR 이미지, 콜라주, iPhone용 미서명 Release 빌드, Supabase Node 검사 42개와 격리 DB 회귀 검사를 통과했다. 새 집계는 공개·숨김·초안·0건·중복 ID·최대 200개 입력과 기존 RPC 호환을 검증했다.
 - 운영 DB Performance Advisor에서 인덱스가 없는 외래 키 9건, 사용 기록이 없는 인덱스 5건, 같은 역할·동작에 적용되는 허용형 RLS 정책 중복 2건을 확인했다. 출시 DB의 데이터 규모와 조회 통계를 고려해 집계 경로에 필요한 기존 인덱스를 사용했다.
 - Xcode 27.1에서 Swift 6 전환 시 오류가 될 격리 진단과 사용 중단 API 경고가 남는다. 보완 후 `testPanEdgesBounceAndRebaseDuringMultitouch`에서 우선순위 역전 런타임 경고가 1건 기록됐다. 실기기의 홈 지도 유휴 전력·열 상태와 현장 GPS·AR 카메라, 실제 제공자 로그인은 별도 확인이 필요하다.
+
+
+## 2026-11-14 develop → main 통합 점검 — #329
+
+NFC 연동 후 독립 Swift 검사에서 `StoryRepository`의 `AppClipLink`, `OiServiceAPI`의 `OiNFCTagError` 참조를 컴파일할 입력이 누락되어 있었다. 구조·MY·AR 시각 검사에 `AppClipLink.swift`, Apple 인증 교환·서비스 검사에 이 파일과 `OiOperatorNFCTagModel.swift`를 추가했다. 앱 런타임 동작이나 개인 서명 설정은 바꾸지 않았다.
+
+보완 후 구조·Apple 인증 교환·MY·서비스 검사 4개가 통과했고 AR 시각 검사 실행 파일도 같은 입력으로 독립 컴파일했다. App Clip 링크·캠퍼스·NFC 검사 3개도 통과했다. iOS 27.2에서 지도/교육지구·원격 저장/운영자·양면 카드/사진/오이 편집 검사 126개 통과, 명시적 수동 조작 3개 건너뜀, 실패 0건이다. 본 앱과 App Clip의 미서명 Release 빌드 및 임시 로컬 PostgreSQL 전체 마이그레이션·권한 회귀 검사가 통과했다. 교육지구 웹 체험 검사 중 우선순위 역전 경고 1건은 남는다.
