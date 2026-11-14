@@ -30,10 +30,12 @@ struct PublicPostcardDetails: Sendable {
     let frontURL: URL?
     /// Postcard back rendered with the front; nil for stories submitted by older app versions.
     let backURL: URL?
-    /// First story photo, shown faintly on the card to scratch.
+    /// First story photo, used only when no approved postcard front exists.
     let coverPhotoURL: URL?
     /// "26학번 디벨로퍼학과 신수리" when the author filled in the public donor search fields.
     let donorLine: String?
+    /// Approved sticker-free window from a format-3 snapshot.
+    var coverURL: URL? = nil
 }
 
 extension StoryRepository {
@@ -203,7 +205,7 @@ struct RealStoryRepository: StoryRepository {
         try Task.checkCancellation()
         guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
         var card = StoryCard(cardID: row.id.uuidString, storyID: row.id.uuidString, imageURL: imageURL)
-        if row.cardSnapshotFormat == 2, let snapshot = row.cardSnapshotId {
+        if [2, 3].contains(row.cardSnapshotFormat ?? 1), let snapshot = row.cardSnapshotId {
             let owner = row.storageOwnerId ?? row.userId
             card.backImageURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id, snapshot: snapshot, part: .back))
             card.frontPreviewURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id, snapshot: snapshot, part: .frontPreview))
@@ -240,9 +242,12 @@ struct RealStoryRepository: StoryRepository {
     func fetchPublicPostcardDetails(storyID: String) async throws -> PublicPostcardDetails? {
         guard let row = try await publishedRecord(storyID: storyID) else { return nil }
         let owner = row.storageOwnerId ?? row.userId
-        var frontURL: URL?, backURL: URL?
+        var frontURL: URL?, backURL: URL?, coverURL: URL?
         if let snapshot = row.cardSnapshotId {
-            let isDuplex = row.cardSnapshotFormat == 2
+            if row.cardSnapshotFormat == 3 {
+                coverURL = try? await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id, snapshot: snapshot, part: .cover))
+            }
+            let isDuplex = [2, 3].contains(row.cardSnapshotFormat ?? 1)
             frontURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id,
                 snapshot: snapshot, part: isDuplex ? .frontPreview : .front))
             if isDuplex {
@@ -269,7 +274,7 @@ struct RealStoryRepository: StoryRepository {
         try Task.checkCancellation()
         guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
         return PublicPostcardDetails(frontURL: frontURL, backURL: backURL, coverPhotoURL: coverPhotoURL,
-                                     donorLine: profile.flatMap(Self.donorLine))
+                                     donorLine: profile.flatMap(Self.donorLine), coverURL: coverURL)
     }
 
     private static func donorLine(_ profile: Profile) -> String? {

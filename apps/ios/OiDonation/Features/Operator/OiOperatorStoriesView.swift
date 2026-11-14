@@ -222,7 +222,7 @@ struct OiOperatorStoryDetailView: View {
             Section("작성자가 꾸민 카드") {
                 if story.cardArtworkPaths.allSatisfy({ checkedCards[$0] != nil }) {
                     ForEach(Array(story.cardArtworkPaths.enumerated()), id: \.element) { index, path in
-                        let title = ["카드 앞면", "카드 뒷면", "앞면 미리보기", "뒷면 미리보기"][index]
+                        let title = ["카드 앞면", "카드 뒷면", "앞면 미리보기", "뒷면 미리보기", "스티커 없는 표지"][index]
                         if let image = checkedCards[path] {
                             Button {
                                 selectedArtwork = ReviewArtwork(id: path, title: title, image: image)

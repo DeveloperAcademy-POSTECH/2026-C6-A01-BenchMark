@@ -68,11 +68,12 @@ final class ScratchPostcardLoader {
             }
             async let front = Self.image(details.frontURL)
             async let back = Self.image(details.backURL)
+            async let cleanCover = try? Self.image(details.coverURL)
             async let character = try? Self.image(story.cucumberImageURL)
             let frontImage = try await front
-            // The card to scratch shows the same picture as the approved front (#326). Only stories
-            // without a postcard front fall back to their first photo.
-            var cover = frontImage.flatMap(Self.postcardWindow)
+            // Prefer the reviewed sticker-free window. Older snapshots and unavailable covers
+            // use the approved front window; only stories without a front use their first photo.
+            var cover = await cleanCover ?? frontImage.flatMap(Self.postcardWindow)
             if cover == nil, frontImage == nil {
                 cover = (try? await Self.image(details.coverPhotoURL)) ?? nil
             }
