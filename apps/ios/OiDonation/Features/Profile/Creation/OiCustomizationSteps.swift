@@ -416,6 +416,12 @@ struct OiCardCustomizationStep: View {
                             set: { color in updateBackground { $0.backLogoColor = color } }), pickerHeight: 360,
                             opacity: Binding(get: { OiCardOpacity.normalized(style.backLogoOpacity) },
                                 set: { alpha in updateBackground { $0.backLogoOpacity = alpha } }))
+                            .overlay {
+                                Circle().fill(Color(oiRGB: color))
+                                    .opacity(OiCardOpacity.normalized(style.backLogoOpacity))
+                                    .frame(width: 18, height: 18)
+                                    .allowsHitTesting(false).accessibilityHidden(true)
+                            }
                             .accessibilityIdentifier("oi.card.back.logo.color")
                         Text(String(format: "#%06X", color)).font(CampusStyle.body(12)).foregroundStyle(.secondary)
                     }
