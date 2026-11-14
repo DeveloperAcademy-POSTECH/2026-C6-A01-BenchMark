@@ -1,0 +1,591 @@
+{
+  "dinosaur": {
+    "eyes": [
+      [
+        200,
+        393,
+        12,
+        12
+      ],
+      [
+        292,
+        397,
+        12,
+        12
+      ]
+    ],
+    "mouth": [
+      219,
+      428,
+      270,
+      429,
+      15,
+      5
+    ],
+    "hood": true,
+    "greenRatio": 1.18,
+    "core": [
+      237,
+      420,
+      100,
+      110
+    ],
+    "feet": false,
+    "sourceSHA256": "dddcb66b5d9e9f5230e3c1dc18ba93287d545be364ff64b517df244664ffe624",
+    "rootLayer": "closet-dinosaur.usdc",
+    "meshPath": "/OiCloset/Root/Costume_dinosaur/mesh1",
+    "greenBlueRatio": 3.5,
+    "stemBottom": 1.35
+  },
+  "raincoat": {
+    "eyes": [
+      [
+        200,
+        357,
+        11.8,
+        12
+      ],
+      [
+        286,
+        372,
+        11.8,
+        12
+      ]
+    ],
+    "mouth": [
+      222,
+      392,
+      267,
+      402,
+      12,
+      5
+    ],
+    "hood": true,
+    "core": [
+      240,
+      374,
+      116,
+      115
+    ],
+    "feet": true,
+    "sourceSHA256": "752a9d903863b64206aaa5be9b5de37e3e9b00f01aed91207dfe104cdf8f0c51",
+    "rootLayer": "closet-raincoat.usdc",
+    "meshPath": "/OiCloset/Root/Costume_raincoat/mesh1_001",
+    "stemBottom": 1.34,
+    "greenRatio": 1.4,
+    "headOutline": [
+      240,
+      371,
+      166,
+      163
+    ],
+    "stemOutline": [
+      [
+        218,
+        148
+      ],
+      [
+        213,
+        130
+      ],
+      [
+        222,
+        101
+      ],
+      [
+        241,
+        71
+      ],
+      [
+        279,
+        39
+      ],
+      [
+        310,
+        25
+      ],
+      [
+        333,
+        29
+      ],
+      [
+        342,
+        41
+      ],
+      [
+        341,
+        57
+      ],
+      [
+        326,
+        65
+      ],
+      [
+        304,
+        64
+      ],
+      [
+        282,
+        78
+      ],
+      [
+        263,
+        97
+      ],
+      [
+        254,
+        122
+      ],
+      [
+        254,
+        146
+      ]
+    ],
+    "textureSize": 2048
+  },
+  "bee": {
+    "eyes": [
+      [
+        193,
+        418,
+        12,
+        12
+      ],
+      [
+        285,
+        424,
+        12,
+        12
+      ]
+    ],
+    "mouth": [
+      214,
+      451,
+      263,
+      452,
+      13,
+      5
+    ],
+    "hood": true,
+    "core": [
+      240,
+      433,
+      117,
+      140
+    ],
+    "feet": true,
+    "sourceSHA256": "c1bc09c0b20bf360188165c601db71ee026d35b128f5b66b35efa8c1cead1477",
+    "rootLayer": "closet-bee.usdc",
+    "meshPath": "/OiCloset/Root/Costume_bee/mesh1_002",
+    "stemBottom": 1.3,
+    "greenRatio": 1.35
+  },
+  "cat": {
+    "eyes": [
+      [
+        198,
+        391,
+        11.5,
+        12
+      ],
+      [
+        282,
+        391,
+        11.5,
+        12
+      ]
+    ],
+    "mouth": [
+      216,
+      432,
+      263,
+      433,
+      11,
+      5
+    ],
+    "hood": true,
+    "core": [
+      240,
+      416,
+      109,
+      113
+    ],
+    "feet": false,
+    "sourceSHA256": "19e59c7aadce5a267bc7f08fb299e5053dc4a206b5f008ee303a458bd70056de",
+    "rootLayer": "closet-cat.usdc",
+    "meshPath": "/OiCloset/Root/Costume_cat/mesh1_003",
+    "stemBottom": 1.34
+  },
+  "astronaut": {
+    "eyes": [
+      [
+        207,
+        356,
+        11.5,
+        12
+      ],
+      [
+        280,
+        356,
+        11.5,
+        12
+      ]
+    ],
+    "mouth": [
+      222,
+      386,
+      264,
+      387,
+      10,
+      4.5
+    ],
+    "helmet": true,
+    "core": [
+      240,
+      334,
+      168,
+      136
+    ],
+    "feet": false,
+    "sourceSHA256": "53099c428a47129ce5aaab3432cc01b7054538d0ef5a4444948999994c220d61",
+    "rootLayer": "wardrobe-costume-astronaut.usdc",
+    "meshPath": "/OiCostume/mesh1/mesh1",
+    "facePolygons": [
+      [
+        [
+          235,
+          187
+        ],
+        [
+          315,
+          200
+        ],
+        [
+          380,
+          243
+        ],
+        [
+          407,
+          295
+        ],
+        [
+          411,
+          380
+        ],
+        [
+          377,
+          438
+        ],
+        [
+          319,
+          465
+        ],
+        [
+          240,
+          477
+        ],
+        [
+          159,
+          464
+        ],
+        [
+          102,
+          438
+        ],
+        [
+          69,
+          389
+        ],
+        [
+          65,
+          310
+        ],
+        [
+          83,
+          252
+        ],
+        [
+          142,
+          211
+        ]
+      ]
+    ],
+    "stemBottom": 1.37,
+    "textureSize": 2048,
+    "eyeFeather": 2
+  },
+  "scientist": {
+    "eyes": [
+      [
+        211,
+        317,
+        13,
+        13
+      ],
+      [
+        318,
+        317,
+        13,
+        13
+      ]
+    ],
+    "mouth": [
+      244,
+      350,
+      285,
+      349,
+      12,
+      5
+    ],
+    "feet": false,
+    "sourceSHA256": "c882dc3c226d219216538fd5a8eab1732b1a24e0eca682b8ccbc219c3e2a79d6",
+    "rootLayer": "wardrobe-costume-scientist.usdc",
+    "meshPath": "/OiCostume/mesh1/mesh1",
+    "facePolygons": [
+      [
+        [
+          149,
+          277
+        ],
+        [
+          205,
+          271
+        ],
+        [
+          247,
+          271
+        ],
+        [
+          275,
+          270
+        ],
+        [
+          319,
+          273
+        ],
+        [
+          375,
+          279
+        ],
+        [
+          376,
+          345
+        ],
+        [
+          306,
+          345
+        ],
+        [
+          275,
+          327
+        ],
+        [
+          261,
+          325
+        ],
+        [
+          244,
+          343
+        ],
+        [
+          157,
+          346
+        ]
+      ]
+    ],
+    "stemBottom": 1.39,
+    "textureSize": 2048
+  },
+  "cat-bear": {
+    "eyes": [
+      [
+        200,
+        403,
+        11.5,
+        12
+      ],
+      [
+        285,
+        407,
+        11.5,
+        12
+      ]
+    ],
+    "mouth": [
+      218,
+      440,
+      263,
+      442,
+      10,
+      5
+    ],
+    "hood": true,
+    "core": [
+      240,
+      430,
+      102,
+      117
+    ],
+    "feet": false,
+    "sourceSHA256": "9f73fb57a3d72a2a1017485b96c14a9aa6f94eb8a9d97b6853c323676a28f24f",
+    "rootLayer": "wardrobe-costume-cat-bear.usdc",
+    "meshPath": "/OiCostume/mesh1/mesh1",
+    "stemBottom": 1.335
+  },
+  "school-uniform-trousers": {
+    "eyes": [
+      [
+        199,
+        335,
+        12.3,
+        12.8
+      ],
+      [
+        288,
+        364,
+        12.3,
+        12.8
+      ]
+    ],
+    "mouth": [
+      216,
+      382,
+      264,
+      398,
+      15,
+      5
+    ],
+    "feet": false,
+    "sourceSHA256": "ec3bf74f36fb41048d62b81353a1fab753c34194e55e45c4b87f3db67107790f",
+    "rootLayer": "wardrobe-costume-school-uniform-trousers.usdc",
+    "meshPath": "/OiCostume/mesh1/mesh1",
+    "stemBottom": 1.39
+  },
+  "astronaut-navy": {
+    "eyes": [
+      [
+        212,
+        350,
+        12,
+        12.5
+      ],
+      [
+        299,
+        370,
+        12,
+        12.5
+      ]
+    ],
+    "mouth": [
+      226,
+      389,
+      270,
+      404,
+      15,
+      5
+    ],
+    "helmet": true,
+    "core": [
+      240,
+      344,
+      171,
+      145
+    ],
+    "feet": false,
+    "sourceSHA256": "7b22f27792d33d30f12110f5b58b15063233e6b46173fece007622833d0cfe16",
+    "rootLayer": "wardrobe-costume-astronaut-navy.usdc",
+    "meshPath": "/OiCostume/mesh1/mesh1",
+    "facePolygons": [
+      [
+        [
+          240,
+          192
+        ],
+        [
+          318,
+          202
+        ],
+        [
+          380,
+          245
+        ],
+        [
+          417,
+          310
+        ],
+        [
+          418,
+          395
+        ],
+        [
+          388,
+          450
+        ],
+        [
+          320,
+          486
+        ],
+        [
+          240,
+          491
+        ],
+        [
+          158,
+          485
+        ],
+        [
+          100,
+          454
+        ],
+        [
+          64,
+          405
+        ],
+        [
+          61,
+          319
+        ],
+        [
+          84,
+          255
+        ],
+        [
+          148,
+          213
+        ]
+      ]
+    ],
+    "stemBottom": 1.38,
+    "textureSize": 2048,
+    "eyeFeather": 2
+  },
+  "scientist-goggles": {
+    "eyes": [
+      [
+        193,
+        333,
+        12,
+        12.5
+      ],
+      [
+        286,
+        332,
+        12,
+        12.5
+      ]
+    ],
+    "mouth": [
+      216,
+      382,
+      263,
+      397,
+      16,
+      5
+    ],
+    "feet": false,
+    "sourceSHA256": "93a68a4080671a8b35fc5a6af516329d35cae274b2c65f7c3dd787612bd61576",
+    "rootLayer": "wardrobe-costume-scientist-goggles.usdc",
+    "meshPath": "/OiCostume/mesh1/mesh1",
+    "stemBottom": 1.38
+  }
+}

@@ -361,3 +361,75 @@ python3 tools/wardrobe/verify_costume_photo_assets.py
 - `OiFigmaFidelityVisualTests/testApprovedSkinCustomizationCaptures`: 실제 커스텀 화면 캡처
 
 마지막 두 검사는 최신 코드 색상 통합 시 통과했고, 이후 가디건 핏 적용 후에는 앞의 세 검사를 다시 통과했다. 지도 리소스는 최신 develop과 바이트가 동일함을 별도로 확인했다. CI의 Wardrobe photo assets에서도 피부 패키지와 사진 리소스를 검사한다.
+
+
+## 리본 교복 피부 표면 보정 — 2026-11-14 / #327 후속
+
+`wardrobe-costume-school-uniform.usdz`의 피부만 흰티+반바지의 프레시 오이 밝기 4번(`#97D36A` / 줄무늬 `#376C3C`)을 기준으로 정리했다. UV 조각별 색상 편차와 피부 법선 경계가 얼굴의 얼룩·삼각형 흠집처럼 보이던 원인이었다. 피부 색상·요철·roughness(155/255)·metallic(0)을 보정하고, 겹치는 UV 위치의 피부 법선을 재계산했다.
+
+- 정점 위치·면 인덱스·UV·크기·재질 바인딩은 유지한다. 교복·리본의 색·법선 영역은 보호하며 피부 밖 색상의 베이크 반올림 오차는 최대 1/255다. 눈·입의 형태와 150cm 크기는 유지한다.
+- 옷에 사진을 적용할 때도 보정 피부가 유지되도록 해당 의상의 합성용 기본 atlas와 원본 해시를 갱신했다. 사진 프레임·기존 사진 배치는 바꾸지 않는다.
+- 리본 교복만 초상 캐시 버전을 갱신하고 옷장 썸네일을 다시 렌더링했다. 다른 의상과 이미 승인된 서버 이미지 파일은 변경하지 않는다.
+- 검증 수치와 출력 해시는 `tools/wardrobe/ribbon-skin-repair-manifest.json`에 기록한다. 원본은 `45bd65b`의 동일 USDZ이며 입력 해시를 검사해 중복 보정을 막는다.
+
+재생성(Blender 4.5, 원본과 출력은 별도 경로):
+
+```sh
+/Applications/Blender.app/Contents/MacOS/Blender -b --python tools/wardrobe/repair_school_uniform_skin.py -- ORIGINAL.usdz OUTPUT.usdz REPORT_DIR
+/Applications/Blender.app/Contents/MacOS/Blender -b --python tools/wardrobe/prepare_costume_photo_uv.py -- REPORT_DIR school-uniform
+/Applications/Blender.app/Contents/MacOS/Blender -b --python tools/wardrobe/prepare_photo_frames.py
+python3 tools/wardrobe/verify_skin_material_assets.py
+python3 tools/wardrobe/verify_costume_photo_assets.py
+```
+
+`OUTPUT.usdz` 검토 후 앱의 해당 모델과 매니페스트를 갱신하고 사진 UV 자료를 재생성한다. 전체 제작 원본과 사용자의 개인 서명 설정은 수정하지 않는다.
+
+검증: 원본 대비 모든 정점·인덱스·UV·바인딩·교복 법선 보존, USDZ 경로·64byte 정렬 검사 통과. 모바일 예산 12MiB 이내(10,875,916byte), 모든 세트 로드·150cm·썸네일 검사 통과. 실제 RealityKit 리본 교복 렌더링과 세트 사진 합성·복원 검사도 통과했다. 기존 8종 피부 및 19개 합성 소스/33개 프레임 검사도 통과했다.
+
+## 야구복·카우보이·농부·과잠 셀카·운동복·도복 피부 보정 — 2026-11-14
+
+위 여섯 세트도 리본 교복과 같은 밝기 4번 피부 팔레트와 무광 표면으로 보정했다. 각 모델의 피부·눈·입 영역을 별도로 지정해 얼룩과 UV 법선 경계를 정리하고 눈의 albedo를 검정(`#0C0C0C`)으로 통일한다. 모자·안경·휴대폰·야구 장비와 의상은 피부 선택에서 보호한다. 원래 피부의 입체 돌기와 얼굴 형태는 유지한다.
+
+정점·UV·150cm 크기는 유지하며, 세트별 썸네일·사진 합성용 atlas·소스 해시를 함께 갱신한다. 해당 여섯 세트의 초상 캐시 버전만 올려 이전 피부 이미지의 재사용을 막는다. 기존 리본 교복 보정과 기본 8종의 팔레트는 유지한다.
+
+`tools/wardrobe/repair_costume_skin.py`에 모델별 원본 해시와 피부/눈 선택 범위를 기록하고 `tools/wardrobe/costume-skin-repair-manifest.json`에 원본 대비 검증 결과를 남긴다. 재생성 시 원본 USDZ와 출력은 다른 경로를 사용한다.
+
+```sh
+/Applications/Blender.app/Contents/MacOS/Blender -b --python tools/wardrobe/repair_costume_skin.py -- COSTUME_ID ORIGINAL.usdz OUTPUT.usdz REPORT_DIR
+/Applications/Blender.app/Contents/MacOS/Blender -b --python tools/wardrobe/prepare_costume_photo_uv.py -- REPORT_DIR baseball cowboy farmer postech-selfie sportswear martial-arts
+/Applications/Blender.app/Contents/MacOS/Blender -b --python tools/wardrobe/prepare_photo_frames.py
+python3 tools/wardrobe/verify_skin_material_assets.py
+python3 tools/wardrobe/verify_costume_photo_assets.py
+```
+
+검증: 여섯 USDZ의 정점·인덱스·UV·바인딩 보존, 피부 밖 albedo 오차 최대 1/255, 눈 albedo 검정값, 64byte 정렬·자체 포함 패키지·12MiB 예산 검사를 통과했다. 기존 8종 피부 및 19개 사진 합성 소스/33개 프레임 검사도 통과했다. `OiWardrobeAssetTests`의 전체 세트 로드·150cm/썸네일, 실제 RealityKit 렌더링(여섯 세트 포함), 세트별 사진 합성/복원 검사 3개가 모두 통과했다.
+
+### 리본 교복 검정 눈·운동복 눈 주변 번짐 정리 — 2026-11-14
+
+리본 교복의 눈을 검정(`#0C0C0C`)으로 변경하고 운동복의 눈 주변에 번진 어두운 텍스처를 피부색으로 복원했다. 원본 색상 임계값 대신 모델 표면에 투영한 눈동자 영역을 사용한다. 운동복은 눈동자의 UV 여백을 확장하지 않아 주변으로 검정색이 새는 것을 막으며, 리본 교복의 분리된 눈 UV에는 이음새용 여백을 유지한다. 눈 근처의 albedo만 수정하고 피부의 다른 부분·의상·소품·정점·UV·법선·roughness 등은 보존한다.
+
+`tools/wardrobe/refine_costume_eyes.py`로 보정 직전 모델을 별도 출력에 베이크한다. 입력 해시를 검사하며 검증 결과는 `tools/wardrobe/costume-eye-refinement-manifest.json`에 기록한다. 두 모델의 모바일 매니페스트·썸네일·사진 합성용 atlas·해시 및 초상 캐시 버전을 함께 갱신한다. 기존 피부 보정 매니페스트는 각 보정 단계의 기록으로 유지하며 최신 배포 해시는 모바일 매니페스트를 따른다.
+
+검증: 두 모델의 눈 영역 밖 색상 오차 최대 1/255, 정점·UV·법선·바인딩·다른 재질 채널 보존, 12MiB 예산 및 USDZ 정렬 검사 통과. 19개 사진 합성 소스/33개 프레임과 기존 8종 피부 검사 통과. 실제 RealityKit 렌더링, 전체 의상 로드·썸네일·크기 및 사진 합성/복원 검사 3개 통과.
+
+## 완성 세트 전체 피부색 통일 — 2026-11-14
+
+나머지 10종(공룡·우비·꿀벌·고양이 잠옷·흰 우주복·연구원·곰돌이 고양이·바지 교복·남색 우주복·고글 연구원)에도 프레시 오이 밝기 4번의 피부(`#97D36A`)·줄무늬(`#376C3C`)와 roughness 155/255, metallic 0을 적용했다. 앞서 수정한 7종과 기본 8종은 유지한다. 세트 17종의 눈은 검정(`#0C0C0C`)으로 맞추고, 이번 10종의 입은 짙은 초록(`#20452A`)으로 정리한다.
+
+`remaining-costume-skin-config.json`에 원본 해시·주요 피부 메시·후드/헬멧 윤곽·눈·입 범위를 모델별로 지정했다. 공룡의 초록 천과 피부는 원본 색 특성으로 구분한다. 눈·입 마스크는 실제 UV 삼각형 안에만 적용하고 다른 면의 UV를 보호해 마스크 외삽으로 옷·소품이 물드는 것을 방지한다. 헬멧 내부와 고글 내부는 큰 면의 중심만으로 판단하지 않고 픽셀별 윤곽으로 처리한다. 피부 법선만 다시 계산하며 정점·UV·바인딩·옷 법선과 곰돌이 고양이의 별도 꼬리/뒤 원단 메시를 유지한다.
+
+우비·연구원·흰/남색 우주복은 촘촘한 UV의 얼굴 경계를 위해 **색상 맵만 2048px**, 나머지 맵은 1024px로 유지한다. 다른 세트는 1024px를 유지하며 모든 모델은 12MiB 이내다. 2048px 색상 맵은 원본 의상 픽셀을 그대로 반복하여 유지하고 피부만 정밀하게 베이크한다. `mobile-costumes-manifest.json`에 17종의 최신 해시·실제 크기·텍스처 상한을 기록한다.
+
+모델과 썸네일, 사진 합성용 기본 atlas와 소스 해시를 함께 갱신한다. 메시·UV가 그대로이므로 기존 UV 매핑 파일·사진 프레임 위치·저장된 사진 배치는 재사용한다. 이번 10종에만 초상 캐시 버전을 갱신한다. 이미 서버에 제출한 공개 이미지 파일은 변경하지 않는다.
+
+고양이 잠옷도 통일 대상이므로, 기본 8종의 과거 팔레트 기준이 된 고양이 원본 해시는 `skin-material-manifest.json`에 유지한다. `referenceAppearanceUpdate`에 원본→현재 고양이의 검증 기록을 연결하며 기본 8종의 승인된 패키지·텍스처 해시는 바꾸지 않는다.
+
+재생성: Blender 4.5에서 `repair_remaining_costume_skin.py -- ID ORIGINAL.usdz OUTPUT.usdz REPORT_DIR`를 실행한다. 원본과 출력은 별도 경로여야 하며 원본 해시를 검사한다. 검증 수치는 `remaining-costume-skin-repair-manifest.json`을 따른다.
+
+```sh
+python3 tools/wardrobe/verify_costume_skin_assets.py
+python3 tools/wardrobe/verify_skin_material_assets.py
+python3 tools/wardrobe/verify_costume_photo_assets.py
+```
+
+검증 결과: 17종 최신 해시·150cm·12MiB 예산·PNG 크기·썸네일·USDZ 정렬 검사 통과. 기본 8종의 승인된 피부 패키지/팔레트와 고양이 기준 원본→현재 검증 연결 통과. 사진 합성용 19개 소스·33개 프레임 검사 통과. 실제 RealityKit에서 **17종 전부** 렌더링하고 전체 의상 로드/크기/썸네일 및 세트별 사진 합성/복원 검사 3개를 통과했다. 공룡·곰돌이 고양이·고글 연구원의 옆/뒷면도 별도 렌더로 확인했다. 모델링된 오이 돌기·원래 얼굴 형태는 보존한다.
