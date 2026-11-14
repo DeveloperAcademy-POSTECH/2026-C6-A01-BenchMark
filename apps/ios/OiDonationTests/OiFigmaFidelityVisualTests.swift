@@ -617,6 +617,23 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testApprovedSkinCustomizationCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        for top: OiWardrobeLook.Top in [.hoodie, .postech] {
+            var customization = Self.customization
+            var look = OiWardrobeLook(); look.top = top; look.bottom = .shorts
+            customization.wardrobe = look
+            let page = CreationCapturePage(step: 3, anchor: .top) {
+                OiCucumberCustomizationStep(customization: .constant(customization), canContinue: true, onContinue: {})
+                    .environment(\.scenePhase, .active)
+            }
+            try await capture(page, name: "wardrobe-skin-customization-" + top.rawValue,
+                              variant: variants[0], defaults: fixture.defaults, delay: .seconds(4), attach: true,
+                              includesRealityKit: true)
+        }
+    }
+
     func testExpandedCostumeSetCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
@@ -2682,7 +2699,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     private func capture<V: View>(_ view: V, name: String, variant: Variant, defaults: UserDefaults,
                                  includesSafeArea: Bool = true,
                                  delay: Duration = .milliseconds(180), attach: Bool = false,
-                                 checksBottomSheet: Bool = false, cucumberCameraYaw: Float? = nil) async throws -> Data {
+                                 checksBottomSheet: Bool = false, cucumberCameraYaw: Float? = nil,
+                                 includesRealityKit: Bool = false) async throws -> Data {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first, "The isolated simulator test host must have a window scene")
@@ -2738,6 +2756,26 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             XCTAssertEqual(frame.maxY, bounds.maxY, accuracy: 1)
         }
         let renderView: UIView = checksBottomSheet ? window : host.view
+        // UIKit omits Metal layers. Temporarily display each surface's own snapshot
+        // in its exact bounds so the capture also preserves SwiftUI controls above it.
+        var surfaceSnapshots: [UIView] = []
+        defer { surfaceSnapshots.forEach { $0.removeFromSuperview() } }
+        if includesRealityKit {
+            func surfaces(in view: UIView) -> [RealityKit.ARView] {
+                if let surface = view as? RealityKit.ARView { return [surface] }
+                return view.subviews.flatMap { surfaces(in: $0) }
+            }
+            let views = surfaces(in: renderView)
+            XCTAssertFalse(views.isEmpty, "The production customization view must mount its renderer")
+            for surface in views {
+                let image: UIImage? = await withCheckedContinuation { c in
+                    surface.snapshot(saveToHDR: false) { c.resume(returning: $0) }
+                }
+                let snapshot = UIImageView(image: try XCTUnwrap(image))
+                snapshot.frame = surface.bounds
+                surface.addSubview(snapshot); surfaceSnapshots.append(snapshot)
+            }
+        }
         let realitySnapshot: (image: UIImage, frame: CGRect)?
         if let cucumberCameraYaw {
             realitySnapshot = try await captureCucumberSurface(in: renderView, yaw: cucumberCameraYaw)

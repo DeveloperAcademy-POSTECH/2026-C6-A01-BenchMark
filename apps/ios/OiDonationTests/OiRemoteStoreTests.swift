@@ -3527,6 +3527,135 @@ final class OiCostumePhotoTests: XCTestCase {
 /// A valid ZIP alone cannot catch unsupported materials or missing bundled textures.
 @MainActor
 final class OiWardrobeAssetTests: XCTestCase {
+    func testFittedCardiganShortsKeepShapeWhenPhotosAreAppliedAndRemoved() async throws {
+        var plain = OiWardrobeLook(); plain.top = .cardigan; plain.bottom = .shorts
+        plain.topColor = 0xD7CBB8; plain.bottomColor = 0xD7CBB8
+        let (base, _) = try await OiWardrobeAsset.prepare(plain)
+        let bottom = try XCTUnwrap(base.findEntity(named: "Bottom"))
+        // The original protruding shorts reached +0.192m; the approved fit ends at +0.157m.
+        XCTAssertEqual(bottom.visualBounds(relativeTo: base).max.z, 0.156525, accuracy: 0.001)
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32)).image { context in
+            UIColor.magenta.setFill(); context.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+        }
+        let asset = try OiPhotoRenderer.asset(image)
+        var printed = plain
+        for slot in OiPhotoSlot.allCases {
+            let design = OiPhotoDesign(layers: [OiPhotoLayer(source: asset.id), OiPhotoLayer(source: asset.id, side: .back)])
+            try printed.artwork.set(design, sources: [asset.id: asset.data], for: slot.itemID(in: printed))
+        }
+        let restored = try JSONDecoder().decode(OiWardrobeLook.self, from: JSONEncoder().encode(printed))
+        XCTAssertEqual(restored, printed)
+        let (root, overlays) = try await OiWardrobeAsset.prepare(restored)
+        XCTAssertEqual(overlays.count, OiPhotoSlot.allCases.count)
+        for slot in OiPhotoSlot.allCases {
+            let garment = try XCTUnwrap(root.findEntity(named: slot.role))
+            let overlay = try XCTUnwrap(overlays[slot])
+            let expected = garment.visualBounds(relativeTo: root)
+            let actual = overlay.visualBounds(relativeTo: nil)
+            for axis in 0..<3 {
+                XCTAssertEqual(actual.min[axis], expected.min[axis], accuracy: 0.00001, slot.role)
+                XCTAssertEqual(actual.max[axis], expected.max[axis], accuracy: 0.00001, slot.role)
+            }
+        }
+        OiWardrobeAsset.assemble(restored, root: root, overlays: overlays)
+        for slot in OiPhotoSlot.allCases {
+            XCTAssertFalse(try XCTUnwrap(root.findEntity(named: slot.role)).isEnabled)
+            XCTAssertTrue(overlays[slot]?.parent === root)
+        }
+        let (removed, remaining) = try await OiWardrobeAsset.prepare(plain, existing: root)
+        OiWardrobeAsset.assemble(plain, root: removed, overlays: remaining)
+        XCTAssertTrue(remaining.isEmpty)
+        for slot in OiPhotoSlot.allCases {
+            XCTAssertTrue(try XCTUnwrap(removed.findEntity(named: slot.role)).isEnabled)
+        }
+        XCTAssertEqual(removed.visualBounds(relativeTo: nil).extents.y, 1.5, accuracy: 0.005)
+
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let controller = UIViewController()
+        window.frame = CGRect(x: 0, y: 0, width: 480, height: 600)
+        window.rootViewController = controller; window.isHidden = false
+        let scene = OiWardrobeScene()
+        let view = scene.install(); view.frame = window.bounds
+        controller.view.addSubview(view)
+        defer {
+            scene.uninstall(view); view.removeFromSuperview()
+            window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+        }
+        for (name, look) in [("plain", plain), ("photos", restored), ("removed", plain)] {
+            scene.update(look)
+            for _ in 0..<200 where scene.loading { try await Task.sleep(for: .milliseconds(100)) }
+            XCTAssertFalse(scene.loading); XCTAssertNil(scene.error)
+            for (angleName, angle) in [("side", -Float.pi / 2), ("angle", -Float.pi / 3)] {
+                scene.angle(angle)
+                try await Task.sleep(for: .milliseconds(650))
+                let image: UIImage? = await withCheckedContinuation { c in
+                    view.snapshot(saveToHDR: false) { c.resume(returning: $0) }
+                }
+                let attachment = XCTAttachment(image: try XCTUnwrap(image))
+                attachment.name = "cardigan-fit-\(name)-\(angleName)"
+                attachment.lifetime = .keepAlways; add(attachment)
+            }
+        }
+    }
+
+    func testModularOutfitsKeepApprovedSkinAndRenderInWardrobe() async throws {
+        func checkSkin(_ entity: Entity, role: String = "") -> Int {
+            let current = entity.name.hasPrefix("Skin_") ? entity.name : role
+            var count = 0
+            if current.hasPrefix("Skin_"), let model = entity.components[ModelComponent.self] {
+                for material in model.materials {
+                    guard let skin = material as? PhysicallyBasedMaterial else {
+                        XCTFail("Skin must load as PBR: \(entity.name)"); continue
+                    }
+                    XCTAssertNotNil(skin.baseColor.texture, entity.name)
+                    XCTAssertNotNil(skin.normal.texture, entity.name)
+                    XCTAssertEqual(skin.roughness.scale, 155 / 255, accuracy: 0.0001, entity.name)
+                    XCTAssertNil(skin.roughness.texture, entity.name)
+                    XCTAssertEqual(skin.metallic.scale, 0, entity.name)
+                    count += 1
+                }
+            }
+            return count + entity.children.reduce(0) { $0 + checkSkin($1, role: current) }
+        }
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let controller = UIViewController()
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 500)
+        window.rootViewController = controller; window.isHidden = false
+        let scene = OiWardrobeScene()
+        let view = scene.install(); view.frame = window.bounds
+        controller.view.addSubview(view)
+        defer {
+            scene.uninstall(view); view.removeFromSuperview()
+            window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+        }
+        for top in OiWardrobeLook.Top.allCases {
+            for bottom in OiWardrobeLook.Bottom.allCases {
+                var look = OiWardrobeLook(); look.top = top; look.bottom = bottom
+                let (model, overlays) = try await OiWardrobeAsset.prepare(look)
+                let expected = bottom == .shorts ? 5 : 3
+                XCTAssertEqual(checkSkin(model), expected, look.modelName)
+                OiWardrobeAsset.assemble(look, root: model, overlays: overlays)
+                XCTAssertEqual(checkSkin(model), expected, "Clothing tint must preserve the skin material")
+                XCTAssertEqual(model.visualBounds(relativeTo: nil).extents.y, 1.5, accuracy: 0.005)
+                scene.update(look)
+                for _ in 0..<200 {
+                    if !scene.loading { break }
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                XCTAssertFalse(scene.loading, look.modelName); XCTAssertNil(scene.error, look.modelName)
+                try await Task.sleep(for: .seconds(1))
+                let image: UIImage? = await withCheckedContinuation { c in
+                    view.snapshot(saveToHDR: false) { c.resume(returning: $0) }
+                }
+                let attachment = XCTAttachment(image: try XCTUnwrap(image, look.modelName))
+                attachment.name = "wardrobe-skin-" + look.modelName
+                attachment.lifetime = .keepAlways; add(attachment)
+            }
+        }
+    }
+
     @MainActor func testCardRotationSymbolExists() {
         XCTAssertNotNil(UIImage(systemName: "rotate.3d"))
     }

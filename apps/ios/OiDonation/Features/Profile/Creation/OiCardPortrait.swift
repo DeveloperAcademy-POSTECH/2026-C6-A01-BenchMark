@@ -7,7 +7,16 @@ enum OiCardPortrait {
     static func key(for look: OiWardrobeLook) -> String {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         let bytes = (try? encoder.encode(look)) ?? Data()
-        return "portrait-v1-" + SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        // Regenerate this outfit's portraits after its hem and shorts geometry update.
+        let revision: String
+        if look.costume != nil {
+            revision = "portrait-v1-"
+        } else if look.top == .cardigan && look.bottom == .shorts {
+            revision = "portrait-v5-cardigan-shorts-fit-"
+        } else {
+            revision = "portrait-v4-bright4-skin-"
+        }
+        return revision + SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
     }
 }
 

@@ -1,0 +1,232 @@
+{
+  "version": 4,
+  "palette": "fresh-cucumber-bright4",
+  "reference": "wardrobe-costume-cat.usdz",
+  "referenceSHA256": "19e59c7aadce5a267bc7f08fb299e5053dc4a206b5f008ee303a458bd70056de",
+  "baseRGB": [
+    151,
+    211,
+    106
+  ],
+  "stripeRGB": [
+    55,
+    108,
+    60
+  ],
+  "roughness": 0.6078431606292725,
+  "metallic": 0,
+  "clearcoat": 0,
+  "textures": {
+    "45fa84ce02bc215aeff187982c5a45153017486314cd6b49cd0568793fc5821f": {
+      "sourceSHA256": "45fa84ce02bc215aeff187982c5a45153017486314cd6b49cd0568793fc5821f",
+      "outputSHA256": "113b48d5d24553d0bd7c4115128955e8c78f4f3532d9b89b26d89a7566f0c084",
+      "size": [
+        1024,
+        1024
+      ],
+      "oldBaseRGB": [
+        173,
+        246,
+        84
+      ],
+      "oldStripeRGB": [
+        10,
+        37,
+        10
+      ]
+    },
+    "9e30f6e19ab2cf81c8f4d8dd4ab90d4ea8be4f624e248ff220a14782aca89c9d": {
+      "sourceSHA256": "9e30f6e19ab2cf81c8f4d8dd4ab90d4ea8be4f624e248ff220a14782aca89c9d",
+      "outputSHA256": "617c47427f6d5a4646b0181828bd47ce80995df10c19b280f0dc2ad8a6ced676",
+      "size": [
+        1024,
+        1024
+      ],
+      "oldBaseRGB": [
+        163,
+        219,
+        74
+      ],
+      "oldStripeRGB": [
+        24,
+        56,
+        12
+      ]
+    },
+    "920b138c37bb62c94be655e4f2d3d4192354a0c55ef89a2be3bd340b48195d1c": {
+      "sourceSHA256": "920b138c37bb62c94be655e4f2d3d4192354a0c55ef89a2be3bd340b48195d1c",
+      "outputSHA256": "4dadc0cdb5a68ec62435eb1e062418a04fd1f15e1f368cb7177f1f9d43ec032c",
+      "size": [
+        1024,
+        1024
+      ],
+      "oldBaseRGB": [
+        167,
+        245,
+        76
+      ],
+      "oldStripeRGB": [
+        10,
+        44,
+        9
+      ]
+    },
+    "9659bb26c94e3d416ebb4e1ee0aac4a2cac54c368ad1b6c8b47a50a3d9de6aa4": {
+      "sourceSHA256": "9659bb26c94e3d416ebb4e1ee0aac4a2cac54c368ad1b6c8b47a50a3d9de6aa4",
+      "outputSHA256": "ccc0b4ccb2f42c9eafe0de4d04002c2760e59029d2f06217400b1c2a0ab49dd6",
+      "size": [
+        1024,
+        1024
+      ],
+      "oldBaseRGB": [
+        176,
+        249,
+        78
+      ],
+      "oldStripeRGB": [
+        14,
+        46,
+        12
+      ]
+    },
+    "f97248d7c44aa749f60060180577187a904cc931a9bdf1f86b768fd942f5ad02": {
+      "sourceSHA256": "f97248d7c44aa749f60060180577187a904cc931a9bdf1f86b768fd942f5ad02",
+      "outputSHA256": "0c9d80ab1fa66c9a29599bff1f2f6d8cba4a3f53424f3dd87bc0351bd73a26d9",
+      "size": [
+        1024,
+        1024
+      ],
+      "oldBaseRGB": [
+        168,
+        245,
+        84
+      ],
+      "oldStripeRGB": [
+        21,
+        54,
+        22
+      ]
+    }
+  },
+  "models": [
+    {
+      "file": "wardrobe-tshirt-shorts.usdz",
+      "sourceSHA256": "c33faa9e6d3e026aea2c6f282495b915c05bb3fff8f0778e538b4ade17dd5fd3",
+      "outputSHA256": "02106577ce346c7b596f705207b44a9d576bde250115d9ac62fb69b52af4c2d7",
+      "bytes": 11289849,
+      "meshes": 8,
+      "skinMeshes": 5,
+      "heightMeters": 1.50008744405568,
+      "geometryUVsTransformsUnchanged": true,
+      "garmentMaterialsUnchanged": true,
+      "originalTextureBytesUnchanged": true,
+      "selfContainedAlignedUSDZ": true
+    },
+    {
+      "file": "wardrobe-tshirt-long.usdz",
+      "sourceSHA256": "745dbd0902dacca1bc3e3430300fc28621cf08e9ad2a64f66f4ae5401533ae00",
+      "outputSHA256": "d757c86c0c6181bd46f3498f801aaeaae9d2166fb52e62c1073676e2e9954924",
+      "bytes": 12560246,
+      "meshes": 6,
+      "skinMeshes": 3,
+      "heightMeters": 1.5001394408027409,
+      "geometryUVsTransformsUnchanged": true,
+      "garmentMaterialsUnchanged": true,
+      "originalTextureBytesUnchanged": true,
+      "selfContainedAlignedUSDZ": true
+    },
+    {
+      "file": "wardrobe-hoodie-shorts.usdz",
+      "sourceSHA256": "55f73440f54fafe2b17ca4858810cf18d9760be695eb0b61ca03f5a32454b36f",
+      "outputSHA256": "b9e8ff6fd515d045c29dda48df99f8a94a1a225ff16627485d8ce66230feea48",
+      "bytes": 15117089,
+      "meshes": 8,
+      "skinMeshes": 5,
+      "heightMeters": 1.5001679103261267,
+      "geometryUVsTransformsUnchanged": true,
+      "garmentMaterialsUnchanged": true,
+      "originalTextureBytesUnchanged": true,
+      "selfContainedAlignedUSDZ": true
+    },
+    {
+      "file": "wardrobe-hoodie-long.usdz",
+      "sourceSHA256": "e6f613cd8b7eabf43eb38962c5bfb31f4a22ea8542657441c037665f66d071fe",
+      "outputSHA256": "1ebc53058ac35823560e588e22afc81d8c7819906b24434692e18e735edebf81",
+      "bytes": 10819644,
+      "meshes": 6,
+      "skinMeshes": 3,
+      "heightMeters": 1.500155124347657,
+      "geometryUVsTransformsUnchanged": true,
+      "garmentMaterialsUnchanged": true,
+      "originalTextureBytesUnchanged": true,
+      "selfContainedAlignedUSDZ": true
+    },
+    {
+      "file": "wardrobe-cardigan-shorts.usdz",
+      "sourceSHA256": "d5d1f42ba88c1c14d555ac3a10292c2a3ac7a4d75bdaa06934b9387f1bcf4fec",
+      "outputSHA256": "a642f694e039a847b8df36a9749ad49725c210d8c6fbbfe032960c93b9da7251",
+      "bytes": 18676411,
+      "meshes": 8,
+      "skinMeshes": 5,
+      "heightMeters": 1.5000758807545935,
+      "geometryUVsTransformsUnchanged": false,
+      "garmentMaterialsUnchanged": true,
+      "originalTextureBytesUnchanged": true,
+      "selfContainedAlignedUSDZ": true,
+      "garmentFit": {
+        "sourceSHA256": "d3ea79543a2ab3b20a533bcf215f564ffdd917def3fe58f8b89b715e46699e87",
+        "outputSHA256": "a642f694e039a847b8df36a9749ad49725c210d8c6fbbfe032960c93b9da7251",
+        "shortsTopologyAndUVExactMatchToTshirt": true,
+        "shortsShapeReference": "wardrobe-tshirt-shorts.usdz",
+        "waistFrontExtraRetreatMeters": 0.00767048856076876,
+        "referenceSHA256": "02106577ce346c7b596f705207b44a9d576bde250115d9ac62fb69b52af4c2d7",
+        "cardiganHemMaxRetreatMeters": 0.012,
+        "shortsFrontBeforeMeters": 0.19227904081344616,
+        "shortsFrontAfterMeters": 0.15652500092983254,
+        "heightMeters": 1.5000758807545935,
+        "materialsAndAllTextureBytesUnchanged": true,
+        "headHandsLegsShoesUnchanged": true,
+        "cardiganTopologyAndUVUnchanged": true
+      }
+    },
+    {
+      "file": "wardrobe-cardigan-long.usdz",
+      "sourceSHA256": "b2598c0e3bbb03b14b060bae199b5dbb858eb6bf95c9cb782025a3f8ff5be53f",
+      "outputSHA256": "891eaf12de4ac414de1355a884fa4403b5c2489fd9b112214bdec863dd01f5ab",
+      "bytes": 11530563,
+      "meshes": 6,
+      "skinMeshes": 3,
+      "heightMeters": 1.5001749050570652,
+      "geometryUVsTransformsUnchanged": true,
+      "garmentMaterialsUnchanged": true,
+      "originalTextureBytesUnchanged": true,
+      "selfContainedAlignedUSDZ": true
+    },
+    {
+      "file": "wardrobe-postech-shorts.usdz",
+      "sourceSHA256": "76d48204926ae066dc0dd22d3753ef1920c502a118dd4777b17377e21e227929",
+      "outputSHA256": "0e9103b301fcce518bc577780fa449b29dae4ec933ea10f6af9d3f93664b3798",
+      "bytes": 15758170,
+      "meshes": 8,
+      "skinMeshes": 5,
+      "heightMeters": 1.5001327435857092,
+      "geometryUVsTransformsUnchanged": true,
+      "garmentMaterialsUnchanged": true,
+      "originalTextureBytesUnchanged": true,
+      "selfContainedAlignedUSDZ": true
+    },
+    {
+      "file": "wardrobe-postech-long.usdz",
+      "sourceSHA256": "8a239d40b7a6edcc7bbef57c354db9536b425ad5204b8c100bad808526b1a9c0",
+      "outputSHA256": "de92783cc5bc56db5ab602344405bfcc9aef5d7a54bfca27fede6216c026e0c1",
+      "bytes": 15516984,
+      "meshes": 6,
+      "skinMeshes": 3,
+      "heightMeters": 1.5002128737251041,
+      "geometryUVsTransformsUnchanged": true,
+      "garmentMaterialsUnchanged": true,
+      "originalTextureBytesUnchanged": true,
+      "selfContainedAlignedUSDZ": true
+    }
+  ]
+}
