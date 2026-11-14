@@ -25,3 +25,4 @@ jobs:
         with:
           python-version: '3.12'
       - run: python3 tools/wardrobe/verify_costume_photo_assets.py
+      - run: python3 tools/wardrobe/verify_skin_material_assets.py

@@ -313,3 +313,51 @@ python3 tools/wardrobe/verify_costume_photo_assets.py
 `OiPhotoPrintLayout.load(for:in:)`이 편집기와 저장 후 `OiWardrobeAsset`에 동일한 범위를 제공한다. 개별 옷은 전체 패널과 반경 0을 반환하고 이전 프레임 정보를 사용하지 않으므로, 저장 디자인의 `frameRevision` 유무와 관계없이 위치·크기·회전·소스 바이트를 그대로 복원한다. 이미 저장된 위치를 역추정하여 다시 옮기지 않는다. 개별 과잠의 원본 텍스처 합성 방식과 흰 의상의 UV 교체 방식은 유지한다. 모델·사진 파일의 추가 저장이나 재압축은 없다.
 
 검증: iPhone 17 / iOS 26.5에서 `OiCostumePhotoTests` 11개 통과. 개별 상의 4종 × 하의 2종 × 편집 슬롯 2개 조합에서 전체 UV 인쇄·앞뒤 윤곽 리소스·기존 사진 위치 보존을 확인했다. 세트 17종의 둥근 클리핑, 이동/회전 후 원위치 픽셀 일치, 삭제/저장/재질 복원 검사도 유지했다. 별도 흰티 화면 캡처로 UV 윤곽과 원래 사진 배치 UI를 확인했으며, 서명을 포함한 기기용 Debug 빌드도 성공했다. Jun iPhone은 현재 연결 불가 상태여서 이번 수정본의 실기기 설치·멀티터치 확인은 미실시다.
+
+
+## 오이 8종 최종 색상 및 가디건 반바지 핏 — #327 (2026-11-14)
+
+개별 의상 8종(흰티·후드티·가디건·포스텍 과잠 × 반바지·긴바지)에 승인한 **프레시 오이 밝기 4번**을 적용했다. 피부는 sRGB `#97D36A`, 줄무늬는 `#376C3C`이며, 고양이 잠옷 얼굴에서 확인한 roughness `155/255`(약 0.608), metallic 0, clearcoat 0을 사용한다. 피부 무늬 위치·얼굴·팔다리·신발과 150cm 크기는 유지한다. 고양이 잠옷을 포함한 세트 의상과 최신 살구 크림 지도는 변경하지 않는다.
+
+가디건+반바지는 흰티+반바지의 같은 아틀라스에 대응하는 바지 형상·UV를 사용한다. 가디건 앞 밑단은 최대 12mm 뒤로 이동하고 위쪽·소매로 갈수록 변형을 줄이며, 반바지 허리 앞부분은 최대 약 7.7mm 더 넣는다. 반바지 앞쪽 최대 Z는 192.3mm에서 156.5mm로 줄었다. 변형에 맞춰 노멀을 갱신하고 모든 기존 텍스처·재질을 보존했다.
+
+[옆면 비교](verification/wardrobe-skin-fit/cardigan-shorts-side-comparison.png) · [전체 비교](verification/wardrobe-skin-fit/cardigan-shorts-full-comparison.png)
+
+### 팀에서 바로 사용
+
+이 브랜치의 `apps/ios/OiDonation/Resources/Wardrobe`와 `WardrobePhotoUV`에는 완성된 리소스가 들어 있다. 재생성 없이 기존 `OiDonation` 앱을 빌드하면 적용된다. 서비스 연결 및 기기 서명은 각자의 기존 개발 설정을 사용한다. 개별 의상 카드 초상 캐시는 `portrait-v4-bright4-skin-`, 가디건+반바지는 `portrait-v5-cardigan-shorts-fit-`으로 갱신한다. 의상 ID·저장한 사진 배치·공개 카드 스냅샷은 유지한다.
+
+가디건/반바지의 사진 또는 데님 적용 시 사용하는 PhotoUV 모델도 새 형상에서 생성했다. 전체 UV 편집 방식을 유지하며 기존 인쇄 프레임 메타데이터를 보존한다. 과잠 2종의 사진 합성 좌표는 유지하고 원본 모델 해시를 갱신했다.
+
+### 재생성 및 검증
+
+현재 결과의 파일 해시·팔레트·텍스처 해시·가디건 핏 수치는 `tools/wardrobe/skin-material-manifest.json`에 기록한다. 모든 입력 원본은 이 변경 전 커밋 `fcc21cbc901eca3cdc9b13b8eb637941cd662e8b`의 `apps/ios/OiDonation/Resources/Wardrobe`에서 가져올 수 있다. 입력 8종과 `wardrobe-costume-cat.usdz`를 별도 `ORIGINALS` 폴더에 준비한다. 이미 보정한 텍스처를 다시 보정하거나 핏을 적용한 가디건을 다시 입력하지 않는다.
+
+Blender 4.5의 Python/USD 환경에서 아래 순서로 실행한다. `STAGING`, `FITTED`, `REPORT`는 별도의 새 출력 폴더다.
+
+```sh
+blender --background --factory-startup --python tools/wardrobe/apply_cat_skin.py -- ORIGINALS STAGING --palette fresh-cucumber-bright4
+blender --background --factory-startup --python tools/wardrobe/fit_cardigan_shorts.py -- STAGING/wardrobe-cardigan-shorts.usdz STAGING/wardrobe-tshirt-shorts.usdz FITTED
+```
+
+색상 생성 단계의 8종을 앱 리소스에 복사한 뒤 `FITTED/wardrobe-cardigan-shorts.usdz`로 해당 조합을 교체한다. 별도 출력의 `skin-material-manifest.json`과 `fit-validation.json`을 합쳐 현재 매니페스트의 가디건 항목(`garmentFit`, `geometryUVsTransformsUnchanged: false`, 결과 해시·크기)에 반영한다. 재패키징 시 ZIP 시간 정보가 달라 파일 전체 해시는 바뀔 수 있으므로 실제 결과의 해시를 기록한다. 새 핏 생성기로 검증한 USDZ 내부 파일은 승인 파일과 모두 바이트가 동일했다.
+
+```sh
+blender --background --factory-startup --python tools/wardrobe/prepare_photo_uv.py -- REPORT --model wardrobe-cardigan-shorts
+blender --background --factory-startup --python tools/wardrobe/prepare_costume_photo_uv.py -- REPORT postech-modular
+blender --background --factory-startup --python tools/wardrobe/prepare_photo_frames.py
+python3 tools/wardrobe/verify_skin_material_assets.py
+python3 tools/wardrobe/verify_costume_photo_assets.py
+```
+
+과잠 생성기는 `postech-modular`의 두 항목을 기존 `tools/wardrobe/costume-photo-manifest.json`에 병합하고 전체 매니페스트를 `REPORT/manifest.json`에도 기록한다. 모델을 수정하면 PhotoUV/합성 소스 해시와 프레임 메타데이터를 함께 갱신해야 한다.
+
+검증 결과: USDZ 8개와 피부 텍스처 5개·고양이 기준 해시·64바이트 정렬 검사, 사진 합성 소스 19개·프레임 33개 검사 통과. 가디건/반바지 PhotoUV의 정점·노멀·면 인덱스는 수정 본체와 일치했다. iOS 27.2에서 아래 회귀 검사와 실제 RealityKit 캡처를 확인했고, 최신 코드로 서명 빌드한 앱을 iPhone에 설치·실행했다.
+
+- `OiWardrobeAssetTests/testModularOutfitsKeepApprovedSkinAndRenderInWardrobe`: 8종 피부 재질·150cm·렌더링
+- `OiWardrobeAssetTests/testFittedCardiganShortsKeepShapeWhenPhotosAreAppliedAndRemoved`: 바지 앞쪽 치수·사진 모델 일치·저장/삭제 복원 및 옆면 캡처
+- `OiCostumePhotoTests/testIndividualGarmentsKeepFullUVAndSavedPlacements`: 개별 의상 UV와 기존 사진 배치
+- `OiWardrobeAssetTests/testCostumePhotosKeepBaseAndRoundTripPerOutfit`: 세트·과잠 사진 저장/복원
+- `OiFigmaFidelityVisualTests/testApprovedSkinCustomizationCaptures`: 실제 커스텀 화면 캡처
+
+마지막 두 검사는 최신 코드 색상 통합 시 통과했고, 이후 가디건 핏 적용 후에는 앞의 세 검사를 다시 통과했다. 지도 리소스는 최신 develop과 바이트가 동일함을 별도로 확인했다. CI의 Wardrobe photo assets에서도 피부 패키지와 사진 리소스를 검사한다.
