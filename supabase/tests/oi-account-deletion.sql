@@ -36,11 +36,13 @@ insert into storage.objects(bucket_id,name,owner_id) values
 
 -- Cover files from both the current snapshot and an abandoned upload belong to
 -- the linked account, even without Storage owner metadata.
-update public.oi_stories set card_snapshot_format=3,card_snapshot_id='d1690000-0000-4000-8000-000000000041'
+update public.oi_stories set card_snapshot_format=3,card_snapshot_id='d1690000-0000-4000-8000-000000000041',card_cover_type='jpeg'
 where id='d1690000-0000-4000-8000-000000000031';
 insert into storage.objects(bucket_id,name,metadata) values
  ('oi-story-media','d1690000-0000-4000-8000-000000000002/d1690000-0000-4000-8000-000000000031/card/d1690000-0000-4000-8000-000000000041/cover.png','{"mimetype":"image/png","size":2048}'),
- ('oi-story-media','d1690000-0000-4000-8000-000000000002/d1690000-0000-4000-8000-000000000031/card/d1690000-0000-4000-8000-000000000042/cover.png','{"mimetype":"image/png","size":2048}');
+ ('oi-story-media','d1690000-0000-4000-8000-000000000002/d1690000-0000-4000-8000-000000000031/card/d1690000-0000-4000-8000-000000000042/cover.png','{"mimetype":"image/png","size":2048}'),
+ ('oi-story-media','d1690000-0000-4000-8000-000000000002/d1690000-0000-4000-8000-000000000031/card/d1690000-0000-4000-8000-000000000041/cover.jpg','{"mimetype":"image/jpeg","size":2048}'),
+ ('oi-story-media','d1690000-0000-4000-8000-000000000002/d1690000-0000-4000-8000-000000000031/card/d1690000-0000-4000-8000-000000000042/cover.jpg','{"mimetype":"image/jpeg","size":2048}');
 
 do $$
 begin
@@ -73,7 +75,7 @@ create function pg_temp.delete_fixture(action text) returns jsonb language sql a
 $$;
 do $$
 begin
- if jsonb_array_length(pg_temp.delete_fixture('prepare')->'files')<>3 then raise exception 'inventory is not account scoped'; end if;
+ if jsonb_array_length(pg_temp.delete_fixture('prepare')->'files')<>5 then raise exception 'inventory is not account scoped'; end if;
  if public.oi_apple_revocation_credentials('d1690000-0000-4000-8000-000000000001') #>> '{0,encrypted_token}' is distinct from repeat('b',40)
    then raise exception 'linked Apple token missing'; end if;
  begin
@@ -91,6 +93,9 @@ set local role anon;
 do $$ begin
  if exists(select 1 from public.oi_stories where id='d1690000-0000-4000-8000-000000000031')
    then raise exception 'pending deletion remained public'; end if;
+ if exists(select 1 from storage.objects where bucket_id='oi-story-media'
+   and name like 'd1690000-0000-4000-8000-000000000002/%/cover.%')
+   then raise exception 'pending deletion cover still allows anonymous reads'; end if;
 end; $$;
 reset role;
 
@@ -105,9 +110,9 @@ reset role;
 -- Mimic successful Storage API cleanup in the local fake storage schema.
 delete from storage.objects where owner_id='d1690000-0000-4000-8000-000000000002';
 do $$ begin
- if jsonb_array_length(pg_temp.delete_fixture('prepare')->'files')<>2
+ if jsonb_array_length(pg_temp.delete_fixture('prepare')->'files')<>4
    or exists(select 1 from jsonb_array_elements(pg_temp.delete_fixture('prepare')->'files') f
-     where f->>'bucket'<>'oi-story-media' or f->>'name' not like '%/cover.png')
+     where f->>'bucket'<>'oi-story-media' or (f->>'name' not like '%/cover.png' and f->>'name' not like '%/cover.jpg'))
    then raise exception 'current and abandoned covers missing from deletion inventory'; end if;
  begin
    perform pg_temp.delete_fixture('finish');
