@@ -56,6 +56,7 @@
 ## 현재 검증
 
 - 2026-11-16 #374: `OiEducation374AimFixed.xcresult`의 교육지구 **12개**, Node **21개** 통과. 마지막 프레이밍/입력 후속을 포함한 `OiEducation374AimFinal.xcresult`의 실제 WKWebView·에임/복귀·자산 **3개** 재검사도 통과했다. 하단 에임·상단 이야기, 드래그 자동 선택 변경, 아래쪽까지 회전, 탭/드래그/핀치 구분, 복귀 중 연속 탭, 원래 카메라·배율 복원과 원본 인스턴스 행렬 보존을 확인했다. 320×568·390×844·844×390 브라우저와 최종 iPhone 18 Pro 시뮬레이터에서 화면 배치·드래그 선택·탭 복귀·체험 닫기를 확인했다. 최종 시뮬레이터의 HTML·manifest·자산 22개 바이트가 소스와 일치한다. 이 에임 수정본은 아직 실기기에 설치하지 않았으며 장시간 발열·FPS도 측정하지 않았다.
+- 같은 날 최신 develop `1f10dc1`(#369 이야기 목록·#372 약관 화면)을 충돌 없이 통합했다. `OiEducation374AimIntegrated.xcresult`의 최종 WKWebView·에임/복귀·자산 **3개**가 통합본에서도 통과했다. 팀원의 이야기/약관 변경은 보존하며 기존 `@Entry`·`coordinateSpace` 경고는 이번 범위에서 변경하지 않는다.
 
 - 2026-11-15 #366 병합 전 검증: `OiEducation366PreMerge.xcresult`의 교육지구 **12개**, `OiEducation366MainPostcardChecks.xcresult`의 공개 이야기·엽서 호환·JPEG 표지·양면 출력 **4개**, Node 입력/렌더링 **16개**가 통과했다. Jun iPhone(iOS 26.7.3)에 최신 Debug 빌드 설치·실행, 서명 검증과 HTML·manifest·자산 22개 바이트 일치를 확인했다. 사용자가 실기기에서 기본 Liquid Glass 복귀 버튼 표시와 정상 건물 복원을 확인했다. 장시간 발열·FPS는 측정하지 않았다. 필수 GitHub CI는 해당 변경 경로에 구성되어 있지 않으며, 이 검증은 로컬 실행 결과다.
 
