@@ -123,8 +123,6 @@ final class ScratchPostcardLoader {
 struct ScratchPostcardScreen: View {
     let tagID: String
     let repository: any StoryRepository
-    /// The postcard is the App Clip's root screen (#347); an unavailable tag offers the story list instead.
-    var onShowStories: () -> Void
 
     @State private var loader = ScratchPostcardLoader()
     @State private var attempt = 0
@@ -153,10 +151,10 @@ struct ScratchPostcardScreen: View {
         VStack(spacing: 12) {
             Text(title).font(.custom("Paperlogy-6SemiBold", size: 18))
             Text(detail).font(.custom("Paperlogy-4Regular", size: 14)).foregroundStyle(.secondary)
+            // The postcard is the App Clip's root screen (#347): there is no list to return to.
             if retry {
                 Button("다시 시도") { attempt += 1 }.frame(minHeight: 44)
             }
-            Button("공개 이야기 보기", action: onShowStories).frame(minHeight: 44)
         }
         .multilineTextAlignment(.center)
         .padding(24)

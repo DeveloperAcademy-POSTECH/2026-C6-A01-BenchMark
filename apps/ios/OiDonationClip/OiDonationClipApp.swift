@@ -40,8 +40,7 @@ struct OiDonationClipApp: App {
             Group {
                 // An NFC postcard is the root screen, not a cover over the story list (#347).
                 if let scratchPostcardSession {
-                    ScratchPostcardScreen(tagID: scratchPostcardSession.tagID, repository: storyRepository,
-                                          onShowStories: showStories)
+                    ScratchPostcardScreen(tagID: scratchPostcardSession.tagID, repository: storyRepository)
                         .id(scratchPostcardSession.id)
                 } else if hasRoute {
                     AppClipExperienceView(
@@ -83,12 +82,6 @@ extension OiDonationClipApp {
         }
         scratchPostcardSession = nil
         invocation = AppClipInvocation(url: url)
-    }
-
-    /// Leaves an unavailable postcard for the public story list.
-    private func showStories() {
-        invocation = nil
-        scratchPostcardSession = nil
     }
 }
 
