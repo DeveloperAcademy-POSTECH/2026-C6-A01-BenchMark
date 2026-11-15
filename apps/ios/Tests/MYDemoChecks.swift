@@ -98,7 +98,7 @@ struct MYDemoChecks {
         precondition(listItem.tags == ["행복함", "우정"])
         precondition(listItem.cucumberName == "테스트오이")
 
-        precondition(OiStoryConsentClause.writingClauses.map(\.id) == [.storyWriting, .moderation])
+        precondition(OiStoryConsentClause.writingClauses.map(\.id) == [.storyWriting, .donationVerification, .moderation])
         var consent = OiStoryConsentState()
         let restoredConsent = OiStoryConsentState(savedIDs: ["storyWriting", "unknown"])
         precondition(restoredConsent.savedIDs == ["storyWriting"])
@@ -106,7 +106,8 @@ struct MYDemoChecks {
         let previousConsent = OiStoryConsentState(savedIDs: ["storyWriting", "moderation"])
         precondition(previousConsent.savedIDs == ["storyWriting", "moderation"])
         precondition(!previousConsent.isAgreed(to: .donationVerification))
-        precondition(previousConsent.allRequiredClausesAreAgreed)
+        // #370: the restored Figma donation clause must be agreed again.
+        precondition(!previousConsent.allRequiredClausesAreAgreed)
         let legacyConsent = OiStoryConsentState(savedIDs: ["storyWriting", "donationVerification"])
         precondition(legacyConsent.isAgreed(to: .donationVerification))
         precondition(!legacyConsent.allRequiredClausesAreAgreed, "Donation consent cannot substitute for content rules")
@@ -114,6 +115,8 @@ struct MYDemoChecks {
         consent.setAgreed(true, to: .storyWriting)
         precondition(!consent.allRequiredClausesAreAgreed)
         consent.setAgreed(true, to: .moderation)
+        precondition(!consent.allRequiredClausesAreAgreed)
+        consent.setAgreed(true, to: .donationVerification)
         precondition(consent.allRequiredClausesAreAgreed)
         precondition(OiStoryConsentState(savedIDs: consent.savedIDs) == consent)
         consent.setAgreed(false, to: .moderation)
