@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {frameQueue,framingPoints,scatterData,scatterScale,renderPolicy} from './render-policy.mjs';
+import {frameQueue,framingPoints,scatterData,scatterScale,renderPolicy,morphFraming} from './render-policy.mjs';
 
 test('pointer bursts collapse into one draw of the latest state',()=>{
   const frames=new Map();let next=0,draws=0,state=0,drawn;
@@ -28,6 +28,19 @@ test('scatter keeps exactly 10,000 distinct surface IDs and excludes backing',()
   assert.ok(data.ids.every(id=>id<6000||id>=7000));
   assert.equal([...data.sizes].filter(x=>x>0).length,10000);
   assert.ok([...data.offsets].every(Number.isFinite));assert.ok(data.maxDisplacement<3);
+});
+test('morph framing preserves the building and the scattered endpoints with a fixed small cache',()=>{
+  const positions=Float32Array.from({length:9000},(_,i)=>Math.sin(i*.13)*7);
+  const ids=Array.from({length:2000},(_,i)=>i),offsets=Float32Array.from({length:9000},(_,i)=>Math.cos(i*.17));
+  const {pairs,endpoints}=morphFraming(positions,{ids,offsets});
+  assert.ok(pairs.length<=576);assert.equal(endpoints.length,6000);
+  for(let axis=0;axis<3;axis++){
+    const rest=Array.from(positions).filter((_,i)=>i%3===axis),spread=Array.from(endpoints).filter((_,i)=>i%3===axis);
+    assert.equal(Math.min(...pairs.map(p=>p.from[axis])),Math.min(...rest));
+    assert.equal(Math.max(...pairs.map(p=>p.from[axis])),Math.max(...rest));
+    assert.ok(Math.min(...pairs.map(p=>p.to[axis]))<=Math.min(...spread)+.00001);
+    assert.ok(Math.max(...pairs.map(p=>p.to[axis]))>=Math.max(...spread)-.00001);
+  }
 });
 test('every shell and core returns to its exact original size; only chosen shells survive',()=>{
   for(const size of [0,1.5,2.05])for(const core of [false,true])assert.equal(scatterScale(size,0,core),1);
