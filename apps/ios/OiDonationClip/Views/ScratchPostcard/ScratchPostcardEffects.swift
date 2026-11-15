@@ -144,10 +144,14 @@ struct ScratchShineSweep: View {
 /// Repeatedly tilts the card a little to hint that it can be flipped.
 struct FlipPeekHint: ViewModifier {
     let isActive: Bool
+    /// One tilt per increment. The animator stays attached so toggling the hint never rebuilds the card,
+    /// which made the revealed front blink once (#348).
+    @State private var peeks = 0
+    private static let cycle: Duration = .seconds(2.05)
 
     func body(content: Content) -> some View {
-        if isActive {
-            content.keyframeAnimator(initialValue: 0.0, repeating: true) { view, angle in
+        content
+            .keyframeAnimator(initialValue: 0.0, trigger: peeks) { view, angle in
                 view.rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0), perspective: 0.45)
             } keyframes: { _ in
                 KeyframeTrack {
@@ -156,9 +160,13 @@ struct FlipPeekHint: ViewModifier {
                     SpringKeyframe(0, duration: 0.8, spring: .bouncy)
                 }
             }
-        } else {
-            content
-        }
+            .task(id: isActive) {
+                guard isActive else { return }
+                while !Task.isCancelled {
+                    peeks += 1
+                    try? await Task.sleep(for: Self.cycle)
+                }
+            }
     }
 }
 

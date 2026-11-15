@@ -1,0 +1,55 @@
+# 교육지구 오프라인 웹 체험 번들
+
+이슈 #365의 앱 내 체험 자산을 검토한 독립 웹 스냅샷에서 가져온다. 독립 웹의 개발·배포는 #293에서 별도로 관리한다. 이 도구는 캠퍼스 지도 형상이나 원본 웹을 수정하지 않는다.
+
+## 자산 갱신
+
+저장소 루트에서 실행한다. 일반 앱 빌드에는 이 명령이나 Node 설치가 필요하지 않다.
+
+```sh
+npm ci --prefix tools/education-experience --ignore-scripts
+npm --prefix tools/education-experience run build -- /path/to/reviewed/dist
+```
+
+입력은 `index.html`, 두 ES 모듈 진입점, CSS, Three.js, 모델/이미지/폰트를 포함한 검토 완료 dist다. 현재 스냅샷은 2026-11-15 정원·진주 건물 `education-pearl-texture-screen-v30`이다. `building-v25`는 원본 폴더명이며 모델 버전은 JSON의 revision으로 확인한다. 원본 HTML 해시와 파일별 해시·크기는 출력 manifest에 남긴다. 개인 경로는 모델 메타데이터에서 파일명만 남긴다.
+
+출력은 `apps/ios/OiDonation/Resources/Campus/`의 HTML, `education-light-assets.json`, 콘텐츠 해시가 붙은 22개 자산이다. Three.js와 Pretendard 라이선스를 함께 포함한다. 오래된 해시 자산만 제거하며 기존 지도 바이너리는 보존한다. 파일 시스템 동기화 Xcode 그룹의 리소스 평탄화에도 충돌하지 않는 이름을 사용한다.
+
+웹 PNG는 번들 파일명을 `.bin`으로 두고 manifest의 `image/png` MIME으로 제공한다. iPhoneOS의 `CopyPNGFile`이 `.png`를 CgBI 형식으로 변환하지 않도록 원본 바이트를 보존하기 위한 처리다. 원래 요청 경로와 이미지 내용은 유지한다. 실기기 빌드 후에도 manifest의 SHA-256·크기와 실제 번들 파일이 모두 일치하는지 확인한다.
+
+## 네이티브 연결과 검증
+
+`EducationLightWebModel`이 기존 파일 URL로 HTML을 읽고, `oi-education://bundle/` 요청은 manifest 허용 경로만 제공한다. 스크립트·스타일은 인라인으로 묶어 로컬 파일 ES 모듈 제약과 외부 CDN 의존을 없앤다. CSP는 네트워크 요청을 차단한다. 준비/오류·비활성 메시지를 네이티브 로딩/재시도/수명 주기에 연결한다. 예시·기기 저장은 실제 이야기 공개나 기부 집계가 아니다.
+
+갱신 후 `OiFlowChecks` 스킴의 `CampusEducationDistrictTests`를 실행한다. 번들 파일 누락·허용 경로 경계, 실제 WKWebView/WebGL 로드, 모델 버전·진주 개수와 네이티브 일시 정지/재개를 확인한다. 시뮬레이터에서 교육지구 안내 → 체험 → 빛 흩어보기/돌아오기 → 닫기 → 지도 복원도 확인한다. 실제 iPhone의 장시간 발열·프레임률은 별도 확인이 필요하다.
+
+## 앱 전용 플로팅 툴바
+
+2026-11-15 사용자 선택(HIG 참고 5안의 두 번째)에 따라 `viewer/native-viewer.css`·`native-viewer.mjs`를 앱 스냅샷에만 결합한다. 예시 우표는 앱 DOM에서 제거하고, 방향 버튼은 보기 팝오버로 옮긴다. `renderer-adapter.mjs`는 검토한 렌더러의 정확한 연결 지점을 검사하고 앱 전용 조작을 붙인다. 외부 소스가 달라져 연결 지점이 사라지면 자동 추측하지 않고 번들을 중단한다.
+
+`pointer-intent.mjs`는 이동 허용 범위, 드래그 복귀, 핀치 후 한 손가락, 취소와 중복 해제를 구분한다. 실제 건물의 표면을 누르고 뗄 때만 펼치며, 메뉴와 Enter/Space로도 같은 기능을 제공한다. 네이티브 닫기/밝기 브리지는 기존 `building` 메시지 채널을 사용한다.
+
+```sh
+npm --prefix tools/education-experience test
+npm --prefix tools/education-experience run preview
+```
+
+미리보기는 `127.0.0.1:8784`에서 최종 번들과 허용 목록 자산만 제공하며, QA 응답에서만 base/CSP를 같은 HTTP 오리진으로 바꾼다. 앱의 오프라인 URL·CSP는 유지한다. 포인터 단위 검사와 함께 `CampusEducationDistrictTests`가 실제 WebKit의 우표 제거·툴바 크기·스크롤 넘침·탭/드래그/핀치·복원·닫기를 검증한다.
+
+## 같은 캠퍼스 배경과 모바일 렌더링
+
+빛 펼치기에서는 우주 배경·우주 캐릭터 대신 기존 정원을 78% 어둡게 한다. 나머지 상시 조작부는 숨기고 하단 `건물로 돌아가기` 버튼 또는 로고를 탭해 건물로 돌아간다. 복귀 중 반복 탭은 무시하고, 이야기 메모는 복귀 버튼을 가리지 않도록 배치한다. 우주 이미지 두 개는 HTML에서 사전에 제거해 디코딩/로딩하지 않으며 번들 자산은 약 7.0MB다. 구슬의 이야기 메모는 계속 사용할 수 있다.
+
+`native-scatter.mjs`는 원래 구슬 인스턴스에 정적 이동/크기 속성을 붙여 공통 uniform만 갱신한다. 10,000개 선택 구슬의 끝점 히트 자료도 한 번만 계산한다. 진주의 물리적 반투명 재질은 유지하며, 셸/코어 구의 면 수·픽셀 비율과 반투명 버퍼 크기를 줄였다. 프레임 단위로 드래그/핀치를 합치고 `render-policy.mjs`의 극점 캐시로 카메라 맞춤 계산을 줄인다. 효과가 끝난 상태에서는 지속 렌더 루프가 없다.
+
+Node 검사는 입력 분류·입력 합치기·원본 경계 보존·10,000개 선택과 복귀·렌더 예산을 확인한다. 실제 WKWebView 검사는 셰이더 컴파일, 원본 인스턴스 행렬의 불변성, 구슬 이동 후 이야기 선택과 로고 복귀도 확인한다. `renderMs`는 CPU 제출 시간이며 GPU 프레임률로 해석하지 않는다. 실기기 발열·FPS는 별도 측정 대상이다.
+
+## 기본 글라스 버튼과 독립 웹 출력
+
+앱은 `EducationLightWebModel`이 문서 시작에 nativeGlass 플래그를 주입하고 `EducationLightExperience`가 iOS 26의 `.buttonStyle(.glass)` 복귀 버튼을 표시한다. HTML 복귀 버튼은 앱에서 숨기되 메모 배치용 사각형은 유지한다. iOS 26 이전에는 material 대체 표현을 사용한다. 일반 브라우저에서는 HTML 글라스 버튼이 그대로 표시된다. 두 버튼은 같은 복귀 함수와 연속 입력 방지를 사용한다.
+
+```sh
+node tools/education-experience/export-web.mjs /path/to/reviewed/dist /path/to/site/dist
+```
+
+독립 웹은 원래 주간 레이아웃·예시 우표를 유지하고 펼침 상태만 앱과 맞춘다. 상시 빛 흩어보기 버튼을 숨기고 건물 탭/클릭·Enter/Space로 펼친다. 원본의 정원 배경에 어두운 레이어를 적용하고 로고만 남긴다. 독립 웹에서는 펼쳐진 화면의 클릭/탭·Enter/Space로 복귀하고 드래그·핀치는 복귀로 처리하지 않는다. 앱의 네이티브 복귀 버튼은 유지한다. 공통 렌더러·포인터 분류·GPU 이동을 재사용한다. 웹 배포 소스와 dist는 Sites의 기존 소스 저장소에서 관리하며 iOS 저장소에 독립 웹 전체를 다시 추가하지 않는다.
