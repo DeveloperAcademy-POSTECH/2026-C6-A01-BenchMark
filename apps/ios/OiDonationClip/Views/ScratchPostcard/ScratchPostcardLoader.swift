@@ -6,6 +6,7 @@
 //
 
 import Observation
+import StoreKit
 import SwiftUI
 import UIKit
 
@@ -93,6 +94,20 @@ final class ScratchPostcardLoader {
         }
     }
 
+    #if DEBUG
+    /// Screenshot hook: launch with `OI_SCRATCH_POSTCARD_STATE=loading|unavailable|failed` to hold that state.
+    static var debugState: State? {
+        switch ProcessInfo.processInfo.environment["OI_SCRATCH_POSTCARD_STATE"] {
+        case "loading": .loading
+        case "unavailable": .unavailable
+        case "failed": .failed
+        default: nil
+        }
+    }
+
+    func show(_ state: State) { self.state = state }
+    #endif
+
     /// The 296×436 picture window at (33, 33) of the 362×502 postcard front.
     nonisolated static func postcardWindow(_ front: UIImage) -> UIImage? {
         guard let cg = front.cgImage, cg.width > 0, cg.height > 0 else { return nil }
@@ -126,38 +141,91 @@ struct ScratchPostcardScreen: View {
 
     @State private var loader = ScratchPostcardLoader()
     @State private var attempt = 0
+    @State private var showingFullAppOverlay = false
 
     var body: some View {
         Group {
             switch loader.state {
             case .loaded(let postcard):
                 ScratchPostcardView(postcard: postcard,
-                    validateCollection: { try await repository.canCollectNFCPostcard(tag: tagID, storyID: postcard.story.storyID) })
+                    validateCollection: { try await repository.canCollectNFCPostcard(tag: tagID, storyID: postcard.story.storyID) },
+                    // A blocked author's postcard reloads into the unavailable state.
+                    onBlock: { attempt += 1 })
             case .loading:
-                ProgressView("엽서를 불러오는 중")
-                    .font(.custom("Paperlogy-4Regular", size: 15))
+                ScratchPostcardStatusView(message: "엽서를 꺼내는 중이에요\n잠시만 기다려 주세요") {
+                    ProgressView().tint(ScratchPostcardStatusView<EmptyView>.green)
+                }
+                .accessibilityLabel("엽서를 불러오는 중")
             case .unavailable:
-                message("이 엽서는 지금 볼 수 없어요", detail: "공개가 끝났거나 연결이 바뀐 엽서예요.", retry: false)
+                ScratchPostcardStatusView(message: "이 엽서는 지금 볼 수 없어요\n비공개·차단되었거나 연결이 바뀐 엽서예요") {
+                    ScratchPostcardStatusButton(title: "전체 앱 보기") { showingFullAppOverlay = true }
+                        .accessibilityHint("전체 앱 설치 안내를 열어요")
+                }
             case .failed:
-                message("엽서를 불러오지 못했어요", detail: "인터넷 연결을 확인하고 다시 시도해 주세요.", retry: true)
+                ScratchPostcardStatusView(message: "엽서를 불러오지 못했어요\n인터넷 연결을 확인하고 다시 시도해 주세요") {
+                    ScratchPostcardStatusButton(title: "다시 시도") { attempt += 1 }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.white.ignoresSafeArea())
-        .task(id: attempt) { await loader.load(tag: tagID, repository: repository) }
-    }
-
-    private func message(_ title: String, detail: String, retry: Bool) -> some View {
-        VStack(spacing: 12) {
-            Text(title).font(.custom("Paperlogy-6SemiBold", size: 18))
-            Text(detail).font(.custom("Paperlogy-4Regular", size: 14)).foregroundStyle(.secondary)
-            // The postcard is the App Clip's root screen (#347): there is no list to return to.
-            if retry {
-                Button("다시 시도") { attempt += 1 }.frame(minHeight: 44)
-            }
+        .appStoreOverlay(isPresented: $showingFullAppOverlay) {
+            SKOverlay.AppClipConfiguration(position: .bottom)
         }
-        .multilineTextAlignment(.center)
-        .padding(24)
+        .task(id: attempt) {
+            #if DEBUG
+            if let state = ScratchPostcardLoader.debugState { loader.show(state); return }
+            #endif
+            await loader.load(tag: tagID, repository: repository)
+        }
+    }
+}
+
+/// Figma "물음표 오이"(5400:4956): the question-mark cucumber over a centred green message, 16pt apart.
+/// Used for the postcard's loading, unavailable and failed states.
+struct ScratchPostcardStatusView<Action: View>: View {
+    static var green: Color { Color(red: 112 / 255, green: 140 / 255, blue: 64 / 255) } // #708C40
+    let message: String
+    @ViewBuilder var action: () -> Action
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image("ScratchPostcardQuestionOi")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 192, height: 300)
+                .accessibilityHidden(true)
+            Text(message)
+                .font(.custom("Paperlogy-5Medium", size: 18))
+                .tracking(0.36)
+                .lineHeight(.exact(points: 27))
+                .foregroundStyle(Self.green)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            action()
+                .padding(.top, 8)
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+    }
+}
+
+/// The green 46pt button of the postcard's action bar, reused on its status screens.
+struct ScratchPostcardStatusButton: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.custom("Paperlogy-6SemiBold", size: 16))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 32)
+                .frame(minWidth: 180, minHeight: 46)
+                .background(ScratchPostcardStatusView<EmptyView>.green, in: RoundedRectangle(cornerRadius: 20))
+        }
+        .buttonStyle(.plain)
     }
 }
 
