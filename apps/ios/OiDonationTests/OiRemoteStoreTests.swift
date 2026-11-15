@@ -205,7 +205,7 @@ final class OiTestBackend {
         } else if path.hasPrefix("/storage/v1/object/sign/") && (path.contains("/appearance/") || path.contains("/card/")) {
             let key = String(path.dropFirst("/storage/v1/object/sign/".count))
             if state.failCardCoverRead && key.hasSuffix("/cover.png") { status = 503 }
-            else if state.failCardBackRead && key.hasSuffix("/back-preview.png") { status = 503 }
+            else if state.failCardBackRead && (key.hasSuffix("/back-preview.png") || key.hasSuffix("/back.png")) { status = 503 }
             else if let image = state.uploads[key] {
                 if request.httpMethod == "POST" { result = ["signedURL": String(path.dropFirst("/storage/v1".count)) + "?token=fixture"] }
                 else { bytes = image }
@@ -3056,7 +3056,7 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertNotNil(publicCard?.backPreviewURL)
         let details = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
         XCTAssertEqual(details?.frontURL, publicCard?.frontPreviewURL, "NFC uses the same reviewed preview as the general Clip")
-        XCTAssertEqual(details?.backURL, publicCard?.backPreviewURL)
+        XCTAssertEqual(details?.backURL, publicCard?.backImageURL, "The scratch postcard shows the full-resolution back")
         backend.configure { $0.failCardBackRead = true }
         do {
             _ = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
@@ -3118,7 +3118,7 @@ final class OiRemoteStoreTests: XCTestCase {
         let details = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
         XCTAssertTrue(details?.coverURL?.path.hasSuffix("/cover.png") == true)
         XCTAssertTrue(details?.frontURL?.path.hasSuffix("/front-preview.png") == true)
-        XCTAssertTrue(details?.backURL?.path.hasSuffix("/back-preview.png") == true)
+        XCTAssertTrue(details?.backURL?.path.hasSuffix("/back.png") == true)
         backend.configure { $0.failCardCoverRead = true }
         let fallback = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
         XCTAssertNil(fallback?.coverURL)
