@@ -707,3 +707,5 @@ AR 게임 시작 시 정규화된 캐릭터를 한 번 로드하여 카메라와
 2026-11-14 첨부 이미지 표시 후속: `OiCardBackground`의 사진·색조 합성은 `!showsCharacter`일 때만 수행한다. 사진 파일의 존재와 오이 뒤 배경 토글로 선택 상태를 추정하지 않는다. 기존 사진·배치는 초안에 보존하고 공통 카드 합성에서 미리보기·내보내기·새 제출을 동일하게 처리한다.
 
 2026-11-13 #310: `OiOperatorNFCTagsView`가 운영자 관리의 NFC 태그 메뉴에서 목록·추가·수정을 제공한다. `OiRemoteStore`의 운영자 세션 재확인을 거쳐 기존 RPC만 호출하고, 응답 영수증이 요청과 일치할 때만 저장으로 처리한다. 서버 스키마 변경은 없다.
+
+2026-11-15 #351: App Clip 타깃에서 `Views/ARGame/*`, `AppClipStoryCardView`, `ARCollectionResultView`, 체험 화면(`OiSample*View`)과 `ARCollectionAssets`·`OiSampleAssets`, `Paperlogy-2ExtraLight`를 제외한다. 파일은 본 앱이 계속 사용하므로 삭제하지 않고 타깃 멤버십만 바꾼다. 이야기 상세의 카드 미리보기는 `AppClipCardPreview.swift`로 분리해 두 타깃이 공유한다. 공유 `AppClipExperienceView`는 AR 진입 없이 읽기 전용 이야기 상세를 표시한다. Release 기준 App Clip 번들은 약 16.3MB에서 8.9MB(축소 전)로 줄었다.

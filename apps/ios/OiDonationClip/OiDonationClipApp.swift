@@ -21,7 +21,6 @@ struct OiDonationClipApp: App {
 
     init() {
         for name in [
-            "Paperlogy-2ExtraLight",
             "Paperlogy-3Light",
             "Paperlogy-4Regular",
             "Paperlogy-5Medium",
