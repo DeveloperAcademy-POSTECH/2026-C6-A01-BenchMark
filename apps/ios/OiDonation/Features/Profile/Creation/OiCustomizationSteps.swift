@@ -40,7 +40,7 @@ struct OiCardCustomizationStep: View {
     }
     private var portraitKey: String? { wardrobeKey.map { $0 + "-angle-" + orientation.cacheIdentity } }
     private var needsPortrait: Bool {
-        customization.showsCharacter && portraitKey != nil && (design.portraitKey != portraitKey || design.portraitPNG == nil)
+        customization.showsCharacter && portraitKey != nil && (design.portraitKey != portraitKey || portrait == nil)
     }
     private var isSizeEditing: Bool { tab == .size && !isFinished }
 
@@ -521,10 +521,16 @@ struct OiCardCustomizationStep: View {
         if let look = customization.wardrobe { wardrobeKey = OiCardPortrait.key(for: look) }
         else { wardrobeKey = nil }
         orientation = (design.characterOrientation ?? OiCardOrientation()).normalized
+        // Old snapshots can contain an opaque black background. Remove only the
+        // derived cache; keep the wardrobe, photos, orientation and card settings.
+        if customization.wardrobe != nil, design.portraitKey != portraitKey {
+            change { $0.portraitPNG = nil; $0.portraitKey = nil }
+        }
         restorePortrait()
     }
     private func restorePortrait() {
-        if design.portraitKey == portraitKey, let data = design.portraitPNG { portrait = UIImage(data: data) }
+        if design.portraitKey == portraitKey, let data = design.portraitPNG,
+           let image = UIImage(data: data), OiPortraitMatte.hasTransparentBackground(image) { portrait = image }
         else { portrait = customization.wardrobe == nil ? UIImage(named: draft.cucumberAsset) : nil }
     }
     private func saveOrientation() {
@@ -534,6 +540,8 @@ struct OiCardCustomizationStep: View {
     }
     private func acceptPortrait(_ data: Data, _ key: String) {
         guard key == portraitKey else { return }
+        guard let image = UIImage(data: data),
+              OiPortraitMatte.hasTransparentBackground(image) else { portraitFailed = true; return }
         portraitFailed = false
         // Persist once after a rotation, not for every finger movement (PNG drafts can be large).
         change {

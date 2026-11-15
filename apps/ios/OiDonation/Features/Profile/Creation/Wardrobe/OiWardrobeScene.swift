@@ -26,6 +26,8 @@ final class OiWardrobeScene {
     @ObservationIgnored private var yaw: Float = 0
     @ObservationIgnored private var distance: Float = 2.75
     @ObservationIgnored private var cardPitch: Float = 0
+    @ObservationIgnored private var capturingPortrait = false
+    @ObservationIgnored private var cardPoseRevision = 0
 
     func install() -> RealityKit.ARView {
         let view = RealityKit.ARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
@@ -137,15 +139,68 @@ final class OiWardrobeScene {
     }
 
     func cardPortrait() async -> UIImage? {
-        guard let canvas, !loading, error == nil, model != nil else { return nil }
-        return await withCheckedContinuation { continuation in
-            canvas.snapshot(saveToHDR: false) { continuation.resume(returning: $0) }
+        // Serialize captures on this scene; a cancelled angle must restore the
+        // background before its replacement can start rendering.
+        while capturingPortrait {
+            do { try await Task.sleep(for: .milliseconds(20)) } catch { return nil }
+        }
+        guard let canvas, !Task.isCancelled, !loading, error == nil, model != nil else { return nil }
+        capturingPortrait = true
+        let token = generation
+        let pose = cardPoseRevision
+        let original = canvas.environment.background
+        defer {
+            canvas.environment.background = original
+            capturingPortrait = false
+        }
+        do {
+            // Explicit opaque backdrops avoid ARView.snapshot's device-dependent alpha.
+            canvas.environment.background = .color(.black)
+            try await Task.sleep(for: .milliseconds(100))
+            guard let black = await snapshot(canvas) else { return nil }
+            try Task.checkCancellation()
+            guard generation == token, cardPoseRevision == pose, isInstalled(canvas) else { return nil }
+            canvas.environment.background = .color(.white)
+            try await Task.sleep(for: .milliseconds(100))
+            guard let white = await snapshot(canvas) else { return nil }
+            try Task.checkCancellation()
+            guard generation == token, cardPoseRevision == pose, isInstalled(canvas) else { return nil }
+            let result = await Task.detached(priority: .userInitiated) {
+                OiPortraitMatte.image(black: black, white: white)
+            }.value
+            try Task.checkCancellation()
+            guard generation == token, cardPoseRevision == pose, isInstalled(canvas) else { return nil }
+            return result
+        } catch { return nil }
+    }
+
+    private final class SnapshotRequest {
+        private var continuation: CheckedContinuation<UIImage?, Never>?
+        init(_ continuation: CheckedContinuation<UIImage?, Never>) { self.continuation = continuation }
+        func finish(_ image: UIImage?) {
+            continuation?.resume(returning: image)
+            continuation = nil
+        }
+    }
+
+    private func snapshot(_ view: RealityKit.ARView) async -> UIImage? {
+        await withCheckedContinuation { continuation in
+            let request = SnapshotRequest(continuation)
+            let timeout = Task { @MainActor in
+                do { try await Task.sleep(for: .seconds(4)) } catch { return }
+                request.finish(nil)
+            }
+            view.snapshot(saveToHDR: false) { image in
+                Task { @MainActor in timeout.cancel(); request.finish(image) }
+            }
         }
     }
 
     func cardOrientation(_ orientation: OiCardOrientation) {
         let value = orientation.normalized
-        yaw = Float(value.yaw); cardPitch = Float(value.pitch)
+        let nextYaw = Float(value.yaw), nextPitch = Float(value.pitch)
+        if yaw != nextYaw || cardPitch != nextPitch { cardPoseRevision += 1 }
+        yaw = nextYaw; cardPitch = nextPitch
         updateCamera()
     }
 

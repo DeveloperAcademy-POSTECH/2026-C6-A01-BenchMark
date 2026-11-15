@@ -254,7 +254,10 @@ struct OiStoryReview<StoryPhoto: View>: View {
             } else {
                 let orientation = customization.card?.characterOrientation ?? OiCardOrientation()
                 OiCardPortraitCapture(look: look, cacheKey: portraitKey(for: look), orientation: orientation,
-                    onCapture: { bytes, _ in invalidCapture = !acceptPortrait(bytes) })
+                    onCapture: { bytes, _ in invalidCapture = !acceptPortrait(bytes) },
+                    onFailure: { invalidCapture = true })
+                    .opacity(0.001)
+                    .overlay { ProgressView() }
             }
         } else if savedPortraitPath != nil {
             if !artworkLoadFailed { ProgressView() }
@@ -434,7 +437,9 @@ struct OiStoryReview<StoryPhoto: View>: View {
 
     private func acceptPortrait(_ bytes: Data) -> Bool {
         guard let image = try? OiPublishedCucumberImage.decode(bytes, part: .portrait) else { return false }
-        portrait = UIImage(cgImage: image); portraitPNG = bytes
+        let decoded = UIImage(cgImage: image)
+        guard OiPortraitMatte.hasTransparentBackground(decoded) else { return false }
+        portrait = decoded; portraitPNG = bytes
         return true
     }
 }
