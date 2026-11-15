@@ -63,7 +63,8 @@ export function adaptNativeStories(input){
   replace('const a=mesh.instanceMatrix.array;', 'const pick=mesh.userData.nativePick,a=pick?.matrices??mesh.instanceMatrix.array,limit=pick?.ids.length??mesh.count,sourceIds=pick?.ids??ids;');
   replace('for(let i=0;i<mesh.count;i++){','for(let i=0;i<limit;i++){');
   replace('id:ids?ids[i]:start+i','id:sourceIds?sourceIds[i]:start+i');
-  // The logo is the sole return control; keep story notes below its header.
-  replace('const restore=button.getBoundingClientRect()',"const restore=document.querySelector('.brand').getBoundingClientRect()");
+  // Reserve the bottom return button as well as the existing header boundary.
+  replace('const restore=button.getBoundingClientRect()',"const restore=document.querySelector('#viewerReturn').getBoundingClientRect()");
+  replace('top=by+restore.height+12;', 'top=Math.max(navBottom,by-h-12);');
   return input;
 }

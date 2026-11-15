@@ -38,7 +38,8 @@ html,body{margin:0;overflow:hidden;overscroll-behavior:none;background:#d5ebf5}
 .native-viewer #viewerGestureHint strong{font-size:16px;font-weight:650;line-height:1.35}
 .native-viewer #viewerGestureHint span{font-size:15px;line-height:1.4}
 .reference-live.native-viewer .garden-mascot{left:16px;right:auto;top:auto;bottom:calc(env(safe-area-inset-bottom,0px) + 116px);width:66px;height:99px;aspect-ratio:2/3;z-index:4}
-.native-viewer #viewerReturn{position:absolute;top:calc(var(--viewer-top) + 62px);left:var(--viewer-inset);padding:8px 13px;border-radius:999px;font:600 16px/1.2 -apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif;z-index:8}
+.native-viewer #viewerReturn{position:absolute;top:auto;bottom:calc(env(safe-area-inset-bottom,0px) + 20px);left:50%;transform:translateX(-50%);min-height:48px;max-width:calc(100% - 32px);height:auto;padding:12px 18px;border-radius:999px;font:600 17px/1.3 -apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif;white-space:nowrap;z-index:8}
+.native-viewer #viewerReturn:active{transform:translateX(-50%) scale(.97)}
 .native-viewer #viewerReturn[hidden]{display:none}
 .native-viewer #viewerMenu{position:fixed;top:calc(var(--viewer-top) + 56px);left:auto;right:max(16px,env(safe-area-inset-right));bottom:auto;width:min(272px,calc(100vw - 32px));max-height:calc(100dvh - 160px);overflow:auto;margin:0;padding:6px;box-sizing:border-box;background:#fafbf7;color:#162019;border:1px solid #dce2d7;border-radius:18px;box-shadow:0 12px 45px #13211b33;font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif}
 .native-viewer #viewerMenu::backdrop{background:#00000014}
@@ -61,7 +62,7 @@ html,body{margin:0;overflow:hidden;overscroll-behavior:none;background:#d5ebf5}
 .reference-live.native-viewer{isolation:isolate}
 .native-viewer .viewer-dimmer{position:absolute;inset:0;z-index:-1;pointer-events:none;background:#101914;opacity:0;transition:opacity .28s ease-out}
 .native-viewer.is-scattered .viewer-dimmer{opacity:.78}
-.reference-live.native-viewer.is-scattered :is(.viewer-header-controls,#viewerReturn,#viewerGestureHint,.bottom-dock,.garden-mascot,.space-mascot,.night-backdrop){display:none!important}
+.reference-live.native-viewer.is-scattered :is(.viewer-header-controls,#viewerGestureHint,.bottom-dock,.garden-mascot,.space-mascot,.night-backdrop){display:none!important}
 .reference-live.native-viewer.is-scattered .brand{color:#c4c9b7}
 .reference-live.native-viewer.is-scattered .app-logo{filter:brightness(.66) saturate(.8)}
 .reference-live.native-viewer.is-scattered .masthead{background:none;backdrop-filter:none;-webkit-backdrop-filter:none}

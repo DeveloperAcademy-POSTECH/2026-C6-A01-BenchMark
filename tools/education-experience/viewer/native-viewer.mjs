@@ -25,8 +25,11 @@ menu.addEventListener('toggle',e => document.querySelector('#viewerMenuButton').
 menu.addEventListener('click',e => { if (e.target.closest('button')) menu.hidePopover(); });
 const scatter = document.querySelector('#scatterButton'); scatter.hidden = true;
 document.querySelector('#viewerScatter').addEventListener('click',() => scatter.click());
-const back = document.createElement('button'); back.id = 'viewerReturn'; back.hidden = true; back.innerHTML = `${symbol('back')}<span>건물로</span>`;
-back.addEventListener('click',() => { if (root.classList.contains('is-scattered')) scatter.click(); }); root.append(back);
+const back = document.createElement('button'); back.id = 'viewerReturn'; back.type = 'button'; back.hidden = true; back.innerHTML = `${symbol('back')}<span>건물로 돌아가기</span>`;
+function returnToBuilding(){
+  if(root.classList.contains('is-scattered')&&document.querySelector('#building-stage').dataset.scatterTransition!=='gathering')scatter.click();
+}
+back.addEventListener('click',returnToBuilding); root.append(back);
 document.querySelector('#viewerClose').addEventListener('click',() => window.webkit?.messageHandlers?.building?.postMessage({kind:'close'}));
 
 const hint = document.createElement('div'); hint.id = 'viewerGestureHint'; hint.innerHTML = '<strong>탭하여 빛 펼치기</strong><span>드래그 회전 · 핀치 확대</span>'; root.append(hint);
@@ -35,10 +38,10 @@ document.querySelector('#storiesButton').replaceChildren(document.createTextNode
 
 let previous;
 const brand=document.querySelector('.brand');
-brand.addEventListener('click',e=>{if(root.classList.contains('is-scattered')){e.preventDefault();scatter.click();}});
+brand.addEventListener('click',e=>{if(root.classList.contains('is-scattered')){e.preventDefault();returnToBuilding();}});
 function syncAppearance() {
   const active = root.classList.contains('is-scattered');
-  back.hidden = true;
+  back.hidden = !active;
   document.querySelector('.viewer-header-controls').inert=active;
   hint.inert=active;
   if(active&&menu.matches(':popover-open'))menu.hidePopover();

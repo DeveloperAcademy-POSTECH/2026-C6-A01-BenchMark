@@ -1315,7 +1315,8 @@ final class CampusEducationDistrictTests: XCTestCase {
         let unfolded = try await model.webView.evaluateJavaScript("""
         ({background:getComputedStyle(document.querySelector('.viewer-dimmer')).opacity,
           space:document.querySelectorAll('.night-backdrop,.space-mascot').length,
-          hidden:['.viewer-header-controls','#viewerReturn','#viewerGestureHint','.bottom-dock'].every(s=>getComputedStyle(document.querySelector(s)).display==='none'),
+          hidden:['.viewer-header-controls','#viewerGestureHint','.bottom-dock'].every(s=>getComputedStyle(document.querySelector(s)).display==='none'),
+          returnButton:(()=>{const b=document.querySelector('#viewerReturn'),r=b.getBoundingClientRect(),s=getComputedStyle(b),hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return !b.hidden&&s.display!=='none'&&s.visibility==='visible'&&r.height>=44&&r.width>=44&&r.bottom<=innerHeight-16&&b.textContent==='건물로 돌아가기'&&!!hit?.closest('#viewerReturn');})(),
           shaderErrors:window.building3DDiagnostics().shaderErrors,
           versions:window.building3DDiagnostics().instanceVersions})
         """)
@@ -1323,6 +1324,7 @@ final class CampusEducationDistrictTests: XCTestCase {
         XCTAssertEqual(unfoldedState["background"] as? String, "0.78")
         XCTAssertEqual(unfoldedState["space"] as? Int, 0)
         XCTAssertEqual(unfoldedState["hidden"] as? Bool, true)
+        XCTAssertEqual(unfoldedState["returnButton"] as? Bool, true, "Scattered state needs a visible, tappable return button above the home indicator")
         XCTAssertEqual(unfoldedState["shaderErrors"] as? Int, 0)
         XCTAssertEqual(unfoldedState["versions"] as? [Int], diagnostics["instanceVersions"] as? [Int], "GPU morph must not upload every pearl matrix on each frame")
         _ = try await model.webView.evaluateJavaScript("""
@@ -1337,7 +1339,10 @@ final class CampusEducationDistrictTests: XCTestCase {
         }
         let storyVisible = try await model.webView.evaluateJavaScript("!document.querySelector('#pearlStoryNote').hidden")
         XCTAssertEqual(storyVisible as? Bool, true, "GPU-displaced pearls must still open the correct story note")
-        _ = try await model.webView.evaluateJavaScript("document.querySelector('.brand').click()")
+        let gathering = try await model.webView.evaluateJavaScript("""
+        (()=>{const b=document.querySelector('#viewerReturn'),stage=document.querySelector('#building-stage');b.click();const started=stage.dataset.scatterTransition==='gathering';b.click();document.querySelector('.brand').click();return started&&stage.dataset.scatterTransition==='gathering';})()
+        """)
+        XCTAssertEqual(gathering as? Bool, true, "Repeated return-button/logo taps must keep gathering rather than scatter again")
         for _ in 0..<50 {
             if try await model.webView.evaluateJavaScript("window.building3DDiagnostics().scatter===0") as? Bool == true { break }
             try await Task.sleep(for: .milliseconds(100))
