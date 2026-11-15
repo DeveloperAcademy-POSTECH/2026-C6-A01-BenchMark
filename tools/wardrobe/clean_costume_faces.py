@@ -1,5 +1,6 @@
 """Bake reviewed smooth eye/mouth silhouettes onto a costume's original UVs.
 Blender -b --python clean_costume_faces.py -- ID SOURCE.usdz OUTPUT.usdz REPORT_DIR
+An optional CONFIG.json argument after REPORT_DIR selects a follow-up field set.
 Sources are recoverable from costume-face-cleanup-config.json's sourceRevision.
 Only diffuse color changes. Geometry, normals, UVs, bindings and other maps stay exact.
 """
@@ -11,10 +12,12 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))
 from apply_cat_skin import pixels,linear
 from face_material_rules import light_frame_guard,dark_selfie_frame_guard
 name=sys.argv[sys.argv.index('--')+1]
-source,output,root=map(lambda p:Path(p).resolve(),sys.argv[sys.argv.index('--')+2:])
-config=json.loads(Path(__file__).with_name('costume-face-cleanup-config.json').read_text());cfg=config['models'][name]
+args=sys.argv[sys.argv.index('--')+2:];assert len(args) in [3,4]
+source,output,root=map(lambda p:Path(p).resolve(),args[:3])
+config_path=Path(args[3]).resolve() if len(args)==4 else Path(__file__).with_name('costume-face-cleanup-config.json')
+config=json.loads(config_path.read_text());cfg=config['models'][name]
 assert config['baseRGB']==[151,211,106] and config['eyeRGB']==[12,12,12] and config['mouthRGB']==[32,69,42]
-fields_path=Path(__file__).with_name('costume-face-fields.npz')
+fields_path=config_path.parent/config.get('fieldsFile','costume-face-fields.npz')
 assert hashlib.sha256(fields_path.read_bytes()).hexdigest()==config['fieldsSHA256']
 assert source!=output and hashlib.sha256(source.read_bytes()).hexdigest()==cfg['sourceSHA256']
 root.mkdir(parents=True,exist_ok=True);work=root/'work';work.mkdir(exist_ok=True)
@@ -82,6 +85,12 @@ for mesh in meshes:
      support=np.clip((positions[...,2]-(gate['peakZ']-gate['offset']))/gate['feather'],0,1)
      values*=np.where(near,support,1)
      gate_regions[key][sl][inside&near]=True
+   if label=='eyes':
+    for surface_eye in cfg.get('surfaceEyeBases',[]):
+     dx=p[...,0]-surface_eye['center'][0];dy=p[...,1]-surface_eye['center'][1];coef=surface_eye['coefficients'];base=coef[0]+coef[1]*dx+coef[2]*dy+coef[3]*dx*dx+coef[4]*dx*dy+coef[5]*dy*dy
+     near=np.hypot(dx,dy)<surface_eye['radius']
+     support=np.clip((positions[...,2]-base-surface_eye['thresholdMeters'])/surface_eye['featherMeters'],0,1)
+     values*=np.where(near,support,1)
    view=masks[label][sl]
    view[inside]=np.minimum(view[inside],values[inside])
 # Every channel uses the most protective coverage across shared UVs.
@@ -100,6 +109,8 @@ for key,gate in eye_gates.items():
  for _ in range(gate.get('filterInsetTexels',0)):
   mask=masks['eyes'];padded=np.pad(mask,1,mode='constant');eroded=np.minimum.reduce([padded[dy:dy+N,dx:dx+N] for dy in range(3) for dx in range(3)])
   region=gate_regions[key];masks['eyes'][region]=eroded[region]
+for _ in range(config.get('eyeFilterInsetTexels',0)):
+ mask=masks['eyes'];padded=np.pad(mask,1,mode='constant');masks['eyes']=np.minimum.reduce([padded[dy:dy+N,dx:dx+N] for dy in range(3) for dx in range(3)])
 # Preserve white/silver eyewear where the clearing halo approaches a frame.
 white=light_frame_guard(original[:,:,0],original[:,:,1],original[:,:,2])
 masks['clear'][white]=0
@@ -109,7 +120,7 @@ for label,mask in masks.items():np.save(root/(label+'-mask.npy'),mask)
 bpy.ops.mesh.primitive_plane_add(size=2);mat=bpy.data.materials.new('Reviewed clean face');mat.use_nodes=True;bpy.context.object.data.materials.append(mat);nodes,links=mat.node_tree.nodes,mat.node_tree.links;nodes.clear();tex=nodes.new('ShaderNodeTexImage');tex.image=image;tex.interpolation='Closest';final=tex.outputs['Color']
 for label,rgb in [('clear',config['baseRGB']),('eyes',config['eyeRGB']),('mouth',config['mouthRGB'])]:
  mask_image=bpy.data.images.new(label,width=N,height=N,alpha=False);mask_image.colorspace_settings.name='Non-Color';rgba=np.ones((N,N,4),np.float32);rgba[:,:,:3]=masks[label][:,:,None];mask_image.pixels.foreach_set(rgba.ravel());selector=nodes.new('ShaderNodeTexImage');selector.image=mask_image;selector.interpolation='Closest';mix=nodes.new('ShaderNodeMixRGB');links.new(selector.outputs[0],mix.inputs[0]);links.new(final,mix.inputs[1]);mix.inputs[2].default_value=(*linear(np.asarray(rgb)/255),1);final=mix.outputs[0]
-emission=nodes.new('ShaderNodeEmission');links.new(final,emission.inputs['Color']);out=nodes.new('ShaderNodeOutputMaterial');links.new(emission.outputs[0],out.inputs['Surface']);result=bpy.data.images.new('Clean face albedo',width=N,height=N,alpha=False);result.colorspace_settings.name='sRGB';target=nodes.new('ShaderNodeTexImage');target.image=result;nodes.active=target;scene=bpy.context.scene;scene.render.engine='CYCLES';scene.cycles.samples=1;scene.render.bake.margin=0;bpy.ops.object.bake(type='EMIT');new_path='./textures/clean-face-albedo.png';new_file=work/new_path.lstrip('./');result.filepath_raw=str(new_file);result.file_format='PNG';result.save()
+emission=nodes.new('ShaderNodeEmission');links.new(final,emission.inputs['Color']);out=nodes.new('ShaderNodeOutputMaterial');links.new(emission.outputs[0],out.inputs['Surface']);result=bpy.data.images.new('Clean face albedo',width=N,height=N,alpha=False);result.colorspace_settings.name='sRGB';target=nodes.new('ShaderNodeTexImage');target.image=result;nodes.active=target;scene=bpy.context.scene;scene.render.engine='CYCLES';scene.cycles.samples=1;scene.render.bake.margin=0;bpy.ops.object.bake(type='EMIT');new_path='./textures/'+config.get('colorFile','clean-face-albedo.png');new_file=work/new_path.lstrip('./');result.filepath_raw=str(new_file);result.file_format='PNG';result.save()
 file_input.Set(Sdf.AssetPath(new_path));stage.GetRootLayer().Save();compact=work/'compact.usdc';assert stage.GetRootLayer().Export(str(compact));shutil.move(compact,layer)
 if output.exists():output.unlink()
 assert UsdUtils.CreateNewUsdzPackage(Sdf.AssetPath(str(layer)),str(output))
@@ -132,7 +143,7 @@ with zipfile.ZipFile(source) as a,zipfile.ZipFile(output) as b:
   assert item.compress_type==zipfile.ZIP_STORED;x,y=struct.unpack_from('<HH',raw,item.header_offset+26);assert (item.header_offset+30+x+y)%64==0
 new=pixels(bpy.data.images.load(str(new_file))).reshape(N,N,3);changed=np.maximum.reduce(list(masks.values()))>0;error=float(np.abs(new[~changed]-original[~changed]).max());assert error<=1/255+1e-6
 assert np.max(np.abs(new[masks['eyes']>.999]-np.asarray(config['eyeRGB'])/255))<=1/255+1e-6
-report={'id':name,'cleanupVersion':config['cleanupVersion'],'sharedUVConflictsGuarded':True,'oldPigmentCleared':True,'eyeDepthGates':eye_gates,'sourceRevision':config['sourceRevision'],'sourceSHA256':cfg['sourceSHA256'],'outputSHA256':hashlib.sha256(output.read_bytes()).hexdigest(),'bytes':output.stat().st_size,'colorTextureSize':N,'fieldsSHA256':config['fieldsSHA256'],'eyeColor':'#0C0C0C','mouthColor':'#20452A','geometryUVsNormalsBindingsUnchanged':True,'otherMaterialChannelsUnchanged':True,'outsideFaceMaxError':error}
+report={'id':name,'cleanupVersion':config['cleanupVersion'],'sharedUVConflictsGuarded':True,'oldPigmentCleared':True,'eyeDepthGates':eye_gates,'surfaceEyeBases':cfg.get('surfaceEyeBases',[]),'sourceRevision':config['sourceRevision'],'sourceSHA256':cfg['sourceSHA256'],'outputSHA256':hashlib.sha256(output.read_bytes()).hexdigest(),'bytes':output.stat().st_size,'colorTextureSize':N,'fieldsSHA256':config['fieldsSHA256'],'eyeColor':'#0C0C0C','mouthColor':'#20452A','geometryUVsNormalsBindingsUnchanged':True,'otherMaterialChannelsUnchanged':True,'outsideFaceMaxError':error}
 assert report['bytes']<12*1024*1024
 assert hashlib.sha256(source.read_bytes()).hexdigest()==cfg['sourceSHA256']
 (root/'face-report.json').write_text(json.dumps(report,indent=2)+'\n');print('FACE_CLEANED',report,flush=True)

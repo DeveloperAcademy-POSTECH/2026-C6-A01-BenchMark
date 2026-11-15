@@ -1,0 +1,524 @@
+[
+  {
+    "id": "baseball",
+    "renderer": "OiWardrobeScene / RealityKit SDR snapshot",
+    "testIdentifier": "OiWardrobeAssetTests/testNewCostumesRenderInWardrobePreview()",
+    "captureViewportPoints": [
+      390,
+      500
+    ],
+    "capturedAtEpoch": 1794705170.861,
+    "sourceModel": "apps/ios/OiDonation/Resources/Wardrobe/wardrobe-costume-baseball.usdz",
+    "sourceModelSHA256": "6ff165b17ac0cd3501ffe31b6f1ad358ea11ba81e21e71e5c4375c9e2d719970",
+    "sourceImageSize": [
+      1170,
+      1500
+    ],
+    "cropSize": [
+      1080,
+      1440
+    ],
+    "colorAdjustment": false,
+    "reference": {
+      "path": "docs/assets/wardrobe-runtime-previews/oi-costume-baseball-reference.png",
+      "sha256": "44f7f0c88cceb34fb359de2e20f347bf258c4564ee4cb7f65507484253d338c6"
+    },
+    "thumbnail": {
+      "path": "apps/ios/OiDonation/Resources/WardrobeThumbnails/oi-costume-baseball.png",
+      "sha256": "9d50f4496e89294faa110a74490e0efe674bcf262764b799ae61986ef0c48d80"
+    }
+  },
+  {
+    "id": "farmer",
+    "renderer": "OiWardrobeScene / RealityKit SDR snapshot",
+    "testIdentifier": "OiWardrobeAssetTests/testNewCostumesRenderInWardrobePreview()",
+    "captureViewportPoints": [
+      390,
+      500
+    ],
+    "capturedAtEpoch": 1794705173.856,
+    "sourceModel": "apps/ios/OiDonation/Resources/Wardrobe/wardrobe-costume-farmer.usdz",
+    "sourceModelSHA256": "b6be6204ea977a388fe65ea6ecc8347a4644db056161498905056ea3d730378c",
+    "sourceImageSize": [
+      1170,
+      1500
+    ],
+    "cropSize": [
+      1080,
+      1440
+    ],
+    "colorAdjustment": false,
+    "reference": {
+      "path": "docs/assets/wardrobe-runtime-previews/oi-costume-farmer-reference.png",
+      "sha256": "c95f63bca9aa39ac8263bdbe6515fd55dda22724f61fb09e658774aed5f19cc3"
+    },
+    "thumbnail": {
+      "path": "apps/ios/OiDonation/Resources/WardrobeThumbnails/oi-costume-farmer.png",
+      "sha256": "d31d0383a7fb48ccf18d924bff0cfca7cf8c7ab337560b7b20e3f1e01ca34605"
+    }
+  },
+  {
+    "id": "martial-arts",
+    "renderer": "OiWardrobeScene / RealityKit SDR snapshot",
+    "testIdentifier": "OiWardrobeAssetTests/testNewCostumesRenderInWardrobePreview()",
+    "captureViewportPoints": [
+      390,
+      500
+    ],
+    "capturedAtEpoch": 1794705176.871,
+    "sourceModel": "apps/ios/OiDonation/Resources/Wardrobe/wardrobe-costume-martial-arts.usdz",
+    "sourceModelSHA256": "1ec358a6f40530fd47af1a9a262131dd8a5dc3a40bdda20eccc09b214de14092",
+    "sourceImageSize": [
+      1170,
+      1500
+    ],
+    "cropSize": [
+      1080,
+      1440
+    ],
+    "colorAdjustment": false,
+    "reference": {
+      "path": "docs/assets/wardrobe-runtime-previews/oi-costume-martial-arts-reference.png",
+      "sha256": "66714c09fc59268472fc289a9a71abae5b6a4d67ee46f47162a115e35195da06"
+    },
+    "thumbnail": {
+      "path": "apps/ios/OiDonation/Resources/WardrobeThumbnails/oi-costume-martial-arts.png",
+      "sha256": "2974aa2aa878b117280d3d8622adb82fe1851f7dfbde090bc4dd30085dfc3141"
+    }
+  },
+  {
+    "id": "sportswear",
+    "renderer": "OiWardrobeScene / RealityKit SDR snapshot",
+    "testIdentifier": "OiWardrobeAssetTests/testNewCostumesRenderInWardrobePreview()",
+    "captureViewportPoints": [
+      390,
+      500
+    ],
+    "capturedAtEpoch": 1794705175.353,
+    "sourceModel": "apps/ios/OiDonation/Resources/Wardrobe/wardrobe-costume-sportswear.usdz",
+    "sourceModelSHA256": "d9d6ba66f316ae5863ab8dc1d2c3436113c1c0a101d94291a87aa205458e5fee",
+    "sourceImageSize": [
+      1170,
+      1500
+    ],
+    "cropSize": [
+      1080,
+      1440
+    ],
+    "colorAdjustment": false,
+    "reference": {
+      "path": "docs/assets/wardrobe-runtime-previews/oi-costume-sportswear-reference.png",
+      "sha256": "78b055b541581a24c8ae8c5d20d1067cd302133e701e405bc1359b093dfef878"
+    },
+    "thumbnail": {
+      "path": "apps/ios/OiDonation/Resources/WardrobeThumbnails/oi-costume-sportswear.png",
+      "sha256": "0657000cd16939dc2c75c0355e31d1017e47ab8dacb631aee1dd089310b30921"
+    }
+  },
+  {
+    "id": "cowboy",
+    "renderer": "OiWardrobeScene / RealityKit SDR snapshot",
+    "testIdentifier": "OiWardrobeAssetTests/testNewCostumesRenderInWardrobePreview()",
+    "captureViewportPoints": [
+      390,
+      500
+    ],
+    "capturedAtEpoch": 1794705172.363,
+    "sourceModel": "apps/ios/OiDonation/Resources/Wardrobe/wardrobe-costume-cowboy.usdz",
+    "sourceModelSHA256": "454b0219ac289225bc020be1c938c4e9dd042441bdfbcc4be93bda1a73f611b3",
+    "sourceImageSize": [
+      1170,
+      1500
+    ],
+    "cropSize": [
+      1080,
+      1440
+    ],
+    "colorAdjustment": false,
+    "reference": {
+      "path": "docs/assets/wardrobe-runtime-previews/oi-costume-cowboy-reference.png",
+      "sha256": "844bf510428b9905b0ff2a7b170b09db4b641c5ba65c8997c56b654b573b02b2"
+    },
+    "thumbnail": {
+      "path": "apps/ios/OiDonation/Resources/WardrobeThumbnails/oi-costume-cowboy.png",
+      "sha256": "1953fa959730c5d2dac12bce01c789f8e175aec4a1564fe4959eae4cb8801023"
+    }
+  },
+  {
+    "id": "school-uniform",
+    "renderer": "OiWardrobeScene / RealityKit SDR snapshot",
+    "testIdentifier": "OiWardrobeAssetTests/testNewCostumesRenderInWardrobePreview()",
+    "captureViewportPoints": [
+      390,
+      500
+    ],
+    "capturedAtEpoch": 1794705178.253,
+    "sourceModel": "apps/ios/OiDonation/Resources/Wardrobe/wardrobe-costume-school-uniform.usdz",
+    "sourceModelSHA256": "889090ef68c059719178f904c492c2bd669cef3488373a2ae6b95781d55fd1b9",
+    "sourceImageSize": [
+      1170,
+      1500
+    ],
+    "cropSize": [
+      1080,
+      1440
+    ],
+    "colorAdjustment": false,
+    "reference": {
+      "path": "docs/assets/wardrobe-runtime-previews/oi-costume-school-uniform-reference.png",
+      "sha256": "7a635e25da2dc73ffe22d14dac67d428ff0a4c82c25c44878ecc51da89f33fbf"
+    },
+    "thumbnail": {
+      "path": "apps/ios/OiDonation/Resources/WardrobeThumbnails/oi-costume-school-uniform.png",
+      "sha256": "e81be1822ada6f9375707f71f6c0042e7c9fefcfbbaf7db01d158f3c0f82cc1e"
+    }
+  },
+  {
+    "id": "school-uniform-trousers",
+    "renderer": "OiWardrobeScene / RealityKit SDR snapshot",
+    "testIdentifier": "OiWardrobeAssetTests/testNewCostumesRenderInWardrobePreview()",
+    "captureViewportPoints": [
+      390,
+      500
+    ],
+    "capturedAtEpoch": 1794705179.884,
+    "sourceModel": "apps/ios/OiDonation/Resources/Wardrobe/wardrobe-costume-school-uniform-trousers.usdz",
+    "sourceModelSHA256": "d655858b6f2fb26963852a0ab63b0e611cfed43b1de7f050fea822e6c8432c87",
+    "sourceImageSize": [
+      1170,
+      1500
+    ],
+    "cropSize": [
+      1080,
+      1440
+    ],
+    "colorAdjustment": false,
+    "reference": {
+      "path": "docs/assets/wardrobe-runtime-previews/oi-costume-school-uniform-trousers-reference.png",
+      "sha256": "9563c58d5d33f2779520649666791a3d99c433661ffec1757d21bf4bc510bf41"
+    },
+    "thumbnail": {
+      "path": "apps/ios/OiDonation/Resources/WardrobeThumbnails/oi-costume-school-uniform-trousers.png",
+      "sha256": "6818a652edc3b803bada54da598ab7f1ee0c65cc5b944b23e852f548c6279a06"
+    }
+  },
+  {
+    "id": "astronaut-navy",
+    "renderer": "OiWardrobeScene / RealityKit SDR snapshot",
+    "testIdentifier": "OiWardrobeAssetTests/testNewCostumesRenderInWardrobePreview()",
+    "captureViewportPoints": [
+      390,
+      500
+    ],
+    "capturedAtEpoch": 1794705181.488,
+    "sourceModel": "apps/ios/OiDonation/Resources/Wardrobe/wardrobe-costume-astronaut-navy.usdz",
+    "sourceModelSHA256": "649bece696646c66921f5d17cb26c588b123f0e7a812655c1ee9a25c74dd7735",
+    "sourceImageSize": [
+      1170,
+      1500
+    ],
+    "cropSize": [
+      1080,
+      1440
+    ],
+    "colorAdjustment": false,
+    "reference": {
+      "path": "docs/assets/wardrobe-runtime-previews/oi-costume-astronaut-navy-reference.png",
+      "sha256": "138c6f65ea2e6b857ffe03ee7ed64860d9a64af3249b6be863aedb1816b95917"
+    },
+    "thumbnail": {
+      "path": "apps/ios/OiDonation/Resources/WardrobeThumbnails/oi-costume-astronaut-navy.png",
+      "sha256": "32bd54bada50c229ff23f5dba457b9970e5fc207294b40392cec9e85812c8b55"
+    }
+  },
+  {
+    "id": "scientist-goggles",
+    "renderer": "OiWardrobeScene / RealityKit SDR snapshot",
+    "testIdentifier": "OiWardrobeAssetTests/testNewCostumesRenderInWardrobePreview()",
+    "captureViewportPoints": [
+      390,
+      500
+    ],
+    "capturedAtEpoch": 1794706883.447,
+    "sourceModel": "apps/ios/OiDonation/Resources/Wardrobe/wardrobe-costume-scientist-goggles.usdz",
+    "sourceModelSHA256": "48cccfa1bf4e43d1d3b1c4accedb0edd76dd65d874fe953e2c94a8fb3e0769b5",
+    "sourceImageSize": [
+      1170,
+      1500
+    ],
+    "cropSize": [
+      1080,
+      1440
+    ],
+    "colorAdjustment": false,
+    "reference": {
+      "path": "docs/assets/wardrobe-runtime-previews/oi-costume-scientist-goggles-reference.png",
+      "sha256": "51c52db7011f813c026c3a344364183df8ed8f118abd4d02381a752e038c5bd4"
+    },
+    "thumbnail": {
+      "path": "apps/ios/OiDonation/Resources/WardrobeThumbnails/oi-costume-scientist-goggles.png",
+      "sha256": "71e214dd6abb412be76f1f1b2bf19813356f26b8f850032fde9c329ac536d634"
+    }
+  },
+  {
+    "id": "astronaut",
+    "renderer": "OiWardrobeScene / RealityKit SDR snapshot",
+    "testIdentifier": "OiWardrobeAssetTests/testNewCostumesRenderInWardrobePreview()",
+    "captureViewportPoints": [
+      390,
+      500
+    ],
+    "capturedAtEpoch": 1794705164.589,
+    "sourceModel": "apps/ios/OiDonation/Resources/Wardrobe/wardrobe-costume-astronaut.usdz",
+    "sourceModelSHA256": "c13fee2a358d63d5cb355540cac64c405d1f454f49d46b47cd4ac13d2cb45d9b",
+    "sourceImageSize": [
+      1170,
+      1500
+    ],
+    "cropSize": [
+      1080,
+      1440
+    ],
+    "colorAdjustment": false,
+    "reference": {
+      "path": "docs/assets/wardrobe-runtime-previews/oi-costume-astronaut-reference.png",
+      "sha256": "320790140fc1ee9eb6b687af3a0b88d893ed60f109518e2ef43e616c55652fea"
+    },
+    "thumbnail": {
+      "path": "apps/ios/OiDonation/Resources/WardrobeThumbnails/oi-costume-astronaut.png",
+      "sha256": "0e84fac88b5ef61ae64d2b713d1fbb8373313a64c6c9dacc62a66600ce06f5a3"
+    }
+  },
+  {
+    "id": "scientist",
+    "renderer": "OiWardrobeScene / RealityKit SDR snapshot",
+    "testIdentifier": "OiWardrobeAssetTests/testNewCostumesRenderInWardrobePreview()",
+    "captureViewportPoints": [
+      390,
+      500
+    ],
+    "capturedAtEpoch": 1794705166.385,
+    "sourceModel": "apps/ios/OiDonation/Resources/Wardrobe/wardrobe-costume-scientist.usdz",
+    "sourceModelSHA256": "5fcbe0e37990ebfd243a71ff1d61871833864e4ec113fde07de7f39ec2d8775d",
+    "sourceImageSize": [
+      1170,
+      1500
+    ],
+    "cropSize": [
+      1080,
+      1440
+    ],
+    "colorAdjustment": false,
+    "reference": {
+      "path": "docs/assets/wardrobe-runtime-previews/oi-costume-scientist-reference.png",
+      "sha256": "5b8332c232a6f5f1decdb8577ac400aa46da3eb717838af51141680c7e9f673a"
+    },
+    "thumbnail": {
+      "path": "apps/ios/OiDonation/Resources/WardrobeThumbnails/oi-costume-scientist.png",
+      "sha256": "73643e8a3788ff10052527a854b966455d348edee603de37a752c837d5ca382e"
+    }
+  },
+  {
+    "id": "cat-bear",
+    "renderer": "OiWardrobeScene / RealityKit SDR snapshot",
+    "testIdentifier": "OiWardrobeAssetTests/testNewCostumesRenderInWardrobePreview()",
+    "captureViewportPoints": [
+      390,
+      500
+    ],
+    "capturedAtEpoch": 1794705167.967,
+    "sourceModel": "apps/ios/OiDonation/Resources/Wardrobe/wardrobe-costume-cat-bear.usdz",
+    "sourceModelSHA256": "eabbcce98c5a16f72517c3b69dd7e6d7899d7f11c0eedcc75130bda9ae16d445",
+    "sourceImageSize": [
+      1170,
+      1500
+    ],
+    "cropSize": [
+      1080,
+      1440
+    ],
+    "colorAdjustment": false,
+    "reference": {
+      "path": "docs/assets/wardrobe-runtime-previews/oi-costume-cat-bear-reference.png",
+      "sha256": "b329031ebf3d77ea41144f60d048b200a4ef9465afd498e3654c97a336cfdc56"
+    },
+    "thumbnail": {
+      "path": "apps/ios/OiDonation/Resources/WardrobeThumbnails/oi-costume-cat-bear.png",
+      "sha256": "c0a59e3f281c5936f702a42970fd5c13f8505f79db116a483a69423d1f1e1057"
+    }
+  },
+  {
+    "id": "postech-selfie",
+    "renderer": "OiWardrobeScene / RealityKit SDR snapshot",
+    "testIdentifier": "OiWardrobeAssetTests/testNewCostumesRenderInWardrobePreview()",
+    "captureViewportPoints": [
+      390,
+      500
+    ],
+    "capturedAtEpoch": 1794705169.351,
+    "sourceModel": "apps/ios/OiDonation/Resources/Wardrobe/wardrobe-costume-postech-selfie.usdz",
+    "sourceModelSHA256": "21832da1e1a7fcdfc2a0978a3d1a6b1e0316bd38563c8ae4ce1b5a44c065fa88",
+    "sourceImageSize": [
+      1170,
+      1500
+    ],
+    "cropSize": [
+      1080,
+      1440
+    ],
+    "colorAdjustment": false,
+    "reference": {
+      "path": "docs/assets/wardrobe-runtime-previews/oi-costume-postech-selfie-reference.png",
+      "sha256": "5e0ecdd2ce03ded5c7b82b0783d37857b5e34d4d9fa56caee5c02b0a81b49c6f"
+    },
+    "thumbnail": {
+      "path": "apps/ios/OiDonation/Resources/WardrobeThumbnails/oi-costume-postech-selfie.png",
+      "sha256": "6d48ee18e74e03c7fbb86a6b08fc4911d712212b55460617824d5cc1f9e2fad3"
+    }
+  },
+  {
+    "id": "dinosaur",
+    "renderer": "OiWardrobeScene / RealityKit SDR snapshot",
+    "testIdentifier": "OiWardrobeAssetTests/testNewCostumesRenderInWardrobePreview()",
+    "captureViewportPoints": [
+      390,
+      500
+    ],
+    "capturedAtEpoch": 1794705158.33,
+    "sourceModel": "apps/ios/OiDonation/Resources/Wardrobe/wardrobe-costume-dinosaur.usdz",
+    "sourceModelSHA256": "dd63db06e325a95ae3c4b59c278043889882073aa7840a8ebdb06c9ec4c6c31e",
+    "sourceImageSize": [
+      1170,
+      1500
+    ],
+    "cropSize": [
+      1080,
+      1440
+    ],
+    "colorAdjustment": false,
+    "reference": {
+      "path": "docs/assets/wardrobe-runtime-previews/oi-costume-dinosaur-reference.png",
+      "sha256": "c35eadb538c01fd2f75f21d40767acb5144f04a8e1f222a83afade1e41dbde6c"
+    },
+    "thumbnail": {
+      "path": "apps/ios/OiDonation/Resources/WardrobeThumbnails/oi-costume-dinosaur.png",
+      "sha256": "37ff49e2df62635d4477d5da0c4ba714c35624c349973a8d00f26f73f532484d"
+    }
+  },
+  {
+    "id": "raincoat",
+    "renderer": "OiWardrobeScene / RealityKit SDR snapshot",
+    "testIdentifier": "OiWardrobeAssetTests/testNewCostumesRenderInWardrobePreview()",
+    "captureViewportPoints": [
+      390,
+      500
+    ],
+    "capturedAtEpoch": 1794705160.072,
+    "sourceModel": "apps/ios/OiDonation/Resources/Wardrobe/wardrobe-costume-raincoat.usdz",
+    "sourceModelSHA256": "bf0a35225d091941d52c3b6ca47a4ec5e9e52b05f91d56daf6d8e8d2acb92afd",
+    "sourceImageSize": [
+      1170,
+      1500
+    ],
+    "cropSize": [
+      1080,
+      1440
+    ],
+    "colorAdjustment": false,
+    "reference": {
+      "path": "docs/assets/wardrobe-runtime-previews/oi-costume-raincoat-reference.png",
+      "sha256": "4706abda73c79d98992d53c36ad47ed86df3b5db4fac4e8f78a5e5ee7d5d34b4"
+    },
+    "thumbnail": {
+      "path": "apps/ios/OiDonation/Resources/WardrobeThumbnails/oi-costume-raincoat.png",
+      "sha256": "5ee465a487b7ce8c6d922698dd070a834ff2e8a4353224213439e3ab20806528"
+    }
+  },
+  {
+    "id": "bee",
+    "renderer": "OiWardrobeScene / RealityKit SDR snapshot",
+    "testIdentifier": "OiWardrobeAssetTests/testNewCostumesRenderInWardrobePreview()",
+    "captureViewportPoints": [
+      390,
+      500
+    ],
+    "capturedAtEpoch": 1794705161.452,
+    "sourceModel": "apps/ios/OiDonation/Resources/Wardrobe/wardrobe-costume-bee.usdz",
+    "sourceModelSHA256": "f6251a69c9d54ebece4318d6044ea4b8ef2cedf557432bd189481e4a1286413f",
+    "sourceImageSize": [
+      1170,
+      1500
+    ],
+    "cropSize": [
+      1080,
+      1440
+    ],
+    "colorAdjustment": false,
+    "reference": {
+      "path": "docs/assets/wardrobe-runtime-previews/oi-costume-bee-reference.png",
+      "sha256": "158cc0c721d2bb754ec206e746dc3eafc21cdd0ec24eaa3ec9b156401151f329"
+    },
+    "thumbnail": {
+      "path": "apps/ios/OiDonation/Resources/WardrobeThumbnails/oi-costume-bee.png",
+      "sha256": "839d7564029f1a5e688e5e118112fa816c70654862709ea806ed34d7cc3a2e70"
+    }
+  },
+  {
+    "id": "cat",
+    "renderer": "OiWardrobeScene / RealityKit SDR snapshot",
+    "testIdentifier": "OiWardrobeAssetTests/testNewCostumesRenderInWardrobePreview()",
+    "captureViewportPoints": [
+      390,
+      500
+    ],
+    "capturedAtEpoch": 1794705163.073,
+    "sourceModel": "apps/ios/OiDonation/Resources/Wardrobe/wardrobe-costume-cat.usdz",
+    "sourceModelSHA256": "5891cc1ddd84898495bef9bbf8381410f93baf8c84de1fff137c9896da8039af",
+    "sourceImageSize": [
+      1170,
+      1500
+    ],
+    "cropSize": [
+      1080,
+      1440
+    ],
+    "colorAdjustment": false,
+    "reference": {
+      "path": "docs/assets/wardrobe-runtime-previews/oi-costume-cat-reference.png",
+      "sha256": "f17f6f393f9f5d56a136c1bc122b69d6ffa2b4acbb6f4244ca17a7cc08737b18"
+    },
+    "thumbnail": {
+      "path": "apps/ios/OiDonation/Resources/WardrobeThumbnails/oi-costume-cat.png",
+      "sha256": "a10123a595e0543793eecf96eda130d5ce7d1b09a72879cc7ef10eddbe06bb42"
+    }
+  },
+  {
+    "id": "postech",
+    "renderer": "OiWardrobeScene / RealityKit SDR snapshot",
+    "testIdentifier": "OiWardrobeAssetTests/testModularOutfitsKeepApprovedSkinAndRenderInWardrobe()",
+    "captureViewportPoints": [
+      390,
+      500
+    ],
+    "capturedAtEpoch": 1794710126.166,
+    "sourceModel": "apps/ios/OiDonation/Resources/Wardrobe/wardrobe-postech-long.usdz",
+    "sourceModelSHA256": "eaa0d22144013ad75b9e4fa97dfb2149589f882d18379d951cecb41f56f98517",
+    "sourceImageSize": [
+      1170,
+      1500
+    ],
+    "cropSize": [
+      1080,
+      1440
+    ],
+    "colorAdjustment": false,
+    "reference": {
+      "path": "docs/assets/wardrobe-runtime-previews/oi-look-postech-reference.png",
+      "sha256": "788ca5669ff785279e1534857a3c3602d09e225ba91cdf3059d1bd8df180d474"
+    },
+    "thumbnail": {
+      "path": "apps/ios/OiDonation/Resources/WardrobeThumbnails/oi-look-postech.png",
+      "sha256": "fa4e236db9b1a35f741a6faae5e19f4424ca3318ce5e0f978ca21338f6b10632"
+    }
+  }
+]

@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "cleanupVersion": 6,
+  "sourceRevision": "9586630e38e5588029d451a18ee9861b336045e3",
+  "baseRGB": [
+    151,
+    211,
+    106
+  ],
+  "eyeRGB": [
+    12,
+    12,
+    12
+  ],
+  "mouthRGB": [
+    32,
+    69,
+    42
+  ],
+  "fieldsFile": "sportswear-raised-eyes-fields.npz",
+  "colorFile": "sportswear-raised-eye-albedo.png",
+  "fieldsSHA256": "40c987f9e8bb0c3fbb7d3f4177bb67ad2bef3638cac005f0f1926890dae4bfc5",
+  "models": {
+    "sportswear": {
+      "sourceSHA256": "e31fcf13bd3cfc8dc64fae7112343db876478e1de4b98ac5e5d61f2ea5eb0e7e",
+      "left": 157,
+      "top": 394,
+      "pixelsPerReferencePixel": 3,
+      "eyes": [
+        {
+          "center": [
+            191.0014766686355,
+            422.116558377633
+          ]
+        },
+        {
+          "center": [
+            289.756505931879,
+            422.0102372751643
+          ]
+        }
+      ],
+      "mouthCenter": [
+        240,
+        467
+      ],
+      "fieldSize": [
+        499,
+        330
+      ],
+      "surfaceEyeBases": [
+        {
+          "center": [
+            191.0014766686355,
+            422.116558377633
+          ],
+          "coefficients": [
+            0.19586422991061161,
+            0.000385893690647002,
+            4.21272876108702e-05,
+            -4.257167465414275e-06,
+            -6.106613637274892e-08,
+            -6.577580293361709e-07
+          ],
+          "radius": 20,
+          "thresholdMeters": 0.0004,
+          "featherMeters": 0.00025
+        },
+        {
+          "center": [
+            289.756505931879,
+            422.0102372751643
+          ],
+          "coefficients": [
+            0.19544254137418907,
+            -0.00041362326284918036,
+            4.025841750695451e-05,
+            -4.614092219129703e-06,
+            -3.787559747684322e-07,
+            -7.990364514878934e-07
+          ],
+          "radius": 20,
+          "thresholdMeters": 0.0004,
+          "featherMeters": 0.00025
+        }
+      ],
+      "selection": "raised-eye-surface"
+    }
+  },
+  "eyeFilterInsetTexels": 1
+}

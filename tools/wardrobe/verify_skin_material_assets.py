@@ -32,6 +32,14 @@ if reference_digest != manifest['referenceSHA256']:
         assert cleanup['outputSHA256'] == reference_digest
     assert record['baseColor'] == '#97D36A' and record['stripeColor'] == '#376C3C'
 
+marks = json.loads((ROOT / 'tools/wardrobe/postech-marks-manifest.json').read_text())
+assert {m['file'] for m in marks} == {'wardrobe-postech-long.usdz', 'wardrobe-postech-shorts.usdz'}
+proof_dir = ROOT / 'docs/assets/postech-mark-audit'
+proof = json.loads((proof_dir / 'manifest.json').read_text())
+assert proof['sourceModelSHA256'] == next(m['outputSHA256'] for m in marks if m['file'] == 'wardrobe-postech-long.usdz')
+for name, digest in proof['renders'].items():
+    assert sha((proof_dir / name).read_bytes()) == digest
+assert sha((ROOT / 'apps/ios/OiDonation/Resources/WardrobeThumbnails/oi-thumb-postech.png').read_bytes()) == proof['thumbnailSHA256']
 seen_textures = set()
 for model in manifest['models']:
     path = ASSETS / model['file']
@@ -40,6 +48,26 @@ for model in manifest['models']:
     assert len(raw) == model['bytes']
     with zipfile.ZipFile(path) as archive:
         assert archive.testzip() is None
+        if model['file'].startswith('wardrobe-postech-'):
+            repair = model['markRestoration']
+            record = next(r for r in marks if r['file'] == model['file'])
+            assert all(repair[k] == v for k, v in record.items())
+            assert record['sourceSHA256'] != record['outputSHA256'] == model['outputSHA256']
+            assert record['skinMaterialsAndTexturesUnchanged'] and record['onlyTopColorTextureChanged']
+            assert record['geometryUVsTransformsUnchanged'] and record['outsideEditMaxError'] == 0
+            assert not model['garmentMaterialsUnchanged']
+            assert record['scope'] == 'original-sleeve-word-only'
+            assert record['normalRoughnessMetallicUnchanged'] and record['chestPAndSealUnchanged']
+            assert record['protectedMarkColorMaxError'] == record['inkContourChangedPixels'] == 0
+            assert record['originalInkPixels'] == record['outputInkPixels'] > 500
+            assert set(record['textures']) == {'postech-original-word-sharp.png'}
+            for name, digest in record['textures'].items():
+                data = archive.read('textures/' + name)
+                assert sha(data) == digest
+                size = record['colorTextureSize']
+                assert list(struct.unpack_from('>II', data, 16)) == size
+            photo = ROOT / 'apps/ios/OiDonation/Resources/WardrobePhotoUV' / ('photo-' + path.stem + '-top-material-0.png')
+            assert sha(photo.read_bytes()) == record['textures']['postech-original-word-sharp.png']
         for entry in archive.infolist():
             assert entry.compress_type == zipfile.ZIP_STORED
             name_length, extra_length = struct.unpack_from('<HH', raw, entry.header_offset + 26)
@@ -56,4 +84,4 @@ for model in manifest['models']:
     else:
         assert model['geometryUVsTransformsUnchanged']
 assert seen_textures == {t['outputSHA256'] for t in manifest['textures'].values()}
-print('PASS: 8 approved skin packages, 5 palette textures, cat reference, and aligned USDZ packaging')
+print('PASS: 8 approved skin packages, 5 palette textures, cat reference, 2 original-weight POSTECH sleeve words, and aligned USDZ packaging')

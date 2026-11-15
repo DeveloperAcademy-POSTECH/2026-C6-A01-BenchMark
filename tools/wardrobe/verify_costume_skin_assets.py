@@ -52,7 +52,7 @@ face_records=json.loads((ROOT/'tools/wardrobe/costume-face-cleanup-manifest.json
 assert len(face_records)==17 and {r['id'] for r in face_records}==expected
 for record in face_records:
     current=next(c for c in manifest['costumes'] if c['id']==record['id'])
-    assert record['outputSHA256']==current['sha256']
+    assert record['outputSHA256']==current.get('detailCleanup',{}).get('sourceSHA256',current['sha256'])
     assert record['sourceSHA256']==config['models'][record['id']]['sourceSHA256']
     assert record['sourceRevision']==config['sourceRevision']
     assert record['fieldsSHA256']==config['fieldsSHA256']
@@ -74,3 +74,46 @@ for proof in proofs:
     for kind in ['lit','albedo']:
         assert sha((ROOT/proof[kind]['path']).read_bytes())==proof[kind]['sha256']
 print('PASS: 17 paired review renders match the shipped model hashes')
+
+# Targeted full raised-eye and garment contamination follow-up.
+details=json.loads((ROOT/'tools/wardrobe/costume-detail-cleanup-manifest.json').read_text())
+assert len(details)==3 and {d['id'] for d in details}=={'sportswear','school-uniform-trousers','scientist-goggles'}
+for detail in details:
+    current=next(c for c in manifest['costumes'] if c['id']==detail['id'])
+    assert detail['sourceSHA256']==current['faceCleanup']['outputSHA256']
+    assert detail['outputSHA256']==current['sha256']==current['detailCleanup']['outputSHA256']
+    assert detail['geometryUVsNormalsBindingsUnchanged'] and detail['otherMaterialChannelsUnchanged']
+    assert detail['sourceRevision']=='9586630e38e5588029d451a18ee9861b336045e3'
+    assert sha((ROOT/detail['reviewImage']['path']).read_bytes())==detail['reviewImage']['sha256']
+    if detail['id'] in {'school-uniform-trousers','scientist-goggles'}:
+        assert detail['skinProtected'] and detail['garmentHueNormalized']
+        assert 0<detail['greenGarmentPixelsRepaired']<60000 and detail['garmentTexelsNormalized']>detail['greenGarmentPixelsRepaired']
+        assert detail['outsideEditMaxError']<=1/255+1e-6
+        if detail['id']=='scientist-goggles':assert detail['decorationsProtected']
+    else:
+        cfg=json.loads((ROOT/'tools/wardrobe/sportswear-raised-eyes-config.json').read_text())
+        assert cfg['cleanupVersion']==detail['cleanupVersion']==6
+        assert cfg['models']['sportswear']['sourceSHA256']==detail['sourceSHA256']
+        assert cfg['eyeRGB']==[12,12,12] and detail['eyeColor']=='#0C0C0C'
+        assert detail['fieldsSHA256']==cfg['fieldsSHA256']==sha((ROOT/'tools/wardrobe'/cfg['fieldsFile']).read_bytes())
+        assert detail['surfaceEyeBases']==cfg['models']['sportswear']['surfaceEyeBases']
+        assert len(detail['surfaceEyeBases'])==2 and cfg['eyeFilterInsetTexels']==1
+        assert detail['outsideFaceMaxError']<=1/255+1e-6
+print('PASS: full raised sportswear eyes and clean uniform cloth, protected skin and provenance')
+
+# Picker images come from the same SDR RealityKit scene as the live wardrobe.
+previews=json.loads((ROOT/'tools/wardrobe/runtime-thumbnails-manifest.json').read_text())
+assert len(previews)==18 and {p['id'] for p in previews}==expected|{'postech'}
+for preview in previews:
+    name=preview['id'];model='wardrobe-postech-long' if name=='postech' else 'wardrobe-costume-'+name
+    thumbnail='oi-look-postech' if name=='postech' else 'oi-costume-'+name
+    assert preview['renderer']=='OiWardrobeScene / RealityKit SDR snapshot'
+    assert preview['colorAdjustment'] is False and preview['captureViewportPoints']==[390,500]
+    assert preview['sourceModel']==f'apps/ios/OiDonation/Resources/Wardrobe/{model}.usdz'
+    assert sha((ROOT/preview['sourceModel']).read_bytes())==preview['sourceModelSHA256']
+    assert preview['thumbnail']['path']==f'apps/ios/OiDonation/Resources/WardrobeThumbnails/{thumbnail}.png'
+    for kind in ['thumbnail','reference']:
+        assert sha((ROOT/preview[kind]['path']).read_bytes())==preview[kind]['sha256']
+    assert png_size((ROOT/preview['thumbnail']['path']).read_bytes())==(192,256)
+    assert list(png_size((ROOT/preview['reference']['path']).read_bytes()))==preview['sourceImageSize']
+print('PASS: 18 picker thumbnails and ungraded RealityKit references match current model hashes')
