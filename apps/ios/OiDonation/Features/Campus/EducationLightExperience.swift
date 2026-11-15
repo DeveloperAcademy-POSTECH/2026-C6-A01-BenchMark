@@ -13,15 +13,19 @@ import Observation
 struct EducationLightExperience: View {
     @State private var model = EducationLightWebModel()
     @Environment(\.scenePhase) private var phase
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         ZStack {
-            Color(red: 5/255, green: 7/255, blue: 11/255).ignoresSafeArea()
+            Color(red: 213/255, green: 235/255, blue: 245/255).ignoresSafeArea()
             EducationLightWebView(model: model)
             if model.loading {
-                ProgressView("작은 빛으로 건물을 짓고 있어요")
-                    .padding(24)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+                VStack(spacing: 16) {
+                    ProgressView("작은 빛으로 건물을 짓고 있어요")
+                    Button("체험 닫기") { dismiss() }.frame(minHeight: 44)
+                }
+                .padding(24)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
             }
             if let failure = model.failure {
                 VStack(spacing: 18) {
@@ -29,13 +33,17 @@ struct EducationLightExperience: View {
                     Text("건물을 다시 불러와 주세요").font(.headline)
                     Text(failure).font(.footnote).multilineTextAlignment(.center)
                     Button("다시 열기") { model.load() }.buttonStyle(.borderedProminent)
+                    Button("체험 닫기") { dismiss() }.frame(minHeight: 44)
                 }
                 .padding(28)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
                 .padding(24)
             }
         }
+        .ignoresSafeArea()
+        .preferredColorScheme(model.scattered ? .dark : .light)
         .onChange(of: phase) { _, value in model.setActive(value == .active) }
+        .onChange(of: model.closeRequested) { _, requested in if requested { dismiss() } }
     }
 }
 
@@ -43,6 +51,8 @@ struct EducationLightExperience: View {
 final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     var loading = true
     var failure: String?
+    var scattered = false
+    var closeRequested = false
     @ObservationIgnored let webView: WKWebView
     private var active = true
     private let logger = Logger(subsystem: "com.Spero.OiDonation.Education", category: "Building")
@@ -97,7 +107,11 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any], let kind = body["kind"] as? String else { return }
-        if kind == "ready" {
+        if kind == "close" {
+            closeRequested = true
+        } else if kind == "appearance", let dark = body["dark"] as? Bool {
+            scattered = dark
+        } else if kind == "ready" {
             loading = false
             if body["webgl"] as? Bool != true { failure = "이 기기에서 3D 화면을 시작하지 못했습니다." }
             setActive(active)

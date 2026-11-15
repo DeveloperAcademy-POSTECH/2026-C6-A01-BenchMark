@@ -7,6 +7,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {Script} from 'node:vm';
 import {build} from 'esbuild';
+import {adaptNativeRenderer,adaptNativeStories} from './viewer/renderer-adapter.mjs';
 
 if(!process.argv[2])throw Error('Pass the reviewed website dist directory.');
 const web=path.resolve(process.argv[2]);
@@ -15,30 +16,40 @@ const sha=data=>createHash('sha256').update(data).digest('hex');
 const sourceHTML=await readFile(path.join(web,'index.html'),'utf8');
 const model=JSON.parse(await readFile(path.join(web,'assets/building-v25/model.json'),'utf8'));
 let html=sourceHTML;
+// Drop unused cosmic images before WebKit can preload/decode them.
+html=html.replace(/<div class="night-backdrop"[^>]*><\/div>/,'')
+ .replace(/<div class="space-mascot"[^>]*><img[^>]*><\/div>/,'');
 const assetPaths=new Set(['assets/building-v25/model.json','assets/building-v25/pearls.bin','assets/building-v25/facades.bin','vendor/three-LICENSE.txt','assets/Pretendard-LICENSE.txt']);
 for(const material of Object.values(model.materials))if(material.texture)assetPaths.add('assets/building-v25/'+material.texture);
 function collectAssets(text){
  for(const match of text.matchAll(/(?:url\(\s*["']?|(?:src|href)=["'])(\.\/(?:assets|references)\/[^\s"'()<>]+)/g))assetPaths.add(match[1].slice(2));
 }
 for(const match of [...html.matchAll(/<link rel="stylesheet" href="([^"?]+)(?:\?[^\"]*)?">/g)]){
- const css=await readFile(path.join(web,match[1]),'utf8');collectAssets(css);
+ const css=(await readFile(path.join(web,match[1]),'utf8')).replaceAll("url('./assets/space-earth-v2.png')",'none');collectAssets(css);
  html=html.replace(match[0],()=>'<style>'+css+'</style>');
 }
 collectAssets(html);collectAssets(await readFile(path.join(web,'app.js'),'utf8'));
 const scripts=[...html.matchAll(/<script type="module" src="([^\"]+)"><\/script>/g)];
 if(scripts.length!==2)throw Error('Inspect the reviewed website entry points before packaging.');
+const viewerCSS=await readFile(new URL('./viewer/native-viewer.css',import.meta.url),'utf8');
+html=html.replace('</head>',()=>'<style>'+viewerCSS+'</style>\n</head>');
+const viewerEntry=fileURLToPath(new URL('./viewer/native-viewer.mjs',import.meta.url));
 const bridge=`
 window.prototypeDiagnostics=()=>({...window.building3DDiagnostics(),webgl:stage.dataset.renderer==='3d',capacity:model.sphereCount,depthTriangles:model.meshes.reduce((sum,m)=>sum+m.vertices/3,0),spacePearlCount:spaceScatter.count,nativePaused:window.__nativePaused===true});
 window.setNativeActive=active=>{window.__nativePaused=!active;if(!active){cancelAnimationFrame(animation);animation=0;}else if(scatter!==scatterTarget&&!animation)animation=requestAnimationFrame(tick);else invalidate();};
 window.webkit?.messageHandlers?.building?.postMessage({kind:'ready',...window.prototypeDiagnostics()});
 `;
 const result=await build({
- stdin:{contents:scripts.map(match=>`import ${JSON.stringify(match[1])};`).join('\n'),resolveDir:web,sourcefile:'native-entry.js'},
+ stdin:{contents:[`import ${JSON.stringify(viewerEntry)};`,...scripts.map(match=>`import ${JSON.stringify(match[1])};`)].join('\n'),resolveDir:web,sourcefile:'native-entry.js'},
  bundle:true,format:'iife',platform:'browser',target:'safari18',minify:true,legalComments:'inline',write:false,
  define:{'import.meta.url':'document.baseURI'},
  plugins:[{name:'native-lifecycle',setup(builder){
+  builder.onLoad({filter:/scatter-stories\.js$/},async args=>({
+   contents:adaptNativeStories(await readFile(args.path,'utf8')),loader:'js'
+  }));
+  builder.onResolve({filter:/^@education\/three$/},()=>({path:path.join(web,'vendor/three.module.js')}));
   builder.onLoad({filter:/building-3d\.js$/},async args=>{
-   let source=await readFile(args.path,'utf8');
+   let source=adaptNativeRenderer(await readFile(args.path,'utf8'));
    if(!source.includes('window.building3DDiagnostics=')||!source.includes('\n}catch(error)'))throw Error('Inspect the 3D ready/error bridge.');
    source=source.replaceAll('document.hidden||!visible','document.hidden||window.__nativePaused||!visible')
     .replace('if(!visible||document.hidden)','if(!visible||document.hidden||window.__nativePaused)')
