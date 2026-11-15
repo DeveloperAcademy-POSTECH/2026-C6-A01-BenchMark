@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "revision": "education-pearl-texture-screen-v30",
+  "sourceHTMLSHA256": "5087340d5f6f9ff4254d36e41ecd3d6a6a41fae4f9c3b9d024c7e352a65b68eb",
+  "assets": {
+    "/assets/Pretendard-ExtraBold.subset.woff2": {
+      "resource": "education-light-abb0933bd492a56403d2b288.woff2",
+      "mime": "font/woff2",
+      "sha256": "abb0933bd492a56403d2b288394923fdc4c210aaa827c9e44714fcac8ff70c7c",
+      "bytes": 271796
+    },
+    "/assets/Pretendard-LICENSE.txt": {
+      "resource": "education-light-b04538c9abec39a3db75108c.txt",
+      "mime": "text/plain",
+      "sha256": "b04538c9abec39a3db75108cf0af0fd9c77032fe8aa2cf38345b4d250e98e38e",
+      "bytes": 4419
+    },
+    "/assets/action-paper.svg": {
+      "resource": "education-light-4a940d381e1ce733fdbfc83f.svg",
+      "mime": "image/svg+xml",
+      "sha256": "4a940d381e1ce733fdbfc83f0f0c02d55a331eb6415b2cd3244a1348f2f437b5",
+      "bytes": 719
+    },
+    "/assets/building-v25/facades.bin": {
+      "resource": "education-light-e723c0d9841ba1d789315684.bin",
+      "mime": "application/octet-stream",
+      "sha256": "e723c0d9841ba1d789315684011151e52b2304002ea047e8969807bc005260d5",
+      "bytes": 516720
+    },
+    "/assets/building-v25/interior-0.jpg": {
+      "resource": "education-light-e789804bd5b89aac4936f942.jpg",
+      "mime": "image/jpeg",
+      "sha256": "e789804bd5b89aac4936f942f87dcf2f81a3101f49d1659020ac7b32414ff003",
+      "bytes": 274028
+    },
+    "/assets/building-v25/interior-1.jpg": {
+      "resource": "education-light-1200092a9574c5e1dabfaffd.jpg",
+      "mime": "image/jpeg",
+      "sha256": "1200092a9574c5e1dabfaffd67f9ca6667cd8c269f13b72556d64af9ba71fc23",
+      "bytes": 369225
+    },
+    "/assets/building-v25/interior-2.jpg": {
+      "resource": "education-light-36273e4d6d80ad80bcb428d6.jpg",
+      "mime": "image/jpeg",
+      "sha256": "36273e4d6d80ad80bcb428d6408e13ef83e0f9708f47fb127093e54efadce33a",
+      "bytes": 298093
+    },
+    "/assets/building-v25/interior-3.jpg": {
+      "resource": "education-light-fe022f552d7af8dad8d89ad0.jpg",
+      "mime": "image/jpeg",
+      "sha256": "fe022f552d7af8dad8d89ad0eb83f0dc5ddf8a2f2d1928e644c9ee3d20f77cb8",
+      "bytes": 190901
+    },
+    "/assets/building-v25/interior-4.jpg": {
+      "resource": "education-light-592024b2434c1ef666573e91.jpg",
+      "mime": "image/jpeg",
+      "sha256": "592024b2434c1ef666573e91566420ea38e4b37a0d407e1033e4ba38f7591ac9",
+      "bytes": 317880
+    },
+    "/assets/building-v25/model.json": {
+      "resource": "education-light-feddde104be4e5bd6a73054f.json",
+      "mime": "application/json",
+      "sha256": "feddde104be4e5bd6a73054fee2fc36a54c7a54343da680d943109f896882a52",
+      "bytes": 6472
+    },
+    "/assets/building-v25/pearls.bin": {
+      "resource": "education-light-042a3a7b7468acfb5c0602f9.bin",
+      "mime": "application/octet-stream",
+      "sha256": "042a3a7b7468acfb5c0602f982598e19346334295459dcec11657e93305b37af",
+      "bytes": 528072
+    },
+    "/assets/campus-garden-v2-mobile.jpg": {
+      "resource": "education-light-ee13ec847a8a1144ee033f0f.jpg",
+      "mime": "image/jpeg",
+      "sha256": "ee13ec847a8a1144ee033f0f28aa3a278cce27a2e46e00e6eaf1ed7d57a94269",
+      "bytes": 179472
+    },
+    "/assets/campus-garden-v2.jpg": {
+      "resource": "education-light-3e551597f06756b2dd5a7705.jpg",
+      "mime": "image/jpeg",
+      "sha256": "3e551597f06756b2dd5a77057f19422714f0145281e36b82a79c0e592887f23c",
+      "bytes": 454083
+    },
+    "/assets/intro-paper-matched.svg": {
+      "resource": "education-light-108d49fa286e77fbef40b80e.svg",
+      "mime": "image/svg+xml",
+      "sha256": "108d49fa286e77fbef40b80e7a0710247ccaa614464c1dead472d15f323a2a2a",
+      "bytes": 591
+    },
+    "/assets/intro-paper.svg": {
+      "resource": "education-light-1e5c6d1a1082526ea40daaf3.svg",
+      "mime": "image/svg+xml",
+      "sha256": "1e5c6d1a1082526ea40daaf395bfedf30414c1758602217edd11f4fffdf785d9",
+      "bytes": 420
+    },
+    "/assets/live-action-paper.svg": {
+      "resource": "education-light-f19126a1ecc8a492e738f0da.svg",
+      "mime": "image/svg+xml",
+      "sha256": "f19126a1ecc8a492e738f0da77e5f404fee91271031ee239aa0a51a3a27e9370",
+      "bytes": 1775
+    },
+    "/assets/live-intro-paper.svg": {
+      "resource": "education-light-28c0c9c1555231b206fae5be.svg",
+      "mime": "image/svg+xml",
+      "sha256": "28c0c9c1555231b206fae5beb36bb3894bd181fb00eab93857f804bb4a70d8f0",
+      "bytes": 638
+    },
+    "/assets/oi-app-logo.png": {
+      "resource": "education-light-3079cd421fd0040564a0c09a.bin",
+      "mime": "image/png",
+      "sha256": "3079cd421fd0040564a0c09aa188706ceeb9ab075575f77873761319753a8195",
+      "bytes": 1615796
+    },
+    "/assets/oi-cat-gardener.png": {
+      "resource": "education-light-82b5726d5ec808600849583e.bin",
+      "mime": "image/png",
+      "sha256": "82b5726d5ec808600849583ed58eca448d2d12b39c2beb260f59fc892637eb3d",
+      "bytes": 119906
+    },
+    "/assets/postage-mask.svg": {
+      "resource": "education-light-6105e35252c032d044e8f8e8.svg",
+      "mime": "image/svg+xml",
+      "sha256": "6105e35252c032d044e8f8e8ac9bfbc6da0ec3c20c7c3869726ff107cdffc743",
+      "bytes": 1518
+    },
+    "/references/front.png": {
+      "resource": "education-light-9e1e3afd5ea7d6cf7076b69a.bin",
+      "mime": "image/png",
+      "sha256": "9e1e3afd5ea7d6cf7076b69a03594c400884c76acef1ea467bf326be75b38c41",
+      "bytes": 1853018
+    },
+    "/vendor/three-LICENSE.txt": {
+      "resource": "education-light-bfe119ea4fd413f5f7ca3fcd.txt",
+      "mime": "text/plain",
+      "sha256": "bfe119ea4fd413f5f7ca3fcd63adb0c4a073ed39daa2fe7d3e6b769e21272601",
+      "bytes": 1081
+    }
+  }
+}

@@ -11,17 +11,25 @@ import OSLog
 import Observation
 
 struct EducationLightExperience: View {
-    @State private var model = EducationLightWebModel()
+    @State private var model: EducationLightWebModel
     @Environment(\.scenePhase) private var phase
+    @Environment(\.dismiss) private var dismiss
+
+    @MainActor init(model: EducationLightWebModel? = nil) {
+        _model = State(initialValue: model ?? EducationLightWebModel())
+    }
 
     var body: some View {
         ZStack {
-            Color(red: 5/255, green: 7/255, blue: 11/255).ignoresSafeArea()
-            EducationLightWebView(model: model)
+            Color(red: 213/255, green: 235/255, blue: 245/255).ignoresSafeArea()
+            EducationLightWebView(model: model).ignoresSafeArea()
             if model.loading {
-                ProgressView("작은 빛으로 건물을 짓고 있어요")
-                    .padding(24)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+                VStack(spacing: 16) {
+                    ProgressView("작은 빛으로 건물을 짓고 있어요")
+                    Button("체험 닫기") { dismiss() }.frame(minHeight: 44)
+                }
+                .padding(24)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
             }
             if let failure = model.failure {
                 VStack(spacing: 18) {
@@ -29,13 +37,39 @@ struct EducationLightExperience: View {
                     Text("건물을 다시 불러와 주세요").font(.headline)
                     Text(failure).font(.footnote).multilineTextAlignment(.center)
                     Button("다시 열기") { model.load() }.buttonStyle(.borderedProminent)
+                    Button("체험 닫기") { dismiss() }.frame(minHeight: 44)
                 }
                 .padding(28)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
                 .padding(24)
             }
         }
+        .overlay(alignment: .bottom) {
+            if model.scattered && !model.loading && model.failure == nil {
+                returnControl.padding(.horizontal, 16).padding(.bottom, 20)
+            }
+        }
+        .preferredColorScheme(model.scattered ? .dark : .light)
         .onChange(of: phase) { _, value in model.setActive(value == .active) }
+        .onChange(of: model.closeRequested) { _, requested in if requested { dismiss() } }
+    }
+
+    @ViewBuilder private var returnControl: some View {
+        if #available(iOS 26.0, *) {
+            returnButton.buttonStyle(.glass).controlSize(.large).buttonBorderShape(.capsule)
+        } else {
+            returnButton.buttonStyle(.bordered).controlSize(.large)
+                .background(.ultraThinMaterial, in: Capsule())
+        }
+    }
+
+    private var returnButton: some View {
+        Button(action: model.returnToBuilding) {
+            Label("건물로 돌아가기", systemImage: "arrow.uturn.backward")
+                .font(.body.weight(.semibold)).frame(minHeight: 44)
+                .padding(.horizontal, 8)
+        }
+        .accessibilityIdentifier("education.experience.return")
     }
 }
 
@@ -43,11 +77,15 @@ struct EducationLightExperience: View {
 final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     var loading = true
     var failure: String?
+    var scattered = false
+    var closeRequested = false
     @ObservationIgnored let webView: WKWebView
     private var active = true
     private let logger = Logger(subsystem: "com.Spero.OiDonation.Education", category: "Building")
 
-    override init() {
+    override convenience init() { self.init(nativeGlass: true) }
+
+    init(nativeGlass: Bool) {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.websiteDataStore = .default()
@@ -64,11 +102,15 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
         #endif
         configuration.userContentController.add(EducationWeakMessageHandler(self), name: "building")
         let reporting = """
+        window.__educationNativeGlass = \(nativeGlass ? "true" : "false");
         window.EDUCATION_GEOMETRY_URL = 'oi-education://bundle/surface.bin';
+        window.__educationLoadErrors = [];
         window.addEventListener('error', event => {
+          if (window.__educationLoadErrors.length < 5) window.__educationLoadErrors.push(String(event.message));
           window.webkit.messageHandlers.building.postMessage({kind:'error', message:String(event.message)});
         });
         window.addEventListener('unhandledrejection', event => {
+          if (window.__educationLoadErrors.length < 5) window.__educationLoadErrors.push(String(event.reason));
           window.webkit.messageHandlers.building.postMessage({kind:'error', message:String(event.reason)});
         });
         """
@@ -92,9 +134,17 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
         webView.evaluateJavaScript("window.setNativeActive?.(\(active ? "true" : "false"))", completionHandler: nil)
     }
 
+    func returnToBuilding() {
+        webView.evaluateJavaScript("window.educationReturnToBuilding?.()", completionHandler: nil)
+    }
+
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any], let kind = body["kind"] as? String else { return }
-        if kind == "ready" {
+        if kind == "close" {
+            closeRequested = true
+        } else if kind == "appearance", let dark = body["dark"] as? Bool {
+            scattered = dark
+        } else if kind == "ready" {
             loading = false
             if body["webgl"] as? Bool != true { failure = "이 기기에서 3D 화면을 시작하지 못했습니다." }
             setActive(active)
@@ -120,6 +170,10 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = navigationAction.request.url else { decisionHandler(.cancel); return }
         if url.isFileURL { decisionHandler(.allow) }
+        else if url.scheme == "oi-education", url.host == "bundle", url.path == "/" {
+            decisionHandler(.cancel)
+            load() // The web logo returns to the same file origin and saved demo.
+        }
         else {
             decisionHandler(.cancel)
             if navigationAction.navigationType == .linkActivated, url.scheme == "https" { UIApplication.shared.open(url) }
@@ -127,22 +181,72 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
     }
 }
 
-/// Serve the same packaged surface used by RealityKit. Keep the existing file
-/// origin (and its saved demo stories), without embedding a second base64 copy.
+/// Resolve only reviewed, content-addressed public web assets. No app secrets or
+/// arbitrary bundle paths can be requested through the web scheme.
+struct EducationLightAssetCatalog: Decodable {
+    struct Asset: Decodable {
+        let resource: String
+        let mime: String
+
+        func bundleURL(in bundle: Bundle = .main) -> URL? {
+            guard resource.hasPrefix("education-light-"),
+                  !resource.contains("/"), !resource.contains("\\"),
+                  !resource.contains("..") else { return nil }
+            return bundle.url(forResource: resource, withExtension: nil)
+        }
+    }
+
+    let revision: String
+    let assets: [String: Asset]
+
+    static func load(in bundle: Bundle = .main) throws -> Self {
+        guard let url = bundle.url(forResource: "education-light-assets", withExtension: "json") else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        return try JSONDecoder().decode(Self.self, from: Data(contentsOf: url))
+    }
+
+    func asset(for url: URL) -> Asset? {
+        guard url.scheme == "oi-education", url.host == "bundle",
+              url.user == nil, url.password == nil, url.port == nil else { return nil }
+        return assets[url.path]
+    }
+}
+
 private final class EducationSurfaceURLSchemeHandler: NSObject, WKURLSchemeHandler {
+    private let catalog = try? EducationLightAssetCatalog.load()
+
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
         guard let url = urlSchemeTask.request.url,
-              url.host == "bundle", url.path == "/surface.bin",
-              let asset = Bundle.main.url(forResource: "education-district-points", withExtension: "bin") else {
+              url.scheme == "oi-education", url.host == "bundle" else {
+            urlSchemeTask.didFailWithError(URLError(.fileDoesNotExist))
+            return
+        }
+        let assetURL: URL?
+        let mime: String
+        if url.path == "/surface.bin" {
+            // Preserve the older geometry route without changing the map asset.
+            assetURL = Bundle.main.url(forResource: "education-district-points", withExtension: "bin")
+            mime = "application/octet-stream"
+        } else if let asset = catalog?.asset(for: url) {
+            assetURL = asset.bundleURL()
+            mime = asset.mime
+        } else {
+            assetURL = nil
+            mime = "application/octet-stream"
+        }
+        guard let assetURL else {
             urlSchemeTask.didFailWithError(URLError(.fileDoesNotExist))
             return
         }
         do {
-            let data = try Data(contentsOf: asset, options: .mappedIfSafe)
+            let data = try Data(contentsOf: assetURL, options: .mappedIfSafe)
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: [
-                "Content-Type": "application/octet-stream",
+                "Content-Type": mime,
                 "Content-Length": String(data.count),
-                "Access-Control-Allow-Origin": "*"
+                "Access-Control-Allow-Origin": "*",
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff"
             ])!
             urlSchemeTask.didReceive(response)
             urlSchemeTask.didReceive(data)
