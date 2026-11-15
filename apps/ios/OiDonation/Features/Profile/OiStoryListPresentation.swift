@@ -51,8 +51,13 @@ enum OiStoryListState: Equatable, Sendable {
         return []
     }
 
-    func slots(minimumVisibleCount: Int = 4) -> [OiStoryListSlot] {
-        let visibleCount = max(max(0, minimumVisibleCount), items.count)
+    /// The story list keeps at most this many saved drafts, so it fits on one screen (#368).
+    static let draftCapacity = 4
+
+    var isFull: Bool { items.count >= Self.draftCapacity }
+
+    func slots(minimumVisibleCount: Int = Self.draftCapacity) -> [OiStoryListSlot] {
+        let visibleCount = min(max(max(0, minimumVisibleCount), items.count), Self.draftCapacity)
         return (0..<visibleCount).map { index in
             OiStoryListSlot(index: index, item: items.indices.contains(index) ? items[index] : nil)
         }

@@ -71,6 +71,16 @@ struct MYDemoChecks {
         let stressSlots = OiStoryListState.layoutStressPreview.slots()
         precondition(stressSlots.count == 4)
         precondition(stressSlots[0].item?.tags == ["행복한추억", "오랜우정"])
+        // #368: at most four draft slots, and a full list blocks new stories.
+        precondition(!OiStoryListState.preview.isFull && !OiStoryListState.empty.isFull)
+        let fullItems = (0..<5).map { index in
+            OiStoryListItem(id: UUID(), cucumberName: "오이\(index)", cucumberAsset: "StoryListEarthquakeCucumber",
+                            donorDisplayName: "익명", locationDisplayName: "C5", tags: [], dateLabel: "작성 중")
+        }
+        let fullSlots = OiStoryListState.content(Array(fullItems.prefix(4))).slots()
+        precondition(fullSlots.count == 4 && fullSlots.allSatisfy { $0.item != nil })
+        precondition(OiStoryListState.content(Array(fullItems.prefix(4))).isFull)
+        precondition(OiStoryListState.content(fullItems).slots().count == 4)
 
         let remoteStory = OiLiveStory(
             id: UUID(),

@@ -6,7 +6,7 @@ struct OiStoryListView: View {
     @ScaledMetric(relativeTo: .title3) private var titleLineSpacing = 8
 
     let state: OiStoryListState
-    var minimumVisibleSlotCount = 4
+    var minimumVisibleSlotCount = OiStoryListState.draftCapacity
     // nil means the seed balance has not been connected; it is not a zero balance.
     var seedCount: Int?
     var notices: [String] = []
@@ -121,6 +121,8 @@ struct OiStoryListView: View {
             }
         }
         .listStyle(.plain)
+        // Four draft slots fit on one screen; larger text or small screens can still scroll (#368).
+        .scrollBounceBehavior(.basedOnSize)
         .listRowSpacing(0)
         .contentMargins(.top, 15, for: .scrollContent)
         .contentMargins(.bottom, 5, for: .scrollContent)
@@ -315,6 +317,10 @@ struct OiStoryListView: View {
                 background: Color("OiLight")
             )
         }
+        // All draft slots are taken; finish or delete one to start another (#368).
+        .disabled(state.isFull)
+        .opacity(state.isFull ? 0.4 : 1)
+        .accessibilityHint(state.isFull ? "임시저장 칸이 모두 찼어요. 오이를 삭제하거나 제출하면 새로 만들 수 있어요" : "")
         .accessibilityIdentifier("storyList.createStory")
     }
 

@@ -116,13 +116,14 @@ struct OiStoryListScreen: View {
         let drafts = (loadedDraftOwner == remote.account?.id ? localDrafts : []).filter { record in
             !record.submitted && !remote.ownStories.contains { $0.id == record.id }
         }
-        if let error = (loadedDraftOwner == remote.account?.id ? localError : nil) ?? remote.loadError, remote.ownStories.isEmpty && drafts.isEmpty { return .failure(error) }
+        if let error = (loadedDraftOwner == remote.account?.id ? localError : nil) ?? remote.loadError,
+           !remote.ownStories.contains(where: { $0.status == "draft" }) && drafts.isEmpty { return .failure(error) }
         if !remote.hasLoadedRemote && drafts.isEmpty { return .loading }
         let donorName = remote.profile?.nickname.nonEmpty ?? "익명"
-        let serverItems = remote.ownStories.map { story in
-            let location = locationDisplayName(for: story.regionId)
-            return OiStoryListItem(story: story, donorDisplayName: donorName,
-                locationDisplayName: story.status == "pending" ? "공개 검토 중 · \(location)" : location)
+        // Only saved drafts belong here; stories sent for review or published are not listed (#368).
+        let serverItems = remote.ownStories.filter { $0.status == "draft" }.map { story in
+            OiStoryListItem(story: story, donorDisplayName: donorName,
+                locationDisplayName: locationDisplayName(for: story.regionId))
         }
         let localItems = drafts.map { record in
             OiStoryListItem(id: record.id, cucumberName: record.personalPlacement?.name ?? record.draft.cucumberName.nonEmpty ?? "작성 중인 오이",
@@ -131,7 +132,7 @@ struct OiStoryListScreen: View {
                 tags: [record.draft.emotion, record.draft.theme].filter { !$0.isEmpty },
                 dateLabel: record.personalPlacement == nil ? "작성 중" : "나만 보기")
         }
-        let items = localItems + serverItems
+        let items = Array((localItems + serverItems).prefix(OiStoryListState.draftCapacity))
         return items.isEmpty ? .empty : .content(items)
     }
 
@@ -216,6 +217,7 @@ struct OiStoryListScreen: View {
     }
 
     private func beginCreatingStory() {
+        guard !state.isFull else { return }
         guard remote.canPlaceOi else { showingSettings = true; return }
         showingConsent = true
     }
