@@ -15,7 +15,6 @@ import SwiftUI
 /// full app shows it under "App Clip에서 수집한 카드" after install.
 struct ScratchPostcardView: View {
     let postcard: ScratchPostcard
-    var onClose: () -> Void
     let validateCollection: () async throws -> Bool
 
     private enum Phase { case scratching, revealing, revealed }
@@ -84,9 +83,9 @@ struct ScratchPostcardView: View {
         let isRevealed: Bool
 
         var contentWidth: CGFloat { max(size.width - Self.sideInset * 2, 1) }
-        /// Figma places the back button 22.5pt below a 54pt status bar; devices report 8pt more (62).
+        /// Top of Figma's header row, 54pt status bar; devices report 8pt more (62). The info card keeps its
+        /// Figma offset from here even without the back button.
         var topBarTop: CGFloat { max(safeTop - 8, 0) }
-        var backButtonCenterY: CGFloat { topBarTop + 22.5 }
         var infoTop: CGFloat { topBarTop + (isRevealed ? 59 : 65) }
         /// Buttons end 27pt above the screen bottom on a 34pt home-indicator inset (Figma 847 vs 874).
         var barBottomPadding: CGFloat { max(safeBottom - 7, 16) }
@@ -140,9 +139,7 @@ struct ScratchPostcardView: View {
         return ZStack(alignment: .topLeading) {
             Color.white
 
-            backButton
-                .offset(x: Layout.sideInset, y: layout.backButtonCenterY - 22)
-
+            // No back button: the postcard is the App Clip's last screen (#347).
             infoCard(width: layout.contentWidth)
                 .offset(x: Layout.sideInset, y: layout.infoTop)
 
@@ -192,19 +189,6 @@ struct ScratchPostcardView: View {
     }
 
     // MARK: - Header
-
-    private var backButton: some View {
-        Button(action: onClose) {
-            Image(systemName: "chevron.left")
-                .font(.system(size: 24))
-                .tracking(0.48)
-                .foregroundStyle(.black)
-                .frame(width: 39, height: 44, alignment: .leading)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("뒤로")
-    }
 
     /// Figma "오이 정보": 84pt tall with a 322×52 row at y 16. Both views share the row; the start view
     /// centres it (x 20) with a 1pt border, the success view aligns it leading (x 16) with a shadow.
