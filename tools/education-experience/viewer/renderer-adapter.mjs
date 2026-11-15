@@ -23,9 +23,21 @@ export function adaptNativeRenderer(input,{web=false}={}) {
   replace('canvas:[canvas.width,canvas.height],yaw,pitch,zoom,scatter,renderer:stage.dataset.renderer',"canvas:[canvas.width,canvas.height],yaw,pitch,zoom,scatter,renderer:stage.dataset.renderer,pixelRatio:renderer.getPixelRatio(),transmissionScale:renderer.transmissionResolutionScale,fitPoints:corners.length,gpuScatter:true,shaderErrors:renderer.info.programs.filter(p=>p.diagnostics?.runnable===false).length,instanceVersions:pearls.map(m=>m.instanceMatrix.version)");
   replace('"building-origin-space-v4"','"garden-unfold-gpu-v1"');
   if(!web){
+    replace('const corners=framingPoints(positions).map(p=>new THREE.Vector3(...p)),projection=new THREE.Vector3();','const corners=spaceScatter.framePoints,projection=new THREE.Vector3();');
     replace('const syncSceneUI=createSceneUI({stage,camera,positions,radius:model.radius});','const syncSceneUI=()=>{};');
     replace('rect=mobile?{left:.03,right:.99,top:.30,bottom:.83}:{left:.118,right:.978,top:.22,bottom:.82}',
-      'rect=window.educationViewerRect()');
+      'rect=window.educationViewerRect(scatter)');
+    replace('function fit(){storyUI?.hide();','function fit(){');
+    replace('let storyUI;const queuedFit=', 'let storyUI,aimUI,arrivalPose,returnPose,fitWidth=0,fitHeight=0;const queuedFit=');
+    replace('renderer.setSize(w,h,false);camera.aspect=w/h;','if(w!==fitWidth||h!==fitHeight){renderer.setSize(w,h,false);fitWidth=w;fitHeight=h;}camera.aspect=w/h;');
+    replace('spaceScatter.update(scatter,burst);setSpaceMix(0);render();',`spaceScatter.update(scatter,burst);setSpaceMix(0);
+      if(!scatterTarget&&arrivalPose&&returnPose){const t=transition.from?1-scatter/transition.from:1;
+        const angle=THREE.MathUtils.euclideanModulo(arrivalPose.yaw-returnPose.yaw+Math.PI,Math.PI*2)-Math.PI;
+        yaw=t===1?arrivalPose.yaw:returnPose.yaw+angle*t;pitch=THREE.MathUtils.lerp(returnPose.pitch,arrivalPose.pitch,t);zoom=THREE.MathUtils.lerp(returnPose.zoom,arrivalPose.zoom,t);}
+      fit();`);
+    replace('scatterTarget=scatterTarget?0:1;storyUI.hide();','if(!scatterTarget)arrivalPose={yaw,pitch,zoom};else returnPose={yaw,pitch,zoom};scatterTarget=scatterTarget?0:1;storyUI.hide();');
+    replace("stage.dataset.scatterCompute='gpu-uniforms';}","stage.dataset.scatterCompute='gpu-uniforms';aimUI?.update(scatter);}");
+    replace("if(e.key==='ArrowUp')pitch=Math.min(.8,pitch+.06);if(e.key==='ArrowDown')pitch=Math.max(.06,pitch-.06);","if(e.key==='ArrowUp')pitch=orbitPitch(pitch,.12,scatterTarget===1);if(e.key==='ArrowDown')pitch=orbitPitch(pitch,-.12,scatterTarget===1);");
   }
   const start = input.indexOf(' const pointers=new Map();let previous,pinch=0;');
   const end = input.indexOf(" canvas.addEventListener('wheel',",start);
@@ -41,23 +53,24 @@ export function adaptNativeRenderer(input,{web=false}={}) {
   return !!nearestPearl(tapRaycaster.ray,storySpheres,model.radius)||tapRaycaster.intersectObjects(occluders,false).length>0;
  }
  const activateBuilding=()=>{if(scatter===scatterTarget&&!animation&&!document.querySelector('dialog[open]'))document.querySelector('#scatterButton').click();};
- storyUI=createScatterStories({canvas,stage,camera,storySpheres,occluders,radius:model.radius,storyForPearl,canHover:()=>scatterTarget===1&&scatter===1&&!animation&&!pointers.size});
+ storyUI=createScatterStories({canvas,stage,camera,storySpheres,occluders,radius:model.radius,storyForPearl,canHover:()=>${web?'scatterTarget===1&&scatter===1&&!animation&&!pointers.size':'false'}});
+ ${web?'':'storyUI=aimUI=createAimStories({base:storyUI,canvas,stage,camera,scatterData:spaceScatter.selection,radius:model.radius,storyForPearl});'}
  installBuildingGestures({canvas,intent:pointerIntent,onStart:()=>storyUI.hide(),
-  onRotate:(dx,dy)=>{yaw-=dx*.005;pitch=THREE.MathUtils.clamp(pitch+dy*.004,.06,.8);queuedFit.schedule();},
+  onRotate:(dx,dy)=>{yaw-=dx*.005;pitch=${web?'THREE.MathUtils.clamp(pitch+dy*.004,.06,.8)':'orbitPitch(pitch,dy*.006,scatterTarget===1)'};queuedFit.schedule();},
   onZoom:ratio=>{zoom=THREE.MathUtils.clamp(zoom*ratio,.7,2.5);queuedFit.schedule();},
-  onTap:e=>{${web?'if(scatterTarget===1&&scatter===1&&!animation){activateBuilding();return;}':''}if(!scatterTarget&&scatter===0&&!animation&&hitBuilding(e.clientX,e.clientY))activateBuilding();},
-  onMode:mode=>{stage.dataset.gestureIntent=mode;}
+  onTap:e=>{if(scatterTarget===1&&scatter===1&&!animation){activateBuilding();return;}if(!scatterTarget&&scatter===0&&!animation&&hitBuilding(e.clientX,e.clientY))activateBuilding();},
+  onMode:mode=>{stage.dataset.gestureIntent=mode;${web?'':"if(mode==='idle'&&scatter===1)queuedFit.schedule();"}}
  });
  canvas.setAttribute('role','button');canvas.setAttribute('aria-label','교육지구 2.0 건물. 탭하면 빛이 펼쳐집니다. 드래그로 회전하고 핀치로 확대할 수 있습니다.');
  canvas.addEventListener('click',e=>{if(e.detail===0)activateBuilding();});
  canvas.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();activateBuilding();}});
- canvas.addEventListener('keydown',e=>{if(e.key==='Escape'&&scatterTarget){e.preventDefault();document.querySelector('#scatterButton').click();}});
+ canvas.addEventListener('keydown',e=>{if(e.key==='Escape'&&scatterTarget){e.preventDefault();${web?'':"e.stopImmediatePropagation();"}activateBuilding();}});
  document.addEventListener('visibilitychange',()=>{if(document.hidden)queuedFit.cancel();});
  window.addEventListener('education-viewer-layout',fit);
  window.educationBuildingHitTest=(x,y)=>hitBuilding(x,y);
 `;
   input = input.slice(0,start)+gestures+input.slice(end);
-  return `import {renderPolicy,framingPoints,frameQueue} from ${JSON.stringify(fileURLToPath(new URL('./render-policy.mjs',import.meta.url)))};\nimport {PointerIntent,installBuildingGestures} from ${JSON.stringify(fileURLToPath(new URL('./pointer-intent.mjs',import.meta.url)))};\n`+input;
+  return `${web?'':`import {createAimStories} from ${JSON.stringify(fileURLToPath(new URL('./aim-stories.mjs',import.meta.url)))};\nimport {orbitPitch} from ${JSON.stringify(fileURLToPath(new URL('./aim-selection.mjs',import.meta.url)))};\n`}import {renderPolicy,framingPoints,frameQueue} from ${JSON.stringify(fileURLToPath(new URL('./render-policy.mjs',import.meta.url)))};\nimport {PointerIntent,installBuildingGestures} from ${JSON.stringify(fileURLToPath(new URL('./pointer-intent.mjs',import.meta.url)))};\n`+input;
 }
 
 export function adaptNativeStories(input,{web=false}={}){
@@ -65,10 +78,5 @@ export function adaptNativeStories(input,{web=false}={}){
   replace('const a=mesh.instanceMatrix.array;', 'const pick=mesh.userData.nativePick,a=pick?.matrices??mesh.instanceMatrix.array,limit=pick?.ids.length??mesh.count,sourceIds=pick?.ids??ids;');
   replace('for(let i=0;i<mesh.count;i++){','for(let i=0;i<limit;i++){');
   replace('id:ids?ids[i]:start+i','id:sourceIds?sourceIds[i]:start+i');
-  if(!web){
-    // Only the app reserves a bottom return button; the web returns by canvas tap.
-    replace('const restore=button.getBoundingClientRect()',"const restore=document.querySelector('#viewerReturn').getBoundingClientRect()");
-    replace('top=by+restore.height+12;', 'top=Math.max(navBottom,by-h-12);');
-  }
   return input;
 }
