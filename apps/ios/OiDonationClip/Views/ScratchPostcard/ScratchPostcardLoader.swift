@@ -123,7 +123,8 @@ final class ScratchPostcardLoader {
 struct ScratchPostcardScreen: View {
     let tagID: String
     let repository: any StoryRepository
-    var onClose: () -> Void
+    /// The postcard is the App Clip's root screen (#347); an unavailable tag offers the story list instead.
+    var onShowStories: () -> Void
 
     @State private var loader = ScratchPostcardLoader()
     @State private var attempt = 0
@@ -132,7 +133,7 @@ struct ScratchPostcardScreen: View {
         Group {
             switch loader.state {
             case .loaded(let postcard):
-                ScratchPostcardView(postcard: postcard, onClose: onClose,
+                ScratchPostcardView(postcard: postcard,
                     validateCollection: { try await repository.canCollectNFCPostcard(tag: tagID, storyID: postcard.story.storyID) })
             case .loading:
                 ProgressView("엽서를 불러오는 중")
@@ -155,7 +156,7 @@ struct ScratchPostcardScreen: View {
             if retry {
                 Button("다시 시도") { attempt += 1 }.frame(minHeight: 44)
             }
-            Button("닫기", action: onClose).frame(minHeight: 44)
+            Button("공개 이야기 보기", action: onShowStories).frame(minHeight: 44)
         }
         .multilineTextAlignment(.center)
         .padding(24)
