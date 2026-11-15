@@ -3,7 +3,6 @@ import SwiftUI
 struct OiStoryListView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @ScaledMetric(relativeTo: .title3) private var titleLineSpacing = 8
 
     let state: OiStoryListState
     var minimumVisibleSlotCount = OiStoryListState.draftCapacity
@@ -130,39 +129,29 @@ struct OiStoryListView: View {
         .accessibilityIdentifier("storyList.list")
     }
 
+    /// Figma `5441:17267` (오이가로): name, tags and donor, then the title, with the cucumber on the right.
     private func storySlot(_ item: OiStoryListItem) -> some View {
         optionalButton(action: onSelectStory.map { select in { select(item.id) } }) {
             VStack(spacing: 4) {
                 Group {
                     if usesAccessibilityLayout {
                         VStack(alignment: .leading, spacing: 12) {
-                            storyHeader(item)
-
-                            HStack(alignment: .top, spacing: 12) {
-                                storyCucumberImage(item.cucumberAsset)
-                                storyMetadata(item)
-                            }
+                            storyText(item)
+                            storyCucumberImage(item)
                         }
                     } else {
-                        HStack(spacing: 12) {
-                            storyCucumberImage(item.cucumberAsset)
-
-                            VStack(alignment: .leading, spacing: 12) {
-                                storyHeader(item)
-                                storyMetadata(item)
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 86, alignment: .leading)
+                        HStack(spacing: 10) {
+                            storyText(item)
+                            storyCucumberImage(item)
                         }
                     }
                 }
-                .padding(12)
-                .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
+                .padding(.leading, 16)
+                .padding(.trailing, 12)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, minHeight: 110, alignment: .leading)
                 .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 28))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 28)
-                        .stroke(Color("OiBorder"), lineWidth: 1)
-                }
-                .shadow(color: .black.opacity(0.2), radius: 2)
+                .shadow(color: .black.opacity(0.25), radius: 2)
 
                 Text(item.dateLabel)
                     .font(.custom("Paperlogy-4Regular", size: 10, relativeTo: .caption2))
@@ -177,77 +166,66 @@ struct OiStoryListView: View {
         .accessibilityIdentifier("storyList.item.\(item.id.uuidString)")
     }
 
-    private func storyCucumberImage(_ asset: String) -> some View {
-        Image(asset)
-            .resizable()
-            .scaledToFit()
-            .frame(width: 50, height: 78)
-            .frame(width: 86, height: 86)
-            .background(Color(red: 239 / 255, green: 239 / 255, blue: 239 / 255), in: RoundedRectangle(cornerRadius: 16))
-    }
+    private func storyText(_ item: OiStoryListItem) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(item.cucumberName)
+                    .font(.custom("YANGJIN", size: 22, relativeTo: .title2))
+                    .tracking(0.44)
+                    .foregroundStyle(.black)
+                    .lineLimit(usesAccessibilityLayout ? nil : 1)
+                    .minimumScaleFactor(usesAccessibilityLayout ? 1 : 0.8)
+                    .frame(minHeight: 20, alignment: .bottomLeading)
 
-    private func storyMetadata(_ item: OiStoryListItem) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("| \(item.donorDisplayName)")
-            Text("| \(item.locationDisplayName)")
+                storyTagsAndDonor(item)
+            }
+            if !item.title.isEmpty {
+                Text(item.title)
+                    .font(.custom("Paperlogy-3Light", size: 18, relativeTo: .body))
+                    .foregroundStyle(.black)
+                    .lineLimit(usesAccessibilityLayout ? nil : 1)
+                    .frame(minHeight: 18, alignment: .leading)
+            }
         }
-        .font(.custom("Paperlogy-4Regular", size: 14, relativeTo: .subheadline))
-        .tracking(0.28)
-        .lineLimit(usesAccessibilityLayout ? 2 : 1)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
-    private func storyHeader(_ item: OiStoryListItem) -> some View {
-        if usesAccessibilityLayout {
-            VStack(alignment: .leading, spacing: 8) {
-                storyTitle(item.cucumberName)
-                tagGroup(item.tags)
-            }
-        } else {
-            HStack(spacing: 4) {
-                storyTitle(item.cucumberName)
-                Spacer(minLength: 4)
-                tagGroup(item.tags)
+    private func storyTagsAndDonor(_ item: OiStoryListItem) -> some View {
+        let tags = HStack(spacing: 4) {
+            ForEach(Array(item.tags.prefix(2).enumerated()), id: \.offset) { _, tag in
+                Text("#" + tag).foregroundStyle(Self.tagColor)
             }
         }
-    }
-
-    private func storyTitle(_ title: String) -> some View {
-        Text(title)
-            .font(.custom("Paperlogy-7Bold", size: 20, relativeTo: .title3))
-            .tracking(0.8)
-            .lineSpacing(usesAccessibilityLayout ? titleLineSpacing : 0)
-            .lineLimit(usesAccessibilityLayout ? nil : 1)
-            .minimumScaleFactor(usesAccessibilityLayout ? 1 : 0.85)
-            .fixedSize(horizontal: false, vertical: usesAccessibilityLayout)
-            .layoutPriority(1)
-    }
-
-    @ViewBuilder
-    private func tagGroup(_ tags: [String]) -> some View {
-        if usesAccessibilityLayout {
-            VStack(alignment: .leading, spacing: 4) {
-                tagLabels(tags)
-            }
-        } else {
-            HStack(spacing: 4) {
-                tagLabels(tags)
+        let donor = Text(item.donorDisplayName).foregroundStyle(Self.donorColor)
+        Group {
+            if usesAccessibilityLayout {
+                VStack(alignment: .leading, spacing: 4) { tags; donor }
+            } else {
+                HStack(spacing: 6) { tags; donor }
             }
         }
+        .font(.custom("Paperlogy-4Regular", size: 12, relativeTo: .caption))
+        .tracking(0.24)
+        .lineLimit(usesAccessibilityLayout ? nil : 1)
     }
 
-    @ViewBuilder
-    private func tagLabels(_ tags: [String]) -> some View {
-        ForEach(Array(tags.prefix(2).enumerated()), id: \.offset) { _, tag in
-            Text("#" + tag)
-                .font(.custom("Paperlogy-4Regular", size: 12, relativeTo: .caption))
-                .tracking(0.24)
-                .foregroundStyle(Color(red: 136 / 255, green: 173 / 255, blue: 55 / 255))
-                .lineLimit(1)
-                .frame(minHeight: 22)
+    private func storyCucumberImage(_ item: OiStoryListItem) -> some View {
+        Group {
+            if let data = item.portraitPNG, let image = UIImage(data: data) {
+                Image(uiImage: image).resizable().scaledToFit()
+            } else {
+                Image(item.cucumberAsset).resizable().scaledToFit()
+            }
         }
+        .frame(width: 50, height: 78)
+        .frame(width: 66, height: 86)
+        .background(Color(red: 239 / 255, green: 239 / 255, blue: 239 / 255), in: RoundedRectangle(cornerRadius: 16))
+        .accessibilityHidden(true)
     }
+
+    private static let tagColor = Color(red: 79 / 255, green: 110 / 255, blue: 223 / 255)
+    private static let donorColor = Color(red: 83 / 255, green: 83 / 255, blue: 83 / 255)
 
     private func emptySlot(index: Int) -> some View {
         VStack(spacing: 4) {

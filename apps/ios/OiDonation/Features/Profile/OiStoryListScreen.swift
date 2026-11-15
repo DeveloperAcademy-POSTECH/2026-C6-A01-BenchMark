@@ -120,7 +120,7 @@ struct OiStoryListScreen: View {
         if let error = (loadedDraftOwner == remote.account?.id ? localError : nil) ?? remote.loadError,
            !remote.ownStories.contains(where: { $0.status == "draft" }) && drafts.isEmpty { return .failure(error) }
         if !remote.hasLoadedRemote && drafts.isEmpty { return .loading }
-        let donorName = remote.profile?.nickname.nonEmpty ?? "익명"
+        let donorName = donorLine
         // Only saved drafts belong here; stories sent for review or published are not listed (#368).
         let serverItems = remote.ownStories.filter { $0.status == "draft" }.map { story in
             OiStoryListItem(story: story, donorDisplayName: donorName,
@@ -128,7 +128,8 @@ struct OiStoryListScreen: View {
         }
         let localItems = drafts.map { record in
             OiStoryListItem(id: record.id, cucumberName: record.personalPlacement?.name ?? record.draft.cucumberName.nonEmpty ?? "작성 중인 오이",
-                cucumberAsset: record.draft.cucumberAsset, donorDisplayName: donorName,
+                title: record.draft.title, cucumberAsset: record.draft.cucumberAsset,
+                portraitPNG: record.customization?.card?.portraitPNG, donorDisplayName: donorName,
                 locationDisplayName: record.personalPlacement == nil ? "이 기기에 보관한 초안" : "내 지도에 배치됨",
                 tags: [record.draft.emotion, record.draft.theme].filter { !$0.isEmpty },
                 dateLabel: record.personalPlacement == nil ? "작성 중" : "나만 보기")
@@ -221,6 +222,15 @@ struct OiStoryListScreen: View {
         guard !state.isFull else { return }
         guard remote.canPlaceOi else { showingSettings = true; return }
         showingConsent = true
+    }
+
+    /// "24학번 반도체공학과 서수리" when the donor search details are set, otherwise the nickname (Figma `5441:17267`).
+    private var donorLine: String {
+        let profile = remote.profile
+        let name = profile?.publicName?.nonEmpty
+        let year = (profile?.admissionYear?.nonEmpty).map { "\($0.suffix(2))학번" }
+        let line = [year, profile?.department?.nonEmpty, name].compactMap { $0 }.joined(separator: " ")
+        return name == nil ? (profile?.nickname.nonEmpty ?? "익명") : line
     }
 
     private func locationDisplayName(for regionID: String) -> String {
