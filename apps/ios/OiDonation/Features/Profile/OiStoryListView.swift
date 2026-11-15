@@ -132,7 +132,6 @@ struct OiStoryListView: View {
     /// Figma `5441:17267` (오이가로): name, tags and donor, then the title, with the cucumber on the right.
     private func storySlot(_ item: OiStoryListItem) -> some View {
         optionalButton(action: onSelectStory.map { select in { select(item.id) } }) {
-            VStack(spacing: 4) {
                 Group {
                     if usesAccessibilityLayout {
                         VStack(alignment: .leading, spacing: 12) {
@@ -152,15 +151,6 @@ struct OiStoryListView: View {
                 .frame(maxWidth: .infinity, minHeight: 110, alignment: .leading)
                 .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 28))
                 .shadow(color: .black.opacity(0.25), radius: 2)
-
-                Text(item.dateLabel)
-                    .font(.custom("Paperlogy-4Regular", size: 10, relativeTo: .caption2))
-                    .tracking(0.2)
-                    .foregroundStyle(Color(red: 152 / 255, green: 152 / 255, blue: 152 / 255))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, minHeight: 10, alignment: .trailing)
-                    .padding(.horizontal, 20)
-            }
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("storyList.item.\(item.id.uuidString)")
@@ -244,10 +234,6 @@ struct OiStoryListView: View {
                             .minimumScaleFactor(0.6)
                     }
             }
-
-            Color.clear
-                .frame(height: 10)
-                .padding(.horizontal, 20)
         }
         .accessibilityLabel("빈 이야기 슬롯")
         .accessibilityIdentifier("storyList.empty.\(index)")
