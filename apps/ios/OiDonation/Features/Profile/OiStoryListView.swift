@@ -18,6 +18,8 @@ struct OiStoryListView: View {
     var onDeleteStory: ((UUID) -> Void)?
     var isDeleting = false
 
+    @State private var listHeight: CGFloat = 0
+
     var body: some View {
         Group {
             switch state {
@@ -83,7 +85,11 @@ struct OiStoryListView: View {
                 Text(guidance).font(CampusStyle.semibold(15)).tracking(0.3)
                     .foregroundStyle(Color("OiGreen"))
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
+                    .lineLimit(usesAccessibilityLayout ? nil : 1)
+                    .minimumScaleFactor(usesAccessibilityLayout ? 1 : 0.8)
+                    .frame(maxWidth: .infinity, minHeight: Layout.guidanceHeight)
+                    // 18pt to the first card together with the card row's top inset.
+                    .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: Layout.guidanceGap - metrics.gap / 2, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
             }
@@ -108,7 +114,8 @@ struct OiStoryListView: View {
                     }
                 }
                 .disabled(isDeleting)
-                .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
+                // Figma `5400:7649`: 20pt between slots.
+                .listRowInsets(EdgeInsets(top: metrics.gap / 2, leading: 20, bottom: metrics.gap / 2, trailing: 20))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
             }
@@ -120,11 +127,13 @@ struct OiStoryListView: View {
             }
         }
         .listStyle(.plain)
-        // Four draft slots fit on one screen; larger text or small screens can still scroll (#368).
-        .scrollBounceBehavior(.basedOnSize)
+        // Four draft slots always fit, so the list does not scroll (#368). Accessibility text sizes still scroll.
+        .scrollDisabled(!usesAccessibilityLayout)
         .listRowSpacing(0)
-        .contentMargins(.top, 15, for: .scrollContent)
-        .contentMargins(.bottom, 5, for: .scrollContent)
+        .environment(\.defaultMinListRowHeight, 0)
+        .contentMargins(.top, Layout.topMargin, for: .scrollContent)
+        .contentMargins(.bottom, 0, for: .scrollContent)
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { listHeight = $0 }
         .scrollContentBackground(.hidden)
         .accessibilityIdentifier("storyList.list")
     }
@@ -147,8 +156,9 @@ struct OiStoryListView: View {
                 }
                 .padding(.leading, 16)
                 .padding(.trailing, 12)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity, minHeight: 110, alignment: .leading)
+                .padding(.vertical, metrics.cardPadding)
+                .frame(maxWidth: .infinity, minHeight: metrics.cardHeight,
+                       maxHeight: usesAccessibilityLayout ? nil : metrics.cardHeight, alignment: .leading)
                 .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 28))
                 .shadow(color: .black.opacity(0.25), radius: 2)
         }
@@ -157,8 +167,8 @@ struct OiStoryListView: View {
     }
 
     private func storyText(_ item: OiStoryListItem) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: metrics.textSpacing * 0.6) {
+            VStack(alignment: .leading, spacing: metrics.textSpacing * 0.4) {
                 Text(item.cucumberName)
                     .font(.custom("YANGJIN", size: 22, relativeTo: .title2))
                     .tracking(0.44)
@@ -208,8 +218,8 @@ struct OiStoryListView: View {
                 Image(item.cucumberAsset).resizable().scaledToFit()
             }
         }
-        .frame(width: 50, height: 78)
-        .frame(width: 66, height: 86)
+        .frame(width: 50 * metrics.imageHeight / 86, height: 78 * metrics.imageHeight / 86)
+        .frame(width: 66 * metrics.imageHeight / 86, height: metrics.imageHeight)
         .background(Color(red: 239 / 255, green: 239 / 255, blue: 239 / 255), in: RoundedRectangle(cornerRadius: 16))
         .accessibilityHidden(true)
     }
@@ -225,7 +235,7 @@ struct OiStoryListView: View {
                         Color(red: 248 / 255, green: 248 / 255, blue: 248 / 255)
                             .shadow(.inner(color: .black.opacity(0.2), radius: 4))
                     )
-                    .frame(maxWidth: .infinity, minHeight: 112, maxHeight: 112)
+                    .frame(maxWidth: .infinity, minHeight: metrics.emptyHeight, maxHeight: metrics.emptyHeight)
                     .overlay {
                         Text("+")
                             .font(.custom("Paperlogy-6SemiBold", size: 40, relativeTo: .title))
@@ -240,11 +250,14 @@ struct OiStoryListView: View {
     }
 
     private var footer: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 0) {
+        // Figma: 12pt from the notices to the buttons, 13pt above the home indicator.
+        VStack(alignment: .leading, spacing: 12) {
+            // 13pt text on a 19.5pt (150%) line.
+            VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(notices.enumerated()), id: \.offset) { _, notice in
                     Text("* \(notice)")
-                        .lineLimit(nil)
+                        .lineLimit(usesAccessibilityLayout ? nil : 1)
+                        .minimumScaleFactor(usesAccessibilityLayout ? 1 : 0.8)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -252,7 +265,7 @@ struct OiStoryListView: View {
             .font(.custom("Paperlogy-4Regular", size: 13, relativeTo: .subheadline))
             .tracking(0.26)
             .foregroundStyle(Color(red: 147 / 255, green: 147 / 255, blue: 147 / 255))
-            .lineSpacing(1)
+            .lineSpacing(4)
 
             if usesAccessibilityLayout {
                 VStack(spacing: 12) {
@@ -278,7 +291,8 @@ struct OiStoryListView: View {
                 icon: "StoryCreateCucumberIcon",
                 iconSize: CGSize(width: 19, height: 30),
                 foreground: Color("OiGreen"),
-                background: Color("OiLight")
+                background: Color("OiLight"),
+                glow: Color(red: 125 / 255, green: 151 / 255, blue: 3 / 255)
             )
         }
         // All draft slots are taken; finish or delete one to start another (#368).
@@ -306,7 +320,8 @@ struct OiStoryListView: View {
         icon: String,
         iconSize: CGSize,
         foreground: Color,
-        background: Color
+        background: Color,
+        glow: Color? = nil
     ) -> some View {
         HStack(spacing: 4) {
             if icon == "StorySeedIcon" {
@@ -330,7 +345,7 @@ struct OiStoryListView: View {
         .frame(maxWidth: .infinity, minHeight: 50)
         .background {
             Capsule().fill(background)
-                .shadow(color: foreground.opacity(0.6), radius: 2)
+                .shadow(color: (glow ?? foreground).opacity(0.6), radius: 2)
         }
         .accessibilityElement(children: .combine)
     }
@@ -354,6 +369,41 @@ struct OiStoryListView: View {
 
     private var seedButtonBackgroundColor: Color {
         Color(red: 255 / 255, green: 249 / 255, blue: 223 / 255)
+    }
+
+    /// Figma `5400:7644` sizes, shrunk only as far as needed so four slots fit without scrolling on small screens.
+    private enum Layout {
+        static let topMargin: CGFloat = 15
+        static let guidanceHeight: CGFloat = 15
+        static let guidanceGap: CGFloat = 18
+        static let gap: CGFloat = 20, minimumGap: CGFloat = 6
+        static let cardHeight: CGFloat = 110, emptyHeight: CGFloat = 112, minimumCardHeight: CGFloat = 84
+        /// Name, tag row and title without the 8pt and 12pt gaps between them.
+        static let cardTextHeight: CGFloat = 59
+    }
+
+    private struct SlotMetrics {
+        var gap: CGFloat; var cardHeight: CGFloat; var emptyHeight: CGFloat
+        /// Figma 12pt top and bottom padding, 8pt only when the card is shortened.
+        var cardPadding: CGFloat { cardHeight >= 104 ? 12 : 8 }
+        /// Figma 8pt + 12pt between name, tags and title, tightened with the card.
+        var textSpacing: CGFloat { min(20, max(8, cardHeight - cardPadding * 2 - Layout.cardTextHeight)) }
+        var imageHeight: CGFloat { min(86, cardHeight - cardPadding * 2) }
+    }
+
+    private var metrics: SlotMetrics {
+        let full = SlotMetrics(gap: Layout.gap, cardHeight: Layout.cardHeight, emptyHeight: Layout.emptyHeight)
+        guard !usesAccessibilityLayout, listHeight > 0 else { return full }
+        let slots = CGFloat(OiStoryListState.draftCapacity)
+        let fixed = Layout.topMargin + (guidance == nil ? 0 : Layout.guidanceHeight + Layout.guidanceGap - Layout.gap / 2)
+        let needed = fixed + Layout.cardHeight + Layout.emptyHeight * (slots - 1) + Layout.gap * slots
+        var deficit = max(0, needed - listHeight)
+        // Tighten the gaps first, then the slots.
+        let gapCut = min(deficit / slots, Layout.gap - Layout.minimumGap)
+        deficit -= gapCut * slots
+        let heightCut = min(deficit / slots, Layout.cardHeight - Layout.minimumCardHeight)
+        return SlotMetrics(gap: Layout.gap - gapCut, cardHeight: Layout.cardHeight - heightCut,
+                           emptyHeight: Layout.emptyHeight - heightCut)
     }
 
     private var usesAccessibilityLayout: Bool {
