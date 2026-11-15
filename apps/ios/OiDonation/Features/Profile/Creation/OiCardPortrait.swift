@@ -24,7 +24,7 @@ enum OiCardPortrait {
         } else {
             revision = "portrait-v4-bright4-skin-"
         }
-        return revision + SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        return "transparent-matte-v1-" + revision + SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
     }
 }
 
@@ -38,12 +38,19 @@ struct OiCardPortraitCapture: View {
     let onCapture: (Data, String) -> Void
     var onFailure: (() -> Void)? = nil
     @State private var scene = OiWardrobeScene()
+    @State private var liveScene = OiWardrobeScene()
     @State private var failure = false
     @State private var attempt = 0
     var body: some View {
         ZStack {
+            if interactivePreview {
+                OiCardPortraitSurface(scene: liveScene, look: look, orientation: orientation)
+                    .allowsHitTesting(false)
+            }
+            // Keep the capture surface mounted but visually hidden. Its black/white
+            // passes must never flash in the interactive card placement preview.
             OiCardPortraitSurface(scene: scene, look: look, orientation: orientation)
-                .allowsHitTesting(false)
+                .opacity(interactivePreview ? 0.001 : 1).allowsHitTesting(false).accessibilityHidden(true)
             if failure && !interactivePreview {
                 Button("오이 이미지 다시 만들기") {
                     scene.update(look, retry: true); attempt += 1

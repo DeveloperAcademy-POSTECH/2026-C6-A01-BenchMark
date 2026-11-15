@@ -1394,6 +1394,54 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         shot.name = "unified-postcard-gradients"; shot.lifetime = .keepAlways; add(shot)
     }
 
+    func testPortraitMattePreservesBlackWhiteAndTranslucentEdges() throws {
+        let width = 40, height = 40
+        func source(white: Bool) throws -> UIImage {
+            var pixels = [UInt8](repeating: 255, count: width * height * 4)
+            for y in 0..<height {
+                for x in 0..<width {
+                    let rgb: [UInt8]
+                    switch x {
+                    case 0..<10: rgb = white ? [255, 255, 255] : [0, 0, 0]
+                    case 10..<20: rgb = [0, 0, 0] // black eyes/clothing
+                    case 20..<30: rgb = [255, 255, 255] // white clothing
+                    default: rgb = [90, 180, 60]
+                    }
+                    let i = (y * width + x) * 4
+                    pixels.replaceSubrange(i..<(i + 3), with: rgb)
+                }
+            }
+            // A 50%-covered black edge in linear light: white -> 188, black -> 0.
+            pixels.replaceSubrange((15 * width + 8) * 4..<(15 * width + 8) * 4 + 3,
+                                   with: white ? [188, 188, 188] : [0, 0, 0])
+            let provider = try XCTUnwrap(CGDataProvider(data: Data(pixels) as CFData))
+            let cg = try XCTUnwrap(CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
+                bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+            return UIImage(cgImage: cg)
+        }
+        let black = try source(white: false), white = try source(white: true)
+        XCTAssertFalse(OiPortraitMatte.hasTransparentBackground(black))
+        let recovered = try XCTUnwrap(OiPortraitMatte.image(black: black, white: white))
+        XCTAssertTrue(OiPortraitMatte.hasTransparentBackground(recovered))
+        let data = try XCTUnwrap(recovered.pngData())
+        let bitmap = try renderedBitmap(data, size: CGSize(width: width, height: height))
+        let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: width * height * 4)
+        func pixel(_ x: Int, _ y: Int) -> [UInt8] { (0..<4).map { pixels[(y * width + x) * 4 + $0] } }
+        XCTAssertEqual(pixel(5, 5), [0, 0, 0, 0])
+        XCTAssertEqual(pixel(15, 5), [0, 0, 0, 255])
+        XCTAssertEqual(pixel(25, 5), [255, 255, 255, 255])
+        XCTAssertEqual(pixel(35, 5), [90, 180, 60, 255])
+        // CGContext row orientation may flip during the test helper's redraw.
+        let edgeAlphas = [pixel(8, 15)[3], pixel(8, height - 1 - 15)[3]]
+        XCTAssertTrue(edgeAlphas.contains { abs(Int($0) - 128) <= 2 })
+        XCTAssertNil(OiPortraitMatte.image(black: black, white: black), "An unchanged background cannot form a matte")
+        let oldKey = "portrait-v4-bright4-skin-legacy-angle-0"
+        XCTAssertFalse(OiCardPortrait.key(for: OiWardrobeLook()).hasPrefix(oldKey))
+        XCTAssertTrue(OiCardPortrait.key(for: OiWardrobeLook()).hasPrefix("transparent-matte-v1-"))
+    }
+
     func testPostcardCapturesCurrentWardrobePortrait() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first(where: \.isKeyWindow)
@@ -1402,11 +1450,14 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         var png: Data?
         let view = OiCardPortraitCapture(look: OiWardrobeLook(), cacheKey: "postcard-runtime-test", onCapture: { data, _ in
             png = data; captured.fulfill()
-        }).frame(width: 220, height: 308).opacity(0.001)
+        }, onFailure: {
+            XCTFail("The capture reported a loading or matte failure")
+            captured.fulfill()
+        }).frame(width: 220, height: 308)
         window.rootViewController = UIHostingController(rootView: view.environment(\.scenePhase, .active))
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
-        await fulfillment(of: [captured], timeout: 18)
+        await fulfillment(of: [captured], timeout: 45)
         let image = try XCTUnwrap(png.flatMap(UIImage.init(data:)))
         XCTAssertGreaterThan(image.size.width, 10)
         XCTAssertGreaterThan(image.size.height, 10)
@@ -1417,7 +1468,15 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             pixels[$0 * 4 + 3] > 200 && Int(pixels[$0 * 4 + 1]) > Int(pixels[$0 * 4]) + 15
                 && Int(pixels[$0 * 4 + 1]) > Int(pixels[$0 * 4 + 2]) + 15
         }.count
-        XCTAssertGreaterThan(green, 100, "The hidden surface must still render the green 3D cucumber")
+        XCTAssertGreaterThan(green, 100, "The capture must render the green 3D cucumber")
+        XCTAssertTrue(OiPortraitMatte.hasTransparentBackground(image), "A portrait must contain a transparent background on a real device too")
+        for corner in [0, cg.width - 1, (cg.height - 1) * cg.width, cg.width * cg.height - 1] {
+            XCTAssertEqual(pixels[corner * 4 + 3], 0, "The card background must show through every empty corner")
+        }
+        let dark = (0..<(cg.width * cg.height)).filter {
+            pixels[$0 * 4 + 3] > 240 && pixels[$0 * 4] < 50 && pixels[$0 * 4 + 1] < 50 && pixels[$0 * 4 + 2] < 50
+        }.count
+        XCTAssertGreaterThan(dark, 40, "Black eyes and mouth must remain opaque")
         let attachment = XCTAttachment(data: try XCTUnwrap(png), uniformTypeIdentifier: "public.png")
         attachment.name = "postcard-current-wardrobe-capture"; attachment.lifetime = .keepAlways; add(attachment)
     }

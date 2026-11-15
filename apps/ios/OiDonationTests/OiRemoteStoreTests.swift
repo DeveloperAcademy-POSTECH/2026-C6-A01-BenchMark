@@ -1679,6 +1679,67 @@ final class OiRemoteStoreTests: XCTestCase {
         catch {}
     }
 
+    @MainActor func testLegacyOpaqueCardPortraitRegeneratesWithoutChangingTheDraft() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let owner = OiTestBackend.owner
+        let original = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 60)).image { context in
+            UIColor.black.setFill(); context.fill(CGRect(x: 0, y: 0, width: 40, height: 60))
+        }
+        let photoID = UUID()
+        let photo = try XCTUnwrap(original.pngData())
+        try await store.saveLocalPhoto(photo, id: photoID, owner: owner)
+        var customization = OiDraftCustomization()
+        let look = OiWardrobeLook()
+        customization.wardrobe = look
+        var card = OiCardDesign()
+        card.portraitPNG = photo
+        card.portraitKey = "portrait-v4-bright4-skin-old-opaque-cache"
+        card.characterOrientation = OiCardOrientation(yaw: 0.2, pitch: 0.1)
+        card.characterPlacement = OiCardPlacement(x: 0.4, y: 0.6, scale: 0.8)
+        card.characterBackdropEnabled = false
+        card.characterBackdropColor = 0x845F77
+        card.postcardLayoutVersion = 2
+        card.postcardBackground = OiPostcardBackgroundStyle(color: 0xEECFDF)
+        card.postcardDate = Date(timeIntervalSince1970: 1_794_700_000)
+        customization.card = card
+        let local = OiLocalDraft(draft: draft(title: "불투명 캐시 복원 확인"), photos: [photoID], version: 1,
+            creationStep: OiCreationStep.card.rawValue, customization: customization)
+        try await store.saveLocalDraft(local, owner: owner)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: NavigationStack {
+            OiStoryEditor(remote: store, localID: local.id).environment(\.scenePhase, .active)
+        })
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
+        var regenerated: OiLocalDraft?
+        for _ in 0..<200 {
+            try await Task.sleep(for: .milliseconds(100))
+            let current = try await store.localDraft(id: local.id, owner: owner)
+            if current?.customization?.card?.portraitKey?.hasPrefix("transparent-matte-v1-") == true {
+                regenerated = current; break
+            }
+        }
+        let saved = try XCTUnwrap(regenerated, "Opening an old card draft must regenerate its derived portrait")
+        let savedCard = try XCTUnwrap(saved.customization?.card)
+        let png = try XCTUnwrap(savedCard.portraitPNG)
+        XCTAssertTrue(OiPortraitMatte.hasTransparentBackground(try XCTUnwrap(UIImage(data: png))))
+        XCTAssertNotEqual(png, photo)
+        XCTAssertEqual(saved.draft, local.draft)
+        XCTAssertEqual(saved.photos, local.photos)
+        XCTAssertEqual(saved.customization?.wardrobe, look)
+        var expected = card
+        expected.portraitPNG = savedCard.portraitPNG
+        expected.portraitKey = savedCard.portraitKey
+        XCTAssertEqual(savedCard, expected, "Regeneration must preserve card settings and orientation")
+        let restoredPhoto = try await store.localPhoto(id: photoID, owner: owner)
+        XCTAssertEqual(restoredPhoto, photo)
+        XCTAssertNil(backend.snapshot().story, "A local portrait repair must not submit or change a server story")
+    }
+
     @MainActor func testStepNavigationAppearsOnlyAtScrollEndAndHidesOnReturn() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
