@@ -97,7 +97,8 @@ test("failed storage cleanup never deletes Auth users", async () => {
   assert.equal((await response.json()).error, "deletion_incomplete");
   assert.ok(!calls.some(x => x.body?.p_action === "finish"));
 });
-const covers = ["snapshot-current", "snapshot-abandoned"].map(snapshot => `${linked}/story/card/${snapshot}/cover.png`);
+const covers = ["snapshot-current", "snapshot-abandoned"].flatMap(snapshot =>
+  ["png", "jpg"].map(extension => `${linked}/story/card/${snapshot}/cover.${extension}`));
 test("deletes current and abandoned covers through Storage before account finalization", async () => {
   const { request, calls } = fixture({ paths: [path, ...covers] });
   assert.equal((await request()).status, 200);

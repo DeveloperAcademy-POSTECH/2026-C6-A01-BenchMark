@@ -28,7 +28,7 @@ struct OiDraftCardPreview: View {
             .accessibilityLabel("엽서 \(showingBack ? "뒷면" : "앞면") 미리보기, \(draft.cucumberName)")
     }
 
-    @MainActor func publication(colorScheme: ColorScheme, includeCover: Bool = false) throws -> OiStoryCardPublication {
+    @MainActor func publication(colorScheme: ColorScheme, includeCover: Bool = false, coverType: StoryCard.CoverType = .png) throws -> OiStoryCardPublication {
         guard !customization.showsCharacter || customization.wardrobe == nil || portrait != nil || design.portraitPNG != nil else {
             throw OiCardExportError.imageUnavailable
         }
@@ -41,7 +41,7 @@ struct OiDraftCardPreview: View {
         guard let png, let backPNG = rear.pngData() else { throw OiPhotoDataError.unreadable }
         return try OiStoryCardPublication(front: png, back: backPNG,
             frontPreview: OiCardImageExport.preview(front), backPreview: OiCardImageExport.preview(rear),
-            cover: includeCover ? OiCardImageExport.cover(try OiCardImageExport.render(frontComposition(decorations: false), colorScheme: colorScheme)) : nil)
+            cover: includeCover ? OiCardImageExport.cover(try OiCardImageExport.render(frontComposition(decorations: false), colorScheme: colorScheme), type: coverType) : nil, coverType: coverType)
     }
     private var composition: some View { frontComposition(decorations: true) }
     private func frontComposition(decorations: Bool) -> some View {

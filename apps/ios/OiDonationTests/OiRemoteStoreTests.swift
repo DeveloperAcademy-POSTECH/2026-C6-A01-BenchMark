@@ -45,6 +45,11 @@ final class OiTestBackend {
         var publicStoryCard = false
         var duplexStoryCard = false
         var storyCardCover = false
+        var storyCardCoverJpeg = false
+        var corruptSubmittedCoverType = false
+        var corruptReviewedCoverType = false
+        var reviewPayloads: [[String: Any]] = []
+        var uploadContentTypes: [String: String] = [:]
         var failCardCoverUpload = false
         var failCardCoverRead = false
         var failCardBackUpload = false
@@ -204,8 +209,8 @@ final class OiTestBackend {
             } else { status = 403 }
         } else if path.hasPrefix("/storage/v1/object/sign/") && (path.contains("/appearance/") || path.contains("/card/")) {
             let key = String(path.dropFirst("/storage/v1/object/sign/".count))
-            if state.failCardCoverRead && key.hasSuffix("/cover.png") { status = 503 }
-            else if state.failCardBackRead && key.hasSuffix("/back-preview.png") { status = 503 }
+            if state.failCardCoverRead && (key.hasSuffix("/cover.png") || key.hasSuffix("/cover.jpg")) { status = 503 }
+            else if state.failCardBackRead && (key.hasSuffix("/back-preview.png") || key.hasSuffix("/back.png")) { status = 503 }
             else if let image = state.uploads[key] {
                 if request.httpMethod == "POST" { result = ["signedURL": String(path.dropFirst("/storage/v1".count)) + "?token=fixture"] }
                 else { bytes = image }
@@ -213,11 +218,15 @@ final class OiTestBackend {
         } else if path.contains("/storage/v1/object/") {
             let key = path.replacingOccurrences(of: "/storage/v1/object/", with: "")
             if key.contains("/card/") || key.contains("/appearance/") { state.artworkUploadAttempts += 1 }
-            if state.failCardCoverUpload && key.hasSuffix("/cover.png") { status = 503 }
+            if state.failCardCoverUpload && (key.hasSuffix("/cover.png") || key.hasSuffix("/cover.jpg")) { status = 503 }
             else if state.failCardBackUpload && key.hasSuffix("/back.png") { status = 503 }
             else if state.failCucumberTextureUpload && key.hasSuffix("/top.png") { status = 503 }
             else if state.uploads[key] != nil { status = 409 }
-            else { state.uploads[key] = raw; result = ["Key":key] }
+            else {
+                state.uploads[key] = raw
+                state.uploadContentTypes[key] = request.value(forHTTPHeaderField: "Content-Type")
+                result = ["Key":key]
+            }
             if status == 200, key.contains("/card/"), state.timeOutCardUploadAfterCommit {
                 state.timeOutCardUploadAfterCommit = false
                 lock.unlock(); client.timeOut(); return
@@ -236,6 +245,7 @@ final class OiTestBackend {
                 if state.story?["id"] as? String == payload["id"] as? String {
                     story["card_snapshot_id"] = state.story?["card_snapshot_id"]
                     story["card_snapshot_format"] = state.story?["card_snapshot_format"]
+                    story["card_cover_type"] = state.story?["card_cover_type"]
                     story["cucumber_appearance"] = state.story?["cucumber_appearance"]
                 }
                 state.story = story; result = story
@@ -253,7 +263,11 @@ final class OiTestBackend {
                 state.submittedTitle = state.story?["title"] as? String
                 if let appearance = payload["cucumber_appearance"] { state.story?["cucumber_appearance"] = appearance }
                 if let card = payload["card_snapshot_id"] { state.story?["card_snapshot_id"] = card }
-                if let format = payload["card_snapshot_format"] { state.story?["card_snapshot_format"] = format }
+                if let format = payload["card_snapshot_format"] {
+                    state.story?["card_snapshot_format"] = format
+                    state.story?["card_cover_type"] = (format as? Int) == 3 ? (payload["card_cover_type"] ?? "png") : nil
+                }
+                if state.corruptSubmittedCoverType { state.story?["card_cover_type"] = "png" }
                 state.story?["status"] = "pending"
                 let nextRevision = (state.story?["revision"] as? Int ?? 0)+1
                 state.story?["revision"] = nextRevision
@@ -281,6 +295,7 @@ final class OiTestBackend {
                 result = state.story ?? [:]
             } else if action == "review_story" {
                 state.reviewCount += 1
+                state.reviewPayloads.append(payload)
                 let wanted = payload["status"] as? String ?? ""
                 if !state.isOperator { status = 403 }
                 else if state.story?["revision"] as? Int != payload["revision"] as? Int { status = 409 }
@@ -289,11 +304,15 @@ final class OiTestBackend {
                         appearance["id"] as? String != payload["appearance_id"] as? String { status = 409 }
                 else if wanted == "published", let card = state.story?["card_snapshot_id"] as? String,
                         card != payload["card_snapshot_id"] as? String { status = 409 }
+                else if wanted == "published", state.story?["card_cover_type"] as? String == "jpeg",
+                        payload["card_cover_type"] as? String != "jpeg" { status = 409 }
                 else {
                     state.story?["status"] = wanted
                     let nextRevision = (state.story?["revision"] as? Int ?? 0) + 1
                     state.story?["revision"] = nextRevision
-                    result = state.story ?? [:]
+                    var reviewed = state.story ?? [:]
+                    if state.corruptReviewedCoverType { reviewed["card_cover_type"] = "png" }
+                    result = reviewed
                     if state.failAfterReview { state.failReads = true }
                     if state.loseReviewResponse { status = 503; state.loseReviewResponse = false }
                 }
@@ -357,6 +376,7 @@ final class OiTestBackend {
             if state.publicStoryCard { capabilities["public_story_card"] = true }
             if state.duplexStoryCard { capabilities["duplex_story_card"] = true }
             if state.storyCardCover { capabilities["story_card_cover"] = true }
+            if state.storyCardCoverJpeg { capabilities["story_card_cover_jpeg"] = true }
             if let canonical = state.canonicalAccountID {
                 capabilities["account_id"] = canonical.uuidString
                 capabilities["account_merge_enabled"] = true
@@ -3056,7 +3076,7 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertNotNil(publicCard?.backPreviewURL)
         let details = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
         XCTAssertEqual(details?.frontURL, publicCard?.frontPreviewURL, "NFC uses the same reviewed preview as the general Clip")
-        XCTAssertEqual(details?.backURL, publicCard?.backPreviewURL)
+        XCTAssertEqual(details?.backURL, publicCard?.backImageURL, "The scratch postcard shows the full-resolution back")
         backend.configure { $0.failCardBackRead = true }
         do {
             _ = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
@@ -3118,11 +3138,122 @@ final class OiRemoteStoreTests: XCTestCase {
         let details = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
         XCTAssertTrue(details?.coverURL?.path.hasSuffix("/cover.png") == true)
         XCTAssertTrue(details?.frontURL?.path.hasSuffix("/front-preview.png") == true)
-        XCTAssertTrue(details?.backURL?.path.hasSuffix("/back-preview.png") == true)
+        XCTAssertTrue(details?.backURL?.path.hasSuffix("/back.png") == true)
         backend.configure { $0.failCardCoverRead = true }
         let fallback = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
         XCTAssertNil(fallback?.coverURL)
         XCTAssertNotNil(fallback?.frontURL, "A missing optional cover preserves the approved front fallback")
+    }
+
+    @MainActor private func jpegCard() throws -> OiStoryCardPublication {
+        try OiDraftCardPreview(draft: draft(), customization: OiDraftCustomization())
+            .publication(colorScheme: .light, includeCover: true, coverType: .jpeg)
+    }
+
+    @MainActor func testJPEGCoverUploadsReviewsAndReadsWithExactType() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.publicStoryCard = true; $0.duplexStoryCard = true; $0.storyCardCover = true; $0.storyCardCoverJpeg = true }
+        await store.start()
+        XCTAssertTrue(store.canPublishStoryCardCoverJPEG)
+        let card = try jpegCard()
+        let saved = await store.save(draft())
+        backend.configure { $0.failCardCoverUpload = true }
+        let failed = await store.submitStory(try XCTUnwrap(saved), card: card)
+        XCTAssertNil(failed)
+        XCTAssertEqual(backend.snapshot().submitCount, 0, "A partial bundle cannot enter review")
+        backend.configure { $0.failCardCoverUpload = false; $0.timeOutSubmitAfterCommit = true }
+        let submitted = await store.submitStory(try XCTUnwrap(saved), card: card)
+        let pending = try XCTUnwrap(submitted)
+        XCTAssertEqual(pending.cardSnapshotFormat, 3)
+        XCTAssertEqual(pending.cardCoverType, "jpeg")
+        XCTAssertEqual(pending.cardSnapshotId, card.id)
+        XCTAssertEqual(pending.cardArtworkPaths.count, 5)
+        let coverPath = try XCTUnwrap(pending.cardArtworkPaths.last)
+        XCTAssertTrue(coverPath.hasSuffix("/cover.jpg"))
+        for path in pending.cardArtworkPaths {
+            XCTAssertEqual(backend.snapshot().uploadContentTypes["oi-story-media/" + path], path == coverPath ? "image/jpeg" : "image/png")
+        }
+        let bytes = try await store.storyCoverData(coverPath, type: .jpeg)
+        XCTAssertEqual(bytes, card.parts[.cover])
+        let reused = try OiCardImageExport.publication(front: XCTUnwrap(UIImage(data: card.png)),
+            message: "뒷면 수정", author: "가상 작성자", cover: bytes, coverType: .jpeg)
+        XCTAssertEqual(reused.parts[.cover], bytes, "Saved JPEG must not be compressed again")
+        XCTAssertNotEqual(reused.id, card.id)
+        let approved = try await store.reviewOperatorStory(pending, publish: true).story
+        XCTAssertEqual(approved.cardCoverType, "jpeg")
+        XCTAssertEqual(backend.snapshot().reviewPayloads.last?["card_cover_type"] as? String, "jpeg")
+        let repository = RealStoryRepository(key: "sb_publishable_testing", session: session)
+        let details = try await repository.fetchPublicPostcardDetails(storyID: pending.id.uuidString)
+        XCTAssertEqual(details?.coverType, .jpeg)
+        XCTAssertTrue(details?.coverURL?.path.hasSuffix("/cover.jpg") == true)
+        XCTAssertTrue(details?.backURL?.path.hasSuffix("/back.png") == true)
+        backend.configure { $0.failCardCoverRead = true }
+        let fallback = try await repository.fetchPublicPostcardDetails(storyID: pending.id.uuidString)
+        XCTAssertNil(fallback?.coverURL)
+        XCTAssertNotNil(fallback?.frontURL)
+        await store.signOut()
+        XCTAssertFalse(store.canPublishStoryCardCoverJPEG)
+    }
+
+    @MainActor func testJPEGCoverFallsBackToRealPNGOnPNGOnlyServer() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.publicStoryCard = true; $0.duplexStoryCard = true; $0.storyCardCover = true }
+        await store.start()
+        XCTAssertFalse(store.canPublishStoryCardCoverJPEG)
+        let jpeg = try jpegCard(), png = try jpeg.withPNGCover()
+        XCTAssertNotEqual(jpeg.id, png.id)
+        let saved = await store.save(draft())
+        let submitted = await store.submitStory(try XCTUnwrap(saved), card: jpeg)
+        var pending = try XCTUnwrap(submitted)
+        XCTAssertEqual(pending.cardSnapshotId, png.id)
+        XCTAssertEqual(pending.cardSnapshotFormat, 3)
+        let path = try XCTUnwrap(pending.cardArtworkPaths.last)
+        XCTAssertTrue(path.hasSuffix("/cover.png"))
+        let data = try XCTUnwrap(backend.snapshot().uploads["oi-story-media/" + path])
+        _ = try OiPublishedStoryCover.decode(data, type: .png)
+        XCTAssertEqual(backend.snapshot().uploadContentTypes["oi-story-media/" + path], "image/png")
+        XCTAssertFalse(backend.snapshot().uploads.keys.contains { $0.hasSuffix("/cover.jpg") })
+        // A pre-JPEG server omits the metadata column entirely.
+        backend.configure { $0.story?.removeValue(forKey: "card_cover_type") }
+        pending.cardCoverType = nil
+        _ = try await store.reviewOperatorStory(pending, publish: true)
+        let details = try await RealStoryRepository(key: "sb_publishable_testing", session: session)
+            .fetchPublicPostcardDetails(storyID: pending.id.uuidString)
+        XCTAssertEqual(details?.coverType, .png)
+        XCTAssertTrue(details?.coverURL?.path.hasSuffix("/cover.png") == true)
+    }
+
+    @MainActor func testJPEGCoverRejectsWrongSubmissionTypeIncludingTimeout() async throws {
+        for timeout in [false, true] {
+            let (store, backend, _, session, directory) = try context()
+            defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+            backend.configure { $0.publicStoryCard = true; $0.duplexStoryCard = true; $0.storyCardCover = true; $0.storyCardCoverJpeg = true; $0.corruptSubmittedCoverType = true; $0.timeOutSubmitAfterCommit = timeout }
+            await store.start()
+            let saved = await store.save(draft())
+            let result = await store.submitStory(try XCTUnwrap(saved), card: try jpegCard())
+            XCTAssertNil(result, "Matching snapshot IDs with a different codec are not a confirmed submission")
+            XCTAssertNotNil(store.error)
+        }
+    }
+
+    @MainActor func testJPEGCoverRejectsWrongApprovalReceiptAndUnknownType() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.publicStoryCard = true; $0.duplexStoryCard = true; $0.storyCardCover = true; $0.storyCardCoverJpeg = true }
+        await store.start()
+        let saved = await store.save(draft())
+        let submitted = await store.submitStory(try XCTUnwrap(saved), card: try jpegCard())
+        var pending = try XCTUnwrap(submitted)
+        pending.cardCoverType = "future-codec"
+        XCTAssertFalse(pending.hasSupportedCardArtwork)
+        do { _ = try await store.reviewOperatorStory(pending, publish: true); XCTFail("Unknown cover types cannot be approved") } catch {}
+        XCTAssertEqual(backend.snapshot().reviewCount, 0)
+        pending.cardCoverType = "jpeg"
+        backend.configure { $0.corruptReviewedCoverType = true }
+        do { _ = try await store.reviewOperatorStory(pending, publish: true); XCTFail("Wrong type receipt must be rejected") }
+        catch { XCTAssertTrue(error is OiOperatorStoryError) }
     }
 
     @MainActor func testCoverFallsBackToSameDuplexVersionOnOlderServer() async throws {

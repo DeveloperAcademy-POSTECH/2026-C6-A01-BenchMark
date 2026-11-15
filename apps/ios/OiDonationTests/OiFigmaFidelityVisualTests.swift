@@ -786,6 +786,64 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testJPEGCoverPreservesCleanWindowAndPNGDuplexArtwork() throws {
+        var customization = Self.customization
+        customization.showsCharacter = false
+        customization.card = OiCardDesign()
+        customization.card?.postcardLayoutVersion = 2
+        let photo = UIGraphicsImageRenderer(size: CGSize(width: 296, height: 436)).image { context in
+            UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 148, height: 436))
+            UIColor.blue.setFill(); context.fill(CGRect(x: 148, y: 0, width: 148, height: 436))
+        }
+        customization.card?.backgroundPhoto = photo.pngData()
+        let preview = OiDraftCardPreview(draft: Self.draft, customization: customization)
+        let png = try preview.publication(colorScheme: .light, includeCover: true)
+        let jpeg = try preview.publication(colorScheme: .light, includeCover: true, coverType: .jpeg)
+        XCTAssertEqual(jpeg.coverType, .jpeg)
+        XCTAssertEqual(jpeg.format, 3)
+        XCTAssertNotEqual(jpeg.id, png.id)
+        XCTAssertEqual(try jpeg.withoutCover().id, try png.withoutCover().id)
+        for part in StoryCard.Part.duplex {
+            XCTAssertEqual(jpeg.parts[part], png.parts[part], "Only the clean cover changes encoding")
+            _ = try OiPublishedCucumberImage.decode(XCTUnwrap(jpeg.parts[part]), part: .portrait)
+        }
+        let data = try XCTUnwrap(jpeg.parts[.cover])
+        XCTAssertLessThanOrEqual(data.count, 2 * 1024 * 1024)
+        let cg = try OiPublishedStoryCover.decode(data, type: .jpeg)
+        XCTAssertEqual(cg.width, 888); XCTAssertEqual(cg.height, 1308)
+        XCTAssertFalse([CGImageAlphaInfo.first, .last, .premultipliedFirst, .premultipliedLast, .alphaOnly].contains(cg.alphaInfo))
+        let decoded = UIImage(cgImage: cg)
+        let left = try XCTUnwrap(OiPostcardSnapshot.color(decoded, x: 0.25, y: 0.5))
+        let right = try XCTUnwrap(OiPostcardSnapshot.color(decoded, x: 0.75, y: 0.5))
+        XCTAssertGreaterThan((left >> 16) & 255, 240); XCTAssertLessThan(left & 255, 15)
+        XCTAssertGreaterThan(right & 255, 240); XCTAssertLessThan((right >> 16) & 255, 15)
+        customization.card?.postcardLogo = "black"; customization.card?.postcardStamp = 1
+        let decorated = try OiDraftCardPreview(draft: Self.draft, customization: customization)
+            .publication(colorScheme: .light, includeCover: true, coverType: .jpeg)
+        XCTAssertEqual(decorated.parts[.cover], data, "Stickers and logos cannot enter JPEG covers")
+        let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.jpeg")
+        attachment.name = "sticker-free-jpeg-cover"; attachment.lifetime = .keepAlways; add(attachment)
+    }
+
+    func testJPEGCoverEnforcesActualCodecAndTwoMiBBoundary() throws {
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).image { context in
+            UIColor.green.setFill(); context.fill(CGRect(x: 0, y: 0, width: 10, height: 10))
+        }
+        let jpeg = try XCTUnwrap(image.jpegData(compressionQuality: 0.8))
+        let png = try XCTUnwrap(image.pngData())
+        XCTAssertThrowsError(try OiPublishedStoryCover.decode(png, type: .jpeg))
+        XCTAssertThrowsError(try OiPublishedStoryCover.decode(jpeg, type: .png))
+        XCTAssertThrowsError(try OiPublishedCucumberImage.decode(jpeg, part: .portrait))
+        var boundary = jpeg
+        boundary.append(Data(count: 2 * 1024 * 1024 - boundary.count))
+        _ = try OiPublishedStoryCover.decode(boundary, type: .jpeg)
+        boundary.append(0)
+        XCTAssertThrowsError(try OiPublishedStoryCover.decode(boundary, type: .jpeg))
+        var largePNG = png
+        largePNG.append(Data(count: 2 * 1024 * 1024 + 1 - largePNG.count))
+        _ = try OiPublishedStoryCover.decode(largePNG, type: .png)
+    }
+
     func testDuplexPostcardExportsBothSidesAndTracksBackChanges() throws {
         var draft = Self.draft
         var style = Self.customization

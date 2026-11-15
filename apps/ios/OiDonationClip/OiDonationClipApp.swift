@@ -15,16 +15,18 @@ struct OiDonationClipApp: App {
     @State private var invocation: AppClipInvocation?
     /// A new session per presentation so reopening always starts with a fresh card.
     @State private var scratchPostcardSession: ScratchPostcardSession?
+    /// False until the system hands over the invocation URL, so the story list never shows before a postcard (#347).
+    @State private var hasRoute = false
     private let storyRepository = RealStoryRepository()
 
     init() {
         for name in [
-            "Paperlogy-2ExtraLight",
             "Paperlogy-3Light",
             "Paperlogy-4Regular",
             "Paperlogy-5Medium",
             "Paperlogy-6SemiBold",
-            "Paperlogy-7Bold"
+            "Paperlogy-7Bold",
+            "Yangjin-v0.9"
         ] {
             if let url = Bundle.main.url(forResource: name, withExtension: "ttf")
                 ?? Bundle.main.url(forResource: name, withExtension: "ttf", subdirectory: "Fonts") {
@@ -35,22 +37,42 @@ struct OiDonationClipApp: App {
 
     var body: some Scene {
         WindowGroup {
-            AppClipExperienceView(
-                storyRepository: storyRepository,
-                invocation: invocation,
-                onRequestFullApp: { isOverlayPresented = true }
-            ) { story, id in
-                AppClipStorySafetyButton(story: story, id: id)
-            }
-            .fullScreenCover(item: $scratchPostcardSession) { session in
-                ScratchPostcardScreen(tagID: session.tagID, repository: storyRepository,
-                                      onClose: { scratchPostcardSession = nil })
-                    .id(session.id)
+            Group {
+                // An NFC postcard is the root screen, not a cover over the story list (#347).
+                if let scratchPostcardSession {
+                    ScratchPostcardScreen(tagID: scratchPostcardSession.tagID, repository: storyRepository)
+                        .id(scratchPostcardSession.id)
+                } else if hasRoute {
+                    AppClipExperienceView(
+                        storyRepository: storyRepository,
+                        invocation: invocation,
+                        onRequestFullApp: { isOverlayPresented = true }
+                    ) { story, id in
+                        AppClipStorySafetyButton(story: story, id: id)
+                    }
+                } else {
+                    Color.white
+                        .ignoresSafeArea()
+                        .task {
+                            // A launch without a URL (e.g. reopened from the App Library) falls back to the list.
+                            try? await Task.sleep(for: .seconds(1))
+                            hasRoute = true
+                        }
+                }
             }
             .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
                 handleInvocation(activity.webpageURL)
             }
             .onOpenURL { url in handleInvocation(url) }
+            #if DEBUG
+            // Simulator hook: `simctl launch` cannot pass an App Clip invocation, so a debug build accepts one
+            // from `OI_DEBUG_INVOCATION_URL` (screenshots of the postcard states, #351).
+            .task {
+                if let value = ProcessInfo.processInfo.environment["OI_DEBUG_INVOCATION_URL"] {
+                    handleInvocation(URL(string: value))
+                }
+            }
+            #endif
             .appStoreOverlay(isPresented: $isOverlayPresented) {
                 SKOverlay.AppClipConfiguration(position: .bottom)
             }
@@ -61,11 +83,13 @@ struct OiDonationClipApp: App {
 extension OiDonationClipApp {
     /// NFC postcard links open the scratch postcard for the tag; every other link keeps the existing story flow.
     private func handleInvocation(_ url: URL?) {
+        hasRoute = true
         if let url, let tag = AppClipLink.postcardID(in: url) {
+            // The story list is not built for a postcard, so it does not load stories in the background.
             scratchPostcardSession = ScratchPostcardSession(tagID: tag)
-        } else {
-            scratchPostcardSession = nil
+            return
         }
+        scratchPostcardSession = nil
         invocation = AppClipInvocation(url: url)
     }
 }

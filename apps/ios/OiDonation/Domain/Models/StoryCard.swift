@@ -25,9 +25,24 @@ struct StoryCard: Identifiable, Sendable {
         }
     }
 
-    static func artworkPath(owner: UUID, story: UUID, snapshot: UUID, part: Part) -> String {
+    enum CoverType: String, Codable, Sendable {
+        case png, jpeg
+
+        nonisolated var fileExtension: String { self == .jpeg ? "jpg" : "png" }
+        nonisolated var contentType: String { self == .jpeg ? "image/jpeg" : "image/png" }
+        nonisolated var typeIdentifier: String { self == .jpeg ? "public.jpeg" : "public.png" }
+        nonisolated var maximumBytes: Int { (self == .jpeg ? 2 : 8) * 1024 * 1024 }
+
+        // Missing metadata belongs to the original format-3 PNG contract.
+        static func resolve(_ raw: String?) -> Self? {
+            guard let raw else { return .png }
+            return Self(rawValue: raw)
+        }
+    }
+
+    static func artworkPath(owner: UUID, story: UUID, snapshot: UUID, part: Part, coverType: CoverType = .png) -> String {
         if part == .front { return artworkPath(owner: owner, story: story, snapshot: snapshot) }
-        return "\(owner.uuidString.lowercased())/\(story.uuidString.lowercased())/card/\(snapshot.uuidString.lowercased())/\(part.rawValue).png"
+        return "\(owner.uuidString.lowercased())/\(story.uuidString.lowercased())/card/\(snapshot.uuidString.lowercased())/\(part.rawValue).\(part == .cover ? coverType.fileExtension : "png")"
     }
 
     static func artworkPath(owner: UUID, story: UUID, snapshot: UUID) -> String {

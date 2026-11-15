@@ -1,5 +1,9 @@
 # 오이기부 아키텍처 및 팀 협업 제안
 
+2026-11-15 #331·#348 iOS 후속: 서버의 `story_card_cover_jpeg`를 확인해 새 스티커 없는 표지를 888×1308·JPEG 품질 0.8·최대 2MiB로 만든다. 양면 원본·미리보기 네 PNG는 유지한다. JPEG capability가 없으면 PNG 표지로 변환하고 snapshot ID를 다시 계산하며, 표지 capability도 없으면 형식 2를 쓴다. 저장된 타입으로 공개 URL·App Clip·운영자 이미지를 읽고 JPEG 승인에 `card_cover_type` 확인값을 보낸다. 저장된 JPEG는 재편집 시 원본 바이트로 재사용하고 제출·승인 응답도 타입까지 확인한다. 앱 PR 검증 단계이며 운영 DB 추가 변경·스토어 배포·실제 NFC 확인은 포함하지 않는다. [앱 계약과 검증](duplex-story-cards.md#jpeg-표지-ios-연결--2026-11-15).
+
+2026-11-15 #331·#348 서버 후속: 승인된 B안으로 형식 3에 `card_cover_type`을 추가한다. 기존 형식 3은 PNG로 보존하고 새 JPEG 표지는 `cover.jpg`·`image/jpeg`·최대 2MiB로 검사한다. 다른 네 PNG와 기존 PNG 표지는 8MiB를 유지한다. 타입별 경로는 다섯 인자 `oi_story_card_parts`로 계산하고 기존 네 인자 함수는 보존한다. JPEG 승인에는 현재 snapshot·형식·리비전과 일치하는 타입 확인값이 필수여서 구버전 운영자의 JPEG 승인을 막는다. PNG 요청의 타입 생략·재제출·읽기·탈퇴 삭제는 유지한다. **PR #359 리뷰·병합 및 drift 검사 후 2026-11-15 운영 52gibu 적용 완료, iOS 변경 없음**이다. 실제 JPEG 업로드·signed URL 다운로드와 구버전 승인 차단을 가상 자료로 확인하고 정리했다. 후속 앱과 운영자 업데이트가 필요하다. [계약·검증·적용 순서](duplex-story-cards.md#jpeg-표지-서버-후속--2026-11-15--331348).
+
 2026-11-14 #331 서버: `card_snapshot_format=3`은 형식 2의 네 PNG와 같은 snapshot 아래 `cover.png`를 묶는다. 제출·승인 시 기존 검증기로 다섯 파일의 PNG MIME·8MiB 한도를 확인하고, 공개 승인에서는 현재 카드 ID와 형식 3의 일치를 요구한다. 작성자·운영자의 기존 비공개 권한과 공개된 현재 버전의 익명 읽기만 유지한다. `story_card_cover` 기능 표시와 탈퇴 시 표지 삭제를 포함하며 형식 1·2 및 iOS 코드는 보존한다. **PR #333 병합·drift 검사 후 운영 52gibu 적용을 완료**했다. iOS 후속은 기능 확인에 따라 형식 3/2를 선택하고, 원본 합성에서 장식을 제거한 888×1308 표지를 생성한다. 표지도 snapshot 해시에 포함하며 운영자는 다섯 파일을 확인한다. App Clip은 표지 우선·기존 앞면 잘라내기 fallback을 사용한다. [계약·검증·적용 순서](duplex-story-cards.md#스티커-없는-표지-서버--331).
 
 2026-11-13 #308: 카드 양면은 기존 `card_snapshot_id`와 새 `card_snapshot_format=2`로 네 PNG를 묶는다. 앞면의 기존 경로를 유지하며 뒷면·미리보기는 같은 버전 하위 경로에 보관한다. 본 앱은 완성된 이미지로 저장·공유하고 App Clip은 미리보기를 면별로 내려받는다. 게시 승인 시 이미지 버전·형식을 확인해 구형 운영자 앱이 양면을 보지 않고 승인하지 못하게 한다. 기존 단면 형식과 호환하며 운영 DB 적용은 별도 승인 대상이다. [계약·적용·검증](duplex-story-cards.md).
@@ -707,3 +711,5 @@ AR 게임 시작 시 정규화된 캐릭터를 한 번 로드하여 카메라와
 2026-11-14 첨부 이미지 표시 후속: `OiCardBackground`의 사진·색조 합성은 `!showsCharacter`일 때만 수행한다. 사진 파일의 존재와 오이 뒤 배경 토글로 선택 상태를 추정하지 않는다. 기존 사진·배치는 초안에 보존하고 공통 카드 합성에서 미리보기·내보내기·새 제출을 동일하게 처리한다.
 
 2026-11-13 #310: `OiOperatorNFCTagsView`가 운영자 관리의 NFC 태그 메뉴에서 목록·추가·수정을 제공한다. `OiRemoteStore`의 운영자 세션 재확인을 거쳐 기존 RPC만 호출하고, 응답 영수증이 요청과 일치할 때만 저장으로 처리한다. 서버 스키마 변경은 없다.
+
+2026-11-15 #351: App Clip 타깃에서 `Views/ARGame/*`, `AppClipStoryCardView`, `ARCollectionResultView`, 체험 화면(`OiSample*View`)과 `ARCollectionAssets`·`OiSampleAssets`, `Paperlogy-2ExtraLight`를 제외한다. 파일은 본 앱이 계속 사용하므로 삭제하지 않고 타깃 멤버십만 바꾼다. 이야기 상세의 카드 미리보기는 `AppClipCardPreview.swift`로 분리해 두 타깃이 공유한다. 공유 `AppClipExperienceView`는 AR 진입 없이 읽기 전용 이야기 상세를 표시한다. Release 기준 App Clip 번들은 약 16.3MB에서 8.9MB(축소 전)로 줄었다.
