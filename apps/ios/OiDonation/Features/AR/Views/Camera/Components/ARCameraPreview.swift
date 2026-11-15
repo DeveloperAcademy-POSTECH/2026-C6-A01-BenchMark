@@ -13,7 +13,17 @@ struct ARCameraPreview: View {
                     .font(.caption.weight(.medium))
                     .padding(.horizontal, 12).padding(.vertical, 6)
                     .background(.ultraThinMaterial, in: Capsule())
-                if controller.recoveryIssue == nil && (!controller.placed || !controller.ready) {
+                if controller.usesGeographicPlacement {
+                    Text(controller.locationNotice.isEmpty ? "저장 위치를 확인하고 있어요." : controller.locationNotice)
+                        .font(.caption).multilineTextAlignment(.center)
+                        .padding(10).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                        .accessibilityIdentifier("ar.camera.locationStatus")
+                    if !controller.geographicReady, let url = URL(string: UIApplication.openSettingsURLString) {
+                        Link("위치 권한 설정", destination: url).font(.caption)
+                            .buttonStyle(.bordered)
+                    }
+                }
+                if controller.recoveryIssue == nil && (!controller.placed || !controller.ready || (controller.usesGeographicPlacement && !controller.geographicReady)) {
                     Text(controller.message)
                         .font(.callout).multilineTextAlignment(.center)
                         .padding(12).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
@@ -33,8 +43,8 @@ struct ARCameraPreview: View {
             }
             .padding()
             .padding(.top, topInset)
-            .allowsHitTesting(false)
             .opacity(recording ? 0 : 1)
+            .allowsHitTesting(!recording)
         }
         .clipped()
     }
