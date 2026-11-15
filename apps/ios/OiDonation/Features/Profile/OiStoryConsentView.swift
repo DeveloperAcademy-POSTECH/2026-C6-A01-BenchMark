@@ -34,6 +34,7 @@ struct OiStoryConsentView: View {
                 .padding(.top, 20)
             }
             .scrollIndicators(.hidden)
+            .modifier(OiCustomizationScrollEdge())
             .clipped()
             .ignoresSafeArea(.container, edges: .bottom)
         }

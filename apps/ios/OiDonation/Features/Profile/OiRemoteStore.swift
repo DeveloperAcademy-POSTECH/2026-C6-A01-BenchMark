@@ -679,6 +679,12 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         } else { _ = await change(action, payload: payload, as: OiMutationID.self) }
     }
 
+    func deleteStory(_ story: OiLiveStory) async -> Bool {
+        guard account?.id == story.userId, !isBusy else { return false }
+        return await change("delete_story", payload: ["id": story.id.uuidString, "revision": story.revision],
+                            as: OiLiveStory.self) != nil
+    }
+
     func save(_ draft: OiStoryDraft) async -> OiLiveStory? {
         guard canStartStory else { error = OiServiceError.storyCreationUnavailable.localizedDescription; return nil }
         do { return await change("save_story", payload: try draft.payload(), as: OiLiveStory.self) }

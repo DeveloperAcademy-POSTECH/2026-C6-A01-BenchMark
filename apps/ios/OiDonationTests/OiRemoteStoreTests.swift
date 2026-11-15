@@ -52,6 +52,9 @@ final class OiTestBackend {
         var timeOutSubmitAfterCommit = false
         var timeOutSubmitBeforeCommit = false
         var submitCount = 0
+        var deleteCount = 0
+        var failDelete = false
+        var failReadsAfterDelete = false
         var artworkUploadAttempts = 0
         var hasWritingGrant = true
         var nickname = "Owner A"
@@ -256,6 +259,18 @@ final class OiTestBackend {
                 if state.timeOutSubmitAfterCommit {
                     state.timeOutSubmitAfterCommit = false
                     lock.unlock(); client.timeOut(); return
+                }
+            } else if action == "delete_story" {
+                state.deleteCount += 1
+                if state.failDelete { status = 503 }
+                else if state.story?["id"] as? String != payload["id"] as? String ||
+                            state.story?["revision"] as? Int != payload["revision"] as? Int { status = 409 }
+                else {
+                    let nextRevision = (state.story?["revision"] as? Int ?? 0) + 1
+                    state.story?["status"] = "deleted"
+                    state.story?["revision"] = nextRevision
+                    result = state.story ?? [:]
+                    if state.failReadsAfterDelete { state.failReads = true }
                 }
             } else if action == "reopen_story" {
                 state.story?["status"] = "draft"
@@ -1664,6 +1679,177 @@ final class OiRemoteStoreTests: XCTestCase {
         catch {}
     }
 
+    @MainActor func testStepNavigationAppearsOnlyAtScrollEndAndHidesOnReturn() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        func scrollViews(_ view: UIView) -> [UIScrollView] {
+            (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews)
+        }
+        for step in [OiCreationStep.story] {
+            var customization = OiDraftCustomization()
+            var look = OiWardrobeLook(); look.costume = .farmer
+            customization.wardrobe = look
+            let local = OiLocalDraft(draft: draft(title: "스크롤 버튼 확인"), version: 1,
+                creationStep: step.rawValue, customization: customization)
+            try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+            var panelVisible = false
+            let controller = UIHostingController(rootView: NavigationStack {
+                OiStoryEditor(remote: store, localID: local.id)
+                    .observeNavigationForTest { panelVisible = $0 }
+            })
+            let window = UIWindow(windowScene: scene)
+            window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            window.rootViewController = controller; window.isHidden = false
+            defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+            controller.view.frame = window.bounds
+            try await Task.sleep(for: .seconds(2))
+            let scroll = try XCTUnwrap(scrollViews(controller.view).filter {
+                $0.bounds.height > 100 && $0.contentSize.height + $0.adjustedContentInset.bottom > $0.bounds.height + 40
+            }.max { $0.bounds.height < $1.bounds.height }, step.rawValue)
+            scroll.setContentOffset(CGPoint(x: 0, y: -scroll.adjustedContentInset.top), animated: false)
+            try await Task.sleep(for: .milliseconds(300))
+            XCTAssertFalse(panelVisible, "\(step): panel must be hidden at the top")
+            let height = scroll.bounds.height
+            let end = max(-scroll.adjustedContentInset.top,
+                scroll.contentSize.height + scroll.adjustedContentInset.bottom - height)
+            scroll.setContentOffset(CGPoint(x: 0, y: end), animated: false)
+            try await Task.sleep(for: .milliseconds(400))
+            XCTAssertTrue(panelVisible, "\(step): panel must appear at the end")
+            XCTAssertEqual(scroll.bounds.height, height, accuracy: 1, "Panel must not resize the viewport")
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: image); attachment.name = "step-navigation-\(step.rawValue)-bottom"
+            attachment.lifetime = .keepAlways; add(attachment)
+            scroll.setContentOffset(CGPoint(x: 0, y: max(-scroll.adjustedContentInset.top, end - 80)), animated: false)
+            try await Task.sleep(for: .milliseconds(400))
+            XCTAssertFalse(panelVisible, "\(step): panel must hide on upward scrolling")
+            scroll.setContentOffset(CGPoint(x: 0, y: end), animated: false)
+            try await Task.sleep(for: .milliseconds(400))
+            XCTAssertTrue(panelVisible, "\(step): panel must reappear without flicker")
+        }
+    }
+
+    @MainActor func testCustomizationNavigationRequiresDoneAndCardNextOpensPlacement() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        for step in [OiCreationStep.cucumber, .card] {
+            let local = OiLocalDraft(draft: draft(title: "완료 후 이동 확인"), version: 1, creationStep: step.rawValue)
+            try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+            var visible = false
+            var actions: OiStoryEditor.NavigationTestActions?
+            let controller = UIHostingController(rootView: NavigationStack {
+                OiStoryEditor(remote: store, localID: local.id)
+                    .observeNavigationForTest({ visible = $0 }, actions: { actions = $0 })
+            })
+            let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            window.rootViewController = controller; window.isHidden = false
+            defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+            try await Task.sleep(for: .seconds(2))
+            XCTAssertFalse(visible, "Editing must not reveal navigation")
+            func verticalScrolls(_ view: UIView) -> [UIScrollView] {
+                let own = (view as? UIScrollView).map { [$0] } ?? []
+                return own + view.subviews.flatMap(verticalScrolls)
+            }
+            let settings = try XCTUnwrap(verticalScrolls(controller.view).filter {
+                $0.bounds.height > 80 && $0.contentSize.height > $0.bounds.height + 20
+            }.max { $0.bounds.height < $1.bounds.height })
+            let frame = settings.convert(settings.bounds, to: window)
+            XCTAssertGreaterThan(frame.minY, 200, "Settings must sit below the fixed preview and tabs")
+            XCTAssertEqual(frame.maxY, window.bounds.maxY, accuracy: 1,
+                "Editing settings must scroll all the way to the screen bottom")
+            for scrolled in [false, true] {
+                settings.setContentOffset(CGPoint(x: 0, y: scrolled
+                    ? max(0, settings.contentSize.height - settings.bounds.height + settings.adjustedContentInset.bottom)
+                    : -settings.adjustedContentInset.top), animated: false)
+                try await Task.sleep(for: .milliseconds(300))
+                XCTAssertFalse(visible, "Scrolling settings must not bypass Done")
+                XCTAssertEqual(settings.convert(settings.bounds, to: window).minY, frame.minY, accuracy: 1)
+                let screenshot = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                    window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+                }
+                let proof = XCTAttachment(image: screenshot)
+                proof.name = "customization-panel-\(step)-\(scrolled ? "scrolled" : "top")"
+                proof.lifetime = .keepAlways; add(proof)
+            }
+
+            try XCTUnwrap(actions).finish()
+            try await Task.sleep(for: .seconds(1))
+            XCTAssertTrue(visible, "Done must reveal navigation without scrolling")
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: image); attachment.name = "step-navigation-\(step)-after-done"
+            attachment.lifetime = .keepAlways; add(attachment)
+            try XCTUnwrap(actions).finish()
+            try await Task.sleep(for: .milliseconds(400))
+            XCTAssertFalse(visible, "Editing again must hide navigation")
+            try XCTUnwrap(actions).finish()
+            try await Task.sleep(for: .milliseconds(200))
+            try XCTUnwrap(actions).next()
+            try await Task.sleep(for: .milliseconds(400))
+            XCTAssertFalse(visible, "Next must leave the finished customization panel")
+            if step == .card {
+                XCTAssertTrue(try XCTUnwrap(actions).isPlacementPreview())
+                try XCTUnwrap(actions).editFromReview(.card)
+                try await Task.sleep(for: .milliseconds(400))
+                XCTAssertFalse(try XCTUnwrap(actions).isPlacementPreview(),
+                    "Editing the current card from review must reopen its controls")
+                XCTAssertFalse(visible)
+                try XCTUnwrap(actions).finish()
+                try await Task.sleep(for: .milliseconds(400))
+                XCTAssertTrue(visible, "The corrected card must keep its Done navigation flow")
+                XCTAssertNil(backend.snapshot().story, "Editing from review must not submit a story")
+            }
+        }
+    }
+
+    @MainActor func testStepOneExitSavesDraftAndKeepsItOnSaveFailure() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        for fails in [false, true] {
+            let local = OiLocalDraft(draft: draft(title: "약관 화면 나가기"), version: 1,
+                creationStep: OiCreationStep.consent.rawValue,
+                agreedConsentClauseIDs: OiStoryConsentState().savedIDs,
+                personalPlacement: .init(regionID: "test", name: "내 오이", latitude: 36, longitude: 129,
+                    heightMeters: 1.5, headingDegrees: 0))
+            try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+            var actions: OiStoryEditor.NavigationTestActions?
+            let controller = UIHostingController(rootView: NavigationStack {
+                OiStoryEditor(remote: store, localID: local.id)
+                    .observeNavigationForTest({ _ in }, actions: { actions = $0 })
+            })
+            let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            window.rootViewController = controller; window.isHidden = false
+            defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+            try await Task.sleep(for: .seconds(1))
+            let backup = directory.appendingPathExtension("backup")
+            if fails {
+                try FileManager.default.moveItem(at: directory, to: backup)
+                try Data("blocked storage".utf8).write(to: directory)
+            }
+            let saved = await (try XCTUnwrap(actions)).exit()
+            XCTAssertEqual(saved, !fails)
+            if fails {
+                XCTAssertNotNil(controller.view.window, "A failed save must keep the editor mounted")
+                try FileManager.default.removeItem(at: directory)
+                try FileManager.default.moveItem(at: backup, to: directory)
+            }
+            let loaded = try await store.localDraft(id: local.id, owner: OiTestBackend.owner)
+            let restored = try XCTUnwrap(loaded)
+            XCTAssertEqual(restored.draft, local.draft)
+            XCTAssertEqual(restored.personalPlacement, local.personalPlacement, "Exit must not delete a map placement")
+            XCTAssertEqual(restored.creationStep, OiCreationStep.consent.rawValue)
+            XCTAssertNil(backend.snapshot().story, "Exit saves locally and must not submit a story")
+        }
+    }
+
     @MainActor func testAccountAndEditorLayoutsAtSupportedWidths() async throws {
         let (store,backend,_,session,directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
@@ -2121,6 +2307,118 @@ final class OiRemoteStoreTests: XCTestCase {
         value.title = title; value.body = "Current body"; value.theme = "감사"; value.emotion = "기쁨"
         value.cucumberName = "테스트오이"; value.latitude = 36.01261057021347; value.longitude = 129.3197268697784
         return value
+    }
+
+    @MainActor func testInteractiveStoryListSwipeDeletion() async throws {
+        guard ProcessInfo.processInfo.environment["OI_STORY_LIST_INTERACTION_CHECK"] == "1" else {
+            throw XCTSkip("Opt in: swipe left → Delete → Cancel → swipe left → Delete → confirm")
+        }
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let photoID = UUID()
+        let bytes = Data([1, 2, 3])
+        var record = OiLocalDraft(draft: draft(title: "스와이프 삭제 검증"), photos: [photoID], version: 1)
+        record.personalPlacement = OiPersonalPlacement(regionID: "pond", name: "삭제 검증 오이", latitude: 36.0126,
+            longitude: 129.3197, heightMeters: 1.35, headingDegrees: 0)
+        try await store.savePersonalPlacement(record, owner: OiTestBackend.owner)
+        try await store.saveLocalPhoto(bytes, id: photoID, owner: OiTestBackend.owner)
+        let revision = store.localPlacementRevision
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: NavigationStack { OiStoryListScreen(remote: store) })
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
+        for _ in 0..<240 {
+            try await Task.sleep(for: .seconds(1))
+            if try await store.localDraft(id: record.id, owner: OiTestBackend.owner) == nil {
+                XCTAssertGreaterThan(store.localPlacementRevision, revision)
+                do {
+                    _ = try await store.localPhoto(id: photoID, owner: OiTestBackend.owner)
+                    XCTFail("Deleted draft attachments must be removed")
+                } catch { }
+                XCTAssertNil(backend.snapshot().story, "Local deletion must not create or mutate a server story")
+                return
+            }
+        }
+        XCTFail("The swipe and confirmation route did not finish")
+    }
+
+    @MainActor func testStoryListUsesNativeScrollingAtStandardAndAccessibilitySizes() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
+        func scrollViews(in view: UIView) -> [UIScrollView] {
+            (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
+        }
+        for size in [DynamicTypeSize.large, .accessibility3] {
+            window.rootViewController = UIHostingController(rootView: NavigationStack {
+                OiStoryListView(state: .preview, notices: OiStoryListView.listNotices,
+                    onSelectStory: { _ in }, onCreateStory: {}, onDeleteStory: { _ in })
+                    .environment(\.dynamicTypeSize, size)
+            })
+            window.makeKeyAndVisible()
+            try await Task.sleep(for: .seconds(1))
+            window.layoutIfNeeded()
+            let list = try XCTUnwrap(scrollViews(in: window).first { $0 is UICollectionView || $0 is UITableView })
+            XCTAssertGreaterThan(list.bounds.height, 100)
+            XCTAssertGreaterThan(list.contentSize.height, 400)
+            list.setContentOffset(CGPoint(x: 0, y: max(-list.adjustedContentInset.top, list.contentSize.height - list.bounds.height + list.adjustedContentInset.bottom)), animated: false)
+            try await Task.sleep(for: .milliseconds(300))
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "story-list-\(size)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+    }
+
+    @MainActor func testStoryListDeletionPreservesFailuresAndRemovesConfirmedReceipt() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { clean(session, directory: directory) }
+        await store.start()
+        let savedResult = await store.save(draft(title: "삭제 검증"))
+        let saved = try XCTUnwrap(savedResult)
+        backend.configure { $0.failDelete = true }
+        let rejected = await store.deleteStory(saved)
+        XCTAssertFalse(rejected)
+        XCTAssertEqual(store.ownStories.first?.id, saved.id)
+        XCTAssertNotNil(store.error)
+
+        backend.configure { $0.failDelete = false; $0.failReadsAfterDelete = true }
+        let deleted = await store.deleteStory(saved)
+        XCTAssertTrue(deleted, "A confirmed deletion succeeds even if the following refresh fails")
+        XCTAssertFalse(store.ownStories.contains { $0.id == saved.id })
+        XCTAssertFalse(store.stories.contains { $0.id == saved.id })
+        XCTAssertEqual(backend.snapshot().story?["status"] as? String, "deleted")
+        XCTAssertNotNil(store.syncWarning)
+        XCTAssertNil(store.error)
+    }
+
+    @MainActor func testStoryListDeletionRejectsStaleRevisionAndSignedOutAccount() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { clean(session, directory: directory) }
+        await store.start()
+        let firstResult = await store.save(draft())
+        let first = try XCTUnwrap(firstResult)
+        var edited = draft(title: "새 버전")
+        edited.id = first.id
+        edited.revision = first.revision
+        let latestResult = await store.save(edited)
+        let latest = try XCTUnwrap(latestResult)
+        let staleDelete = await store.deleteStory(first)
+        XCTAssertFalse(staleDelete)
+        XCTAssertEqual(store.ownStories.first?.revision, latest.revision)
+        let count = backend.snapshot().deleteCount
+        await store.signOut()
+        let signedOutDelete = await store.deleteStory(latest)
+        XCTAssertFalse(signedOutDelete)
+        XCTAssertEqual(backend.snapshot().deleteCount, count)
     }
 
     @MainActor func testPersonalPlacementStaysInTheAccountVaultWhenPublicationIsPaused() async throws {

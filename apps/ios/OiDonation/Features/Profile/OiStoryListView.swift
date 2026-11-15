@@ -16,6 +16,8 @@ struct OiStoryListView: View {
     var onSelectStory: ((UUID) -> Void)?
     var onCreateStory: (() -> Void)?
     var onUseSeed: (() -> Void)?
+    var onDeleteStory: ((UUID) -> Void)?
+    var isDeleting = false
 
     var body: some View {
         Group {
@@ -77,32 +79,53 @@ struct OiStoryListView: View {
     }
 
     private var storySlots: some View {
-        VStack(spacing: 0) {
+        List {
             if let guidance {
                 Text(guidance).font(CampusStyle.semibold(15)).tracking(0.3)
                     .foregroundStyle(Color("OiGreen"))
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 20).padding(.top, 18)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
             }
-            LazyVStack(spacing: 10) {
-                ForEach(state.slots(minimumVisibleCount: minimumVisibleSlotCount)) { slot in
+            ForEach(state.slots(minimumVisibleCount: minimumVisibleSlotCount)) { slot in
+                Group {
                     if let item = slot.item {
                         storySlot(item)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                if let onDeleteStory {
+                                    // Confirm before removing the row; a destructive role here removes it optimistically.
+                                    Button {
+                                        onDeleteStory(item.id)
+                                    } label: {
+                                        Label("삭제", systemImage: "trash")
+                                    }
+                                    .tint(.red)
+                                    .accessibilityIdentifier("storyList.delete.\(item.id.uuidString)")
+                                }
+                            }
                     } else {
                         emptySlot(index: slot.index)
                     }
                 }
+                .disabled(isDeleting)
+                .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
-            .padding(.bottom, 10)
-
             if usesAccessibilityLayout {
                 footer
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
             }
         }
-
+        .listStyle(.plain)
+        .listRowSpacing(0)
+        .contentMargins(.top, 15, for: .scrollContent)
+        .contentMargins(.bottom, 5, for: .scrollContent)
+        .scrollContentBackground(.hidden)
+        .accessibilityIdentifier("storyList.list")
     }
 
     private func storySlot(_ item: OiStoryListItem) -> some View {
