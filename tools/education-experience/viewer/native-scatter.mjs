@@ -1,10 +1,12 @@
 import * as THREE from '@education/three';
-import {scatterData} from './render-policy.mjs';
+import {scatterData,morphFraming} from './render-policy.mjs';
 
 // The original instance matrices never change. Shared uniforms animate both
 // shells and cores; picking uses a compact, precomputed endpoint at rest.
 export function createSpaceScatter({root,model,positions,pearls,occluders}) {
   const {sizes,offsets,ids,maxDisplacement}=scatterData(model,positions),count=ids.length;
+  const framing=morphFraming(positions,{ids,offsets}),framePoints=framing.pairs.map(p=>new THREE.Vector3(...p.from));
+  const frameTarget=new THREE.Vector3();
   const progress={value:0},travel={value:0},finish={value:0};
   const morphs=[],entries=[];
   for(const mesh of pearls){
@@ -76,6 +78,7 @@ export function createSpaceScatter({root,model,positions,pearls,occluders}) {
   facades.forEach(({material})=>{material.transparent=true;material.needsUpdate=true;});
   let endpoint=false;
   function update(t,burst=0){
+    framing.pairs.forEach((p,i)=>framePoints[i].set(...p.from).lerp(frameTarget.set(...p.to),t));
     progress.value=t;travel.value=t+burst;finish.value=THREE.MathUtils.smoothstep(t,.08,.88);
     for(const entry of entries){
       entry.mesh.visible=entry.core?t<.72:!(t===1&&entry.backing);
@@ -92,5 +95,5 @@ export function createSpaceScatter({root,model,positions,pearls,occluders}) {
     glow.visible=t>0;glowMaterial.opacity=finish.value*.3+burst*.45;
   }
   const finishProperties={transmission:.70,ior:1.45,roughness:.19,envMapIntensity:2.15,iridescence:.62,clearcoat:.82,clearcoatRoughness:.13,opacity:.88,emissiveIntensity:.18};
-  return {update,count,maxDisplacement,getTransmission:()=>morphs[0].material.transmission};
+  return {update,count,maxDisplacement,framePoints,selection:{positions:framing.endpoints,ids,sizes},getTransmission:()=>morphs[0].material.transmission};
 }

@@ -57,6 +57,8 @@ struct OiStoryEditor: View {
     @State private var consentState = OiStoryConsentState()
     @State private var supplementaryScreen: SupplementaryScreen?
     @State private var choosingExit = false
+    /// STEP 1 exit alert, Figma `5400:8313` (#370).
+    @State private var confirmingConsentExit = false
     @State private var customizationReady = false
     @State private var wardrobePhotoEditing = false
     @State private var navigationAtBottom = false
@@ -201,7 +203,6 @@ struct OiStoryEditor: View {
                                     .accessibilityIdentifier("oi.consent.saveError")
                             }
                             OiStoryConsentView(clauses: OiStoryConsentClause.writingClauses,
-                                continueTitle: "공개 약관에 동의하고 계속",
                                 onContinue: advance, onExit: requestExit,
                                 showsHeader: false, state: $consentState)
                         }
@@ -292,6 +293,14 @@ struct OiStoryEditor: View {
             }
             Button("계속 작성", role: .cancel) {}
         } message: { Text("기기 초안과 사진 복사본을 삭제해요. 공개 요청을 보낸 이야기는 내 이야기에서 관리할 수 있어요.") }
+        .alert("현재 진행 상황을\n저장하고 나가시겠습니까?", isPresented: $confirmingConsentExit) {
+            Button("저장하고 나가기") { Task { _ = await saveAndExit() } }
+                .accessibilityIdentifier("oi.consent.exit.save")
+            Button("삭제하기", role: .destructive) { Task { await discardDraft() } }
+                .accessibilityIdentifier("oi.consent.exit.discard")
+        } message: {
+            Text("작성하신 내용들은 삭제되지 않고\n기기에 로컬로 임시 저장됩니다")
+        }
         .alert("서버 버전으로 바꿀까요?", isPresented: Binding(
             get: { serverRevisionToReplace != nil },
             set: { if !$0 { serverRevisionToReplace = nil } }
@@ -522,7 +531,7 @@ struct OiStoryEditor: View {
 
     private func requestExit() {
         guard restored else { dismiss(); return }
-        if step == .consent { Task { _ = await saveAndExit() } }
+        if step == .consent { confirmingConsentExit = true }
         else { choosingExit = true }
     }
 
@@ -697,7 +706,7 @@ struct OiStoryEditor: View {
     private var reviewIssues: [OiStoryReviewIssue] {
         var issues: [OiStoryReviewIssue] = []
         if !consentState.allRequiredClausesAreAgreed {
-            issues.append(.init(step: .consent, message: "공개하려면 이야기와 게시물 조치 규정에 동의해 주세요."))
+            issues.append(.init(step: .consent, message: "공개하려면 필수 약관에 모두 동의해 주세요."))
         }
         if !OiCreationStep.story.canContinue(draft: draft) {
             issues.append(.init(step: .story, message: "테마와 감정을 선택하고 제목은 45자, 이야기는 1,500byte 이내로 입력해 주세요."))

@@ -1216,7 +1216,7 @@ final class CampusEducationDistrictTests: XCTestCase {
     }
 
     func testOfflineExperienceLoadsLatestPearlGarden() async throws {
-        let model = EducationLightWebModel(nativeGlass: false)
+        let model = EducationLightWebModel()
         let previousWindow = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first { $0.isKeyWindow }
         let window = UIWindow(windowScene: try XCTUnwrap(previousWindow?.windowScene))
         window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
@@ -1317,7 +1317,10 @@ final class CampusEducationDistrictTests: XCTestCase {
         ({background:getComputedStyle(document.querySelector('.viewer-dimmer')).opacity,
           space:document.querySelectorAll('.night-backdrop,.space-mascot').length,
           hidden:['.viewer-header-controls','#viewerGestureHint','.bottom-dock'].every(s=>getComputedStyle(document.querySelector(s)).display==='none'),
-          returnButton:(()=>{const b=document.querySelector('#viewerReturn'),r=b.getBoundingClientRect(),s=getComputedStyle(b),hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return !b.hidden&&s.display!=='none'&&s.visibility==='visible'&&r.height>=44&&r.width>=44&&r.bottom<=innerHeight-16&&b.textContent==='건물로 돌아가기'&&!!hit?.closest('#viewerReturn');})(),
+          noReturnButton:document.querySelectorAll('#viewerReturn').length===0,
+          aimLayout:(()=>{const a=document.querySelector('#viewerAim').getBoundingClientRect(),p=document.querySelector('#viewerAimStory').getBoundingClientRect();return Math.abs(a.left+a.width/2-innerWidth/2)<1&&Math.abs(a.top+a.height/2-innerHeight*.74)<1&&p.bottom<=innerHeight*.5&&a.top>innerHeight*.5;})(),
+          aimed:document.querySelector('#building-stage').dataset.aimPearl!==undefined,
+          story:document.querySelector('.aim-story-message').textContent,
           shaderErrors:window.building3DDiagnostics().shaderErrors,
           versions:window.building3DDiagnostics().instanceVersions})
         """)
@@ -1325,31 +1328,28 @@ final class CampusEducationDistrictTests: XCTestCase {
         XCTAssertEqual(unfoldedState["background"] as? String, "0.78")
         XCTAssertEqual(unfoldedState["space"] as? Int, 0)
         XCTAssertEqual(unfoldedState["hidden"] as? Bool, true)
-        XCTAssertEqual(unfoldedState["returnButton"] as? Bool, true, "Scattered state needs a visible, tappable return button above the home indicator")
+        XCTAssertEqual(unfoldedState["noReturnButton"] as? Bool, true)
+        XCTAssertEqual(unfoldedState["aimLayout"] as? Bool, true)
+        XCTAssertEqual(unfoldedState["aimed"] as? Bool, true)
+        XCTAssertFalse((unfoldedState["story"] as? String ?? "").isEmpty)
         XCTAssertEqual(unfoldedState["shaderErrors"] as? Int, 0)
         XCTAssertEqual(unfoldedState["versions"] as? [Int], diagnostics["instanceVersions"] as? [Int], "GPU morph must not upload every pearl matrix on each frame")
-        _ = try await model.webView.evaluateJavaScript("""
+        let gathering = try await model.webView.evaluateJavaScript("""
         (()=>{\(input)
-          for(let y=.3;y<.8;y+=.01)for(let x=.2;x<.8;x+=.02){const cx=r.left+r.width*x,cy=r.top+r.height*y;if(window.educationBuildingHitTest(cx,cy)){fire('pointerdown',1,cx,cy);fire('pointerup',1,cx,cy);return true;}}
-          return false;
+          const stage=document.querySelector('#building-stage'),x=r.width*.5,y=r.height*.74;
+          fire('pointerdown',1,x,y);fire('pointerup',1,x,y);
+          const started=stage.dataset.scatterTransition==='gathering';
+          fire('pointerdown',1,x,y);fire('pointerup',1,x,y);document.querySelector('.brand').click();
+          return started&&stage.dataset.scatterTransition==='gathering';
         })()
         """)
-        for _ in 0..<20 {
-            if try await model.webView.evaluateJavaScript("!document.querySelector('#pearlStoryNote').hidden") as? Bool == true { break }
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        let storyVisible = try await model.webView.evaluateJavaScript("!document.querySelector('#pearlStoryNote').hidden")
-        XCTAssertEqual(storyVisible as? Bool, true, "GPU-displaced pearls must still open the correct story note")
-        let gathering = try await model.webView.evaluateJavaScript("""
-        (()=>{const b=document.querySelector('#viewerReturn'),stage=document.querySelector('#building-stage');b.click();const started=stage.dataset.scatterTransition==='gathering';b.click();document.querySelector('.brand').click();return started&&stage.dataset.scatterTransition==='gathering';})()
-        """)
-        XCTAssertEqual(gathering as? Bool, true, "Repeated return-button/logo taps must keep gathering rather than scatter again")
+        XCTAssertEqual(gathering as? Bool, true, "A tap returns while repeated taps cannot restart scattering")
         for _ in 0..<50 {
             if try await model.webView.evaluateJavaScript("window.building3DDiagnostics().scatter===0") as? Bool == true { break }
             try await Task.sleep(for: .milliseconds(100))
         }
         XCTAssertFalse(model.scattered)
-        let returned = try await model.webView.evaluateJavaScript("document.querySelector('#building').getAttribute('role')==='button'&&document.querySelector('#viewerReturn').hidden")
+        let returned = try await model.webView.evaluateJavaScript("document.querySelector('#building').getAttribute('role')==='button'&&document.querySelectorAll('#viewerReturn').length===0")
         XCTAssertEqual(returned as? Bool, true)
         model.setActive(false)
         let paused = try await model.webView.evaluateJavaScript("window.prototypeDiagnostics().nativePaused")
@@ -1365,7 +1365,7 @@ final class CampusEducationDistrictTests: XCTestCase {
         XCTAssertTrue(model.closeRequested)
     }
 
-    func testNativeGlassReturnUsesTheSameGatheringAction() async throws {
+    func testAimedStoriesRotateBelowTheCloudAndTapRestoresTheOriginalPose() async throws {
         let model = EducationLightWebModel()
         let previous = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first { $0.isKeyWindow }
         let window = UIWindow(windowScene: try XCTUnwrap(previous?.windowScene))
@@ -1379,23 +1379,51 @@ final class CampusEducationDistrictTests: XCTestCase {
         }
         XCTAssertFalse(model.loading)
         XCTAssertNil(model.failure)
+        let originalResult = try await model.webView.evaluateJavaScript("JSON.stringify(window.building3DDiagnostics())")
+        let original = try XCTUnwrap(originalResult as? String)
         _ = try await model.webView.evaluateJavaScript("document.querySelector('#building').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'}))")
         for _ in 0..<50 {
             if try await model.webView.evaluateJavaScript("window.building3DDiagnostics().scatter===1") as? Bool == true { break }
             try await Task.sleep(for: .milliseconds(100))
         }
-        XCTAssertTrue(model.scattered)
-        let native = try await model.webView.evaluateJavaScript("document.querySelector('.experience').dataset.nativeGlass==='true'&&getComputedStyle(document.querySelector('#viewerReturn')).visibility==='hidden'&&typeof window.educationReturnToBuilding==='function'")
-        XCTAssertEqual(native as? Bool, true, "Native glass must replace the HTML control without a duplicate button")
-        model.returnToBuilding()
-        model.returnToBuilding()
+        let first = try await model.webView.evaluateJavaScript("document.querySelector('#building-stage').dataset.aimPearl")
+        XCTAssertNotNil(first as? String)
+        let input = """
+        const c=document.querySelector('#building'),r=c.getBoundingClientRect(),x=r.width*.5,y=r.height*.74;
+        function fire(type,id,x,y){c.dispatchEvent(new PointerEvent(type,{bubbles:true,pointerId:id,pointerType:'touch',isPrimary:id===1,button:0,buttons:type==='pointerup'?0:1,clientX:x,clientY:y}));}
+        """
+        _ = try await model.webView.evaluateJavaScript("""
+        (()=>{\(input)fire('pointerdown',1,x,y);fire('pointermove',1,x+180,y-400);fire('pointerup',1,x+180,y-400);})()
+        """)
+        try await Task.sleep(for: .milliseconds(150))
+        let explored = try await model.webView.evaluateJavaScript("""
+        ({pitch:window.building3DDiagnostics().pitch,scatter:window.building3DDiagnostics().scatter,
+          selected:document.querySelector('#building-stage').dataset.aimPearl,
+          story:document.querySelector('.aim-story-message').textContent,
+          returnButtons:document.querySelectorAll('#viewerReturn').length,
+          hiddenNote:document.querySelector('#pearlStoryNote').hidden,
+          shaderErrors:window.building3DDiagnostics().shaderErrors})
+        """)
+        let state = try XCTUnwrap(explored as? [String: Any])
+        XCTAssertLessThan(state["pitch"] as? Double ?? 0, -1.5)
+        XCTAssertEqual(state["scatter"] as? Double, 1)
+        XCTAssertNotEqual(state["selected"] as? String, first as? String)
+        XCTAssertFalse((state["story"] as? String ?? "").isEmpty)
+        XCTAssertEqual(state["returnButtons"] as? Int, 0)
+        XCTAssertEqual(state["hiddenNote"] as? Bool, true)
+        XCTAssertEqual(state["shaderErrors"] as? Int, 0)
+        _ = try await model.webView.evaluateJavaScript("""
+        (()=>{\(input)fire('pointerdown',1,x,y);fire('pointerup',1,x,y);})()
+        """)
         for _ in 0..<50 {
             if !model.scattered { break }
             try await Task.sleep(for: .milliseconds(100))
         }
+        let restored = try await model.webView.evaluateJavaScript("""
+        (()=>{const before=JSON.parse(\(String(reflecting: original))),after=window.building3DDiagnostics();return after.scatter===0&&Math.abs(before.yaw-after.yaw)<.0001&&Math.abs(before.pitch-after.pitch)<.0001&&Math.abs(before.zoom-after.zoom)<.0001;})()
+        """)
+        XCTAssertEqual(restored as? Bool, true, "Gathering must restore the original camera as well as the same pearl positions")
         XCTAssertFalse(model.scattered)
-        let restored = try await model.webView.evaluateJavaScript("window.building3DDiagnostics().scatter===0")
-        XCTAssertEqual(restored as? Bool, true)
     }
 
     func testOfflineGardenAssetCatalogIsCompleteAndScoped() throws {

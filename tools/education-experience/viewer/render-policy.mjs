@@ -3,7 +3,7 @@ export const renderPolicy = Object.freeze({pixelRatio:1.25,transmissionScale:.5,
 
 // Cache directional support points once; fitting must not allocate/project every
 // building pearl 26 times on each pointermove. All returned points are originals.
-export function framingPoints(positions) {
+function framingIndices(positions) {
   const ids=new Set();
   for(let a=0;a<32;a++)for(let b=0;b<=8;b++){
     const pitch=-Math.PI/2+b*Math.PI/8,y=Math.sin(pitch),r=Math.cos(pitch),x=Math.sin(a*Math.PI/16)*r,z=Math.cos(a*Math.PI/16)*r;
@@ -11,7 +11,15 @@ export function framingPoints(positions) {
     for(let j=0;j<positions.length;j+=3){const score=x*positions[j]+y*positions[j+1]+z*positions[j+2];if(score>best){best=score;id=j;}}
     ids.add(id);
   }
-  return [...ids].map(j=>[positions[j],positions[j+1],positions[j+2]]);
+  return [...ids];
+}
+export function framingPoints(positions){return framingIndices(positions).map(j=>[positions[j],positions[j+1],positions[j+2]]);}
+export function morphFraming(positions,{ids,offsets}){
+  const endpoints=new Float32Array(ids.length*3);
+  ids.forEach((id,i)=>{for(let k=0;k<3;k++)endpoints[i*3+k]=positions[id*3+k]+offsets[id*3+k];});
+  const chosen=new Set(ids),indices=new Set(framingIndices(positions).map(j=>j/3));
+  for(const j of framingIndices(endpoints))indices.add(ids[j/3]);
+  return {endpoints,pairs:[...indices].map(id=>({from:Array.from(positions.subarray(id*3,id*3+3)),to:chosen.has(id)?[0,1,2].map(k=>positions[id*3+k]+offsets[id*3+k]):[0,1.9,.5]}))};
 }
 export function frameQueue(draw,request=requestAnimationFrame,cancel=cancelAnimationFrame) {
   let frame=0;
