@@ -18,12 +18,14 @@ struct ScratchPostcard {
     let card: StoryCard
     let donorLine: String
     /// Approved postcard front. Nil for stories published without a card snapshot.
-    let front: UIImage?
+    var front: UIImage?
     /// Postcard back rendered by the app at submission. Nil for older stories; the text is drawn instead.
-    let back: UIImage?
+    var back: UIImage?
     /// Shown faintly on the card to scratch and uncovered by scratching.
     let coverPhoto: UIImage?
     let character: UIImage?
+    /// True while the front or back is still downloading behind an already scratchable card (#348).
+    var isLoadingFaces = false
 
     /// Figma colours a trailing "오이" green, so split it off when the author's name ends with it.
     var nameParts: (lead: String, suffix: String) {
@@ -61,30 +63,49 @@ final class ScratchPostcardLoader {
         state = .loading
         do {
             guard let storyID = try await repository.fetchNFCPostcardStoryID(tag: tag),
-                  let story = try await repository.fetchPublicStory(storyID: storyID),
-                  let card = try await repository.fetchPublicStoryCard(storyID: storyID),
-                  let details = try await repository.fetchPublicPostcardDetails(storyID: storyID) else {
+                  let fetched = try await repository.fetchPublicPostcard(storyID: storyID) else {
                 guard requestID == current, !Task.isCancelled else { return }
                 state = .unavailable
                 return
             }
+            let story = fetched.story, details = fetched.details
             async let front = Self.image(details.frontURL)
             async let back = Self.image(details.backURL)
             async let cleanCover = try? Self.image(details.coverURL, coverType: details.coverType)
             async let character = try? Self.image(story.cucumberImageURL)
-            let frontImage = try await front
             // Prefer the reviewed sticker-free window. Older snapshots and unavailable covers
             // use the approved front window; only stories without a front use their first photo.
-            var cover = await cleanCover ?? frontImage.flatMap(Self.postcardWindow)
-            if cover == nil, frontImage == nil {
-                cover = (try? await Self.image(details.coverPhotoURL)) ?? nil
+            var cover = await cleanCover ?? nil
+            var frontImage: UIImage?
+            var hasFront = false
+            if cover == nil {
+                frontImage = try await front
+                hasFront = true
+                cover = frontImage.flatMap(Self.postcardWindow)
+                if cover == nil, frontImage == nil {
+                    cover = (try? await Self.image(details.coverPhotoURL)) ?? nil
+                }
             }
-            let postcard = ScratchPostcard(
-                tagID: tag, story: story, card: card,
+            // Scratching needs only the cover and the character, so the card appears while the
+            // front and back keep downloading (#348).
+            var postcard = ScratchPostcard(
+                tagID: tag, story: story, card: fetched.card,
                 donorLine: details.donorLine ?? story.donorDisplayName,
-                front: frontImage, back: try await back,
-                coverPhoto: cover, character: await character ?? nil
+                front: frontImage, back: nil,
+                coverPhoto: cover, character: await character ?? nil,
+                isLoadingFaces: true
             )
+            guard requestID == current, !Task.isCancelled else { return }
+            state = .loaded(postcard)
+
+            // A face that fails behind a visible card gets one more try before the screen resets.
+            if !hasFront {
+                do { postcard.front = try await front } catch is CancellationError { return }
+                catch { postcard.front = try await Self.image(details.frontURL) }
+            }
+            do { postcard.back = try await back } catch is CancellationError { return }
+            catch { postcard.back = try await Self.image(details.backURL) }
+            postcard.isLoadingFaces = false
             guard requestID == current, !Task.isCancelled else { return }
             state = .loaded(postcard)
         } catch is CancellationError {
@@ -267,6 +288,20 @@ struct ScratchPostcardFallbackFront: View {
     static let paper = LinearGradient(colors: [Color(red: 232 / 255, green: 238 / 255, blue: 207 / 255),
                                                Color(red: 213 / 255, green: 219 / 255, blue: 198 / 255)],
                                       startPoint: .topLeading, endPoint: .bottomTrailing)
+}
+
+/// A face that is still downloading after the card became scratchable (#348).
+struct ScratchPostcardPendingFace: View {
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 12).fill(ScratchPostcardFallbackFront.paper)
+            ProgressView().scaleEffect(1.6)
+        }
+        .frame(width: 362, height: 502)
+        .modifier(PostcardCanvas())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("엽서를 불러오는 중")
+    }
 }
 
 struct ScratchPostcardFallbackBack: View {

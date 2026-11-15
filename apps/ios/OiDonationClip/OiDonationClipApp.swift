@@ -33,6 +33,8 @@ struct OiDonationClipApp: App {
                 CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
             }
         }
+        // Connect while the system is still handing over the invocation URL (#348).
+        Task { [storyRepository] in await storyRepository.warmUpConnection() }
     }
 
     var body: some Scene {
