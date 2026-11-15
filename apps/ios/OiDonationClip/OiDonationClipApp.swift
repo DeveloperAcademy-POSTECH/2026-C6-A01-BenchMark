@@ -64,6 +64,15 @@ struct OiDonationClipApp: App {
                 handleInvocation(activity.webpageURL)
             }
             .onOpenURL { url in handleInvocation(url) }
+            #if DEBUG
+            // Simulator hook: `simctl launch` cannot pass an App Clip invocation, so a debug build accepts one
+            // from `OI_DEBUG_INVOCATION_URL` (screenshots of the postcard states, #351).
+            .task {
+                if let value = ProcessInfo.processInfo.environment["OI_DEBUG_INVOCATION_URL"] {
+                    handleInvocation(URL(string: value))
+                }
+            }
+            #endif
             .appStoreOverlay(isPresented: $isOverlayPresented) {
                 SKOverlay.AppClipConfiguration(position: .bottom)
             }
