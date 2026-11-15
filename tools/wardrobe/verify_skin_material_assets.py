@@ -17,7 +17,21 @@ assert manifest['baseRGB'] == [151, 211, 106] and manifest['stripeRGB'] == [55, 
 assert abs(manifest['roughness'] - 155 / 255) < 1e-6
 assert manifest['metallic'] == manifest['clearcoat'] == 0
 sha = lambda data: hashlib.sha256(data).hexdigest()
-assert sha((ASSETS / manifest['reference']).read_bytes()) == manifest['referenceSHA256']
+reference_digest = sha((ASSETS / manifest['reference']).read_bytes())
+if reference_digest != manifest['referenceSHA256']:
+    update = manifest['referenceAppearanceUpdate']
+    assert update['sourceSHA256'] == manifest['referenceSHA256']
+    reports = json.loads((ROOT / update['manifest']).read_text())
+    record = next(r for r in reports if r['id'] == 'cat')
+    assert record['sourceSHA256'] == manifest['referenceSHA256']
+    assert record['outputSHA256'] == update['outputSHA256']
+    if reference_digest != update['outputSHA256']:
+        faces = json.loads((ROOT / 'tools/wardrobe/costume-face-cleanup-manifest.json').read_text())
+        cleanup = next(r for r in faces if r['id'] == 'cat')
+        assert cleanup['sourceSHA256'] == update['outputSHA256']
+        assert cleanup['outputSHA256'] == reference_digest
+    assert record['baseColor'] == '#97D36A' and record['stripeColor'] == '#376C3C'
+
 seen_textures = set()
 for model in manifest['models']:
     path = ASSETS / model['file']

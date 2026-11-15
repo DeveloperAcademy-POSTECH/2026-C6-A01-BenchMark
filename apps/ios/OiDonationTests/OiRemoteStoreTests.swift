@@ -3763,7 +3763,7 @@ final class OiWardrobeAssetTests: XCTestCase {
         view.frame = window.bounds
         controller.view.addSubview(view)
         defer { scene.uninstall(view); view.removeFromSuperview() }
-        for costume: OiWardrobeLook.Costume in [.baseball, .farmer, .astronautNavy, .postechSelfie] {
+        for costume in OiWardrobeLook.Costume.allCases {
             var look = OiWardrobeLook(); look.costume = costume
             scene.update(look)
             for _ in 0..<200 {

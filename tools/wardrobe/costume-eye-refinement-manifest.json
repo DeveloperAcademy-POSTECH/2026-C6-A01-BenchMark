@@ -1,0 +1,52 @@
+[
+  {
+    "id": "sportswear",
+    "sourceSHA256": "d9c5e5205deea3564dcfcacfb6610033fdcf1585a217bb249fbea0c25a3bfdc4",
+    "outputSHA256": "f12917f974b5fee521c0c2dc7af94af2f2d5d5a1bfea4f958f94eb5f42315667",
+    "bytes": 10768138,
+    "eyeColor": "#0C0C0C",
+    "eyeRegions": [
+      [
+        191,
+        422,
+        12.0,
+        12.4
+      ],
+      [
+        289,
+        422,
+        12.0,
+        12.4
+      ]
+    ],
+    "outsideEyeMaxError": 0.003921627998352051,
+    "geometryUVsNormalsBindingsUnchanged": true,
+    "otherMaterialChannelsUnchanged": true,
+    "pupilPixels": 169
+  },
+  {
+    "id": "school-uniform",
+    "sourceSHA256": "b37f2c1a439876849955af53ea59280903bfb6b92d41e171c4ae9626fb62194d",
+    "outputSHA256": "07035e6886db3186b789e2f583e58d0fd3726a928d1ac12078c11cfa9375ae8b",
+    "bytes": 10876146,
+    "eyeColor": "#0C0C0C",
+    "eyeRegions": [
+      [
+        196.4,
+        344.4,
+        13.3,
+        14.0
+      ],
+      [
+        283.0,
+        363.6,
+        13.3,
+        14.0
+      ]
+    ],
+    "outsideEyeMaxError": 0.003921627998352051,
+    "geometryUVsNormalsBindingsUnchanged": true,
+    "otherMaterialChannelsUnchanged": true,
+    "pupilPixels": 138
+  }
+]
