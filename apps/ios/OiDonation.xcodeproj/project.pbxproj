@@ -75,6 +75,18 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				Views/ARGame/ARGameCameraView.swift,
+				Views/ARGame/ARGameFailureView.swift,
+				Views/ARGame/ARGameFlowView.swift,
+				Views/ARGame/ARGameHUD.swift,
+				Views/ARGame/ARGameIntroView.swift,
+				Views/ARGame/ARGamePlayingView.swift,
+				Views/ARGame/ARGameStartOverlay.swift,
+				Views/ARGame/ARGameSuccessView.swift,
+				Views/ARGame/ARGameViewModel.swift,
+				Views/ARGame/CucumberArtwork.swift,
+				Views/ARGame/CucumberCharacterImage.swift,
+				Views/StoryCard/AppClipStoryCardView.swift,
 			);
 			target = 87169564307CB1CF0090D456 /* OiDonationClip */;
 		};
@@ -92,22 +104,15 @@
 				Features/Campus/CampusStyle.swift,
 				Domain/Repositories/StoryRepository.swift,
 				Domain/Routing/AppClipLink.swift,
-				"Resources/Fonts/Paperlogy-2ExtraLight.ttf",
 				"Resources/Fonts/Paperlogy-3Light.ttf",
 				"Resources/Fonts/Paperlogy-4Regular.ttf",
 				"Resources/Fonts/Paperlogy-6SemiBold.ttf",
 				"Resources/Fonts/Paperlogy-7Bold.ttf",
 				"Resources/Fonts/Paperlogy-OFL.txt",
-				"Resources/ARCollectionAssets.xcassets",
 				"Resources/OiStoryCardAssets.xcassets",
-				"Shared/Components/ARCollectionResultView.swift",
 				"Shared/Components/OiStoryCardArtwork.swift",
 				"Shared/Components/OiContentSafetyView.swift",
 				"Shared/Components/OiSupportView.swift",
-				"Shared/Components/OiSampleExperienceView.swift",
-				"Shared/Components/OiSampleMapView.swift",
-				"Shared/Components/OiSampleStoryDetailView.swift",
-				"Resources/OiSampleAssets.xcassets",
 				"Resources/Fonts/Paperlogy-5Medium.ttf",
 			);
 			target = 87169564307CB1CF0090D456 /* OiDonationClip */;
@@ -118,6 +123,7 @@
 				AppClipViewModel.swift,
 				ContentView.swift,
 				Models/AppClipExperience.swift,
+				Views/StoryCard/AppClipCardPreview.swift,
 				Views/StoryCard/AppClipStoryCardView.swift,
 				Views/ARGame/ARGameCameraView.swift,
 				Views/ARGame/ARGameFailureView.swift,
