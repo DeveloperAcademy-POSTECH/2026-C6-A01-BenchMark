@@ -15,6 +15,8 @@ npm --prefix tools/education-experience run build -- /path/to/reviewed/dist
 
 출력은 `apps/ios/OiDonation/Resources/Campus/`의 HTML, `education-light-assets.json`, 콘텐츠 해시가 붙은 24개 자산이다. Three.js와 Pretendard 라이선스를 함께 포함한다. 오래된 해시 자산만 제거하며 기존 지도 바이너리는 보존한다. 파일 시스템 동기화 Xcode 그룹의 리소스 평탄화에도 충돌하지 않는 이름을 사용한다.
 
+웹 PNG는 번들 파일명을 `.bin`으로 두고 manifest의 `image/png` MIME으로 제공한다. iPhoneOS의 `CopyPNGFile`이 `.png`를 CgBI 형식으로 변환하지 않도록 원본 바이트를 보존하기 위한 처리다. 원래 요청 경로와 이미지 내용은 유지한다. 실기기 빌드 후에도 manifest의 SHA-256·크기와 실제 번들 파일이 모두 일치하는지 확인한다.
+
 ## 네이티브 연결과 검증
 
 `EducationLightWebModel`이 기존 파일 URL로 HTML을 읽고, `oi-education://bundle/` 요청은 manifest 허용 경로만 제공한다. 스크립트·스타일은 인라인으로 묶어 로컬 파일 ES 모듈 제약과 외부 CDN 의존을 없앤다. CSP는 네트워크 요청을 차단한다. 준비/오류·비활성 메시지를 네이티브 로딩/재시도/수명 주기에 연결한다. 예시·기기 저장은 실제 이야기 공개나 기부 집계가 아니다.

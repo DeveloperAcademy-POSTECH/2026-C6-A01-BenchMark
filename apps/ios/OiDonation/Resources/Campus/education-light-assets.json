@@ -106,19 +106,19 @@
       "bytes": 638
     },
     "/assets/oi-app-logo.png": {
-      "resource": "education-light-3079cd421fd0040564a0c09a.png",
+      "resource": "education-light-3079cd421fd0040564a0c09a.bin",
       "mime": "image/png",
       "sha256": "3079cd421fd0040564a0c09aa188706ceeb9ab075575f77873761319753a8195",
       "bytes": 1615796
     },
     "/assets/oi-astronaut-cutout-v2.png": {
-      "resource": "education-light-f72527807b396d5d17e12b4e.png",
+      "resource": "education-light-f72527807b396d5d17e12b4e.bin",
       "mime": "image/png",
       "sha256": "f72527807b396d5d17e12b4ea5b892739f1398d61736901734e9c9724275e989",
       "bytes": 1628333
     },
     "/assets/oi-cat-gardener.png": {
-      "resource": "education-light-82b5726d5ec808600849583e.png",
+      "resource": "education-light-82b5726d5ec808600849583e.bin",
       "mime": "image/png",
       "sha256": "82b5726d5ec808600849583ed58eca448d2d12b39c2beb260f59fc892637eb3d",
       "bytes": 119906
@@ -130,13 +130,13 @@
       "bytes": 1518
     },
     "/assets/space-earth-v2.png": {
-      "resource": "education-light-1ed0afe58ec83a85fc7618f2.png",
+      "resource": "education-light-1ed0afe58ec83a85fc7618f2.bin",
       "mime": "image/png",
       "sha256": "1ed0afe58ec83a85fc7618f27a8f6e3ab24bf25a624255002dd538ec6b67eb71",
       "bytes": 1478176
     },
     "/references/front.png": {
-      "resource": "education-light-9e1e3afd5ea7d6cf7076b69a.png",
+      "resource": "education-light-9e1e3afd5ea7d6cf7076b69a.bin",
       "mime": "image/png",
       "sha256": "9e1e3afd5ea7d6cf7076b69a03594c400884c76acef1ea467bf326be75b38c41",
       "bytes": 1853018

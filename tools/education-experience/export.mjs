@@ -58,7 +58,10 @@ for(const name of [...assetPaths].sort()){
   const metadata=JSON.parse(data);metadata.sourceFile=path.basename(metadata.sourceFile??'reviewed-building.blend');
   data=Buffer.from(JSON.stringify(metadata));
  }
- const extension=path.extname(name).toLowerCase(),resource='education-light-'+sha(data).slice(0,24)+extension;
+ const extension=path.extname(name).toLowerCase();
+ // iPhoneOS runs pngcrush on .png bundle resources (CgBI). Keep standard web
+ // PNG bytes untouched; the manifest still serves them with image/png MIME.
+ const resource='education-light-'+sha(data).slice(0,24)+(extension==='.png'?'.bin':extension);
  const mime={'.png':'image/png','.jpg':'image/jpeg','.svg':'image/svg+xml','.woff2':'font/woff2','.json':'application/json','.bin':'application/octet-stream','.txt':'text/plain'}[extension];
  if(!mime)throw Error('Unreviewed asset type: '+name);
  await writeFile(path.join(destination,resource),data);
