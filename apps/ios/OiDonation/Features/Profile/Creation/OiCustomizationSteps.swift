@@ -32,6 +32,7 @@ struct OiCardCustomizationStep: View {
     @State private var nameInput = ""
     @FocusState private var editingName: Bool
     @FocusState private var editingCaption: Bool
+    @Environment(\.oiCustomizationBottomInset) private var bottomInset
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private var design: OiCardDesign { customization.card ?? OiCardDesign() }
     private var style: OiPostcardBackgroundStyle {
@@ -47,42 +48,48 @@ struct OiCardCustomizationStep: View {
         GeometryReader { geometry in
             let previewHeight = min(308.0, max(180.0, geometry.size.height * 0.47))
             VStack(spacing: 0) {
-                preview(height: previewHeight).padding(.horizontal, 20).padding(.bottom, 26)
-                if isFinished {
-                    ScrollView {
-                        VStack(spacing: 16) {
-                            Text("카드 꾸미기를 마쳤어요").font(CampusStyle.semibold(20))
-                            Text("다음을 눌러 이야기와 카드를 확인해 주세요.").font(CampusStyle.body(14))
-                            storageDetails
-                        }.padding(20)
-                    }
-                } else {
-                    tabs.padding(.horizontal, 20).padding(.bottom, 8)
-                    if isSizeEditing {
-                        GeometryReader { editor in
-                            let paperHeight = max(1, min(editor.size.height - 50, (editor.size.width - 80) * 502 / 362))
-                            VStack(alignment: .leading, spacing: 0) {
-                                Text(customization.showsCharacter ? "캐릭터를 눌러 선택한 뒤\n드래그·핀치로 배치하세요." : "이미지를 눌러 선택한 뒤\n드래그·핀치로 배치하세요.")
-                                    .font(CampusStyle.body(10)).foregroundStyle(Color("OiGreen"))
-                                    .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 6)
-                                ZStack {
-                                    OiPostcardBackground(style: style)
-                                        .frame(width: paperHeight * 362 / 502, height: paperHeight).mask(OiPostcardPaper())
-                                    placementEditor(height: paperHeight * 436 / 502)
-                                }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                                .background(Color(white: 0.67).ignoresSafeArea(edges: .bottom))
-                        }
-                    } else {
+                preview(height: previewHeight).padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 20)
+                VStack(spacing: 0) {
+                    if isFinished {
                         ScrollView {
-                            VStack(alignment: .leading, spacing: 24) {
-                                controls
-                                storageDetails.padding(.top, 12)
-                            }.padding(.horizontal, 20).padding(.bottom, 24)
-                        }.scrollDismissesKeyboard(.interactively)
+                            VStack(spacing: 16) {
+                                Text("카드 꾸미기를 마쳤어요").font(CampusStyle.semibold(20))
+                                Text("다음을 눌러 배치 미리보기를 확인해 주세요.").font(CampusStyle.body(14))
+                                storageDetails
+                            }.padding(20).padding(.bottom, bottomInset)
+                        }.modifier(OiCustomizationScrollEdge())
+                    } else {
+                        tabs.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 8)
+                        if isSizeEditing {
+                            GeometryReader { editor in
+                                let paperHeight = max(1, min(editor.size.height - 50, (editor.size.width - 80) * 502 / 362))
+                                VStack(alignment: .leading, spacing: 0) {
+                                    Text(customization.showsCharacter ? "캐릭터를 눌러 선택한 뒤\n드래그·핀치로 배치하세요." : "이미지를 눌러 선택한 뒤\n드래그·핀치로 배치하세요.")
+                                        .font(CampusStyle.body(10)).foregroundStyle(Color("OiGreen"))
+                                        .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 6)
+                                    ZStack {
+                                        OiPostcardBackground(style: style)
+                                            .frame(width: paperHeight * 362 / 502, height: paperHeight).mask(OiPostcardPaper())
+                                        placementEditor(height: paperHeight * 436 / 502)
+                                    }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                                }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                                    .background(Color(white: 0.67).ignoresSafeArea(edges: .bottom))
+                            }
+                        } else {
+                            ScrollView {
+                                VStack(alignment: .leading, spacing: 24) {
+                                    controls
+                                    storageDetails.padding(.top, 12)
+                                }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 24 + bottomInset)
+                            }
+                            .modifier(OiCustomizationScrollEdge())
+                            .accessibilityIdentifier("oi.card.settingsScroll")
+                            .scrollDismissesKeyboard(.interactively)
+                        }
                     }
                 }
-            }
+                .modifier(OiCustomizationPanelSurface())
+            }.background(OiCustomizationStyle.previewBackground)
         }
         .sheet(isPresented: $showingAttachments) { attachmentPicker }
         .sheet(isPresented: $showingPhotoEditor) {

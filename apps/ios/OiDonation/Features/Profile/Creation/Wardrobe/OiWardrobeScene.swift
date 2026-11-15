@@ -173,9 +173,11 @@ final class OiWardrobeScene {
 struct OiWardrobeSurface: UIViewRepresentable {
     let scene: OiWardrobeScene
     let look: OiWardrobeLook
+    var backgroundColor: UIColor = .white
     func makeCoordinator() -> Coordinator { Coordinator(scene: scene) }
     func makeUIView(context: Context) -> RealityKit.ARView {
         let view = scene.install()
+        view.environment.background = .color(backgroundColor)
         view.accessibilityIdentifier = "oi.wardrobe.preview"
         view.accessibilityLabel = "150센티미터 오이 의상 미리보기"
         let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pan(_:)))
@@ -217,9 +219,10 @@ struct OiWardrobeSurface: UIViewRepresentable {
 struct OiWardrobePreview: View {
     let look: OiWardrobeLook
     var controls = true
+    private let backgroundColor: UIColor
     @State private var scene: OiWardrobeScene
-    init(look: OiWardrobeLook, controls: Bool = true, scene: OiWardrobeScene? = nil) {
-        self.look = look; self.controls = controls
+    init(look: OiWardrobeLook, controls: Bool = true, scene: OiWardrobeScene? = nil, backgroundColor: UIColor = .white) {
+        self.look = look; self.controls = controls; self.backgroundColor = backgroundColor
         _scene = State(initialValue: scene ?? OiWardrobeScene())
     }
     @Environment(\.scenePhase) private var scenePhase
@@ -227,7 +230,7 @@ struct OiWardrobePreview: View {
         ZStack(alignment: .leading) {
             ZStack {
                 if scenePhase != .background {
-                    OiWardrobeSurface(scene: scene, look: look)
+                    OiWardrobeSurface(scene: scene, look: look, backgroundColor: backgroundColor)
                 }
                 if scene.loading { ProgressView().accessibilityLabel("옷 입는 중") }
                 if let error = scene.error {

@@ -11,6 +11,7 @@ struct OiCucumberCustomizationStep: View {
     var isFinished = false
     var onContinue: (() -> Void)?
     var onPhotoEditingChanged: (Bool) -> Void = { _ in }
+    @Environment(\.oiCustomizationBottomInset) private var bottomInset
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var photoScene = OiWardrobeScene()
     @State private var tab: OiWardrobeTab = .top
@@ -25,7 +26,7 @@ struct OiCucumberCustomizationStep: View {
                 // Keep one RealityKit surface mounted while opening/closing the tools.
                 preview(height: photoSlot != nil ? max(160, geometry.size.height - panelHeight)
                     : min(isFinished ? 350 : 270, geometry.size.height * 0.52))
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 16)
                 if let slot = photoSlot {
                     OiWardrobePhotoEditor(slot: slot, look: look, scene: photoScene,
                         onClose: closePhotoEditor) { artwork in
@@ -39,21 +40,29 @@ struct OiCucumberCustomizationStep: View {
                         }
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
-                    ScrollView {
-                        VStack(spacing: 16) {
-                            if isFinished {
-                                Text("오이 꾸미기를 마쳤어요").font(CampusStyle.semibold(20))
-                                Text("다음을 눌러 카드와 오이 이름을 설정해 주세요.")
-                                    .font(.subheadline).foregroundStyle(.secondary)
-                            } else {
-                                wardrobeControls
-                            }
-                        }.padding(.horizontal, 20).padding(.vertical, 16)
+                    VStack(spacing: 0) {
+                        if !isFinished {
+                            wardrobeTabs.frame(height: 44).padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 8)
+                        }
+                        ScrollView {
+                            VStack(spacing: 16) {
+                                if isFinished {
+                                    Text("오이 꾸미기를 마쳤어요").font(CampusStyle.semibold(20))
+                                    Text("다음을 눌러 카드와 오이 이름을 설정해 주세요.")
+                                        .font(.subheadline).foregroundStyle(.secondary)
+                                } else {
+                                    wardrobeControls
+                                }
+                            }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 24 + bottomInset)
+                        }
+                        .modifier(OiCustomizationScrollEdge())
+                        .accessibilityIdentifier("oi.wardrobe.settingsScroll")
+                        .scrollPosition($wardrobeScrollPosition)
+                        .onChange(of: tab) { _, _ in wardrobeScrollPosition.scrollTo(edge: .top) }
                     }
-                    .scrollPosition($wardrobeScrollPosition)
-                    .onChange(of: tab) { _, _ in wardrobeScrollPosition.scrollTo(edge: .top) }
+                    .modifier(OiCustomizationPanelSurface())
                 }
-            }
+            }.background(OiCustomizationStyle.previewBackground)
         }
         .onAppear {
             if customization.wardrobe == nil { customization.wardrobe = OiWardrobeLook() }
@@ -63,7 +72,8 @@ struct OiCucumberCustomizationStep: View {
 
     private func preview(height: CGFloat) -> some View {
         ZStack(alignment: .bottomTrailing) {
-            OiWardrobePreview(look: look, controls: photoSlot == nil, scene: photoScene)
+            OiWardrobePreview(look: look, controls: photoSlot == nil, scene: photoScene,
+                backgroundColor: OiCustomizationStyle.previewUIColor)
                 .frame(height: height)
                 .overlay(alignment: .topTrailing) {
                     if photoSlot != nil {
@@ -84,7 +94,7 @@ struct OiCucumberCustomizationStep: View {
         onPhotoEditingChanged(false)
     }
 
-    @ViewBuilder private var wardrobeControls: some View {
+    private var wardrobeTabs: some View {
         ScrollView(.horizontal, showsIndicators: false) {
           HStack(spacing: 20) {
             ForEach(OiWardrobeTab.allCases.filter(\.isAvailable), id: \.self) { category in
@@ -100,6 +110,9 @@ struct OiCucumberCustomizationStep: View {
             }
           }
         }
+    }
+
+    @ViewBuilder private var wardrobeControls: some View {
         items.id(tab).padding(12).frame(maxWidth: .infinity, alignment: .leading)
             .background(Color("OiSoft"), in: RoundedRectangle(cornerRadius: 14))
         if look.costume != nil && tab.isAvailable && tab != .set {
