@@ -4,8 +4,10 @@ enum OiCreationStep: String, CaseIterable {
     case consent, story, photos, location, cucumber, card
 
     static let storyTextLimit = 45
-    static let storyBodyByteLimit = 1_500
-    static let storyPhotoLimit = 3
+    /// Figma `5400:7726`: story text up to 435 characters including spaces (#373).
+    static let storyBodyLimit = 435
+    /// Figma `5400:7726`: one story photo (#373).
+    static let storyPhotoLimit = 1
 
     var title: String {
         switch self {
@@ -46,7 +48,7 @@ enum OiCreationStep: String, CaseIterable {
         case .consent: true
         case .story:
             [draft.title, draft.body, draft.theme, draft.emotion].allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                && draft.title.count <= Self.storyTextLimit && draft.body.utf8.count <= Self.storyBodyByteLimit
+                && draft.title.count <= Self.storyTextLimit && draft.body.count <= Self.storyBodyLimit
                 && draft.theme.count <= 30 && draft.emotion.count <= 30
         case .photos: true
         case .location:

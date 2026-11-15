@@ -241,11 +241,24 @@ struct OiCustomizationScrollEdge: ViewModifier {
 struct OiCreationNavigationBar: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     var canContinue = true
+    /// Required items still missing on the story step, shown above the buttons (#373).
+    var missingItems: [String] = []
     let onPrevious: () -> Void
     let onNext: () -> Void
     let onSaveAndExit: () -> Void
     var body: some View {
         VStack(spacing: 8) {
+            if !missingItems.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(missingItems, id: \.self) { Text($0) }
+                }
+                .font(CampusStyle.body(15))
+                .foregroundStyle(Color(red: 1, green: 56 / 255, blue: 60 / 255))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 12)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("oi.creation.missingItems")
+            }
             Button("임시저장 후 나가기", action: onSaveAndExit)
                 .font(CampusStyle.body(14)).underline()
                 .foregroundStyle(.secondary).frame(minHeight: 44)
@@ -349,7 +362,7 @@ struct OiStoryWritingStep: View {
             OiCreationSection(title: "제목 입력", hint: "(띄어쓰기 포함 \(textLimit)자 이내)") {
                 inputBox($draft.title, field: .title, label: "이야기 제목", identifier: "oi.draft.title")
             }
-            OiCreationSection(title: "이야기 입력", hint: "(띄어쓰기 포함 1,500byte 이내)") {
+            OiCreationSection(title: "이야기 입력", hint: "(띄어쓰기 포함 \(OiCreationStep.storyBodyLimit)자 이내)") {
                 inputBox($draft.body, field: .body, label: "이야기 내용", identifier: "oi.draft.body")
             }
         }
@@ -371,11 +384,10 @@ struct OiStoryWritingStep: View {
 
     static func limitedStoryText(_ text: Binding<String>) -> Binding<String> {
         Binding(get: { text.wrappedValue }, set: { value in
-            let previousBytes = text.wrappedValue.utf8.count
-            let bytes = value.utf8.count
+            let limit = OiCreationStep.storyBodyLimit
+            let previousCount = text.wrappedValue.count
             // Restore old stories without truncation; allow shortening an over-limit draft.
-            guard bytes <= OiCreationStep.storyBodyByteLimit ||
-                    (previousBytes > OiCreationStep.storyBodyByteLimit && bytes < previousBytes) else { return }
+            guard value.count <= limit || (previousCount > limit && value.count < previousCount) else { return }
             text.wrappedValue = value
         })
     }
@@ -479,16 +491,8 @@ struct OiStoryAttachmentSections: View {
     }
 
     var body: some View {
+        // Figma `5400:7726`: the location comes before the photo.
         VStack(alignment: .leading, spacing: 50) {
-            OiCreationSection(title: "이야기 사진", hint: "(1장 이상 3장 이내)") {
-                formButton(photoCount == 0 ? "사진 추가하기" : "선택한 사진 보기 · \(photoCount)장",
-                           highlighted: false, action: onPhotos)
-                    .accessibilityIdentifier("oi.story.editPhotos")
-                if photoCount > OiCreationStep.storyPhotoLimit {
-                    Text("공개 검토를 요청하려면 사진을 \(OiCreationStep.storyPhotoLimit)장 이하로 줄여 주세요.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
-            }
             OiCreationSection(title: "오이 위치 설정") {
                 Map(position: .constant(.region(MKCoordinateRegion(
                     center: coordinate ?? CLLocationCoordinate2D(latitude: 36.0139, longitude: 129.3232),
@@ -512,6 +516,11 @@ struct OiStoryAttachmentSections: View {
                 formButton(coordinate == nil ? "위치 설정하기" : "재설정하기", highlighted: true, action: onLocation)
                     .accessibilityIdentifier("oi.story.editLocation")
             }
+            OiCreationSection(title: "사진 선택", hint: "(\(OiCreationStep.storyPhotoLimit)장)") {
+                formButton(photoCount == 0 ? "사진 추가하기" : "선택한 사진 보기",
+                           highlighted: false, action: onPhotos)
+                    .accessibilityIdentifier("oi.story.editPhotos")
+            }
         }
     }
 
@@ -520,7 +529,7 @@ struct OiStoryAttachmentSections: View {
             Text(title).font(CampusStyle.medium(17)).tracking(0.34)
                 .frame(maxWidth: .infinity, minHeight: 57)
                 .foregroundStyle(highlighted ? Color("OiGreen") : Color(white: 106 / 255))
-                .background(highlighted ? Color("OiLight") : Color(white: 244 / 255),
+                .background(highlighted ? Color(red: 234 / 255, green: 238 / 255, blue: 226 / 255) : Color(white: 244 / 255),
                             in: RoundedRectangle(cornerRadius: 20))
         }.buttonStyle(OiCreationPressStyle())
     }

@@ -234,7 +234,7 @@ struct OiCardCustomizationStep: View {
                         .lineLimit(3...5).font(CampusStyle.body(16)).lineSpacing(5).focused($editingCaption)
                         .accessibilityIdentifier("oi.card.caption")
                     HStack {
-                        Text("\(draft.body.utf8.count) / 1,500byte").foregroundStyle(Color(white: 0.67))
+                        Text("\(draft.body.count) / \(OiCreationStep.storyBodyLimit)자").foregroundStyle(Color(white: 0.67))
                         Spacer()
                         Button(editingCaption ? "완료" : "수정") { editingCaption.toggle() }.underline().tint(Color("OiGreen"))
                     }.font(CampusStyle.body(10))

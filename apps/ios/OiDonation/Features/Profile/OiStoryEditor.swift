@@ -243,7 +243,7 @@ struct OiStoryEditor: View {
                 }
                 .overlay(alignment: .bottom) {
                     if step == .story {
-                        OiCreationNavigationBar(canContinue: canLeaveCurrentStep,
+                        OiCreationNavigationBar(canContinue: canLeaveCurrentStep, missingItems: missingStoryItems,
                             onPrevious: reviewPreviousStep, onNext: advance,
                             onSaveAndExit: { Task { if await persist() { dismiss() } } })
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { navigationPanelHeight = $0 }
@@ -544,7 +544,23 @@ struct OiStoryEditor: View {
         }
     }
 
-    /// Theme, emotion, title, story, at least one photo and a campus location are all required before the cucumber step.
+    /// Figma `5400:7726` order: theme, emotion, title, story, location, photo (#373).
+    private var missingStoryItems: [String] {
+        func blank(_ value: String) -> Bool { value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        var items: [String] = []
+        if blank(draft.theme) { items.append("테마가 선택되지 않았습니다") }
+        if blank(draft.emotion) { items.append("감정이 선택되지 않았습니다") }
+        if blank(draft.title) { items.append("제목이 입력되지 않았습니다") }
+        else if draft.title.count > OiCreationStep.storyTextLimit { items.append("제목을 \(OiCreationStep.storyTextLimit)자 이내로 줄여주세요") }
+        if blank(draft.body) { items.append("이야기가 입력되지 않았습니다") }
+        else if draft.body.count > OiCreationStep.storyBodyLimit { items.append("이야기를 \(OiCreationStep.storyBodyLimit)자 이내로 줄여주세요") }
+        if !OiCreationStep.location.canContinue(draft: draft) { items.append("오이 위치가 설정되지 않았습니다") }
+        if editingPhotos.isEmpty { items.append("사진은 1장 이상 추가해주세요 (대표이미지)") }
+        else if editingPhotos.count > OiCreationStep.storyPhotoLimit { items.append("사진은 \(OiCreationStep.storyPhotoLimit)장만 선택할 수 있습니다") }
+        return items
+    }
+
+    /// Theme, emotion, title, story, one photo and a campus location are all required before the cucumber step.
     private var storyInputIsComplete: Bool {
         OiCreationStep.story.canContinue(draft: draft) && hasValidStoryPhotoCount
             && OiCreationStep.location.canContinue(draft: draft)
@@ -700,13 +716,13 @@ struct OiStoryEditor: View {
             issues.append(.init(step: .consent, message: "공개하려면 이야기와 게시물 조치 규정에 동의해 주세요."))
         }
         if !OiCreationStep.story.canContinue(draft: draft) {
-            issues.append(.init(step: .story, message: "테마와 감정을 선택하고 제목은 45자, 이야기는 1,500byte 이내로 입력해 주세요."))
+            issues.append(.init(step: .story, message: "테마와 감정을 선택하고 제목은 \(OiCreationStep.storyTextLimit)자, 이야기는 \(OiCreationStep.storyBodyLimit)자 이내로 입력해 주세요."))
         }
         if !OiCreationStep.location.canContinue(draft: draft) {
             issues.append(.init(step: .location, message: "캠퍼스 위치를 선택해 주세요."))
         }
         if !hasValidStoryPhotoCount {
-            issues.append(.init(step: .photos, message: "이야기 사진을 1~\(OiCreationStep.storyPhotoLimit)장 선택해 주세요."))
+            issues.append(.init(step: .photos, message: "이야기 사진을 \(OiCreationStep.storyPhotoLimit)장 선택해 주세요."))
         }
         if draft.cucumberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draft.cucumberName.count > 50 {
             issues.append(.init(step: .card, message: "오이 이름을 1~50자로 입력해 주세요."))

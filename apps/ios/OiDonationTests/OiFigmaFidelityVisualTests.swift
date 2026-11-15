@@ -433,22 +433,22 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     }
 
     func testStoryBodyByteLimitAndLongCardExport() throws {
-        var body = String(repeating: "가", count: 500)
+        // #373: 435 characters including spaces, whatever the script.
+        let limit = OiCreationStep.storyBodyLimit
+        var body = String(repeating: "가", count: limit)
         let binding = OiStoryWritingStep.limitedStoryText(Binding(get: { body }, set: { body = $0 }))
         binding.wrappedValue += "!"
-        XCTAssertEqual(body.utf8.count, 1500)
-        binding.wrappedValue = String(repeating: "a", count: 1500)
-        XCTAssertEqual(body.count, 1500)
-        binding.wrappedValue = String(repeating: "🙂", count: 375)
-        XCTAssertEqual(body.utf8.count, 1500)
+        XCTAssertEqual(body.count, limit)
+        binding.wrappedValue = String(repeating: "🙂", count: limit)
+        XCTAssertEqual(body.count, limit)
         binding.wrappedValue += "🙂"
-        XCTAssertEqual(body.utf8.count, 1500)
+        XCTAssertEqual(body.count, limit)
         body = String(repeating: "가", count: 600)
         binding.wrappedValue = String(body.dropLast())
         XCTAssertEqual(body.count, 599, "Over-limit old drafts must be recoverable without truncation")
         binding.wrappedValue += "가"
         XCTAssertEqual(body.count, 599)
-        for text in [String(repeating: "가", count: 500), String(repeating: "a", count: 1500)] {
+        for text in [String(repeating: "가", count: limit), String(repeating: "a", count: limit)] {
             var draft = Self.draft; draft.body = text
             XCTAssertTrue(OiCreationStep.story.canContinue(draft: draft))
             draft.body += "!"
@@ -465,7 +465,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 let page = CreationCapturePage(step: 2, anchor: bottom ? .bottom : .top) {
                     StoryWritingCapture(draft: Self.draft)
                 }
-                try await capture(page, name: "writing\(bottom ? "-bottom" : "")", variant: variant, defaults: fixture.defaults)
+                try await capture(page, name: "writing\(bottom ? "-bottom" : "")", variant: variant,
+                                  defaults: fixture.defaults, attach: true)
             }
         }
     }
@@ -553,6 +554,10 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 OiStoryWritingStep(draft: .constant(draft), focusedField: $focusedField)
                 OiStoryAttachmentSections(photoCount: 0, latitude: draft.latitude,
                     longitude: draft.longitude, onPhotos: {}, onLocation: {})
+                // #373: missing required items above the bottom buttons.
+                OiCreationNavigationBar(canContinue: false,
+                    missingItems: ["제목이 입력되지 않았습니다", "이야기가 입력되지 않았습니다", "사진은 1장 이상 추가해주세요 (대표이미지)"],
+                    onPrevious: {}, onNext: {}, onSaveAndExit: {})
             }
         }
     }
