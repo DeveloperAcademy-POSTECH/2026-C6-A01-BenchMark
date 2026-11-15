@@ -9,17 +9,18 @@ import SwiftUI
 import UIKit
 
 enum OiCardExportError: LocalizedError {
-    case storyTooLong, imageUnavailable
+    case storyTooLong, imageUnavailable, coverTooLarge
     var errorDescription: String? {
         switch self {
         case .storyTooLong: "이야기를 한 장에 담기 어려워요. 문구를 줄인 뒤 다시 시도해 주세요."
+        case .coverTooLarge: "표지 사진은 2MiB 이하로 저장해야 해요. 다른 사진으로 다시 시도해 주세요."
         case .imageUnavailable: "카드 이미지를 준비하지 못했어요. 다시 시도해 주세요."
         }
     }
 }
 
 @MainActor enum OiCardImageExport {
-    static func publication(front: UIImage, message: String, author: String, academicAuthor: String = "", cover: Data? = nil) throws -> OiStoryCardPublication {
+    static func publication(front: UIImage, message: String, author: String, academicAuthor: String = "", cover: Data? = nil, coverType: StoryCard.CoverType = .png) throws -> OiStoryCardPublication {
         let style = OiPostcardBackgroundMetadata.style(for: front)
         let first = OiPostcardSnapshot.color(front, x: 0.05, y: 0.10) ?? 0xE8EECF
         let second = OiPostcardSnapshot.color(front, x: 0.95, y: 0.90) ?? 0xD5DBC6
@@ -29,7 +30,7 @@ enum OiCardExportError: LocalizedError {
         let frontPNG = style.flatMap { OiPostcardBackgroundMetadata.png(image: front, style: $0) } ?? front.pngData()
         guard let frontPNG, let backPNG = back.pngData() else { throw OiCardExportError.imageUnavailable }
         return try OiStoryCardPublication(front: frontPNG, back: backPNG,
-            frontPreview: preview(front), backPreview: preview(back), cover: cover)
+            frontPreview: preview(front), backPreview: preview(back), cover: cover, coverType: coverType)
     }
 
     static func render<Content: View>(_ content: Content, colorScheme: ColorScheme = .light) throws -> UIImage {
@@ -41,11 +42,22 @@ enum OiCardExportError: LocalizedError {
     }
 
     /// Only the clean picture window leaves the device; decorations never enter this image.
-    static func cover(_ cleanFront: UIImage) throws -> Data {
+    static func cover(_ cleanFront: UIImage, type: StoryCard.CoverType = .png) throws -> Data {
         guard let cg = cleanFront.cgImage,
               let crop = cg.cropping(to: CGRect(x: CGFloat(cg.width) * 33 / 362, y: CGFloat(cg.height) * 33 / 502,
-                width: CGFloat(cg.width) * 296 / 362, height: CGFloat(cg.height) * 436 / 502).integral),
-              let data = UIImage(cgImage: crop).pngData() else { throw OiCardExportError.imageUnavailable }
+                width: CGFloat(cg.width) * 296 / 362, height: CGFloat(cg.height) * 436 / 502).integral) else { throw OiCardExportError.imageUnavailable }
+        let image = UIImage(cgImage: crop)
+        if type == .png {
+            guard let data = image.pngData() else { throw OiCardExportError.imageUnavailable }
+            return data
+        }
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
+        let opaque = UIGraphicsImageRenderer(size: image.size, format: format).image { context in
+            UIColor.white.setFill(); context.fill(CGRect(origin: .zero, size: image.size))
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+        guard let data = opaque.jpegData(compressionQuality: 0.8) else { throw OiCardExportError.imageUnavailable }
+        guard data.count <= type.maximumBytes else { throw OiCardExportError.coverTooLarge }
         return data
     }
 

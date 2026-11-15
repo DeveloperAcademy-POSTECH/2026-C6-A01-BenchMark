@@ -93,6 +93,7 @@ struct OiOperatorStoryDetailView: View {
     private var artwork: OiCucumberArtworkReference? { model.detail?.story.cucumberArtwork }
     private var cardPaths: [String] { model.detail?.story.cardArtworkPaths ?? [] }
     private var artworkReady: Bool {
+        (model.detail?.story.hasSupportedCardArtwork ?? false) &&
         (artwork == nil || checkedAppearance == artwork) && cardPaths.allSatisfy { checkedCards[$0] != nil }
     }
 
@@ -291,9 +292,13 @@ struct OiOperatorStoryDetailView: View {
                 guard artwork == reference else { return }
                 appearanceImages = images; checkedAppearance = reference
             }
+            guard let story = model.detail?.story, story.hasSupportedCardArtwork else { throw OiServiceError.invalidInput }
             var cards: [String: UIImage] = [:]
             for path in paths {
-                cards[path] = try await remote.cucumberImage(path)
+                if story.cardSnapshotFormat == 3, path == paths.last, let type = story.resolvedCardCoverType {
+                    let bytes = try await remote.storyCoverData(path, type: type)
+                    cards[path] = UIImage(cgImage: try OiPublishedStoryCover.decode(bytes, type: type))
+                } else { cards[path] = try await remote.cucumberImage(path) }
                 try Task.checkCancellation()
             }
             guard cardPaths == paths else { return }

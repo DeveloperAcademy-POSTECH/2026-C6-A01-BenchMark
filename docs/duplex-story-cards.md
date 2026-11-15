@@ -169,3 +169,22 @@ PR #359(`fcc1df3`, develop 병합 `a7b449e`)를 다시 리뷰하고 CI 두 작�
 실제 로그인한 비공개 가상 계정의 `oi_capabilities()`에서 `story_card_cover_jpeg`, `story_card_cover`, `duplex_story_card`, `public_story_card`가 모두 true임을 확인했다. 작성자 권한으로 네 PNG와 888×1308 JPEG(1,212,533byte)를 실제 Storage에 업로드했고, 60초 signed URL로 인증 헤더 없이 받은 바이트가 원본과 동일한 SHA-256·`image/jpeg`임을 확인했다. 서명 없는 익명 비공개 읽기는 거절됐다. 이 파일은 난수 색상으로 만든 테스트 자료이며 용량·속도 벤치마크가 아니다.
 
 실제 업로드 메타데이터를 사용한 제출, 구버전 운영자 payload의 JPEG 승인 거절, 타입을 확인한 승인, 공개 시 anon RLS와 숨김 후 차단을 운영 DB의 단일 rollback 트랜잭션에서 확인했다. 가상 운영자 권한과 공개 상태는 커밋하지 않았다. 실제 파일은 Storage API로 삭제하고 가상 Auth 계정·프로필·이야기·운영자 행 및 파일이 모두 0건임을 확인했다. iOS 코드는 수정하지 않았다. 새 앱의 JPEG 생성·표시와 실제 NFC 호출은 후속 앱 검증으로 남는다.
+
+## JPEG 표지 iOS 연결 — 2026-11-15
+
+새로 생성하는 표지는 `story_card_cover`와 `story_card_cover_jpeg`가 모두 true일 때 JPEG를 사용한다. 장식 없는 원본 합성의 사진 창을 그대로 잘라 888×1308로 만들고, 흰색으로 불투명 합성한 뒤 품질 **0.8**로 인코딩한다. 2,097,152byte를 넘으면 검토 요청 전에 안내하고 중단하며 품질이나 해상도를 임의로 낮추지 않는다. 앞면·뒷면·앞뒷면 미리보기 네 PNG 및 PNG 표지의 기존 8MiB 검증은 유지한다.
+
+- JPEG 신규 묶음은 형식 3·`card_cover_type: "jpeg"`·`cover.jpg`·`image/jpeg`다. JPEG 전용 해시 도메인을 사용하므로 기존 형식 1·2·3 PNG의 snapshot ID와 경로를 바꾸지 않는다.
+- JPEG 미지원 서버에는 표지를 실제 PNG로 바꾸고 바이트 기준으로 ID를 다시 계산한다. PNG 표지 지원도 없으면 기존 네 PNG의 형식 2로 제출한다. 생성 시점과 제출 시점의 기능 지원이 달라져도 제출 단계에서 다시 확인한다. 계정 전환·로그아웃 때 capability를 초기화한다.
+- 읽기·복원·검토는 capability가 아닌 저장된 `card_cover_type`으로 결정한다. 기존 형식 3의 누락된 타입은 PNG로 해석한다. 알 수 없는 타입은 운영자 승인 대상에서 제외하며 공개 표지는 승인 앞면 fallback을 쓴다.
+- 저장된 표지를 재사용하는 편집은 검증한 JPEG/PNG 바이트와 타입을 보존한다. JPEG를 다시 압축하지 않는다. 네 PNG와 표지를 모두 올린 뒤 제출하며 부분 업로드 실패 시 제출 RPC를 보내지 않는다. 제출 성공 응답과 timeout 재조회는 snapshot·형식뿐 아니라 표지 타입까지 일치해야 접수를 확인한다.
+- 운영자 화면은 실제 타입으로 다섯 파일을 모두 읽고 디코딩해야 공개 승인 버튼을 활성화한다. JPEG 승인 요청은 현재 리비전·snapshot·형식과 `card_cover_type: "jpeg"`를 보내고 응답 타입도 확인한다. 기존 PNG 승인은 타입 확인값 생략 호환을 유지한다.
+- App Clip은 실제 타입에 맞는 `cover.jpg`/`cover.png`를 읽는다. JPEG는 실제 JPEG 바이트·2MiB 이하, PNG는 실제 PNG 바이트·8MiB 이하인지 확인한다. 표지가 없거나 손상·크기 초과·형식 불일치이면 승인된 앞면의 사진 창을 쓴다. 앞면이나 필수 뒷면 실패는 재시도 상태를 유지한다. 기존 공개 표지는 자동 변환하지 않는다.
+
+검증 명령: `OiFlowChecks` 시뮬레이터 XCTest, `sh apps/ios/Tests/run-oi-service-checks.sh`, `sh apps/ios/Tests/run-app-clip-checks.sh`, `sh apps/ios/Tests/run-scratch-postcard-loader-checks.sh <booted-simulator-id>`, `OiDonationClip` 시뮬레이터 빌드. 로더 검사는 가상 로컬 파일과 UI 협력자의 빈 테스트 대역으로 실제 production loader의 로딩·fallback 상태를 실행하며 운영 서버를 호출하지 않는다.
+
+배포는 JPEG를 검토할 수 있는 운영자 앱을 준비한 뒤 작성자 앱·App Clip을 업데이트한다. 서버는 이미 적용되어 있어 이 PR에는 SQL·운영 DB 변경이 없다. JPEG 생성 중단이 필요하면 서버 capability를 내리되 저장된 JPEG의 읽기·검토 지원은 유지한다. 기존 1.2.0으로 운영자 앱을 되돌리면 JPEG 승인이 막히므로 호환 운영자 버전을 유지한다. 실제 NFC 호출과 App Store/App Clip 배포는 PR 검증과 별도다.
+
+로컬 검증 결과: iPhone 18 Pro / iOS 27.2 시뮬레이터에서 전체 `OiFlowChecks` 232개 중 228개 통과·수동 확인용 4개 건너뜀·실패 0개를 확인했다. 작업 중 병합된 최신 develop의 App Clip 뒷면 원본 해상도 변경을 반영한 뒤 관련 XCTest 113개를 다시 실행해 109개 통과·동일한 수동 확인용 4개 건너뜀·실패 0개였다. 서비스 모델·App Clip 링크 CLI 검사와 production 로더의 JPEG/PNG·오류 fallback 검사, 본 앱 테스트 빌드·별도 App Clip 빌드도 통과했다. 실제 NFC 태그 및 새 앱 배포 상태의 실기기 검증은 아직 수행하지 않았다.
+
+추가 App Clip 번들 폰트 검사에서 #351로 이미 제외한 AR 전용 ExtraLight를 요구하는 낡은 검사 조건을 발견했다. 앱 타깃·리소스는 바꾸지 않고 검사만 현재 필수 다섯 Paperlogy 굵기에 맞췄으며 실제 빌드된 번들 로딩 검사를 통과했다.
