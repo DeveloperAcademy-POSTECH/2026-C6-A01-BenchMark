@@ -59,8 +59,10 @@ struct OiStoryEditor: View {
     @State private var choosingExit = false
     @State private var customizationReady = false
     @State private var wardrobePhotoEditing = false
-    @State private var cardSizeEditing = false
-    private var fillsCardEditor: Bool { step == .card && cardSizeEditing && !customizationReady }
+    @State private var navigationAtBottom = false
+    @State private var navigationPanelHeight: CGFloat = 124
+    @State private var bottomSafeAreaInset: CGFloat = 0
+    @State private var cardPlacementReady = false
     @State private var serverRevisionToReplace: Int?
     @State private var replacingServerDraft = false
     @State private var pendingSave: Task<Void, Never>?
@@ -91,6 +93,24 @@ struct OiStoryEditor: View {
         let done: @MainActor () -> Void
         let edit: @MainActor (UUID, OiPhotoEdit) async -> Bool
         let remove: @MainActor (OiEditingPhoto) -> Void
+    }
+
+    struct NavigationTestActions {
+        let finish: @MainActor () -> Void
+        let next: @MainActor () -> Void
+        let exit: @MainActor () async -> Bool
+        let editFromReview: @MainActor (OiCreationStep) -> Void
+        let isPlacementPreview: @MainActor () -> Bool
+    }
+    private var onNavigationVisibilityForTest: ((Bool) -> Void)?
+    private var onNavigationActionsForTest: ((NavigationTestActions) -> Void)?
+
+    func observeNavigationForTest(_ observe: @escaping (Bool) -> Void,
+                                  actions: ((NavigationTestActions) -> Void)? = nil) -> Self {
+        var view = self
+        view.onNavigationVisibilityForTest = observe
+        view.onNavigationActionsForTest = actions
+        return view
     }
 
     private var onPhotoEditingReady: ((PhotoEditingTestActions) -> Void)?
@@ -124,6 +144,7 @@ struct OiStoryEditor: View {
         .onChange(of: uploadedPhotos) { _, _ in scheduleSave() }
         .onChange(of: step) { _, _ in
             focusedStoryField = nil
+            navigationAtBottom = false
             scheduleSave()
         }
         .onChange(of: customization) { _, _ in scheduleSave() }
@@ -132,7 +153,12 @@ struct OiStoryEditor: View {
         .onChange(of: scenePhase) { _, phase in if phase != .active { scheduleSave() } }
         .onDisappear { if restored { scheduleSave() } }
         #if DEBUG
+        .onChange(of: showsNavigationPanel) { _, visible in onNavigationVisibilityForTest?(visible) }
         .onAppear {
+            onNavigationActionsForTest?(NavigationTestActions(finish: toggleCustomizationReady,
+                next: { if step == .card { cardPlacementReady = true } else { advance() } },
+                exit: saveAndExit, editFromReview: editFromReview,
+                isPlacementPreview: { step == .card && cardPlacementReady }))
             onPhotoEditingReady?(PhotoEditingTestActions(
                 items: { editingPhotos }, open: openPhotoEditor, move: movePhoto,
                 cancel: cancelPhotoEditing, done: saveAndClosePhotoEditor, edit: editPhoto, remove: removePhoto
@@ -151,10 +177,10 @@ struct OiStoryEditor: View {
                 OiLocationPicker(latitude: $draft.latitude, longitude: $draft.longitude,
                                  regionID: $draft.regionId,
                                  onFinish: { navigate(to: .story) })
-            } else if step == .card && customizationReady {
+            } else if step == .card && cardPlacementReady {
                 OiDraftPlacementPreview(draft: draft, wardrobe: customization.wardrobe, isShowingReview: showingPreview,
                     savedPlacement: personalPlacement, error: localError,
-                    onEdit: { customizationReady = false },
+                    onEdit: { cardPlacementReady = false; customizationReady = false },
                     onEditLocation: { navigate(to: .location) },
                     onPlace: { placement in Task { await placeOnMyMap(placement) } },
                     onReview: advance,
@@ -169,27 +195,31 @@ struct OiStoryEditor: View {
 
                 Group {
                     if step == .consent {
-                        OiStoryConsentView(clauses: OiStoryConsentClause.writingClauses,
-                            continueTitle: "공개 약관에 동의하고 계속",
-                            onContinue: advance, onExit: { choosingExit = true },
-                            showsHeader: false, state: $consentState)
+                        VStack(spacing: 0) {
+                            if let localError {
+                                Text(localError).font(.footnote).foregroundStyle(.red).padding(.horizontal, 20)
+                                    .accessibilityIdentifier("oi.consent.saveError")
+                            }
+                            OiStoryConsentView(clauses: OiStoryConsentClause.writingClauses,
+                                continueTitle: "공개 약관에 동의하고 계속",
+                                onContinue: advance, onExit: requestExit,
+                                showsHeader: false, state: $consentState)
+                        }
                     } else if step == .cucumber || step == .card {
                         VStack(spacing: 0) {
                             editorStatus.padding(.horizontal, 20)
                             stepContent
-                            if !wardrobePhotoEditing && !fillsCardEditor {
-                                Text(saveLabel).font(.caption2).foregroundStyle(.secondary)
-                                    .accessibilityIdentifier("oi.draft.saveState")
-                                if !customizationReady {
-                                    Button("기기에 보관하거나 나가기") { choosingExit = true }
-                                        .font(.footnote).padding(.vertical, 8)
-                                }
-                            }
                         }
-                        .ignoresSafeArea(.container, edges: fillsCardEditor ? .bottom : [])
+                        .environment(\.oiCustomizationBottomInset, customizationReady ? 0 : bottomSafeAreaInset)
+                        .ignoresSafeArea(.container, edges:
+                            !customizationReady && !wardrobePhotoEditing ? .bottom : [])
                     } else {
                         ScrollViewReader { scroll in
                             ScrollView { editorScrollContent }
+                                .modifier(OiCustomizationScrollEdge())
+                                .modifier(OiCreationScrollNavigation(onVisibilityChange: { navigationAtBottom = $0 }))
+                                .accessibilityIdentifier("oi.creation.storyScroll")
+                                .environment(\.oiCreationNavigationClearance, navigationPanelHeight + 12)
                                 .scrollDismissesKeyboard(.interactively)
                                 .onChange(of: step) { _, _ in scroll.scrollTo("creation.top", anchor: .top) }
                                 .onChange(of: wardrobePhotoEditing) { _, editing in
@@ -200,16 +230,33 @@ struct OiStoryEditor: View {
                     }
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    if step != .consent && (step == .story ? focusedStoryField == nil : customizationReady) {
+                    if (step == .cucumber || step == .card) && customizationReady {
                         OiCreationNavigationBar(canContinue: canLeaveCurrentStep,
                             onPrevious: reviewPreviousStep,
-                            onNext: advance,
+                            onNext: {
+                                if step == .card { cardPlacementReady = true }
+                                else { advance() }
+                            },
                             onSaveAndExit: { Task { if await persist() { dismiss() } } })
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
+                .overlay(alignment: .bottom) {
+                    if step == .story {
+                        OiCreationNavigationBar(canContinue: canLeaveCurrentStep,
+                            onPrevious: reviewPreviousStep, onNext: advance,
+                            onSaveAndExit: { Task { if await persist() { dismiss() } } })
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { navigationPanelHeight = $0 }
+                        .offset(y: showsNavigationPanel || reduceMotion ? 0 : navigationPanelHeight + 50)
+                        .opacity(showsNavigationPanel ? 1 : 0)
+                        .allowsHitTesting(showsNavigationPanel)
+                        .accessibilityHidden(!showsNavigationPanel)
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: showsNavigationPanel)
+                    }
+                }
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { bottomSafeAreaInset = $0 }
         .background(Color(.systemBackground))
         .preferredColorScheme(.light)
         .environment(\.colorScheme, .light)
@@ -232,7 +279,7 @@ struct OiStoryEditor: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 if !submitted && step != .location {
-                    Button("나가기") { if restored { choosingExit = true } else { dismiss() } }
+                    Button("나가기", action: requestExit)
                         .disabled(remote.isBusy || preparingPhoto || publishing || saving || isDiscarding)
                 }
             }
@@ -274,6 +321,11 @@ struct OiStoryEditor: View {
                 } }
             }
         }
+    }
+
+    private var showsNavigationPanel: Bool {
+        if step == .story { return navigationAtBottom && focusedStoryField == nil }
+        return (step == .cucumber || step == .card) && customizationReady && !cardPlacementReady
     }
 
     private var usesNavigationBar: Bool { !restored }
@@ -408,9 +460,6 @@ struct OiStoryEditor: View {
             if step != .story {
                 Text(saveLabel).font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("oi.draft.saveState")
             }
-            if step == .cucumber || step == .card, !customizationReady && !wardrobePhotoEditing {
-                Button("기기에 보관하거나 나가기") { choosingExit = true }.font(.footnote)
-            }
         }.padding(.horizontal, 20).padding(.bottom, 24)
             .background {
                 if step == .story && focusedStoryField != nil {
@@ -443,7 +492,7 @@ struct OiStoryEditor: View {
 
     private func navigate(to destination: OiCreationStep) {
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
-            if step != destination { customizationReady = false }
+            if step != destination { customizationReady = false; cardPlacementReady = false }
             step = destination
         }
     }
@@ -468,7 +517,23 @@ struct OiStoryEditor: View {
         if !restored { dismiss() }
         else if submitted { finish() }
         else if let previous = step.previous { navigate(to: previous) }
+        else { requestExit() }
+    }
+
+    private func requestExit() {
+        guard restored else { dismiss(); return }
+        if step == .consent { Task { _ = await saveAndExit() } }
         else { choosingExit = true }
+    }
+
+    private func saveAndExit() async -> Bool {
+        guard restored, !saving, !placing, !publishing, !isDiscarding else { return false }
+        saving = true
+        defer { saving = false }
+        await pendingSave?.value
+        guard await persist() else { return false }
+        dismiss()
+        return true
     }
 
     private var canLeaveCurrentStep: Bool {
@@ -577,6 +642,7 @@ struct OiStoryEditor: View {
                 customization = record.customization ?? OiDraftCustomization()
                 personalPlacement = record.personalPlacement
                 customizationReady = personalPlacement != nil && step == .card
+                cardPlacementReady = customizationReady
                 consentState = OiStoryConsentState(savedIDs: record.agreedConsentClauseIDs ?? [])
                 removedMediaPaths = record.removedMediaPaths ?? []
                 removedPhotoIDs = record.removedPhotoIDs ?? []
@@ -601,6 +667,14 @@ struct OiStoryEditor: View {
         }
     }
 
+    private func editFromReview(_ destination: OiCreationStep) {
+        openingPhotosAfterReview = destination == .photos
+        showingPreview = false
+        customizationReady = false
+        cardPlacementReady = false
+        navigate(to: destination == .photos ? .story : destination)
+    }
+
     private var reviewSheet: some View {
         OiStoryReview(draft: draft, customization: customization, savedCardPath: reusedCardPath,
             savedPortraitPath: customization.wardrobe == nil ? currentStory?.cucumberArtwork?.path(.portrait) : nil,
@@ -610,12 +684,7 @@ struct OiStoryEditor: View {
             error: localError ?? remote.error ?? publicationAvailabilityMessage,
             canSubmit: canSubmit && publicationAvailabilityMessage == nil && !remote.isBusy && !saving, isSubmitting: publishing,
             onClose: { showingPreview = false },
-            onEdit: { destination in
-                openingPhotosAfterReview = destination == .photos
-                showingPreview = false
-                customizationReady = false
-                navigate(to: destination == .photos ? .story : destination)
-            }, onSubmit: { portrait, card in
+            onEdit: editFromReview, onSubmit: { portrait, card in
                 let reviewedCardPath = reusedCardPath
                 Task { await submitReview(portrait: portrait, card: card, reviewedCardPath: reviewedCardPath) }
             }) { photo, thumbnail in
@@ -792,8 +861,7 @@ struct OiStoryEditor: View {
                 donorName: remote.profile?.publicName ?? "",
                 academicAuthor: OiPostcardAuthor.academic(department: remote.profile?.department, year: remote.profile?.admissionYear),
                 storyPhotos: editingPhotos, loadStoryPhoto: cardStoryPhoto,
-                onContinue: { customizationReady = true },
-                onSizeEditingChanged: { cardSizeEditing = $0 })
+                isFinished: customizationReady, onContinue: toggleCustomizationReady)
 
         }
     }

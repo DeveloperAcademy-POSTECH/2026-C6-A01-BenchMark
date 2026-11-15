@@ -60,7 +60,7 @@ enum OiStoryListState: Equatable, Sendable {
 }
 
 struct OiStoryListSlot: Identifiable, Equatable, Sendable {
-    var id: Int { index }
+    var id: String { item.map { "story-" + $0.id.uuidString } ?? "empty-\(index)" }
     let index: Int
     let item: OiStoryListItem?
 }

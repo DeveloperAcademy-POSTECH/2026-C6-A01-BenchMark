@@ -170,6 +170,74 @@ struct OiCreationPressStyle: ButtonStyle {
     }
 }
 
+// Keep clearance independent of visibility so showing the panel cannot change
+// the scroll end and repeatedly hide/show it.
+extension EnvironmentValues {
+    @Entry var oiCreationNavigationClearance: CGFloat = 0
+    @Entry var oiCustomizationBottomInset: CGFloat = 0
+}
+
+struct OiCreationScrollNavigation: ViewModifier {
+    @Environment(\.oiCreationNavigationClearance) private var clearance
+    let onVisibilityChange: (Bool) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .safeAreaPadding(.bottom, clearance)
+            .onScrollGeometryChange(for: CGSize.self) { geometry in
+                CGSize(width: geometry.contentOffset.y,
+                       height: max(-geometry.contentInsets.top,
+                           geometry.contentSize.height - geometry.containerSize.height))
+            } action: { _, position in
+                onVisibilityChange(position.width >= position.height - 8)
+            }
+            .onDisappear { onVisibilityChange(false) }
+    }
+}
+
+enum OiCustomizationStyle {
+    static let previewUIColor = UIColor(wardrobeRGB: 0xF5F6F2)
+    static let previewBackground = Color(uiColor: previewUIColor)
+}
+
+struct OiCustomizationPanelSurface: ViewModifier {
+    func body(content: Content) -> some View {
+        let shape = UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24)
+        content
+            .background(.white)
+            .clipShape(shape)
+            .background {
+                shape.fill(.white)
+                    .shadow(color: .black.opacity(0.05), radius: 8, y: -3)
+                    .ignoresSafeArea(.container, edges: .bottom)
+            }
+    }
+}
+
+/// Only the scrolled settings fade under the fixed tabs; the preview stays crisp.
+struct OiCustomizationScrollEdge: ViewModifier {
+    @State private var hasScrolled = false
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    func body(content: Content) -> some View {
+        content
+            .scrollEdgeEffectStyle(.soft, for: .top)
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y > -geometry.contentInsets.top + 1
+            } action: { _, scrolled in hasScrolled = scrolled }
+            .overlay(alignment: .top) {
+                if hasScrolled {
+                    if reduceTransparency {
+                        Color.black.opacity(0.08).frame(height: 1)
+                    } else {
+                        LinearGradient(colors: [.white, .white.opacity(0)], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 16).allowsHitTesting(false)
+                    }
+                }
+            }
+    }
+}
+
 struct OiCreationNavigationBar: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     var canContinue = true
