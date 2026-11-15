@@ -35,7 +35,7 @@ struct CampusEducationDistrictView: View {
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         Text("작은 빛에 담는 축하·감사·응원").font(.headline)
-                        Text("구슬이 모여 건물이 되는 모습을 보고, 메시지와 사진을 담아보세요.")
+                        Text("정원의 진주 건물을 둘러보고, 우주로 흩어진 빛에 이야기와 사진을 담아보세요.")
                         Text("모금 현황 연결 준비 중").font(.subheadline.bold())
                         Text("체험 화면의 금액·참여자·인증은 시연용이며 실제 기부 내역과 연결되지 않습니다.")
                             .font(.caption).foregroundStyle(.secondary)

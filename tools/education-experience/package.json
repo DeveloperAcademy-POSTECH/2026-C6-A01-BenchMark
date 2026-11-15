@@ -1,0 +1,7 @@
+{
+  "name": "oi-education-experience-bundler",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node export.mjs" },
+  "devDependencies": { "esbuild": "0.28.0" }
+}

@@ -1214,21 +1214,59 @@ final class CampusEducationDistrictTests: XCTestCase {
         }
     }
 
-    func testOfflineExperienceLoadsSharedReferenceSurface() async throws {
+    func testOfflineExperienceLoadsLatestPearlGarden() async throws {
         let model = EducationLightWebModel()
-        for _ in 0..<100 {
+        model.webView.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        defer { model.setActive(false) }
+        for _ in 0..<300 {
             if !model.loading { break }
             try await Task.sleep(for: .milliseconds(100))
         }
-        XCTAssertFalse(model.loading, "Offline shared geometry did not load")
-        XCTAssertNil(model.failure)
+        XCTAssertFalse(model.loading, "Offline pearl garden did not load")
+        let errors = try await model.webView.evaluateJavaScript("JSON.stringify(window.__educationLoadErrors)")
+        guard model.failure == nil else { XCTFail("Web renderer: \(String(describing: errors))"); return }
         let result = try await model.webView.evaluateJavaScript("window.prototypeDiagnostics()")
         let diagnostics = try XCTUnwrap(result as? [String: Any])
-        XCTAssertEqual(diagnostics["revision"] as? String, "four-view-architecture-20261113-v4")
-        XCTAssertEqual(diagnostics["capacity"] as? Int, 110_869)
-        XCTAssertEqual(diagnostics["depthTriangles"] as? Int, 20_270)
+        XCTAssertEqual(diagnostics["revision"] as? String, "education-pearl-texture-screen-v30")
+        XCTAssertEqual(diagnostics["capacity"] as? Int, 44_006)
+        XCTAssertEqual(diagnostics["spacePearlCount"] as? Int, 10_000)
         XCTAssertEqual(diagnostics["webgl"] as? Bool, true)
+        let page = try await model.webView.evaluateJavaScript("""
+        ({title:document.querySelector('#pageTitle').textContent,
+          decorations:document.querySelectorAll('.funding-rays,.action-rays').length,
+          smoothDock:!!document.querySelector('.bottom-dock'),
+          base:document.baseURI})
+        """)
+        let presentation = try XCTUnwrap(page as? [String: Any])
+        XCTAssertTrue((presentation["title"] as? String)?.contains("작은 마음이 모여") == true)
+        XCTAssertEqual(presentation["decorations"] as? Int, 0)
+        XCTAssertEqual(presentation["smoothDock"] as? Bool, true)
+        XCTAssertEqual(presentation["base"] as? String, "oi-education://bundle/")
         model.setActive(false)
+        let paused = try await model.webView.evaluateJavaScript("window.prototypeDiagnostics().nativePaused")
+        XCTAssertEqual(paused as? Bool, true)
+        model.setActive(true)
+        let resumed = try await model.webView.evaluateJavaScript("window.prototypeDiagnostics().nativePaused")
+        XCTAssertEqual(resumed as? Bool, false)
+    }
+
+    func testOfflineGardenAssetCatalogIsCompleteAndScoped() throws {
+        let catalog = try EducationLightAssetCatalog.load()
+        XCTAssertEqual(catalog.revision, "education-pearl-texture-screen-v30")
+        XCTAssertGreaterThan(catalog.assets.count, 20)
+        for (path, asset) in catalog.assets {
+            let request = try XCTUnwrap(URL(string: "oi-education://bundle" + path))
+            XCTAssertNotNil(catalog.asset(for: request))
+            let resource = try XCTUnwrap(asset.bundleURL(), "Missing packaged asset: \(path)")
+            XCTAssertGreaterThan(try Data(contentsOf: resource).count, 0)
+        }
+        for text in ["oi-education://other/assets/building-v25/model.json",
+                     "https://bundle/assets/building-v25/model.json",
+                     "oi-education://bundle/Service.local.plist",
+                     "oi-education://bundle/../Info.plist"] {
+            XCTAssertNil(catalog.asset(for: try XCTUnwrap(URL(string: text))))
+        }
+        XCTAssertNil(EducationLightAssetCatalog.Asset(resource: "../Info.plist", mime: "text/plain").bundleURL())
     }
 
     func testBatchedBuildingAndLevelOfDetailSharePlacement() throws {
