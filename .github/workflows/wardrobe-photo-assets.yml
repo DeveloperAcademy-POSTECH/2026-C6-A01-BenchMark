@@ -5,6 +5,8 @@ on:
       - 'apps/ios/OiDonation/Resources/Wardrobe/**'
       - 'apps/ios/OiDonation/Resources/WardrobePhotoUV/**'
       - 'tools/wardrobe/**'
+      - 'docs/assets/costume-face-audit/**'
+      - 'docs/costume-face-review.md'
       - '.github/workflows/wardrobe-photo-assets.yml'
   push:
     branches: [develop]
@@ -12,6 +14,8 @@ on:
       - 'apps/ios/OiDonation/Resources/Wardrobe/**'
       - 'apps/ios/OiDonation/Resources/WardrobePhotoUV/**'
       - 'tools/wardrobe/**'
+      - 'docs/assets/costume-face-audit/**'
+      - 'docs/costume-face-review.md'
       - '.github/workflows/wardrobe-photo-assets.yml'
 permissions:
   contents: read
@@ -26,3 +30,5 @@ jobs:
           python-version: '3.12'
       - run: python3 tools/wardrobe/verify_costume_photo_assets.py
       - run: python3 tools/wardrobe/verify_skin_material_assets.py
+      - run: python3 tools/wardrobe/verify_costume_skin_assets.py
+      - run: python3 tools/wardrobe/test_face_material_rules.py

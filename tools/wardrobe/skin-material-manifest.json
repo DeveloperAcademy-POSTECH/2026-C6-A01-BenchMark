@@ -228,5 +228,10 @@
       "originalTextureBytesUnchanged": true,
       "selfContainedAlignedUSDZ": true
     }
-  ]
+  ],
+  "referenceAppearanceUpdate": {
+    "sourceSHA256": "19e59c7aadce5a267bc7f08fb299e5053dc4a206b5f008ee303a458bd70056de",
+    "outputSHA256": "69c06204d86e20447957b3b037dafa2e5ac0edc43e5f776451c7e3af1b74681a",
+    "manifest": "tools/wardrobe/remaining-costume-skin-repair-manifest.json"
+  }
 }
