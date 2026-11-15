@@ -34,6 +34,10 @@ import Observation
         }
     }
     func stop() { active = false; manager.stopUpdatingLocation(); location = nil }
+    var hasPreciseLocationPermission: Bool {
+        manager.accuracyAuthorization == .fullAccuracy &&
+            (manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways)
+    }
     var hasUsableFix: Bool {
         guard active, let location, manager.accuracyAuthorization == .fullAccuracy,
               manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways

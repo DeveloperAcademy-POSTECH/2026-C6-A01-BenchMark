@@ -67,7 +67,7 @@ final class ARCameraViewModel {
             recordingStartTask = Task { [weak self] in
                 guard let self else { return }
                 defer { recordingStartTask = nil }
-                guard visible, active, !Task.isCancelled else { return }
+                guard visible, active, !Task.isCancelled, controller.canCapture else { return }
                 await video.start(view: controller.view)
             }
         } else {
@@ -94,6 +94,7 @@ final class ARCameraViewModel {
     func cancelTimer() { timerTask?.cancel(); timerTask = nil; countdown = nil }
 
     func viewportChanged() {
+        recordingStartTask?.cancel()
         cancelTimer()
         if video.busy { stopRecording() }
     }

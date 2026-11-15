@@ -2,6 +2,7 @@ import ARKit
 import AVFoundation
 import Metal
 import Observation
+import QuartzCore
 import RealityKit
 import SwiftUI
 
@@ -26,6 +27,15 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     var selectedMotion: Int? { animation.selectedMotion }
     var motionPlaying: Bool { animation.motionPlaying }
     var settings = ARCaptureSettings()
+    let subject: ARCameraSubject?
+    var usesGeographicPlacement: Bool { subject?.placement != nil }
+    private(set) var geographicReady = false
+    private(set) var locationNotice = ""
+    @ObservationIgnored private let locationProvider: (any ARCameraLocationProviding)?
+    @ObservationIgnored private var geoPlacement: ARCameraGeoPlacement?
+    @ObservationIgnored private var lastGeographicCheck = 0.0
+    @ObservationIgnored private var headingAligned = false
+    @ObservationIgnored private var cameraPoses = ARCameraPoseHistory()
     var message = "바닥이 보이도록 카메라를 천천히 움직여 주세요."
     var tracking = "준비 중"
     var loading = false
@@ -48,6 +58,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
             && (settings.background == .original || backgroundReady)
             && ready && !loading && !capturing && !videoRecording
             && loadedCharacter == settings.character
+            && (!usesGeographicPlacement || geographicReady)
     }
     private var loadTask: Task<Void, Never>?
     private var lifecycle = ARSessionLifecycle()
@@ -55,8 +66,14 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     private var pinchStartHeight: Float?
     private var dragStart: (rotation: Float, floorOffset: Float)?
 
-    override init() {
+    init(subject: ARCameraSubject? = nil, locationProvider: (any ARCameraLocationProviding)? = nil) {
+        self.subject = subject
+        if let target = subject?.placement {
+            self.locationProvider = locationProvider ?? CampusGeoLocation()
+            geoPlacement = ARCameraGeoPlacement(target: target)
+        } else { self.locationProvider = nil }
         super.init()
+        settings = subject?.defaultSettings ?? ARCaptureSettings()
         view.session.delegate = self
         view.session.delegateQueue = .main
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:)))
@@ -112,9 +129,10 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         guard lifecycle.completeStart(attempt) else { return }
         recoveryIssue = nil
         ready = true
-        configureSession(resetTracking: attempt.requiresTrackingReset)
+        locationProvider?.start()
+        configureSession(resetTracking: attempt.requiresTrackingReset || usesGeographicPlacement)
         updateBackground()
-        if loadedCharacter != settings.character { loadCharacter() }
+        if subject != nil || loadedCharacter != settings.character { loadCharacter() }
     }
 
     func retryRecovery() async {
@@ -141,6 +159,8 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     }
 
     func pause() {
+        locationProvider?.stop()
+        invalidateGeographicPlacement()
         lifecycle.pause()
         loadTask?.cancel()
         loadTask = nil
@@ -151,9 +171,12 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         ready = false
     }
 
-    func configureSession(resetTracking: Bool = false) {
-        guard ready else { return }
+    func makeSessionConfiguration() -> ARWorldTrackingConfiguration {
         let config = ARWorldTrackingConfiguration()
+        // A first-use permission prompt must not run heading tracking before
+        // Location Services is authorized. The live frame path switches once after a grant.
+        let authorized = usesGeographicPlacement && locationProvider?.hasPreciseLocationPermission == true
+        config.worldAlignment = authorized ? .gravityAndHeading : .gravity
         config.planeDetection = [.horizontal]
         config.isLightEstimationEnabled = true
         config.environmentTexturing = .automatic
@@ -161,7 +184,15 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
             config.frameSemantics.insert(.personSegmentationWithDepth)
         }
         if meshSupported { config.sceneReconstruction = .mesh }
+        return config
+    }
+
+    func configureSession(resetTracking: Bool = false) {
+        guard ready else { return }
+        let config = makeSessionConfiguration()
+        headingAligned = config.worldAlignment == .gravityAndHeading
         if resetTracking {
+            cameraPoses.reset()
             resetPlacement()
             view.session.run(config, options: [.resetTracking, .removeExistingAnchors])
         } else {
@@ -174,6 +205,10 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         if previous.peopleOcclusion != settings.peopleOcclusion { configureSession() }
         if previous.background != settings.background { updateBackground() }
         applySettings()
+    }
+
+    func resetSettings() {
+        settings = subject?.defaultSettings ?? ARCaptureSettings()
     }
 
     func applySettings() {
@@ -203,6 +238,14 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     }
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
+        if ready && usesGeographicPlacement && headingAligned, case .normal = frame.camera.trackingState {
+            let point = frame.camera.transform.columns.3
+            cameraPoses.record(position: SIMD3(point.x, point.y, point.z), timestamp: frame.timestamp)
+        }
+        if ready && usesGeographicPlacement && frame.timestamp - lastGeographicCheck >= 0.5 {
+            lastGeographicCheck = frame.timestamp
+            updateGeographicPlacement(frame)
+        }
         guard ready, settings.background == .stadium else { return }
         background.submit(frame, viewport: view.bounds.size,
                           orientation: view.window?.windowScene?.effectiveGeometry.interfaceOrientation ?? .portrait)
@@ -214,10 +257,19 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         if case .characterLoadFailure = recoveryIssue { recoveryIssue = nil }
         loading = true
         let selection = settings.character
+        if subject != nil {
+            animation.stop()
+            characterRoot?.removeFromParent()
+            characterRoot = nil
+            loadedCharacter = nil
+        }
         loadTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let (root, model) = try await self.characters.load(selection)
+                let loaded: (root: Entity, model: Entity)
+                if let subject = self.subject { loaded = try await self.characters.load(subject) }
+                else { loaded = try await self.characters.load(selection) }
+                let (root, model) = loaded
                 try Task.checkCancellation()
                 guard self.lifecycle.running, self.settings.character == selection else { return }
                 model.generateCollisionShapes(recursive: true)
@@ -229,7 +281,9 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
                 self.loading = false
                 self.loadTask = nil
                 self.applySettings()
-                self.message = self.placed ? "캐릭터를 바꿨습니다." : "캐릭터 준비 완료 · 인식된 바닥을 터치하세요."
+                self.lastGeographicCheck = 0
+                self.message = self.usesGeographicPlacement ? "저장 위치의 바닥을 찾으면 오이가 자동으로 나타나요." :
+                    self.placed ? "캐릭터를 바꿨습니다." : "캐릭터 준비 완료 · 인식된 바닥을 터치하세요."
             } catch is CancellationError {
                 return
             } catch {
@@ -350,7 +404,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
             background.selectBench(at: CGPoint(x: point.x / view.bounds.width, y: point.y / view.bounds.height))
             return
         }
-        guard ready, !loading, !locked, !capturing, !videoRecording, let root = characterRoot else { return }
+        guard !usesGeographicPlacement, ready, !loading, !locked, !capturing, !videoRecording, let root = characterRoot else { return }
         guard let hit = view.raycast(from: gesture.location(in: view), allowing: .existingPlaneGeometry, alignment: .horizontal).first else {
             message = "아직 바닥을 찾지 못했습니다. 바닥을 여러 각도에서 비춰 주세요."
             return
@@ -365,16 +419,93 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         applySettings()
     }
 
+    private func invalidateGeographicPlacement() {
+        guard usesGeographicPlacement else { return }
+        geographicReady = false
+        anchor?.isEnabled = false
+    }
+
+    private func updateGeographicPlacement(_ frame: ARFrame) {
+        guard var resolution = geoPlacement, let locationProvider else { return }
+        if headingAligned != locationProvider.hasPreciseLocationPermission {
+            configureSession(resetTracking: true)
+            return
+        }
+        let sample = locationProvider.hasUsableFix ? locationProvider.location : nil
+        let fix = sample.map { ARCameraGeoPlacement.Fix(latitude: $0.coordinate.latitude,
+            longitude: $0.coordinate.longitude, accuracy: $0.horizontalAccuracy, timestamp: $0.timestamp) }
+        let normal: Bool
+        if case .normal = frame.camera.trackingState { normal = true } else { normal = false }
+        // Pair the GPS fix with the AR pose from its measurement time. Using
+        // the current pose would add the user's intervening walk to the target.
+        let cameraAtFix = sample.flatMap {
+            cameraPoses.position(at: CACurrentMediaTime() + $0.timestamp.timeIntervalSinceNow)
+        }
+        let status = resolution.update(fix: fix, trackingNormal: normal, cameraAtFix: cameraAtFix) { [self] point in
+            guard !loading, characterRoot != nil else { return nil }
+            // Resolve ground at the saved point, not the floor below the phone.
+            // A remote slope or staircase must not inherit this phone's floor height.
+            let query = ARRaycastQuery(origin: SIMD3(point.x, point.y + 1, point.z), direction: [0, -1, 0],
+                allowing: .existingPlaneGeometry, alignment: .horizontal)
+            return view.session.raycast(query).first?.worldTransform.columns.3.y
+        }
+        geoPlacement = resolution
+        applyGeographicStatus(status, locationMessage: locationProvider.message)
+    }
+
+    /// Shared with deterministic location/recording checks; never starts another AR session.
+    func applyGeographicStatus(_ status: ARCameraGeoPlacement.Status, locationMessage: String?) {
+        guard usesGeographicPlacement else { return }
+        if case .ready = status { } else { invalidateGeographicPlacement() }
+        switch status {
+        case .waitingForLocation:
+            locationNotice = locationMessage ?? "정확한 위치 권한과 최신 GPS 위치를 확인하고 있어요."
+            message = "GPS 오차가 15m 이하인 위치를 기다리고 있어요."
+        case .outsideRange(let distance):
+            locationNotice = String(format: "저장 위치까지 약 %.0fm · 25m 안으로 이동해 주세요.", distance)
+            message = "저장한 오이가 있는 장소에 가까워지면 자동으로 나타나요."
+        case .waitingForSynchronizedLocation:
+            locationNotice = "새 GPS 위치를 확인하고 있어요."
+            message = "저장 지점 주변을 천천히 비추며 잠시 기다려 주세요."
+        case .waitingForTracking:
+            locationNotice = "카메라 추적을 확인하고 있어요."
+            message = "주변을 천천히 비춰 공간을 인식해 주세요."
+        case .waitingForGround:
+            locationNotice = "저장 위치 주변의 바닥을 비춰 주세요."
+            message = loading ? "선택한 오이를 불러오고 있어요." : "바닥을 인식하면 터치 없이 자동으로 배치돼요."
+        case .ready(let point):
+            guard !loading, let root = characterRoot else { invalidateGeographicPlacement(); return }
+            if anchor == nil {
+                let newAnchor = AnchorEntity(world: point)
+                newAnchor.addChild(root)
+                view.scene.addAnchor(newAnchor)
+                anchor = newAnchor
+                placed = true
+                locked = true
+                applySettings()
+            }
+            anchor?.isEnabled = true
+            geographicReady = true
+            locationNotice = "저장 위치 자동 배치 · GPS 기반 근사 위치"
+            message = "저장 위치에 오이가 나타났어요. 사진이나 비디오로 남겨 보세요."
+        }
+    }
+
     func resetPlacement() {
+        geoPlacement?.reset()
+        lastGeographicCheck = 0
+        geographicReady = false
         anchor?.removeFromParent()
         anchor = nil
         placed = false
         locked = false
-        message = "새 위치의 바닥을 터치하세요."
+        message = usesGeographicPlacement ? "저장 위치의 바닥을 다시 확인하고 있어요." : "새 위치의 바닥을 터치하세요."
     }
 
     func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
         guard lifecycle.running else { return }
+        if usesGeographicPlacement, case .limited = camera.trackingState { invalidateGeographicPlacement() }
+        if usesGeographicPlacement, case .notAvailable = camera.trackingState { invalidateGeographicPlacement() }
         switch camera.trackingState {
         case .normal: tracking = "추적 정상"
         case .notAvailable: tracking = "추적 불가"
@@ -391,6 +522,8 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
 
     func sessionWasInterrupted(_ session: ARSession) {
         guard lifecycle.interrupt() else { return }
+        locationProvider?.stop()
+        invalidateGeographicPlacement()
         tracking = "카메라 일시 중단"
         loadTask?.cancel()
         loadTask = nil
@@ -405,13 +538,16 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         guard lifecycle.endInterruption() else { return }
         if case .interrupted = recoveryIssue { recoveryIssue = nil }
         ready = true
-        configureSession()
+        locationProvider?.start()
+        configureSession(resetTracking: usesGeographicPlacement)
         updateBackground()
-        if loadedCharacter != settings.character { loadCharacter() }
+        if subject != nil || loadedCharacter != settings.character { loadCharacter() }
     }
 
     func session(_ session: ARSession, didFailWithError error: Error) {
         guard lifecycle.fail() else { return }
+        locationProvider?.stop()
+        invalidateGeographicPlacement()
         ready = false
         loadTask?.cancel()
         loadTask = nil
