@@ -249,6 +249,8 @@ struct ScratchPostcardView: View {
         } back: {
             if let back = postcard.back {
                 Image(uiImage: back).resizable().scaledToFit()
+            } else if postcard.isLoadingFaces {
+                ScratchPostcardPendingFace()
             } else {
                 ScratchPostcardFallbackBack(message: postcard.story.content, author: postcard.donorLine)
             }
@@ -275,6 +277,8 @@ struct ScratchPostcardView: View {
         ZStack {
             if let front = postcard.front {
                 Image(uiImage: front).resizable().scaledToFit()
+            } else if postcard.isLoadingFaces {
+                ScratchPostcardPendingFace()
             } else {
                 ScratchPostcardFallbackFront(photo: postcard.coverPhoto)
             }
