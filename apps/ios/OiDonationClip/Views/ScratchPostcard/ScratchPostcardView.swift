@@ -16,6 +16,8 @@ import SwiftUI
 struct ScratchPostcardView: View {
     let postcard: ScratchPostcard
     let validateCollection: () async throws -> Bool
+    /// Called after the viewer blocks this postcard's author from the menu.
+    var onBlock: () -> Void = {}
 
     private enum Phase { case scratching, revealing, revealed }
     private enum Toast: Equatable { case saved, failed(String) }
@@ -30,7 +32,7 @@ struct ScratchPostcardView: View {
     private static let barBackground = Color(red: 234 / 255, green: 238 / 255, blue: 226 / 255) // #EAEEE2
     private static let nameGreen = Color(red: 101 / 255, green: 128 / 255, blue: 78 / 255)      // #65804E
     private static let tagBrown = Color(red: 161 / 255, green: 92 / 255, blue: 3 / 255)         // #A15C03
-    private static let hintGray = Color(red: 173 / 255, green: 173 / 255, blue: 173 / 255)      // #ADADAD
+    private static let hintGray = Color(red: 87 / 255, green: 87 / 255, blue: 87 / 255)         // #575757 (Figma 5441:15794)
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var collectionStore = StoryCollectionStore()
@@ -53,6 +55,8 @@ struct ScratchPostcardView: View {
     @State private var saving = false
     @State private var saveTask: Task<Void, Never>?
     @State private var safeAreaInsets = EdgeInsets()
+    @State private var showingSafety = false
+    @State private var showingSupport = false
 
     private var isRevealed: Bool { phase == .revealed }
     /// The success layout starts as soon as scratching completes, so the card moves while the effects play.
@@ -70,7 +74,14 @@ struct ScratchPostcardView: View {
         static let sideInset: CGFloat = 20
         static let infoHeight: CGFloat = 84
         static let buttonHeight: CGFloat = 46
-        static let characterSize = CGSize(width: 460.0 / 3, height: 588.0 / 3)
+        /// Figma "IMG_2812 2"(5441:15821): a 114×227 frame rotated 10.39° clockwise whose rotated bounds
+        /// (153.086×243.843) start at (13, 678) and run off the bottom of the 874pt screen.
+        static let characterFrame = CGSize(width: 114, height: 227)
+        static let characterRotation: Double = 10.39
+        static let characterCenter = CGPoint(x: 13 + 153.086 / 2, y: 678 + 243.843 / 2)
+        /// The portrait fills 147.16%×113.33% of the frame at (−22.47%, −4.44%), cropping its transparent margins.
+        static let characterImageScale = CGSize(width: 1.4716, height: 1.1333)
+        static let characterImageOffset = CGPoint(x: -0.2247, y: -0.0444)
         /// Card frame bottom sits this far above the screen bottom on the start view (874 − 708):
         /// the character overlaps only the card's outer margin, never the scratch area.
         static let startBottomReserve: CGFloat = 166
@@ -126,6 +137,13 @@ struct ScratchPostcardView: View {
         .appStoreOverlay(isPresented: $showingFullAppOverlay) {
             SKOverlay.AppClipConfiguration(position: .bottom)
         }
+        .sheet(isPresented: $showingSafety) {
+            if let storyID = UUID(uuidString: postcard.story.storyID) {
+                OiContentSafetyView(storyID: storyID, authorID: postcard.story.donorID,
+                                    authorName: postcard.story.donorDisplayName, onBlock: onBlock)
+            }
+        }
+        .sheet(isPresented: $showingSupport) { OiSupportView() }
         .onDisappear {
             revealTask?.cancel()
             toastTask?.cancel()
@@ -139,7 +157,11 @@ struct ScratchPostcardView: View {
         return ZStack(alignment: .topLeading) {
             Color.white
 
-            // No back button: the postcard is the App Clip's last screen (#347).
+            // No back button: the postcard is the App Clip's last screen (#347). Report, block and privacy
+            // stay reachable from the postcard itself (#351, guideline 1.2). Centred 22.5pt below the header top.
+            menuButton
+                .offset(x: layout.size.width - Layout.sideInset - 44, y: layout.topBarTop + 0.5)
+
             infoCard(width: layout.contentWidth)
                 .offset(x: Layout.sideInset, y: layout.infoTop)
 
@@ -149,11 +171,18 @@ struct ScratchPostcardView: View {
 
             // Drawn above the card, as in Figma, so the stem overlaps the card margin.
             if phase == .scratching, let character = postcard.character {
+                let frame = Layout.characterFrame
                 Image(uiImage: character)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: Layout.characterSize.width, height: Layout.characterSize.height)
-                    .offset(x: 13, y: layout.size.height - Layout.characterSize.height)
+                    .frame(width: frame.width * Layout.characterImageScale.width,
+                           height: frame.height * Layout.characterImageScale.height)
+                    .offset(x: frame.width * Layout.characterImageOffset.x, y: frame.height * Layout.characterImageOffset.y)
+                    .frame(width: frame.width, height: frame.height, alignment: .topLeading)
+                    .clipped()
+                    .rotationEffect(.degrees(Layout.characterRotation))
+                    // Kept at the same distance from the screen bottom as in the 874pt Figma frame.
+                    .position(x: Layout.characterCenter.x, y: layout.size.height - (874 - Layout.characterCenter.y))
                     .accessibilityHidden(true)
                     .allowsHitTesting(false)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -189,6 +218,22 @@ struct ScratchPostcardView: View {
     }
 
     // MARK: - Header
+
+    /// Top-right system menu. The sheets are the shared report and support views.
+    private var menuButton: some View {
+        Menu {
+            Button("이 엽서 신고·차단", systemImage: "exclamationmark.bubble") { showingSafety = true }
+            Button("개인정보 및 지원", systemImage: "hand.raised") { showingSupport = true }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(.black)
+                .frame(width: 44, height: 44, alignment: .trailing)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("더 보기")
+    }
 
     /// Figma "오이 정보": 84pt tall with a 322×52 row at y 16. Both views share the row; the start view
     /// centres it (x 20) with a 1pt border, the success view aligns it leading (x 16) with a shadow.
@@ -473,14 +518,14 @@ struct ScratchPostcardView: View {
             defer { saving = false }
             do {
                 guard try await validateCollection() else {
-                    show(.failed("이 엽서는 더 이상 수집할 수 없어요. 닫고 태그를 다시 확인해 주세요."))
+                    show(.failed("이 엽서는 더 이상 수집할 수 없어요. 태그를 다시 대 주세요."))
                     return
                 }
                 try Task.checkCancellation()
                 if collectionStore.collect(postcard.card) { show(.saved) }
                 else { show(.failed(collectionStore.persistenceError ?? "엽서를 저장하지 못했어요. 다시 시도해 주세요.")) }
             } catch is CancellationError {} catch {
-                if !Task.isCancelled { show(.failed("공개 상태를 확인하지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.")) }
+                if !Task.isCancelled { show(.failed("인터넷 연결을 확인하고 다시 저장해 주세요.")) }
             }
         }
     }
@@ -498,8 +543,15 @@ struct ScratchPostcardView: View {
 
 /// Fonts used by the postcard views.
 enum ScratchPostcardFont {
-    /// Figma uses REATIC Wide; the App Clip keeps Paperlogy to stay under the 15MB NFC size limit.
-    static let cucumberName = Font.custom("Paperlogy-7Bold", size: 26)
+    /// 양진체 (YANGJIN, SIL OFL 1.1) for the cucumber name as in Figma 5441:15809, registered at App Clip
+    /// launch (#358). Paperlogy Bold stays as the fallback if registration fails.
+    static let yangjin = "YANGJIN"
+
+    static var cucumberName: Font {
+        UIFont(name: yangjin, size: 26) != nil
+            ? .custom(yangjin, size: 26)
+            : .custom("Paperlogy-7Bold", size: 26)
+    }
 }
 
 /// Shows the checkmark only after the postcard has been saved.

@@ -1,11 +1,29 @@
 import SwiftUI
 import ARKit
 import AVFoundation
+import Combine
 
 struct ARCameraScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
-    @State private var model = ARCameraViewModel()
+    // StateObject's autoclosure creates the camera only when SwiftUI installs
+    // this screen. An eager State(initialValue:) creates discarded ARViews
+    // whenever the presenting view refreshes, even while this camera is live.
+    @StateObject private var owner: CameraOwner
+    private var model: ARCameraViewModel { owner.model }
+
+    init(subject: ARCameraSubject? = nil) {
+        self.init(makeModel: { ARCameraViewModel(controller: ARSessionController(subject: subject), video: ARVideoRecorder()) })
+    }
+
+    init(makeModel: @escaping @MainActor () -> ARCameraViewModel) {
+        _owner = StateObject(wrappedValue: CameraOwner(model: makeModel()))
+    }
+
+    @MainActor private final class CameraOwner: ObservableObject {
+        let model: ARCameraViewModel
+        init(model: ARCameraViewModel) { self.model = model }
+    }
     @State private var showSettings = false
     @State private var showAdjustments = false
     @State private var showPhotoSettings = false
@@ -183,6 +201,9 @@ struct ARCameraScreen: View {
         .onChange(of: video.busy) { _, busy in model.recordingStateChanged(busy) }
         .onChange(of: controller.ready) { _, ready in
             model.sessionReadinessChanged(ready)
+        }
+        .onChange(of: controller.geographicReady) { _, ready in
+            if controller.usesGeographicPlacement { model.sessionReadinessChanged(ready) }
         }
         .onChange(of: controller.recoveryIssue) { _, issue in
             if issue != nil { showSettings = false; showAdjustments = false; showPhotoSettings = false }

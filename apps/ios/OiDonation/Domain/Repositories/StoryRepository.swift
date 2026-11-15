@@ -45,6 +45,7 @@ struct PublicPostcardDetails: Sendable {
     let donorLine: String?
     /// Approved sticker-free window from a format-3 snapshot.
     var coverURL: URL? = nil
+    var coverType: StoryCard.CoverType = .png
 }
 
 extension StoryRepository {
@@ -89,6 +90,7 @@ struct RealStoryRepository: StoryRepository {
         let cucumberAppearance: Appearance?
         let cardSnapshotId: UUID?
         let cardSnapshotFormat: Int?
+        let cardCoverType: String?
     }
     // Decoded inside the concurrent postcard reads (#348).
     private nonisolated struct Profile: Decodable, Sendable {
@@ -269,16 +271,18 @@ struct RealStoryRepository: StoryRepository {
         let owner = row.storageOwnerId ?? row.userId
         var frontURL: URL?, backURL: URL?, coverURL: URL?
         if let snapshot = row.cardSnapshotId {
-            if row.cardSnapshotFormat == 3 {
-                coverURL = try? await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id, snapshot: snapshot, part: .cover))
+            if row.cardSnapshotFormat == 3, let coverType = StoryCard.CoverType.resolve(row.cardCoverType) {
+                coverURL = try? await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id, snapshot: snapshot, part: .cover, coverType: coverType))
             }
             let isDuplex = [2, 3].contains(row.cardSnapshotFormat ?? 1)
             frontURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id,
                 snapshot: snapshot, part: isDuplex ? .frontPreview : .front))
             if isDuplex {
                 // A failed format-2 back must be retried, never replaced by an unreviewed fallback.
+                // The full 1086×1506 back (#358): the 724×1004 preview blurs handwriting when the card
+                // is drawn at ~362pt on a 3x screen, and the original is only ~30KB larger.
                 backURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id,
-                    snapshot: snapshot, part: .backPreview))
+                    snapshot: snapshot, part: .back))
             }
         }
         let coverPhotoURL = try await firstPhotoURL(storyID: row.id)
@@ -286,7 +290,8 @@ struct RealStoryRepository: StoryRepository {
         try Task.checkCancellation()
         guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
         return PublicPostcardDetails(frontURL: frontURL, backURL: backURL, coverPhotoURL: coverPhotoURL,
-                                     donorLine: profile.flatMap(Self.donorLine), coverURL: coverURL)
+                                     donorLine: profile.flatMap(Self.donorLine), coverURL: coverURL,
+                                     coverType: StoryCard.CoverType.resolve(row.cardCoverType) ?? .png)
     }
 
     /// One story read, then every other request in parallel. Unused card links are not signed, and the first
@@ -298,13 +303,16 @@ struct RealStoryRepository: StoryRepository {
         let format = row.cardSnapshotFormat ?? 1
         let isDuplex = [2, 3].contains(format)
         let snapshot = row.cardSnapshotId
+        // Nil for an unknown cover type, so the App Clip falls back to the approved front window (#363).
+        let coverType = StoryCard.CoverType.resolve(row.cardCoverType)
         func cardPath(_ part: StoryCard.Part) -> String? {
-            snapshot.map { StoryCard.artworkPath(owner: owner, story: row.id, snapshot: $0, part: part) }
+            snapshot.map { StoryCard.artworkPath(owner: owner, story: row.id, snapshot: $0, part: part, coverType: coverType ?? .png) }
         }
         // Paths are built here so the concurrent reads below only capture strings.
-        let coverPath = format == 3 ? cardPath(.cover) : nil
+        let coverPath = format == 3 && coverType != nil ? cardPath(.cover) : nil
         let frontPath = cardPath(isDuplex ? .frontPreview : .front)
-        let backPath = isDuplex ? cardPath(.backPreview) : nil
+        // The full 1086×1506 back (#358): the 724×1004 preview blurs handwriting at ~362pt on a 3x screen.
+        let backPath = isDuplex ? cardPath(.back) : nil
 
         async let profiles = rows("oi_profiles", id: row.userId.uuidString, as: Profile.self)
         async let regions = rows("oi_regions", id: row.regionId, as: Region.self)
@@ -320,7 +328,8 @@ struct RealStoryRepository: StoryRepository {
         let publicStory = try self.story(from: row, profile: profile, region: try await regions.first, portraitURL: await portrait)
         let frontURL = try await front
         let details = PublicPostcardDetails(frontURL: frontURL, backURL: try await back,
-            coverPhotoURL: try await firstPhoto, donorLine: profile.flatMap(Self.donorLine), coverURL: await cover)
+            coverPhotoURL: try await firstPhoto, donorLine: profile.flatMap(Self.donorLine), coverURL: await cover,
+            coverType: coverType ?? .png)
         try Task.checkCancellation()
         guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
         let card = StoryCard(cardID: row.id.uuidString, storyID: row.id.uuidString, imageURL: frontURL)

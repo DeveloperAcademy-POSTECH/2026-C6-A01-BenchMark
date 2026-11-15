@@ -21,12 +21,12 @@ struct OiDonationClipApp: App {
 
     init() {
         for name in [
-            "Paperlogy-2ExtraLight",
             "Paperlogy-3Light",
             "Paperlogy-4Regular",
             "Paperlogy-5Medium",
             "Paperlogy-6SemiBold",
-            "Paperlogy-7Bold"
+            "Paperlogy-7Bold",
+            "Yangjin-v0.9"
         ] {
             if let url = Bundle.main.url(forResource: name, withExtension: "ttf")
                 ?? Bundle.main.url(forResource: name, withExtension: "ttf", subdirectory: "Fonts") {
@@ -40,8 +40,7 @@ struct OiDonationClipApp: App {
             Group {
                 // An NFC postcard is the root screen, not a cover over the story list (#347).
                 if let scratchPostcardSession {
-                    ScratchPostcardScreen(tagID: scratchPostcardSession.tagID, repository: storyRepository,
-                                          onShowStories: showStories)
+                    ScratchPostcardScreen(tagID: scratchPostcardSession.tagID, repository: storyRepository)
                         .id(scratchPostcardSession.id)
                 } else if hasRoute {
                     AppClipExperienceView(
@@ -65,6 +64,15 @@ struct OiDonationClipApp: App {
                 handleInvocation(activity.webpageURL)
             }
             .onOpenURL { url in handleInvocation(url) }
+            #if DEBUG
+            // Simulator hook: `simctl launch` cannot pass an App Clip invocation, so a debug build accepts one
+            // from `OI_DEBUG_INVOCATION_URL` (screenshots of the postcard states, #351).
+            .task {
+                if let value = ProcessInfo.processInfo.environment["OI_DEBUG_INVOCATION_URL"] {
+                    handleInvocation(URL(string: value))
+                }
+            }
+            #endif
             .appStoreOverlay(isPresented: $isOverlayPresented) {
                 SKOverlay.AppClipConfiguration(position: .bottom)
             }
@@ -83,12 +91,6 @@ extension OiDonationClipApp {
         }
         scratchPostcardSession = nil
         invocation = AppClipInvocation(url: url)
-    }
-
-    /// Leaves an unavailable postcard for the public story list.
-    private func showStories() {
-        invocation = nil
-        scratchPostcardSession = nil
     }
 }
 

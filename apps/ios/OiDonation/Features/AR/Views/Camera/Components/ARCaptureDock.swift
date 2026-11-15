@@ -15,10 +15,18 @@ struct ARCaptureDock: View {
                 .disabled(video.busy || controller.capturing || model.countdown != nil)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .overlay(alignment: .leading) {
-                    motionButton
+                    if controller.subject == nil { motionButton }
                 }
                 .overlay(alignment: .trailing) {
-                    characterButton
+                    if let subject = controller.subject {
+                        Text(subject.title)
+                            .font(.caption2.weight(.semibold)).lineLimit(1)
+                            .frame(width: 72, height: 44)
+                            .padding(.horizontal, 4)
+                            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+                            .accessibilityLabel("AR 촬영 오이: " + subject.title)
+                            .accessibilityIdentifier("ar.camera.selectedCucumber")
+                    } else { characterButton }
                 }
             .overlay(alignment: .center) {
                 // 촬영 영역이 움직이지 않도록 높이가 고정된 모드 선택 행에 녹화 상태를 표시합니다.
@@ -52,7 +60,7 @@ struct ARCaptureDock: View {
                 Button { controller.locked.toggle() } label: {
                     dockLabel("잠금", symbol: controller.locked ? "lock.fill" : "lock.open")
                 }
-                .disabled(!controller.placed || controller.capturing || video.busy || model.countdown != nil)
+                .disabled(controller.usesGeographicPlacement || !controller.placed || controller.capturing || video.busy || model.countdown != nil)
                 .accessibilityLabel("위치 잠금")
                 .accessibilityValue(controller.locked ? "잠김" : "해제됨")
 
@@ -77,7 +85,7 @@ struct ARCaptureDock: View {
                 .opacity(controller.canCapture || video.busy ? 1 : 0.4)
 
                 Button { controller.resetPlacement() } label: {
-                    dockLabel("재배치", symbol: "arrow.counterclockwise")
+                    dockLabel(controller.usesGeographicPlacement ? "위치 재확인" : "재배치", symbol: "arrow.counterclockwise")
                 }.disabled(!controller.placed || controller.capturing || video.busy || model.countdown != nil)
 
                 Button { showSettings = true } label: {

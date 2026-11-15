@@ -118,3 +118,73 @@ from anchors;
 서버 적용 기록: 세 치환 앵커가 각각 한 번 존재하는 drift 검사를 통과한 후 `20261114120000` 한 개와 이력만 같은 트랜잭션으로 적용했다. 실제 로그인 역할의 `oi_capabilities()`에서 `story_card_cover`, `duplex_story_card`, `public_story_card` 모두 true임을 확인했다. 기존 함수 권한·버킷 비공개·관련 없는 Storage 정책은 보존했다. 상세 기록은 PR #333 본문을 따른다.
 
 검증 결과: iOS 27.2 `OiFlowChecks` 전체 211개(208개 통과·기존 수동 3개 skip·실패 0), 최종 수정본 관련 3개 재실행 통과. 본 앱·내장 App Clip 빌드 및 기존 App Clip/Swift 서버 계약 회귀 검사도 통과했다. 렌더링 첨부에서 앞면의 인장이 표지에서 제거되는지 확인했다. 실제 NFC 호출과 운영 파일 업로드·다운로드 전체 흐름은 실기기 후속 검증으로 남긴다.
+
+## JPEG 표지 서버 후속 — 2026-11-15 / #331·#348
+
+사용자 승인 B안: 형식 3을 유지하고 `oi_stories.card_cover_type`으로 `png`·`jpeg`를 구분한다. **서버 PR #359를 develop에 병합하고 2026-11-15 운영 52gibu 적용을 완료했다. iOS·App Clip 구현과 배포는 별도다.** #348의 요청 병렬화·앞뒤 지연 로딩을 이 서버 변경으로 완료했다고 표시하지 않는다.
+
+### 저장·제출 계약
+
+- 새 마이그레이션 `20261115100000_oi_postcard_cover_jpeg.sql`만 추가한다. 기존 형식 허용값 1·2·3과 snapshot 제약, 이전 마이그레이션은 유지한다.
+- `card_cover_type`은 형식 1·2에서 NULL, 형식 3에서 NULL이 아닌 `png` 또는 `jpeg`여야 한다. 기존 형식 3은 `png`로 채우며 snapshot·리비전·상태·나머지 이야기 필드는 바꾸지 않는다. 기존 파일은 변환하거나 이동하지 않는다.
+- 형식 3 PNG는 기존 네 PNG + `cover.png`, JPEG는 같은 네 PNG + `cover.jpg`다. 표지는 마지막 부품이며 네 PNG의 경로·순서는 그대로다. 네 인자 `oi_story_card_parts`는 기존 PNG 계약을 보존하고, 새 다섯 인자 함수가 실제 행의 타입을 받는다. 타입 NULL인 형식 1·2도 기존 파일 목록을 반환한다.
+- 새 snapshot 제출은 `card_snapshot_id`, `card_snapshot_format: 3`, `card_cover_type: "jpeg"`를 함께 보낸다. 타입이 없는 새 형식 3 snapshot은 PNG로 처리해 1.2.0 제출을 유지한다. snapshot을 생략하거나 현재 snapshot을 재사용하면서 타입을 생략하면 기존 타입을 보존한다. 타입만 바꾸거나 현재 snapshot의 타입을 바꾸는 요청은 거절한다. 인코딩을 바꾸려면 새 snapshot을 사용한다.
+- 새 앱은 인코딩 종류와 최종 표지 바이트를 snapshot 해시에 포함해야 한다. 서버는 해시를 재계산하지 않고 기존처럼 파일 존재·메타데이터를 검사한다. 업로드는 기존 소유권·draft·덮어쓰기 금지 규칙을 따른다.
+- 앞면·뒷면·미리보기와 기존 PNG 표지는 `image/png`, 1~8,388,608byte다. JPEG 표지만 `image/jpeg`, **1~2,097,152byte(2MiB)**다. `image/jpg`도 허용하지 않는다. 다른 네 파일을 JPEG로 바꾸지 않는다. 품질 0.8·약 0.4MB와 888×1308은 후속 앱 생성 목표이며 서버의 바이트 디코딩·해상도 검사가 아니다.
+- 버킷은 이미 JPEG·PNG를 허용한다. 버킷 전체 크기 제한을 줄이거나 공개 버킷으로 바꾸지 않는다. 제출 실패 시 이야기 상태·리비전·카드 참조는 모두 보존한다.
+
+### 검토·읽기·호환성
+
+- PNG 공개 승인 요청은 기존대로 타입 생략을 허용한다. JPEG 공개 승인에는 현재 리비전·snapshot·정확한 형식 3 외에 문자열 `card_cover_type: "jpeg"`가 필수다. 생략·NULL·다른 타입은 `40001`로 거절한다. 승인 직전에 다섯 파일의 MIME·크기를 재검사한다. 타입 확인값은 구버전 운영자 요청을 구분하는 계약이며 사람이 이미지를 봤음을 서버가 증명하는 값은 아니다.
+- 1.2.0 운영자 화면은 `cover.png`를 포함한 다섯 장이 필요해 JPEG 이야기를 승인할 수 없다. 잘못된 클라이언트가 승인 RPC를 직접 보내도 새 타입 확인값이 없으면 거절한다. 기존 PNG 이야기 승인과 비공개 전환은 계속 가능하다.
+- Storage 정책은 이야기의 실제 타입으로 계산한 현재 snapshot 경로만 공개한다. JPEG 이야기의 같은 폴더에 남은 `cover.png`나 옛 snapshot의 JPEG를 추가 공개하지 않는다. 작성자·운영자·타인·anon과 삭제·탈퇴 준비의 기존 권한을 유지한다. draft 작성자의 부분 업로드 읽기는 기존 staging 정책을 따른다.
+- 기존 App Clip은 형식 3의 `cover.png` 요청 실패 후 승인 앞면의 사진 창을 잘라 사용한다. 양면은 유지되지만 스티커가 보일 수 있고 JPEG 용량 절감 효과는 새 앱·Clip에서만 얻는다. 기존 본 앱의 서버 이미지 복원·재편집도 `cover.png`를 기대하므로 JPEG 이야기의 해당 경로는 앱 업데이트가 필요하다.
+- `oi_capabilities()`는 인증 사용자에게 `story_card_cover_jpeg: true`를 추가하고 기존 플래그·권한을 유지한다. 후속 앱은 새 기능이 없으면 실제 PNG를 생성해 형식 3을 사용하고, 기존 표지 지원도 없으면 형식 2로 제출한다. 읽기는 저장된 형식·타입으로 결정한다.
+- 탈퇴 목록은 확장자가 아닌 소유 경로를 기준으로 하므로 현재·과거·부분 업로드의 JPG와 PNG를 함께 정리한다. 연결 계정의 `storage_owner_id`도 유지한다. 별도 Edge Function 변경은 없다.
+
+### 검증과 운영 적용
+
+```sh
+python3 supabase/tests/run-account-merge-db-checks.py
+npm --prefix supabase test
+```
+
+격리 DB 검사는 기존 두 이력에 새 마이그레이션을 적용해 기존 형식 1·2·3 검사와 `oi-postcard-cover-jpeg.sql`을 실행한다. JPEG 경계·잘못된 메타데이터·구버전 승인 차단·재제출·새 PNG 버전·현재 버전만 공개·숨김·삭제를 검사한다. 기존 PNG backfill이 다섯 상태의 모든 필드와 리비전을 보존하는지 확인하고, 검증기 세 앵커·뮤테이션 세 앵커·capability 앵커의 누락/중복 14건이 데이터·열·제약·함수·권한·정책 전체를 rollback하는지 각 이력에서 확인한다. 탈퇴 SQL 및 Node 검사는 현재/미참조 PNG·JPG 삭제와 삭제 실패 시 완료 차단을 포함한다.
+
+운영은 **develop 대상 PR 리뷰 및 별도 적용 승인 후** 진행한다. 적용 전에 운영의 `oi_check_story_card`, `oi_mutate`, `oi_capabilities` 정의에서 새 마이그레이션의 각 `$old$` 문자열 여섯 개와 `'story_card_cover',true`가 정확히 한 번씩 있는지 읽기 전용 drift 검사를 한다. 불일치하면 중단한다. 승인된 마이그레이션 하나와 배포 이력만 적용한 뒤 새 capability와 실제 Storage 업로드 → 검토 → 익명 다운로드·숨김·삭제를 확인한다. 실제 Storage 바이트 통합 검증은 로컬 메타데이터 검사와 구분한다.
+
+배포는 서버 → JPEG 검토가 가능한 운영자 앱 → 작성자 앱·App Clip 순서다. 이번 PR은 앱을 변경하지 않으므로 운영 적용만으로 1.2.0이 JPEG를 생성·검토하지는 않는다.
+
+되돌릴 때는 capability 비활성화와 서버의 신규 JPEG 접수 차단을 함께 적용하되, 이미 저장된 JPEG의 읽기·검토·삭제 지원은 유지한다. JPEG 이야기가 남아 있는 상태에서 열·함수·정책을 제거하지 않는다. 완전한 PNG 전환은 새 snapshot과 재검토를 쓰는 별도 작업이며, 공개 파일을 덮어쓰거나 기존 타입만 바꾸지 않는다.
+
+로컬 검증 결과: 위 DB 검사 전체가 두 이력에서 통과했고 JPEG drift 실패 14건씩과 PNG backfill 데이터 보존을 확인했다. Node 테스트 44개도 통과했다. 작업 전용 PostgreSQL 종료·PID 파일·소켓 제거를 확인했다. 운영 적용·실파일 검증 결과는 아래 기록을 따른다.
+
+
+### 운영 적용·실파일 확인 — 2026-11-15
+
+PR #359(`fcc1df3`, develop 병합 `a7b449e`)를 다시 리뷰하고 CI 두 작업 및 전체 격리 DB 재검사를 통과했다. 운영의 검증기 세 앵커·뮤테이션 세 앵커·capability 앵커가 각각 한 번 존재하고 기존 네 인자 helper·제약·비공개 버킷이 기대와 일치하는 읽기 전용 drift 검사를 통과했다.
+
+승인된 `20261115100000` 한 개와 배포 이력만 같은 트랜잭션으로 적용했다. 적용 직전 함수 정의의 지문도 재검사했으며, 기존 이야기 6개가 새 타입 열 외에 바뀌지 않았음을 트랜잭션 안팎에서 확인했다. 기존 형식 3 한 개는 PNG로 보존했고 버킷·검증기 권한도 유지했다.
+
+실제 로그인한 비공개 가상 계정의 `oi_capabilities()`에서 `story_card_cover_jpeg`, `story_card_cover`, `duplex_story_card`, `public_story_card`가 모두 true임을 확인했다. 작성자 권한으로 네 PNG와 888×1308 JPEG(1,212,533byte)를 실제 Storage에 업로드했고, 60초 signed URL로 인증 헤더 없이 받은 바이트가 원본과 동일한 SHA-256·`image/jpeg`임을 확인했다. 서명 없는 익명 비공개 읽기는 거절됐다. 이 파일은 난수 색상으로 만든 테스트 자료이며 용량·속도 벤치마크가 아니다.
+
+실제 업로드 메타데이터를 사용한 제출, 구버전 운영자 payload의 JPEG 승인 거절, 타입을 확인한 승인, 공개 시 anon RLS와 숨김 후 차단을 운영 DB의 단일 rollback 트랜잭션에서 확인했다. 가상 운영자 권한과 공개 상태는 커밋하지 않았다. 실제 파일은 Storage API로 삭제하고 가상 Auth 계정·프로필·이야기·운영자 행 및 파일이 모두 0건임을 확인했다. iOS 코드는 수정하지 않았다. 새 앱의 JPEG 생성·표시와 실제 NFC 호출은 후속 앱 검증으로 남는다.
+
+## JPEG 표지 iOS 연결 — 2026-11-15
+
+새로 생성하는 표지는 `story_card_cover`와 `story_card_cover_jpeg`가 모두 true일 때 JPEG를 사용한다. 장식 없는 원본 합성의 사진 창을 그대로 잘라 888×1308로 만들고, 흰색으로 불투명 합성한 뒤 품질 **0.8**로 인코딩한다. 2,097,152byte를 넘으면 검토 요청 전에 안내하고 중단하며 품질이나 해상도를 임의로 낮추지 않는다. 앞면·뒷면·앞뒷면 미리보기 네 PNG 및 PNG 표지의 기존 8MiB 검증은 유지한다.
+
+- JPEG 신규 묶음은 형식 3·`card_cover_type: "jpeg"`·`cover.jpg`·`image/jpeg`다. JPEG 전용 해시 도메인을 사용하므로 기존 형식 1·2·3 PNG의 snapshot ID와 경로를 바꾸지 않는다.
+- JPEG 미지원 서버에는 표지를 실제 PNG로 바꾸고 바이트 기준으로 ID를 다시 계산한다. PNG 표지 지원도 없으면 기존 네 PNG의 형식 2로 제출한다. 생성 시점과 제출 시점의 기능 지원이 달라져도 제출 단계에서 다시 확인한다. 계정 전환·로그아웃 때 capability를 초기화한다.
+- 읽기·복원·검토는 capability가 아닌 저장된 `card_cover_type`으로 결정한다. 기존 형식 3의 누락된 타입은 PNG로 해석한다. 알 수 없는 타입은 운영자 승인 대상에서 제외하며 공개 표지는 승인 앞면 fallback을 쓴다.
+- 저장된 표지를 재사용하는 편집은 검증한 JPEG/PNG 바이트와 타입을 보존한다. JPEG를 다시 압축하지 않는다. 네 PNG와 표지를 모두 올린 뒤 제출하며 부분 업로드 실패 시 제출 RPC를 보내지 않는다. 제출 성공 응답과 timeout 재조회는 snapshot·형식뿐 아니라 표지 타입까지 일치해야 접수를 확인한다.
+- 운영자 화면은 실제 타입으로 다섯 파일을 모두 읽고 디코딩해야 공개 승인 버튼을 활성화한다. JPEG 승인 요청은 현재 리비전·snapshot·형식과 `card_cover_type: "jpeg"`를 보내고 응답 타입도 확인한다. 기존 PNG 승인은 타입 확인값 생략 호환을 유지한다.
+- App Clip은 실제 타입에 맞는 `cover.jpg`/`cover.png`를 읽는다. JPEG는 실제 JPEG 바이트·2MiB 이하, PNG는 실제 PNG 바이트·8MiB 이하인지 확인한다. 표지가 없거나 손상·크기 초과·형식 불일치이면 승인된 앞면의 사진 창을 쓴다. 앞면이나 필수 뒷면 실패는 재시도 상태를 유지한다. 기존 공개 표지는 자동 변환하지 않는다.
+
+검증 명령: `OiFlowChecks` 시뮬레이터 XCTest, `sh apps/ios/Tests/run-oi-service-checks.sh`, `sh apps/ios/Tests/run-app-clip-checks.sh`, `sh apps/ios/Tests/run-scratch-postcard-loader-checks.sh <booted-simulator-id>`, `OiDonationClip` 시뮬레이터 빌드. 로더 검사는 가상 로컬 파일과 UI 협력자의 빈 테스트 대역으로 실제 production loader의 로딩·fallback 상태를 실행하며 운영 서버를 호출하지 않는다.
+
+배포는 JPEG를 검토할 수 있는 운영자 앱을 준비한 뒤 작성자 앱·App Clip을 업데이트한다. 서버는 이미 적용되어 있어 이 PR에는 SQL·운영 DB 변경이 없다. JPEG 생성 중단이 필요하면 서버 capability를 내리되 저장된 JPEG의 읽기·검토 지원은 유지한다. 기존 1.2.0으로 운영자 앱을 되돌리면 JPEG 승인이 막히므로 호환 운영자 버전을 유지한다. 실제 NFC 호출과 App Store/App Clip 배포는 PR 검증과 별도다.
+
+로컬 검증 결과: iPhone 18 Pro / iOS 27.2 시뮬레이터에서 전체 `OiFlowChecks` 232개 중 228개 통과·수동 확인용 4개 건너뜀·실패 0개를 확인했다. 작업 중 병합된 최신 develop의 App Clip 뒷면 원본 해상도 변경을 반영한 뒤 관련 XCTest 113개를 다시 실행해 109개 통과·동일한 수동 확인용 4개 건너뜀·실패 0개였다. 서비스 모델·App Clip 링크 CLI 검사와 production 로더의 JPEG/PNG·오류 fallback 검사, 본 앱 테스트 빌드·별도 App Clip 빌드도 통과했다. 실제 NFC 태그 및 새 앱 배포 상태의 실기기 검증은 아직 수행하지 않았다.
+
+추가 App Clip 번들 폰트 검사에서 #351로 이미 제외한 AR 전용 ExtraLight를 요구하는 낡은 검사 조건을 발견했다. 앱 타깃·리소스는 바꾸지 않고 검사만 현재 필수 다섯 Paperlogy 굵기에 맞췄으며 실제 빌드된 번들 로딩 검사를 통과했다.

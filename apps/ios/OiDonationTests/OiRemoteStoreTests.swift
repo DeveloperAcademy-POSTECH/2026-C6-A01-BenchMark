@@ -6,6 +6,8 @@
 //
 
 import XCTest
+import ARKit
+import CoreLocation
 import RealityKit
 import SwiftUI
 import UIKit
@@ -43,6 +45,11 @@ final class OiTestBackend {
         var publicStoryCard = false
         var duplexStoryCard = false
         var storyCardCover = false
+        var storyCardCoverJpeg = false
+        var corruptSubmittedCoverType = false
+        var corruptReviewedCoverType = false
+        var reviewPayloads: [[String: Any]] = []
+        var uploadContentTypes: [String: String] = [:]
         var failCardCoverUpload = false
         var failCardCoverRead = false
         var failCardBackUpload = false
@@ -202,8 +209,8 @@ final class OiTestBackend {
             } else { status = 403 }
         } else if path.hasPrefix("/storage/v1/object/sign/") && (path.contains("/appearance/") || path.contains("/card/")) {
             let key = String(path.dropFirst("/storage/v1/object/sign/".count))
-            if state.failCardCoverRead && key.hasSuffix("/cover.png") { status = 503 }
-            else if state.failCardBackRead && key.hasSuffix("/back-preview.png") { status = 503 }
+            if state.failCardCoverRead && (key.hasSuffix("/cover.png") || key.hasSuffix("/cover.jpg")) { status = 503 }
+            else if state.failCardBackRead && (key.hasSuffix("/back-preview.png") || key.hasSuffix("/back.png")) { status = 503 }
             else if let image = state.uploads[key] {
                 if request.httpMethod == "POST" { result = ["signedURL": String(path.dropFirst("/storage/v1".count)) + "?token=fixture"] }
                 else { bytes = image }
@@ -211,11 +218,15 @@ final class OiTestBackend {
         } else if path.contains("/storage/v1/object/") {
             let key = path.replacingOccurrences(of: "/storage/v1/object/", with: "")
             if key.contains("/card/") || key.contains("/appearance/") { state.artworkUploadAttempts += 1 }
-            if state.failCardCoverUpload && key.hasSuffix("/cover.png") { status = 503 }
+            if state.failCardCoverUpload && (key.hasSuffix("/cover.png") || key.hasSuffix("/cover.jpg")) { status = 503 }
             else if state.failCardBackUpload && key.hasSuffix("/back.png") { status = 503 }
             else if state.failCucumberTextureUpload && key.hasSuffix("/top.png") { status = 503 }
             else if state.uploads[key] != nil { status = 409 }
-            else { state.uploads[key] = raw; result = ["Key":key] }
+            else {
+                state.uploads[key] = raw
+                state.uploadContentTypes[key] = request.value(forHTTPHeaderField: "Content-Type")
+                result = ["Key":key]
+            }
             if status == 200, key.contains("/card/"), state.timeOutCardUploadAfterCommit {
                 state.timeOutCardUploadAfterCommit = false
                 lock.unlock(); client.timeOut(); return
@@ -234,6 +245,7 @@ final class OiTestBackend {
                 if state.story?["id"] as? String == payload["id"] as? String {
                     story["card_snapshot_id"] = state.story?["card_snapshot_id"]
                     story["card_snapshot_format"] = state.story?["card_snapshot_format"]
+                    story["card_cover_type"] = state.story?["card_cover_type"]
                     story["cucumber_appearance"] = state.story?["cucumber_appearance"]
                 }
                 state.story = story; result = story
@@ -251,7 +263,11 @@ final class OiTestBackend {
                 state.submittedTitle = state.story?["title"] as? String
                 if let appearance = payload["cucumber_appearance"] { state.story?["cucumber_appearance"] = appearance }
                 if let card = payload["card_snapshot_id"] { state.story?["card_snapshot_id"] = card }
-                if let format = payload["card_snapshot_format"] { state.story?["card_snapshot_format"] = format }
+                if let format = payload["card_snapshot_format"] {
+                    state.story?["card_snapshot_format"] = format
+                    state.story?["card_cover_type"] = (format as? Int) == 3 ? (payload["card_cover_type"] ?? "png") : nil
+                }
+                if state.corruptSubmittedCoverType { state.story?["card_cover_type"] = "png" }
                 state.story?["status"] = "pending"
                 let nextRevision = (state.story?["revision"] as? Int ?? 0)+1
                 state.story?["revision"] = nextRevision
@@ -279,6 +295,7 @@ final class OiTestBackend {
                 result = state.story ?? [:]
             } else if action == "review_story" {
                 state.reviewCount += 1
+                state.reviewPayloads.append(payload)
                 let wanted = payload["status"] as? String ?? ""
                 if !state.isOperator { status = 403 }
                 else if state.story?["revision"] as? Int != payload["revision"] as? Int { status = 409 }
@@ -287,11 +304,15 @@ final class OiTestBackend {
                         appearance["id"] as? String != payload["appearance_id"] as? String { status = 409 }
                 else if wanted == "published", let card = state.story?["card_snapshot_id"] as? String,
                         card != payload["card_snapshot_id"] as? String { status = 409 }
+                else if wanted == "published", state.story?["card_cover_type"] as? String == "jpeg",
+                        payload["card_cover_type"] as? String != "jpeg" { status = 409 }
                 else {
                     state.story?["status"] = wanted
                     let nextRevision = (state.story?["revision"] as? Int ?? 0) + 1
                     state.story?["revision"] = nextRevision
-                    result = state.story ?? [:]
+                    var reviewed = state.story ?? [:]
+                    if state.corruptReviewedCoverType { reviewed["card_cover_type"] = "png" }
+                    result = reviewed
                     if state.failAfterReview { state.failReads = true }
                     if state.loseReviewResponse { status = 503; state.loseReviewResponse = false }
                 }
@@ -355,6 +376,7 @@ final class OiTestBackend {
             if state.publicStoryCard { capabilities["public_story_card"] = true }
             if state.duplexStoryCard { capabilities["duplex_story_card"] = true }
             if state.storyCardCover { capabilities["story_card_cover"] = true }
+            if state.storyCardCoverJpeg { capabilities["story_card_cover_jpeg"] = true }
             if let canonical = state.canonicalAccountID {
                 capabilities["account_id"] = canonical.uuidString
                 capabilities["account_merge_enabled"] = true
@@ -2735,6 +2757,208 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(campusStory.headingDegrees, 263.5, accuracy: 0.001)
     }
 
+    @MainActor func testGeographicCameraPairsAnOlderFixWithItsHistoricalPose() throws {
+        let now = Date()
+        // A target about 9m east. GPS was measured before an 8m walk.
+        let target = CampusPlacement(storyID: "walk-test", latitude: 36.012, longitude: 129.3231)
+        let fix = ARCameraGeoPlacement.Fix(latitude: 36.012, longitude: 129.323, accuracy: 1,
+                                          timestamp: now.addingTimeInterval(-8))
+        var poses = ARCameraPoseHistory()
+        poses.record(position: [0, 1.5, 0], timestamp: 100)
+        poses.record(position: [0.2, 1.5, 0], timestamp: 100.2)
+        poses.record(position: [8, 1.5, 0], timestamp: 108)
+        XCTAssertNil(poses.position(at: 99), "A fix measured before this AR world must wait")
+        XCTAssertNil(poses.position(at: 109), "Never extrapolate a future pose")
+        XCTAssertNil(poses.position(at: 104), "Never bridge a gap in AR tracking")
+        let interpolated = try XCTUnwrap(poses.position(at: 100.1))
+        XCTAssertEqual(interpolated.x, 0.1, accuracy: 0.001)
+        var resolution = ARCameraGeoPlacement(target: target)
+        XCTAssertEqual(resolution.update(fix: fix, trackingNormal: true, cameraAtFix: nil, now: now,
+                                         groundHeight: { _ in 0 }), .waitingForSynchronizedLocation)
+        let offset = target.offsetMeters(fromLatitude: fix.latitude, longitude: fix.longitude)
+        let status = resolution.update(fix: fix, trackingNormal: true, cameraAtFix: poses.position(at: 100), now: now,
+                                       groundHeight: { _ in 0 })
+        XCTAssertEqual(status, .ready([offset.x, 0, offset.z]), "The later 8m walk must not be added to the target")
+        poses.reset()
+        XCTAssertNil(poses.position(at: 100), "Restarting tracking must discard old world poses")
+        poses.record(position: .zero, timestamp: 200)
+        poses.record(position: [1, 0, 0], timestamp: 213)
+        XCTAssertNil(poses.position(at: 200), "Pose history must remain bounded")
+    }
+
+    @MainActor func testGeographicCameraWaitsForLocationPermissionBeforeHeadingTracking() {
+        final class Location: ARCameraLocationProviding {
+            var location: CLLocation?
+            var hasUsableFix = false
+            var hasPreciseLocationPermission = false
+            var message: String?
+            var stops = 0
+            func start() { }
+            func stop() { stops += 1 }
+        }
+        let target = CampusPlacement(storyID: "permission-test", latitude: 36.012, longitude: 129.323)
+        let subject = ARCameraSubject(id: target.id, title: "위치 권한 검사", heightMeters: 1.5, placement: target) { Entity() }
+        let location = Location()
+        let camera = ARSessionController(subject: subject, locationProvider: location)
+        XCTAssertEqual(camera.makeSessionConfiguration().worldAlignment, .gravity)
+        location.hasPreciseLocationPermission = true
+        let authorized = camera.makeSessionConfiguration()
+        XCTAssertEqual(authorized.worldAlignment, .gravityAndHeading)
+        XCTAssertEqual(authorized.planeDetection, [.horizontal])
+        XCTAssertTrue(authorized.isLightEstimationEnabled)
+        XCTAssertFalse(camera.canCapture, "Location authorization alone never allows capture before a valid placement")
+        location.hasPreciseLocationPermission = false
+        XCTAssertEqual(camera.makeSessionConfiguration().worldAlignment, .gravity)
+        camera.pause()
+        XCTAssertEqual(location.stops, 1)
+        XCTAssertFalse(camera.geographicReady)
+        XCTAssertEqual(ARSessionController().makeSessionConfiguration().worldAlignment, .gravity)
+    }
+
+    @MainActor func testGeographicCameraGatesLocationAndFreezesWorldPosition() throws {
+        let now = Date()
+        let target = CampusPlacement(storyID: "geographic-test", latitude: 36.012, longitude: 129.323,
+            heightMeters: 1.5, headingDegrees: 90)
+        var resolution = ARCameraGeoPlacement(target: target)
+        var groundQueries = 0
+        func fix(latitude: Double = 36.012, longitude: Double = 129.323,
+                 accuracy: Double = 5, age: Double = 0) -> ARCameraGeoPlacement.Fix {
+            .init(latitude: latitude, longitude: longitude, accuracy: accuracy, timestamp: now.addingTimeInterval(-age))
+        }
+        func update(_ sample: ARCameraGeoPlacement.Fix?, tracking: Bool = true,
+                    camera: SIMD3<Float> = [4, 1.7, 2], ground: Float? = 0.3) -> ARCameraGeoPlacement.Status {
+            resolution.update(fix: sample, trackingNormal: tracking, cameraAtFix: camera, now: now) { _ in
+                groundQueries += 1
+                return ground
+            }
+        }
+        XCTAssertEqual(update(nil), .waitingForLocation)
+        XCTAssertEqual(update(fix(accuracy: 16)), .waitingForLocation)
+        XCTAssertEqual(update(fix(accuracy: -1)), .waitingForLocation)
+        XCTAssertEqual(update(fix(age: 11)), .waitingForLocation)
+        XCTAssertEqual(update(fix(latitude: .nan)), .waitingForLocation)
+        if case .outsideRange(let distance) = update(fix(latitude: 36.013)) {
+            XCTAssertGreaterThan(distance, 25)
+        } else { XCTFail("A remote saved point must stay hidden") }
+        XCTAssertEqual(update(fix(), tracking: false), .waitingForTracking)
+        XCTAssertEqual(groundQueries, 0, "Invalid location/tracking must not place an anchor")
+        XCTAssertEqual(update(fix(), ground: nil), .waitingForGround)
+        XCTAssertEqual(update(fix(), ground: .nan), .waitingForGround)
+        XCTAssertNil(resolution.position)
+        let fixed = SIMD3<Float>(4, 0.3, 2)
+        XCTAssertEqual(update(fix()), .ready(fixed))
+        let queriesAfterPlacement = groundQueries
+        XCTAssertEqual(update(fix(latitude: 36.01201, longitude: 129.32301), camera: [8, 3, 6]), .ready(fixed),
+                       "GPS noise and walking must not move a placed character")
+        XCTAssertEqual(groundQueries, queriesAfterPlacement)
+        XCTAssertEqual(update(fix(accuracy: 30)), .waitingForLocation)
+        XCTAssertEqual(update(fix(), tracking: false), .waitingForTracking)
+        XCTAssertEqual(update(fix()), .ready(fixed), "A good fix resumes the same world anchor")
+        resolution.reset()
+        XCTAssertNil(resolution.position)
+        XCTAssertEqual(update(fix(), camera: [8, 3, 6], ground: 1), .ready([8, 1, 6]))
+    }
+
+    @MainActor func testGeographicCameraUsesMetresAndSavedHeadingWithoutManualFallback() throws {
+        let now = Date()
+        let target = CampusPlacement(storyID: "direction-test", latitude: 36.0121, longitude: 129.3231,
+                                     heightMeters: 1.5, headingDegrees: 90)
+        var resolution = ARCameraGeoPlacement(target: target)
+        let offset = target.offsetMeters(fromLatitude: 36.012, longitude: 129.323)
+        XCTAssertGreaterThan(offset.x, 8)
+        XCTAssertLessThan(offset.x, 10)
+        XCTAssertLessThan(offset.z, -10)
+        XCTAssertGreaterThan(offset.z, -12)
+        let status = resolution.update(fix: .init(latitude: 36.012, longitude: 129.323, accuracy: 5, timestamp: now),
+            trackingNormal: true, cameraAtFix: [3, 2, 4], now: now) { candidate in
+                XCTAssertEqual(candidate.x, 3 + offset.x, accuracy: 0.001)
+                XCTAssertEqual(candidate.z, 4 + offset.z, accuracy: 0.001)
+                return -0.7
+            }
+        XCTAssertEqual(status, .ready([3 + offset.x, -0.7, 4 + offset.z]))
+        let subject = ARCameraSubject(id: target.id, title: "위치 오이", heightMeters: 1.5, placement: target) { Entity() }
+        let controller = ARSessionController(subject: subject)
+        XCTAssertTrue(controller.usesGeographicPlacement)
+        XCTAssertFalse(controller.geographicReady)
+        XCTAssertFalse(controller.canCapture)
+        XCTAssertEqual(controller.settings.rotation, 90)
+        controller.settings.rotation = 0
+        controller.resetSettings()
+        XCTAssertEqual(controller.settings.rotation, 90)
+        XCTAssertEqual(controller.settings.height, 1.5)
+        controller.applyGeographicStatus(.outsideRange(40), locationMessage: nil)
+        XCTAssertTrue(controller.locationNotice.contains("40m"))
+        XCTAssertFalse(controller.canCapture)
+        controller.applyGeographicStatus(.waitingForLocation, locationMessage: "위치 접근을 허용해 주세요.")
+        XCTAssertEqual(controller.locationNotice, "위치 접근을 허용해 주세요.")
+        controller.pause()
+        XCTAssertFalse(controller.geographicReady)
+        XCTAssertFalse(ARSessionController().usesGeographicPlacement)
+    }
+
+    @MainActor func testARCameraCreatesOneSessionAcrossPresenterRefreshes() async throws {
+        var created = 0
+        func screen() -> ARCameraScreen {
+            ARCameraScreen(makeModel: {
+                created += 1
+                return ARCameraViewModel()
+            })
+        }
+        let initial = screen()
+        XCTAssertEqual(created, 0, "Constructing a view value must not allocate an ARView")
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive })
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: initial)
+        defer {
+            window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+            previousKey?.makeKey()
+        }
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.layoutIfNeeded()
+        for _ in 0..<20 where created == 0 { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(created, 1)
+        for _ in 0..<5 {
+            host.rootView = screen()
+            host.view.setNeedsLayout(); host.view.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(60))
+        }
+        XCTAssertEqual(created, 1, "Presenter refreshes must keep the same camera without allocating discarded ARViews")
+    }
+
+    @MainActor func testSelectedCucumberCameraNormalizesAndResetsItsFixedSubject() async throws {
+        let id = UUID()
+        let subject = ARCameraSubject(id: id, title: "선택한 오이", heightMeters: 1.5) {
+            ModelEntity(mesh: .generateBox(size: SIMD3<Float>(1, 3, 1)))
+        }
+        let camera = ARSessionController(subject: subject)
+        XCTAssertEqual(camera.subject?.id, id)
+        XCTAssertEqual(camera.settings.height, 1.5)
+        XCTAssertEqual(camera.settings.cucumberStoryID, id)
+        XCTAssertEqual(camera.settings.cucumberName, subject.title)
+        camera.settings.height = 0.8
+        camera.resetSettings()
+        XCTAssertEqual(camera.settings.height, 1.5, "Reset must preserve the selected cucumber and its initial height")
+        XCTAssertEqual(camera.settings.cucumberStoryID, id)
+        let loaded = try await ARCharacterController().load(subject)
+        let bounds = loaded.root.visualBounds(relativeTo: nil)
+        XCTAssertEqual(bounds.extents.y, 1, accuracy: 0.001)
+        XCTAssertEqual(bounds.min.y, 0, accuracy: 0.001)
+        loaded.root.scale = SIMD3(repeating: camera.settings.height)
+        XCTAssertEqual(loaded.root.visualBounds(relativeTo: nil).extents.y, 1.5, accuracy: 0.001)
+        let legacy = ARSessionController()
+        XCTAssertNil(legacy.subject)
+        XCTAssertEqual(legacy.settings.character, .neopjuk)
+        XCTAssertNil(legacy.settings.cucumberStoryID)
+        XCTAssertEqual(legacy.settings.height, 1.2)
+        let bytes = try JSONEncoder().encode(camera.settings)
+        XCTAssertEqual(try JSONDecoder().decode(ARCaptureSettings.self, from: bytes).cucumberStoryID, id)
+        let oldBytes = try JSONEncoder().encode(legacy.settings)
+        XCTAssertNil(try JSONDecoder().decode(ARCaptureSettings.self, from: oldBytes).cucumberStoryID)
+    }
+
     @MainActor func testPublishedOutfitSurvivesApprovalAndLoadsOnAnotherClient() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
@@ -2786,6 +3010,30 @@ final class OiRemoteStoreTests: XCTestCase {
         let clipStory = try await repository.fetchPublicStory(storyID: pending.id.uuidString)
         XCTAssertEqual(clipStory?.hasCustomCucumberImage, true)
         XCTAssertEqual(clipStory?.cucumberImageURL?.path, "/storage/v1/object/sign/oi-story-media/" + artwork.path(.portrait))
+        let projected = reader.campusStory(published)
+        let subject = try XCTUnwrap(CampusCucumberCameraSubject.make(story: projected, remote: reader))
+        XCTAssertEqual(subject.id, published.id)
+        XCTAssertEqual(subject.defaultSettings.height, Float(projected.heightMeters))
+        XCTAssertEqual(subject.placement, published.campusPlacement)
+        XCTAssertNotNil(subject.placement)
+        let normalized = try await ARCharacterController().load(subject)
+        XCTAssertNotNil(normalized.model.findEntity(named: "OiPhotoOverlay"), "The photo camera must use the selected approved outfit and its texture")
+        XCTAssertEqual(normalized.root.visualBounds(relativeTo: nil).extents.y, 1, accuracy: 0.001)
+        XCTAssertNil(CampusCucumberCameraSubject.make(story: CampusStoryExamples.stories[0], remote: reader))
+        let originalLatitude = published.latitude
+        backend.configure { $0.story?["latitude"] = originalLatitude + 0.001 }
+        do { _ = try await subject.loadModel(); XCTFail("A changed saved location must not use the stale camera target") }
+        catch { }
+        backend.configure { $0.story?["latitude"] = originalLatitude }
+        backend.configure { $0.story?["status"] = "hidden"; $0.ignoreStoryStatusFilter = true }
+        do { _ = try await subject.loadModel(); XCTFail("A withdrawn story must not remain available to the photo camera") }
+        catch { }
+        backend.configure {
+            $0.story?["status"] = "published"
+            $0.uploads.removeValue(forKey: "oi-story-media/" + artwork.path(.top))
+        }
+        do { _ = try await subject.loadModel(); XCTFail("Missing approved artwork must not fall back to a different cucumber") }
+        catch { }
     }
 
     @MainActor func testAuthoredCardIsReviewedAndReusedWhenStoryIsResubmitted() async throws {
@@ -2828,7 +3076,7 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertNotNil(publicCard?.backPreviewURL)
         let details = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
         XCTAssertEqual(details?.frontURL, publicCard?.frontPreviewURL, "NFC uses the same reviewed preview as the general Clip")
-        XCTAssertEqual(details?.backURL, publicCard?.backPreviewURL)
+        XCTAssertEqual(details?.backURL, publicCard?.backImageURL, "The scratch postcard shows the full-resolution back")
         backend.configure { $0.failCardBackRead = true }
         do {
             _ = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
@@ -2890,11 +3138,122 @@ final class OiRemoteStoreTests: XCTestCase {
         let details = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
         XCTAssertTrue(details?.coverURL?.path.hasSuffix("/cover.png") == true)
         XCTAssertTrue(details?.frontURL?.path.hasSuffix("/front-preview.png") == true)
-        XCTAssertTrue(details?.backURL?.path.hasSuffix("/back-preview.png") == true)
+        XCTAssertTrue(details?.backURL?.path.hasSuffix("/back.png") == true)
         backend.configure { $0.failCardCoverRead = true }
         let fallback = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
         XCTAssertNil(fallback?.coverURL)
         XCTAssertNotNil(fallback?.frontURL, "A missing optional cover preserves the approved front fallback")
+    }
+
+    @MainActor private func jpegCard() throws -> OiStoryCardPublication {
+        try OiDraftCardPreview(draft: draft(), customization: OiDraftCustomization())
+            .publication(colorScheme: .light, includeCover: true, coverType: .jpeg)
+    }
+
+    @MainActor func testJPEGCoverUploadsReviewsAndReadsWithExactType() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.publicStoryCard = true; $0.duplexStoryCard = true; $0.storyCardCover = true; $0.storyCardCoverJpeg = true }
+        await store.start()
+        XCTAssertTrue(store.canPublishStoryCardCoverJPEG)
+        let card = try jpegCard()
+        let saved = await store.save(draft())
+        backend.configure { $0.failCardCoverUpload = true }
+        let failed = await store.submitStory(try XCTUnwrap(saved), card: card)
+        XCTAssertNil(failed)
+        XCTAssertEqual(backend.snapshot().submitCount, 0, "A partial bundle cannot enter review")
+        backend.configure { $0.failCardCoverUpload = false; $0.timeOutSubmitAfterCommit = true }
+        let submitted = await store.submitStory(try XCTUnwrap(saved), card: card)
+        let pending = try XCTUnwrap(submitted)
+        XCTAssertEqual(pending.cardSnapshotFormat, 3)
+        XCTAssertEqual(pending.cardCoverType, "jpeg")
+        XCTAssertEqual(pending.cardSnapshotId, card.id)
+        XCTAssertEqual(pending.cardArtworkPaths.count, 5)
+        let coverPath = try XCTUnwrap(pending.cardArtworkPaths.last)
+        XCTAssertTrue(coverPath.hasSuffix("/cover.jpg"))
+        for path in pending.cardArtworkPaths {
+            XCTAssertEqual(backend.snapshot().uploadContentTypes["oi-story-media/" + path], path == coverPath ? "image/jpeg" : "image/png")
+        }
+        let bytes = try await store.storyCoverData(coverPath, type: .jpeg)
+        XCTAssertEqual(bytes, card.parts[.cover])
+        let reused = try OiCardImageExport.publication(front: XCTUnwrap(UIImage(data: card.png)),
+            message: "뒷면 수정", author: "가상 작성자", cover: bytes, coverType: .jpeg)
+        XCTAssertEqual(reused.parts[.cover], bytes, "Saved JPEG must not be compressed again")
+        XCTAssertNotEqual(reused.id, card.id)
+        let approved = try await store.reviewOperatorStory(pending, publish: true).story
+        XCTAssertEqual(approved.cardCoverType, "jpeg")
+        XCTAssertEqual(backend.snapshot().reviewPayloads.last?["card_cover_type"] as? String, "jpeg")
+        let repository = RealStoryRepository(key: "sb_publishable_testing", session: session)
+        let details = try await repository.fetchPublicPostcardDetails(storyID: pending.id.uuidString)
+        XCTAssertEqual(details?.coverType, .jpeg)
+        XCTAssertTrue(details?.coverURL?.path.hasSuffix("/cover.jpg") == true)
+        XCTAssertTrue(details?.backURL?.path.hasSuffix("/back.png") == true)
+        backend.configure { $0.failCardCoverRead = true }
+        let fallback = try await repository.fetchPublicPostcardDetails(storyID: pending.id.uuidString)
+        XCTAssertNil(fallback?.coverURL)
+        XCTAssertNotNil(fallback?.frontURL)
+        await store.signOut()
+        XCTAssertFalse(store.canPublishStoryCardCoverJPEG)
+    }
+
+    @MainActor func testJPEGCoverFallsBackToRealPNGOnPNGOnlyServer() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.publicStoryCard = true; $0.duplexStoryCard = true; $0.storyCardCover = true }
+        await store.start()
+        XCTAssertFalse(store.canPublishStoryCardCoverJPEG)
+        let jpeg = try jpegCard(), png = try jpeg.withPNGCover()
+        XCTAssertNotEqual(jpeg.id, png.id)
+        let saved = await store.save(draft())
+        let submitted = await store.submitStory(try XCTUnwrap(saved), card: jpeg)
+        var pending = try XCTUnwrap(submitted)
+        XCTAssertEqual(pending.cardSnapshotId, png.id)
+        XCTAssertEqual(pending.cardSnapshotFormat, 3)
+        let path = try XCTUnwrap(pending.cardArtworkPaths.last)
+        XCTAssertTrue(path.hasSuffix("/cover.png"))
+        let data = try XCTUnwrap(backend.snapshot().uploads["oi-story-media/" + path])
+        _ = try OiPublishedStoryCover.decode(data, type: .png)
+        XCTAssertEqual(backend.snapshot().uploadContentTypes["oi-story-media/" + path], "image/png")
+        XCTAssertFalse(backend.snapshot().uploads.keys.contains { $0.hasSuffix("/cover.jpg") })
+        // A pre-JPEG server omits the metadata column entirely.
+        backend.configure { $0.story?.removeValue(forKey: "card_cover_type") }
+        pending.cardCoverType = nil
+        _ = try await store.reviewOperatorStory(pending, publish: true)
+        let details = try await RealStoryRepository(key: "sb_publishable_testing", session: session)
+            .fetchPublicPostcardDetails(storyID: pending.id.uuidString)
+        XCTAssertEqual(details?.coverType, .png)
+        XCTAssertTrue(details?.coverURL?.path.hasSuffix("/cover.png") == true)
+    }
+
+    @MainActor func testJPEGCoverRejectsWrongSubmissionTypeIncludingTimeout() async throws {
+        for timeout in [false, true] {
+            let (store, backend, _, session, directory) = try context()
+            defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+            backend.configure { $0.publicStoryCard = true; $0.duplexStoryCard = true; $0.storyCardCover = true; $0.storyCardCoverJpeg = true; $0.corruptSubmittedCoverType = true; $0.timeOutSubmitAfterCommit = timeout }
+            await store.start()
+            let saved = await store.save(draft())
+            let result = await store.submitStory(try XCTUnwrap(saved), card: try jpegCard())
+            XCTAssertNil(result, "Matching snapshot IDs with a different codec are not a confirmed submission")
+            XCTAssertNotNil(store.error)
+        }
+    }
+
+    @MainActor func testJPEGCoverRejectsWrongApprovalReceiptAndUnknownType() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.publicStoryCard = true; $0.duplexStoryCard = true; $0.storyCardCover = true; $0.storyCardCoverJpeg = true }
+        await store.start()
+        let saved = await store.save(draft())
+        let submitted = await store.submitStory(try XCTUnwrap(saved), card: try jpegCard())
+        var pending = try XCTUnwrap(submitted)
+        pending.cardCoverType = "future-codec"
+        XCTAssertFalse(pending.hasSupportedCardArtwork)
+        do { _ = try await store.reviewOperatorStory(pending, publish: true); XCTFail("Unknown cover types cannot be approved") } catch {}
+        XCTAssertEqual(backend.snapshot().reviewCount, 0)
+        pending.cardCoverType = "jpeg"
+        backend.configure { $0.corruptReviewedCoverType = true }
+        do { _ = try await store.reviewOperatorStory(pending, publish: true); XCTFail("Wrong type receipt must be rejected") }
+        catch { XCTAssertTrue(error is OiOperatorStoryError) }
     }
 
     @MainActor func testCoverFallsBackToSameDuplexVersionOnOlderServer() async throws {

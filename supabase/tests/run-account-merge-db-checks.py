@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run migration and ownership tests in a task-owned, Unix-socket-only PostgreSQL."""
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -69,6 +70,81 @@ def check_postcard_cover_drift(connection, migration):
             finally:
                 run(connection, input=definition, text=True)
     print('PASS: postcard cover rejects missing/duplicate mutation and capability anchors; all six failures roll back')
+
+def jpeg_cover_catalog(connection):
+    sql = """select jsonb_build_object(
+      'functions',(select jsonb_agg(jsonb_build_object('definition',pg_get_functiondef(oid),
+        'acl',proacl) order by oid) from pg_proc where pronamespace='benchmark_private'::regnamespace
+        and proname in ('oi_mutate','oi_check_story_card','oi_story_card_parts')),
+      'capabilities',pg_get_functiondef('public.oi_capabilities()'::regprocedure),
+      'columns',(select jsonb_agg(attname order by attnum) from pg_attribute
+        where attrelid='public.oi_stories'::regclass and attnum>0 and not attisdropped),
+      'checks',(select jsonb_agg(pg_get_constraintdef(oid) order by conname) from pg_constraint
+        where conrelid='public.oi_stories'::regclass and contype='c'),
+      'policy',(select pg_get_expr(polqual,polrelid) from pg_policy
+        where polrelid='storage.objects'::regclass and polname='oi_duplex_story_card_read'),
+      'rows',(select jsonb_agg(to_jsonb(s) order by id) from public.oi_stories s where id::text like 'c349%'));"""
+    return subprocess.run(connection + ['-qAtc', sql], capture_output=True, text=True, check=True, timeout=20).stdout.strip()
+
+
+def check_jpeg_cover_drift(connection, migration):
+    # Exercise every actual replacement anchor, including multi-line mutation patches.
+    # Whitespace drift preserves the function's behavior but must fail the migration.
+    anchors = re.findall(r'\$old\$([\s\S]*?)\$old\$', migration.read_text())
+    assert len(anchors) == 6
+    patches = [('benchmark_private.oi_check_story_card(public.oi_stories)', anchor) for anchor in anchors[:3]]
+    patches += [('benchmark_private.oi_mutate(text,jsonb)', anchor) for anchor in anchors[3:]]
+    patches += [('public.oi_capabilities()', "'story_card_cover',true")]
+    for signature, anchor in patches:
+        definition = subprocess.run(connection + ['-qAtc', f"select pg_get_functiondef('{signature}'::regprocedure);"],
+                                    capture_output=True, text=True, check=True, timeout=20).stdout.strip()
+        assert definition.count(anchor) == 1, signature
+        for duplicate in (False, True):
+            body = anchor.lstrip()
+            changed = anchor + f' /* {anchor} */' if duplicate else anchor[:len(anchor)-len(body)] + (
+                body.replace(',', ', ', 1) if ',' in body else body.replace(' ', '  ', 1))
+            run(connection, input=definition.replace(anchor, changed), text=True)
+            before = jpeg_cover_catalog(connection)
+            try:
+                rejected = subprocess.run(connection + ['-f', str(migration)], capture_output=True, text=True, timeout=20)
+                assert rejected.returncode != 0 and 'drift requires JPEG cover review' in rejected.stderr, (signature, duplicate, rejected.returncode, rejected.stderr)
+                assert jpeg_cover_catalog(connection) == before, 'JPEG migration did not roll back data, schema, functions, grants and policy'
+            finally:
+                run(connection, input=definition, text=True)
+    print('PASS: all 14 JPEG anchor drift failures roll back schema, backfill, functions, grants and policy')
+
+
+def seed_jpeg_cover_backfill(connection):
+    owner = 'c3490000-0000-4000-8000-000000000001'
+    run(connection, input=f"insert into auth.users(id) values('{owner}');", text=True)
+    for index, (format, status) in enumerate([(1,'draft'), (2,'published'), (3,'draft'), (3,'pending'), (3,'published'), (3,'hidden'), (3,'deleted')], 11):
+        story = f'c3490000-0000-4000-8000-{index:012d}'
+        snapshot = 'null' if format == 1 else "'c3490000-0000-4000-8000-000000000031'::uuid"
+        run(connection, input=f"""insert into public.oi_stories(id,user_id,storage_owner_id,region_id,title,body,theme,emotion,
+          cucumber_name,cucumber_asset,card_asset,latitude,longitude,status,revision,card_snapshot_id,card_snapshot_format)
+          values('{story}','{owner}','{owner}','pond','Synthetic backfill','Body','theme','emotion','one','OiCats','MYBasicCard',36,129,
+          '{status}',7,{snapshot},{format});""", text=True)
+    sql = "select jsonb_agg(to_jsonb(s) order by id) from public.oi_stories s where id::text like 'c349%';"
+    return subprocess.run(connection + ['-qAtc', sql], capture_output=True, text=True, check=True, timeout=20).stdout.strip()
+
+
+def check_jpeg_cover_backfill(connection, before):
+    sql = "select jsonb_agg(to_jsonb(s)-'card_cover_type' order by id) from public.oi_stories s where id::text like 'c349%';"
+    after = subprocess.run(connection + ['-qAtc', sql], capture_output=True, text=True, check=True, timeout=20).stdout.strip()
+    assert json.loads(before) == json.loads(after), 'PNG backfill changed existing story data or revision'
+    run(connection, input="""do $$ begin
+      if exists(select 1 from public.oi_stories where id::text like 'c349%' and
+        ((card_snapshot_format=3 and card_cover_type is distinct from 'png')
+          or (card_snapshot_format in (1,2) and card_cover_type is not null))) then
+        raise exception 'Incorrect legacy cover type backfill';
+      end if;
+    end; $$;
+    delete from public.oi_stories where id::text like 'c349%';
+    delete from benchmark_private.oi_account_members where auth_user_id='c3490000-0000-4000-8000-000000000001';
+    delete from public.oi_profiles where id='c3490000-0000-4000-8000-000000000001';
+    delete from auth.users where id='c3490000-0000-4000-8000-000000000001';""", text=True)
+    print('PASS: PNG backfill preserves every existing story field/revision across all five statuses and formats 1/2')
+
 
 def check_fingerprint_concurrency(connection):
     # Both requests enter before either commits. Equal SHA or transaction digests
@@ -237,7 +313,12 @@ grant execute on function auth.jwt() to anon,authenticated;
             for migration in post_retirement:
                 if database is connection and migration.name.endswith('_oi_postcard_cover.sql'):
                     check_postcard_cover_drift(database, migration)
+                if migration.name.endswith('_oi_postcard_cover_jpeg.sql'):
+                    backfill_before = seed_jpeg_cover_backfill(database)
+                    check_jpeg_cover_drift(database, migration)
                 run(database + ['-f', str(migration)])
+                if migration.name.endswith('_oi_postcard_cover_jpeg.sql'):
+                    check_jpeg_cover_backfill(database, backfill_before)
             run(database + ['-f', 'supabase/tests/oi-donation-evidence-retired.sql'])
             run(database + ['-f', 'supabase/tests/oi-account-deletion.sql'])
             run(database + ['-f', 'supabase/tests/oi-bounded-collection-metrics.sql'])
@@ -245,8 +326,9 @@ grant execute on function auth.jwt() to anon,authenticated;
 
             run(database + ['-f', 'supabase/tests/oi-duplex-story-card.sql'])
             run(database + ['-f', 'supabase/tests/oi-postcard-cover.sql'])
+            run(database + ['-f', 'supabase/tests/oi-postcard-cover-jpeg.sql'])
             run(database + ['-f', 'supabase/tests/oi-public-cucumber-appearance.sql'])
-        print('PASS: card formats 1/2/3, cover validation/access/review, and deletion on both histories')
+        print('PASS: card formats 1/2/3, PNG/JPEG cover validation/access/review, and deletion on both histories')
         print('PASS: retired evidence RPCs and uploads, retained private records and deletion, story moderation on both histories')
         # Unknown owning function edits must stop the migration before any schema change commits.
         run(connection + ['-c', 'create database unknown_drift'])

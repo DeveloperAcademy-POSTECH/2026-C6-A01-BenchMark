@@ -91,6 +91,15 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
     var cucumberAppearance: OiCucumberAppearance? = nil
     var cardSnapshotId: UUID? = nil
     var cardSnapshotFormat: Int? = nil
+    var cardCoverType: String? = nil
+
+    var resolvedCardCoverType: StoryCard.CoverType? {
+        cardSnapshotFormat == 3 ? StoryCard.CoverType.resolve(cardCoverType) : nil
+    }
+
+    var hasSupportedCardArtwork: Bool {
+        [1, 2, 3].contains(cardSnapshotFormat ?? 1) && (cardSnapshotFormat != 3 || resolvedCardCoverType != nil)
+    }
 
     var cucumberArtwork: OiCucumberArtworkReference? {
         cucumberAppearance.map { .init(ownerID: storageOwnerId ?? userId, storyID: id, appearance: $0) }
@@ -108,7 +117,7 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
     var cardArtworkPaths: [String] {
         guard let snapshot = cardSnapshotId else { return [] }
         let parts = StoryCard.Part.parts(format: cardSnapshotFormat ?? 1)
-        return parts.map { StoryCard.artworkPath(owner: storageOwnerId ?? userId, story: id, snapshot: snapshot, part: $0) }
+        return parts.map { StoryCard.artworkPath(owner: storageOwnerId ?? userId, story: id, snapshot: snapshot, part: $0, coverType: resolvedCardCoverType ?? .png) }
     }
 
     var isRegisteredOnCampus: Bool { status == "pending" || status == "published" }
@@ -283,6 +292,7 @@ struct OiCapabilities: Decodable {
     let publicStoryCard: Bool?
     var duplexStoryCard: Bool? = nil
     var storyCardCover: Bool? = nil
+    var storyCardCoverJpeg: Bool? = nil
 }
 
 struct OiStoryDraft: Codable, Equatable {

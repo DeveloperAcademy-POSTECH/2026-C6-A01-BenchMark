@@ -40,10 +40,14 @@ struct OiStoryReview<StoryPhoto: View>: View {
     @State private var invalidCapture = false
     @State private var checkedPortrait = false
     @State private var savedCard: UIImage?
-    @State private var savedCoverPNG: Data?
+    @State private var savedCoverData: Data?
 
+    private var savedStory: OiLiveStory? {
+        guard let savedCardPath else { return nil }
+        return remote.ownStories.first { $0.cardArtworkPath == savedCardPath }
+    }
     private var savedCoverPath: String? {
-        guard let savedCardPath, let story = remote.ownStories.first(where: { $0.cardArtworkPath == savedCardPath }),
+        guard let story = savedStory,
               story.cardSnapshotFormat == 3 else { return nil }
         return story.cardArtworkPaths.last
     }
@@ -298,7 +302,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
     private var artworkReady: Bool {
         if customization.wardrobe != nil && portraitPNG == nil { return false }
         if savedPortraitPath != nil && portrait == nil { return false }
-        return (savedCardPath == nil || savedCard != nil) && (savedCoverPath == nil || savedCoverPNG != nil)
+        return (savedStory?.hasSupportedCardArtwork ?? true) && (savedCardPath == nil || savedCard != nil) && (savedCoverPath == nil || savedCoverData != nil)
     }
 
     private var issuePanel: some View {
@@ -334,6 +338,8 @@ struct OiStoryReview<StoryPhoto: View>: View {
                 do {
                     let card = try cardPublication()
                     onSubmit(portraitPNG, card)
+                } catch let error as OiCardExportError {
+                    renderError = error.localizedDescription
                 } catch {
                     renderError = "꾸민 카드 이미지를 준비하지 못했어요. 카드 설정을 확인해 주세요."
                 }
@@ -351,9 +357,11 @@ struct OiStoryReview<StoryPhoto: View>: View {
         if let savedCard {
             return try OiCardImageExport.publication(front: savedCard, message: draft.body, author: donorName,
                 academicAuthor: OiPostcardAuthor.academic(department: remote.profile?.department, year: remote.profile?.admissionYear),
-                cover: remote.canPublishStoryCardCover ? savedCoverPNG : nil)
+                cover: remote.canPublishStoryCardCover ? savedCoverData : nil,
+                coverType: savedStory?.resolvedCardCoverType ?? .png)
         }
-        return try draftCard.publication(colorScheme: .light, includeCover: remote.canPublishStoryCardCover)
+        return try draftCard.publication(colorScheme: .light, includeCover: remote.canPublishStoryCardCover,
+            coverType: remote.canPublishStoryCardCoverJPEG ? .jpeg : .png)
     }
 
     private func sectionHeader(_ title: String, symbol: String, edit step: OiCreationStep) -> some View {
@@ -414,8 +422,8 @@ struct OiStoryReview<StoryPhoto: View>: View {
             if let savedCardPath {
                 savedCard = try await remote.cucumberImage(savedCardPath)
                 if let savedCoverPath {
-                    savedCoverPNG = try await remote.cucumberImage(savedCoverPath).pngData()
-                    guard savedCoverPNG != nil else { throw OiCardExportError.imageUnavailable }
+                    guard let type = savedStory?.resolvedCardCoverType else { throw OiCardExportError.imageUnavailable }
+                    savedCoverData = try await remote.storyCoverData(savedCoverPath, type: type)
                 }
             }
         } catch {
