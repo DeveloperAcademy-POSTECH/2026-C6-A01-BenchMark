@@ -32,7 +32,7 @@ struct ScratchPostcardView: View {
     private static let barBackground = Color(red: 234 / 255, green: 238 / 255, blue: 226 / 255) // #EAEEE2
     private static let nameGreen = Color(red: 101 / 255, green: 128 / 255, blue: 78 / 255)      // #65804E
     private static let tagBrown = Color(red: 161 / 255, green: 92 / 255, blue: 3 / 255)         // #A15C03
-    private static let hintGray = Color(red: 173 / 255, green: 173 / 255, blue: 173 / 255)      // #ADADAD
+    private static let hintGray = Color(red: 87 / 255, green: 87 / 255, blue: 87 / 255)         // #575757 (Figma 5441:15794)
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var collectionStore = StoryCollectionStore()
@@ -74,7 +74,14 @@ struct ScratchPostcardView: View {
         static let sideInset: CGFloat = 20
         static let infoHeight: CGFloat = 84
         static let buttonHeight: CGFloat = 46
-        static let characterSize = CGSize(width: 460.0 / 3, height: 588.0 / 3)
+        /// Figma "IMG_2812 2"(5441:15821): a 114×227 frame rotated 10.39° clockwise whose rotated bounds
+        /// (153.086×243.843) start at (13, 678) and run off the bottom of the 874pt screen.
+        static let characterFrame = CGSize(width: 114, height: 227)
+        static let characterRotation: Double = 10.39
+        static let characterCenter = CGPoint(x: 13 + 153.086 / 2, y: 678 + 243.843 / 2)
+        /// The portrait fills 147.16%×113.33% of the frame at (−22.47%, −4.44%), cropping its transparent margins.
+        static let characterImageScale = CGSize(width: 1.4716, height: 1.1333)
+        static let characterImageOffset = CGPoint(x: -0.2247, y: -0.0444)
         /// Card frame bottom sits this far above the screen bottom on the start view (874 − 708):
         /// the character overlaps only the card's outer margin, never the scratch area.
         static let startBottomReserve: CGFloat = 166
@@ -164,11 +171,18 @@ struct ScratchPostcardView: View {
 
             // Drawn above the card, as in Figma, so the stem overlaps the card margin.
             if phase == .scratching, let character = postcard.character {
+                let frame = Layout.characterFrame
                 Image(uiImage: character)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: Layout.characterSize.width, height: Layout.characterSize.height)
-                    .offset(x: 13, y: layout.size.height - Layout.characterSize.height)
+                    .frame(width: frame.width * Layout.characterImageScale.width,
+                           height: frame.height * Layout.characterImageScale.height)
+                    .offset(x: frame.width * Layout.characterImageOffset.x, y: frame.height * Layout.characterImageOffset.y)
+                    .frame(width: frame.width, height: frame.height, alignment: .topLeading)
+                    .clipped()
+                    .rotationEffect(.degrees(Layout.characterRotation))
+                    // Kept at the same distance from the screen bottom as in the 874pt Figma frame.
+                    .position(x: Layout.characterCenter.x, y: layout.size.height - (874 - Layout.characterCenter.y))
                     .accessibilityHidden(true)
                     .allowsHitTesting(false)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -525,8 +539,15 @@ struct ScratchPostcardView: View {
 
 /// Fonts used by the postcard views.
 enum ScratchPostcardFont {
-    /// Figma uses REATIC Wide; the App Clip keeps Paperlogy to stay under the 15MB NFC size limit.
-    static let cucumberName = Font.custom("Paperlogy-7Bold", size: 26)
+    /// 양진체 (YANGJIN, SIL OFL 1.1) for the cucumber name as in Figma 5441:15809, registered at App Clip
+    /// launch (#358). Paperlogy Bold stays as the fallback if registration fails.
+    static let yangjin = "YANGJIN"
+
+    static var cucumberName: Font {
+        UIFont(name: yangjin, size: 26) != nil
+            ? .custom(yangjin, size: 26)
+            : .custom("Paperlogy-7Bold", size: 26)
+    }
 }
 
 /// Shows the checkmark only after the postcard has been saved.
