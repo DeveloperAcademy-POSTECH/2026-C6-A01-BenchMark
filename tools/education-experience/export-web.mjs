@@ -27,7 +27,7 @@ if(scripts.length!==2)throw Error('Inspect standalone web entry points.');
 const entry=fileURLToPath(new URL('./viewer/web-viewer.mjs',import.meta.url));
 const result=await build({stdin:{contents:[`import ${JSON.stringify(entry)};`,...scripts.map(m=>`import ${JSON.stringify(m[1])};`)].join('\n'),resolveDir:source},bundle:true,format:'iife',platform:'browser',target:'safari18',minify:true,legalComments:'inline',write:false,define:{'import.meta.url':'document.baseURI'},plugins:[{name:'shared-garden-viewer',setup(builder){
  builder.onResolve({filter:/^@education\/three$/},()=>({path:path.join(source,'vendor/three.module.js')}));
- builder.onLoad({filter:/scatter-stories\.js$/},async args=>({contents:adaptNativeStories(await readFile(args.path,'utf8')),loader:'js'}));
+ builder.onLoad({filter:/scatter-stories\.js$/},async args=>({contents:adaptNativeStories(await readFile(args.path,'utf8'),{web:true}),loader:'js'}));
  builder.onLoad({filter:/building-3d\.js$/},async args=>{
   let text=adaptNativeRenderer(await readFile(args.path,'utf8'),{web:true});const i=text.indexOf('const stage=');
   if(i<0)throw Error('Inspect standalone renderer wrapper.');

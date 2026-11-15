@@ -45,7 +45,7 @@ export function adaptNativeRenderer(input,{web=false}={}) {
  installBuildingGestures({canvas,intent:pointerIntent,onStart:()=>storyUI.hide(),
   onRotate:(dx,dy)=>{yaw-=dx*.005;pitch=THREE.MathUtils.clamp(pitch+dy*.004,.06,.8);queuedFit.schedule();},
   onZoom:ratio=>{zoom=THREE.MathUtils.clamp(zoom*ratio,.7,2.5);queuedFit.schedule();},
-  onTap:e=>{if(!scatterTarget&&scatter===0&&!animation&&hitBuilding(e.clientX,e.clientY))activateBuilding();},
+  onTap:e=>{${web?'if(scatterTarget===1&&scatter===1&&!animation){activateBuilding();return;}':''}if(!scatterTarget&&scatter===0&&!animation&&hitBuilding(e.clientX,e.clientY))activateBuilding();},
   onMode:mode=>{stage.dataset.gestureIntent=mode;}
  });
  canvas.setAttribute('role','button');canvas.setAttribute('aria-label','교육지구 2.0 건물. 탭하면 빛이 펼쳐집니다. 드래그로 회전하고 핀치로 확대할 수 있습니다.');
@@ -60,13 +60,15 @@ export function adaptNativeRenderer(input,{web=false}={}) {
   return `import {renderPolicy,framingPoints,frameQueue} from ${JSON.stringify(fileURLToPath(new URL('./render-policy.mjs',import.meta.url)))};\nimport {PointerIntent,installBuildingGestures} from ${JSON.stringify(fileURLToPath(new URL('./pointer-intent.mjs',import.meta.url)))};\n`+input;
 }
 
-export function adaptNativeStories(input){
+export function adaptNativeStories(input,{web=false}={}){
   const replace=(needle,value)=>{if(!input.includes(needle))throw Error('Inspect native story picking adapter: '+needle);input=input.replace(needle,()=>value);};
   replace('const a=mesh.instanceMatrix.array;', 'const pick=mesh.userData.nativePick,a=pick?.matrices??mesh.instanceMatrix.array,limit=pick?.ids.length??mesh.count,sourceIds=pick?.ids??ids;');
   replace('for(let i=0;i<mesh.count;i++){','for(let i=0;i<limit;i++){');
   replace('id:ids?ids[i]:start+i','id:sourceIds?sourceIds[i]:start+i');
-  // Reserve the bottom return button as well as the existing header boundary.
-  replace('const restore=button.getBoundingClientRect()',"const restore=document.querySelector('#viewerReturn').getBoundingClientRect()");
-  replace('top=by+restore.height+12;', 'top=Math.max(navBottom,by-h-12);');
+  if(!web){
+    // Only the app reserves a bottom return button; the web returns by canvas tap.
+    replace('const restore=button.getBoundingClientRect()',"const restore=document.querySelector('#viewerReturn').getBoundingClientRect()");
+    replace('top=by+restore.height+12;', 'top=Math.max(navBottom,by-h-12);');
+  }
   return input;
 }
