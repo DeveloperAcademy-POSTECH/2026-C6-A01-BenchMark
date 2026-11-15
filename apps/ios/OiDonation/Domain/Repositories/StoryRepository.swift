@@ -36,6 +36,7 @@ struct PublicPostcardDetails: Sendable {
     let donorLine: String?
     /// Approved sticker-free window from a format-3 snapshot.
     var coverURL: URL? = nil
+    var coverType: StoryCard.CoverType = .png
 }
 
 extension StoryRepository {
@@ -71,6 +72,7 @@ struct RealStoryRepository: StoryRepository {
         let cucumberAppearance: Appearance?
         let cardSnapshotId: UUID?
         let cardSnapshotFormat: Int?
+        let cardCoverType: String?
     }
     private struct Profile: Decodable {
         let id: UUID; let nickname: String
@@ -244,8 +246,8 @@ struct RealStoryRepository: StoryRepository {
         let owner = row.storageOwnerId ?? row.userId
         var frontURL: URL?, backURL: URL?, coverURL: URL?
         if let snapshot = row.cardSnapshotId {
-            if row.cardSnapshotFormat == 3 {
-                coverURL = try? await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id, snapshot: snapshot, part: .cover))
+            if row.cardSnapshotFormat == 3, let coverType = StoryCard.CoverType.resolve(row.cardCoverType) {
+                coverURL = try? await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id, snapshot: snapshot, part: .cover, coverType: coverType))
             }
             let isDuplex = [2, 3].contains(row.cardSnapshotFormat ?? 1)
             frontURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id,
@@ -276,7 +278,8 @@ struct RealStoryRepository: StoryRepository {
         try Task.checkCancellation()
         guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
         return PublicPostcardDetails(frontURL: frontURL, backURL: backURL, coverPhotoURL: coverPhotoURL,
-                                     donorLine: profile.flatMap(Self.donorLine), coverURL: coverURL)
+                                     donorLine: profile.flatMap(Self.donorLine), coverURL: coverURL,
+                                     coverType: StoryCard.CoverType.resolve(row.cardCoverType) ?? .png)
     }
 
     private static func donorLine(_ profile: Profile) -> String? {

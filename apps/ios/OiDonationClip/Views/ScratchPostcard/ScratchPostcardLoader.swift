@@ -5,6 +5,7 @@
 //  Created by jiwon hong on 11/13/26.
 //
 
+import ImageIO
 import Observation
 import StoreKit
 import SwiftUI
@@ -69,7 +70,7 @@ final class ScratchPostcardLoader {
             }
             async let front = Self.image(details.frontURL)
             async let back = Self.image(details.backURL)
-            async let cleanCover = try? Self.image(details.coverURL)
+            async let cleanCover = try? Self.image(details.coverURL, coverType: details.coverType)
             async let character = try? Self.image(story.cucumberImageURL)
             let frontImage = try await front
             // Prefer the reviewed sticker-free window. Older snapshots and unavailable covers
@@ -121,15 +122,32 @@ final class ScratchPostcardLoader {
     nonisolated private static let maximumBytes = 10 * 1024 * 1024
 
     /// Downloads a signed storage image from the approved host, or reads a bundled preset portrait.
-    nonisolated private static func image(_ url: URL?) async throws -> UIImage? {
+    nonisolated private static func image(_ url: URL?, coverType: StoryCard.CoverType? = nil) async throws -> UIImage? {
         guard let url else { return nil }
-        if url.isFileURL { return UIImage(contentsOfFile: url.path) }
+        if url.isFileURL {
+            let data = try Data(contentsOf: url)
+            return try decodedImage(data, coverType: coverType)
+        }
         guard url.scheme == "https", url.host == "kfzfzarslqdqmrazohej.supabase.co" else { throw ImageError.rejected }
         var request = URLRequest(url: url)
         request.timeoutInterval = 30
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200, data.count <= maximumBytes,
-              let image = UIImage(data: data) else { throw ImageError.rejected }
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw ImageError.rejected }
+        return try decodedImage(data, coverType: coverType)
+    }
+
+    nonisolated private static func decodedImage(_ data: Data, coverType: StoryCard.CoverType?) throws -> UIImage {
+        guard !data.isEmpty, data.count <= (coverType?.maximumBytes ?? maximumBytes) else { throw ImageError.rejected }
+        if let coverType {
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  CGImageSourceGetType(source) as String? == coverType.typeIdentifier,
+                  CGImageSourceGetCount(source) == 1,
+                  let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                  let width = properties[kCGImagePropertyPixelWidth] as? Int,
+                  let height = properties[kCGImagePropertyPixelHeight] as? Int,
+                  (1...2048).contains(width), (1...2048).contains(height) else { throw ImageError.rejected }
+        }
+        guard let image = UIImage(data: data) else { throw ImageError.rejected }
         return image
     }
 }

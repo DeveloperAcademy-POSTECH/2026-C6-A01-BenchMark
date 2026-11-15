@@ -54,11 +54,20 @@ struct OiStoryCardPublication {
     let id: UUID
     let png: Data
     let parts: [StoryCard.Part: Data]
+    let coverType: StoryCard.CoverType?
     var format: Int { parts[.cover] != nil ? 3 : (parts.isEmpty ? 1 : 2) }
 
     func withoutCover() throws -> Self {
         guard format == 3 else { return self }
         return try Self(front: png, back: parts[.back]!, frontPreview: parts[.frontPreview]!, backPreview: parts[.backPreview]!)
+    }
+
+    func withPNGCover() throws -> Self {
+        guard coverType == .jpeg, let cover = parts[.cover] else { return self }
+        let image = try OiPublishedStoryCover.decode(cover, type: .jpeg)
+        guard let png = UIImage(cgImage: image).pngData() else { throw OiPhotoDataError.unreadable }
+        return try Self(front: self.png, back: parts[.back]!, frontPreview: parts[.frontPreview]!,
+                        backPreview: parts[.backPreview]!, cover: png)
     }
 
     init(png: Data) throws {
@@ -68,15 +77,19 @@ struct OiStoryCardPublication {
                          b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]))
         self.png = png
         parts = [:]
+        coverType = nil
     }
 
-    init(front: Data, back: Data, frontPreview: Data, backPreview: Data, cover: Data? = nil) throws {
+    init(front: Data, back: Data, frontPreview: Data, backPreview: Data, cover: Data? = nil, coverType: StoryCard.CoverType = .png) throws {
         var values: [StoryCard.Part: Data] = [.front: front, .back: back, .frontPreview: frontPreview, .backPreview: backPreview]
         if let cover { values[.cover] = cover }
         var hash = SHA256()
-        hash.update(data: Data((cover == nil ? "oi-card-duplex-v2" : "oi-card-cover-v3").utf8))
+        // Keep all existing PNG snapshot IDs stable; JPEG has a separate hash domain.
+        hash.update(data: Data((cover == nil ? "oi-card-duplex-v2" :
+            (coverType == .jpeg ? "oi-card-cover-jpeg-v3" : "oi-card-cover-v3")).utf8))
         for part in StoryCard.Part.parts(format: cover == nil ? 2 : 3) {
-            _ = try OiPublishedCucumberImage.decode(values[part]!, part: .portrait)
+            if part == .cover { _ = try OiPublishedStoryCover.decode(values[part]!, type: coverType) }
+            else { _ = try OiPublishedCucumberImage.decode(values[part]!, part: .portrait) }
             hash.update(data: Data(SHA256.hash(data: values[part]!)))
         }
         let bytes = Array(hash.finalize().prefix(16))
@@ -84,6 +97,23 @@ struct OiStoryCardPublication {
                          bytes[8],bytes[9],bytes[10],bytes[11],bytes[12],bytes[13],bytes[14],bytes[15]))
         png = front
         parts = values
+        self.coverType = cover == nil ? nil : coverType
+    }
+}
+
+/// Card covers have their own codec contract. Garment/portrait PNG validation stays strict.
+enum OiPublishedStoryCover {
+    static func decode(_ data: Data, type: StoryCard.CoverType) throws -> CGImage {
+        guard !data.isEmpty, data.count <= type.maximumBytes,
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetType(source) as String? == type.typeIdentifier,
+              CGImageSourceGetCount(source) == 1,
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int,
+              (1...2048).contains(width), (1...2048).contains(height),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { throw OiPhotoDataError.unreadable }
+        return image
     }
 }
 

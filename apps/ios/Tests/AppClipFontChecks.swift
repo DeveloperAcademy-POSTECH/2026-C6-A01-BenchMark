@@ -11,7 +11,6 @@ import Foundation
 @main
 struct AppClipFontChecks {
     private static let requiredFonts: [(file: String, postScriptName: String)] = [
-        ("Paperlogy-2ExtraLight", "Paperlogy-2ExtraLight"),
         ("Paperlogy-3Light", "Paperlogy-3Light"),
         ("Paperlogy-4Regular", "Paperlogy-4Regular"),
         ("Paperlogy-5Medium", "Paperlogy-5Medium"),
@@ -71,13 +70,13 @@ struct AppClipFontChecks {
                 weights[expected.postScriptName] = weight.doubleValue
                 print("PASS: bundled \(fileName) → \(actualName), weight \(weight)")
             }
-            guard let extraLight = weights["Paperlogy-2ExtraLight"],
-                  let light = weights["Paperlogy-3Light"],
+            // #351 removed AR-only ExtraLight from the App Clip, keeping it in the main app.
+            guard let light = weights["Paperlogy-3Light"],
                   let regular = weights["Paperlogy-4Regular"],
                   let medium = weights["Paperlogy-5Medium"],
                   let semibold = weights["Paperlogy-6SemiBold"],
-                  let bold = weights["Paperlogy-7Bold"], extraLight < light, light < regular, regular < medium, medium < semibold, semibold < bold else {
-                fail("Paperlogy ExtraLight, Light, Regular, Medium, SemiBold, and Bold must retain distinct increasing weights")
+                  let bold = weights["Paperlogy-7Bold"], light < regular, regular < medium, medium < semibold, semibold < bold else {
+                fail("Paperlogy Light, Regular, Medium, SemiBold, and Bold must retain distinct increasing weights")
             }
             print("PASS: all \(requiredFonts.count) required fonts load from the actual App Clip bundle without fallback")
         } catch {
