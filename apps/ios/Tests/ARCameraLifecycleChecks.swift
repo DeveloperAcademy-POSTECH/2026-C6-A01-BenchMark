@@ -25,7 +25,9 @@ struct ARCameraLifecycleChecks {
             try await recordingCommandsAreDeduplicated()
             try await closeWaitsForPreparingVideo()
             try await disappearanceCancelsPreparingVideo()
-            print("PASS: AR camera lifecycle, delayed startup cancellation, scene races, deferred retry, recorder drain, countdown cancellation, duplicate capture prevention, pending video startup drain")
+            try await readinessLossCancelsCountdownAndQueuedVideo()
+            try await readinessLossDrainsPreparingAndRecordingVideo()
+            print("PASS: AR camera lifecycle, delayed startup cancellation, scene races, deferred retry, recorder drain, countdown cancellation, duplicate capture prevention, pending video startup drain, geographic readiness loss")
         } catch {
             print("FAIL: \(error)")
             exit(EXIT_FAILURE)
@@ -271,6 +273,76 @@ struct ARCameraLifecycleChecks {
         try expect(video.cancelledStarts == 1 && !video.busy && video.suspendedStarts == 0,
                    "Closing must drain cancelled recorder startup without leaving a live recorder")
         try expect(!controller.ready && !model.closing, "Close must finish with camera and closing state cleared")
+    }
+
+    @MainActor
+    private static func readinessLossCancelsCountdownAndQueuedVideo() async throws {
+        let controller = ARSessionController()
+        let video = ARVideoRecorder()
+        let model = ARCameraViewModel(controller: controller, video: video)
+        model.appear(in: .active)
+        try await eventually("camera before geographic readiness loss") { controller.ready }
+        await settle()
+        controller.settings.photoTimer = 1
+        model.capture()
+        try expect(model.countdown == 1, "Photo countdown must start before location is lost")
+        controller.ready = false
+        model.sessionReadinessChanged(false)
+        try expect(model.countdown == nil, "Losing position must immediately cancel a photo countdown")
+        try await Task.sleep(for: .milliseconds(1_100))
+        try expect(controller.captures == 0, "A lost-position countdown must never capture later")
+
+        controller.ready = true
+        model.videoMode = true
+        model.capture()
+        // No yield: placement becomes invalid before the queued start gets CPU time.
+        controller.ready = false
+        model.sessionReadinessChanged(false)
+        await settle()
+        try expect(video.startRequests == 0 && !video.busy,
+                   "A queued video start must not run after position becomes invalid")
+        await model.close()
+    }
+
+    @MainActor
+    private static func readinessLossDrainsPreparingAndRecordingVideo() async throws {
+        let controller = ARSessionController()
+        let video = ARVideoRecorder()
+        let model = ARCameraViewModel(controller: controller, video: video)
+        model.appear(in: .active)
+        try await eventually("camera before preparing readiness loss") { controller.ready }
+        await settle()
+        model.videoMode = true
+        video.holdsStarts = true
+        model.capture()
+        try await eventually("video preparing before position lost") { video.suspendedStarts == 1 }
+        controller.ready = false
+        model.sessionReadinessChanged(false)
+        try await eventually("preparing stop requested") { video.stopRequests == 1 }
+        video.releaseNextStart()
+        try await eventually("preparing recorder drained") { video.completedStarts == 1 && !video.busy }
+        await settle()
+        try expect(video.cancelledStarts == 1, "Readiness loss must cancel an owned preparing startup")
+        await model.close()
+
+        let recordingController = ARSessionController()
+        let recordingVideo = ARVideoRecorder()
+        let recordingModel = ARCameraViewModel(controller: recordingController, video: recordingVideo)
+        recordingModel.appear(in: .active)
+        try await eventually("camera before recording readiness loss") { recordingController.ready }
+        await settle()
+        recordingModel.videoMode = true
+        recordingModel.capture()
+        try await eventually("video recording before position lost") { recordingVideo.state == .recording }
+        recordingVideo.holdsStops = true
+        recordingController.ready = false
+        recordingModel.sessionReadinessChanged(false)
+        recordingModel.sessionReadinessChanged(false)
+        try await eventually("recording finishing after readiness loss") { recordingVideo.suspendedStops == 1 }
+        try expect(recordingVideo.stopRequests == 1, "Repeated invalid position events must share one video finalization")
+        recordingVideo.releaseNextStop()
+        try await eventually("recording safely finalized") { !recordingVideo.busy }
+        await recordingModel.close()
     }
 
     @MainActor

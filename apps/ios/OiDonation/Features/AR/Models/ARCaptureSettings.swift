@@ -8,6 +8,9 @@ struct ARCaptureSettings: Codable, Equatable {
     var cameraExposure: Float = 0
     var photoFilter: ARPhotoFilter = .original
     var character: ARCharacter = .neopjuk
+    /// Present only for a selected public cucumber; legacy mascot records still decode.
+    var cucumberStoryID: UUID? = nil
+    var cucumberName: String? = nil
     var height: Float = 1.2
     var rotation: Float = 0
     var floorOffset: Float = 0
