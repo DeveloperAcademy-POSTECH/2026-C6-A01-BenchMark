@@ -85,14 +85,14 @@
   },
   {
     "id": "school-uniform-trousers",
-    "sourceSHA256": "240973e9a686f56348a9de8b0164f284b4c004838341a2c82202cb00dd63a86f",
+    "sourceSHA256": "d655858b6f2fb26963852a0ab63b0e611cfed43b1de7f050fea822e6c8432c87",
     "lit": {
       "path": "docs/assets/costume-face-audit/school-uniform-trousers-lit.png",
-      "sha256": "0ef1da4a976b1c84d6fe0146161d37554676de21f23e117bf75d7d3c9565bae1"
+      "sha256": "c8d6a42701688bf37a5af043dae6f6947047315cd70fe807f03ac06ae94f050e"
     },
     "albedo": {
       "path": "docs/assets/costume-face-audit/school-uniform-trousers-albedo.png",
-      "sha256": "759d9f6ebe62a7443cb9964e0e4158a926f47f363658ff8c50df758eff4d7d46"
+      "sha256": "dad6b89dd1f380cf3a15eccb594f271104832b6709f9a7943c8ede12bce8c15f"
     }
   },
   {
@@ -109,14 +109,14 @@
   },
   {
     "id": "scientist-goggles",
-    "sourceSHA256": "47a3b767f752054337f0cc807c0ac5da17447f6be229bfc7c200290a0ef3a751",
+    "sourceSHA256": "48cccfa1bf4e43d1d3b1c4accedb0edd76dd65d874fe953e2c94a8fb3e0769b5",
     "lit": {
       "path": "docs/assets/costume-face-audit/scientist-goggles-lit.png",
-      "sha256": "b18eafbabb91546a807ef54c77920541ed6307938dc2b0b47e94a9864e2b43da"
+      "sha256": "540efaa42daa81a4fad01c1cd0635969cbe4b3af979997e79a2e266daeb0f6e4"
     },
     "albedo": {
       "path": "docs/assets/costume-face-audit/scientist-goggles-albedo.png",
-      "sha256": "243eb91dc5dd9fde614ced26f2c3d1f84671c664e28ccc6e561a1a3cb59d6e5b"
+      "sha256": "fdca93b048bf2751a92203d3dd477cb3c2f3a240522dc7303adff126deb00263"
     }
   },
   {
@@ -169,14 +169,14 @@
   },
   {
     "id": "sportswear",
-    "sourceSHA256": "e31fcf13bd3cfc8dc64fae7112343db876478e1de4b98ac5e5d61f2ea5eb0e7e",
+    "sourceSHA256": "d9d6ba66f316ae5863ab8dc1d2c3436113c1c0a101d94291a87aa205458e5fee",
     "lit": {
       "path": "docs/assets/costume-face-audit/sportswear-lit.png",
-      "sha256": "65d8ffb1cb775c22445c034b6823b184b274efebec752b97cede60ad3a567536"
+      "sha256": "40d996673c21615f7d7d8b37f3071d4d423edc4e2da6cfa7169410ca7fdb6925"
     },
     "albedo": {
       "path": "docs/assets/costume-face-audit/sportswear-albedo.png",
-      "sha256": "1eba5bc02a4f2ce388880f17aa3213822f3c95863011d90c6afa3cfeeb1d4e5c"
+      "sha256": "0de703e61019b52164fb0fad0fcdc1f107f822b6475325b23e3d525d33735dd0"
     }
   },
   {
