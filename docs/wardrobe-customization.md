@@ -408,7 +408,7 @@ python3 tools/wardrobe/verify_costume_photo_assets.py
 
 리본 교복의 눈을 검정(`#0C0C0C`)으로 변경하고 운동복의 눈 주변에 번진 어두운 텍스처를 피부색으로 복원했다. 원본 색상 임계값 대신 모델 표면에 투영한 눈동자 영역을 사용한다. 운동복은 눈동자의 UV 여백을 확장하지 않아 주변으로 검정색이 새는 것을 막으며, 리본 교복의 분리된 눈 UV에는 이음새용 여백을 유지한다. 눈 근처의 albedo만 수정하고 피부의 다른 부분·의상·소품·정점·UV·법선·roughness 등은 보존한다.
 
-`tools/wardrobe/refine_costume_eyes.py`로 보정 직전 모델을 별도 출력에 베이크한다. 입력 해시를 검사하며 검증 결과는 `tools/wardrobe/costume-eye-refinement-manifest.json`에 기록한다. 두 모델의 모바일 매니페스트·썸네일·사진 합성용 atlas·해시 및 초상 캐시 버전을 함께 갱신한다. 기존 피부 보정 매니페스트는 각 보정 단계의 기록으로 유지하며 최신 배포 해시는 모바일 매니페스트를 따른다.
+이 단계의 검증 수치는 `tools/wardrobe/costume-eye-refinement-manifest.json`에 보관한다. 당시 사용한 단발성 눈 보정 생성기는 최종 얼굴 정리 도구 `tools/wardrobe/clean_costume_faces.py`로 대체했다. 최종 재생성은 아래 얼굴 점검 절차를 따른다. 두 모델의 모바일 매니페스트·썸네일·사진 합성용 atlas·해시 및 초상 캐시 버전을 함께 갱신한다. 기존 피부 보정 매니페스트는 각 보정 단계의 기록으로 유지하며 최신 배포 해시는 모바일 매니페스트를 따른다.
 
 검증: 두 모델의 눈 영역 밖 색상 오차 최대 1/255, 정점·UV·법선·바인딩·다른 재질 채널 보존, 12MiB 예산 및 USDZ 정렬 검사 통과. 19개 사진 합성 소스/33개 프레임과 기존 8종 피부 검사 통과. 실제 RealityKit 렌더링, 전체 의상 로드·썸네일·크기 및 사진 합성/복원 검사 3개 통과.
 
@@ -433,3 +433,26 @@ python3 tools/wardrobe/verify_costume_photo_assets.py
 ```
 
 검증 결과: 17종 최신 해시·150cm·12MiB 예산·PNG 크기·썸네일·USDZ 정렬 검사 통과. 기본 8종의 승인된 피부 패키지/팔레트와 고양이 기준 원본→현재 검증 연결 통과. 사진 합성용 19개 소스·33개 프레임 검사 통과. 실제 RealityKit에서 **17종 전부** 렌더링하고 전체 의상 로드/크기/썸네일 및 세트별 사진 합성/복원 검사 3개를 통과했다. 공룡·곰돌이 고양이·고글 연구원의 옆/뒷면도 별도 렌더로 확인했다. 모델링된 오이 돌기·원래 얼굴 형태는 보존한다.
+
+
+## 세트 17종 눈·입 번짐 최종 점검 — 2026-11-15
+
+완성 세트 17종을 조명 렌더와 조명 없는 색상 렌더로 각각 확대 점검한다. 피부 팔레트는 밝기 4번(`#97D36A` / 줄무늬 `#376C3C`)을 유지하고 눈은 `#0C0C0C`, 입은 `#20452A`로 정리한다. 눈과 입 주변의 이전 색 조각을 먼저 피부색으로 지우고, 검토한 눈·입 윤곽 안에만 색을 입힌다. 안경과 헬멧 프레임·의상·소품은 보호한다.
+
+최종 얼굴 단계는 모든 세트의 색상 맵만 2048px로 사용한다. 나머지 재질 맵은 1024px, 모델당 12MiB 예산을 유지한다. 이 단계에서는 정점·인덱스·UV·법선·바인딩·크기 및 다른 재질 채널을 그대로 보존한다. UV 삼각형 안에서만 마스크를 계산하고, 공유 UV의 보호 면에 눈·입 색이 번지지 않도록 모든 사용 면의 마스크 최솟값을 쓴다. 흰 프레임 보호가 초록 피부까지 가리지 않도록 색상 기준을 회귀 검사한다.
+
+재생성 입력은 `211c0446d598ace83808ac8e3b9952f6b38defb0` 커밋의 각 USDZ다. 이 커밋은 최종 정리 전 피부 통일 결과이며, 최종 PR은 이 입력을 복구할 수 있도록 merge commit으로 병합한다. `costume-face-cleanup-config.json`에 입력 SHA·카메라 보정·눈 깊이 경계를, `costume-face-fields.npz`에 검토한 윤곽 필드를 기록한다. 입력 해시가 다르면 생성기는 거절한다. 기존 보정 매니페스트는 과거 단계의 기록으로 보존하고 최신 배포 해시는 `mobile-costumes-manifest.json`과 `costume-face-cleanup-manifest.json`을 따른다.
+
+```sh
+# 입력 USDZ는 위 커밋에서 복원하여 별도 경로에 준비한다.
+/Applications/Blender.app/Contents/MacOS/Blender -b --python tools/wardrobe/clean_costume_faces.py -- ID SOURCE.usdz OUTPUT.usdz REPORT_DIR
+python3 tools/wardrobe/test_face_material_rules.py
+python3 tools/wardrobe/verify_costume_skin_assets.py
+python3 tools/wardrobe/verify_skin_material_assets.py
+python3 tools/wardrobe/verify_costume_photo_assets.py
+```
+
+모델·썸네일·사진 합성 기본 atlas·소스 해시·프레임의 소스 해시를 함께 갱신한다. 곰돌이 고양이는 두 재질의 atlas 모두 반영한다. 메시·UV·프레임 좌표는 유지하며, 이전 얼굴 이미지가 캐시되지 않도록 세트 초상 캐시 버전을 올린다. 서버에 이미 업로드한 카드 이미지는 자동 변경되지 않는다. 확대 검토 자료는 [세트 얼굴 점검](costume-face-review.md)을 따른다.
+
+
+최종 검증: 17종 USDZ 해시·150cm·12MiB·정렬/CRC·텍스처 크기·썸네일 및 확대 검토 이미지 해시 검사 통과. 기본 8종 승인 자산과 고양이 기준 연결, 19개 사진 소스/UV/보호 영역·33개 프레임 검사 통과. 프레임 보호 색상 회귀 검사 3개 통과. iPhone 18 Pro 시뮬레이터에서 `OiWardrobeAssetTests`의 전체 세트 로드/크기/썸네일, 세트 17종 실제 RealityKit 렌더, 사진 합성/복원 검사 3개 모두 통과했다. 결과 번들: `/private/tmp/oi-final-face-review-20261115.xcresult`(로컬 생성 파일, 저장소에 포함하지 않음).

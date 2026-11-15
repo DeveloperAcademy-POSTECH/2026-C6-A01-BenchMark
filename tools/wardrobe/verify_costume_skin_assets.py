@@ -19,7 +19,7 @@ for costume in manifest['costumes']:
     assert len(raw)==costume['bytes'] and len(raw)<12*1024*1024,name
     assert abs(costume['heightMeters']-1.5)<.01 and abs(costume['groundMeters'])<.01,name
     assert costume['skinRepair']['palette']=='fresh-cucumber-bright4',name
-    eyes=costume.get('eyeRefinement',costume['skinRepair'])
+    eyes=costume.get('faceCleanup',costume.get('eyeRefinement',costume['skinRepair']))
     assert eyes['eyeColor']=='#0C0C0C',name
     with zipfile.ZipFile(path) as archive:
         assert archive.testzip() is None
@@ -43,5 +43,34 @@ for record in json.loads((ROOT/'tools/wardrobe/remaining-costume-skin-repair-man
     assert record['geometryUVsTransformsBindingsUnchanged'] and record['clothingNormalsUnchanged']
     assert record['outsideSkinColorMaxError']<=1/255+1e-6
     current=next(c for c in manifest['costumes'] if c['id']==record['id'])
+    assert record['outputSHA256']==current.get('faceCleanup',{}).get('sourceSHA256',current['sha256'])
+config=json.loads((ROOT/'tools/wardrobe/costume-face-cleanup-config.json').read_text())
+assert set(config['models'])==expected and config['cleanupVersion']==4
+assert config['baseRGB']==[151,211,106] and config['eyeRGB']==[12,12,12] and config['mouthRGB']==[32,69,42]
+assert sha((ROOT/'tools/wardrobe/costume-face-fields.npz').read_bytes())==config['fieldsSHA256']
+face_records=json.loads((ROOT/'tools/wardrobe/costume-face-cleanup-manifest.json').read_text())
+assert len(face_records)==17 and {r['id'] for r in face_records}==expected
+for record in face_records:
+    current=next(c for c in manifest['costumes'] if c['id']==record['id'])
     assert record['outputSHA256']==current['sha256']
+    assert record['sourceSHA256']==config['models'][record['id']]['sourceSHA256']
+    assert record['sourceRevision']==config['sourceRevision']
+    assert record['fieldsSHA256']==config['fieldsSHA256']
+    assert record['cleanupVersion']==4 and record['sharedUVConflictsGuarded']
+    assert record['geometryUVsNormalsBindingsUnchanged'] and record['otherMaterialChannelsUnchanged']
+    assert record['outsideFaceMaxError']<=1/255+1e-6
+    gates=config['models'][record['id']].get('eyeDepthGates',{})
+    assert set(record.get('eyeDepthGates',{}))==set(gates)
+    for key,settings in gates.items():
+        assert all(record['eyeDepthGates'][key][k]==v for k,v in settings.items())
+        assert record['eyeDepthGates'][key]['peakZ']>0
 print('PASS: 17 costume hashes, palette/eye records, 150cm bounds, PNG sizes, thumbnails, 12MiB budgets and aligned packages')
+
+proofs=json.loads((ROOT/'tools/wardrobe/costume-face-review-manifest.json').read_text())
+assert len(proofs)==17 and {p['id'] for p in proofs}==expected
+for proof in proofs:
+    current=next(c for c in manifest['costumes'] if c['id']==proof['id'])
+    assert proof['sourceSHA256']==current['sha256']
+    for kind in ['lit','albedo']:
+        assert sha((ROOT/proof[kind]['path']).read_bytes())==proof[kind]['sha256']
+print('PASS: 17 paired review renders match the shipped model hashes')
