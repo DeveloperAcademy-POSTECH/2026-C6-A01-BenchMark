@@ -205,28 +205,82 @@
     {
       "file": "wardrobe-postech-shorts.usdz",
       "sourceSHA256": "76d48204926ae066dc0dd22d3753ef1920c502a118dd4777b17377e21e227929",
-      "outputSHA256": "0e9103b301fcce518bc577780fa449b29dae4ec933ea10f6af9d3f93664b3798",
-      "bytes": 15758170,
+      "outputSHA256": "84af202b674de63a8cc5bf4345a68c505fa590ded527e57b10ca11c76132ced5",
+      "bytes": 17941005,
       "meshes": 8,
       "skinMeshes": 5,
       "heightMeters": 1.5001327435857092,
       "geometryUVsTransformsUnchanged": true,
-      "garmentMaterialsUnchanged": true,
+      "garmentMaterialsUnchanged": false,
       "originalTextureBytesUnchanged": true,
-      "selfContainedAlignedUSDZ": true
+      "selfContainedAlignedUSDZ": true,
+      "markRestoration": {
+        "file": "wardrobe-postech-shorts.usdz",
+        "scope": "original-sleeve-word-only",
+        "sourceSHA256": "0e9103b301fcce518bc577780fa449b29dae4ec933ea10f6af9d3f93664b3798",
+        "outputSHA256": "84af202b674de63a8cc5bf4345a68c505fa590ded527e57b10ca11c76132ced5",
+        "bytes": 17941005,
+        "heightMeters": 1.5001327435857092,
+        "geometryUVsTransformsUnchanged": true,
+        "skinMaterialsAndTexturesUnchanged": true,
+        "onlyTopColorTextureChanged": true,
+        "normalRoughnessMetallicUnchanged": true,
+        "chestPAndSealUnchanged": true,
+        "protectedMarkColorMaxError": 0.0,
+        "outsideEditMaxError": 0.0,
+        "colorTextureSize": [
+          2048,
+          2048
+        ],
+        "detachedGhostTexels": 5138,
+        "originalInkPixels": 2756,
+        "outputInkPixels": 2756,
+        "inkContourChangedPixels": 0,
+        "textures": {
+          "postech-original-word-sharp.png": "f2d6e0f00afaa618df8a805ef6a08f48195e65fcb3f6b42fb154f8bc03f1dab3"
+        },
+        "manifest": "tools/wardrobe/postech-marks-manifest.json"
+      }
     },
     {
       "file": "wardrobe-postech-long.usdz",
       "sourceSHA256": "8a239d40b7a6edcc7bbef57c354db9536b425ad5204b8c100bad808526b1a9c0",
-      "outputSHA256": "de92783cc5bc56db5ab602344405bfcc9aef5d7a54bfca27fede6216c026e0c1",
-      "bytes": 15516984,
+      "outputSHA256": "eaa0d22144013ad75b9e4fa97dfb2149589f882d18379d951cecb41f56f98517",
+      "bytes": 17699727,
       "meshes": 6,
       "skinMeshes": 3,
       "heightMeters": 1.5002128737251041,
       "geometryUVsTransformsUnchanged": true,
-      "garmentMaterialsUnchanged": true,
+      "garmentMaterialsUnchanged": false,
       "originalTextureBytesUnchanged": true,
-      "selfContainedAlignedUSDZ": true
+      "selfContainedAlignedUSDZ": true,
+      "markRestoration": {
+        "file": "wardrobe-postech-long.usdz",
+        "scope": "original-sleeve-word-only",
+        "sourceSHA256": "de92783cc5bc56db5ab602344405bfcc9aef5d7a54bfca27fede6216c026e0c1",
+        "outputSHA256": "eaa0d22144013ad75b9e4fa97dfb2149589f882d18379d951cecb41f56f98517",
+        "bytes": 17699727,
+        "heightMeters": 1.5002128737251041,
+        "geometryUVsTransformsUnchanged": true,
+        "skinMaterialsAndTexturesUnchanged": true,
+        "onlyTopColorTextureChanged": true,
+        "normalRoughnessMetallicUnchanged": true,
+        "chestPAndSealUnchanged": true,
+        "protectedMarkColorMaxError": 0.0,
+        "outsideEditMaxError": 0.0,
+        "colorTextureSize": [
+          2048,
+          2048
+        ],
+        "detachedGhostTexels": 5138,
+        "originalInkPixels": 2756,
+        "outputInkPixels": 2756,
+        "inkContourChangedPixels": 0,
+        "textures": {
+          "postech-original-word-sharp.png": "f2d6e0f00afaa618df8a805ef6a08f48195e65fcb3f6b42fb154f8bc03f1dab3"
+        },
+        "manifest": "tools/wardrobe/postech-marks-manifest.json"
+      }
     }
   ],
   "referenceAppearanceUpdate": {

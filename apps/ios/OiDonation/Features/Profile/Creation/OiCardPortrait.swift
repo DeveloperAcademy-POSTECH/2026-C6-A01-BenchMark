@@ -9,8 +9,16 @@ enum OiCardPortrait {
         let bytes = (try? encoder.encode(look)) ?? Data()
         // Regenerate portraits when the selected model geometry or skin changes.
         let revision: String
-        if look.costume != nil {
+        if look.costume == .sportswear {
+            revision = "portrait-v7-raised-black-sportswear-eyes-"
+        } else if look.costume == .schoolUniformTrousers {
+            revision = "portrait-v6-clean-trouser-uniform-"
+        } else if look.costume == .scientistGoggles {
+            revision = "portrait-v6-clean-goggles-researcher-cloth-"
+        } else if look.costume != nil {
             revision = "portrait-v5-clean-costume-faces-"
+        } else if look.top == .postech {
+            revision = "portrait-v6-original-postech-word-only-"
         } else if look.top == .cardigan && look.bottom == .shorts {
             revision = "portrait-v5-cardigan-shorts-fit-"
         } else {

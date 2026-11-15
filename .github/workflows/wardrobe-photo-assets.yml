@@ -3,18 +3,26 @@ on:
   pull_request:
     paths:
       - 'apps/ios/OiDonation/Resources/Wardrobe/**'
+      - 'apps/ios/OiDonation/Resources/WardrobeThumbnails/**'
       - 'apps/ios/OiDonation/Resources/WardrobePhotoUV/**'
       - 'tools/wardrobe/**'
       - 'docs/assets/costume-face-audit/**'
+      - 'docs/assets/costume-detail-audit/**'
+      - 'docs/assets/wardrobe-runtime-previews/**'
+      - 'docs/assets/postech-mark-audit/**'
       - 'docs/costume-face-review.md'
       - '.github/workflows/wardrobe-photo-assets.yml'
   push:
     branches: [develop]
     paths:
       - 'apps/ios/OiDonation/Resources/Wardrobe/**'
+      - 'apps/ios/OiDonation/Resources/WardrobeThumbnails/**'
       - 'apps/ios/OiDonation/Resources/WardrobePhotoUV/**'
       - 'tools/wardrobe/**'
       - 'docs/assets/costume-face-audit/**'
+      - 'docs/assets/costume-detail-audit/**'
+      - 'docs/assets/wardrobe-runtime-previews/**'
+      - 'docs/assets/postech-mark-audit/**'
       - 'docs/costume-face-review.md'
       - '.github/workflows/wardrobe-photo-assets.yml'
 permissions:

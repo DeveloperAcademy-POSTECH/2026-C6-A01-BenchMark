@@ -456,3 +456,55 @@ python3 tools/wardrobe/verify_costume_photo_assets.py
 
 
 최종 검증: 17종 USDZ 해시·150cm·12MiB·정렬/CRC·텍스처 크기·썸네일 및 확대 검토 이미지 해시 검사 통과. 기본 8종 승인 자산과 고양이 기준 연결, 19개 사진 소스/UV/보호 영역·33개 프레임 검사 통과. 프레임 보호 색상 회귀 검사 3개 통과. iPhone 18 Pro 시뮬레이터에서 `OiWardrobeAssetTests`의 전체 세트 로드/크기/썸네일, 세트 17종 실제 RealityKit 렌더, 사진 합성/복원 검사 3개 모두 통과했다. 결과 번들: `/private/tmp/oi-final-face-review-20261115.xcresult`(로컬 생성 파일, 저장소에 포함하지 않음).
+
+
+### 운동복 눈 돌출부 전체·바지 교복 원단 보정 — 2026-11-15 후속
+
+운동복은 작은 원형 눈동자 대신 실제 돌출된 눈 전체를 검정(`#0C0C0C`)으로 채운다. 눈 주변 얼굴의 곡면을 이차 곡면으로 맞춘 뒤 그보다 솟은 연결 영역을 선택한다. 투영 필드와 각 눈의 곡면 높이 조건, 양쪽 공통 UV 필터 여백으로 주변 얼굴의 분리된 검정 조각을 방지한다. `sportswear-raised-eyes-config.json`과 `sportswear-raised-eyes-fields.npz`가 최종 윤곽과 원본 해시를 기록하며 원본은 main `9586630e38e5588029d451a18ee9861b336045e3`의 운동복 USDZ다. `clean_costume_faces.py`의 마지막 선택 인자로 이 config를 전달해 재생성한다.
+
+바지 교복의 재킷·바지에 남은 초록색 실/긁힘은 오염된 albedo texel과 필터 여백에서 발생했다. 연결된 큰 피부 영역(머리와 두 손)과 그 UV 필터 범위를 보호하고, 옷의 초록색 오염을 가까운 원단 색으로 복원한다. 작은 UV 섬 전체가 오염되면 실제 옷 표면의 가까운 깨끗한 면에서 색을 가져온다. `repair_uniform_garment.py -- SOURCE.usdz OUTPUT.usdz REPORT_DIR`가 main의 바지 교복 원본 해시를 확인하고 처리한다. 잔여 색 얼룩은 원본에서 추출한 남색(5,25,54)·회색(63,63,63) 원단 색으로 정돈한다. 주름·단추·카라·정점·UV·법선·다른 재질 채널은 유지한다.
+
+기존 17종 보정 기록을 보존하고 `costume-detail-cleanup-manifest.json`으로 이 두 최신 출력에 연결한다. 모델·썸네일·사진 atlas·소스/프레임 해시·검토 이미지를 함께 갱신하며 두 모델의 초상 캐시만 갱신한다.
+
+검증: 두 모델의 정점·UV·법선·다른 재질 채널 보존과 수정 영역 밖 색상 오차 0 확인. 정면/얼굴 확대 및 교복 앞·뒤·좌·우 색상 렌더 확인. 세트/기본 피부/사진 자산 검사와 색상 회귀 검사 통과. 시뮬레이터의 전체 의상 로드/크기/썸네일, 17종 RealityKit 렌더, 사진 합성/복원 테스트 3개 통과(`/private/tmp/oi-raised-eyes-clean-uniform-20261115.xcresult`).
+
+[운동복 최종 렌더](assets/costume-detail-audit/sportswear.png) · [바지 교복 최종 렌더](assets/costume-detail-audit/school-uniform-trousers.png)
+
+
+### 세트 썸네일과 실제 미리보기의 색상 일치 — 2026-11-15
+
+세트 목록 18개(완성 세트 17종 + 포스텍 과잠/긴바지 조합)의 썸네일을 실제 앱의 `OiWardrobeScene`에서 캡처한 SDR 이미지로 교체한다. 기존 Blender 스튜디오 조명 때문에 얼굴이 더 밝고 형광색처럼 보이던 차이를 줄인다. 모델·재질·텍스처·앱 조명은 변경하지 않는다. 이전 단계에서 수정한 운동복 눈과 바지 교복 원단도 같은 최신 모델을 캡처한다.
+
+기존 `testNewCostumesRenderInWardrobePreview`와 `testModularOutfitsKeepApprovedSkinAndRenderInWardrobe`를 실행하고 `xcrun xcresulttool export attachments --path RESULT.xcresult --output-path ATTACHMENTS`로 이미지를 추출한다. `python3 tools/wardrobe/prepare_runtime_thumbnails.py ATTACHMENTS RENDERED_APP STAGING`이 현재 모델과 렌더링한 앱의 USDZ 해시 및 캡처 시각을 확인한다. 색상 보정 없이 빈 여백 일부만 잘라 sRGB 프로필을 유지한 192×256 PNG로 축소한다. 배경은 목록 타일과 같은 흰색이다.
+
+검토 후 STAGING의 썸네일은 `Resources/WardrobeThumbnails`, 원본 캡처는 `docs/assets/wardrobe-runtime-previews`, 매니페스트는 `tools/wardrobe/runtime-thumbnails-manifest.json`에 반영한다. 원본 캡처·최종 PNG·현재 USDZ의 해시를 검증해 오래된 모델의 썸네일이 섞이지 않게 한다. 원본 캡처 테스트 2개와 전체 18개 전후 비교를 확인했다.
+
+검증: 18개 원본 캡처/썸네일/모델 해시 및 PNG 크기 검사, 기존 피부/사진 자산 검사 통과. 캡처용 렌더 테스트 2개와 교체 후 전체 세트·썸네일 로드 테스트 1개 통과(`/private/tmp/oi-runtime-thumbnails-20261115.xcresult`, `/private/tmp/oi-runtime-thumbnail-load-20261115.xcresult`).
+
+기기용 빌드의 PNG는 Xcode가 재압축하므로 바이트 해시 대신 sRGB로 디코딩한 픽셀을 비교했다. 18개 모두 원본 썸네일 대비 최대 채널 오차 0이며, 포함된 18개 모델도 캡처 당시 USDZ 해시와 일치했다.
+
+
+### 고글 연구원 의상 자국 정리 — 2026-11-15
+
+고글 연구원의 흰 가운·자주색 상의·바지에 섞인 초록색 실/긁힘 같은 albedo 자국을 정리한다. `repair_uniform_garment.py`가 승인된 원본(`47a3b767…`, main `9586630`)을 해시로 식별하고 머리·고글·두 손 및 공유 UV의 피부 필터 범위를 보호한다. 오염 픽셀을 주변 원단 색으로 복원하고 잔여 색 얼룩을 원래 원단 색으로 정돈한다. 가슴의 POSTECH 로고와 펜 영역은 원본 색을 별도로 보호하며 정점·UV·법선·roughness·metallic은 유지한다.
+
+`costume-detail-cleanup-manifest.json`에 이 단계를 기존 운동복/바지 교복 기록과 함께 보관한다. 모델·사진 atlas·소스/프레임 해시·초상 캐시를 갱신하며, 목록 썸네일도 갱신된 모델의 실제 `OiWardrobeScene` 캡처에서 재생성한다. `prepare_runtime_thumbnails.py ... --only scientist-goggles`로 이 항목만 생성해 다른 17개 미리보기는 유지한다. [최종 렌더](assets/costume-detail-audit/scientist-goggles.png).
+
+고글 연구원 검증: 수정 영역 밖 색상 오차 0, 피부/로고/펜 보호 및 정점·UV·법선·다른 재질 채널 보존 확인. 앞·뒤·좌·우 확대 렌더와 실제 RealityKit 캡처 확인. 세트/기본 피부/사진/18개 미리보기 해시 검사 및 색상 회귀 검사 통과. 앱의 17종 렌더링과 세트별 사진 합성/복원 테스트 2개 통과(`/private/tmp/oi-goggles-clean-cloth-20261115.xcresult`).
+
+
+### 포스텍 과잠 원본 유지·팔 글자 선명도 보정 — 2026-11-15
+
+사용자 결정에 따라 main `9586630e38e5588029d451a18ee9861b336045e3`의 이전 과잠으로 복귀하고 **팔의 POSTECH만** 보정한다. 가슴 P와 원형 마크는 해당 이전 모델의 색상 텍스처 그대로 사용한다. 새 글꼴이나 별도 로고 원본을 사용하지 않으며 원래 글자의 위치·모양·굵기를 유지한다.
+
+`repair_postech_marks.py`는 검토된 긴바지·반바지 원본의 해시를 확인한 뒤 원래 팔 글자와 옅은 번짐 영역을 분리한다. 글자의 50% 잉크 경계를 고정하는 대칭 대비 보정으로 선명도를 높이고, 팔 뒤쪽에 떨어져 있는 옅은 잔상을 정리한다. 몸판과 소매의 연결 경계를 보호하고 피부·가슴 P·원형 마크와 노멀/roughness/metallic은 보존한다. 색상 atlas는 2048px에서 처리하며 글자 외 영역은 원본을 확대한 픽셀과 동일하다. 메시·UV·법선·150cm 크기는 변경하지 않는다.
+
+```sh
+/Applications/Blender.app/Contents/MacOS/Blender -b --python tools/wardrobe/repair_postech_marks.py -- SOURCE.usdz OUTPUT.usdz REPORT_DIR
+python3 tools/wardrobe/verify_skin_material_assets.py
+python3 tools/wardrobe/verify_costume_photo_assets.py
+```
+
+`postech-marks-manifest.json`과 기본 8종 피부 매니페스트를 연결한다. 생성 시 주 글자 잉크 경계의 변경 픽셀 0, P/로고 영역과 편집 영역 밖 색상 오차 0, 다른 모든 재질 채널·기하 정보 보존을 검사한다. 사진 합성 base atlas·모델/프레임 해시·과잠 초상 캐시 및 미리보기를 함께 갱신하며 사진 좌표 맵은 유지한다. 세트 썸네일은 실제 `OiWardrobeScene` 캡처에서 생성한다. [정면 검토 자료](assets/postech-mark-audit/final-0.png). 과잠 셀카는 별도 모델이며 이번 수정 범위에 포함하지 않는다.
+
+검증: 기본 8종의 실제 RealityKit 렌더·피부 재질 검사와 19종 사진 합성·복원 테스트 2개가 통과했다(`/private/tmp/oi-postech-original-word-only-20261115.xcresult`). 기본 피부/의상/사진/미리보기 자산 검사 및 원본 P·마크/글자 굵기 보존 검사도 통과했다.
