@@ -25,7 +25,8 @@ struct OiDonationClipApp: App {
             "Paperlogy-4Regular",
             "Paperlogy-5Medium",
             "Paperlogy-6SemiBold",
-            "Paperlogy-7Bold"
+            "Paperlogy-7Bold",
+            "Yangjin-v0.9"
         ] {
             if let url = Bundle.main.url(forResource: name, withExtension: "ttf")
                 ?? Bundle.main.url(forResource: name, withExtension: "ttf", subdirectory: "Fonts") {

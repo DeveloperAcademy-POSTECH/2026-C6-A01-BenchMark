@@ -252,8 +252,10 @@ struct RealStoryRepository: StoryRepository {
                 snapshot: snapshot, part: isDuplex ? .frontPreview : .front))
             if isDuplex {
                 // A failed format-2 back must be retried, never replaced by an unreviewed fallback.
+                // The full 1086×1506 back (#358): the 724×1004 preview blurs handwriting when the card
+                // is drawn at ~362pt on a 3x screen, and the original is only ~30KB larger.
                 backURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id,
-                    snapshot: snapshot, part: .backPreview))
+                    snapshot: snapshot, part: .back))
             }
         }
         var components = URLComponents()
