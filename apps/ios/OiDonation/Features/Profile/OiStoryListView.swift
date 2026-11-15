@@ -453,10 +453,11 @@ struct OiStorySeedIcon: View {
 }
 
 extension OiStoryListView {
-    static let listGuidance = "나만의 오이와 이야기를 만들어 보세요."
+    // Figma `5400:7662` and `5400:7661` (#368).
+    static let listGuidance = "본인이 만든 오이를 씨앗을 통해 농장에 심을 수 있습니다"
     static let listNotices = [
-        OiWritingGuidance.publication,
-        "내 지도에 배치한 오이와 기기 초안은 내 이야기에서 다시 열 수 있어요."
+        "이야기 저장은 4개까지 가능합니다",
+        "농장에 심기 전에는 이야기 및 오이를 눌러서 편집할 수 있습니다"
     ]
 }
 

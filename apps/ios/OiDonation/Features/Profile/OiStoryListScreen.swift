@@ -42,6 +42,7 @@ struct OiStoryListScreen: View {
             state: state,
             seedCount: nil,
             notices: OiStoryListView.listNotices,
+            guidance: OiStoryListView.listGuidance,
             onRetry: { Task { await remote.refresh(); await loadLocalDrafts() } },
             onAddSeed: nil,
             onSelectStory: selectStory,
