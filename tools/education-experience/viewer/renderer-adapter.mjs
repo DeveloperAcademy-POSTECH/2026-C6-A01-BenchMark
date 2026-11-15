@@ -1,7 +1,7 @@
 import {fileURLToPath} from 'node:url';
 
 // Keep app-specific controls in this repository, outside the standalone web source.
-export function adaptNativeRenderer(input) {
+export function adaptNativeRenderer(input,{web=false}={}) {
   function replace(needle,value) {
     if (!input.includes(needle)) throw Error('Reviewed renderer changed; inspect native adapter: '+needle.slice(0,70));
     input = input.replace(needle,() => value);
@@ -22,9 +22,11 @@ export function adaptNativeRenderer(input) {
   replace('stage.dataset.pearlTransmission=spaceScatter.getTransmission().toFixed(3);}',"stage.dataset.pearlTransmission=spaceScatter.getTransmission().toFixed(3);stage.dataset.renderMs=(performance.now()-started).toFixed(2);stage.dataset.pixelRatio=String(renderer.getPixelRatio());stage.dataset.transmissionScale=String(renderer.transmissionResolutionScale);stage.dataset.fitPoints=String(corners.length);stage.dataset.scatterCompute='gpu-uniforms';}");
   replace('canvas:[canvas.width,canvas.height],yaw,pitch,zoom,scatter,renderer:stage.dataset.renderer',"canvas:[canvas.width,canvas.height],yaw,pitch,zoom,scatter,renderer:stage.dataset.renderer,pixelRatio:renderer.getPixelRatio(),transmissionScale:renderer.transmissionResolutionScale,fitPoints:corners.length,gpuScatter:true,shaderErrors:renderer.info.programs.filter(p=>p.diagnostics?.runnable===false).length,instanceVersions:pearls.map(m=>m.instanceMatrix.version)");
   replace('"building-origin-space-v4"','"garden-unfold-gpu-v1"');
-  replace('const syncSceneUI=createSceneUI({stage,camera,positions,radius:model.radius});','const syncSceneUI=()=>{};');
-  replace('rect=mobile?{left:.03,right:.99,top:.30,bottom:.83}:{left:.118,right:.978,top:.22,bottom:.82}',
-    'rect=window.educationViewerRect()');
+  if(!web){
+    replace('const syncSceneUI=createSceneUI({stage,camera,positions,radius:model.radius});','const syncSceneUI=()=>{};');
+    replace('rect=mobile?{left:.03,right:.99,top:.30,bottom:.83}:{left:.118,right:.978,top:.22,bottom:.82}',
+      'rect=window.educationViewerRect()');
+  }
   const start = input.indexOf(' const pointers=new Map();let previous,pinch=0;');
   const end = input.indexOf(" canvas.addEventListener('wheel',",start);
   if (start < 0 || end < 0) throw Error('Inspect renderer pointer bindings before packaging.');

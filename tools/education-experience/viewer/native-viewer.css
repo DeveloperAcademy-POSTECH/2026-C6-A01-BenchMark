@@ -67,3 +67,6 @@ html,body{margin:0;overflow:hidden;overscroll-behavior:none;background:#d5ebf5}
 .reference-live.native-viewer.is-scattered .app-logo{filter:brightness(.66) saturate(.8)}
 .reference-live.native-viewer.is-scattered .masthead{background:none;backdrop-filter:none;-webkit-backdrop-filter:none}
 @media(prefers-reduced-motion:reduce){.native-viewer .viewer-dimmer{transition:none}}
+/* The app uses an actual SwiftUI glass button; retain this hidden rectangle
+   for story-note avoidance and keep the HTML control as the browser fallback. */
+.native-viewer[data-native-glass=true] #viewerReturn{visibility:hidden;pointer-events:none}

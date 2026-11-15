@@ -11,14 +11,18 @@ import OSLog
 import Observation
 
 struct EducationLightExperience: View {
-    @State private var model = EducationLightWebModel()
+    @State private var model: EducationLightWebModel
     @Environment(\.scenePhase) private var phase
     @Environment(\.dismiss) private var dismiss
+
+    @MainActor init(model: EducationLightWebModel? = nil) {
+        _model = State(initialValue: model ?? EducationLightWebModel())
+    }
 
     var body: some View {
         ZStack {
             Color(red: 213/255, green: 235/255, blue: 245/255).ignoresSafeArea()
-            EducationLightWebView(model: model)
+            EducationLightWebView(model: model).ignoresSafeArea()
             if model.loading {
                 VStack(spacing: 16) {
                     ProgressView("작은 빛으로 건물을 짓고 있어요")
@@ -40,10 +44,32 @@ struct EducationLightExperience: View {
                 .padding(24)
             }
         }
-        .ignoresSafeArea()
+        .overlay(alignment: .bottom) {
+            if model.scattered && !model.loading && model.failure == nil {
+                returnControl.padding(.horizontal, 16).padding(.bottom, 20)
+            }
+        }
         .preferredColorScheme(model.scattered ? .dark : .light)
         .onChange(of: phase) { _, value in model.setActive(value == .active) }
         .onChange(of: model.closeRequested) { _, requested in if requested { dismiss() } }
+    }
+
+    @ViewBuilder private var returnControl: some View {
+        if #available(iOS 26.0, *) {
+            returnButton.buttonStyle(.glass).controlSize(.large).buttonBorderShape(.capsule)
+        } else {
+            returnButton.buttonStyle(.bordered).controlSize(.large)
+                .background(.ultraThinMaterial, in: Capsule())
+        }
+    }
+
+    private var returnButton: some View {
+        Button(action: model.returnToBuilding) {
+            Label("건물로 돌아가기", systemImage: "arrow.uturn.backward")
+                .font(.body.weight(.semibold)).frame(minHeight: 44)
+                .padding(.horizontal, 8)
+        }
+        .accessibilityIdentifier("education.experience.return")
     }
 }
 
@@ -57,7 +83,9 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
     private var active = true
     private let logger = Logger(subsystem: "com.Spero.OiDonation.Education", category: "Building")
 
-    override init() {
+    override convenience init() { self.init(nativeGlass: true) }
+
+    init(nativeGlass: Bool) {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.websiteDataStore = .default()
@@ -74,6 +102,7 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
         #endif
         configuration.userContentController.add(EducationWeakMessageHandler(self), name: "building")
         let reporting = """
+        window.__educationNativeGlass = \(nativeGlass ? "true" : "false");
         window.EDUCATION_GEOMETRY_URL = 'oi-education://bundle/surface.bin';
         window.__educationLoadErrors = [];
         window.addEventListener('error', event => {
@@ -103,6 +132,10 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
     func setActive(_ active: Bool) {
         self.active = active
         webView.evaluateJavaScript("window.setNativeActive?.(\(active ? "true" : "false"))", completionHandler: nil)
+    }
+
+    func returnToBuilding() {
+        webView.evaluateJavaScript("window.educationReturnToBuilding?.()", completionHandler: nil)
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {

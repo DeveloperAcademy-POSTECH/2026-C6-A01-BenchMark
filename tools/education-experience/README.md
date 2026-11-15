@@ -43,3 +43,13 @@ npm --prefix tools/education-experience run preview
 `native-scatter.mjs`는 원래 구슬 인스턴스에 정적 이동/크기 속성을 붙여 공통 uniform만 갱신한다. 10,000개 선택 구슬의 끝점 히트 자료도 한 번만 계산한다. 진주의 물리적 반투명 재질은 유지하며, 셸/코어 구의 면 수·픽셀 비율과 반투명 버퍼 크기를 줄였다. 프레임 단위로 드래그/핀치를 합치고 `render-policy.mjs`의 극점 캐시로 카메라 맞춤 계산을 줄인다. 효과가 끝난 상태에서는 지속 렌더 루프가 없다.
 
 Node 검사는 입력 분류·입력 합치기·원본 경계 보존·10,000개 선택과 복귀·렌더 예산을 확인한다. 실제 WKWebView 검사는 셰이더 컴파일, 원본 인스턴스 행렬의 불변성, 구슬 이동 후 이야기 선택과 로고 복귀도 확인한다. `renderMs`는 CPU 제출 시간이며 GPU 프레임률로 해석하지 않는다. 실기기 발열·FPS는 별도 측정 대상이다.
+
+## 기본 글라스 버튼과 독립 웹 출력
+
+앱은 `EducationLightWebModel`이 문서 시작에 nativeGlass 플래그를 주입하고 `EducationLightExperience`가 iOS 26의 `.buttonStyle(.glass)` 복귀 버튼을 표시한다. HTML 복귀 버튼은 앱에서 숨기되 메모 배치용 사각형은 유지한다. iOS 26 이전에는 material 대체 표현을 사용한다. 일반 브라우저에서는 HTML 글라스 버튼이 그대로 표시된다. 두 버튼은 같은 복귀 함수와 연속 입력 방지를 사용한다.
+
+```sh
+node tools/education-experience/export-web.mjs /path/to/reviewed/dist /path/to/site/dist
+```
+
+독립 웹은 원래 주간 레이아웃·예시 우표를 유지하고 펼침 상태만 앱과 맞춘다. 상시 빛 흩어보기 버튼을 숨기고 건물 탭/클릭·Enter/Space로 펼친다. 원본의 정원 배경에 어두운 레이어를 적용하고 로고와 하단 복귀 버튼만 남긴다. 공통 렌더러·포인터 분류·GPU 이동을 재사용한다. 웹 배포 소스와 dist는 Sites의 기존 소스 저장소에서 관리하며 iOS 저장소에 독립 웹 전체를 다시 추가하지 않는다.

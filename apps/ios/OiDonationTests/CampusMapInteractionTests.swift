@@ -7,6 +7,7 @@
 
 import RealityKit
 import UIKit
+import SwiftUI
 import XCTest
 import CryptoKit
 @testable import OiDonation
@@ -1215,7 +1216,7 @@ final class CampusEducationDistrictTests: XCTestCase {
     }
 
     func testOfflineExperienceLoadsLatestPearlGarden() async throws {
-        let model = EducationLightWebModel()
+        let model = EducationLightWebModel(nativeGlass: false)
         let previousWindow = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first { $0.isKeyWindow }
         let window = UIWindow(windowScene: try XCTUnwrap(previousWindow?.windowScene))
         window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
@@ -1362,6 +1363,39 @@ final class CampusEducationDistrictTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(50))
         }
         XCTAssertTrue(model.closeRequested)
+    }
+
+    func testNativeGlassReturnUsesTheSameGatheringAction() async throws {
+        let model = EducationLightWebModel()
+        let previous = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: try XCTUnwrap(previous?.windowScene))
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        window.rootViewController = UIHostingController(rootView: EducationLightExperience(model: model))
+        window.makeKeyAndVisible()
+        defer { model.setActive(false); window.isHidden = true; previous?.makeKeyAndVisible() }
+        for _ in 0..<300 {
+            if !model.loading { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertFalse(model.loading)
+        XCTAssertNil(model.failure)
+        _ = try await model.webView.evaluateJavaScript("document.querySelector('#building').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'}))")
+        for _ in 0..<50 {
+            if try await model.webView.evaluateJavaScript("window.building3DDiagnostics().scatter===1") as? Bool == true { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertTrue(model.scattered)
+        let native = try await model.webView.evaluateJavaScript("document.querySelector('.experience').dataset.nativeGlass==='true'&&getComputedStyle(document.querySelector('#viewerReturn')).visibility==='hidden'&&typeof window.educationReturnToBuilding==='function'")
+        XCTAssertEqual(native as? Bool, true, "Native glass must replace the HTML control without a duplicate button")
+        model.returnToBuilding()
+        model.returnToBuilding()
+        for _ in 0..<50 {
+            if !model.scattered { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertFalse(model.scattered)
+        let restored = try await model.webView.evaluateJavaScript("window.building3DDiagnostics().scatter===0")
+        XCTAssertEqual(restored as? Bool, true)
     }
 
     func testOfflineGardenAssetCatalogIsCompleteAndScoped() throws {

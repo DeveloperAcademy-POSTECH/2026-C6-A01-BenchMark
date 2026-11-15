@@ -612,6 +612,8 @@ MY 설정에서 기존 Apple·Google 로그인으로 본인을 다시 확인한�
 
 같은 날 #367 복귀 버튼 후속: `viewerReturn`은 흩어진 상태에서만 하단 안전 영역 위에 표시한다. 명시적인 복귀 버튼과 로고가 같은 함수를 사용하고, 이미 gathering 중이면 반복 입력을 무시한다. 이야기 메모는 하단 복귀 버튼과 겹치면 위로 이동해 터치 경로를 남긴다.
 
+같은 날 #367 글라스·웹 후속: 앱은 SwiftUI `.buttonStyle(.glass)`를 사용한다(iOS 26 이전은 material 대체). WebKit 문서 시작 시 nativeGlass 플래그를 주입하고 웹 버튼은 공간만 남겨 메모 충돌을 피한다. SwiftUI 버튼은 안전 영역 안에서 같은 `educationReturnToBuilding` 함수에 연결하며 문서의 가상 브라우저 이벤트로 iOS UI를 재현하지 않는다. 독립 웹은 `export-web.mjs`가 검토 원본과 공통 렌더러·포인터 모듈을 결합한다. 원래 주간 레이아웃은 유지하고 펼침 상태만 `web-viewer` CSS/JS로 정리한다. Sites의 기존 프로젝트·접근 범위를 보존하고 별도 소스 저장소에 원본 스냅샷·공통 도구·생성 dist를 보관한다. 앱 PR에는 도구와 오프라인 결과만 포함한다.
+
 ## App Clip 실제 공개 이야기 연결 — 2026-11-06 / #199
 
 `RealStoryRepository`가 익명 역할로 공개 이야기 20건씩을 조회한다. Clip 목록은 페이지 중복 제거·조회 실패·재시도·취소를 처리하며 직접 호출은 공통 `AppClipLink`의 단일 story UUID만 허용한다. 상세 본문에서 기존 AR 게임을 열고 저장 직전 공개 여부를 다시 확인한다. 새 도메인/AASA를 임의 등록하지 않고 기본 Apple Clip URL을 사용한다. 운영 공개 콘텐츠·App Store Connect 경험 등록 및 실기기 카메라/NFC 검증은 배포 전 별도로 필요하다.

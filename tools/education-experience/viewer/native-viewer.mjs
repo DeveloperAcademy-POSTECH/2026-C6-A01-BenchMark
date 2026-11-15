@@ -1,6 +1,7 @@
 const root = document.querySelector('.experience');
 root.classList.add('native-viewer');
 root.dataset.viewerLayout = 'floating-toolbar-v1';
+root.dataset.nativeGlass = String(window.__educationNativeGlass === true);
 document.querySelector('.garden-notes')?.remove();
 document.querySelector('.night-backdrop')?.remove();
 document.querySelector('.space-mascot')?.remove();
@@ -29,6 +30,7 @@ const back = document.createElement('button'); back.id = 'viewerReturn'; back.ty
 function returnToBuilding(){
   if(root.classList.contains('is-scattered')&&document.querySelector('#building-stage').dataset.scatterTransition!=='gathering')scatter.click();
 }
+window.educationReturnToBuilding=returnToBuilding;
 back.addEventListener('click',returnToBuilding); root.append(back);
 document.querySelector('#viewerClose').addEventListener('click',() => window.webkit?.messageHandlers?.building?.postMessage({kind:'close'}));
 
