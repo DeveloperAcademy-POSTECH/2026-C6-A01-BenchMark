@@ -3008,8 +3008,10 @@ final class OiRemoteStoreTests: XCTestCase {
         let window = UIWindow(windowScene: scene)
         var actions: OiStoryListScreen.ReviewTestActions?
         var appearances = 0
+        var revealedStoryID: UUID?
         let controller = UIHostingController(rootView: NavigationStack {
             OiStoryListScreen(remote: store, onReviewActionsForTest: { actions = $0; appearances += 1 })
+                .environment(\.revealPlantedStory, { revealedStoryID = $0.selectedID })
         })
         window.rootViewController = controller
         window.makeKeyAndVisible()
@@ -3056,8 +3058,30 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertTrue(saved?.agreedConsentClauseIDs?.contains("aiReviewV1") == true)
         buttons.openPlantPicker()
         XCTAssertTrue(buttons.showsPlantPicker())
+        XCTAssertEqual(buttons.selectedPlantCard(), record.id)
+        buttons.selectPlantCard(UUID())
+        XCTAssertEqual(buttons.selectedPlantCard(), record.id)
+        XCTAssertNil(controller.presentedViewController)
+        try await Task.sleep(for: .milliseconds(200))
+        let selectionScreenshot = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let selectionAttachment = XCTAttachment(image: selectionScreenshot)
+        selectionAttachment.name = "story-plant-selection"
+        selectionAttachment.lifetime = .keepAlways
+        add(selectionAttachment)
+        buttons.cancelPlantPicker()
+        XCTAssertFalse(buttons.showsPlantPicker())
+        XCTAssertEqual(buttons.status(record.id), .approved)
         XCTAssertEqual(store.ownStories.first?.status, "draft")
         XCTAssertTrue(store.stories.isEmpty)
+        XCTAssertNil(revealedStoryID)
+
+        buttons.openPlantPicker()
+        buttons.confirmPlant()
+        for _ in 0..<100 where revealedStoryID == nil { try await Task.sleep(for: .milliseconds(30)) }
+        XCTAssertEqual(revealedStoryID, record.id)
+        XCTAssertEqual(store.ownStories.first?.status, "published")
     }
 
     @MainActor func testStoryListShowsUpdatedLayoutWithLegacyReview() async throws {

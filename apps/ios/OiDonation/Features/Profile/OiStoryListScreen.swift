@@ -1,5 +1,16 @@
 import SwiftUI
 
+private struct OiPlantedStoryRevealKey: EnvironmentKey {
+    static let defaultValue: (@MainActor @Sendable (OiStoryPlantSelection) -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    var revealPlantedStory: (@MainActor @Sendable (OiStoryPlantSelection) -> Void)? {
+        get { self[OiPlantedStoryRevealKey.self] }
+        set { self[OiPlantedStoryRevealKey.self] = newValue }
+    }
+}
+
 struct OiStoryListScreen: View {
     let remote: OiRemoteStore
 
@@ -18,7 +29,10 @@ struct OiStoryListScreen: View {
     @State private var reviewWork: ReviewWork?
     @State private var reviewConsentID: UUID?
     @State private var reviewFailure: (id: UUID, message: String)?
-    @State private var choosingStoryToPlant = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.revealPlantedStory) private var revealPlantedStory
+    @State private var plantSelection: OiStoryPlantSelection?
+    @State private var plantingStoryID: UUID?
     @State private var publicationMessage: String?
 
     #if DEBUG
@@ -31,6 +45,10 @@ struct OiStoryListScreen: View {
         let message: (UUID) -> String?
         let openPlantPicker: () -> Void
         let showsPlantPicker: () -> Bool
+        let selectPlantCard: (UUID) -> Void
+        let selectedPlantCard: () -> UUID?
+        let cancelPlantPicker: () -> Void
+        let confirmPlant: () -> Void
     }
 
     var onReviewActionsForTest: ((ReviewTestActions) -> Void)?
@@ -71,31 +89,30 @@ struct OiStoryListScreen: View {
     @State private var showingConsent = false
 
     private var list: some View {
-        OiStoryListView(
-            state: state,
+        let currentState = state
+        let visibleState = plantSelection.map { OiStoryListState.content($0.items) } ?? currentState
+        return OiStoryListView(
+            state: visibleState,
+            minimumVisibleSlotCount: plantSelection == nil ? OiStoryListState.draftCapacity : 0,
             onRetry: { Task { await remote.refresh(); await loadLocalDrafts() } },
-            onSelectStory: selectStory,
+            onSelectStory: handleStoryTap,
             onCreateStory: beginCreatingStory,
             onDeleteStory: requestDeletion,
-            isDeleting: deletingID != nil || remote.isBusy || reviewWork != nil,
+            isDeleting: deletingID != nil || remote.isBusy || reviewWork != nil || plantingStoryID != nil,
             reviewState: { reviewState(for: $0) },
             onRequestReview: requestReview,
             needsReviewConsent: { reviewConsentID == $0 },
             onGrantReviewConsent: { requestReview($0, consentGranted: true) },
             reviewMessage: reviewMessage,
-            onPlant: selectStoryToPlant,
-            canPlant: remote.autoStoryModeration && !plantableStories.isEmpty
+            onPlant: handlePlantTap,
+            canPlant: remote.autoStoryModeration && canPlant(in: currentState),
+            selectedPlantStoryID: plantSelection?.selectedID,
+            onCancelPlant: cancelPlantAction
         )
     }
 
     var body: some View {
         listWithDraftManagement
-            .confirmationDialog("심을 오이를 선택하세요", isPresented: $choosingStoryToPlant, titleVisibility: .visible) {
-                ForEach(plantableStories) { story in
-                    Button(story.cucumberName) { Task { await plant(story) } }
-                }
-                Button("취소", role: .cancel) {}
-            }
             .alert(publicationMessage ?? "", isPresented: Binding(
                 get: { publicationMessage != nil }, set: { if !$0 { publicationMessage = nil } }
             )) {
@@ -112,7 +129,9 @@ struct OiStoryListScreen: View {
                     grantConsent: { requestReview($0, consentGranted: true) }, status: reviewState,
                     visibleIDs: { state.items.map(\.id) },
                     needsConsent: { reviewConsentID == $0 }, message: reviewMessage,
-                    openPlantPicker: selectStoryToPlant, showsPlantPicker: { choosingStoryToPlant }))
+                    openPlantPicker: selectStoryToPlant, showsPlantPicker: { plantSelection != nil },
+                    selectPlantCard: selectPlantCard, selectedPlantCard: { plantSelection?.selectedID },
+                    cancelPlantPicker: cancelPlantSelection, confirmPlant: confirmPlant))
             }
             #endif
     }
@@ -132,7 +151,8 @@ struct OiStoryListScreen: View {
             reviewWork = nil
             reviewConsentID = nil
             reviewFailure = nil
-            choosingStoryToPlant = false
+            plantSelection = nil
+            plantingStoryID = nil
             publicationMessage = nil
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -388,17 +408,60 @@ struct OiStoryListScreen: View {
         return review.status == .approved ? .approved : .rejected
     }
 
-    private var plantableStories: [OiLiveStory] {
-        let eligible = Set(state.items.filter { reviewState(for: $0.id) == .approved }.map(\.id))
-        return remote.ownStories.filter { eligible.contains($0.id) }
+    private func canPlant(in state: OiStoryListState) -> Bool {
+        if let selection = plantSelection { return reviewState(for: selection.selectedID) == .approved }
+        return state.items.contains { reviewState(for: $0.id) == .approved }
+    }
+
+    private var cancelPlantAction: (() -> Void)? {
+        guard plantSelection != nil else { return nil }
+        return { cancelPlantSelection() }
+    }
+
+    private func handleStoryTap(_ id: UUID) {
+        if plantSelection == nil { selectStory(id: id) }
+        else { selectPlantCard(id) }
+    }
+
+    private func handlePlantTap() {
+        if plantSelection == nil { selectStoryToPlant() }
+        else { confirmPlant() }
     }
 
     private func selectStoryToPlant() {
-        guard remote.autoStoryModeration, !plantableStories.isEmpty else { return }
-        choosingStoryToPlant = true
+        guard remote.autoStoryModeration, plantSelection == nil, !remote.isBusy, reviewWork == nil else { return }
+        let items = state.items.filter { reviewState(for: $0.id) == .approved }
+        guard let first = items.first else { return }
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.1)) {
+            plantSelection = OiStoryPlantSelection(items: items, selectedID: first.id)
+        }
     }
 
-    private func plant(_ story: OiLiveStory) async {
+    private func selectPlantCard(_ id: UUID) {
+        guard plantingStoryID == nil, let selection = plantSelection, selection.selectedID != id,
+              selection.items.contains(where: { $0.id == id }), reviewState(for: id) == .approved else { return }
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.3)) {
+            plantSelection?.selectedID = id
+        }
+    }
+
+    private func cancelPlantSelection() {
+        guard plantingStoryID == nil else { return }
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.1)) { plantSelection = nil }
+    }
+
+    private func confirmPlant() {
+        guard remote.autoStoryModeration, !remote.isBusy, plantingStoryID == nil, let selection = plantSelection,
+              reviewState(for: selection.selectedID) == .approved,
+              let story = remote.ownStories.first(where: { $0.id == selection.selectedID }) else { return }
+        plantingStoryID = story.id
+        Task {
+            await plant(story, selection: selection)
+            if plantingStoryID == story.id { plantingStoryID = nil }
+        }
+    }
+
+    private func plant(_ story: OiLiveStory, selection: OiStoryPlantSelection) async {
         guard let owner = remote.account?.id else { return }
         do {
             let current = try await remote.localDraft(id: story.id, owner: owner)
@@ -414,7 +477,16 @@ struct OiStoryListScreen: View {
         }
         let published = await remote.plantStory(story)
         guard owner == remote.account?.id else { return }
-        publicationMessage = published ? "이야기가 등록됐어요" : remote.error ?? "현재 이야기를 다시 검토해 주세요."
+        if published {
+            if let revealPlantedStory {
+                revealPlantedStory(selection)
+            } else {
+                plantSelection = nil
+                publicationMessage = "이야기가 등록됐어요"
+            }
+        } else {
+            publicationMessage = remote.error ?? "현재 이야기를 다시 검토해 주세요."
+        }
     }
 
     private func reviewMessage(_ id: UUID) -> String? {

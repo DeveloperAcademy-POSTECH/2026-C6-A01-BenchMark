@@ -50,6 +50,11 @@ struct OiStoryListItem: Identifiable, Equatable, Sendable {
     }
 }
 
+struct OiStoryPlantSelection: Equatable {
+    let items: [OiStoryListItem]
+    var selectedID: UUID
+}
+
 enum OiStoryListReviewState: Equatable {
     case unreviewed, reviewing, approved, rejected
 
