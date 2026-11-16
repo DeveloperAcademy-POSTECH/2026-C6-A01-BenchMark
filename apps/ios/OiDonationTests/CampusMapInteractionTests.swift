@@ -1357,10 +1357,14 @@ final class CampusEducationDistrictTests: XCTestCase {
         const fetchOriginal=window.fetch.bind(window);
         window.fetch=(input,options)=>String(input)===referenceRoot+'catalog-v1.json'
           ?Promise.resolve(new Response(JSON.stringify({version:1,stories:[{
-            id:'postech-900001',origin:'postech',kind:'Synthetic reference',category:'Synthetic',title:'Synthetic shared title',author:'Synthetic author',affiliation:'Synthetic affiliation',fund:'Synthetic fund',message:'Synthetic shared story body',
+            id:'postech-900001',origin:'postech',kind:'Synthetic reference',category:'Synthetic',title:'Synthetic shared title',author:'Synthetic author',affiliation:'Synthetic affiliation',fund:'Synthetic fund',message:'Synthetic shared story body. '.repeat(30),
             photo:referenceRoot+'postech-900001/'+'a'.repeat(64)+'.webp',photoAlt:'Synthetic portrait',sourceUrl:'https://vision.postech.ac.kr/web/?top=support&sub=story&key=detail&code=900001',sourceTitle:'Synthetic source',publishedAt:'2026-11-16',isSummary:true
           }]}),{headers:{'Content-Type':'application/json'}}))
           :fetchOriginal(input,options);
+        const portrait=document.createElement('canvas');portrait.width=32;portrait.height=24;
+        portrait.getContext('2d').fillRect(0,0,32,24);const portraitURL=portrait.toDataURL('image/png');
+        const originalSrc=Object.getOwnPropertyDescriptor(HTMLImageElement.prototype,'src');
+        Object.defineProperty(HTMLImageElement.prototype,'src',{...originalSrc,set(value){originalSrc.set.call(this,value===referenceRoot+'postech-900001/'+'a'.repeat(64)+'.webp'?portraitURL:value);}});
         """
         model.webView.configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         model.load()
@@ -1422,6 +1426,26 @@ final class CampusEducationDistrictTests: XCTestCase {
         }
         XCTAssertTrue(sharedReferenceVisible, "Native WebKit must display the same server reference title, not a bundled fictional story")
         _ = try await model.webView.evaluateJavaScript("document.querySelector('#educationDialog').close()")
+        _ = try await model.webView.evaluateJavaScript("document.querySelector('#scatterButton').click()")
+        var photoVisible = false
+        for _ in 0..<50 {
+            if try await model.webView.evaluateJavaScript("document.querySelector('#viewerAimPhoto').classList.contains('is-ready')") as? Bool == true { photoVisible = true; break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertTrue(photoVisible, "The selected story must show its decoded photo above the text")
+        let layout = try await model.webView.evaluateJavaScript("""
+        (()=>{const photo=document.querySelector('#viewerAimPhoto'),image=photo.querySelector('img'),text=document.querySelector('.aim-story-content');
+        const before=photo.getBoundingClientRect(),body=text.getBoundingClientRect();text.scrollTop=text.scrollHeight;
+        const after=photo.getBoundingClientRect();return {width:before.width,height:before.height,above:before.bottom<=body.top,pinned:Math.abs(before.top-after.top)<1,scrolled:text.scrollTop>0,decoded:image.naturalWidth===32,story:photo.dataset.storyId};})()
+        """)
+        let photoLayout = try XCTUnwrap(layout as? [String: Any])
+        XCTAssertLessThanOrEqual(photoLayout["width"] as? Double ?? 999, 120)
+        XCTAssertGreaterThan(photoLayout["height"] as? Double ?? 0, 50)
+        XCTAssertLessThanOrEqual(photoLayout["height"] as? Double ?? 999, 85)
+        for key in ["above", "pinned", "scrolled", "decoded"] { XCTAssertEqual(photoLayout[key] as? Bool, true, key) }
+        XCTAssertEqual(photoLayout["story"] as? String, "postech-900001")
+        _ = try await model.webView.evaluateJavaScript("window.educationReturnToBuilding()")
+        for _ in 0..<30 { if !model.scattered { break }; try await Task.sleep(for: .milliseconds(100)) }
         _ = try await model.webView.evaluateJavaScript("document.querySelector('#writeButton').click()")
         for _ in 0..<50 {
             if try await model.webView.evaluateJavaScript("!!document.querySelector('.education-form')") as? Bool == true { break }

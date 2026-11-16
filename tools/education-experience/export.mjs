@@ -56,6 +56,8 @@ const result=await build({
   // configuration is bundled into the file-origin page.
   builder.onLoad({filter:/education-web-transport\.js$/},()=>({contents:'export function createWebTransport(){throw Error("Use the native education bridge");}',loader:'js'}));
   builder.onResolve({filter:/^@education\/three$/},()=>({path:path.join(web,'vendor/three.module.js')}));
+  // Resolve to the same module as app.js, preserving one account/feed instance.
+  builder.onResolve({filter:/^@education\/library$/},()=>({path:path.join(web,'education-library.js')}));
   builder.onLoad({filter:/building-3d\.js$/},async args=>{
    let source=adaptNativeRenderer(await readFile(args.path,'utf8'));
    if(!source.includes('window.building3DDiagnostics=')||!source.includes('\n}catch(error)'))throw Error('Inspect the 3D ready/error bridge.');
