@@ -20,7 +20,7 @@ struct ScratchPostcardView: View {
     var onBlock: () -> Void = {}
 
     private enum Phase { case scratching, revealing, revealed }
-    private enum Toast: Equatable { case saved, failed(String) }
+    private enum Toast: Equatable { case failed(String) }
 
     static let brushRadius: CGFloat = 24
     static let revealThreshold = 0.6
@@ -393,8 +393,6 @@ struct ScratchPostcardView: View {
         if let toast {
             Group {
                 switch toast {
-                case .saved:
-                    Text("엽서를 저장했어요\n전체 앱을 설치하면 도감에서 다시 볼 수 있어요")
                 case .failed(let message):
                     Text(message)
                 }
@@ -511,8 +509,10 @@ struct ScratchPostcardView: View {
                     return
                 }
                 try Task.checkCancellation()
-                if collectionStore.collect(postcard.card) { show(.saved) }
-                else { show(.failed(collectionStore.persistenceError ?? "엽서를 저장하지 못했어요. 다시 시도해 주세요.")) }
+                // Success stays silent: the install overlay is the feedback (#351). Failures still explain why.
+                if !collectionStore.collect(postcard.card) {
+                    show(.failed(collectionStore.persistenceError ?? "엽서를 저장하지 못했어요. 다시 시도해 주세요."))
+                }
             } catch is CancellationError {} catch {
                 if !Task.isCancelled { show(.failed("인터넷 연결을 확인하고 다시 저장해 주세요.")) }
             }
