@@ -84,6 +84,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var educationEntity: ModelEntity?
     @ObservationIgnored private var educationButton: UIButton?
     private var educationNear = false
+    @ObservationIgnored private var educationDetailTask: Task<Void, Never>?
     private var educationCamera: (target: SIMD3<Float>, radius: Float, yaw: Float, pitch: Float)?
     var onRegion: ((CampusRegion) -> Void)?
     var onPlacement: ((UUID) -> Void)?
@@ -163,6 +164,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var overviewStories: [CampusStory] = []
     private var regionCounts: [String: Int]?
     private var visible = true
+    private let stillFrameDelay: Duration?
     private static var cachedMesh: Entity?
     private static var loadingMesh: Task<Entity, Error>?
     @ObservationIgnored private var displayedMap: Entity?
@@ -192,6 +194,11 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         let entity: Entity
         let templateHeight: Float
         let unitCorners: [SIMD3<Float>]
+    }
+
+    init(stillFrameDelay: Duration? = nil) {
+        self.stillFrameDelay = stillFrameDelay
+        super.init()
     }
 
     func makeView() -> CampusMapCanvas {
@@ -249,7 +256,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             let data = try CampusMapData.load()
             guard let url = Bundle.main.url(forResource: "campus-mobile", withExtension: "oimesh") else { throw CocoaError(.fileNoSuchFile) }
             async let mesh = Self.sharedMesh(url: url, data: data)
-            async let education: Void = CampusEducationDistrict.prepare()
+            async let education = CampusEducationDistrict.prepare(.far)
             _ = try await (mesh, education)
             try Task.checkCancellation()
             // Loading may finish while AR has suspended the map. Keep the template
@@ -291,6 +298,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             updateMapShadows()
             if canvas?.map != nil, Self.cachedMesh != nil { try installMap() }
             canvas?.setAppearance(appearance)
+            updateCamera()
         } catch {
             self.appearance = previous
             if let view = canvas?.map { mapSun = try? previous.configureLighting(in: view, root: root) }
@@ -309,6 +317,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
 
     private func installEducationDistrict(data: CampusMapData) throws {
+        educationDetailTask?.cancel()
+        educationDetailTask = nil
         educationEntity?.removeFromParent()
         let entity = try CampusEducationDistrict.makeEntity(data: data)
         root.addChild(entity)
@@ -377,6 +387,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     func setVisible(_ active: Bool) {
         visible = active
         if !active {
+            canvas?.cancelStillFrameCapture()
             target = CampusMapMotion.clampedTarget(target)
             radius = settledRadius()
             stopNavigation()
@@ -396,11 +407,16 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     func suspendRendering() {
         setVisible(false)
+        educationDetailTask?.cancel()
+        educationDetailTask = nil
         // Release the renderer and its scene while keeping navigation values and asset templates.
         guard let canvas, canvas.map != nil else { return }
         clearStoryPins()
         canvas.removeRenderer()
         root = AnchorEntity(world: .zero)
+        displayedMap = nil
+        mapSun = nil
+        educationEntity = nil
         placementLayer = Entity()
         authoredLayer = Entity()
         storyLayer = Entity()
@@ -1107,6 +1123,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if visible { canvas?.showLiveMap() }
+        scheduleStillFrame()
         guard gestureRecognizer is UITapGestureRecognizer else { return true }
         var view = touch.view
         while let current = view {
@@ -1168,7 +1186,9 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         updateMapShadows()
         camera.look(at: target, from: eye, relativeTo: nil)
         updateCenterLocation()
-        guard visible, let view = canvas?.map else { return }
+        guard visible, let canvas, let view = canvas.map else { return }
+        canvas.showLiveMap()
+        defer { scheduleStillFrame() }
         let projection = mapProjection(in: view.bounds)
         // Scale by the map zoom so rotating or tilting alone cannot swell the artwork.
         let pointsPerMapUnit = projection.focalLength / CGFloat(radius)
@@ -1241,13 +1261,13 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             button.isHidden = true
         }
         if let entity = educationEntity, let button = educationButton {
-            let near = educationNear ? radius < 105 : radius < 85
+            let screen = projection.point(entity.position + SIMD3(0, 6.8, 0))
+            let near = radius < (educationNear ? 105 : 85) && screen.map(visibleBounds.contains) == true
             if near != educationNear {
                 educationNear = near
-                CampusEducationDistrict.update(entity, near: near)
+                updateEducationDetail(entity, near: near)
             }
-            let anchor = entity.position + SIMD3(0, 6.8, 0)
-            if !editingPlacement, !selectingCenterLocation, let screen = projection.point(anchor), visibleBounds.contains(screen) {
+            if !editingPlacement, !selectingCenterLocation, let screen, visibleBounds.contains(screen) {
                 // Measure against the viewport, never the previous narrow button frame.
                 button.bounds.size = button.sizeThatFits(CGSize(width: max(44, view.bounds.width - 24), height: 44))
                 // Keep the invisible hit area usable even when the overview caption is small.
@@ -1256,11 +1276,34 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                 button.center = CGPoint(x: min(max(screen.x, button.bounds.width / 2 + 12), view.bounds.width - button.bounds.width / 2 - 12),
                                         y: max(110, min(view.bounds.height - 100, screen.y)))
                 button.isHidden = false
-                canvas?.bringSubviewToFront(button)
+                canvas.bringSubviewToFront(button)
                 visibleButtons.append(button)
             } else { button.isHidden = true }
         }
         mapLabels.update(projection: projection, viewport: view.bounds, radius: radius, pins: visibleButtons)
+    }
+
+    private func updateEducationDetail(_ entity: ModelEntity, near: Bool) {
+        educationDetailTask?.cancel()
+        let detail: CampusEducationDistrict.Detail = near ? .near : .far
+        if let mesh = CampusEducationDistrict.preparedMesh(detail) {
+            educationDetailTask = nil
+            entity.model?.mesh = mesh
+            return
+        }
+        educationDetailTask = Task { [weak self, weak entity] in
+            let mesh = try? await CampusEducationDistrict.prepare(detail)
+            guard !Task.isCancelled, let self, let entity, self.educationEntity === entity else { return }
+            self.educationDetailTask = nil
+            guard let mesh else { return }
+            entity.model?.mesh = mesh
+            self.updateCamera()
+        }
+    }
+
+    private func scheduleStillFrame() {
+        guard let stillFrameDelay, visible, ready, activeNavigation.isEmpty, cameraMotion == nil else { return }
+        canvas?.scheduleStillFrame(after: stillFrameDelay)
     }
 
     private func expandCluster(_ node: CampusRegionClustering.Node) {
@@ -1330,6 +1373,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         if sample.isComplete {
             stopCameraMotion()
             settleCamera()
+            scheduleStillFrame()
         }
     }
 
@@ -1355,6 +1399,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         let id = ObjectIdentifier(gesture)
         switch gesture.state {
         case .began, .changed:
+            canvas?.showLiveMap()
             if activeNavigation.isEmpty {
                 pinchReleaseVelocity = 0
                 panReleaseVelocity = .zero
@@ -1363,6 +1408,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             return true
         case .ended, .cancelled, .failed:
             if activeNavigation.remove(id) != nil { settleCamera() }
+            scheduleStillFrame()
             return false
         default:
             return false
@@ -1598,11 +1644,16 @@ final class CampusMapCanvas: UIView {
     let backdrop = CAGradientLayer()
     var didLayout: (() -> Void)?
     private var lastLayoutBounds: CGRect?
+    private let stillFrame = UIImageView()
+    private var stillFrameTask: Task<Void, Never>?
+    private var stillFrameRequest: UUID?
     override init(frame: CGRect) {
         super.init(frame: frame)
         backdrop.startPoint = CGPoint(x: 0.7, y: 0)
         backdrop.endPoint = CGPoint(x: 0.3, y: 1)
         backdrop.locations = [0, 0.46, 1]
+        stillFrame.isUserInteractionEnabled = false
+        stillFrame.accessibilityElementsHidden = true
         layer.insertSublayer(backdrop, at: 0)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -1625,7 +1676,49 @@ final class CampusMapCanvas: UIView {
         layer.insertSublayer(backdrop, below: view.layer)
         return view
     }
+    func scheduleStillFrame(after delay: Duration) {
+        guard stillFrameTask == nil, let map, map.superview === self, window != nil else { return }
+        let request = UUID()
+        stillFrameRequest = request
+        stillFrameTask = Task { [weak self, weak map] in
+            do { try await Task.sleep(for: delay) } catch { return }
+            guard let self, let map, !self.isHidden, self.window != nil,
+                  self.stillFrameRequest == request else { return }
+            map.snapshot(saveToHDR: false) { [weak self, weak map] image in
+                Task { @MainActor in
+                    guard let self, self.stillFrameRequest == request else { return }
+                    self.cancelStillFrameCapture()
+                    guard let image, let map, map.superview === self,
+                          !self.isHidden, self.window != nil else { return }
+                    self.stillFrame.image = image
+                    self.stillFrame.frame = self.bounds
+                    self.insertSubview(self.stillFrame, aboveSubview: map)
+                    // Keep the scene and camera ready to resume on the same renderer.
+                    map.removeFromSuperview()
+                }
+            }
+        }
+    }
+
+    func cancelStillFrameCapture() {
+        stillFrameRequest = nil
+        stillFrameTask?.cancel()
+        stillFrameTask = nil
+    }
+
+    func showLiveMap() {
+        cancelStillFrameCapture()
+        guard let map, map.superview == nil, stillFrame.superview === self else { return }
+        insertSubview(map, belowSubview: stillFrame)
+        layer.insertSublayer(backdrop, below: map.layer)
+        stillFrame.removeFromSuperview()
+        stillFrame.image = nil
+    }
+
     func removeRenderer() {
+        cancelStillFrameCapture()
+        stillFrame.removeFromSuperview()
+        stillFrame.image = nil
         map?.session.pause()
         map?.scene.anchors.removeAll()
         map?.removeFromSuperview()
@@ -1634,6 +1727,12 @@ final class CampusMapCanvas: UIView {
     func invalidateProjection() {
         lastLayoutBounds = nil
         setNeedsLayout()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { cancelStillFrameCapture() }
+        else { didLayout?() }
     }
 
     override func layoutSubviews() {

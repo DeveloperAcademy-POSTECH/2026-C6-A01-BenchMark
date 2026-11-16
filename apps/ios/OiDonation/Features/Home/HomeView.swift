@@ -12,7 +12,7 @@ struct HomeView: View {
     var authoredPlacementToReveal: Binding<UUID?> = .constant(nil)
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var scene = CampusExploreScene()
+    @State private var scene = CampusExploreScene(stillFrameDelay: .seconds(2))
     @State private var region: CampusRegion?
     @State private var sort = CampusStorySort.latest
     @State private var distances: [String: Float] = [:]

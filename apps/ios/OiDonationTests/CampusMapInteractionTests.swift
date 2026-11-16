@@ -11,10 +11,70 @@ import SwiftUI
 import XCTest
 import CryptoKit
 import Compression
+import os
 @testable import OiDonation
 
 @MainActor
 final class CampusMapInteractionTests: XCTestCase {
+    func testIdleHomeMapStopsFrameUpdatesAndResumesWithoutReplacingScene() async throws {
+        let scene = CampusExploreScene(stillFrameDelay: .seconds(2))
+        let controller = UIViewController()
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        window.rootViewController = controller
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controller.view.addSubview(canvas)
+        window.isHidden = false
+        defer {
+            scene.suspendRendering()
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+        }
+        await scene.load()
+        XCTAssertTrue(scene.ready, scene.error ?? "Map did not load")
+        let renderer = try XCTUnwrap(canvas.map)
+        let anchor = try XCTUnwrap(renderer.scene.anchors.first)
+        let updates = OSAllocatedUnfairLock(initialState: 0)
+        let subscription = renderer.scene.subscribe(to: SceneEvents.Update.self) { _ in
+            updates.withLock { $0 += 1 }
+        }
+        defer { subscription.cancel() }
+
+        for _ in 0..<70 where renderer.superview != nil {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertNil(renderer.superview)
+        let stillFrame = try XCTUnwrap(canvas.subviews.compactMap { $0 as? UIImageView }.first?.image)
+        let attachment = XCTAttachment(image: stillFrame)
+        attachment.name = "Idle campus map frame"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        try await Task.sleep(for: .milliseconds(300))
+        let idleUpdates = updates.withLock { $0 }
+        XCTAssertGreaterThan(idleUpdates, 0, "A live renderer should update before parking")
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertEqual(updates.withLock { $0 }, idleUpdates, "The idle map must stop updating the RealityKit scene")
+
+        scene.recenter()
+        XCTAssertTrue(renderer.superview === canvas)
+        XCTAssertTrue(renderer.scene.anchors.first === anchor)
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertGreaterThan(updates.withLock { $0 }, idleUpdates)
+        XCTAssertFalse(canvas.subviews.contains { $0 is UIImageView })
+
+        for _ in 0..<70 where renderer.superview != nil {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertNil(renderer.superview)
+        scene.suspendRendering()
+        XCTAssertNil(canvas.map)
+        XCTAssertTrue(renderer.scene.anchors.isEmpty)
+        XCTAssertFalse(canvas.subviews.contains { $0 is UIImageView })
+    }
+
     func testTreeReductionKeepsWholeTreesAndCompactsOnlyVegetation() throws {
         func tile(_ index: Int, color: SIMD4<Float>, crown: Bool) -> CampusMeshPreparation.Tile {
             var positions: [SIMD3<Float>] = [], indices: [UInt32] = []
@@ -1622,8 +1682,9 @@ final class CampusEducationDistrictTests: XCTestCase {
         XCTAssertNil(EducationLightAssetCatalog.Asset(resource: "../Info.plist", mime: "text/plain").bundleURL())
     }
 
-    func testBatchedBuildingAndLevelOfDetailSharePlacement() throws {
+    func testBatchedBuildingAndLevelOfDetailSharePlacement() async throws {
         let data = try CampusMapData.load()
+        _ = try await CampusEducationDistrict.prepare(.far)
         let entity = try CampusEducationDistrict.makeEntity(data: data)
         let position = entity.position
         let orientation = entity.orientation
@@ -1637,7 +1698,9 @@ final class CampusEducationDistrictTests: XCTestCase {
         XCTAssertEqual(entity.name, "campus.education-district")
         XCTAssertGreaterThan(bounds.extents.x, 10)
         XCTAssertLessThan(bounds.extents.y, 6)
-        CampusEducationDistrict.update(entity, near: true)
+        let closeMesh = try await CampusEducationDistrict.prepare(.near)
+        XCTAssertFalse(entity.model?.mesh === closeMesh)
+        entity.model?.mesh = closeMesh
         XCTAssertEqual(entity.position, position)
         XCTAssertEqual(entity.orientation, orientation)
         let close = entity.visualBounds(recursive: false, relativeTo: entity)
