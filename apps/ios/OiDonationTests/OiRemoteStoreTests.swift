@@ -50,6 +50,7 @@ final class OiTestBackend {
         var autoStoryModeration = false
         var rejectModeration = false
         var moderationCount = 0
+        var storyReview: [String: Any]?
         var corruptSubmittedCoverType = false
         var corruptReviewedCoverType = false
         var reviewPayloads: [[String: Any]] = []
@@ -235,6 +236,17 @@ final class OiTestBackend {
                 state.timeOutCardUploadAfterCommit = false
                 lock.unlock(); client.timeOut(); return
             }
+        } else if path.hasSuffix("/rpc/oi_my_story_reviews") {
+            result = state.storyReview.map { [$0] } ?? []
+        } else if path.hasSuffix("/rpc/oi_plant_story") {
+            if let review = state.storyReview, review["status"] as? String == "approved",
+               let revision = state.story?["revision"] as? Int,
+               body["p_revision"] as? Int == revision, body["p_story"] as? String == state.story?["id"] as? String {
+                state.story?["status"] = "published"
+                state.story?["revision"] = revision + 1
+                state.storyReview = nil
+                result = state.story ?? [:]
+            } else { status = 409 }
         } else if path.hasSuffix("/rpc/oi_mutate") || path.hasSuffix("/functions/v1/moderate-story") {
             let automated = path.hasSuffix("/functions/v1/moderate-story")
             let payload = automated ? body : (body["p_payload"] as? [String:Any] ?? [:])
@@ -261,7 +273,10 @@ final class OiTestBackend {
                 result = state.story ?? [:]
             } else if automated && state.rejectModeration {
                 state.moderationCount += 1
-                result = ["status": "rejected", "reason": "privacy", "source": "card"]
+                let review: [String: Any] = ["status": "rejected", "reason": "privacy", "source": "card",
+                    "story_id": payload["id"] ?? "", "revision": payload["revision"] ?? 0]
+                state.storyReview = review
+                result = review
             } else if action == "submit_story" {
                 if automated { state.moderationCount += 1 }
                 state.submitCount += 1
@@ -277,11 +292,17 @@ final class OiTestBackend {
                     state.story?["card_cover_type"] = (format as? Int) == 3 ? (payload["card_cover_type"] ?? "png") : nil
                 }
                 if state.corruptSubmittedCoverType { state.story?["card_cover_type"] = "png" }
-                state.story?["status"] = automated ? "published" : "pending"
+                state.story?["status"] = automated ? "draft" : "pending"
                 let nextRevision = (state.story?["revision"] as? Int ?? 0)+1
                 state.story?["revision"] = nextRevision
                 let story = state.story ?? [:]
-                result = automated ? ["status": "published", "story": story] as [String: Any] : story
+                if automated {
+                    let review: [String: Any] = ["status": "approved", "story_id": payload["id"] ?? "", "revision": nextRevision]
+                    state.storyReview = review
+                    result = review.merging(["story": story]) { existing, _ in existing }
+                } else {
+                    result = story
+                }
                 if state.timeOutSubmitAfterCommit {
                     state.timeOutSubmitAfterCommit = false
                     lock.unlock(); client.timeOut(); return
@@ -2846,7 +2867,7 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(store.profile?.nickname, "Owner B")
     }
 
-    @MainActor func testAutomaticPublicationShowsOnlyRejectionReasonAndConfirmsLostSuccessResponse() async throws {
+    @MainActor func testAutomaticReviewKeepsDraftPrivateUntilExplicitPlanting() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { clean(session, directory: directory) }
         backend.configure { $0.autoStoryModeration = true; $0.rejectModeration = true }
@@ -2866,18 +2887,19 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertTrue(store.stories.isEmpty)
 
         backend.configure { $0.rejectModeration = false; $0.timeOutSubmitAfterCommit = true }
-        let published = await store.submitStory(saved, agreesToAIReview: true)
-        XCTAssertEqual(published?.status, "published")
-        XCTAssertEqual(published?.revision, saved.revision + 1)
-        XCTAssertEqual(store.stories.first?.id, saved.id)
+        let reviewed = await store.submitStory(saved, agreesToAIReview: true)
+        let approved = try XCTUnwrap(reviewed)
+        XCTAssertEqual(approved.status, "draft")
+        XCTAssertEqual(approved.revision, saved.revision + 1)
+        XCTAssertEqual(store.moderationResult(for: approved)?.status, .approved)
+        XCTAssertTrue(store.stories.isEmpty)
         XCTAssertEqual(backend.snapshot().moderationCount, 2)
         XCTAssertEqual(backend.snapshot().submitCount, 1)
         XCTAssertEqual(backend.snapshot().reviewCount, 0)
 
-        let story = try XCTUnwrap(published)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
-        window.rootViewController = UIHostingController(rootView: NavigationStack { OiStoryEditor(remote: store, story: story) })
+        window.rootViewController = UIHostingController(rootView: NavigationStack { OiStoryListScreen(remote: store) })
         window.isHidden = false
         defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
         try await Task.sleep(for: .seconds(1))
@@ -2885,9 +2907,14 @@ final class OiRemoteStoreTests: XCTestCase {
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
         let attachment = XCTAttachment(image: image)
-        attachment.name = "automatic-story-publication"
+        attachment.name = "review-approved-story-list"
         attachment.lifetime = .keepAlways
         add(attachment)
+
+        let planted = await store.plantStory(approved)
+        XCTAssertTrue(planted)
+        XCTAssertEqual(store.stories.first?.id, saved.id)
+        XCTAssertNil(store.moderationResult(for: approved))
     }
 
     @MainActor func testPublicationUsesLatestSavedContentAndRevision() async throws {

@@ -113,7 +113,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
             }
             .background(Color("OiLight").ignoresSafeArea())
             .safeAreaInset(edge: .bottom, spacing: 0) { submitBar }
-            .navigationTitle(remote.autoStoryModeration ? "공개 등록" : "공개 검토 전 확인")
+            .navigationTitle(remote.autoStoryModeration ? "내용 검토" : "공개 검토 전 확인")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color("OiLight"), for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
@@ -326,7 +326,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
     }
 
     private var submitTitle: String {
-        if remote.autoStoryModeration { return isSubmitting ? "등록 중…" : "등록하기" }
+        if remote.autoStoryModeration { return isSubmitting ? "검토중" : "내용 검토 요청하기" }
         return isSubmitting ? "공개 검토 요청 중…" : "공개 검토 요청하기"
     }
 

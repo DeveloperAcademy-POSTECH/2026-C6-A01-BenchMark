@@ -16,6 +16,7 @@ struct OiStoryEditor: View {
     }
 
     let remote: OiRemoteStore
+    private let opensReview: Bool
     var onFinish: (() -> Void)?
     @State private var draft: OiStoryDraft
     @State private var owner: UUID?
@@ -23,6 +24,7 @@ struct OiStoryEditor: View {
     @State private var photoOrder: [String]?
     @State private var uploadedPhotos: Set<UUID> = []
     @State private var localVersion = 0
+    @State private var reviewedContentFingerprint: String?
     @State private var restored = false
     @State private var isRestoring = false
     @State private var restorationError: String?
@@ -76,9 +78,10 @@ struct OiStoryEditor: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(remote: OiRemoteStore, story: OiLiveStory? = nil, localID: UUID? = nil,
-         initialStep: OiCreationStep = .story, onFinish: (() -> Void)? = nil) {
+         initialStep: OiCreationStep = .story, opensReview: Bool = false, onFinish: (() -> Void)? = nil) {
         self.remote = remote
         self.onFinish = onFinish
+        self.opensReview = opensReview
         var value: OiStoryDraft
         if let story { value = OiStoryDraft(story: story) }
         else { value = OiStoryDraft() }
@@ -189,7 +192,7 @@ struct OiStoryEditor: View {
     private var cardCompletion: some View {
         OiStoryCompletionView(draft: draft, customization: customization,
             donorName: remote.profile?.publicName ?? "", location: completionLocation,
-            onDone: { finish() }, canPublish: remote.autoStoryModeration, onPublish: { advance() })
+            onDone: { finish() })
     }
 
     private var placementPreview: some View {
@@ -731,6 +734,7 @@ struct OiStoryEditor: View {
             if let record {
                 draft = record.draft; photos = record.photos; uploadedPhotos = Set(record.uploadedPhotos)
                 localVersion = record.version; submitted = record.submitted
+                reviewedContentFingerprint = record.reviewedContentFingerprint
                 step = record.creationStep.flatMap(OiCreationStep.init(rawValue:)) ?? .story
                 customization = record.customization ?? OiDraftCustomization()
                 personalPlacement = record.personalPlacement
@@ -747,6 +751,7 @@ struct OiStoryEditor: View {
                 submitted = !OiCreationAccess.canEdit(status: server.status, submitted: submitted)
             }
             restored = true; localError = nil; saveLabel = "이 계정의 기기 초안 자동 저장"
+            if opensReview && !submitted { showingPreview = true }
             if step == .photos {
                 // Older drafts stored the photo editor as a step. Resume over the writing form.
                 step = .story
@@ -845,11 +850,25 @@ struct OiStoryEditor: View {
             localError = "저장된 카드가 바뀌었어요. 카드를 다시 확인하고 검토를 요청해 주세요."
             return
         }
-        if let receipt = await remote.submitStory(saved, cucumber: publication, card: card,
-                                                 agreesToAIReview: agreesToAIReview) {
-            draft = OiStoryDraft(story: receipt); submitted = true; localVersion += 1
+        let usesAIReview = remote.autoStoryModeration
+        let receipt = await remote.submitStory(saved, cucumber: publication, card: card,
+                                               agreesToAIReview: agreesToAIReview)
+        if let receipt {
+            draft = OiStoryDraft(story: receipt); localVersion += 1
+            if usesAIReview {
+                reviewedContentFingerprint = record().contentFingerprint
+                guard await persist() else { return }
+                showingPreview = false
+                finish()
+            } else {
+                submitted = true
+                _ = await persist()
+                showingPreview = false
+            }
+        } else if usesAIReview, remote.moderationResult(for: saved)?.status == .rejected {
+            reviewedContentFingerprint = record().contentFingerprint
+            localVersion += 1
             _ = await persist()
-            showingPreview = false
         }
     }
 
@@ -1116,7 +1135,7 @@ struct OiStoryEditor: View {
     }
 
     private func record() -> OiLocalDraft {
-        OiLocalDraft(draft: draft, photos: photos, uploadedPhotos: Array(uploadedPhotos), version: localVersion, submitted: submitted, creationStep: step.rawValue, customization: customization, removedMediaPaths: removedMediaPaths, removedPhotoIDs: removedPhotoIDs, agreedConsentClauseIDs: consentState.savedIDs, personalPlacement: personalPlacement, photoOrder: photoOrder)
+        OiLocalDraft(draft: draft, photos: photos, uploadedPhotos: Array(uploadedPhotos), version: localVersion, submitted: submitted, creationStep: step.rawValue, customization: customization, removedMediaPaths: removedMediaPaths, removedPhotoIDs: removedPhotoIDs, agreedConsentClauseIDs: consentState.savedIDs, personalPlacement: personalPlacement, photoOrder: photoOrder, reviewedContentFingerprint: reviewedContentFingerprint)
     }
 
     private func scheduleSave() {

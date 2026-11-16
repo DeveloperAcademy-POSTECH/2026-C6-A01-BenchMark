@@ -35,17 +35,40 @@ struct OiStoryListItem: Identifiable, Equatable, Sendable {
         self.dateLabel = dateLabel
     }
 
-    init(story: OiLiveStory, donorDisplayName: String, locationDisplayName: String) {
+    init(story: OiLiveStory, portraitPNG: Data? = nil, donorDisplayName: String, locationDisplayName: String) {
         self.init(
             id: story.id,
             cucumberName: story.cucumberName,
             title: story.title,
             cucumberAsset: story.cucumberAsset,
+            portraitPNG: portraitPNG,
             donorDisplayName: donorDisplayName,
             locationDisplayName: locationDisplayName,
             tags: [story.emotion, story.theme].filter { !$0.isEmpty },
             dateLabel: story.createdDateLabel
         )
+    }
+}
+
+enum OiStoryListReviewState: Equatable {
+    case unreviewed, reviewing, approved, rejected
+
+    var title: String {
+        switch self {
+        case .unreviewed: "검토 전"
+        case .reviewing: "검토중"
+        case .approved: "게시 가능"
+        case .rejected: "수정 필요"
+        }
+    }
+
+    var background: UInt32 {
+        switch self {
+        case .unreviewed: 0xf3f3f3
+        case .reviewing: 0xfdf0df
+        case .approved: 0xeaeee2
+        case .rejected: 0xffe7e7
+        }
     }
 }
 

@@ -231,38 +231,21 @@ struct OiServiceAPI {
         return try decoder.decode(Value.self, from: data)
     }
 
-    func publishStory(_ payload: [String: Any], token: String) async throws -> OiLiveStory {
-        struct Receipt: Decodable {
-            let status: String
-            let story: OiLiveStory?
-            let reason: String?
-            let source: String?
-        }
+    func moderateStory(_ payload: [String: Any], token: String) async throws -> OiStoryModerationResult {
         let body = try JSONSerialization.data(withJSONObject: payload)
         let data = try await request("functions/v1/moderate-story", method: "POST", token: token, body: body, timeout: 65)
-        let receipt = try decoder.decode(Receipt.self, from: data)
-        if receipt.status == "published", let story = receipt.story { return story }
-        guard receipt.status == "rejected" else { throw OiServiceError.unavailable }
-        let source: String = switch receipt.source {
-        case "story": "이야기"
-        case "photo": "첨부 사진"
-        case "appearance": "오이 이미지"
-        case "card": "카드 이미지"
-        default: throw OiServiceError.unavailable
-        }
-        let reason: String = switch receipt.reason {
-        case "privacy": "공개하면 안 되는 개인정보가 포함돼 있어요."
-        case "rights": "다른 사람의 권리를 침해하는 내용이 포함돼 있어요."
-        case "unintelligible": "의미를 확인하기 어려운 내용이 포함돼 있어요."
-        case "profanity": "욕설이 포함돼 있어요."
-        case "harassment": "조롱·비방 또는 혐오 표현이 포함돼 있어요."
-        case "sexual": "노골적인 성적 내용이 포함돼 있어요."
-        case "violence": "위협 또는 폭력적인 내용이 포함돼 있어요."
-        case "spam": "광고 또는 스팸이 포함돼 있어요."
-        case "fraud": "허위 또는 도용된 기부 이야기가 포함돼 있어요."
-        default: throw OiServiceError.unavailable
-        }
-        throw OiServiceError.server("\(source)에 \(reason)")
+        return try decoder.decode(OiStoryModerationResult.self, from: data)
+    }
+
+    func storyModerationResults(token: String) async throws -> [OiStoryModerationResult] {
+        let data = try await request("rest/v1/rpc/oi_my_story_reviews", method: "POST", token: token, body: Data("{}".utf8))
+        return try decoder.decode([OiStoryModerationResult].self, from: data)
+    }
+
+    func plantStory(_ story: OiLiveStory, token: String) async throws -> OiLiveStory {
+        let body = try JSONSerialization.data(withJSONObject: ["p_story": story.id.uuidString, "p_revision": story.revision])
+        let data = try await request("rest/v1/rpc/oi_plant_story", method: "POST", token: token, body: body)
+        return try decoder.decode(OiLiveStory.self, from: data)
     }
 
     func cardRequests(token: String) async throws -> [OiCardRequest] {

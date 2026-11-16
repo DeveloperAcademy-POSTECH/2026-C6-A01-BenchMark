@@ -280,14 +280,14 @@ struct OiDraftPlacementPreview: View {
                     onPlace(placement)
                 }
                 .accessibilityIdentifier("oi.creation.placeOnMyMap")
-                Button(autoStoryModeration ? "공개 등록" : "공개 검토 요청") {
+                Button(autoStoryModeration ? "내용 검토 요청하기" : "공개 검토 요청") {
                     scene.commitPlacementPreview()
                     onReview()
                 }
                 .font(CampusStyle.medium(15)).tint(CampusStyle.sectionGreen)
                 .frame(minHeight: 44).disabled(!canUsePlacement)
                 .accessibilityIdentifier("oi.creation.reviewPlacement")
-                .accessibilityHint(autoStoryModeration ? "공개 등록 화면으로 이동해요."
+                .accessibilityHint(autoStoryModeration ? "내용 검토 화면으로 이동해요."
                                        : "이야기와 사진을 다른 사람에게 공개하기 위한 검토 화면으로 이동해요.")
             }
             .multilineTextAlignment(.center)
