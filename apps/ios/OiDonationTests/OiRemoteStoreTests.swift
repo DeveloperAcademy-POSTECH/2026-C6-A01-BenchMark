@@ -106,6 +106,7 @@ final class OiTestBackend {
         var failAfterReview = false
         var loseReviewResponse = false
         var holdReviewResponse = false
+        var holdModerationResponse = false
         var ignoreStoryStatusFilter = false
         var auditRecords: [[String: Any]] = []
         var auditBodies: [[String: Any]] = []
@@ -146,7 +147,7 @@ final class OiTestBackend {
     func snapshot() -> State { lock.lock(); defer { lock.unlock() }; return state }
     func releaseHeldRead() {
         let value = snapshot().held
-        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false; $0.holdReviewResponse = false; $0.holdAuditRead = false; $0.holdCardSend = false; $0.holdFarmWrite = false; $0.holdFarmerOutfitWrite = false }
+        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false; $0.holdReviewResponse = false; $0.holdModerationResponse = false; $0.holdAuditRead = false; $0.holdCardSend = false; $0.holdFarmWrite = false; $0.holdFarmerOutfitWrite = false }
         value?.0.respond(200, value?.1 ?? Data())
     }
     func install() { OiStoreURLProtocol.handle = { [weak self] request, client in self?.receive(request, client: client) } }
@@ -517,6 +518,7 @@ final class OiTestBackend {
         let data = bytes ?? ((try? JSONSerialization.data(withJSONObject: result)) ?? Data())
         if (path.hasSuffix("/oi_stories") && owner == Self.owner && state.holdOwnerRead)
             || (path.hasSuffix("/rpc/oi_mutate") && body["p_action"] as? String == "review_story" && state.holdReviewResponse)
+            || (path.hasSuffix("/functions/v1/moderate-story") && state.holdModerationResponse)
             || (path.hasSuffix("/rpc/oi_operator_audit") && state.holdAuditRead)
             || (path.hasSuffix("/rpc/oi_capabilities") && state.holdPostMergeRead && state.mergeConfirmCount > 0)
             || (path.hasSuffix("/rpc/oi_request_card") && state.holdCardSend)
@@ -2915,6 +2917,78 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertTrue(planted)
         XCTAssertEqual(store.stories.first?.id, saved.id)
         XCTAssertNil(store.moderationResult(for: approved))
+    }
+
+    @MainActor func testStoryListRequestsReviewAndShowsResultInPlace() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure {
+            $0.autoStoryModeration = true; $0.rejectModeration = true
+            $0.publicStoryCard = true; $0.duplexStoryCard = true
+        }
+        await store.start()
+        let owner = OiTestBackend.owner
+        let photo = UUID()
+        let record = OiLocalDraft(draft: draft(), photos: [photo], version: 1,
+            agreedConsentClauseIDs: Set(OiStoryConsentClause.writingClauses.map { $0.id.rawValue }))
+        let photoBytes = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 80, height: 80)).image { context in
+            UIColor.systemGreen.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 80, height: 80))
+        }.jpegData(compressionQuality: 0.9))
+        try await store.saveLocalDraft(record, owner: owner)
+        try await store.saveLocalPhoto(photoBytes, id: photo, owner: owner)
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        var actions: OiStoryListScreen.ReviewTestActions?
+        var appearances = 0
+        let controller = UIHostingController(rootView: NavigationStack {
+            OiStoryListScreen(remote: store, onReviewActionsForTest: { actions = $0; appearances += 1 })
+        })
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
+        try await Task.sleep(for: .seconds(1))
+        let buttons = try XCTUnwrap(actions)
+        XCTAssertEqual(buttons.status(record.id).title, "검토 전")
+        buttons.request(record.id)
+        for _ in 0..<60 where !buttons.needsConsent(record.id) { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertTrue(buttons.needsConsent(record.id))
+        XCTAssertEqual(backend.snapshot().moderationCount, 0)
+
+        let held = expectation(description: "Review remains in progress until the server responds")
+        backend.configure { $0.holdModerationResponse = true; $0.didHold = { held.fulfill() } }
+        buttons.grantConsent(record.id)
+        await fulfillment(of: [held], timeout: 15)
+        XCTAssertEqual(buttons.status(record.id).title, "검토중")
+        buttons.request(record.id)
+        XCTAssertEqual(backend.snapshot().moderationCount, 1)
+        backend.releaseHeldRead()
+        for _ in 0..<120 where buttons.status(record.id) != .rejected { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(buttons.status(record.id).title, "수정 필요")
+        XCTAssertEqual(buttons.message(record.id), "카드 이미지에 공개하면 안 되는 개인정보가 포함돼 있어요.")
+        XCTAssertNil(controller.presentedViewController)
+        XCTAssertEqual(appearances, 1)
+        let screenshot = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: screenshot)
+        attachment.name = "story-review-rejection-in-list"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        backend.configure { $0.rejectModeration = false }
+        buttons.request(record.id)
+        for _ in 0..<160 where buttons.status(record.id) != .approved { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(buttons.status(record.id).title, "게시 가능")
+        XCTAssertNil(buttons.message(record.id))
+        XCTAssertEqual(backend.snapshot().moderationCount, 2)
+        XCTAssertEqual(store.ownStories.first?.status, "draft")
+        XCTAssertTrue(store.stories.isEmpty)
+        let saved = try await store.localDraft(id: record.id, owner: owner)
+        XCTAssertTrue(saved?.matchesReviewedContent == true)
+        XCTAssertTrue(saved?.agreedConsentClauseIDs?.contains("aiReviewV1") == true)
     }
 
     @MainActor func testStoryListShowsUpdatedLayoutWithLegacyReview() async throws {

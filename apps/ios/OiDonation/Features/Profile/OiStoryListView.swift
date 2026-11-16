@@ -17,7 +17,9 @@ struct OiStoryListView: View {
     var isDeleting = false
     var reviewState: (UUID) -> OiStoryListReviewState = { _ in .unreviewed }
     var onRequestReview: ((UUID) -> Void)?
-    var onShowReviewFailure: ((UUID) -> Void)?
+    var needsReviewConsent: (UUID) -> Bool = { _ in false }
+    var onGrantReviewConsent: ((UUID) -> Void)?
+    var reviewMessage: (UUID) -> String? = { _ in nil }
     var onPlant: (() -> Void)?
     var canPlant = false
 
@@ -168,26 +170,35 @@ struct OiStoryListView: View {
             .padding(.horizontal, 10).padding(.vertical, 4)
             .background(Color(oiRGB: state.background), in: RoundedRectangle(cornerRadius: 10))
             .foregroundStyle(.black)
-        return HStack(spacing: 8) {
-            if state == .rejected, let onShowReviewFailure {
-                Button { onShowReviewFailure(id) } label: { status }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("거부 사유 보기")
-            } else {
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
                 status
-            }
-            Spacer(minLength: 0)
-            if state == .unreviewed || state == .rejected {
-                Button {
-                    onRequestReview?(id)
-                } label: {
-                    Text("내용 검토 요청하기").underline()
-                        .foregroundStyle(Color(oiRGB: 0x232323))
+                Spacer(minLength: 0)
+                if state == .unreviewed || state == .rejected {
+                    Button {
+                        onRequestReview?(id)
+                    } label: {
+                        Text("내용 검토 요청하기").underline()
+                            .foregroundStyle(Color(oiRGB: 0x232323))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("storyList.review.\(id.uuidString)")
+                } else {
+                    Text("요청 완료").underline().foregroundStyle(Color(oiRGB: 0x737373))
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("storyList.review.\(id.uuidString)")
-            } else {
-                Text("요청 완료").underline().foregroundStyle(Color(oiRGB: 0x737373))
+            }
+            .accessibilityIdentifier("storyList.reviewStatus.\(id.uuidString)")
+            if needsReviewConsent(id), let onGrantReviewConsent {
+                Text(OiStoryConsentClause.aiReviewAgreement)
+                Button("동의하고 검토 요청") { onGrantReviewConsent(id) }
+                    .buttonStyle(.plain)
+                    .underline()
+                    .foregroundStyle(Color("OiGreen"))
+                    .frame(minHeight: 44)
+            }
+            if let message = reviewMessage(id) {
+                Text(message).foregroundStyle(.red)
+                    .accessibilityIdentifier("storyList.reviewReason.\(id.uuidString)")
             }
         }
         .font(.custom("Paperlogy-4Regular", size: 13, relativeTo: .caption)).tracking(0.26)

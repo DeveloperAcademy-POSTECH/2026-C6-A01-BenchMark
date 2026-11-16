@@ -16,7 +16,6 @@ struct OiStoryEditor: View {
     }
 
     let remote: OiRemoteStore
-    private let opensReview: Bool
     var onFinish: (() -> Void)?
     @State private var draft: OiStoryDraft
     @State private var owner: UUID?
@@ -78,10 +77,9 @@ struct OiStoryEditor: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(remote: OiRemoteStore, story: OiLiveStory? = nil, localID: UUID? = nil,
-         initialStep: OiCreationStep = .story, opensReview: Bool = false, onFinish: (() -> Void)? = nil) {
+         initialStep: OiCreationStep = .story, onFinish: (() -> Void)? = nil) {
         self.remote = remote
         self.onFinish = onFinish
-        self.opensReview = opensReview
         var value: OiStoryDraft
         if let story { value = OiStoryDraft(story: story) }
         else { value = OiStoryDraft() }
@@ -236,7 +234,8 @@ struct OiStoryEditor: View {
                             }
                             OiStoryConsentView(clauses: OiStoryConsentClause.writingClauses,
                                 onContinue: advance, onExit: requestExit,
-                                showsHeader: false, state: $consentState)
+                                showsHeader: false, state: $consentState,
+                                aiReviewConsent: remote.autoStoryModeration ? aiReviewConsent : nil)
                         }
                         .task { prewarmStoryStep() }
                     } else if step == .cucumber || step == .card {
@@ -751,7 +750,6 @@ struct OiStoryEditor: View {
                 submitted = !OiCreationAccess.canEdit(status: server.status, submitted: submitted)
             }
             restored = true; localError = nil; saveLabel = "이 계정의 기기 초안 자동 저장"
-            if opensReview && !submitted { showingPreview = true }
             if step == .photos {
                 // Older drafts stored the photo editor as a step. Resume over the writing form.
                 step = .story
@@ -788,11 +786,16 @@ struct OiStoryEditor: View {
                     await submitReview(portrait: portrait, card: card, reviewedCardPath: reviewedCardPath,
                                        agreesToAIReview: agreesToAIReview)
                 }
-            }) { photo, thumbnail in
+            }, agreesToAIReview: aiReviewConsent) { photo, thumbnail in
                 reviewPhoto(photo, allowsRetry: !thumbnail, contentMode: thumbnail ? .fill : .fit,
                             maximumPixelSize: thumbnail ? 512 : 1600)
             }
             .id(reusedCardPath)
+    }
+
+    private var aiReviewConsent: Binding<Bool> {
+        Binding(get: { consentState.isAgreed(to: .aiReviewV1) },
+                set: { consentState.setAgreed($0, to: .aiReviewV1) })
     }
 
     private var reviewIssues: [OiStoryReviewIssue] {
@@ -1139,7 +1142,7 @@ struct OiStoryEditor: View {
     }
 
     private func scheduleSave() {
-        guard restored, !placing, !replacingServerDraft, let owner else { return }
+        guard restored, !placing, !publishing, !replacingServerDraft, let owner else { return }
         localVersion += 1
         let snapshot = record()
         let previous = pendingSave
@@ -1160,48 +1163,26 @@ struct OiStoryEditor: View {
     }
 
     private func saveCurrent() async -> OiLiveStory? {
-        guard !saving, canSubmit else { return nil }
+        guard !saving, canSubmit, let owner else { return nil }
         saving = true
         defer { saving = false }
-        if let latest = remote.ownStories.first(where: { $0.id == draft.id }), latest.revision != draft.revision,
-           OiCreationAccess.canRebase(draft, to: latest) {
-            draft.revision = latest.revision
-            localVersion += 1
-        }
-        guard let owner, await persist(), remote.account?.id == owner else { return nil }
-        let saved: OiLiveStory?
-        if let existing = currentStory, OiCreationAccess.canRebase(draft, to: existing) { saved = existing }
-        else { saved = await remote.save(draft) }
-        guard var current = saved, remote.account?.id == owner else { return nil }
-        draft = OiStoryDraft(story: current); localVersion += 1
-        guard await persist() else { return nil }
-        let alreadyAttached = attachedPhotoIDs
-        for id in photos where !alreadyAttached.contains(id) && !removedPhotoIDs.contains(id) {
-            do {
-                let data = try await remote.localPhoto(id: id, owner: owner)
-                guard let updated = await remote.uploadStoryImage(data, photoID: id, story: current) else { return nil }
-                current = updated; uploadedPhotos.insert(id); draft.revision = updated.revision; localVersion += 1
-                guard await persist() else { return nil }
-            } catch { localError = error.localizedDescription; return nil }
-        }
-        if !removedMediaPaths.isEmpty || !removedPhotoIDs.isEmpty {
-            guard let updated = await remote.removeStoryMedia(
-                paths: Set(removedMediaPaths), photoIDs: removedPhotoIDs, story: current
-            ) else { return nil }
-            current = updated; draft.revision = updated.revision
-            removedMediaPaths = []; removedPhotoIDs = []; localVersion += 1
-            guard await persist() else { return nil }
-        }
-        if let photoOrder {
-            // Uses the existing attach_media call to keep the server's attachment order equal to the draft.
-            guard let updated = await remote.reorderStoryMedia(photoOrder, story: current) else { return nil }
-            if updated.revision != current.revision {
-                draft.revision = updated.revision; localVersion += 1
-                guard await persist() else { return nil }
+        await pendingSave?.value
+        var snapshot = record()
+        defer {
+            if remote.account?.id == owner {
+                draft = snapshot.draft
+                localVersion = snapshot.version
+                uploadedPhotos = Set(snapshot.uploadedPhotos)
+                removedMediaPaths = snapshot.removedMediaPaths ?? []
+                removedPhotoIDs = snapshot.removedPhotoIDs ?? []
             }
-            current = updated
         }
-        return current
+        do {
+            return try await remote.saveDraftForReview(&snapshot, owner: owner)
+        } catch {
+            localError = error.localizedDescription
+            return nil
+        }
     }
 }
 

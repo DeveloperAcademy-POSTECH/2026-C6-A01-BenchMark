@@ -9,6 +9,7 @@ struct OiStoryConsentView: View {
     var showsContinueButton = true
     var state: Binding<OiStoryConsentState>?
     var onSelectStage: ((Int) -> Void)?
+    var aiReviewConsent: Binding<Bool>?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -27,6 +28,10 @@ struct OiStoryConsentView: View {
                         }
                     }
 
+                    if let aiReviewConsent {
+                        Toggle(OiStoryConsentClause.aiReviewAgreement, isOn: aiReviewConsent)
+                            .font(.footnote)
+                    }
                     if showsContinueButton { footerActions }
                 }
                 .padding(.horizontal, 20)

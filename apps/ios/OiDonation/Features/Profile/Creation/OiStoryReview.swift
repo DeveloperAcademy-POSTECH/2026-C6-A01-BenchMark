@@ -30,11 +30,11 @@ struct OiStoryReview<StoryPhoto: View>: View {
     let onClose: () -> Void
     let onEdit: (OiCreationStep) -> Void
     let onSubmit: (Data?, OiStoryCardPublication?, Bool) -> Void
+    @Binding var agreesToAIReview: Bool
     let storyPhoto: (OiEditingPhoto, Bool) -> StoryPhoto
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorScheme) private var colorScheme
-    @State private var agreesToAIReview = false
     @State private var selection: Artwork?
     @State private var portrait: UIImage?
     @State private var portraitPNG: Data?
@@ -341,7 +341,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             if remote.autoStoryModeration {
-                Toggle("공개 검수를 위해 이야기와 첨부 사진·오이·카드 이미지를 OpenAI에 보내는 데 동의합니다.",
+                Toggle(OiStoryConsentClause.aiReviewAgreement,
                        isOn: $agreesToAIReview)
                     .font(.footnote).disabled(isSubmitting)
             }

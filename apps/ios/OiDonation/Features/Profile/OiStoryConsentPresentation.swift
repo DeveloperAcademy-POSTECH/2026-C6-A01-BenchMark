@@ -11,6 +11,7 @@ struct OiStoryConsentClause: Identifiable, Equatable, Sendable {
         case storyWriting
         case donationVerification
         case moderation
+        case aiReviewV1
 
         var id: String { rawValue }
     }
@@ -54,6 +55,8 @@ struct OiStoryConsentState: Equatable, Sendable {
 }
 
 extension OiStoryConsentClause {
+    static let aiReviewAgreement = "공개 검수를 위해 이야기와 첨부 사진·오이·카드 이미지를 OpenAI에 보내는 데 동의합니다."
+
     /// Figma `5400:7693` original text and order (#370).
     static let writingClauses: [Self] = [
         Self(

@@ -717,6 +717,71 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         catch { self.error = error.localizedDescription; return nil }
     }
 
+    func saveDraftForReview(_ record: inout OiLocalDraft, owner: UUID) async throws -> OiLiveStory {
+        let started = generation
+        func checkOwner() throws {
+            try Task.checkCancellation()
+            guard started == generation, account?.id == owner else { throw OiServiceError.accountChanged }
+        }
+        func checkpoint(_ record: OiLocalDraft) async throws {
+            try checkOwner()
+            guard try await drafts.save(record, owner: owner) else { throw OiServiceError.conflict }
+            try checkOwner()
+        }
+        func requireStory(_ story: OiLiveStory?) throws -> OiLiveStory {
+            try checkOwner()
+            guard let story else { throw error.map(OiServiceError.server) ?? .unavailable }
+            return story
+        }
+
+        try checkOwner()
+        let existing = ownStories.first { $0.id == record.id }
+        guard OiCreationAccess.canEdit(status: existing?.status, submitted: record.submitted) else {
+            throw OiServiceError.conflict
+        }
+        try await checkpoint(record)
+        let saved: OiLiveStory
+        if let existing, OiCreationAccess.canRebase(record.draft, to: existing) {
+            saved = existing
+        } else {
+            saved = try requireStory(await save(record.draft))
+        }
+        var current = saved
+        record.draft = OiStoryDraft(story: current)
+        record.version += 1
+        try await checkpoint(record)
+
+        let attached = Set(record.uploadedPhotos).union(mediaPaths(storyID: record.id).compactMap(OiEditingPhoto.localPhotoID(for:)))
+        let removedIDs = record.removedPhotoIDs ?? []
+        for id in record.photos where !attached.contains(id) && !removedIDs.contains(id) {
+            let data = try await localPhoto(id: id, owner: owner)
+            try checkOwner()
+            current = try requireStory(await uploadStoryImage(data, photoID: id, story: current))
+            record.uploadedPhotos.append(id)
+            record.draft.revision = current.revision
+            record.version += 1
+            try await checkpoint(record)
+        }
+        let removedPaths = Set(record.removedMediaPaths ?? [])
+        if !removedPaths.isEmpty || !removedIDs.isEmpty {
+            current = try requireStory(await removeStoryMedia(paths: removedPaths, photoIDs: removedIDs, story: current))
+            record.draft.revision = current.revision
+            record.removedMediaPaths = []
+            record.removedPhotoIDs = []
+            record.version += 1
+            try await checkpoint(record)
+        }
+        if let order = record.photoOrder {
+            current = try requireStory(await reorderStoryMedia(order, story: current))
+            if record.draft.revision != current.revision {
+                record.draft.revision = current.revision
+                record.version += 1
+                try await checkpoint(record)
+            }
+        }
+        return current
+    }
+
     func submitStory(_ story: OiLiveStory, cucumber: OiCucumberPublication? = nil,
                      card proposedCard: OiStoryCardPublication? = nil, agreesToAIReview: Bool = false) async -> OiLiveStory? {
         guard canStartStory else { error = OiServiceError.storyCreationUnavailable.localizedDescription; return nil }
