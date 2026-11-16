@@ -11,6 +11,7 @@ import SwiftUI
 import XCTest
 import CryptoKit
 import Compression
+import WebKit
 import os
 @testable import OiDonation
 
@@ -1473,6 +1474,139 @@ private final class TestTilt: UIPanGestureRecognizer {
 
 @MainActor
 final class CampusEducationDistrictTests: XCTestCase {
+    private func installReferenceCatalogFixture(_ model: EducationLightWebModel) {
+        model.webView.stopLoading()
+        let script = """
+        const referenceRoot='https://kfzfzarslqdqmrazohej.supabase.co/storage/v1/object/public/oi-education-reference/';
+        const fetchOriginal=window.fetch.bind(window);
+        window.fetch=(input,options)=>String(input)===referenceRoot+'catalog-v1.json'
+          ?Promise.resolve(new Response(JSON.stringify({version:1,stories:[{
+            id:'postech-900001',origin:'postech',kind:'Synthetic reference',category:'Synthetic',title:'Synthetic shared title',author:'Synthetic author',affiliation:'Synthetic affiliation',fund:'Synthetic fund',message:'Synthetic shared story body. '.repeat(30),
+            photo:referenceRoot+'postech-900001/'+'a'.repeat(64)+'.webp',photoAlt:'Synthetic portrait',sourceUrl:'https://vision.postech.ac.kr/web/?top=support&sub=story&key=detail&code=900001',sourceTitle:'Synthetic source',publishedAt:'2026-11-16',isSummary:true
+          }]}),{headers:{'Content-Type':'application/json'}}))
+          :fetchOriginal(input,options);
+        const portrait=document.createElement('canvas');portrait.width=32;portrait.height=24;
+        portrait.getContext('2d').fillRect(0,0,32,24);const portraitURL=portrait.toDataURL('image/png');
+        const originalSrc=Object.getOwnPropertyDescriptor(HTMLImageElement.prototype,'src');
+        Object.defineProperty(HTMLImageElement.prototype,'src',{...originalSrc,set(value){originalSrc.set.call(this,value===referenceRoot+'postech-900001/'+'a'.repeat(64)+'.webp'?portraitURL:value);}});
+        """
+        model.webView.configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        model.load()
+    }
+
+    func testEducationWriterSavesThroughNativeAccountWithoutMapPlacement() async throws {
+        let backend = OiTestBackend(); backend.install()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let remote = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: OiMemorySession())
+        await remote.start()
+        let original = OiStoreURLProtocol.handle
+        let saved = expectation(description: "Education draft saved using native session")
+        let photoStored = expectation(description: "Draft photo attached after native upload")
+        OiStoreURLProtocol.handle = { request, client in
+            guard request.url?.path == "/rest/v1/rpc/oi_education_mutate" else { original?(request, client); return }
+            do {
+                let body = try XCTUnwrap(JSONSerialization.jsonObject(with: OiTestBackend.body(request)) as? [String: Any])
+                var row = try XCTUnwrap(body["p_payload"] as? [String: Any])
+                XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer token-a")
+                for key in ["latitude", "longitude", "placement", "grant_id", "appearance"] { XCTAssertNil(row[key]) }
+                if body["p_action"] as? String == "save" {
+                    XCTAssertEqual(row["title"] as? String, "가상의 캠퍼스 추억"); saved.fulfill()
+                } else {
+                    XCTAssertEqual(body["p_action"] as? String, "attach_media")
+                    let paths = try XCTUnwrap(row["paths"] as? [String]); XCTAssertEqual(paths.count, 1)
+                    XCTAssertTrue(paths[0].contains("/education/")); XCTAssertTrue(paths[0].contains("/photos/"))
+                    XCTAssertEqual(backend.snapshot().uploads.count, 1); photoStored.fulfill()
+                    row["display_name"] = "가상 작성자"; row["title"] = "가상의 캠퍼스 추억"
+                    row["body"] = "테스트용 이야기입니다."; row["theme"] = "응원"; row["emotion"] = "따뜻함"
+                }
+                row["revision"] = (row["revision"] as? Int ?? 0) + 1
+                row["status"] = "draft"; row["origin"] = "education"
+                row["storage_owner_id"] = OiTestBackend.owner.uuidString.lowercased()
+                client.respond(200, try JSONSerialization.data(withJSONObject: row))
+            } catch { XCTFail(String(describing: error)); client.respond(400, Data()) }
+        }
+        let model = EducationLightWebModel(); installReferenceCatalogFixture(model); model.connectEducation(remote)
+        let previous = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: try XCTUnwrap(previous?.windowScene))
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let controller = UIViewController(); window.rootViewController = controller
+        model.webView.frame = window.frame; controller.view.addSubview(model.webView); window.makeKeyAndVisible()
+        defer {
+            model.setActive(false); model.webView.removeFromSuperview(); window.isHidden = true; previous?.makeKeyAndVisible()
+            session.invalidateAndCancel(); OiStoreURLProtocol.handle = nil; withExtendedLifetime(backend) {}
+            try? FileManager.default.removeItem(at: directory)
+        }
+        for _ in 0..<150 { if !model.loading { break }; try await Task.sleep(for: .milliseconds(100)) }
+        XCTAssertNil(model.failure)
+        _ = try await model.webView.evaluateJavaScript("document.querySelector('#storiesButton').click()")
+        var sharedReferenceVisible = false
+        for _ in 0..<50 {
+            if (try await model.webView.evaluateJavaScript("document.querySelector('#educationDialog').textContent.includes('Synthetic shared title')") as? Bool) == true { sharedReferenceVisible = true; break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertTrue(sharedReferenceVisible, "Native WebKit must display the same server reference title, not a bundled fictional story")
+        _ = try await model.webView.evaluateJavaScript("document.querySelector('#educationDialog').close()")
+        _ = try await model.webView.evaluateJavaScript("document.querySelector('#scatterButton').click()")
+        var photoVisible = false
+        for _ in 0..<50 {
+            if try await model.webView.evaluateJavaScript("document.querySelector('#viewerAimPhoto').classList.contains('is-ready')") as? Bool == true { photoVisible = true; break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertTrue(photoVisible, "The selected story must show its decoded photo above the text")
+        let layout = try await model.webView.evaluateJavaScript("""
+        (()=>{const photo=document.querySelector('#viewerAimPhoto'),image=photo.querySelector('img'),text=document.querySelector('.aim-story-content');
+        const before=photo.getBoundingClientRect(),body=text.getBoundingClientRect();text.scrollTop=text.scrollHeight;
+        const after=photo.getBoundingClientRect();return {width:before.width,height:before.height,above:before.bottom<=body.top,pinned:Math.abs(before.top-after.top)<1,scrolled:text.scrollTop>0,decoded:image.naturalWidth===32,story:photo.dataset.storyId};})()
+        """)
+        let photoLayout = try XCTUnwrap(layout as? [String: Any])
+        XCTAssertLessThanOrEqual(photoLayout["width"] as? Double ?? 999, 120)
+        XCTAssertGreaterThan(photoLayout["height"] as? Double ?? 0, 50)
+        XCTAssertLessThanOrEqual(photoLayout["height"] as? Double ?? 999, 85)
+        for key in ["above", "pinned", "scrolled", "decoded"] { XCTAssertEqual(photoLayout[key] as? Bool, true, key) }
+        XCTAssertEqual(photoLayout["story"] as? String, "postech-900001")
+        _ = try await model.webView.evaluateJavaScript("window.educationReturnToBuilding()")
+        for _ in 0..<30 { if !model.scattered { break }; try await Task.sleep(for: .milliseconds(100)) }
+        _ = try await model.webView.evaluateJavaScript("document.querySelector('#writeButton').click()")
+        for _ in 0..<50 {
+            if try await model.webView.evaluateJavaScript("!!document.querySelector('.education-form')") as? Bool == true { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let preparingPhoto = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
+            model.webView.callAsyncJavaScript("""
+            const c=document.createElement('canvas');c.width=c.height=16;c.getContext('2d').fillRect(0,0,16,16);
+            const blob=await new Promise(resolve=>c.toBlob(resolve,'image/png'));
+            const transfer=new DataTransfer();transfer.items.add(new File([blob],'synthetic.png',{type:'image/png'}));
+            const picker=document.querySelector('.education-form input[type=file]');picker.files=transfer.files;picker.dispatchEvent(new Event('change'));
+            [...document.querySelectorAll('.education-form button')].find(b=>b.textContent==='서버에 초안 저장').click();
+            return document.querySelector('.education-status').textContent.includes('사진을 준비하고 있어요') && !picker.disabled;
+            """, arguments: [:], in: nil, in: .page) { result in
+                continuation.resume(with: result.map { $0 as? Bool == true })
+            }
+        }
+        XCTAssertTrue(preparingPhoto, "Saving must wait for the newly selected photo, even if a cached preview is visible")
+        for _ in 0..<30 {
+            if try await model.webView.evaluateJavaScript("!document.querySelector('.education-photo-preview').hidden && document.querySelector('.education-form input[type=file]').parentElement.getAttribute('aria-busy')==='false'") as? Bool == true { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let editor = try await model.webView.evaluateJavaScript("""
+        (()=>{const form=document.querySelector('.education-form');if(!form)return false;
+        for(const [name,value] of Object.entries({theme:'응원',emotion:'따뜻함',display_name:'가상 작성자',title:'가상의 캠퍼스 추억',body:'테스트용 이야기입니다.'}))form.elements[name].value=value;
+        [...form.querySelectorAll('button')].find(b=>b.textContent==='서버에 초안 저장').click();
+        return [...form.querySelectorAll('input,textarea,select,button')].every(field=>field.disabled);})()
+        """)
+        XCTAssertEqual(editor as? Bool, true)
+        await fulfillment(of: [saved, photoStored], timeout: 5)
+        for _ in 0..<30 {
+            if (try await model.webView.evaluateJavaScript("document.querySelector('.education-status')?.textContent") as? String)?.contains("저장했어요") == true { return }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTFail("The WebKit editor must receive the native save receipt")
+    }
+
     func testBundledGeometryIsTheCompleteWebSurface() throws {
         let url = try XCTUnwrap(Bundle.main.url(forResource: "education-district-points", withExtension: "bin"))
         let bytes = try Data(contentsOf: url)
