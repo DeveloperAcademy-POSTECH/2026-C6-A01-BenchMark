@@ -24,7 +24,9 @@ POSTECH 캠퍼스에 남겨진 이야기를 3D 지도와 AR로 만나고, 나만
 
 오이기부는 POSTECH 캠퍼스 이야기를 지도와 AR로 만나는 무료 iPhone 앱입니다.
 
-비로그인 체험은 홈 지도 오른쪽 위 ‘체험하기’ → ‘6냥이오이’ → ‘스토리 보기’ → ‘수집하기’ → ‘시작’에서 열 수 있습니다. AR을 지원하는 iPhone에서 카메라를 허용하고 30초 안에 오이 3개를 찾은 뒤 ‘체험 카드 모으기’를 누릅니다. 현장 방문이나 NFC 태그가 필요하지 않으며, 체험 카드는 실제 도감에 저장되지 않습니다. App Clip은 첫 화면의 ‘이야기·AR 체험’에서 같은 체험을 엽니다.
+비로그인 체험은 홈 지도 오른쪽 위 ‘체험하기’ → ‘6냥이오이’ → ‘스토리 보기’ → ‘수집하기’ → ‘시작’에서 열 수 있습니다. AR을 지원하는 iPhone에서 카메라를 허용하고 30초 안에 오이 3개를 찾은 뒤 ‘체험 카드 모으기’를 누릅니다. 현장 방문이나 NFC 태그가 필요하지 않으며, 체험 카드는 실제 도감에 저장되지 않습니다.
+
+App Clip은 캠퍼스 NFC 태그를 대면 연결된 공개 이야기를 긁어 보는 엽서로 열립니다. 태그 없이 열면(App 보관함·기본 App Clip 링크) 서비스 소개와 ‘앱 다운로드 하기’ 버튼이 있는 시작 화면을 보여 주며, 버튼은 전체 앱 설치 안내를 엽니다. 시작 화면의 기부 문구는 서비스 소개이며, App Clip은 기부금이나 기부 자료를 받지 않습니다.
 
 실제 이야기는 MY → 설정에서 Apple 또는 Google로 로그인하고 홈 지도 ‘+’ → ‘오이 만들기’에서 시작합니다. 글·사진과 캠퍼스 위치를 정하고 오이와 카드를 꾸민 뒤 ‘내 지도에 배치하기’를 누르면 이 기기에서 바로 확인할 수 있습니다. ‘공개 검토 요청’을 제출하면 운영팀이 콘텐츠를 검토합니다. 승인되면 다른 사용자도 이야기·사진과 같은 오이 외형·카드를 공개 지도에서 볼 수 있으며 현장 AR에는 승인된 오이 외형이 표시됩니다. 탈퇴는 MY → 설정 → 회원 탈퇴에서 재인증 후 진행합니다.
 
@@ -34,7 +36,9 @@ POSTECH 캠퍼스에 남겨진 이야기를 3D 지도와 AR로 만나고, 나만
 
 OiDonation is a free iPhone app for discovering and sharing stories on the POSTECH campus. Donating is not required to create a story, place a character, or collect a card. The app does not accept payments or collect donation records. The optional donation link opens POSTECH’s official website in a browser. Tap a published cucumber directly on the main campus map to open its story.
 
-**Try the sample story and AR collection without an account or a campus visit.** On the main map, tap **체험하기** (Try it) → **6냥이오이** → **스토리 보기** (Read story) → **수집하기** (Collect) → **시작** (Start). On an AR-capable iPhone, allow camera access, find three cucumber characters within 30 seconds, and tap **체험 카드 모으기** (Collect sample card). Sample cards are separate from the account collection. In the App Clip, **이야기·AR 체험** (Try story and AR) opens the same experience.
+**Try the sample story and AR collection without an account or a campus visit.** On the main map, tap **체험하기** (Try it) → **6냥이오이** → **스토리 보기** (Read story) → **수집하기** (Collect) → **시작** (Start). On an AR-capable iPhone, allow camera access, find three cucumber characters within 30 seconds, and tap **체험 카드 모으기** (Collect sample card). Sample cards are separate from the account collection.
+
+**App Clip.** Tapping a campus NFC tag opens the App Clip as a scratch postcard for the linked published story. Opened without a tag (from the App Library or the default App Clip link), it shows an introduction screen; **앱 다운로드 하기** (Download the app) opens the full-app install sheet. The donation wording on that screen only describes the service; the App Clip does not accept donations or donation records.
 
 **Try story creation.** Open **MY → 설정** (Settings) and sign in with Apple or Google using the review access supplied in App Store Connect. Return to the map and select **+ → 오이 만들기** (Create cucumber). Write a story, add a test photo, choose a campus location, and customize the cucumber and card. Tap **내 지도에 배치하기** (Place on my map) to see the cucumber privately on this device. To share it, choose **공개 검토 요청** (Request publication review). A moderator reviews the submission before it appears on the public map. After approval, other users can see the story, photos, and the author's customized cucumber and card. On-site AR uses the approved cucumber appearance.
 
