@@ -17,7 +17,6 @@ struct OiSignInView: View {
     var presentation: Presentation = .standard
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @State private var showingConnection = false
     @State private var appleAuthentication = OiAppleAuthentication()
 
     var body: some View {
@@ -45,12 +44,6 @@ struct OiSignInView: View {
             }
             if showsProgress && remote.isBusy { ProgressView().accessibilityLabel("처리 중") }
         }
-        .navigationDestination(isPresented: $showingConnection) {
-            OiAccountMergeView(remote: remote, mode: .addLoginMethod)
-        }
-        .onChange(of: remote.account?.id) { _, owner in
-            if owner == nil { showingConnection = false }
-        }
     }
 
     @ViewBuilder private var settingsButtons: some View {
@@ -75,18 +68,14 @@ struct OiSignInView: View {
         }
     }
 
-    private var canConnect: Bool {
-        remote.hasLoadedRemote && remote.isAccountMergeAvailable && !remote.isOperator && !remote.needsReauthentication
-    }
-
     private func settingsProvider<Content: View>(_ provider: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(spacing: 6) {
             content()
                 .disabled(!remote.isConfigured || remote.isBusy ||
-                    (remote.account != nil && (!canConnect || remote.accountProviders.contains(provider))))
+                    (remote.account != nil && remote.accountProviders.contains(provider)))
             if remote.account != nil {
                 Text(remote.accountProviders.contains(provider) ? "로그인 완료" :
-                    (remote.accountProviders.isEmpty ? "연결 상태 확인 필요" : "추가 연동"))
+                    "로그인하기")
                     .font(CampusStyle.body(12))
                     .foregroundStyle(remote.accountProviders.contains(provider) ? CampusStyle.green : .secondary)
             }
@@ -97,8 +86,7 @@ struct OiSignInView: View {
 
     private var settingsAppleButton: some View {
         OiAppleSignInButton {
-            if remote.account != nil { showingConnection = true }
-            else { Task { await remote.signIn(using: appleAuthentication) } }
+            Task { await remote.signIn(using: appleAuthentication) }
         }
         .frame(maxWidth: .infinity)
         .frame(height: settingsButtonHeight)
@@ -106,8 +94,7 @@ struct OiSignInView: View {
 
     private var settingsGoogleButton: some View {
         Button {
-            if remote.account != nil { showingConnection = true }
-            else { Task { await remote.signIn() } }
+            Task { await remote.signIn() }
         } label: {
             HStack(spacing: 12) {
                 Image("GoogleSignInLogo").resizable().scaledToFit()

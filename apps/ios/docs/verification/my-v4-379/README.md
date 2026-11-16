@@ -145,3 +145,21 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 후속 검증도 동시 실행 최대 2그룹(빌드/테스트, 전용 시뮬레이터)을 사용했다. 테스트 완료 후 캡처 창 해제 검사를 통과했으며 전용 시뮬레이터를 삭제했다. 사용자 로컬 서명 변경은 커밋에서 제외했다.
 
 최신 `develop` (`0e7d282`)을 `b725341`에서 통합한 뒤 동일 테스트를 재실행했다. 위 명령의 destination을 `0C508E1B-9CF4-44C4-B44E-6583D8A4B1A0`, resultBundlePath를 `/private/tmp/benchmark-my-v4-379-evidence/settings-integrated.xcresult`로 변경해 실행했으며 **1 test, 0 failures / TEST SUCCEEDED**를 확인했다. 이 전용 시뮬레이터도 삭제했다.
+
+## 로그인 직접 진입 수정 — 2026-11-16
+
+사용자 요청에 따라 설정의 Google·Apple 버튼에서 `OiAccountMergeView`로 이동하는 분기와 계정 연결 준비 상태에 따른 차단을 제거했다. 버튼은 기존 `remote.signIn`을 바로 호출한다. `추가 연동` 표시도 `로그인하기`로 변경했다. 인증 성공 시 해당 계정으로 로그인하며 취소/실패 시 기존 계정을 유지하는 기존 저장소 로직을 사용한다. 이전 절의 추가 연결 흐름 유지 설명은 이 결정으로 대체한다.
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+  -project apps/ios/OiDonation.xcodeproj -scheme OiFlowChecks -configuration Debug \
+  -destination 'platform=iOS Simulator,id=B662B252-34EB-4153-9B0B-674023907D65' \
+  -derivedDataPath /private/tmp/benchmark-my-v4-379-evidence/build \
+  -resultBundlePath /private/tmp/benchmark-my-v4-379-evidence/direct-login.xcresult \
+  CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO \
+  -only-testing:OiDonationTests/OiRemoteStoreTests/testRepeatedLoginDoesNotBecomeConfigurationError \
+  -only-testing:OiDonationTests/OiRemoteStoreTests/testCanceledLoginPreservesPreviousAccountWithoutGlobalError \
+  -only-testing:OiDonationTests/OiRemoteStoreTests/testCanceledLoginTaskCannotCommitLateSuccess test
+```
+
+결과: 빌드 성공, **3 tests, 0 failures / TEST SUCCEEDED**. 중복 인증 요청, 취소 시 기존 계정 보존, 취소 이후 도착한 성공 응답 차단을 검증했다. 실제 Google 웹 인증 완료는 실행하지 않았다. 전용 시뮬레이터는 검증 후 삭제했고 빌드 프로세스 종료를 확인했다. 동시 자원 최대 2그룹, 유지한 실행 자원 없음.
