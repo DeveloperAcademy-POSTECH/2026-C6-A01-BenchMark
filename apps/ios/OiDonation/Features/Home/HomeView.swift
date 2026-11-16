@@ -12,7 +12,7 @@ struct HomeView: View {
     var authoredPlacementToReveal: Binding<UUID?> = .constant(nil)
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var scene = CampusExploreScene()
+    @State private var scene = CampusExploreScene(stillFrameDelay: .seconds(2))
     @State private var region: CampusRegion?
     @State private var sort = CampusStorySort.latest
     @State private var distances: [String: Float] = [:]
@@ -218,7 +218,7 @@ struct HomeView: View {
         }
         scene.onRegion = { selected in
             region = selected; sort = .latest; expanded = false; searchResults = nil
-            scene.focus(selected, stories: store.stories(in: selected.id, sortedBy: .latest))
+            scene.focus(selected, stories: store.stories(in: selected.id, sortedBy: .latest), animated: true)
             distances = scene.distances()
         }
         // Tapping the map outside the list closes it, as the removed back button did (#395).
