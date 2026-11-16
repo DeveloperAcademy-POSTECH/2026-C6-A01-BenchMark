@@ -143,3 +143,5 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 결과: `TEST SUCCEEDED`, 설정 화면 캡처 검사 1개 통과. 기준/작은/큰/접근성 화면과 로그인 전후를 렌더링했다. `git diff --check` 통과. 실제 시스템 권한 팝업에서 허용/거절하고 설정 앱에서 되돌아오는 실기기 조작은 미검증이다.
 
 후속 검증도 동시 실행 최대 2그룹(빌드/테스트, 전용 시뮬레이터)을 사용했다. 테스트 완료 후 캡처 창 해제 검사를 통과했으며 전용 시뮬레이터를 삭제했다. 사용자 로컬 서명 변경은 커밋에서 제외했다.
+
+최신 `develop` (`0e7d282`)을 `b725341`에서 통합한 뒤 동일 테스트를 재실행했다. 위 명령의 destination을 `0C508E1B-9CF4-44C4-B44E-6583D8A4B1A0`, resultBundlePath를 `/private/tmp/benchmark-my-v4-379-evidence/settings-integrated.xcresult`로 변경해 실행했으며 **1 test, 0 failures / TEST SUCCEEDED**를 확인했다. 이 전용 시뮬레이터도 삭제했다.
