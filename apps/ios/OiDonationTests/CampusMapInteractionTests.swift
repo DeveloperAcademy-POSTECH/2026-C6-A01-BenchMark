@@ -1575,20 +1575,28 @@ final class CampusEducationDistrictTests: XCTestCase {
             if try await model.webView.evaluateJavaScript("!!document.querySelector('.education-form')") as? Bool == true { break }
             try await Task.sleep(for: .milliseconds(100))
         }
-        _ = try await model.webView.callAsyncJavaScript("""
-        const c=document.createElement('canvas');c.width=c.height=16;c.getContext('2d').fillRect(0,0,16,16);
-        const blob=await new Promise(resolve=>c.toBlob(resolve,'image/png'));
-        const transfer=new DataTransfer();transfer.items.add(new File([blob],'synthetic.png',{type:'image/png'}));
-        const picker=document.querySelector('.education-form input[type=file]');picker.files=transfer.files;picker.dispatchEvent(new Event('change'));
-        """, arguments: [:], in: nil, in: .page)
+        let preparingPhoto = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
+            model.webView.callAsyncJavaScript("""
+            const c=document.createElement('canvas');c.width=c.height=16;c.getContext('2d').fillRect(0,0,16,16);
+            const blob=await new Promise(resolve=>c.toBlob(resolve,'image/png'));
+            const transfer=new DataTransfer();transfer.items.add(new File([blob],'synthetic.png',{type:'image/png'}));
+            const picker=document.querySelector('.education-form input[type=file]');picker.files=transfer.files;picker.dispatchEvent(new Event('change'));
+            [...document.querySelectorAll('.education-form button')].find(b=>b.textContent==='서버에 초안 저장').click();
+            return document.querySelector('.education-status').textContent.includes('사진을 준비하고 있어요') && !picker.disabled;
+            """, arguments: [:], in: nil, in: .page) { result in
+                continuation.resume(with: result.map { $0 as? Bool == true })
+            }
+        }
+        XCTAssertTrue(preparingPhoto, "Saving must wait for the newly selected photo, even if a cached preview is visible")
         for _ in 0..<30 {
-            if try await model.webView.evaluateJavaScript("!document.querySelector('.education-photo-preview').hidden") as? Bool == true { break }
+            if try await model.webView.evaluateJavaScript("!document.querySelector('.education-photo-preview').hidden && document.querySelector('.education-form input[type=file]').parentElement.getAttribute('aria-busy')==='false'") as? Bool == true { break }
             try await Task.sleep(for: .milliseconds(100))
         }
         let editor = try await model.webView.evaluateJavaScript("""
         (()=>{const form=document.querySelector('.education-form');if(!form)return false;
         for(const [name,value] of Object.entries({theme:'응원',emotion:'따뜻함',display_name:'가상 작성자',title:'가상의 캠퍼스 추억',body:'테스트용 이야기입니다.'}))form.elements[name].value=value;
-        [...form.querySelectorAll('button')].find(b=>b.textContent==='서버에 초안 저장').click();return true;})()
+        [...form.querySelectorAll('button')].find(b=>b.textContent==='서버에 초안 저장').click();
+        return [...form.querySelectorAll('input,textarea,select,button')].every(field=>field.disabled);})()
         """)
         XCTAssertEqual(editor as? Bool, true)
         await fulfillment(of: [saved, photoStored], timeout: 5)

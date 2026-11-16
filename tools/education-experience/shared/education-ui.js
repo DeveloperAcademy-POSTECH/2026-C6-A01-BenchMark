@@ -35,7 +35,7 @@ export async function openEducationWriter(existing=null){
   const s=await requireIdentity('나의 이야기 남기기');if(!s)return;
   const account=s.account.id,saved=records(account),cached=existing?saved[existing.id]:Object.values(saved).sort((a,b)=>b.updated-a.updated).find(r=>r.draft.status!=='pending'&&r.draft.status!=='published');
   let draft=existing?{...existing}:cached?.draft??{id:crypto.randomUUID(),revision:0,display_name:'',title:'',body:'',theme:'',emotion:'',status:'draft'};
-  let photoData=cached?.photoData??null,photoBlob=null;
+  let photoData=cached?.photoData??null,photoBlob=null,photoLoading=false,photoRevision=0;
   const generation=shell('교육지구에 이야기 남기기','이 이야기는 교육지구 건물의 구슬에 남아요. 공개 검토를 통과하면 앱과 웹에서 함께 볼 수 있어요. 캠퍼스 지도에는 배치되지 않아요.');
   const form=el('form',null,'education-form');form.addEventListener('submit',e=>e.preventDefault());
   const input=(label,name,type='text')=>{const l=el('label',label),field=el(type==='textarea'?'textarea':'input');if(type!=='textarea')field.type=type;field.name=name;field.value=draft[name]??'';l.append(field);form.append(l);return field;};
@@ -50,7 +50,7 @@ export async function openEducationWriter(existing=null){
   const persist=()=>{if(s.account?.id!==account||generation!==viewGeneration)return;for(const field of form.elements)if(field.name)draft[field.name]=field.value;count.textContent=new TextEncoder().encode(message.value).length+' / 1,500byte';if(!storeDraft(account,draft,photoData))status('이 브라우저에 초안을 저장하지 못했어요. 서버 초안 저장을 이용해 주세요.',true);};
   persistCurrent=persist;
   form.addEventListener('input',()=>{clearTimeout(writeTimer);writeTimer=setTimeout(persist,250);});
-  picker.addEventListener('change',async()=>{if(!picker.files[0])return;try{photoData=await normalizePhoto(picker.files[0]);if(generation!==viewGeneration)return;photoBlob=await asBlob(photoData);preview.src=photoData;preview.hidden=false;persist();}catch(error){fail(error);}});
+  picker.addEventListener('change',async()=>{const file=picker.files[0];if(!file)return;const revision=++photoRevision;photoLoading=true;photoLabel.setAttribute('aria-busy','true');try{const data=await normalizePhoto(file);if(generation!==viewGeneration||revision!==photoRevision)return;photoData=data;photoBlob=asBlob(data);preview.src=data;preview.hidden=false;persist();}catch(error){if(generation===viewGeneration&&revision===photoRevision)fail(error);}finally{if(revision===photoRevision){photoLoading=false;photoLabel.setAttribute('aria-busy','false');}}});
   const consent=el('details'),summary=el('summary','공개 약관과 사진·글 사용 안내');consent.append(summary,el('p','실제 경험을 바탕으로 서로를 존중하는 이야기를 작성해 주세요. 연락처·주소·계좌번호 등 개인정보나 동의받지 않은 다른 사람의 사연은 넣지 말아 주세요. 본인이 작성했거나 사용 허락을 받은 사진과 글만 올려 주세요.'),el('p','등록한 이야기·사진·카드 양면은 운영자 검토를 거쳐 앱과 웹의 교육지구 구슬에 공개됩니다. 운영정책 위반이나 개인정보 노출이 있으면 공개가 제한될 수 있습니다. 기부 자료를 접수하거나 기부를 인증하는 절차가 아닙니다.'));
   const publication=el('input');publication.type='checkbox';const rights=el('input');rights.type='checkbox';
   const consentLabel=el('label',null,'education-check');consentLabel.append(publication,el('span','이야기·사진·카드의 앱·웹 공개와 운영자 검토에 동의합니다.'));
@@ -63,13 +63,13 @@ export async function openEducationWriter(existing=null){
   const legacy=(()=>{try{return JSON.parse(localStorage.getItem('postech-light-prototype-v1')??'null');}catch{return null;}})();
   if(!existing&&legacy?.message)content.append(button('이 브라우저의 기존 시연 이야기 가져오기',async()=>{draft={id:crypto.randomUUID(),revision:0,status:'draft',display_name:legacy.author??'',title:legacy.message.slice(0,30),body:legacy.message,theme:'응원',emotion:'따뜻함'};photoData=legacy.photo??null;storeDraft(account,draft,photoData);await openEducationWriter({...draft});},'education-text-button'));
   count.textContent=new TextEncoder().encode(message.value).length+' / 1,500byte';
-  if(!photoData&&existing?.photo_paths?.[0])try{const url=await s.media(existing.photo_paths[0]),response=await fetch(url);if(!response.ok)throw Error('사진을 다시 선택해 주세요.');photoData=await normalizePhoto(await response.blob());if(generation===viewGeneration){photoBlob=await asBlob(photoData);preview.src=photoData;preview.hidden=false;persist();}}catch{status('기존 사진을 불러오지 못했어요. 사진을 다시 선택해 주세요.',true);}
+  if(!photoData&&existing?.photo_paths?.[0]){const revision=photoRevision;photoLoading=true;photoLabel.setAttribute('aria-busy','true');try{const url=await s.media(existing.photo_paths[0]),response=await fetch(url);if(!response.ok)throw Error('사진을 다시 선택해 주세요.');const data=await normalizePhoto(await response.blob());if(generation===viewGeneration&&revision===photoRevision){photoData=data;photoBlob=asBlob(data);preview.src=data;preview.hidden=false;persist();}}catch{if(generation===viewGeneration&&revision===photoRevision)status('기존 사진을 불러오지 못했어요. 사진을 다시 선택해 주세요.',true);}finally{if(revision===photoRevision){photoLoading=false;photoLabel.setAttribute('aria-busy','false');}}}
   async function run(publish){
-   if(busy)return;persist();
+   if(busy)return;if(photoLoading){status('사진을 준비하고 있어요. 잠시 후 다시 저장해 주세요.');return;}persist();
    try{
     validateDraft(draft);if(publish&&(!publication.checked||!rights.checked))throw Error('공개 약관과 사용 권한에 동의해 주세요.');
     if(publish&&!photoData)throw Error('이야기 사진을 한 장 선택해 주세요.');
-    busy=true;save.disabled=submit.disabled=true;picker.disabled=true;
+    busy=true;form.querySelectorAll('input,textarea,select,button').forEach(e=>e.disabled=true);
     status('초안을 저장하고 있어요.');
     if(draft.status&&draft.status!=='draft'){const edits=validateDraft(draft);draft={...await s.mutate('reopen',{id:draft.id,revision:draft.revision}),...edits,revision:draft.revision+1};}
     draft=await s.save(draft);storeDraft(account,draft,photoData);
@@ -83,7 +83,7 @@ export async function openEducationWriter(existing=null){
     status(publish?'공개 검토를 요청했어요. 승인 후 앱과 웹의 교육지구 구슬에서 볼 수 있어요.':'서버에 초안을 저장했어요. 아직 다른 사람에게 공개되지 않았어요.');
     if(publish){form.querySelectorAll('input,textarea,select,button').forEach(e=>e.disabled=true);content.append(button('접수된 이야기 보기',()=>openEducationDetail(draft.id,true)));}
    }catch(error){if(generation===viewGeneration)fail(error);}
-   finally{busy=false;if(generation===viewGeneration&&draft.status!=='pending'){save.disabled=submit.disabled=!s.account?.canWrite;picker.disabled=false;}}
+   finally{busy=false;if(generation===viewGeneration&&draft.status!=='pending'){form.querySelectorAll('input,textarea,select,button').forEach(e=>e.disabled=false);save.disabled=submit.disabled=!s.account?.canWrite;}}
   }
  }catch(error){fail(error);content.append(button('다시 연결',()=>openEducationWriter(existing)));}
 }
