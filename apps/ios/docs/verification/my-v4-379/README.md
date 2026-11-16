@@ -113,3 +113,33 @@ plutil -lint apps/ios/OiDonation.xcodeproj/project.pbxproj
 ## 실행 자원 정리
 
 작업 소유 동시 실행 그룹은 최대 2개(빌드/테스트, 전용 시뮬레이터)였다. 빌드/테스트 프로세스는 종료됐고 전용 시뮬레이터 `F01A8DF6-D293-4A40-8ABF-A8412C0DF41C`는 종료 후 삭제하여 장치 목록에 없음을 확인했다. 캡처용 UIWindow는 테스트마다 숨긴 뒤 scene에서 분리하고 숨김/표시 창 목록에서 해제 여부를 검사했다. Computer Use 핸들·브라우저·서버는 생성하지 않았으며, 남긴 실행 자원은 없다. 다른 작업의 프로세스와 원래 체크아웃의 변경은 보존했다.
+
+## 설정 화면 후속 수정 — 2026-11-16
+
+Google 로그인에 [Google 공식 컬러 로고](https://developers.google.com/static/identity/images/g-logo.png)를 원본으로 사용했다. [로그인 브랜딩 안내](https://developers.google.com/identity/branding-guidelines)를 확인했으며 Google의 흰 배경/회색 테두리를 적용하고 기존 Apple 버튼과 가로 배치 170×60pt, 모서리 반경6을 맞췄다. 작은 화면에서는 두 버튼 모두 같은 가용 폭으로 세로 배치된다. 기존 인증·추가 연결·비활성 조건은 유지했다.
+
+![Google과 Apple 로그인](settings-google-apple.png)
+
+권한 버튼은 이전에 최초 요청 없이 앱 설정만 열고 있었다. 사진은 실제 저장 기능의 `.addOnly`와 다른 `.readWrite`를 조회했다. 사용자 승인 후 다음을 수정했다.
+
+- 요청 전에는 알림·위치·카메라·사진 저장의 시스템 허용 요청을 실행한다.
+- 허용/거절 후에는 앱 설정에서 변경한다. 앱이 시스템 권한을 임의로 끄거나 이미 거절된 권한을 재요청하지 않는다.
+- 사진 저장은 `.addOnly` 조회/요청으로 일치시킨다. 사진 선택기는 기존 시스템 선택기를 유지한다.
+- 위치 권한 delegate를 유지하여 응답을 반영하고, GPS 추적은 시작하지 않는다. 설정 복귀 시 전체 상태를 갱신한다.
+- 요청 상태를 문구로 표시하고 중복 요청·취소·알림 요청 오류를 처리한다.
+
+[권한 표시 스크린샷](settings-permissions.png)
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+  -project apps/ios/OiDonation.xcodeproj -scheme OiFlowChecks -configuration Debug \
+  -destination 'platform=iOS Simulator,id=81674770-0D92-40A7-8A0B-80542BB047CB' \
+  -derivedDataPath /private/tmp/benchmark-my-v4-379-evidence/build \
+  -resultBundlePath /private/tmp/benchmark-my-v4-379-evidence/settings-followup.xcresult \
+  CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO \
+  -only-testing:OiDonationTests/OiFigmaFidelityVisualTests/testMYSettingsCapturesWithOfflineAccounts test
+```
+
+결과: `TEST SUCCEEDED`, 설정 화면 캡처 검사 1개 통과. 기준/작은/큰/접근성 화면과 로그인 전후를 렌더링했다. `git diff --check` 통과. 실제 시스템 권한 팝업에서 허용/거절하고 설정 앱에서 되돌아오는 실기기 조작은 미검증이다.
+
+후속 검증도 동시 실행 최대 2그룹(빌드/테스트, 전용 시뮬레이터)을 사용했다. 테스트 완료 후 캡처 창 해제 검사를 통과했으며 전용 시뮬레이터를 삭제했다. 사용자 로컬 서명 변경은 커밋에서 제외했다.

@@ -22,6 +22,10 @@ struct MYSettingsView: View {
     @State private var showingBlockedAuthors = false
     @State private var showingSupport = false
     @State private var showingAcademicEditor = false
+    @State private var locationPermission = MYLocationPermission()
+    @State private var permissionInFlight: MYPermission?
+    @State private var permissionTask: Task<Void, Never>?
+    @State private var permissionError: String?
     @State private var permissionValues: [MYPermission: PermissionStatus] = [:]
     @State private var showingOperator = false
     @State private var farmNameOwner: UUID?
@@ -77,7 +81,7 @@ struct MYSettingsView: View {
                             }
                         }
                     }
-                    section("권한허용", detail: "iPhone 설정에서 변경") {
+                    section("권한허용", detail: "최초 요청 · 변경은 iPhone 설정") {
                         if permissionValues.count < MYPermission.allCases.count {
                             ProgressView().accessibilityLabel("기기 권한 확인 중")
                         }
@@ -133,6 +137,19 @@ struct MYSettingsView: View {
             OiSettingsHeader(title: "설정", back: { dismiss() })
         }
         .task(id: scenePhase) { if scenePhase == .active { await refreshPermissions() } }
+        .onChange(of: locationPermission.status) { _, status in
+            permissionValues[.location] = locationStatus(status)
+        }
+        .onDisappear {
+            permissionTask?.cancel()
+            permissionTask = nil
+            permissionInFlight = nil
+        }
+        .alert("권한 요청 실패", isPresented: Binding(
+            get: { permissionError != nil }, set: { if !$0 { permissionError = nil } }
+        )) {
+            Button("확인", role: .cancel) { permissionError = nil }
+        } message: { Text(permissionError ?? "권한을 확인해 주세요.") }
         .sheet(isPresented: $showingOperator) {
             if let remote { OiOperatorHomeView(remote: remote) }
         }
@@ -329,15 +346,25 @@ struct MYSettingsView: View {
 
     private func permissionRow(_ permission: MYPermission) -> some View {
         let status = permissionValues[permission]
-        return Button(action: openAppSettings) {
+        return Button {
+            permissionTask = Task { await changePermission(permission) }
+        } label: {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 12) {
-                    permissionTitle(permission.title)
+                    VStack(alignment: .leading, spacing: 3) {
+                        permissionTitle(permission.title)
+                        Text(status?.label ?? "확인 중")
+                            .font(CampusStyle.body(12)).foregroundStyle(.secondary)
+                    }
                     Spacer(minLength: 8)
                     permissionIndicator(status)
                 }
                 VStack(alignment: .leading, spacing: 8) {
-                    permissionTitle(permission.title)
+                    VStack(alignment: .leading, spacing: 3) {
+                        permissionTitle(permission.title)
+                        Text(status?.label ?? "확인 중")
+                            .font(CampusStyle.body(12)).foregroundStyle(.secondary)
+                    }
                     permissionIndicator(status)
                 }
             }
@@ -347,7 +374,9 @@ struct MYSettingsView: View {
         }
         .accessibilityLabel(permission.title)
         .accessibilityValue(status?.label ?? "")
-        .accessibilityHint("iPhone 설정에서 변경")
+        .accessibilityHint(status?.canRequest == true ? "시스템 권한 허용 요청" : "iPhone 설정에서 변경")
+        .accessibilityIdentifier("my.settings.permission.\(permission)")
+        .disabled(status == nil || permissionInFlight != nil)
     }
 
     private func permissionTitle(_ title: String) -> some View {
@@ -371,30 +400,24 @@ struct MYSettingsView: View {
     private struct PermissionStatus {
         let label: String
         let isGranted: Bool?
+        var canRequest = false
     }
 
     @MainActor private func refreshPermissions() async {
-        let location: PermissionStatus
-        switch CLLocationManager().authorizationStatus {
-        case .authorizedAlways: location = .init(label: "항상 허용", isGranted: true)
-        case .authorizedWhenInUse: location = .init(label: "사용 중 허용", isGranted: true)
-        case .denied, .restricted: location = .init(label: "허용 안 함", isGranted: false)
-        case .notDetermined: location = .init(label: "요청 전", isGranted: false)
-        @unknown default: location = .init(label: "확인 필요", isGranted: nil)
-        }
+        let location = locationStatus(locationPermission.status)
         let camera: PermissionStatus
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized: camera = .init(label: "허용됨", isGranted: true)
         case .denied, .restricted: camera = .init(label: "허용 안 함", isGranted: false)
-        case .notDetermined: camera = .init(label: "요청 전", isGranted: false)
+        case .notDetermined: camera = .init(label: "요청 전", isGranted: false, canRequest: true)
         @unknown default: camera = .init(label: "확인 필요", isGranted: nil)
         }
         let photos: PermissionStatus
-        switch PHPhotoLibrary.authorizationStatus(for: .readWrite) {
-        case .authorized: photos = .init(label: "모든 사진 허용", isGranted: true)
-        case .limited: photos = .init(label: "선택한 사진 허용", isGranted: true)
+        switch PHPhotoLibrary.authorizationStatus(for: .addOnly) {
+        case .authorized: photos = .init(label: "사진 추가 허용", isGranted: true)
+        case .limited: photos = .init(label: "사진 추가 허용", isGranted: true)
         case .denied, .restricted: photos = .init(label: "허용 안 함", isGranted: false)
-        case .notDetermined: photos = .init(label: "요청 전", isGranted: false)
+        case .notDetermined: photos = .init(label: "요청 전", isGranted: false, canRequest: true)
         @unknown default: photos = .init(label: "확인 필요", isGranted: nil)
         }
         permissionValues[.location] = location
@@ -407,9 +430,43 @@ struct MYSettingsView: View {
         case .authorized: permissionValues[.notifications] = .init(label: "허용됨", isGranted: true)
         case .provisional, .ephemeral: permissionValues[.notifications] = .init(label: "일부 허용", isGranted: true)
         case .denied: permissionValues[.notifications] = .init(label: "허용 안 함", isGranted: false)
-        case .notDetermined: permissionValues[.notifications] = .init(label: "요청 전", isGranted: false)
+        case .notDetermined: permissionValues[.notifications] = .init(label: "요청 전", isGranted: false, canRequest: true)
         @unknown default: permissionValues[.notifications] = .init(label: "확인 필요", isGranted: nil)
         }
+    }
+
+    private func locationStatus(_ status: CLAuthorizationStatus) -> PermissionStatus {
+        switch status {
+        case .authorizedAlways: .init(label: "항상 허용", isGranted: true)
+        case .authorizedWhenInUse: .init(label: "사용 중 허용", isGranted: true)
+        case .notDetermined: .init(label: "요청 전", isGranted: false, canRequest: true)
+        case .denied: .init(label: "허용 안 함", isGranted: false)
+        case .restricted: .init(label: "기기에서 제한됨", isGranted: false)
+        @unknown default: .init(label: "확인 필요", isGranted: nil)
+        }
+    }
+
+    @MainActor private func changePermission(_ permission: MYPermission) async {
+        guard permissionInFlight == nil else { return }
+        permissionInFlight = permission
+        defer { permissionInFlight = nil }
+        await refreshPermissions()
+        guard !Task.isCancelled, let status = permissionValues[permission] else { return }
+        guard status.canRequest else { openAppSettings(); return }
+        if permission == .location {
+            locationPermission.request()
+            return // The retained delegate updates the displayed status.
+        }
+        switch permission {
+        case .notifications:
+            do { _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) }
+            catch { if !Task.isCancelled { permissionError = error.localizedDescription } }
+        case .camera: _ = await AVCaptureDevice.requestAccess(for: .video)
+        case .photos: _ = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        case .location: break
+        }
+        guard !Task.isCancelled else { return }
+        await refreshPermissions()
     }
 
     private func openAppSettings() {
@@ -475,7 +532,7 @@ private enum MYPermission: CaseIterable, Hashable {
         case .notifications: "알림"
         case .location: "위치 정보"
         case .camera: "카메라 접근"
-        case .photos: "사진 접근"
+        case .photos: "사진 저장"
         }
     }
 }
@@ -490,4 +547,25 @@ private enum MYPermission: CaseIterable, Hashable {
 
 #Preview("Settings · Large", traits: .fixedLayout(width: 440, height: 956)) {
     NavigationStack { MYSettingsView(remote: OiRemoteStore()) }
+}
+
+// Retain the permission delegate without starting a GPS tracking session.
+@MainActor @Observable private final class MYLocationPermission: NSObject, CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+    var status: CLAuthorizationStatus
+
+    override init() {
+        status = manager.authorizationStatus
+        super.init()
+        manager.delegate = self
+    }
+
+    func request() { manager.requestWhenInUseAuthorization() }
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.status = self.manager.authorizationStatus
+        }
+    }
 }
