@@ -574,6 +574,65 @@ final class OiControlledAuthentication: OiAuthenticating {
 }
 
 final class OiRemoteStoreTests: XCTestCase {
+    @MainActor func testEducationBridgeUsesExistingAccountAndOnlyEducationRPC() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let response = try await store.educationRequest("identity", values: [:])
+        let identity = try XCTUnwrap(response as? [String: Any])
+        XCTAssertEqual(identity["id"] as? String, OiTestBackend.owner.uuidString.lowercased())
+        XCTAssertEqual(identity["canWrite"] as? Bool, true)
+        OiStoreURLProtocol.handle = { request, client in
+            XCTAssertEqual(request.url?.path, "/rest/v1/rpc/oi_education_stories")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer token-a")
+            client.respond(200, Data("[]".utf8))
+        }
+        let rows = try await store.educationRequest("rpc", values: ["name": "oi_education_stories", "payload": ["p_mine": true]])
+        XCTAssertEqual((rows as? [Any])?.count, 0)
+        for values: [String: Any] in [
+            ["name": "oi_mutate", "payload": [:]],
+            ["name": "oi_operator_set_nfc_tag", "payload": [:]]
+        ] {
+            do { _ = try await store.educationRequest("rpc", values: values); XCTFail("Other channels must stay outside the bridge") }
+            catch { XCTAssertTrue(error is OiServiceError) }
+        }
+        do { _ = try await store.educationRequest("media", values: ["path": "owner/story/card.png"]); XCTFail("Campus paths must be rejected") }
+        catch { XCTAssertTrue(error is OiServiceError) }
+    }
+
+    @MainActor func testEducationBridgeAllowsAnonymousReadingButRequiresSignInToWrite() async throws {
+        let (store, backend, vault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        try vault.write(nil)
+        OiStoreURLProtocol.handle = { request, client in
+            XCTAssertEqual(request.url?.path, "/rest/v1/rpc/oi_education_stories")
+            XCTAssertNotEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer token-a")
+            client.respond(200, Data("[]".utf8))
+        }
+        _ = try await store.educationRequest("rpc", values: ["name": "oi_education_stories", "payload": [:]])
+        do { _ = try await store.educationRequest("rpc", values: ["name": "oi_education_mutate", "payload": [:]]); XCTFail("Anonymous writes must fail") }
+        catch { XCTAssertTrue(error is OiServiceError) }
+    }
+
+    @MainActor func testEducationBridgeDiscardsPrivateResponseAfterSignOut() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let original = OiStoreURLProtocol.handle
+        let requested = expectation(description: "Private education request held")
+        var held: OiStoreURLProtocol?
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.path == "/rest/v1/rpc/oi_education_story" { held = client; requested.fulfill() }
+            else { original?(request, client) }
+        }
+        let pending = Task { try await store.educationRequest("rpc", values: ["name": "oi_education_story", "payload": ["p_id": UUID().uuidString]]) }
+        await fulfillment(of: [requested], timeout: 2)
+        await store.signOut()
+        held?.respond(200, Data("{\"body\":\"synthetic private story\"}".utf8))
+        do { _ = try await pending.value; XCTFail("An old account's private response must not reach JavaScript") }
+        catch { guard case OiServiceError.accountChanged = error else { return XCTFail(String(describing: error)) } }
+    }
+
     @MainActor func testExistingAccountStartsAndRefreshesWithoutDonationEvidence() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }

@@ -304,6 +304,14 @@ struct OiServiceAPI {
         _ = try await request("auth/v1/logout?scope=local", method: "POST", token: token)
     }
 
+    func educationRPC(_ name: String, payload: [String: Any], token: String?) async throws -> Data {
+        guard ["oi_education_stories", "oi_education_story", "oi_education_mutate", "oi_education_report"].contains(name) else {
+            throw OiServiceError.invalidInput
+        }
+        return try await request("rest/v1/rpc/\(name)", method: "POST", token: token,
+                                 body: JSONSerialization.data(withJSONObject: payload))
+    }
+
     func upload(bucket: String, path: String, data: Data, contentType: String, token: String) async throws {
         let escaped = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
         let storyMedia = bucket == "oi-story-media"
