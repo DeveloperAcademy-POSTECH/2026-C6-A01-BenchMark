@@ -91,6 +91,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private var sharedMap = false
     var onStory: ((String) -> Void)?
     var onAuthoredPlacement: ((UUID) -> Void)?
+    /// A tap that hits no cucumber, placement or landmark; map drags never count (#395).
+    var onEmptyMapTap: (() -> Void)?
     @ObservationIgnored var loadCucumberPortrait: ((String) async throws -> UIImage)?
     @ObservationIgnored var loadCucumberModel: ((OiCucumberArtworkReference) async throws -> Entity)?
     @ObservationIgnored var loadPublicCucumberModel: ((CampusStory) async throws -> Entity)?
@@ -463,11 +465,12 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         updateCamera()
     }
 
-    func showOverview() {
+    /// `keepingCamera` returns to the overview markers without moving the map (closing a region list, #395).
+    func showOverview(keepingCamera: Bool = false) {
         stopNavigation()
-        region = nil; hasMovedFromOverview = false
+        region = nil; hasMovedFromOverview = keepingCamera
         clearRegionButtons()
-        target = SIMD3(32, 2, 1); radius = 305; yaw = 0; pitch = 1.02
+        if !keepingCamera { target = SIMD3(32, 2, 1); radius = 305; yaw = 0; pitch = 1.02 }
         if !sharedMap, let data {
             let sites = CampusRegion.campus.compactMap { region -> CampusRegionClustering.Site? in
                 guard let place = data.pois.first(where: { $0.id == region.placeID }) else { return nil }
@@ -490,7 +493,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             updateRegionCounts()
         }
         makeStoryPins(overviewStories)
-        radius = settledRadius()
+        // Keep the exact zoom when the list closes; only keep it inside the map's limits.
+        radius = keepingCamera ? min(zoomLimits.upperBound, max(zoomLimits.lowerBound, radius)) : settledRadius()
         updateCamera()
     }
 
@@ -1119,6 +1123,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                 }
                 entity = current.parent
             }
+            onEmptyMapTap?()
         }
     }
 
@@ -1566,6 +1571,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
 @MainActor private final class CampusRegionButton: UIButton {
     private let diameter: CGFloat = 90
+    private let surfaceOpacity: CGFloat = 0.6
     private let panel = UIImageView(image: UIImage(named: "CampusRegionPanel"))
     private let circle = UIView()
     private let content = UIStackView()
@@ -1576,7 +1582,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         super.init(frame: CGRect(x: 0, y: 0, width: diameter, height: diameter))
         circle.isUserInteractionEnabled = false
         circle.frame = bounds
-        circle.backgroundColor = UIColor(red: 241/255, green: 244/255, blue: 236/255, alpha: 0.6)
+        circle.backgroundColor = UIColor(red: 241/255, green: 244/255, blue: 236/255, alpha: surfaceOpacity)
         circle.layer.cornerRadius = diameter / 2
         circle.layer.shadowColor = UIColor(red: 0.28, green: 0.39, blue: 0.15, alpha: 1).cgColor
         circle.layer.shadowOpacity = 0.42
@@ -1612,7 +1618,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     func place(at anchor: CGPoint, opacity: CGFloat, panelOpacity: CGFloat) {
         alpha = opacity
-        panel.alpha = panelOpacity
+        // Match the circle's translucency without fading the icon or count.
+        panel.alpha = panelOpacity * surfaceOpacity
         circle.alpha = 1 - panelOpacity
         content.center = CGPoint(x: bounds.midX, y: bounds.midY - diameter * 0.08 * panelOpacity)
         // The 3D panel stands on its anchor; the near-overhead circle is centred on it.

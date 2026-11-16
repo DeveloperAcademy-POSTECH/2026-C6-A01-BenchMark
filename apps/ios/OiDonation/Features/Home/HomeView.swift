@@ -27,6 +27,8 @@ struct HomeView: View {
     @State private var pendingStoryID: String?
     @State private var showingRequests = false
     @State private var listIsAtTop = true
+    /// Live vertical drag of the region list: negative grows it, positive pulls it down (#395).
+    @State private var listDrag: CGFloat = 0
     @State private var showingEducationDistrict = false
     @State private var loadedAuthoredSource: AuthoredPlacementSource?
     @State private var selectedAuthoredDestination: AuthoredDestination?
@@ -91,8 +93,13 @@ struct HomeView: View {
             }
             // Keep the RealityKit viewport fixed while the list changes height.
             .overlay(alignment: .bottom) {
-                if let region { regionPanel(region, availableHeight: geometry.size.height, bottomInset: geometry.safeAreaInsets.bottom) }
+                if let region {
+                    regionPanel(region, availableHeight: geometry.size.height, bottomInset: geometry.safeAreaInsets.bottom)
+                        .transition(.move(edge: .bottom))
+                }
             }
+            // The list slides up when a bubble opens it and back down when it closes (#395).
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: region == nil)
             .onAppear { configureMapLabels(geometry) }
             .onChange(of: geometry.size) { _, _ in configureMapLabels(geometry) }
             .onChange(of: geometry.safeAreaInsets) { _, _ in configureMapLabels(geometry) }
@@ -214,6 +221,8 @@ struct HomeView: View {
             scene.focus(selected, stories: store.stories(in: selected.id, sortedBy: .latest))
             distances = scene.distances()
         }
+        // Tapping the map outside the list closes it, as the removed back button did (#395).
+        scene.onEmptyMapTap = { if region != nil { closeRegionList() } }
         scene.onStory = { id in
             guard store.story(id) != nil else { return }
             // Use the same value-based path as list links and the summary's detail link.
@@ -362,16 +371,8 @@ struct HomeView: View {
     private var mapHeader: some View {
         HStack(alignment: .top) {
             if region != nil {
-                Button {
-                    region = nil; expanded = false; searchResults = nil; scene.showOverview()
-                } label: {
-                    // A plain SF Symbol button needs an explicit hit area for its glass circle.
-                    Image(systemName: "chevron.left").font(.system(size: 19, weight: .semibold)).frame(width: 50, height: 50)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain).glassEffect(.regular.interactive(), in: Circle())
-                .accessibilityLabel("캠퍼스 전체 지도").accessibilityIdentifier("campus.overview")
-                Spacer()
+                // No back button (#395): tap the map outside the list or swipe the list down to close it.
+                Spacer().frame(height: 50)
             } else {
                 Button { showingSchools = true } label: {
                     HStack(spacing: 8) {
@@ -407,16 +408,11 @@ struct HomeView: View {
         let items = store.stories(in: searchResults == nil ? region.id : nil,
                                   matching: searchResults, sortedBy: sort, distances: distances)
         // Figma: sheet starts at y=516 (collapsed) or y=130 (expanded) in an 874pt screen.
-        let height = regionPanelHeight(availableHeight)
+        let restingHeight = regionPanelHeight(availableHeight)
+        let tallest = max(200, availableHeight - 68)
+        // The list follows the finger: pulling up grows it toward the tall height, pulling down slides it.
+        let height = listDrag < 0 ? min(tallest, restingHeight - listDrag) : restingHeight
         return VStack(spacing: 9.5) {
-            Button { setListExpanded(!expanded) } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: expanded ? "xmark" : "list.star").font(.system(size: 16))
-                    Text(expanded ? "목록닫기" : "목록보기").font(CampusStyle.body(16))
-                }.padding(.horizontal, 20).frame(height: 35)
-                    .background(.white, in: Capsule()).frame(minHeight: 44)
-                    .contentShape(Capsule())
-            }.buttonStyle(.plain).accessibilityIdentifier("campus.list.toggle")
             VStack(spacing: 20) {
                 HStack(spacing: 7) {
                     ForEach([CampusStorySort.latest, .oldest], id: \.self) { item in
@@ -458,6 +454,8 @@ struct HomeView: View {
                         }
                     }.padding(.bottom, 12)
                 }.scrollIndicators(.hidden)
+                    // At the default height a drag moves the list itself instead of scrolling its rows.
+                    .scrollDisabled(!expanded)
                     .onScrollGeometryChange(for: Bool.self) { geometry in
                         geometry.contentOffset.y + geometry.contentInsets.top <= 1
                     } action: { _, isAtTop in listIsAtTop = isAtTop }
@@ -469,18 +467,44 @@ struct HomeView: View {
                     .padding(.bottom, -bottomInset)
                     .shadow(color: .black.opacity(0.25), radius: 20)
             }
-            .simultaneousGesture(DragGesture(minimumDistance: 30).onEnded { gesture in
-                guard abs(gesture.translation.height) > abs(gesture.translation.width) else { return }
-                if gesture.translation.height < -50 { setListExpanded(true) }
-                else if gesture.translation.height > 50 && listIsAtTop { setListExpanded(false) }
-            })
+            .offset(y: max(0, listDrag))
+            .simultaneousGesture(DragGesture(minimumDistance: 8)
+                .onChanged { gesture in
+                    let dy = gesture.translation.height
+                    guard abs(dy) > abs(gesture.translation.width) else { return }
+                    // A tall list scrolls its rows upward; it only follows a downward pull from the top.
+                    if dy < 0 { listDrag = expanded ? 0 : dy }
+                    else { listDrag = listIsAtTop ? dy : 0 }
+                }
+                .onEnded { gesture in
+                    // Decide from where the flick would land so a quick swipe responds at once.
+                    let landing = gesture.predictedEndTranslation.height
+                    let pulled = listDrag
+                    if pulled < 0, landing < -60 {
+                        setListExpanded(true)
+                    } else if pulled > 0, landing > 60 {
+                        // Down steps back: a tall list first returns to its default height, then closes (#395).
+                        if expanded { setListExpanded(false) } else { closeRegionList(); return }
+                    }
+                    withAnimation(reduceMotion ? nil : .spring(duration: 0.25)) { listDrag = 0 }
+                })
+            .accessibilityAction(named: "목록 닫기") { closeRegionList() }
+            .accessibilityAction(named: expanded ? "목록 줄이기" : "목록 크게 보기") { setListExpanded(!expanded) }
         }
+    }
+
+    /// Closes the region list and keeps the map exactly where it was (#395).
+    private func closeRegionList() {
+        region = nil; expanded = false; searchResults = nil
+        scene.showOverview(keepingCamera: true)
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) { listDrag = 0 }
     }
 
     private func setListExpanded(_ value: Bool) {
         guard expanded != value else { return }
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.4)) {
+        withAnimation(reduceMotion ? nil : .spring(duration: 0.3)) {
             expanded = value
+            listDrag = 0
         }
     }
 
