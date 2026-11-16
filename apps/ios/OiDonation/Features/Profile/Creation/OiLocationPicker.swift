@@ -183,6 +183,7 @@ struct OiDraftPlacementPreview: View {
     let isShowingReview: Bool
     let savedPlacement: OiPersonalPlacement?
     let error: String?
+    let autoStoryModeration: Bool
     let onEdit: () -> Void
     let onEditLocation: () -> Void
     let onPlace: (CampusPlacement) -> Void
@@ -279,7 +280,7 @@ struct OiDraftPlacementPreview: View {
                     onPlace(placement)
                 }
                 .accessibilityIdentifier("oi.creation.placeOnMyMap")
-                Button("공개 검토 요청") {
+                Button(autoStoryModeration ? "검토할 내용 확인하기" : "공개 검토 요청") {
                     scene.commitPlacementPreview()
                     onReview()
                 }

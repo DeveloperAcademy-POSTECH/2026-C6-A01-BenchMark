@@ -1746,8 +1746,6 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         for variant in variants {
             let reference = NavigationStack {
                 OiStoryListView(state: .preview, seedCount: 3,
-                    notices: OiStoryListView.listNotices,
-                    guidance: OiStoryListView.listGuidance,
                     onAddSeed: {}, onCreateStory: {}, onUseSeed: {})
             }
             try await capture(reference, name: "story-list-seed-reference", variant: variant,
