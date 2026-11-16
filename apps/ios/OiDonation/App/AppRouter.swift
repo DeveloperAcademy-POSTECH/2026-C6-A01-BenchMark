@@ -14,8 +14,9 @@ final class AppRouter {
     }
     func open(_ url: URL) {
         if AppClipLink.matches(url) {
+            // Default and story App Clip links open Home; the App Clip story list is gone (#351).
             selectedTab = .home
-            storyPath = AppClipLink.storyID(in: url).map { [.story($0)] } ?? []
+            storyPath = []
             isARPresented = false
             return
         }

@@ -20,7 +20,7 @@ struct ScratchPostcardView: View {
     var onBlock: () -> Void = {}
 
     private enum Phase { case scratching, revealing, revealed }
-    private enum Toast: Equatable { case saved, failed(String) }
+    private enum Toast: Equatable { case failed(String) }
 
     static let brushRadius: CGFloat = 24
     static let revealThreshold = 0.6
@@ -354,34 +354,23 @@ struct ScratchPostcardView: View {
 
     // MARK: - Bottom
 
-    /// Figma "하단 버튼": 20pt top padding, two 46pt buttons 12pt apart, 25pt top corners.
+    /// Figma "하단 버튼" (`6005:7678`): 20pt top padding, one full-width 46pt button, 25pt top corners.
+    /// It opens the full-app install overlay and records the collection on this device, as saving did.
     private func actionBar(_ layout: Layout) -> some View {
         let topCorners = UnevenRoundedRectangle(topLeadingRadius: 25, topTrailingRadius: 25)
-        return HStack(spacing: 12) {
-            Button {
-                showingFullAppOverlay = true
-            } label: {
-                Text("이어서 기부하기")
-                    .font(.custom("Paperlogy-5Medium", size: 16))
-                    .tracking(0.32)
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: Layout.buttonHeight)
-                    .background(.white, in: RoundedRectangle(cornerRadius: 20))
-            }
-            .accessibilityHint("전체 앱 설치 안내를 열어요")
-            Button(action: save) {
-                Label(isSaved ? "저장 완료" : "앨범에 저장하기", systemImage: "checkmark")
-                    .labelStyle(SaveLabelStyle(showsIcon: isSaved))
-                    .font(.custom("Paperlogy-6SemiBold", size: 16))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: Layout.buttonHeight)
-                    .background(Self.green.opacity(isSaved ? 0.7 : 1), in: RoundedRectangle(cornerRadius: 20))
-            }
-            .disabled(isSaved || saving)
-            .accessibilityHint("이 엽서를 수집했다는 기록을 이 기기에 남겨요. 전체 앱을 설치하면 도감에서 볼 수 있어요")
+        return Button {
+            showingFullAppOverlay = true
+            save()
+        } label: {
+            Text("앱 다운로드 & 우표 수집하기")
+                .font(.custom("Paperlogy-5Medium", size: 16))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: Layout.buttonHeight)
+                .background(Self.green, in: RoundedRectangle(cornerRadius: 20))
         }
+        .accessibilityHint("전체 앱 설치 안내를 열고, 이 엽서를 수집했다는 기록을 이 기기에 남겨요")
+        .accessibilityIdentifier("appclip.postcard.download")
         .buttonStyle(.plain)
         .lineLimit(1)
         .minimumScaleFactor(0.8)
@@ -404,8 +393,6 @@ struct ScratchPostcardView: View {
         if let toast {
             Group {
                 switch toast {
-                case .saved:
-                    Text("엽서를 저장했어요\n전체 앱을 설치하면 도감에서 다시 볼 수 있어요")
                 case .failed(let message):
                     Text(message)
                 }
@@ -522,8 +509,10 @@ struct ScratchPostcardView: View {
                     return
                 }
                 try Task.checkCancellation()
-                if collectionStore.collect(postcard.card) { show(.saved) }
-                else { show(.failed(collectionStore.persistenceError ?? "엽서를 저장하지 못했어요. 다시 시도해 주세요.")) }
+                // Success stays silent: the install overlay is the feedback (#351). Failures still explain why.
+                if !collectionStore.collect(postcard.card) {
+                    show(.failed(collectionStore.persistenceError ?? "엽서를 저장하지 못했어요. 다시 시도해 주세요."))
+                }
             } catch is CancellationError {} catch {
                 if !Task.isCancelled { show(.failed("인터넷 연결을 확인하고 다시 저장해 주세요.")) }
             }
@@ -551,17 +540,5 @@ enum ScratchPostcardFont {
         UIFont(name: yangjin, size: 26) != nil
             ? .custom(yangjin, size: 26)
             : .custom("Paperlogy-7Bold", size: 26)
-    }
-}
-
-/// Shows the checkmark only after the postcard has been saved.
-private struct SaveLabelStyle: LabelStyle {
-    let showsIcon: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 6) {
-            if showsIcon { configuration.icon }
-            configuration.title
-        }
     }
 }

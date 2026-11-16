@@ -64,13 +64,6 @@ struct RootTabView: View {
                     summaryView($0)
                 }
             }
-            .navigationDestination(for: AppClipInvocation.self) { invocation in
-                AppClipExperienceView(storyRepository: container.storyRepository, invocation: invocation) { story, id in
-                    OiStorySafetyButton(storyID: id, authorID: story.donorID, authorName: story.donorDisplayName)
-                }
-                .navigationTitle("이야기·AR")
-                .navigationBarTitleDisplayMode(.inline)
-            }
         }
         .tint(.black)
         .overlay { plantedSelectionOverlay }
@@ -252,11 +245,11 @@ struct RootTabView: View {
             path.append(CampusNFCPostcardRoute(tagID: tag))
             return
         }
+        // The default and `story=` App Clip links open the map home; the old story list is gone (#351).
         if AppClipLink.matches(url) {
             path = NavigationPath()
             pendingStoryList = false
             isARPresented = false
-            path.append(AppClipInvocation(url: url))
             return
         }
         if let host = container.approvedLinkHost,
