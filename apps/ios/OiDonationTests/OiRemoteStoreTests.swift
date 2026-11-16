@@ -107,6 +107,7 @@ final class OiTestBackend {
         var loseReviewResponse = false
         var holdReviewResponse = false
         var holdModerationResponse = false
+        var holdStorySubmissionResponse = false
         var ignoreStoryStatusFilter = false
         var auditRecords: [[String: Any]] = []
         var auditBodies: [[String: Any]] = []
@@ -147,7 +148,11 @@ final class OiTestBackend {
     func snapshot() -> State { lock.lock(); defer { lock.unlock() }; return state }
     func releaseHeldRead() {
         let value = snapshot().held
-        configure { $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false; $0.holdReviewResponse = false; $0.holdModerationResponse = false; $0.holdAuditRead = false; $0.holdCardSend = false; $0.holdFarmWrite = false; $0.holdFarmerOutfitWrite = false }
+        configure {
+            $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false
+            $0.holdReviewResponse = false; $0.holdModerationResponse = false; $0.holdStorySubmissionResponse = false
+            $0.holdAuditRead = false; $0.holdCardSend = false; $0.holdFarmWrite = false; $0.holdFarmerOutfitWrite = false
+        }
         value?.0.respond(200, value?.1 ?? Data())
     }
     func install() { OiStoreURLProtocol.handle = { [weak self] request, client in self?.receive(request, client: client) } }
@@ -519,6 +524,7 @@ final class OiTestBackend {
         if (path.hasSuffix("/oi_stories") && owner == Self.owner && state.holdOwnerRead)
             || (path.hasSuffix("/rpc/oi_mutate") && body["p_action"] as? String == "review_story" && state.holdReviewResponse)
             || (path.hasSuffix("/functions/v1/moderate-story") && state.holdModerationResponse)
+            || (path.hasSuffix("/rpc/oi_mutate") && body["p_action"] as? String == "submit_story" && state.holdStorySubmissionResponse)
             || (path.hasSuffix("/rpc/oi_operator_audit") && state.holdAuditRead)
             || (path.hasSuffix("/rpc/oi_capabilities") && state.holdPostMergeRead && state.mergeConfirmCount > 0)
             || (path.hasSuffix("/rpc/oi_request_card") && state.holdCardSend)
@@ -3011,6 +3017,85 @@ final class OiRemoteStoreTests: XCTestCase {
         }
         let attachment = XCTAttachment(image: image)
         attachment.name = "story-list-legacy-review"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor func testStoryListKeepsPendingStoryInItsSlotWhileScrollingAndRefreshing() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.publicStoryCard = true; $0.duplexStoryCard = true }
+        await store.start()
+        XCTAssertFalse(store.autoStoryModeration)
+        let owner = try XCTUnwrap(store.account?.id)
+        var reviewDraft = draft(title: "검토 중에도 보여야 하는 이야기")
+        reviewDraft.id = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        let photo = UUID()
+        let record = OiLocalDraft(draft: reviewDraft, photos: [photo], version: 1,
+            agreedConsentClauseIDs: Set(OiStoryConsentClause.writingClauses.map { $0.id.rawValue }))
+        let otherDrafts = (1...3).map { OiLocalDraft(draft: draft(title: "다른 이야기 \($0)")) }
+        let expectedIDs = ([record.id] + otherDrafts.map(\.id)).sorted { $0.uuidString < $1.uuidString }
+        for item in [record] + otherDrafts { try await store.saveLocalDraft(item, owner: owner) }
+        let photoBytes = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 80, height: 80)).image { context in
+            UIColor.systemGreen.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 80, height: 80))
+        }.jpegData(compressionQuality: 0.9))
+        try await store.saveLocalPhoto(photoBytes, id: photo, owner: owner)
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        var actions: OiStoryListScreen.ReviewTestActions?
+        let controller = UIHostingController(rootView: NavigationStack {
+            OiStoryListScreen(remote: store, onReviewActionsForTest: { actions = $0 })
+                .environment(\.dynamicTypeSize, .accessibility3)
+        })
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
+        try await Task.sleep(for: .seconds(1))
+        let buttons = try XCTUnwrap(actions)
+        XCTAssertEqual(buttons.visibleIDs(), expectedIDs)
+
+        let held = expectation(description: "Operator review submission is in flight")
+        backend.configure { $0.holdStorySubmissionResponse = true; $0.didHold = { held.fulfill() } }
+        buttons.request(record.id)
+        await fulfillment(of: [held], timeout: 15)
+        func scrollViews(in view: UIView) -> [UIScrollView] {
+            (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
+        }
+        let list = try XCTUnwrap(scrollViews(in: controller.view).first { $0.contentSize.height > $0.bounds.height })
+        let top = -list.adjustedContentInset.top
+        let bottom = list.contentSize.height - list.bounds.height + list.adjustedContentInset.bottom
+        XCTAssertGreaterThan(bottom, top)
+        list.setContentOffset(CGPoint(x: 0, y: bottom), animated: false)
+        XCTAssertEqual(buttons.status(record.id), .reviewing)
+        XCTAssertEqual(buttons.visibleIDs(), expectedIDs)
+        backend.releaseHeldRead()
+        for _ in 0..<120 where store.isBusy || store.ownStories.first?.status != "pending" {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(store.ownStories.first?.status, "pending")
+        for _ in 0..<120 {
+            if try await store.localDraft(id: record.id, owner: owner)?.submitted == true { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let saved = try await store.localDraft(id: record.id, owner: owner)
+        XCTAssertTrue(saved?.submitted == true)
+        await store.refresh()
+        list.setContentOffset(CGPoint(x: 0, y: top), animated: false)
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertEqual(buttons.visibleIDs(), expectedIDs)
+        XCTAssertEqual(buttons.status(record.id).title, "검토중")
+        buttons.request(record.id)
+        XCTAssertEqual(backend.snapshot().submitCount, 1)
+        XCTAssertTrue(store.stories.isEmpty)
+
+        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "story-list-pending-after-scroll"
         attachment.lifetime = .keepAlways
         add(attachment)
     }

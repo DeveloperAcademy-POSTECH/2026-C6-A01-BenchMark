@@ -83,13 +83,13 @@ enum OiStoryListState: Equatable, Sendable {
         return []
     }
 
-    /// The story list keeps at most this many saved drafts, so it fits on one screen (#368).
+    /// New stories are limited to four slots. Previously submitted stories remain visible until reviewed.
     static let draftCapacity = 4
 
     var isFull: Bool { items.count >= Self.draftCapacity }
 
     func slots(minimumVisibleCount: Int = Self.draftCapacity) -> [OiStoryListSlot] {
-        let visibleCount = min(max(max(0, minimumVisibleCount), items.count), Self.draftCapacity)
+        let visibleCount = max(min(max(0, minimumVisibleCount), Self.draftCapacity), items.count)
         return (0..<visibleCount).map { index in
             OiStoryListSlot(index: index, item: items.indices.contains(index) ? items[index] : nil)
         }

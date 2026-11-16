@@ -337,10 +337,10 @@ struct OiStoryListView: View {
                 glow: Color(red: 125 / 255, green: 151 / 255, blue: 3 / 255)
             )
         }
-        // All draft slots are taken; finish or delete one to start another (#368).
+        // A story awaiting review still uses a slot.
         .disabled(state.isFull)
         .opacity(state.isFull ? 0.4 : 1)
-        .accessibilityHint(state.isFull ? "임시저장 칸이 모두 찼어요. 오이를 삭제하거나 제출하면 새로 만들 수 있어요" : "")
+        .accessibilityHint(state.isFull ? "이야기 칸이 모두 찼어요" : "")
         .accessibilityIdentifier("storyList.createStory")
     }
 

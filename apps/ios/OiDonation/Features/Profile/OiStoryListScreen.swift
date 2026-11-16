@@ -26,6 +26,7 @@ struct OiStoryListScreen: View {
         let request: (UUID) -> Void
         let grantConsent: (UUID) -> Void
         let status: (UUID) -> OiStoryListReviewState
+        let visibleIDs: () -> [UUID]
         let needsConsent: (UUID) -> Bool
         let message: (UUID) -> String?
     }
@@ -108,6 +109,7 @@ struct OiStoryListScreen: View {
             .onAppear {
                 onReviewActionsForTest?(.init(request: requestReview,
                     grantConsent: { requestReview($0, consentGranted: true) }, status: reviewState,
+                    visibleIDs: { state.items.map(\.id) },
                     needsConsent: { reviewConsentID == $0 }, message: reviewMessage))
             }
             #endif
@@ -186,9 +188,10 @@ struct OiStoryListScreen: View {
     }
 
     private func requestReview(_ id: UUID, consentGranted: Bool) {
+        let status = reviewState(for: id)
         guard reviewWork == nil, !remote.isBusy, deletingID == nil,
               state.items.contains(where: { $0.id == id }),
-              reviewState(for: id) != .approved else { return }
+              status == .unreviewed || status == .rejected else { return }
         reviewFailure = nil
         reviewConsentID = nil
         reviewWork = ReviewWork(storyID: id, stage: .prepare(consentGranted: consentGranted))
@@ -335,36 +338,46 @@ struct OiStoryListScreen: View {
     }
 
     private var state: OiStoryListState {
-        guard remote.account != nil else { return .empty }
-        let drafts = (loadedDraftOwner == remote.account?.id ? localDrafts : []).filter { record in
-            !record.submitted && !remote.ownStories.contains { $0.id == record.id }
-        }
-        if let error = (loadedDraftOwner == remote.account?.id ? localError : nil) ?? remote.loadError,
-           !remote.ownStories.contains(where: { $0.status == "draft" }) && drafts.isEmpty { return .failure(error) }
-        if !remote.hasLoadedRemote && drafts.isEmpty { return .loading }
+        guard let owner = remote.account?.id else { return .empty }
+        let drafts = loadedDraftOwner == owner ? localDrafts : []
+        let localIDs = Set(drafts.map(\.id))
+        let storiesByID = Dictionary(uniqueKeysWithValues: remote.ownStories.map { ($0.id, $0) })
         let donorName = donorLine
-        // Only saved drafts belong here; stories sent for review or published are not listed (#368).
-        let serverItems = remote.ownStories.filter { $0.status == "draft" }.map { story in
-            let local = loadedDraftOwner == remote.account?.id ? localDrafts.first { $0.id == story.id } : nil
-            return OiStoryListItem(story: story, portraitPNG: local?.customization?.card?.portraitPNG,
+        func serverItem(_ story: OiLiveStory, portrait: Data? = nil) -> OiStoryListItem? {
+            guard story.status == "draft" || story.status == "pending" else { return nil }
+            return OiStoryListItem(story: story, portraitPNG: portrait,
                 donorDisplayName: donorName, locationDisplayName: locationDisplayName(for: story.regionId))
         }
-        let localItems = drafts.map { record in
-            OiStoryListItem(id: record.id, cucumberName: record.personalPlacement?.name ?? record.draft.cucumberName.nonEmpty ?? "작성 중인 오이",
+        let localItems = drafts.compactMap { record -> OiStoryListItem? in
+            let portrait = record.customization?.card?.portraitPNG
+            // A server receipt updates the existing row without moving it out of its local slot.
+            if let story = storiesByID[record.id] { return serverItem(story, portrait: portrait) }
+            guard !record.submitted else { return nil }
+            return OiStoryListItem(id: record.id, cucumberName: record.personalPlacement?.name ?? record.draft.cucumberName.nonEmpty ?? "작성 중인 오이",
                 title: record.draft.title, cucumberAsset: record.draft.cucumberAsset,
-                portraitPNG: record.customization?.card?.portraitPNG, donorDisplayName: donorName,
+                portraitPNG: portrait, donorDisplayName: donorName,
                 locationDisplayName: record.personalPlacement == nil ? "이 기기에 보관한 초안" : "내 지도에 배치됨",
                 tags: [record.draft.emotion, record.draft.theme].filter { !$0.isEmpty },
                 dateLabel: record.personalPlacement == nil ? "작성 중" : "나만 보기")
         }
-        let items = Array((localItems + serverItems).prefix(OiStoryListState.draftCapacity))
-        return items.isEmpty ? .empty : .content(items)
+        let serverItems = remote.ownStories.compactMap { localIDs.contains($0.id) ? nil : serverItem($0) }
+        var remainingDrafts = OiStoryListState.draftCapacity
+        let items = (localItems + serverItems).filter { item in
+            if storiesByID[item.id]?.status == "pending" { return true }
+            guard remainingDrafts > 0 else { return false }
+            remainingDrafts -= 1
+            return true
+        }
+        if !items.isEmpty { return .content(items) }
+        if let error = (loadedDraftOwner == owner ? localError : nil) ?? remote.loadError { return .failure(error) }
+        return remote.hasLoadedRemote ? .empty : .loading
     }
 
     private func reviewState(for id: UUID) -> OiStoryListReviewState {
         if reviewWork?.storyID == id || remote.reviewingStoryID == id { return .reviewing }
-        guard let story = remote.ownStories.first(where: { $0.id == id }),
-              let review = remote.moderationResult(for: story) else { return .unreviewed }
+        guard let story = remote.ownStories.first(where: { $0.id == id }) else { return .unreviewed }
+        if story.status == "pending" { return .reviewing }
+        guard let review = remote.moderationResult(for: story) else { return .unreviewed }
         if loadedDraftOwner == remote.account?.id,
            let local = localDrafts.first(where: { $0.id == id }),
            local.draft.revision != story.revision || !unchangedReviewedDraftIDs.contains(id) {
