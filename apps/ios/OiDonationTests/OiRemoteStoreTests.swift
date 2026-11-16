@@ -277,6 +277,8 @@ final class OiTestBackend {
                 let nextRevision = (state.story?["revision"] as? Int ?? 0)+1
                 state.story?["revision"] = nextRevision
                 result = state.story ?? [:]
+            } else if automated && (payload["ai_review_consent_version"] as? Int) != 1 {
+                status = 422
             } else if automated && state.rejectModeration {
                 state.moderationCount += 1
                 let review: [String: Any] = ["status": "rejected", "reason": "privacy", "source": "card",
@@ -3035,19 +3037,12 @@ final class OiRemoteStoreTests: XCTestCase {
         try await Task.sleep(for: .seconds(1))
         let buttons = try XCTUnwrap(actions)
         XCTAssertEqual(buttons.status(record.id).title, "검토 전")
+        XCTAssertEqual(backend.snapshot().moderationCount, 0)
         buttons.request(record.id)
         for _ in 0..<60 where buttons.message(record.id) == nil { try await Task.sleep(for: .milliseconds(50)) }
         XCTAssertEqual(buttons.message(record.id), "오이 커스텀의 내용 탭에서 오이 이름을 입력해 주세요.")
         XCTAssertEqual(backend.snapshot().moderationCount, 0)
         record.draft.cucumberName = completeDraft.cucumberName
-        record.version += 1
-        try await store.saveLocalDraft(record, owner: owner)
-        for _ in 0..<60 where buttons.status(record.id) == .reviewing { try await Task.sleep(for: .milliseconds(50)) }
-        buttons.request(record.id)
-        for _ in 0..<60 where buttons.message(record.id) == nil { try await Task.sleep(for: .milliseconds(50)) }
-        XCTAssertEqual(buttons.message(record.id), OiStoryConsentClause.aiReviewRequiredMessage)
-        XCTAssertEqual(backend.snapshot().moderationCount, 0)
-        record.agreedConsentClauseIDs?.insert(OiStoryConsentClause.ID.aiReviewV1.rawValue)
         record.version += 1
         try await store.saveLocalDraft(record, owner: owner)
         for _ in 0..<60 where buttons.status(record.id) == .reviewing { try await Task.sleep(for: .milliseconds(50)) }
@@ -3085,7 +3080,7 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertTrue(saved?.matchesReviewedContent == true)
         XCTAssertEqual(saved?.draft.latitude, completeDraft.latitude)
         XCTAssertEqual(saved?.draft.longitude, completeDraft.longitude)
-        XCTAssertTrue(saved?.agreedConsentClauseIDs?.contains("aiReviewV1") == true)
+        XCTAssertEqual(saved?.agreedConsentClauseIDs, record.agreedConsentClauseIDs)
         buttons.openPlantPicker()
         XCTAssertTrue(buttons.showsPlantPicker())
         XCTAssertEqual(buttons.selectedPlantCard(), record.id)
@@ -3220,16 +3215,8 @@ final class OiRemoteStoreTests: XCTestCase {
         backend.configure { $0.autoStoryModeration = true }
         await store.refresh()
         XCTAssertEqual(buttons.status(record.id), .unreviewed)
-        buttons.request(record.id)
-        for _ in 0..<60 where buttons.message(record.id) == nil { try await Task.sleep(for: .milliseconds(50)) }
-        XCTAssertEqual(buttons.message(record.id), "초안으로 되돌린 뒤 공개 약관에서 AI 검수에 동의해 주세요.")
         XCTAssertEqual(store.ownStories.first?.status, "pending")
         XCTAssertEqual(backend.snapshot().moderationCount, 0)
-        var optedIn = try XCTUnwrap(saved)
-        optedIn.agreedConsentClauseIDs?.insert(OiStoryConsentClause.ID.aiReviewV1.rawValue)
-        optedIn.version += 1
-        try await store.saveLocalDraft(optedIn, owner: owner)
-        for _ in 0..<60 where buttons.status(record.id) == .reviewing { try await Task.sleep(for: .milliseconds(50)) }
 
         buttons.request(record.id)
         for _ in 0..<120 where buttons.status(record.id) != .approved { try await Task.sleep(for: .milliseconds(50)) }

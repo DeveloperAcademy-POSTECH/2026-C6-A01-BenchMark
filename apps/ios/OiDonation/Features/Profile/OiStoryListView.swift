@@ -17,6 +17,7 @@ struct OiStoryListView: View {
     var isDeleting = false
     var reviewState: (UUID) -> OiStoryListReviewState = { _ in .unreviewed }
     var onRequestReview: ((UUID) -> Void)?
+    var offersAIReview = false
     var reviewMessage: (UUID) -> String? = { _ in nil }
     var onPlant: (() -> Void)?
     var canPlant = false
@@ -208,8 +209,15 @@ struct OiStoryListView: View {
                     Button {
                         onRequestReview?(id)
                     } label: {
-                        Text("내용 검토 요청하기").underline()
-                            .foregroundStyle(Color(oiRGB: 0x232323))
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(OiStoryReviewRequest.title).underline()
+                            if offersAIReview {
+                                Text(OiStoryReviewRequest.dataSharing)
+                                    .font(.caption2)
+                            }
+                        }
+                        .foregroundStyle(Color(oiRGB: 0x232323))
+                        .multilineTextAlignment(.trailing)
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("storyList.review.\(id.uuidString)")

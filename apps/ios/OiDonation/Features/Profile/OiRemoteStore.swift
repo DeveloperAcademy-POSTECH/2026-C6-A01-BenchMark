@@ -869,8 +869,11 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         guard !isBusy, let api, account?.id == story.userId else { return nil }
         let started = generation
         let usesAIReview = autoStoryModeration
+        guard usesAIReview == agreesToAIReview else {
+            error = "검토 방식을 다시 확인하고 요청해 주세요."
+            return nil
+        }
         if usesAIReview {
-            guard agreesToAIReview else { return nil }
             payload["ai_review_consent_version"] = 1
         }
         let expectedStatus = usesAIReview ? "draft" : "pending"

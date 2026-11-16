@@ -234,8 +234,7 @@ struct OiStoryEditor: View {
                             }
                             OiStoryConsentView(clauses: OiStoryConsentClause.writingClauses,
                                 onContinue: advance, onExit: requestExit,
-                                showsHeader: false, state: $consentState,
-                                aiReviewConsent: remote.autoStoryModeration ? aiReviewConsent : nil)
+                                showsHeader: false, state: $consentState)
                         }
                         .task { prewarmStoryStep() }
                     } else if step == .cucumber || step == .card {
@@ -774,18 +773,21 @@ struct OiStoryEditor: View {
     }
 
     private var reviewSheet: some View {
-        OiStoryReview(draft: draft, customization: customization, savedCardPath: reusedCardPath,
+        let offersAIReview = remote.autoStoryModeration
+        return OiStoryReview(draft: draft, customization: customization, savedCardPath: reusedCardPath,
             savedPortraitPath: customization.wardrobe == nil ? currentStory?.cucumberArtwork?.path(.portrait) : nil,
             donorName: remote.profile?.publicName ?? "",
             location: OiCreationStep.location.canContinue(draft: draft) ? completionLocation : nil,
             photos: editingPhotos, remote: remote, issues: reviewIssues,
             error: localError ?? remote.error ?? publicationAvailabilityMessage,
             canSubmit: canSubmit && publicationAvailabilityMessage == nil && !remote.isBusy && !saving, isSubmitting: publishing,
+            offersAIReview: offersAIReview,
             onClose: { showingPreview = false },
             onEdit: editFromReview, onSubmit: { portrait, card in
                 let reviewedCardPath = reusedCardPath
                 Task {
-                    await submitReview(portrait: portrait, card: card, reviewedCardPath: reviewedCardPath)
+                    await submitReview(portrait: portrait, card: card, reviewedCardPath: reviewedCardPath,
+                                       authorizesAIReview: offersAIReview)
                 }
             }) { photo, thumbnail in
                 reviewPhoto(photo, allowsRetry: !thumbnail, contentMode: thumbnail ? .fill : .fit,
@@ -794,18 +796,10 @@ struct OiStoryEditor: View {
             .id(reusedCardPath)
     }
 
-    private var aiReviewConsent: Binding<Bool> {
-        Binding(get: { consentState.isAgreed(to: .aiReviewV1) },
-                set: { consentState.setAgreed($0, to: .aiReviewV1) })
-    }
-
     private var reviewIssues: [OiStoryReviewIssue] {
         let inputIssues = OiCreationStep.reviewInputIssues(draft: draft, photoCount: editingPhotos.count)
         guard consentState.allRequiredClausesAreAgreed else {
             return [.init(step: .consent, message: "공개하려면 필수 약관에 모두 동의해 주세요.")] + inputIssues
-        }
-        if remote.autoStoryModeration && !consentState.isAgreed(to: .aiReviewV1) {
-            return [.init(step: .consent, message: OiStoryConsentClause.aiReviewRequiredMessage)] + inputIssues
         }
         return inputIssues
     }
@@ -824,7 +818,8 @@ struct OiStoryEditor: View {
         return nil
     }
 
-    private func submitReview(portrait: Data?, card: OiStoryCardPublication?, reviewedCardPath: String?) async {
+    private func submitReview(portrait: Data?, card: OiStoryCardPublication?, reviewedCardPath: String?,
+                              authorizesAIReview: Bool) async {
         guard !publishing, !remote.isBusy, !saving, canSubmit, publicationAvailabilityMessage == nil else { return }
         publishing = true
         localError = nil
@@ -846,7 +841,7 @@ struct OiStoryEditor: View {
         }
         let usesAIReview = remote.autoStoryModeration
         let receipt = await remote.submitStory(saved, cucumber: publication, card: card,
-                                               agreesToAIReview: consentState.isAgreed(to: .aiReviewV1))
+                                               agreesToAIReview: authorizesAIReview)
         if let receipt {
             draft = OiStoryDraft(story: receipt); localVersion += 1
             if usesAIReview {

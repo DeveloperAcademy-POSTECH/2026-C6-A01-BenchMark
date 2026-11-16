@@ -21,6 +21,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
     let error: String?
     let canSubmit: Bool
     let isSubmitting: Bool
+    let offersAIReview: Bool
     let onClose: () -> Void
     let onEdit: (OiCreationStep) -> Void
     let onSubmit: (Data?, OiStoryCardPublication?) -> Void
@@ -319,7 +320,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
     }
 
     private var submitTitle: String {
-        if remote.autoStoryModeration { return isSubmitting ? "검토중" : "내용 검토 요청하기" }
+        if offersAIReview { return isSubmitting ? "검토중" : OiStoryReviewRequest.title }
         return isSubmitting ? "공개 검토 요청 중…" : "공개 검토 요청하기"
     }
 
@@ -334,7 +335,8 @@ struct OiStoryReview<StoryPhoto: View>: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             OiCreationNextButton(title: submitTitle,
-                                 enabled: canSubmit && !isSubmitting && artworkReady) {
+                                 enabled: canSubmit && !isSubmitting && artworkReady,
+                                 subtitle: offersAIReview && !isSubmitting ? OiStoryReviewRequest.dataSharing : nil) {
                 renderError = nil
                 do {
                     let card = try cardPublication()

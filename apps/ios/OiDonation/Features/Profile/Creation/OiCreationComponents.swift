@@ -304,11 +304,15 @@ struct OiCreationNavigationBar: View {
 struct OiCreationNextButton: View {
     let title: String
     var enabled = true
+    var subtitle: String?
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            Text(title).font(.custom("Paperlogy-5Medium", size: 17, relativeTo: .body))
-                .frame(maxWidth: .infinity, minHeight: 57)
+            VStack(spacing: 3) {
+                Text(title).font(.custom("Paperlogy-5Medium", size: 17, relativeTo: .body))
+                if let subtitle { Text(subtitle).font(.caption).multilineTextAlignment(.center) }
+            }
+            .frame(maxWidth: .infinity, minHeight: 57)
         }
         .buttonStyle(.borderedProminent).buttonBorderShape(.roundedRectangle(radius: 20))
         .tint(Color("OiGreen")).disabled(!enabled)
