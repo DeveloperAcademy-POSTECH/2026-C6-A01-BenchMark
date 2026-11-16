@@ -2,7 +2,6 @@ import Foundation
 
 enum OiStoryReviewRequest {
     static let title = "내용 검토 요청하기"
-    static let dataSharing = "이야기·게시용 이미지의 OpenAI 전송에 동의"
 }
 
 struct OiStoryListItem: Identifiable, Equatable, Sendable {

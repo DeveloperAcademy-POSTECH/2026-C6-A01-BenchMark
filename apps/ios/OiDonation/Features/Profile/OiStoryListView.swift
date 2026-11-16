@@ -17,7 +17,6 @@ struct OiStoryListView: View {
     var isDeleting = false
     var reviewState: (UUID) -> OiStoryListReviewState = { _ in .unreviewed }
     var onRequestReview: ((UUID) -> Void)?
-    var offersAIReview = false
     var reviewMessage: (UUID) -> String? = { _ in nil }
     var onPlant: (() -> Void)?
     var canPlant = false
@@ -209,15 +208,8 @@ struct OiStoryListView: View {
                     Button {
                         onRequestReview?(id)
                     } label: {
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text(OiStoryReviewRequest.title).underline()
-                            if offersAIReview {
-                                Text(OiStoryReviewRequest.dataSharing)
-                                    .font(.caption2)
-                            }
-                        }
-                        .foregroundStyle(Color(oiRGB: 0x232323))
-                        .multilineTextAlignment(.trailing)
+                        Text(OiStoryReviewRequest.title).underline()
+                            .foregroundStyle(Color(oiRGB: 0x232323))
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("storyList.review.\(id.uuidString)")

@@ -335,8 +335,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             OiCreationNextButton(title: submitTitle,
-                                 enabled: canSubmit && !isSubmitting && artworkReady,
-                                 subtitle: offersAIReview && !isSubmitting ? OiStoryReviewRequest.dataSharing : nil) {
+                                 enabled: canSubmit && !isSubmitting && artworkReady) {
                 renderError = nil
                 do {
                     let card = try cardPublication()

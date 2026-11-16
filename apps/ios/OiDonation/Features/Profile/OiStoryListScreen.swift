@@ -104,7 +104,6 @@ struct OiStoryListScreen: View {
             isDeleting: deletingID != nil || remote.isBusy || reviewWork != nil || plantingStoryID != nil,
             reviewState: { reviewState(for: $0) },
             onRequestReview: { requestReview($0, offersAIReview: offersAIReview) },
-            offersAIReview: offersAIReview,
             reviewMessage: reviewMessage,
             onPlant: handlePlantTap,
             canPlant: remote.autoStoryModeration && canPlant(in: currentState),
