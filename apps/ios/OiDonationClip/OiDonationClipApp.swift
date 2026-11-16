@@ -12,10 +12,9 @@ import StoreKit
 @main
 struct OiDonationClipApp: App {
     @State private var isOverlayPresented = false
-    @State private var invocation: AppClipInvocation?
     /// A new session per presentation so reopening always starts with a fresh card.
     @State private var scratchPostcardSession: ScratchPostcardSession?
-    /// False until the system hands over the invocation URL, so the story list never shows before a postcard (#347).
+    /// False until the system hands over the invocation URL, so the start view never shows before a postcard (#347).
     @State private var hasRoute = false
     private let storyRepository = RealStoryRepository()
 
@@ -45,18 +44,13 @@ struct OiDonationClipApp: App {
                     ScratchPostcardScreen(tagID: scratchPostcardSession.tagID, repository: storyRepository)
                         .id(scratchPostcardSession.id)
                 } else if hasRoute {
-                    AppClipExperienceView(
-                        storyRepository: storyRepository,
-                        invocation: invocation,
-                        onRequestFullApp: { isOverlayPresented = true }
-                    ) { story, id in
-                        AppClipStorySafetyButton(story: story, id: id)
-                    }
+                    // Opened without an NFC tag (App Library, shared default link, review): Figma `6005:5306` (#351).
+                    AppClipStartView(onDownload: { isOverlayPresented = true })
                 } else {
                     Color.white
                         .ignoresSafeArea()
                         .task {
-                            // A launch without a URL (e.g. reopened from the App Library) falls back to the list.
+                            // A launch without a URL (e.g. reopened from the App Library) shows the start view.
                             try? await Task.sleep(for: .seconds(1))
                             hasRoute = true
                         }
@@ -83,7 +77,7 @@ struct OiDonationClipApp: App {
 }
 
 extension OiDonationClipApp {
-    /// NFC postcard links open the scratch postcard for the tag; every other link keeps the existing story flow.
+    /// NFC postcard links open the scratch postcard for the tag; every other link shows the start view (#351).
     private func handleInvocation(_ url: URL?) {
         hasRoute = true
         if let url, let tag = AppClipLink.postcardID(in: url) {
@@ -92,21 +86,6 @@ extension OiDonationClipApp {
             return
         }
         scratchPostcardSession = nil
-        invocation = AppClipInvocation(url: url)
-    }
-}
-
-private struct AppClipStorySafetyButton: View {
-    let story: Story
-    let id: UUID
-    @State private var showingSafety = false
-
-    var body: some View {
-        Button("신고 및 차단") { showingSafety = true }
-            .frame(minHeight: 44)
-            .sheet(isPresented: $showingSafety) {
-                OiContentSafetyView(storyID: id, authorID: story.donorID, authorName: story.donorDisplayName)
-            }
     }
 }
 
