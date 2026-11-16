@@ -1805,7 +1805,7 @@ final class OiRemoteStoreTests: XCTestCase {
         attachment.lifetime = .keepAlways; add(attachment)
     }
 
-    /// STEP 1 ↔ STEP 2 slide both ways; pauses leave room for a screen recording (#373).
+    /// STEP 1 ↔ STEP 2 switch both ways without a slide; pauses leave room for a screen recording (#373).
     @MainActor func testConsentStoryTransitionGoesBothWays() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }

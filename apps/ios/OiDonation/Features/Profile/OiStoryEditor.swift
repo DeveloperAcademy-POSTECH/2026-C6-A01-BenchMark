@@ -44,8 +44,6 @@ struct OiStoryEditor: View {
     @State private var focusedStoryField: OiStoryWritingStep.Field?
     /// STEP 2 shows missing items under the buttons only after Next is tapped (#373).
     @State private var showingStoryMissing = false
-    /// STEP 1 ↔ STEP 2 slide like a navigation push: forward enters from the trailing edge.
-    @State private var slidesForward = true
     @State private var customization = OiDraftCustomization()
     @State private var personalPlacement: OiPersonalPlacement?
     @State private var removedMediaPaths: [String] = []
@@ -220,7 +218,6 @@ struct OiStoryEditor: View {
                                 onContinue: advance, onExit: requestExit,
                                 showsHeader: false, state: $consentState)
                         }
-                        .transition(stepSlide)
                         .task { prewarmStoryStep() }
                     } else if step == .cucumber || step == .card {
                         VStack(spacing: 0) {
@@ -251,7 +248,6 @@ struct OiStoryEditor: View {
                                 }
                                 .scrollDisabled(wardrobePhotoEditing)
                         }
-                        .transition(stepSlide)
                     }
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -526,7 +522,7 @@ struct OiStoryEditor: View {
     }
 
     /// The first STEP 2 draw caches TextKit and the Korean glyphs of its fonts; prepare them while STEP 1
-    /// is idle so the STEP 1 → 2 slide does not drop frames. The rendered image is discarded.
+    /// is idle so switching to STEP 2 shows without a hitch. The rendered image is discarded.
     private func prewarmStoryStep() {
         OiStoryTextView.prewarm()
         let renderer = ImageRenderer(content: VStack(alignment: .leading, spacing: 50) {
@@ -537,17 +533,10 @@ struct OiStoryEditor: View {
         _ = renderer.cgImage
     }
 
-    private var stepSlide: AnyTransition {
-        guard !reduceMotion else { return .opacity }
-        return .asymmetric(insertion: .move(edge: slidesForward ? .trailing : .leading),
-                           removal: .move(edge: slidesForward ? .leading : .trailing))
-    }
-
     private func navigate(to destination: OiCreationStep) {
-        slidesForward = destination.progress >= step.progress
-        // Consent and story slide across the full width; other steps keep the short fade.
-        let slides = Set([step, destination]) == [.consent, .story]
-        withAnimation(reduceMotion ? nil : slides ? .smooth(duration: 0.35) : .easeInOut(duration: 0.18)) {
+        // STEP 1 ↔ STEP 2 switch at once, without a slide or fade (#373); other steps keep the short fade.
+        let switchesAtOnce = Set([step, destination]) == [.consent, .story]
+        withAnimation(reduceMotion || switchesAtOnce ? nil : .easeInOut(duration: 0.18)) {
             if step != destination { customizationReady = false; cardPlacementReady = false }
             step = destination
         }

@@ -472,7 +472,7 @@ struct OiStoryAttachmentSections: View {
     let longitude: Double?
     let onPhotos: () -> Void
     let onLocation: () -> Void
-    /// MapKit is the costliest view on STEP 2; create it after the STEP 1 → 2 slide so the slide keeps its frames.
+    /// MapKit is the costliest view on STEP 2; create it just after STEP 2 appears so the switch shows at once.
     @State private var showsMap = false
 
     private var coordinate: CLLocationCoordinate2D? {
