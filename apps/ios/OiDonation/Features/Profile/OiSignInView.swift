@@ -93,13 +93,15 @@ struct OiSignInView: View {
         }
     }
 
+    private let settingsButtonHeight: CGFloat = 60
+
     private var settingsAppleButton: some View {
         OiAppleSignInButton {
             if remote.account != nil { showingConnection = true }
             else { Task { await remote.signIn(using: appleAuthentication) } }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 60)
+        .frame(height: settingsButtonHeight)
     }
 
     private var settingsGoogleButton: some View {
@@ -107,11 +109,24 @@ struct OiSignInView: View {
             if remote.account != nil { showingConnection = true }
             else { Task { await remote.signIn() } }
         } label: {
-            Text("Google로 로그인")
-                .frame(maxWidth: .infinity, minHeight: 46)
+            HStack(spacing: 12) {
+                Image("GoogleSignInLogo").resizable().scaledToFit()
+                    .frame(width: 20, height: 20).accessibilityHidden(true)
+                Text("Google로 로그인").font(.system(size: 14, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(Color(red: 31 / 255, green: 31 / 255, blue: 31 / 255))
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity)
+            .frame(height: settingsButtonHeight)
+            .background(.white, in: RoundedRectangle(cornerRadius: 6, style: .circular))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .circular)
+                    .strokeBorder(Color(red: 116 / 255, green: 119 / 255, blue: 117 / 255), lineWidth: 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .circular))
         }
-        .buttonStyle(.borderedProminent)
-        .tint(CampusStyle.green)
+        .buttonStyle(.plain)
         .accessibilityIdentifier("oi.auth.google")
     }
 }
