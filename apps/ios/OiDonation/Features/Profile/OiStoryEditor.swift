@@ -151,7 +151,7 @@ struct OiStoryEditor: View {
         .onChange(of: photos) { _, _ in scheduleSave() }
         .onChange(of: uploadedPhotos) { _, _ in scheduleSave() }
         .onChange(of: step) { _, _ in
-            focusedStoryField = nil
+            endStoryEditing()
             showingStoryMissing = false
             scheduleSave()
         }
@@ -420,9 +420,16 @@ struct OiStoryEditor: View {
             previewWidth: previewWidth, previewHeight: previewHeight)
     }
 
+    /// The story fields are UIKit text views; resign them synchronously so no keyboard survives a screen change.
+    private func endStoryEditing() {
+        focusedStoryField = nil
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
     private func openPhotoEditor() {
         guard restored, !submitted, photoCheckpoint == nil else { return }
-        focusedStoryField = nil
+        // Resign before presenting; otherwise UIKit keeps (and later restores) the story keyboard over the photo editor.
+        endStoryEditing()
         photoCheckpoint = PhotoCheckpoint(photos: photos, order: photoOrder, uploaded: uploadedPhotos,
             removedPaths: removedMediaPaths, removedIDs: removedPhotoIDs)
     }
@@ -487,7 +494,7 @@ struct OiStoryEditor: View {
             .background {
                 if step == .story && focusedStoryField != nil {
                     Color.clear.contentShape(Rectangle())
-                        .onTapGesture { focusedStoryField = nil }
+                        .onTapGesture { endStoryEditing() }
                         .accessibilityHidden(true)
                 }
             }
@@ -579,7 +586,7 @@ struct OiStoryEditor: View {
 
     /// Next stays enabled on STEP 2; missing input shows what to fill instead of moving on.
     private func storyNext() {
-        focusedStoryField = nil
+        endStoryEditing()
         guard storyInputIsComplete else {
             showingStoryMissing = true
             AccessibilityNotification.Announcement(missingStoryItems.joined(separator: ", ")).post()
@@ -911,7 +918,7 @@ struct OiStoryEditor: View {
                 OiStoryWritingStep(draft: $draft, focusedField: $focusedStoryField)
                 OiStoryAttachmentSections(photoCount: editingPhotos.count,
                     latitude: draft.latitude, longitude: draft.longitude,
-                    onPhotos: openPhotoEditor, onLocation: { navigate(to: .location) })
+                    onPhotos: openPhotoEditor, onLocation: { endStoryEditing(); navigate(to: .location) })
             }
         case .cucumber:
             OiCucumberCustomizationStep(customization: $customization, cucumberName: $draft.cucumberName,

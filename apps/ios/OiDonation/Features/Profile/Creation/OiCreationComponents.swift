@@ -253,8 +253,9 @@ struct OiCreationNavigationBar: View {
             Button("임시저장 후 나가기", action: onSaveAndExit)
                 .font(CampusStyle.body(14)).underline()
                 .foregroundStyle(inline ? Color(white: 64 / 255) : .secondary)
-                // Inline: Figma keeps 26pt between the link and the buttons; the 44pt hit area overlaps that gap.
-                .frame(minHeight: 44).contentShape(Rectangle()).padding(.vertical, inline ? -9 : 0)
+                // Inline: Figma `5919:11738` leaves 12pt from the underline to the buttons; the 44pt hit area overlaps it.
+                .frame(minHeight: 44).contentShape(Rectangle())
+                .padding(.top, inline ? -9 : 0).padding(.bottom, inline ? -3 : 0)
                 .accessibilityIdentifier("oi.creation.saveAndExit")
             HStack(spacing: 12) {
                 navigationButton("이전", tint: inline ? Color(oiRGB: 0xB6C59B) : Color("OiBorder"), action: onPrevious)
@@ -597,7 +598,7 @@ struct OiStoryTextView: UIViewRepresentable {
         if focusedField == field, !view.isFirstResponder, view.window != nil {
             DispatchQueue.main.async { view.becomeFirstResponder() }
         } else if focusedField != field, view.isFirstResponder {
-            DispatchQueue.main.async { view.resignFirstResponder() }
+            view.resignFirstResponder()
         }
     }
 
