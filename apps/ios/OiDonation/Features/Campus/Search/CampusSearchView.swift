@@ -2,8 +2,31 @@ import SwiftUI
 
 struct CampusSearchChoiceSheet: View {
     let choose: (CampusSearchMode) -> Void
-    @Environment(\.dismiss) private var dismiss
+    let dismiss: () -> Void
+
     var body: some View {
+        ZStack(alignment: .bottom) {
+            Color.black.opacity(0.2).ignoresSafeArea()
+                .onTapGesture(perform: dismiss)
+                .accessibilityHidden(true)
+            choices
+                .frame(maxWidth: .infinity, minHeight: 356, alignment: .top)
+                .background {
+                    let shape = UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35)
+                    shape.fill(CampusStyle.mapSheet.opacity(0.7))
+                        .background(.ultraThinMaterial, in: shape)
+                        .ignoresSafeArea(edges: [.horizontal, .bottom])
+                }
+                .simultaneousGesture(DragGesture(minimumDistance: 20).onEnded { gesture in
+                    if gesture.translation.height > 50 && gesture.translation.height > abs(gesture.translation.width) { dismiss() }
+                })
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
+        .accessibilityAction(.escape) { dismiss() }
+    }
+
+    private var choices: some View {
         VStack(spacing: 16) {
             HStack {
                 Text("검색 방식 선택").font(CampusStyle.semibold(26)).foregroundStyle(CampusStyle.sectionGreen)
@@ -18,9 +41,6 @@ struct CampusSearchChoiceSheet: View {
                 }.buttonStyle(.plain).accessibilityIdentifier("campus.search.mode.\(mode.rawValue)")
             }
         }.padding(20).padding(.bottom, 20)
-            .presentationDetents([.height(356)]).presentationCornerRadius(35)
-            .presentationDragIndicator(.hidden)
-            .presentationBackground { CampusStyle.mapSheet.opacity(0.7).background(.ultraThinMaterial) }
     }
 }
 
