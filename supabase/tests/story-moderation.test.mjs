@@ -82,6 +82,17 @@ test("returns only the bounded rejection reason and leaves the draft untouched",
   assert.deepEqual(calls, ["auth", "prepare", "sign", "analysis"]);
 });
 
+test("returns distinct refusal reasons for unintelligible stories and profanity", async () => {
+  for (const reason of ["unintelligible", "profanity"]) {
+    const finding = { reason, source: "story" };
+    const { calls, submit } = setup({ finding });
+    const response = await submit();
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { status: "rejected", ...finding });
+    assert.ok(!calls.includes("publish"));
+  }
+});
+
 test("authorization, image access, provider failure and malformed verdicts never publish", async () => {
   for (const [updates, status] of [
     [{ failAt: "auth" }, 401], [{ failAt: "reauth" }, 401], [{ failAt: "ownership" }, 403],

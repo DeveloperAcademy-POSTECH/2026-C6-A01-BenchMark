@@ -10,7 +10,7 @@ type Configuration = {
 
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const reasons = [
-  "privacy", "rights", "harassment", "sexual", "violence", "spam", "fraud",
+  "privacy", "rights", "unintelligible", "profanity", "harassment", "sexual", "violence", "spam", "fraud",
 ] as const;
 const sources = ["story", "photo", "appearance", "card"] as const;
 type Finding = { reason: typeof reasons[number]; source: typeof sources[number] };
@@ -25,7 +25,13 @@ privacy: exposed private contact details, addresses, account numbers, government
 Ordinary names, school names and the poster's visible signature alone are allowed.
 rights: clear impersonation, explicit theft of someone's story/artwork, or an explicit lack of permission.
 A face, logo or unverified permission alone is insufficient.
-harassment: profanity directed at a person, targeted abuse, defamation, or hate/discrimination.
+unintelligible: the title and body together convey no understandable story content, such as a
+submission made entirely of unresolvable Korean initial consonants or meaningless fragments.
+An informal expression or abbreviation within an otherwise understandable story is allowed.
+profanity: clear swear words or vulgar language in any submitted text or image, including casual
+emphasis, self-directed swearing, and recognizable censored spellings. A target is not required.
+harassment: targeted mockery, abuse, defamation, or hate/discrimination.
+Use harassment when targeted abuse is the main violation and profanity when the only violation is swearing.
 sexual: sexually explicit material. violence: credible threats, encouragement of harm, or graphic violence.
 spam: advertising or spam unrelated to the storytelling service.
 fraud: explicitly fabricated or stolen donation claims. Do not infer that an experience is false

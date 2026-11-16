@@ -253,7 +253,9 @@ struct OiServiceAPI {
         let reason: String = switch receipt.reason {
         case "privacy": "공개하면 안 되는 개인정보가 포함돼 있어요."
         case "rights": "다른 사람의 권리를 침해하는 내용이 포함돼 있어요."
-        case "harassment": "욕설·비방 또는 혐오 표현이 포함돼 있어요."
+        case "unintelligible": "의미를 확인하기 어려운 내용이 포함돼 있어요."
+        case "profanity": "욕설이 포함돼 있어요."
+        case "harassment": "조롱·비방 또는 혐오 표현이 포함돼 있어요."
         case "sexual": "노골적인 성적 내용이 포함돼 있어요."
         case "violence": "위협 또는 폭력적인 내용이 포함돼 있어요."
         case "spam": "광고 또는 스팸이 포함돼 있어요."
