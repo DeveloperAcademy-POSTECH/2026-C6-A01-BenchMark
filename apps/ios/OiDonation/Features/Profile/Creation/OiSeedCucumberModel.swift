@@ -76,21 +76,38 @@ enum OiSeedCucumberGarment: Hashable, CaseIterable {
 
     var coveredSeedParts: Set<String> {
         switch self {
-        case .costume(.cat), .costume(.catBear), .costume(.scientist): ["Body", "LeftArm", "RightArm", "LeftLeg", "RightLeg"]
-        case .costume(.bee): ["Body", "LeftArm", "RightArm"]
-        case .costume(.raincoat): ["Body", "LeftLeg", "RightLeg"]
-        case .costume(.dinosaur), .costume(.baseball), .costume(.postechSelfie):
+        case .costume(.dinosaur), .costume(.raincoat), .costume(.bee), .costume(.cat), .costume(.catBear),
+             .costume(.astronaut), .costume(.astronautNavy), .costume(.scientist):
+            ["Body", "LeftArm", "RightArm", "LeftLeg", "RightLeg"]
+        case .hoodie, .postechJacket:
+            ["Body", "LeftArm", "RightArm"]
+        case .costume(.baseball), .costume(.postechSelfie):
             ["LeftArm", "RightArm", "LeftLeg", "RightLeg"]
-        case .costume(.astronaut), .costume(.astronautNavy), .costume(.schoolUniform),
-             .costume(.schoolUniformTrousers), .costume(.scientistGoggles), .sneakers:
+        case .costume(.schoolUniform), .costume(.schoolUniformTrousers), .costume(.scientistGoggles), .sneakers:
             ["LeftLeg", "RightLeg"]
         default: []
+        }
+    }
+
+    // Positions are in the unscaled seed model's authored coordinates.
+    var hoodAttachments: (faceDepth: Float, stem: SIMD3<Float>)? {
+        switch self {
+        case .costume(.bee): (0, SIMD3(-0.028, -0.084, -0.010))
+        case .costume(.cat): (0.034, SIMD3(-0.024, -0.061, 0.022))
+        case .costume(.catBear): (0.023, SIMD3(-0.036, -0.064, -0.066))
+        case .costume(.raincoat): (0.019, SIMD3(-0.018, -0.052, 0.012))
+        case .costume(.dinosaur): (0.088, SIMD3(0.010, -0.018, 0.068))
+        case .costume(.astronaut): (0.040, SIMD3(-0.008, -0.010, -0.050))
+        case .costume(.astronautNavy): (0.062, SIMD3(0.008, -0.002, -0.058))
+        default: nil
         }
     }
 }
 
 @MainActor enum OiSeedCucumberModel {
     private static let bodyTransformName = "SeedCucumberBodyTransform"
+    private static let faceAttachmentName = "SeedCucumberFaceAttachment"
+    private static let stemAttachmentName = "SeedCucumberStemAttachment"
     private static let metresPerPixel: Float = 0.001
     private static let pivot = OiSeedCucumberAppearance.bodyPivot
     private static let faceParts: [(String, OiSeedCucumberLayer)] = [
@@ -161,6 +178,8 @@ enum OiSeedCucumberGarment: Hashable, CaseIterable {
             }
         }
 
+        try attachParts(faceParts.map { $0.0 }, named: faceAttachmentName, from: asset, to: sized)
+        try attachParts(["Stem"], named: stemAttachmentName, from: asset, to: sized)
         sized.scale = scale
         let floor = sized.visualBounds(relativeTo: root).min.y
         guard floor.isFinite else { throw AssetError.invalidMesh(asset.name) }
@@ -201,6 +220,19 @@ enum OiSeedCucumberGarment: Hashable, CaseIterable {
         // Hide the untrimmed part only while that garment is mounted.
         for part in ["Body", "LeftArm", "RightArm", "LeftLeg", "RightLeg"] {
             master.findEntity(named: part)?.isEnabled = !covered.contains(part)
+        }
+        let attachment = garments.compactMap(\.hoodAttachments).first
+        model.findEntity(named: faceAttachmentName)?.position.z = attachment?.faceDepth ?? 0
+        model.findEntity(named: stemAttachmentName)?.position = attachment?.stem ?? .zero
+    }
+
+    private static func attachParts(_ names: [String], named groupName: String, from asset: Entity, to parent: Entity) throws {
+        let attachment = Entity()
+        attachment.name = groupName
+        parent.addChild(attachment)
+        for name in names {
+            guard let part = asset.findEntity(named: name) else { throw AssetError.missingPart(name) }
+            attachment.addChild(part, preservingWorldTransform: true)
         }
     }
 

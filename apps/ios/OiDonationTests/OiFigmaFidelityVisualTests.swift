@@ -2124,7 +2124,12 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 XCTAssertTrue(cat.parent === parent)
                 XCTAssertFalse(body.isEnabled)
                 XCTAssertTrue(mouth.isEnabled)
-                XCTAssertEqual(mouth.transformMatrix(relativeTo: model).columns.3, mouthTransform.columns.3)
+                let adjustment = try XCTUnwrap(costume.hoodAttachments)
+                let dressedMouth = mouth.transformMatrix(relativeTo: model).columns.3
+                XCTAssertEqual(dressedMouth.x, mouthTransform.columns.3.x, accuracy: 0.001)
+                XCTAssertEqual(dressedMouth.y, mouthTransform.columns.3.y, accuracy: 0.001)
+                XCTAssertEqual(dressedMouth.z, mouthTransform.columns.3.z + adjustment.faceDepth * Float(width),
+                               accuracy: 0.001)
                 try OiSeedCucumberModel.setGarment(costume, asset: nil, on: model)
                 OiSeedCucumberModel.updateCoverage(for: [], on: model)
                 XCTAssertTrue(body.isEnabled)
@@ -2189,8 +2194,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             XCTAssertEqual(asset.name, garment.rawValue)
             XCTAssertTrue(hasModel(in: asset), "\(garment.title) must contain a renderable mesh")
             if garment.coveredSeedParts.contains("Body") {
-                let faceSkin = try XCTUnwrap(asset.findEntity(named: "VisibleBody"))
-                XCTAssertTrue(hasModel(in: faceSkin))
+                let bodyParts = garment.slot == .top ? ["VisibleBodyUpper", "VisibleBodyLower"] : ["VisibleBody"]
+                for part in bodyParts {
+                    let visible = try XCTUnwrap(asset.findEntity(named: part))
+                    XCTAssertTrue(hasModel(in: visible))
+                }
             }
         }
         @MainActor func hasModel(in entity: Entity) -> Bool {
@@ -2201,6 +2209,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(Set(OiSeedCucumberGarment.allCases.filter { $0.slot == .costume }),
                        Set(costumes.map { .costume($0) }))
         try await verifyGarment(.sneakers)
+        try await verifyGarment(.hoodie)
+        try await verifyGarment(.postechJacket)
         for costume in costumes {
             try await verifyGarment(.costume(costume))
         }
@@ -2227,7 +2237,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             try await self.waitForStep3 { surface.accessibilityValue == "3D 미리보기" }
             let model = try XCTUnwrap(surface.scene.findEntity(named: "SeedCucumber"))
             let eye = try XCTUnwrap(model.findEntity(named: "LeftEye"))
-            let eyeTransform = eye.transformMatrix(relativeTo: model)
+            let faceAttachment = try XCTUnwrap(eye.parent)
+            let eyeTransform = eye.transformMatrix(relativeTo: faceAttachment)
             let master = try XCTUnwrap(model.findEntity(named: "SeedCucumberMaster"))
             let skin = try XCTUnwrap(master.findEntity(named: "Body"))
             let leftArm = try XCTUnwrap(master.findEntity(named: "LeftArm"))
@@ -2252,13 +2263,15 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 XCTAssertEqual(mounted(), next)
                 XCTAssertTrue(surface.scene.findEntity(named: "SeedCucumber") === model)
                 XCTAssertTrue(model.findEntity(named: "LeftEye") === eye)
-                XCTAssertEqual(eye.transformMatrix(relativeTo: model).columns.3, eyeTransform.columns.3)
+                XCTAssertEqual(eye.transformMatrix(relativeTo: faceAttachment).columns.3, eyeTransform.columns.3)
+                let attachment = next.compactMap(\.hoodAttachments).first
+                XCTAssertEqual(faceAttachment.position.z, attachment?.faceDepth ?? 0, accuracy: 0.001)
                 XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), viewpoint), 0, accuracy: 0.001)
             }
 
             XCTAssertEqual(mounted(), customOutfit)
-            XCTAssertTrue(skin.isEnabled)
-            XCTAssertTrue(leftArm.isEnabled)
+            XCTAssertFalse(skin.isEnabled)
+            XCTAssertFalse(leftArm.isEnabled)
             XCTAssertFalse(leftLeg.isEnabled)
             let dinosaur: Set<OiSeedCucumberGarment> = [.costume(.dinosaur)]
             draft.value.selectSeedSet(.costume(.dinosaur))
@@ -2290,15 +2303,20 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 .findEntity(named: "VisibleBody"))
             draft.value.selectSeedSet(.costume(.cat))
             try await waitForReplacement(from: cat, to: customOutfit)
-            XCTAssertTrue(skin.isEnabled)
-            XCTAssertTrue(leftArm.isEnabled)
+            XCTAssertFalse(skin.isEnabled)
+            XCTAssertFalse(leftArm.isEnabled)
             XCTAssertFalse(leftLeg.isEnabled)
             draft.value.toggleSeedSneakers()
             let withoutShoes: Set<OiSeedCucumberGarment> = [.hoodie, .shorts]
             try await waitForReplacement(from: customOutfit, to: withoutShoes)
             XCTAssertTrue(leftLeg.isEnabled)
+            draft.value.selectSeedTop(.hoodie)
+            let withoutTop: Set<OiSeedCucumberGarment> = [.shorts]
+            try await waitForReplacement(from: withoutShoes, to: withoutTop)
+            XCTAssertTrue(skin.isEnabled)
+            XCTAssertTrue(leftArm.isEnabled)
             draft.value.selectSeedSet(.costume(.cat))
-            try await waitForReplacement(from: withoutShoes, to: cat)
+            try await waitForReplacement(from: withoutTop, to: cat)
             return surface
         })
     }

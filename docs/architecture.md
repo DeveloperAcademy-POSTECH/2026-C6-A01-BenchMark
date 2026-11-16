@@ -358,6 +358,8 @@ STEP 3 옷장 확장(#299)은 흰 운동화와 목록의 세트 18종을 같은 
 
 2026-11-16 #299 후속 수정은 기존 완성 의상의 둥근 형태와 선명한 색을 기준으로 한다. STEP 3 전용 에셋에는 의상이 덮는 부분을 잘라낸 기존 몸체·팔다리 조각을 필요한 경우 포함한다. 씬은 해당 에셋이 장착되는 동안 온전한 부위를 숨기고, 벗으면 다시 표시한다. 눈·입·꼭지는 기존 메시와 편집값을 사용한다. 의상 재질의 강한 반사와 불필요한 요철 텍스처는 줄이고 원래 색상과 장식은 유지한다. [기존 모델과 새 의상 비교](images/seed-cucumber-customization/step3-costume-fit-refinement.jpg)
 
+같은 날 후드 볼륨 후속은 꿀벌·우비·고양이 두 벌·공룡·우주복 두 벌의 기존 표면 좌표와 재질을 사용한다. 옷 밖으로 나오는 피부를 잘라 의상별로 보이는 얼굴 메시를 만든다. 눈·입·꼭지를 같은 몸체 변환 아래에서 의상 개구부에 맞춰 옮기고, 옷을 벗기면 위치를 복원한다. 흰 후드티와 단독 포스텍 과잠은 원본 상의 메시와 재질을 기준으로 하고, 목둘레와 소맷단 안에 가려지는 씨앗 피부를 잘라낸다. 두 상의의 밑단은 기존 긴바지와 반바지에 겹칠 공간을 계산해 맞춘다. [세트 7종 비교](images/seed-cucumber-customization/step3-hood-volume-comparison.jpg) · [흰 후드티](images/seed-cucumber-customization/step3-white-hoodie-volume-comparison.jpg) · [단독 포스텍 과잠](images/seed-cucumber-customization/step3-postech-jacket-volume-comparison.jpg)
+
 `OiLocalDraft`의 선택적 `creationStep`·`customization`·`removedMediaPaths`는 구버전 초안을 그대로 읽을 수 있게 추가한다. `OiDraftCustomization`은 로컬 미리보기 전용이며 `OiStoryDraft.payload()`나 공유 DB를 확장하지 않는다. 업로드 사진 순서를 유지하고 기기 사본과 서버 경로를 중복 표시하지 않는다. 기존 `attach_media` RPC로 사진 연결을 변경하며, 변경 직후 목록 동기화가 실패해도 응답의 revision과 경로를 보존한다.
 
 위치 선택은 기존 `CampusExploreScene`을 재사용한다. 2026-11-05 후속 요청에 따라 `OiLocationPicker`가 장소 검색 → 지도 확인을 소유하고, `OiStoryLocationStep`은 번들 POSTECH POI 검색 목록을 표시한다. 별도 오이 모델 로딩 없이 지도 카메라의 광학 중심 광선과 `CampusHeightField`의 교차점으로 임시 좌표를 계산한다. 이동·회전·기울기·확대·탄성 복귀마다 갱신하며 유효하지 않으면 이전 유효 좌표도 비워 잘못 확정되지 않게 한다. 확인 버튼에서 카메라 이동을 멈추고 다시 검증한 뒤 초안에 전달한다. 지도 검색 복귀·화면 종료 시 숨은 RealityKit 렌더러를 해제하며 메인과 같은 `CampusMapLabels`를 사용한다. 현장 테스트 화면의 탭·`CampusPlacementTools`는 변경하지 않는다. 구현 경계와 검증 절차는 [이야기 생성 흐름](story-creation-flow.md)을 따른다.

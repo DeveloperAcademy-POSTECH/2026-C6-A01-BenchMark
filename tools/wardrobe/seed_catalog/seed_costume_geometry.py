@@ -349,12 +349,7 @@ MATTE_FINISH = {
     "postech-selfie": .80,
     "school-uniform": .82,
     "sportswear": .79,
-    "astronaut-navy": .72,
     "baseball": .79,
-    "bee": .78,
-    "cat": .85,
-    "cat-bear": .85,
-    "raincoat": .73,
     "scientist": .82,
 }
 

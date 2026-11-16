@@ -9,13 +9,16 @@ from pathlib import Path
 
 import seed_costume_geometry as geometry
 import seed_costume_school_science as school_science
+import seed_costume_modular_tops as modular
 import seed_costume_sneakers as sneakers
-from seed_costume_coverage import CUTS, add_visible_sections, prepare_trimmed_costume
-from seed_costume_extras import add_ribbon_calves, clear_navy_visor, prepare_selfie
-from seed_costume_hoods import colors, options
+from seed_costume_bee import prepare_bee
+from seed_costume_rigid_hoods import ORIGINAL_VOLUME_HOODS, prepare_rigid_hood
+from seed_costume_soft_hoods import SOFT_HOODS, prepare_soft_hood
+from seed_costume_coverage import add_scientist_body
+from seed_costume_extras import add_ribbon_calves, prepare_selfie
 from seed_costume_sports import SPORT_COSTUMES, recipe as sport_recipe
 
-HOODED = ("astronaut", "astronaut-navy", "bee", "cat", "cat-bear", "dinosaur", "raincoat")
+HOODED = ("bee", *SOFT_HOODS, *ORIGINAL_VOLUME_HOODS)
 COSTUMES = (*HOODED, "school-uniform", *school_science.VARIANTS,
             *SPORT_COSTUMES, "postech-selfie")
 
@@ -26,7 +29,7 @@ def main():
     parser.add_argument("ids", nargs="*")
     parser.add_argument("--preview", action="store_true")
     args = parser.parse_args()
-    items = (*COSTUMES, "sneakers")
+    items = (*COSTUMES, "sneakers", *modular.SOURCES)
     selected = args.ids or items
     unknown = set(selected) - set(items)
     if unknown:
@@ -41,14 +44,17 @@ def main():
         subprocess.run(["/usr/bin/clang", "-O3", str(Path(__file__).with_name("raster.c")),
                         "-o", str(geometry.root / "raster")], check=True, timeout=30)
     for id in selected:
+        if id in modular.SOURCES:
+            modular.make_stage(work / id, resources, preview=args.preview, kind=id)
+            continue
         if id == "sneakers":
             sneakers.prepare(work / id)
             continue
         if id in school_science.VARIANTS:
-            needs_body_cut = id in CUTS
+            needs_body_cut = id == "scientist"
             school_science.prepare(id, work / id, preview=args.preview and not needs_body_cut)
             if needs_body_cut:
-                add_visible_sections(id, work / id)
+                add_scientist_body(work / id)
                 if args.preview:
                     _, _, hidden = school_science.VARIANTS[id]
                     school_science.review(id, work / id, {*hidden, "Body", "LeftLeg", "RightLeg"})
@@ -64,14 +70,15 @@ def main():
         if id == "postech-selfie":
             prepare_selfie(work / id, args.preview)
             continue
-        if id in CUTS:
-            prepare_trimmed_costume(id, work / id, args.preview)
+        if id == "bee":
+            prepare_bee(work / id, preview=args.preview)
             continue
-        mask, fit, hidden = options(id)
-        if id == "astronaut-navy":
-            mask = clear_navy_visor(mask)
-        cleaner = (lambda texture: geometry.replace_baked_green(texture, colors[id])) if id in colors else None
-        geometry.prepare(id, work / id, mask, fit, hidden=hidden, render=args.preview, clean_color=cleaner)
+        if id in SOFT_HOODS:
+            prepare_soft_hood(id, work / id, preview=args.preview)
+            continue
+        if id in ORIGINAL_VOLUME_HOODS:
+            prepare_rigid_hood(id, work / id, preview=args.preview)
+            continue
 
 if __name__ == "__main__":
     main()

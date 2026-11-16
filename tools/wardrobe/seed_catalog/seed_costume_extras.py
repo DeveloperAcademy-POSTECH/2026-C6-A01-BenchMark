@@ -12,20 +12,6 @@ SELFIE_PARTS = ("LeftArm", "RightArm", "LeftLeg", "RightLeg")
 CALF_PARTS = ("LeftLeg", "RightLeg")
 
 
-def clear_navy_visor(base_mask):
-    """Retain the original oval rim without any baked face or opaque glass."""
-    def mask(centers, green, rgb, name):
-        x, y, z = centers.T
-        red, green_channel, blue = rgb.T
-        inside = (x / .224) ** 2 + ((y - 1.091) / .206) ** 2 < 1
-        in_front = z > .068 + .15 * (1 - np.abs(x) / .225)
-        near_opening = (y > .90) & (y < 1.285) & (z > .099) & (np.abs(x) < .235)
-        old_tint = (green_channel > blue + 6) & (green_channel >= red - 9) & (red > 43)
-        return base_mask(centers, green, rgb, name) & ~(inside & in_front) & ~(near_opening & old_tint)
-
-    return mask
-
-
 def selfie_mask(centers, green, _rgb, _name):
     x, y, z = centers.T
     lowered_hand = (x < -.237) & (y > .440) & (y < .590)
