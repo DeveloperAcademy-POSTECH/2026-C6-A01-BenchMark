@@ -214,6 +214,8 @@ struct OiStoryEditor: View {
                         .environment(\.oiCustomizationBottomInset, customizationReady ? 0 : bottomSafeAreaInset)
                         .ignoresSafeArea(.container, edges:
                             !customizationReady && !wardrobePhotoEditing ? .bottom : [])
+                        // STEP 3 follows the keyboard itself to scale the cucumber smoothly (#377).
+                        .ignoresSafeArea(.keyboard, edges: step == .cucumber ? .bottom : [])
                     } else {
                         ScrollViewReader { scroll in
                             ScrollView { editorScrollContent }

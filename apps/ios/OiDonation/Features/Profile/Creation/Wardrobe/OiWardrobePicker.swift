@@ -21,7 +21,20 @@ struct OiCucumberCustomizationStep: View {
     @State private var tab: OiWardrobeTab = .content
     @State private var wardrobeScrollPosition = ScrollPosition()
     @State private var photoSlot: OiPhotoSlot?
+    /// Top of the keyboard in global coordinates, animated with the keyboard itself (#377).
+    @State private var keyboardTop: CGFloat?
     private var look: OiWardrobeLook { customization.wardrobe ?? OiWardrobeLook() }
+    /// Tabs, the name label and its field must stay above the keyboard while typing.
+    private static let nameEditingClearance: CGFloat = 44 + 15 + 32 + 70 + 16
+
+    /// Shrinks the cucumber only as far as the keyboard requires.
+    private func previewHeight(full: CGFloat, in geometry: GeometryProxy) -> CGFloat {
+        guard let keyboardTop, photoSlot == nil else { return full }
+        let frame = geometry.frame(in: .global)
+        let overlap = max(0, frame.maxY - keyboardTop)
+        let available = frame.height - overlap - Self.nameEditingClearance - 22
+        return min(full, max(120, available))
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -29,8 +42,9 @@ struct OiCucumberCustomizationStep: View {
             VStack(spacing: 0) {
                 // Keep one RealityKit surface mounted while opening/closing the tools.
                 // Figma `5719:9790`: the cucumber area ends about 14pt above the tabs at y=491.
-                preview(height: photoSlot != nil ? max(160, geometry.size.height - panelHeight)
-                    : min(320, geometry.size.height * 0.5))
+                let fullHeight = photoSlot != nil ? max(160, geometry.size.height - panelHeight)
+                    : min(320, geometry.size.height * 0.5)
+                preview(height: previewHeight(full: fullHeight, in: geometry), fullHeight: fullHeight)
                     .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 14)
                 if let slot = photoSlot {
                     OiWardrobePhotoEditor(slot: slot, look: look, scene: photoScene,
@@ -72,15 +86,36 @@ struct OiCucumberCustomizationStep: View {
             // Figma `5719:9790`: one white page without the separate grey preview and panel (#377).
             .background(Color.white.ignoresSafeArea(.container, edges: .bottom))
         }
+        // Follow the keyboard ourselves so the cucumber scales with the keyboard animation
+        // instead of the 3D view jumping to a new size (#377).
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            keyboardChanged(note, hiding: false)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { note in
+            keyboardChanged(note, hiding: true)
+        }
         .onAppear {
             if customization.wardrobe == nil { customization.wardrobe = OiWardrobeLook() }
         }
     }
 
-    private func preview(height: CGFloat) -> some View {
+    private func keyboardChanged(_ note: Notification, hiding: Bool) {
+        let info = note.userInfo ?? [:]
+        let end = (info[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect) ?? .zero
+        let duration = (info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+        let top: CGFloat? = hiding || end.height == 0 ? nil : end.minY
+        guard top != keyboardTop else { return }
+        withAnimation(reduceMotion ? nil : .smooth(duration: max(0.25, duration))) { keyboardTop = top }
+    }
+
+    private func preview(height: CGFloat, fullHeight: CGFloat) -> some View {
         ZStack(alignment: .bottomTrailing) {
+            // The 3D surface keeps its full size and is scaled, so it shrinks smoothly without re-rendering at each step.
             OiWardrobePreview(look: look, controls: photoSlot == nil, scene: photoScene,
                 backgroundColor: .white)
+                .frame(height: fullHeight)
+                .scaleEffect(fullHeight > 0 ? min(1, height / fullHeight) : 1, anchor: .center)
                 .frame(height: height)
                 .overlay(alignment: .topTrailing) {
                     if photoSlot != nil {
