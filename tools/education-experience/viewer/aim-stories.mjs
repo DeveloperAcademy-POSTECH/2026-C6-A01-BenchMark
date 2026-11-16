@@ -26,11 +26,11 @@ export function createAimStories({base,canvas,stage,camera,scatterData,radius,st
       selected=hit.id;stage.dataset.aimPearl=String(hit.id);
       const story=storyForPearl(hit.id);
       if(previewStory!==story.id){previewRelease?.();previewRelease=null;panel.querySelector('.education-aim-preview')?.remove();previewStory=story.id;
-      if(story.origin==='education'){
+      if(story.origin==='education'||story.origin==='postech'){
         const figure=document.createElement('figure');figure.className='education-aim-preview';
         const image=document.createElement('img');image.alt=story.title+' 카드';figure.append(image);
-        const open=document.createElement('button');open.textContent='공유 이야기 카드 보기';
-        open.addEventListener('click',()=>window.dispatchEvent(new CustomEvent('education-open-story',{detail:{id:story.id}})));figure.append(open);
+        const open=document.createElement('button');open.textContent='이야기 자세히 보기';
+        open.addEventListener('click',()=>window.dispatchEvent(new CustomEvent(story.origin==='postech'?'education-open-reference':'education-open-story',{detail:{id:story.id}})));figure.append(open);
         panel.querySelector('.aim-story-content').prepend(figure);
         previewRelease=window.educationMountPreview?.(figure,story);
       }}

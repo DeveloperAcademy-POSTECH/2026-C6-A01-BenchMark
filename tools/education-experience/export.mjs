@@ -20,8 +20,8 @@ let html=sourceHTML;
 html=html.replace(/<div class="night-backdrop"[^>]*><\/div>/,'')
  .replace(/<div class="space-mascot"[^>]*><img[^>]*><\/div>/,'');
 const assetPaths=new Set(['assets/building-v25/model.json','assets/building-v25/pearls.bin','assets/building-v25/facades.bin','vendor/three-LICENSE.txt','assets/Pretendard-LICENSE.txt']);
-// Public source portraits remain on the website. The app repository bundles
-// only fictional examples; approved education cards are loaded from the API.
+// Reference summaries/portraits and approved education cards are loaded from
+// Supabase. No real people or separate fictional feed is bundled into Git.
 for(const name of ['education-service.js','education-card.js','education-library.js','education-web-transport.js','education-native-transport.js','education-ui.js','education.css']){
  if(await readFile(path.join(web,name),'utf8')!==await readFile(new URL('./shared/'+name,import.meta.url),'utf8'))throw Error('Review and synchronize the shared education module: '+name);
 }
@@ -55,11 +55,6 @@ const result=await build({
   // The app uses its native Auth/HTTP bridge. No browser OAuth SDK or key
   // configuration is bundled into the file-origin page.
   builder.onLoad({filter:/education-web-transport\.js$/},()=>({contents:'export function createWebTransport(){throw Error("Use the native education bridge");}',loader:'js'}));
-  builder.onLoad({filter:/donor-stories\.json$/},()=>({contents:JSON.stringify([
-   {id:'example-1',category:'응원',author:'새로운 꿈을 응원하는 동문',message:'이곳에서 시작될 수많은 질문들이 세상을 조금 더 좋은 곳으로 만들기를.',isExample:true},
-   {id:'example-2',category:'감사',author:'배움을 기억하는 졸업생',message:'다음 세대의 가능성에도 작은 빛을 보탭니다.',isExample:true},
-   {id:'example-3',category:'축하',author:'내일을 기다리는 학생',message:'우리의 새로운 배움터를 축하해요.',isExample:true}
-  ]),loader:'json'}));
   builder.onResolve({filter:/^@education\/three$/},()=>({path:path.join(web,'vendor/three.module.js')}));
   builder.onLoad({filter:/building-3d\.js$/},async args=>{
    let source=adaptNativeRenderer(await readFile(args.path,'utf8'));

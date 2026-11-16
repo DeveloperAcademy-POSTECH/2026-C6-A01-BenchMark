@@ -11,6 +11,7 @@ import SwiftUI
 import XCTest
 import CryptoKit
 import Compression
+import WebKit
 @testable import OiDonation
 
 @MainActor
@@ -1349,6 +1350,22 @@ private final class TestTilt: UIPanGestureRecognizer {
 
 @MainActor
 final class CampusEducationDistrictTests: XCTestCase {
+    private func installReferenceCatalogFixture(_ model: EducationLightWebModel) {
+        model.webView.stopLoading()
+        let script = """
+        const referenceRoot='https://kfzfzarslqdqmrazohej.supabase.co/storage/v1/object/public/oi-education-reference/';
+        const fetchOriginal=window.fetch.bind(window);
+        window.fetch=(input,options)=>String(input)===referenceRoot+'catalog-v1.json'
+          ?Promise.resolve(new Response(JSON.stringify({version:1,stories:[{
+            id:'postech-900001',origin:'postech',kind:'Synthetic reference',category:'Synthetic',title:'Synthetic shared title',author:'Synthetic author',affiliation:'Synthetic affiliation',fund:'Synthetic fund',message:'Synthetic shared story body',
+            photo:referenceRoot+'postech-900001/'+'a'.repeat(64)+'.webp',photoAlt:'Synthetic portrait',sourceUrl:'https://vision.postech.ac.kr/web/?top=support&sub=story&key=detail&code=900001',sourceTitle:'Synthetic source',publishedAt:'2026-11-16',isSummary:true
+          }]}),{headers:{'Content-Type':'application/json'}}))
+          :fetchOriginal(input,options);
+        """
+        model.webView.configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        model.load()
+    }
+
     func testEducationWriterSavesThroughNativeAccountWithoutMapPlacement() async throws {
         let backend = OiTestBackend(); backend.install()
         let configuration = URLSessionConfiguration.ephemeral
@@ -1384,7 +1401,7 @@ final class CampusEducationDistrictTests: XCTestCase {
                 client.respond(200, try JSONSerialization.data(withJSONObject: row))
             } catch { XCTFail(String(describing: error)); client.respond(400, Data()) }
         }
-        let model = EducationLightWebModel(); model.connectEducation(remote)
+        let model = EducationLightWebModel(); installReferenceCatalogFixture(model); model.connectEducation(remote)
         let previous = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first { $0.isKeyWindow }
         let window = UIWindow(windowScene: try XCTUnwrap(previous?.windowScene))
         window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
@@ -1397,6 +1414,14 @@ final class CampusEducationDistrictTests: XCTestCase {
         }
         for _ in 0..<150 { if !model.loading { break }; try await Task.sleep(for: .milliseconds(100)) }
         XCTAssertNil(model.failure)
+        _ = try await model.webView.evaluateJavaScript("document.querySelector('#storiesButton').click()")
+        var sharedReferenceVisible = false
+        for _ in 0..<50 {
+            if (try await model.webView.evaluateJavaScript("document.querySelector('#educationDialog').textContent.includes('Synthetic shared title')") as? Bool) == true { sharedReferenceVisible = true; break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertTrue(sharedReferenceVisible, "Native WebKit must display the same server reference title, not a bundled fictional story")
+        _ = try await model.webView.evaluateJavaScript("document.querySelector('#educationDialog').close()")
         _ = try await model.webView.evaluateJavaScript("document.querySelector('#writeButton').click()")
         for _ in 0..<50 {
             if try await model.webView.evaluateJavaScript("!!document.querySelector('.education-form')") as? Bool == true { break }

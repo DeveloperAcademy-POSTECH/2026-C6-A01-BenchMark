@@ -1,4 +1,5 @@
 import {createClient} from '@supabase/supabase-js';
+import {fetchReferenceCatalog} from './education-service.js';
 const URL='https://kfzfzarslqdqmrazohej.supabase.co';
 export async function createWebTransport(onChange){
  const response=await fetch(URL+'/functions/v1/oi-web-config',{cache:'no-cache'});
@@ -16,6 +17,7 @@ export async function createWebTransport(onChange){
  const {error}=await client.auth.getSession();if(error)throw Error('로그인을 다시 진행해 주세요. 저장한 초안은 남아 있어요.');
  async function check(result){const {data,error}=await result;if(error){const e=Error(error.message??'서버 요청에 실패했어요.');e.code=error.code;throw e;}return data;}
  return {
+  catalog:fetchReferenceCatalog,
   async identity(){const {data:{session}}=await client.auth.getSession();if(!session)return {id:null,operator:false,canWrite:false};const caps=await check(client.rpc('oi_capabilities',{}));return {id:caps.account_id,operator:caps.operator===true,canWrite:caps.independent_story_creation===true&&caps.unapproved_drafts_enabled===true};},
   rpc:(name,payload)=>check(client.rpc(name,payload)),
   async media(path){const data=await check(client.storage.from('oi-story-media').createSignedUrl(path,300));return data.signedUrl;},

@@ -13,7 +13,7 @@ npm --prefix tools/education-experience run build -- /path/to/reviewed/dist
 
 입력은 `index.html`, 두 ES 모듈 진입점, CSS, Three.js, 모델/이미지/폰트를 포함한 검토 완료 dist다. 현재 스냅샷은 2026-11-15 정원·진주 건물 `education-pearl-texture-screen-v30`이다. `building-v25`는 원본 폴더명이며 모델 버전은 JSON의 revision으로 확인한다. 원본 HTML 해시와 파일별 해시·크기는 출력 manifest에 남긴다. 개인 경로는 모델 메타데이터에서 파일명만 남긴다.
 
-`shared/`의 교육지구 모듈 7개는 검토한 웹 소스와 바이트가 같아야 번들할 수 있다. 웹의 실제 POSTECH 인물 예시는 앱 번들에서 가상 예시로 대체한다.
+`shared/`의 교육지구 모듈 7개는 검토한 웹 소스와 바이트가 같아야 번들할 수 있다. POSTECH 공식 이야기·사진은 Supabase의 공통 공개 자료에서 읽으며 앱 번들에 실제 인물 정보나 별도 가상 피드를 넣지 않는다. 사용자 이야기는 같은 비공개 DB에 저장하고 승인된 양면 카드만 공통 피드로 읽는다. 3D 장면·자산은 로컬 번들이며 이야기 조회·저장에는 네트워크가 필요하다.
 
 출력은 `apps/ios/OiDonation/Resources/Campus/`의 HTML, `education-light-assets.json`, 콘텐츠 해시가 붙은 22개 자산이다. Three.js와 Pretendard 라이선스를 함께 포함한다. 오래된 해시 자산만 제거하며 기존 지도 바이너리는 보존한다. 파일 시스템 동기화 Xcode 그룹의 리소스 평탄화에도 충돌하지 않는 이름을 사용한다.
 

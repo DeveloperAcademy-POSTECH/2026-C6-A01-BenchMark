@@ -94,11 +94,17 @@ export async function openEducationList(mode='public'){
   const s=mode==='public'?await educationReady():await requireIdentity(mode==='mine'?'내 이야기':'공개 검토');if(!s||generation!==viewGeneration)return;
   const nav=el('div',null,'education-actions');for(const [key,label] of [['public','공유 이야기'],['mine','내 이야기']])nav.append(button(label,()=>openEducationList(key),'education-text-button'));
   if(s.account?.operator)nav.append(button('공개 검토',()=>openEducationList('review'),'education-text-button'));
-  nav.append(button('새로고침',()=>openEducationList(mode),'education-text-button'));content.append(nav);
+  nav.append(button('새로고침',()=>refreshEducation().then(()=>openEducationList(mode)).catch(fail),'education-text-button'));content.append(nav);
   const list=el('div',null,'education-story-list');content.append(list);let offset=0,loading=false;
+  if(mode==='public'){
+   for(const row of s.sharedRows.filter(row=>row.origin==='postech')){
+    const item=button('',()=>openEducationReference(row.id),'education-list-item');item.append(el('small','POSTECH 공식 이야기 · '+row.author),el('strong',row.title),el('span',row.message.slice(0,100)));list.append(item);
+   }
+   list.append(el('h3','이용자가 남긴 이야기'));
+  }
   const more=button('더 보기',load);content.append(more);
   async function load(){if(loading)return;loading=true;more.disabled=true;try{const rows=await s.list({offset,mine:mode==='mine',review:mode==='review'});if(generation!==viewGeneration)return;
-   if(!offset&&!rows.length)list.append(el('p',mode==='public'?'아직 공개된 교육지구 이야기가 없어요. 첫 이야기를 남겨 주세요.':'아직 이야기가 없어요.','education-copy'));
+   if(!offset&&!rows.length)list.append(el('p',mode==='public'?'아직 이용자가 공개한 이야기가 없어요. 첫 이야기를 남겨 주세요.':'아직 이야기가 없어요.','education-copy'));
    for(const row of rows){const b=button('',()=>openEducationDetail(row.id,mode!=='public',mode==='review'),'education-list-item');b.append(el('small',`${row.display_name} · ${({draft:'초안',pending:'검토 중',published:'공개 중',hidden:'비공개'})[row.status]}`),el('strong',row.title),el('span',row.body.slice(0,100)));list.append(b);}offset+=rows.length;more.hidden=rows.length<24;
   }catch(error){if(generation===viewGeneration)fail(error);}finally{loading=false;more.disabled=false;}}
   await load();
@@ -127,6 +133,17 @@ export async function openEducationDetail(id,privateStory=false,review=false){
   content.append(button('목록으로',()=>openEducationList(review?'review':privateStory?'mine':'public'),'education-text-button'));
  }catch(error){fail(error);}
 }
+export async function openEducationReference(id){
+ const generation=shell('공식 이야기를 불러오고 있어요');
+ try{
+  const s=await refreshEducation(),row=s.sharedRows.find(row=>row.id===id&&row.origin==='postech');
+  if(generation!==viewGeneration)return;if(!row)throw Error('지금 볼 수 있는 이야기가 아니에요.');
+  content.replaceChildren(el('p',row.kind+' · '+row.category,'education-kicker'),el('h2',row.title),el('p',row.author+' · '+row.affiliation,'education-copy'));
+  const figure=el('figure',null,'pearl-note-photo education-detail-photo');figure.append(el('img'),el('span','사진을 불러오고 있어요','pearl-note-photo-placeholder'));content.append(figure);mountEducationPreview(figure,row);
+  content.append(el('p',row.fund,'education-kicker'),el('p',row.message,'education-detail-body'),el('p','POSTECH 발전기금 · '+row.publishedAt+'\n원문 요약 · 사진 출처: POSTECH','education-copy'));
+  const source=el('a','원문 읽기 ↗','education-button');source.href=row.sourceUrl;source.target='_blank';source.rel='noopener noreferrer';content.append(source,button('목록으로',()=>openEducationList()));
+ }catch(error){fail(error);}
+}
 function showReport(s,row){
  shell('이야기 신고','신고 내용은 운영자만 확인할 수 있어요.');
  if(!s.account?.id){content.append(button('로그인',()=>s.transport.login('google').catch(fail)));return;}
@@ -135,5 +152,6 @@ function showReport(s,row){
 }
 for(const id of ['writeButton','storiesButton'])document.querySelector('#'+id).addEventListener('click',event=>{event.preventDefault();event.stopImmediatePropagation();if(id==='writeButton')openEducationWriter();else openEducationList();},{capture:true});
 window.addEventListener('education-open-story',event=>openEducationDetail(event.detail.id));
+window.addEventListener('education-open-reference',event=>openEducationReference(event.detail.id));
 window.addEventListener('education-identity-updated',()=>{if(dialog.open){busy=false;openEducationList('mine');}});
 educationReady().catch(()=>{});

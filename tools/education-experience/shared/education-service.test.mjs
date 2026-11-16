@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {EducationService,validateDraft,validEducationPath,cardPaths,publicEducationStory} from './education-service.js';
+import {EducationService,validateDraft,validEducationPath,cardPaths,publicEducationStory,REFERENCE_ROOT,referenceStory,fetchReferenceCatalog} from './education-service.js';
 const owner='e3780000-0000-4000-8000-000000000001',id='e3780000-0000-4000-8000-000000000011',snapshot='e3780000-0000-4000-8000-000000000021';
 const draft={id,revision:0,display_name:'테스트 작성자',title:'가상 교육지구 이야기',body:'가상 자료입니다.',theme:'응원',emotion:'따뜻함'};
 function fixture(){
  const calls=[];let row;
- const transport={identity:async()=>({id:owner,operator:false,canWrite:true}),
+ const transport={identity:async()=>({id:owner,operator:false,canWrite:true}),catalog:async()=>[],
   async rpc(name,payload){calls.push({name,payload});
    if(name==='oi_education_mutate'){const p=payload.p_payload;row={...row,...p,origin:'education',storage_owner_id:owner,revision:p.revision+1,status:payload.p_action==='submit'?'pending':'draft'};return row;}
    if(name==='oi_education_story')return row;
@@ -28,6 +28,7 @@ test('education storage and DTO contracts never accept campus content',()=>{
  assert.equal(publicEducationStory({origin:'education',status:'pending'}),null);
  assert.equal(publicEducationStory({origin:'campus',status:'published'}),null);
  assert.equal(publicEducationStory({...draft,origin:'education',status:'published',created_at:'2026-11-16T00:00:00Z'}).remote.id,id);
+ assert.equal('reports' in publicEducationStory({...draft,origin:'education',status:'published',reports:[{reason:'synthetic'}]}).remote,false);
 });
 test('submission requires user consent, uploads all four immutable parts, then requests review',async()=>{
  const {s,calls}=fixture();await s.identity();let row=await s.save(draft);
@@ -73,4 +74,34 @@ test('draft photo decoding uses bytes rather than a CSP-blocked data URL request
  const {photoFromDataURL}=await import('./education-service.js');
  const photo=photoFromDataURL('data:image/jpeg;base64,c3ludGhldGlj');assert.equal(photo.type,'image/jpeg');assert.equal(await photo.text(),'synthetic');
  for(const value of ['https://example.com/photo.jpg','data:text/html;base64,c3ludGhldGlj','data:image/jpeg;base64,$bad'])assert.throws(()=>photoFromDataURL(value));
+});
+
+const reference={id:'postech-900001',origin:'postech',kind:'Synthetic reference',category:'Synthetic',title:'Synthetic title',author:'Synthetic author',affiliation:'Synthetic affiliation',fund:'Synthetic fund',message:'Synthetic reference body',photo:REFERENCE_ROOT+'postech-900001/'+'a'.repeat(64)+'.webp',photoAlt:'Synthetic portrait',sourceUrl:'https://vision.postech.ac.kr/web/?top=support&sub=story&key=detail&code=900001',sourceTitle:'Synthetic source',publishedAt:'2026-11-16',isSummary:true};
+test('app and web feeds combine the same references and reviewed user cards',async()=>{
+ const a=fixture(),b=fixture();let published=[];
+ for(const item of [a,b]){item.transport.catalog=async()=>[reference];item.transport.rpc=async(name)=>name==='oi_education_stories'?published:undefined;}
+ assert.deepEqual(await a.s.feed(),await b.s.feed());assert.equal(a.s.sharedRows.length,1);
+ published=[{...draft,origin:'education',status:'published',created_at:'2026-11-16T00:00:00Z',card_paths:cardPaths(owner,id,snapshot)}];
+ assert.deepEqual(await a.s.feed(),await b.s.feed());assert.equal(a.s.sharedRows.length,2);assert.deepEqual(a.s.sharedRows[1].remote.card_paths,cardPaths(owner,id,snapshot));
+ a.transport.rpc=async()=>[{...published[0],id:owner}];await a.s.list({offset:24});assert.deepEqual(a.s.sharedRows,b.s.sharedRows,'List pagination must not change the per-pearl feed');
+ published=[{...published[0],status:'pending'}];await assert.rejects(()=>b.s.feed(),/공개된/);
+});
+test('reference catalog is read from the shared server and rejects duplicate or foreign sources',async()=>{
+ let requested;
+ const rows=await fetchReferenceCatalog(async(url,options)=>{requested={url,options};return Response.json({version:1,stories:[reference]});});
+ assert.equal(requested.url,REFERENCE_ROOT+'catalog-v1.json');assert.equal(requested.options.cache,'no-cache');assert.deepEqual(rows,[reference]);
+ for(const photo of ['https://example.com/photo.webp',REFERENCE_ROOT+'postech-900001/../'+'a'.repeat(64)+'.webp'])assert.throws(()=>referenceStory({...reference,photo}));
+ assert.throws(()=>referenceStory({...reference,sourceUrl:'https://example.com'}));
+ await assert.rejects(()=>fetchReferenceCatalog(async()=>Response.json({version:1,stories:[reference,reference]})),/중복/);
+});
+test('account change discards an old shared feed response',async()=>{
+ const {s,transport}=fixture();let release;
+ transport.catalog=()=>new Promise(resolve=>release=resolve);const pending=s.feed();s.reset();release([reference]);
+ await assert.rejects(()=>pending,/계정/);assert.deepEqual(s.sharedRows,[]);
+});
+test('shared feed reads all public pages without silently dropping older cards',async()=>{
+ const {s,transport,calls}=fixture();
+ const stories=Array.from({length:51},(_,i)=>({...draft,id:crypto.randomUUID(),origin:'education',status:'published',created_at:'2026-11-16T00:00:00Z'}));
+ transport.catalog=async()=>[reference];transport.rpc=async(name,payload)=>{calls.push({name,payload});return stories.slice(payload.p_offset,payload.p_offset+payload.p_limit);};
+ const rows=await s.feed();assert.equal(rows.length,52);assert.deepEqual(calls.map(c=>c.payload.p_offset),[0,50]);assert.equal(rows.at(-1).id,stories.at(-1).id);
 });

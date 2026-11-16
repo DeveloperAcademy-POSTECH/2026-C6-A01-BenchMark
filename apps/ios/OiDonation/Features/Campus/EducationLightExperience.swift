@@ -123,6 +123,9 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
     func setActive(_ active: Bool) {
         self.active = active
         webView.evaluateJavaScript("window.setNativeActive?.(\(active ? "true" : "false"))", completionHandler: nil)
+        if active {
+            webView.evaluateJavaScript("window.dispatchEvent(new Event('education-feed-refresh'))", completionHandler: nil)
+        }
     }
 
     func connectEducation(_ remote: OiRemoteStore?) {

@@ -328,6 +328,7 @@ grant execute on function auth.jwt() to anon,authenticated;
             run(database + ['-f', 'supabase/tests/oi-postcard-cover.sql'])
             run(database + ['-f', 'supabase/tests/oi-postcard-cover-jpeg.sql'])
             run(database + ['-f', 'supabase/tests/oi-education-stories.sql'])
+            run(database + ['-f', 'supabase/tests/oi-education-reference-catalog.sql'])
             run(database + ['-f', 'supabase/tests/oi-public-cucumber-appearance.sql'])
         print('PASS: card formats 1/2/3, PNG/JPEG cover validation/access/review, and deletion on both histories')
         print('PASS: retired evidence RPCs and uploads, retained private records and deletion, story moderation on both histories')

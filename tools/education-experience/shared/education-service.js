@@ -1,6 +1,24 @@
 export const THEMES=['가족','우정','사랑','성장','도전','꿈','배움','경쟁','협력','갈등','화해','일탈','나눔','응원','성취','기타'];
 export const EMOTIONS=['행복함','즐거움','뿌듯함','고마움','편안함','설렘','따뜻함','짜릿함','놀라움','신남','벅참','그리움','후련함','부끄러움','후회','긴장감','슬픔','화남','아쉬움','기타'];
 export const CONSENT_VERSION='education-v1-2026-11-16';
+export const REFERENCE_ROOT='https://kfzfzarslqdqmrazohej.supabase.co/storage/v1/object/public/oi-education-reference/';
+export function referenceStory(row){
+ if(!row||!/^postech-\d{1,9}$/.test(row.id)||row.origin!=='postech'||row.isSummary!==true)throw Error('공식 이야기 정보를 확인하지 못했어요.');
+ for(const key of ['title','author','kind','category','affiliation','fund','message','photoAlt','sourceTitle','publishedAt'])if(typeof row[key]!=='string'||!row[key].trim())throw Error('공식 이야기 항목이 올바르지 않아요.');
+ const code=row.id.slice(8),source=`https://vision.postech.ac.kr/web/?top=support&sub=story&key=detail&code=${code}`;
+ const prefix=REFERENCE_ROOT+row.id+'/';
+ if(row.sourceUrl!==source||!/^\d{4}-\d{2}-\d{2}$/.test(row.publishedAt)||!row.photo?.startsWith(prefix)||!/^[a-f0-9]{64}\.webp$/.test(row.photo.slice(prefix.length)))throw Error('공식 이야기 출처와 사진 주소를 확인하지 못했어요.');
+ return Object.fromEntries(['id','origin','kind','category','title','author','affiliation','fund','message','photo','photoAlt','sourceUrl','sourceTitle','publishedAt','isSummary'].map(key=>[key,row[key]]));
+}
+export async function fetchReferenceCatalog(fetcher=globalThis.fetch){
+ const response=await fetcher(REFERENCE_ROOT+'catalog-v1.json',{cache:'no-cache'});
+ if(!response.ok)throw Error('공식 이야기를 불러오지 못했어요. 다시 연결해 주세요.');
+ const data=await response.json();
+ if(data.version!==1||!Array.isArray(data.stories)||data.stories.length>50)throw Error('공식 이야기 목록이 올바르지 않아요.');
+ const rows=data.stories.map(referenceStory);
+ if(new Set(rows.map(row=>row.id)).size!==rows.length)throw Error('공식 이야기가 중복되어 있어요.');
+ return rows;
+}
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export function validEducationPath(path){
  if(typeof path!=='string'||path.includes('..'))return false;
@@ -25,13 +43,31 @@ export function validateDraft(draft){
 }
 export function publicEducationStory(row){
  if(!row||row.origin!=='education'||row.status!=='published')return null;
+ const {reports,...publicRow}=row;
  return {id:row.id,origin:'education',kind:'교육지구 이야기',category:row.theme,title:row.title,author:row.display_name,message:row.body,
-  fund:'빛으로 지은 이야기',photo:null,photoAlt:row.title+' 카드 앞면',publishedAt:row.created_at?.slice(0,10),remote:row};
+  fund:'빛으로 지은 이야기',photo:null,photoAlt:row.title+' 카드 앞면',publishedAt:row.created_at?.slice(0,10),remote:publicRow};
 }
 
 export class EducationService{
- constructor(transport){this.transport=transport;this.generation=0;this.account=null;this.mediaCache=new Map();this.publicRows=[];}
- reset(){this.generation++;this.account=null;this.mediaCache.clear();this.publicRows=[];}
+ constructor(transport){this.transport=transport;this.generation=0;this.account=null;this.mediaCache=new Map();this.publicRows=[];this.sharedRows=[];}
+ reset(){this.generation++;this.account=null;this.mediaCache.clear();this.publicRows=[];this.sharedRows=[];}
+ async feed(){
+  const generation=this.generation;
+  const readPublished=async()=>{
+   const rows=[];
+   for(let offset=0;offset<=10000;offset+=50){
+    const page=await this.rpc('oi_education_stories',{p_offset:offset,p_limit:50,p_mine:false,p_review:false});
+    if(!Array.isArray(page)||page.length>50||page.some(row=>!publicEducationStory(row)))throw Error('공개된 교육지구 이야기만 볼 수 있어요.');
+    rows.push(...page);if(page.length<50)return [...new Map(rows.map(row=>[row.id,row])).values()];
+   }
+   throw Error('이야기 목록이 커서 모두 확인하지 못했어요. 다시 연결해 주세요.');
+  };
+  const [catalog,stories]=await Promise.all([this.transport.catalog(),readPublished()]);
+  if(generation!==this.generation)throw Error('계정이 바뀌었어요. 다시 연결해 주세요.');
+  if(!Array.isArray(stories)||stories.some(row=>!publicEducationStory(row)))throw Error('공개된 교육지구 이야기만 볼 수 있어요.');
+  this.sharedRows=[...catalog.map(referenceStory),...stories.map(publicEducationStory)];
+  return this.sharedRows;
+ }
  async identity(){const generation=this.generation;const value=await this.transport.identity();if(generation!==this.generation)throw Error('계정이 바뀌었어요. 다시 시도해 주세요.');this.account=value;return value;}
  async rpc(name,payload={}){const generation=this.generation;const value=await this.transport.rpc(name,payload);if(generation!==this.generation)throw Error('계정이 바뀌었어요. 다시 시도해 주세요.');return value;}
  async list({offset=0,mine=false,review=false}={}){
