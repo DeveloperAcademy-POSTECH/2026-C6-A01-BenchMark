@@ -29,6 +29,8 @@ struct OiStoryListScreen: View {
         let visibleIDs: () -> [UUID]
         let needsConsent: (UUID) -> Bool
         let message: (UUID) -> String?
+        let openPlantPicker: () -> Void
+        let showsPlantPicker: () -> Bool
     }
 
     var onReviewActionsForTest: ((ReviewTestActions) -> Void)?
@@ -69,8 +71,7 @@ struct OiStoryListScreen: View {
     @State private var showingConsent = false
 
     private var list: some View {
-        let plantAction: (() -> Void)? = remote.autoStoryModeration ? { selectStoryToPlant() } : nil
-        return OiStoryListView(
+        OiStoryListView(
             state: state,
             onRetry: { Task { await remote.refresh(); await loadLocalDrafts() } },
             onSelectStory: selectStory,
@@ -82,8 +83,8 @@ struct OiStoryListScreen: View {
             needsReviewConsent: { reviewConsentID == $0 },
             onGrantReviewConsent: { requestReview($0, consentGranted: true) },
             reviewMessage: reviewMessage,
-            onPlant: plantAction,
-            canPlant: !plantableStories.isEmpty
+            onPlant: selectStoryToPlant,
+            canPlant: remote.autoStoryModeration && !plantableStories.isEmpty
         )
     }
 
@@ -110,7 +111,8 @@ struct OiStoryListScreen: View {
                 onReviewActionsForTest?(.init(request: requestReview,
                     grantConsent: { requestReview($0, consentGranted: true) }, status: reviewState,
                     visibleIDs: { state.items.map(\.id) },
-                    needsConsent: { reviewConsentID == $0 }, message: reviewMessage))
+                    needsConsent: { reviewConsentID == $0 }, message: reviewMessage,
+                    openPlantPicker: selectStoryToPlant, showsPlantPicker: { choosingStoryToPlant }))
             }
             #endif
     }
@@ -392,11 +394,8 @@ struct OiStoryListScreen: View {
     }
 
     private func selectStoryToPlant() {
-        if plantableStories.count == 1, let story = plantableStories.first {
-            Task { await plant(story) }
-        } else if !plantableStories.isEmpty {
-            choosingStoryToPlant = true
-        }
+        guard remote.autoStoryModeration, !plantableStories.isEmpty else { return }
+        choosingStoryToPlant = true
     }
 
     private func plant(_ story: OiLiveStory) async {

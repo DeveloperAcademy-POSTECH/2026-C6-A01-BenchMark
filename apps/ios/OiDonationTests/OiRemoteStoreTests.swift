@@ -3054,6 +3054,10 @@ final class OiRemoteStoreTests: XCTestCase {
         let saved = try await store.localDraft(id: record.id, owner: owner)
         XCTAssertTrue(saved?.matchesReviewedContent == true)
         XCTAssertTrue(saved?.agreedConsentClauseIDs?.contains("aiReviewV1") == true)
+        buttons.openPlantPicker()
+        XCTAssertTrue(buttons.showsPlantPicker())
+        XCTAssertEqual(store.ownStories.first?.status, "draft")
+        XCTAssertTrue(store.stories.isEmpty)
     }
 
     @MainActor func testStoryListShowsUpdatedLayoutWithLegacyReview() async throws {
