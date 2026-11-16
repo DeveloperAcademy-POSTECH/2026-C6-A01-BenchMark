@@ -1656,15 +1656,44 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         for variant in variants {
             let cucumber = CreationCapturePage(step: 3) {
-                OiCucumberCustomizationStep(customization: .constant(Self.customization), canContinue: true, onContinue: {})
+                OiCucumberCustomizationStep(customization: .constant(Self.customization), cucumberName: .constant("힌트펩오이"), canContinue: true, onContinue: {})
                     .environment(\.scenePhase, .active)
             }
-            try await capture(cucumber, name: "cucumber-customization", variant: variant, defaults: fixture.defaults, delay: .seconds(2))
+            try await capture(cucumber, name: "cucumber-customization", variant: variant, defaults: fixture.defaults, delay: .seconds(2), attach: true)
             let card = CreationCapturePage(step: 4) {
                 OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
                     canContinue: true, onContinue: {})
             }
             try await capture(card, name: "card-customization", variant: variant, defaults: fixture.defaults, attach: true)
+        }
+    }
+
+    /// One STEP 3 clothing tab per run (`TEST_RUNNER_OI_CAPTURE_TAB=상의`), because releasing the
+    /// wardrobe scene between captures currently aborts the test process (#377).
+    func testWardrobeClothingTabCapture() async throws {
+        let title = ProcessInfo.processInfo.environment["OI_CAPTURE_TAB"] ?? "상의"
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let page = CreationCapturePage(step: 3) {
+            OiCucumberCustomizationStep(customization: .constant(Self.customization), cucumberName: .constant("힌트펩오이"),
+                canContinue: true, onContinue: {}, initialTabTitle: title)
+                .environment(\.scenePhase, .active)
+        }
+        try await capture(page, name: "cucumber-\(title)", variant: variants[0], defaults: fixture.defaults, delay: .seconds(1), attach: true)
+    }
+
+    /// STEP 4 card 내용 tab (Figma `5919:12077`, #377).
+    func testCardContentTabCapture() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        for variant in [variants[0], variants[1]] {
+            let page = CreationCapturePage(step: 4) {
+                OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
+                    canContinue: true, onContinue: {})
+                    .tabForTest(ProcessInfo.processInfo.environment["OI_CAPTURE_CARD_TAB"] ?? "내용")
+            }
+            try await capture(page, name: "card-\(ProcessInfo.processInfo.environment["OI_CAPTURE_CARD_TAB"] ?? "내용")",
+                              variant: variant, defaults: fixture.defaults, attach: true)
         }
     }
 
