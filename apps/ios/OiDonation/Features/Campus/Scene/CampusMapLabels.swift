@@ -1,6 +1,6 @@
 import UIKit
 
-/// A noninteractive screen-space layer. Labels follow roof coordinates as the camera moves.
+/// Screen-space roof labels follow the camera; main-map building names can be selected.
 @MainActor final class CampusMapLabels {
     var onSelectBuilding: ((String) -> Void)?
     private struct Entry {

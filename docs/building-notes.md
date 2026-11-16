@@ -57,7 +57,9 @@ AI가 확인하는 동안 본문 해시와 90초 작업 lease를 유지하고, �
 - `npm test --prefix supabase`: Edge Function 테스트 65개 통과. 신고 검수 18개는 위반/비위반/불명확 결과, 세션 만료, 잘못된 모델 응답, 중복, 실패 시 판정 미적용을 확인한다. 로컬 SQL은 새 DB와 기존 배포 이력 모두에서 AI 전용 권한·신고 소유권·중복 비용 제한·운영자 우선 처리·감사 기록을 검사한다.
 - `deno check`: 학교 자료 분석과 건물 신고 검수 함수의 타입 검사 통과. 환경 PATH에 Deno가 없어 로컬 npm 캐시의 Deno 실행 파일을 사용했다.
 - Jun iPhone에 개발 서명 Release **1.2.0 (20261116)**을 설치하고 실행했다. 본 앱·App Clip의 버전이 같고 서명 검증이 통과했다. 실기기 작성·조회·삭제는 미러링 연결 후 확인한다.
-- XCTest: 건물 쪽지·지도 33개 통과. 기존 `OiRemoteStoreTests`의 꾸미기 화면 테스트 1개가 UIScrollView를 찾지 못해, develop 기준 비교로 이번 기능과의 관련성을 확인 중이다.
+- XCTest: 건물 쪽지·지도 33개 통과. 기존 `OiRemoteStoreTests` 123개 중 118개 통과·4개 건너뜀·1개 실패. 꾸미기 화면 테스트(`testCustomizationNavigationRequiresDoneAndCardNextOpensPlacement`)의 UIScrollView 탐색 실패는 수정 전 develop `c19003b`에서도 같은 위치에서 재현됐다. 쪽지 변경으로 생긴 실패가 아니며 이번 PR에서 해당 화면은 수정하지 않았다.
 - AI 판별 품질과 실제 OpenAI 호출은 이번 수동 검토 운영 검증 범위에 포함하지 않는다.
 
 시뮬레이터 캡처의 글과 프로필은 테스트 전용 가상 자료이며 서버에 등록하지 않는다.
+
+2026-11-16 PR #403의 GitHub `verify`·`database` 검사 모두 통과했다. 실기기 확인 대기로 초안 PR을 유지한다.
