@@ -1520,6 +1520,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
 @MainActor private final class CampusRegionButton: UIButton {
     private let diameter: CGFloat = 90
+    private let surfaceOpacity: CGFloat = 0.6
     private let panel = UIImageView(image: UIImage(named: "CampusRegionPanel"))
     private let circle = UIView()
     private let content = UIStackView()
@@ -1530,7 +1531,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         super.init(frame: CGRect(x: 0, y: 0, width: diameter, height: diameter))
         circle.isUserInteractionEnabled = false
         circle.frame = bounds
-        circle.backgroundColor = UIColor(red: 241/255, green: 244/255, blue: 236/255, alpha: 0.6)
+        circle.backgroundColor = UIColor(red: 241/255, green: 244/255, blue: 236/255, alpha: surfaceOpacity)
         circle.layer.cornerRadius = diameter / 2
         circle.layer.shadowColor = UIColor(red: 0.28, green: 0.39, blue: 0.15, alpha: 1).cgColor
         circle.layer.shadowOpacity = 0.42
@@ -1566,7 +1567,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     func place(at anchor: CGPoint, opacity: CGFloat, panelOpacity: CGFloat) {
         alpha = opacity
-        panel.alpha = panelOpacity
+        // Match the circle's translucency without fading the icon or count.
+        panel.alpha = panelOpacity * surfaceOpacity
         circle.alpha = 1 - panelOpacity
         content.center = CGPoint(x: bounds.midX, y: bounds.midY - diameter * 0.08 * panelOpacity)
         // The 3D panel stands on its anchor; the near-overhead circle is centred on it.
