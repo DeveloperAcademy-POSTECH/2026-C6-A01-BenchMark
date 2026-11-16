@@ -1,0 +1,27 @@
+{
+  "palette": {
+    "base": [
+      0.592156862745098,
+      0.8274509803921568,
+      0.41568627450980394
+    ],
+    "stripe": [
+      0.21568627450980393,
+      0.4235294117647059,
+      0.23529411764705882
+    ]
+  },
+  "roughness": 0.6078431372549019,
+  "metallic": 0,
+  "maps": {},
+  "nonGreenColorMaxError": 0.003921627998352051,
+  "nonGreenColorMeanError": 6.638571790062997e-07,
+  "geometryUVsTransformsBindingsUnchanged": true,
+  "clothingNormalsUnchanged": true,
+  "skinNormalsRepaired": true,
+  "sourceArchiveUnchanged": true,
+  "outputSHA256": "b37f2c1a439876849955af53ea59280903bfb6b92d41e171c4ae9626fb62194d",
+  "bytes": 10875916,
+  "sourceSHA256": "c422eba5312aa4365245b0e57a75e4612af2fdfe543f920de898e9016af154cf",
+  "compactedWithoutVisualChanges": true
+}

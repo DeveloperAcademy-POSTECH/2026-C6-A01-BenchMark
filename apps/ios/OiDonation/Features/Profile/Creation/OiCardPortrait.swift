@@ -7,7 +7,24 @@ enum OiCardPortrait {
     static func key(for look: OiWardrobeLook) -> String {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         let bytes = (try? encoder.encode(look)) ?? Data()
-        return "portrait-v1-" + SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        // Regenerate portraits when the selected model geometry or skin changes.
+        let revision: String
+        if look.costume == .sportswear {
+            revision = "portrait-v7-raised-black-sportswear-eyes-"
+        } else if look.costume == .schoolUniformTrousers {
+            revision = "portrait-v6-clean-trouser-uniform-"
+        } else if look.costume == .scientistGoggles {
+            revision = "portrait-v6-clean-goggles-researcher-cloth-"
+        } else if look.costume != nil {
+            revision = "portrait-v5-clean-costume-faces-"
+        } else if look.top == .postech {
+            revision = "portrait-v6-original-postech-word-only-"
+        } else if look.top == .cardigan && look.bottom == .shorts {
+            revision = "portrait-v5-cardigan-shorts-fit-"
+        } else {
+            revision = "portrait-v4-bright4-skin-"
+        }
+        return "transparent-matte-v1-" + revision + SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
     }
 }
 
@@ -21,12 +38,19 @@ struct OiCardPortraitCapture: View {
     let onCapture: (Data, String) -> Void
     var onFailure: (() -> Void)? = nil
     @State private var scene = OiWardrobeScene()
+    @State private var liveScene = OiWardrobeScene()
     @State private var failure = false
     @State private var attempt = 0
     var body: some View {
         ZStack {
+            if interactivePreview {
+                OiCardPortraitSurface(scene: liveScene, look: look, orientation: orientation)
+                    .allowsHitTesting(false)
+            }
+            // Keep the capture surface mounted but visually hidden. Its black/white
+            // passes must never flash in the interactive card placement preview.
             OiCardPortraitSurface(scene: scene, look: look, orientation: orientation)
-                .allowsHitTesting(false)
+                .opacity(interactivePreview ? 0.001 : 1).allowsHitTesting(false).accessibilityHidden(true)
             if failure && !interactivePreview {
                 Button("오이 이미지 다시 만들기") {
                     scene.update(look, retry: true); attempt += 1

@@ -170,6 +170,74 @@ struct OiCreationPressStyle: ButtonStyle {
     }
 }
 
+// Keep clearance independent of visibility so showing the panel cannot change
+// the scroll end and repeatedly hide/show it.
+extension EnvironmentValues {
+    @Entry var oiCreationNavigationClearance: CGFloat = 0
+    @Entry var oiCustomizationBottomInset: CGFloat = 0
+}
+
+struct OiCreationScrollNavigation: ViewModifier {
+    @Environment(\.oiCreationNavigationClearance) private var clearance
+    let onVisibilityChange: (Bool) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .safeAreaPadding(.bottom, clearance)
+            .onScrollGeometryChange(for: CGSize.self) { geometry in
+                CGSize(width: geometry.contentOffset.y,
+                       height: max(-geometry.contentInsets.top,
+                           geometry.contentSize.height - geometry.containerSize.height))
+            } action: { _, position in
+                onVisibilityChange(position.width >= position.height - 8)
+            }
+            .onDisappear { onVisibilityChange(false) }
+    }
+}
+
+enum OiCustomizationStyle {
+    static let previewUIColor = UIColor(wardrobeRGB: 0xF5F6F2)
+    static let previewBackground = Color(uiColor: previewUIColor)
+}
+
+struct OiCustomizationPanelSurface: ViewModifier {
+    func body(content: Content) -> some View {
+        let shape = UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24)
+        content
+            .background(.white)
+            .clipShape(shape)
+            .background {
+                shape.fill(.white)
+                    .shadow(color: .black.opacity(0.05), radius: 8, y: -3)
+                    .ignoresSafeArea(.container, edges: .bottom)
+            }
+    }
+}
+
+/// Only the scrolled settings fade under the fixed tabs; the preview stays crisp.
+struct OiCustomizationScrollEdge: ViewModifier {
+    @State private var hasScrolled = false
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    func body(content: Content) -> some View {
+        content
+            .scrollEdgeEffectStyle(.soft, for: .top)
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y > -geometry.contentInsets.top + 1
+            } action: { _, scrolled in hasScrolled = scrolled }
+            .overlay(alignment: .top) {
+                if hasScrolled {
+                    if reduceTransparency {
+                        Color.black.opacity(0.08).frame(height: 1)
+                    } else {
+                        LinearGradient(colors: [.white, .white.opacity(0)], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 16).allowsHitTesting(false)
+                    }
+                }
+            }
+    }
+}
+
 struct OiCreationNavigationBar: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     var canContinue = true
@@ -281,7 +349,7 @@ struct OiStoryWritingStep: View {
             OiCreationSection(title: "제목 입력", hint: "(띄어쓰기 포함 \(textLimit)자 이내)") {
                 inputBox($draft.title, field: .title, label: "이야기 제목", identifier: "oi.draft.title")
             }
-            OiCreationSection(title: "이야기 입력", hint: "(띄어쓰기 포함 \(textLimit)자 이내)") {
+            OiCreationSection(title: "이야기 입력", hint: "(띄어쓰기 포함 1,500byte 이내)") {
                 inputBox($draft.body, field: .body, label: "이야기 내용", identifier: "oi.draft.body")
             }
         }
@@ -301,6 +369,17 @@ struct OiStoryWritingStep: View {
         })
     }
 
+    static func limitedStoryText(_ text: Binding<String>) -> Binding<String> {
+        Binding(get: { text.wrappedValue }, set: { value in
+            let previousBytes = text.wrappedValue.utf8.count
+            let bytes = value.utf8.count
+            // Restore old stories without truncation; allow shortening an over-limit draft.
+            guard bytes <= OiCreationStep.storyBodyByteLimit ||
+                    (previousBytes > OiCreationStep.storyBodyByteLimit && bytes < previousBytes) else { return }
+            text.wrappedValue = value
+        })
+    }
+
     private func inputBox(_ text: Binding<String>, field: Field, label: String, identifier: String) -> some View {
         // Measure the bound text so typing, pasting, and restoring use the same layout.
         // The invisible character gives a trailing line break room for the caret.
@@ -313,7 +392,7 @@ struct OiStoryWritingStep: View {
                 .hidden()
                 .accessibilityHidden(true)
                 .overlay(alignment: .topLeading) {
-                    TextEditor(text: Self.limitedText(text))
+                    TextEditor(text: field == .body ? Self.limitedStoryText(text) : Self.limitedText(text))
                         .scrollContentBackground(.hidden)
                         .scrollDisabled(true)
                         .focused(focusedField, equals: field)
@@ -401,7 +480,7 @@ struct OiStoryAttachmentSections: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 50) {
-            OiCreationSection(title: "이야기 사진", hint: "(공개할 때 1~\(OiCreationStep.storyPhotoLimit)장)") {
+            OiCreationSection(title: "이야기 사진", hint: "(1장 이상 3장 이내)") {
                 formButton(photoCount == 0 ? "사진 추가하기" : "선택한 사진 보기 · \(photoCount)장",
                            highlighted: false, action: onPhotos)
                     .accessibilityIdentifier("oi.story.editPhotos")
@@ -410,7 +489,7 @@ struct OiStoryAttachmentSections: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
-            OiCreationSection(title: "오이 위치 설정", titleSize: 30) {
+            OiCreationSection(title: "오이 위치 설정") {
                 Map(position: .constant(.region(MKCoordinateRegion(
                     center: coordinate ?? CLLocationCoordinate2D(latitude: 36.0139, longitude: 129.3232),
                     latitudinalMeters: coordinate == nil ? 1_200 : 300,

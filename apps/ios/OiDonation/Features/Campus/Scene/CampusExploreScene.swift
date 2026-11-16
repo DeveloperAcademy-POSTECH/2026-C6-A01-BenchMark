@@ -292,23 +292,44 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         educationNear = false
         if educationButton == nil {
             let button = UIButton(type: .system)
-            var config = UIButton.Configuration.filled()
-            config.title = "교육지구 2.0 · 건립 예정"
-            config.image = UIImage(systemName: "sparkles")
-            config.imagePadding = 5
-            config.baseBackgroundColor = UIColor.white.withAlphaComponent(0.94)
-            config.baseForegroundColor = UIColor(red: 0.22, green: 0.34, blue: 0.40, alpha: 1)
-            config.cornerStyle = .capsule
-            config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { input in
-                var output = input; output.font = UIFont.systemFont(ofSize: 12, weight: .semibold); return output
-            }
-            button.configuration = config
             button.accessibilityIdentifier = "campus.education-district"
             button.accessibilityLabel = "교육지구 2.0 건립 예정 부지, 사업 안내 보기"
             button.addAction(UIAction { [weak self] _ in self?.selectEducationDistrict() }, for: .touchUpInside)
             educationButton = button
         }
-        if let button = educationButton { canvas?.addSubview(button) }
+        if let button = educationButton {
+            configureEducationButton(button)
+            canvas?.addSubview(button)
+        }
+    }
+
+    private func configureEducationButton(_ button: UIButton) {
+        var config = UIButton.Configuration.plain()
+        config.title = "교육지구 2.0"
+        config.subtitle = "건립 예정"
+        config.titleAlignment = .center
+        config.titlePadding = 1
+        config.titleLineBreakMode = .byClipping
+        config.subtitleLineBreakMode = .byClipping
+        config.baseForegroundColor = UIColor(red: 0.22, green: 0.34, blue: 0.40, alpha: 1)
+        config.background = .clear()
+        config.contentInsets = NSDirectionalEdgeInsets(top: 2, leading: 3, bottom: 2, trailing: 3)
+        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { input in
+            var output = input
+            output.font = UIFont.systemFont(ofSize: 11, weight: .semibold)
+            return output
+        }
+        config.subtitleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { input in
+            var output = input
+            output.font = UIFont.systemFont(ofSize: 9.5, weight: .medium)
+            return output
+        }
+        button.configuration = config
+        // A text-only halo preserves contrast without a plate covering the campus.
+        button.layer.shadowColor = UIColor.white.cgColor
+        button.layer.shadowOpacity = 0.95
+        button.layer.shadowRadius = 1.5
+        button.layer.shadowOffset = .zero
     }
 
     func selectEducationDistrict() {
@@ -1197,10 +1218,17 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         }
         if let entity = educationEntity, let button = educationButton {
             let near = educationNear ? radius < 105 : radius < 85
-            if near != educationNear { educationNear = near; CampusEducationDistrict.update(entity, near: near) }
+            if near != educationNear {
+                educationNear = near
+                CampusEducationDistrict.update(entity, near: near)
+            }
             let anchor = entity.position + SIMD3(0, 6.8, 0)
             if !editingPlacement, !selectingCenterLocation, let screen = projection.point(anchor), visibleBounds.contains(screen) {
-                button.sizeToFit()
+                // Measure against the viewport, never the previous narrow button frame.
+                button.bounds.size = button.sizeThatFits(CGSize(width: max(44, view.bounds.width - 24), height: 44))
+                // Keep the invisible hit area usable even when the overview caption is small.
+                button.bounds.size.width = max(44, button.bounds.width)
+                button.bounds.size.height = max(44, button.bounds.height)
                 button.center = CGPoint(x: min(max(screen.x, button.bounds.width / 2 + 12), view.bounds.width - button.bounds.width / 2 - 12),
                                         y: max(110, min(view.bounds.height - 100, screen.y)))
                 button.isHidden = false

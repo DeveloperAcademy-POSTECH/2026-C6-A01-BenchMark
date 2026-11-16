@@ -11,6 +11,23 @@ struct OiStoryListScreen: View {
     @State private var pendingDiscardCount = 0
     @State private var loadedDraftOwner: UUID?
     @State private var draftLoadAttempt = UUID()
+    @State private var pendingDeletion: DeletionTarget?
+    @State private var deletingID: UUID?
+    @State private var deletionError: String?
+
+    private struct DeletionTarget: Identifiable {
+        let id: UUID
+        let owner: UUID
+        let name: String
+        let story: OiLiveStory?
+        let hasPersonalPlacement: Bool
+
+        var message: String {
+            if story != nil { return "이야기가 비공개·삭제 상태로 바뀌어요. 이 기기의 같은 초안과 내 지도 배치도 삭제돼요." }
+            if hasPersonalPlacement { return "기기 초안과 첨부 사진, 내 지도에 배치한 오이가 삭제돼요. 되돌릴 수 없어요." }
+            return "기기 초안과 첨부 사진이 삭제돼요. 되돌릴 수 없어요."
+        }
+    }
 
     private struct DraftLoadKey: Equatable {
         let owner: UUID?
@@ -25,12 +42,14 @@ struct OiStoryListScreen: View {
             state: state,
             seedCount: nil,
             notices: OiStoryListView.listNotices,
-            guidance: OiWritingGuidance.available,
+            guidance: OiStoryListView.listGuidance,
             onRetry: { Task { await remote.refresh(); await loadLocalDrafts() } },
             onAddSeed: nil,
             onSelectStory: selectStory,
             onCreateStory: beginCreatingStory,
-            onUseSeed: nil
+            onUseSeed: nil,
+            onDeleteStory: requestDeletion,
+            isDeleting: deletingID != nil || remote.isBusy
         )
         .task(id: DraftLoadKey(owner: remote.account?.id, revision: remote.revision,
                                placementRevision: remote.localPlacementRevision)) {
@@ -40,6 +59,8 @@ struct OiStoryListScreen: View {
             selectedLocalID = nil
             selectedStoryID = nil
             showingConsent = false
+            pendingDeletion = nil
+            deletionError = nil
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             if let owner = remote.account?.id, loadedDraftOwner == owner, unreadableDraftCount > 0 || pendingDiscardCount > 0 {
@@ -60,6 +81,24 @@ struct OiStoryListScreen: View {
                 .background(.regularMaterial)
             }
         }
+        .confirmationDialog(
+            pendingDeletion.map { "‘\($0.name)’ 삭제할까요?" } ?? "오이를 삭제할까요?",
+            isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }),
+            titleVisibility: .visible,
+            presenting: pendingDeletion
+        ) { target in
+            Button("삭제", role: .destructive) { Task { await delete(target) } }
+            Button("취소", role: .cancel) { pendingDeletion = nil }
+        } message: { target in
+            Text(target.message)
+        }
+        .alert("삭제하지 못했어요", isPresented: Binding(
+            get: { deletionError != nil }, set: { if !$0 { deletionError = nil } }
+        )) {
+            Button("확인", role: .cancel) { deletionError = nil }
+        } message: {
+            Text(deletionError ?? "잠시 후 다시 시도해 주세요.")
+        }
         .navigationDestination(isPresented: $showingSettings) { MYSettingsView(remote: remote) }
         .navigationDestination(item: $selectedLocalID) { id in
             OiStoryEditor(remote: remote, localID: id, onFinish: { selectedLocalID = nil })
@@ -78,22 +117,24 @@ struct OiStoryListScreen: View {
         let drafts = (loadedDraftOwner == remote.account?.id ? localDrafts : []).filter { record in
             !record.submitted && !remote.ownStories.contains { $0.id == record.id }
         }
-        if let error = (loadedDraftOwner == remote.account?.id ? localError : nil) ?? remote.loadError, remote.ownStories.isEmpty && drafts.isEmpty { return .failure(error) }
+        if let error = (loadedDraftOwner == remote.account?.id ? localError : nil) ?? remote.loadError,
+           !remote.ownStories.contains(where: { $0.status == "draft" }) && drafts.isEmpty { return .failure(error) }
         if !remote.hasLoadedRemote && drafts.isEmpty { return .loading }
-        let donorName = remote.profile?.nickname.nonEmpty ?? "익명"
-        let serverItems = remote.ownStories.map { story in
-            let location = locationDisplayName(for: story.regionId)
-            return OiStoryListItem(story: story, donorDisplayName: donorName,
-                locationDisplayName: story.status == "pending" ? "공개 검토 중 · \(location)" : location)
+        let donorName = donorLine
+        // Only saved drafts belong here; stories sent for review or published are not listed (#368).
+        let serverItems = remote.ownStories.filter { $0.status == "draft" }.map { story in
+            OiStoryListItem(story: story, donorDisplayName: donorName,
+                locationDisplayName: locationDisplayName(for: story.regionId))
         }
         let localItems = drafts.map { record in
             OiStoryListItem(id: record.id, cucumberName: record.personalPlacement?.name ?? record.draft.cucumberName.nonEmpty ?? "작성 중인 오이",
-                cucumberAsset: record.draft.cucumberAsset, donorDisplayName: donorName,
+                title: record.draft.title, cucumberAsset: record.draft.cucumberAsset,
+                portraitPNG: record.customization?.card?.portraitPNG, donorDisplayName: donorName,
                 locationDisplayName: record.personalPlacement == nil ? "이 기기에 보관한 초안" : "내 지도에 배치됨",
                 tags: [record.draft.emotion, record.draft.theme].filter { !$0.isEmpty },
                 dateLabel: record.personalPlacement == nil ? "작성 중" : "나만 보기")
         }
-        let items = localItems + serverItems
+        let items = Array((localItems + serverItems).prefix(OiStoryListState.draftCapacity))
         return items.isEmpty ? .empty : .content(items)
     }
 
@@ -137,9 +178,59 @@ struct OiStoryListScreen: View {
         selectedStoryID = id
     }
 
+    private func requestDeletion(id: UUID) {
+        guard deletingID == nil, !remote.isBusy, let owner = remote.account?.id,
+              let item = state.items.first(where: { $0.id == id }) else { return }
+        let story = remote.ownStories.first { $0.id == id }
+        let local = loadedDraftOwner == owner ? localDrafts.first { $0.id == id && !$0.submitted } : nil
+        guard story != nil || local != nil else { return }
+        pendingDeletion = DeletionTarget(id: id, owner: owner, name: item.cucumberName,
+            story: story, hasPersonalPlacement: local?.personalPlacement != nil)
+    }
+
+    private func delete(_ target: DeletionTarget) async {
+        pendingDeletion = nil
+        guard deletingID == nil, !remote.isBusy, remote.account?.id == target.owner else { return }
+        deletingID = target.id
+        defer { deletingID = nil }
+        if let story = target.story {
+            let deleted = await remote.deleteStory(story)
+            guard remote.account?.id == target.owner else { return }
+            if !deleted {
+                deletionError = remote.error ?? "이야기를 삭제하지 못했어요. 최신 상태를 확인한 후 다시 시도해 주세요."
+            } else {
+                do {
+                    try await remote.discardLocalDraft(id: target.id, owner: target.owner)
+                } catch {
+                    if remote.account?.id == target.owner {
+                        deletionError = "이야기는 삭제했지만 기기 초안 정리를 마치지 못했어요. \(error.localizedDescription)"
+                    }
+                }
+            }
+        } else {
+            do {
+                try await remote.discardLocalDraft(id: target.id, owner: target.owner)
+            } catch {
+                if remote.account?.id == target.owner { deletionError = error.localizedDescription }
+            }
+        }
+        guard remote.account?.id == target.owner else { return }
+        await loadLocalDrafts()
+    }
+
     private func beginCreatingStory() {
+        guard !state.isFull else { return }
         guard remote.canPlaceOi else { showingSettings = true; return }
         showingConsent = true
+    }
+
+    /// "24학번 반도체공학과 서수리" when the donor search details are set, otherwise the nickname (Figma `5441:17267`).
+    private var donorLine: String {
+        let profile = remote.profile
+        let name = profile?.publicName?.nonEmpty
+        let year = (profile?.admissionYear?.nonEmpty).map { "\($0.suffix(2))학번" }
+        let line = [year, profile?.department?.nonEmpty, name].compactMap { $0 }.joined(separator: " ")
+        return name == nil ? (profile?.nickname.nonEmpty ?? "익명") : line
     }
 
     private func locationDisplayName(for regionID: String) -> String {

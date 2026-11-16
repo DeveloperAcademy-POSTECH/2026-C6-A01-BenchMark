@@ -34,6 +34,7 @@ struct OiStoryConsentView: View {
                 .padding(.top, 20)
             }
             .scrollIndicators(.hidden)
+            .modifier(OiCustomizationScrollEdge())
             .clipped()
             .ignoresSafeArea(.container, edges: .bottom)
         }
@@ -72,16 +73,17 @@ struct OiStoryConsentView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 14) {
+                // Figma: 14pt on a 21pt (150%) line, with one blank line between paragraphs.
+                VStack(alignment: .leading, spacing: 21) {
                     ForEach(clause.paragraphs) { paragraph in
-                        VStack(alignment: .leading, spacing: 2) {
+                        VStack(alignment: .leading, spacing: 4.5) {
                             Text(paragraph.heading)
                                 .font(.custom("Paperlogy-7Bold", size: 14, relativeTo: .subheadline))
                             Text(paragraph.body)
                                 .font(.custom("Paperlogy-3Light", size: 14, relativeTo: .subheadline))
                         }
                         .tracking(0.28)
-                        .lineSpacing(1)
+                        .lineSpacing(4.5)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

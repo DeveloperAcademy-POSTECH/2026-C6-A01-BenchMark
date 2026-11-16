@@ -6,6 +6,8 @@
 //
 
 import XCTest
+import ARKit
+import CoreLocation
 import RealityKit
 import SwiftUI
 import UIKit
@@ -41,11 +43,25 @@ final class OiTestBackend {
         var independentStoryCreation: Bool? = true
         var publicCucumberAppearance = false
         var publicStoryCard = false
+        var duplexStoryCard = false
+        var storyCardCover = false
+        var storyCardCoverJpeg = false
+        var corruptSubmittedCoverType = false
+        var corruptReviewedCoverType = false
+        var reviewPayloads: [[String: Any]] = []
+        var uploadContentTypes: [String: String] = [:]
+        var failCardCoverUpload = false
+        var failCardCoverRead = false
+        var failCardBackUpload = false
+        var failCardBackRead = false
         var failCucumberTextureUpload = false
         var timeOutCardUploadAfterCommit = false
         var timeOutSubmitAfterCommit = false
         var timeOutSubmitBeforeCommit = false
         var submitCount = 0
+        var deleteCount = 0
+        var failDelete = false
+        var failReadsAfterDelete = false
         var artworkUploadAttempts = 0
         var hasWritingGrant = true
         var nickname = "Owner A"
@@ -89,6 +105,10 @@ final class OiTestBackend {
         var auditRecords: [[String: Any]] = []
         var auditBodies: [[String: Any]] = []
         var auditStatus = 200
+        var nfcTags: [[String: Any]] = []
+        var nfcBodies: [[String: Any]] = []
+        var nfcStatus = 200
+        var nfcMismatchedReceipt = false
         var holdAuditRead = false
         var failRefreshToken = false
         var failLogout = false
@@ -189,16 +209,24 @@ final class OiTestBackend {
             } else { status = 403 }
         } else if path.hasPrefix("/storage/v1/object/sign/") && (path.contains("/appearance/") || path.contains("/card/")) {
             let key = String(path.dropFirst("/storage/v1/object/sign/".count))
-            if let image = state.uploads[key] {
+            if state.failCardCoverRead && (key.hasSuffix("/cover.png") || key.hasSuffix("/cover.jpg")) { status = 503 }
+            else if state.failCardBackRead && (key.hasSuffix("/back-preview.png") || key.hasSuffix("/back.png")) { status = 503 }
+            else if let image = state.uploads[key] {
                 if request.httpMethod == "POST" { result = ["signedURL": String(path.dropFirst("/storage/v1".count)) + "?token=fixture"] }
                 else { bytes = image }
             } else { status = 404 }
         } else if path.contains("/storage/v1/object/") {
             let key = path.replacingOccurrences(of: "/storage/v1/object/", with: "")
             if key.contains("/card/") || key.contains("/appearance/") { state.artworkUploadAttempts += 1 }
-            if state.failCucumberTextureUpload && key.hasSuffix("/top.png") { status = 503 }
+            if state.failCardCoverUpload && (key.hasSuffix("/cover.png") || key.hasSuffix("/cover.jpg")) { status = 503 }
+            else if state.failCardBackUpload && key.hasSuffix("/back.png") { status = 503 }
+            else if state.failCucumberTextureUpload && key.hasSuffix("/top.png") { status = 503 }
             else if state.uploads[key] != nil { status = 409 }
-            else { state.uploads[key] = raw; result = ["Key":key] }
+            else {
+                state.uploads[key] = raw
+                state.uploadContentTypes[key] = request.value(forHTTPHeaderField: "Content-Type")
+                result = ["Key":key]
+            }
             if status == 200, key.contains("/card/"), state.timeOutCardUploadAfterCommit {
                 state.timeOutCardUploadAfterCommit = false
                 lock.unlock(); client.timeOut(); return
@@ -216,6 +244,8 @@ final class OiTestBackend {
                 story["created_at"] = "2026-10-28T00:00:00Z"
                 if state.story?["id"] as? String == payload["id"] as? String {
                     story["card_snapshot_id"] = state.story?["card_snapshot_id"]
+                    story["card_snapshot_format"] = state.story?["card_snapshot_format"]
+                    story["card_cover_type"] = state.story?["card_cover_type"]
                     story["cucumber_appearance"] = state.story?["cucumber_appearance"]
                 }
                 state.story = story; result = story
@@ -233,6 +263,11 @@ final class OiTestBackend {
                 state.submittedTitle = state.story?["title"] as? String
                 if let appearance = payload["cucumber_appearance"] { state.story?["cucumber_appearance"] = appearance }
                 if let card = payload["card_snapshot_id"] { state.story?["card_snapshot_id"] = card }
+                if let format = payload["card_snapshot_format"] {
+                    state.story?["card_snapshot_format"] = format
+                    state.story?["card_cover_type"] = (format as? Int) == 3 ? (payload["card_cover_type"] ?? "png") : nil
+                }
+                if state.corruptSubmittedCoverType { state.story?["card_cover_type"] = "png" }
                 state.story?["status"] = "pending"
                 let nextRevision = (state.story?["revision"] as? Int ?? 0)+1
                 state.story?["revision"] = nextRevision
@@ -241,6 +276,18 @@ final class OiTestBackend {
                     state.timeOutSubmitAfterCommit = false
                     lock.unlock(); client.timeOut(); return
                 }
+            } else if action == "delete_story" {
+                state.deleteCount += 1
+                if state.failDelete { status = 503 }
+                else if state.story?["id"] as? String != payload["id"] as? String ||
+                            state.story?["revision"] as? Int != payload["revision"] as? Int { status = 409 }
+                else {
+                    let nextRevision = (state.story?["revision"] as? Int ?? 0) + 1
+                    state.story?["status"] = "deleted"
+                    state.story?["revision"] = nextRevision
+                    result = state.story ?? [:]
+                    if state.failReadsAfterDelete { state.failReads = true }
+                }
             } else if action == "reopen_story" {
                 state.story?["status"] = "draft"
                 let nextRevision = (state.story?["revision"] as? Int ?? 0) + 1
@@ -248,6 +295,7 @@ final class OiTestBackend {
                 result = state.story ?? [:]
             } else if action == "review_story" {
                 state.reviewCount += 1
+                state.reviewPayloads.append(payload)
                 let wanted = payload["status"] as? String ?? ""
                 if !state.isOperator { status = 403 }
                 else if state.story?["revision"] as? Int != payload["revision"] as? Int { status = 409 }
@@ -256,15 +304,36 @@ final class OiTestBackend {
                         appearance["id"] as? String != payload["appearance_id"] as? String { status = 409 }
                 else if wanted == "published", let card = state.story?["card_snapshot_id"] as? String,
                         card != payload["card_snapshot_id"] as? String { status = 409 }
+                else if wanted == "published", state.story?["card_cover_type"] as? String == "jpeg",
+                        payload["card_cover_type"] as? String != "jpeg" { status = 409 }
                 else {
                     state.story?["status"] = wanted
                     let nextRevision = (state.story?["revision"] as? Int ?? 0) + 1
                     state.story?["revision"] = nextRevision
-                    result = state.story ?? [:]
+                    var reviewed = state.story ?? [:]
+                    if state.corruptReviewedCoverType { reviewed["card_cover_type"] = "png" }
+                    result = reviewed
                     if state.failAfterReview { state.failReads = true }
                     if state.loseReviewResponse { status = 503; state.loseReviewResponse = false }
                 }
             } else { result = ["id":payload["id"] ?? ""] }
+        } else if path.hasSuffix("/rpc/oi_operator_nfc_tags") {
+            status = state.isOperator ? state.nfcStatus : 403
+            result = state.nfcTags
+        } else if path.hasSuffix("/rpc/oi_operator_set_nfc_tag") {
+            state.nfcBodies.append(body)
+            status = state.isOperator ? state.nfcStatus : 403
+            let story = body["p_story"] as? String
+            var row: [String: Any] = ["tag_id": body["p_tag"] ?? "", "story_id": story.map { $0 as Any } ?? NSNull(),
+                                      "active": state.nfcMismatchedReceipt ? !(body["p_active"] as? Bool ?? true) : body["p_active"] ?? true,
+                                      "note": body["p_note"] ?? "", "updated_at": "2026-11-13T09:00:00Z"]
+            if status == 200 {
+                state.nfcTags.removeAll { $0["tag_id"] as? String == body["p_tag"] as? String }
+                row["story_title"] = story == nil ? NSNull() : "Fixture story"
+                row["story_status"] = story == nil ? NSNull() : "published"
+                state.nfcTags.append(row)
+            }
+            result = row
         } else if path.hasSuffix("/rpc/oi_operator_audit") {
             state.auditBodies.append(body); status = state.auditStatus
             if !state.isOperator { status = 403 }
@@ -305,6 +374,9 @@ final class OiTestBackend {
             if let independent = state.independentStoryCreation { capabilities["independent_story_creation"] = independent }
             if state.publicCucumberAppearance { capabilities["public_cucumber_appearance"] = true }
             if state.publicStoryCard { capabilities["public_story_card"] = true }
+            if state.duplexStoryCard { capabilities["duplex_story_card"] = true }
+            if state.storyCardCover { capabilities["story_card_cover"] = true }
+            if state.storyCardCoverJpeg { capabilities["story_card_cover_jpeg"] = true }
             if let canonical = state.canonicalAccountID {
                 capabilities["account_id"] = canonical.uuidString
                 capabilities["account_merge_enabled"] = true
@@ -563,6 +635,69 @@ final class OiRemoteStoreTests: XCTestCase {
         let parser = ISO8601DateFormatter()
         return try OiAuditQuery(from: XCTUnwrap(parser.date(from: "2026-11-03T00:00:00Z")),
                                until: XCTUnwrap(parser.date(from: "2026-11-05T00:00:00Z")), category: category)
+    }
+
+    @MainActor func testOperatorNFCTagsListAndSaveSendExactValues() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        let story = UUID(uuidString: "b1000000-0000-4000-8000-0000000000aa")!
+        backend.configure {
+            $0.isOperator = true
+            $0.nfcTags = [["tag_id": "pond-01", "story_id": story.uuidString.lowercased(), "active": true, "note": "연못 벤치",
+                           "updated_at": "2026-11-13T08:00:00Z", "story_title": "연못 이야기", "story_status": "published"],
+                          ["tag_id": "lib-02", "story_id": NSNull(), "active": false, "note": "",
+                           "updated_at": NSNull(), "story_title": NSNull(), "story_status": NSNull()]]
+        }
+        await store.start()
+        let tags = try await store.operatorNFCTags()
+        XCTAssertEqual(tags.map(\.tagId), ["pond-01", "lib-02"])
+        XCTAssertTrue(tags[0].opensPostcard); XCTAssertEqual(tags[0].storyId, story)
+        XCTAssertFalse(tags[1].opensPostcard); XCTAssertEqual(tags[1].statusText, "중지됨")
+        XCTAssertEqual(tags[0].url.absoluteString, "https://appclip.apple.com/id?p=com.Spero.OiDonation.Clip&postcard=pond-01")
+
+        let receipt = try await store.setNFCTag("lib-02", story: story, active: true, note: "  도서관 입구  ")
+        XCTAssertEqual(receipt.storyId, story); XCTAssertTrue(receipt.active)
+        let body = try XCTUnwrap(backend.snapshot().nfcBodies.last)
+        XCTAssertEqual(body["p_tag"] as? String, "lib-02")
+        XCTAssertEqual(body["p_story"] as? String, story.uuidString.lowercased())
+        XCTAssertEqual(body["p_active"] as? Bool, true)
+        XCTAssertEqual(body["p_note"] as? String, "도서관 입구")
+
+        _ = try await store.setNFCTag("pond-01", story: nil, active: false, note: "")
+        XCTAssertTrue(backend.snapshot().nfcBodies.last?["p_story"] is NSNull, "Unlinking sends an explicit null story")
+    }
+
+    func testOperatorNFCTagSuggestionIsValidUnambiguousAndUnused() {
+        let taken: Set<String> = ["oi-aaaaaa"]
+        for _ in 0..<200 {
+            let id = OiNFCTagID.suggestion(avoiding: taken)
+            XCTAssertTrue(AppClipLink.isValidPostcardTag(id), id)
+            XCTAssertTrue(id.hasPrefix("oi-")); XCTAssertEqual(id.count, 9)
+            XCTAssertFalse(taken.contains(id))
+            XCTAssertTrue(id.dropFirst(3).allSatisfy { !"0o1li".contains($0) }, id)
+        }
+    }
+
+    @MainActor func testOperatorNFCTagsRejectInvalidInputMissingRPCAndMismatchedReceipt() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        do { _ = try await store.setNFCTag("Pond 01", story: nil, active: true, note: ""); XCTFail("Invalid tag must not be sent") }
+        catch { XCTAssertEqual(error as? OiNFCTagError, .invalidTag) }
+        XCTAssertTrue(backend.snapshot().nfcBodies.isEmpty)
+
+        backend.configure { $0.nfcStatus = 404 }
+        do { _ = try await store.operatorNFCTags(); XCTFail("Missing RPC must be reported") }
+        catch { XCTAssertEqual(error as? OiNFCTagError, .notDeployed) }
+
+        backend.configure { $0.nfcStatus = 200; $0.nfcMismatchedReceipt = true }
+        do { _ = try await store.setNFCTag("pond-01", story: nil, active: true, note: ""); XCTFail("Receipt must match the request") }
+        catch { XCTAssertEqual(error as? OiNFCTagError, .mismatchedReceipt) }
+
+        backend.configure { $0.nfcMismatchedReceipt = false; $0.isOperator = false }
+        do { _ = try await store.operatorNFCTags(); XCTFail("Non-operators must not read tags") }
+        catch { XCTAssertNotEqual(error as? OiNFCTagError, .notDeployed) }
     }
 
     @MainActor func testOperatorAuditPagesKeepCursorAndApplyCategory() async throws {
@@ -1566,6 +1701,238 @@ final class OiRemoteStoreTests: XCTestCase {
         catch {}
     }
 
+    @MainActor func testLegacyOpaqueCardPortraitRegeneratesWithoutChangingTheDraft() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let owner = OiTestBackend.owner
+        let original = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 60)).image { context in
+            UIColor.black.setFill(); context.fill(CGRect(x: 0, y: 0, width: 40, height: 60))
+        }
+        let photoID = UUID()
+        let photo = try XCTUnwrap(original.pngData())
+        try await store.saveLocalPhoto(photo, id: photoID, owner: owner)
+        var customization = OiDraftCustomization()
+        let look = OiWardrobeLook()
+        customization.wardrobe = look
+        var card = OiCardDesign()
+        card.portraitPNG = photo
+        card.portraitKey = "portrait-v4-bright4-skin-old-opaque-cache"
+        card.characterOrientation = OiCardOrientation(yaw: 0.2, pitch: 0.1)
+        card.characterPlacement = OiCardPlacement(x: 0.4, y: 0.6, scale: 0.8)
+        card.characterBackdropEnabled = false
+        card.characterBackdropColor = 0x845F77
+        card.postcardLayoutVersion = 2
+        card.postcardBackground = OiPostcardBackgroundStyle(color: 0xEECFDF)
+        card.postcardDate = Date(timeIntervalSince1970: 1_794_700_000)
+        customization.card = card
+        let local = OiLocalDraft(draft: draft(title: "불투명 캐시 복원 확인"), photos: [photoID], version: 1,
+            creationStep: OiCreationStep.card.rawValue, customization: customization)
+        try await store.saveLocalDraft(local, owner: owner)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: NavigationStack {
+            OiStoryEditor(remote: store, localID: local.id).environment(\.scenePhase, .active)
+        })
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
+        var regenerated: OiLocalDraft?
+        for _ in 0..<200 {
+            try await Task.sleep(for: .milliseconds(100))
+            let current = try await store.localDraft(id: local.id, owner: owner)
+            if current?.customization?.card?.portraitKey?.hasPrefix("transparent-matte-v1-") == true {
+                regenerated = current; break
+            }
+        }
+        let saved = try XCTUnwrap(regenerated, "Opening an old card draft must regenerate its derived portrait")
+        let savedCard = try XCTUnwrap(saved.customization?.card)
+        let png = try XCTUnwrap(savedCard.portraitPNG)
+        XCTAssertTrue(OiPortraitMatte.hasTransparentBackground(try XCTUnwrap(UIImage(data: png))))
+        XCTAssertNotEqual(png, photo)
+        XCTAssertEqual(saved.draft, local.draft)
+        XCTAssertEqual(saved.photos, local.photos)
+        XCTAssertEqual(saved.customization?.wardrobe, look)
+        var expected = card
+        expected.portraitPNG = savedCard.portraitPNG
+        expected.portraitKey = savedCard.portraitKey
+        XCTAssertEqual(savedCard, expected, "Regeneration must preserve card settings and orientation")
+        let restoredPhoto = try await store.localPhoto(id: photoID, owner: owner)
+        XCTAssertEqual(restoredPhoto, photo)
+        XCTAssertNil(backend.snapshot().story, "A local portrait repair must not submit or change a server story")
+    }
+
+    @MainActor func testStepNavigationAppearsOnlyAtScrollEndAndHidesOnReturn() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        func scrollViews(_ view: UIView) -> [UIScrollView] {
+            (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews)
+        }
+        for step in [OiCreationStep.story] {
+            var customization = OiDraftCustomization()
+            var look = OiWardrobeLook(); look.costume = .farmer
+            customization.wardrobe = look
+            let local = OiLocalDraft(draft: draft(title: "스크롤 버튼 확인"), version: 1,
+                creationStep: step.rawValue, customization: customization)
+            try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+            var panelVisible = false
+            let controller = UIHostingController(rootView: NavigationStack {
+                OiStoryEditor(remote: store, localID: local.id)
+                    .observeNavigationForTest { panelVisible = $0 }
+            })
+            let window = UIWindow(windowScene: scene)
+            window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            window.rootViewController = controller; window.isHidden = false
+            defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+            controller.view.frame = window.bounds
+            try await Task.sleep(for: .seconds(2))
+            let scroll = try XCTUnwrap(scrollViews(controller.view).filter {
+                $0.bounds.height > 100 && $0.contentSize.height + $0.adjustedContentInset.bottom > $0.bounds.height + 40
+            }.max { $0.bounds.height < $1.bounds.height }, step.rawValue)
+            scroll.setContentOffset(CGPoint(x: 0, y: -scroll.adjustedContentInset.top), animated: false)
+            try await Task.sleep(for: .milliseconds(300))
+            XCTAssertFalse(panelVisible, "\(step): panel must be hidden at the top")
+            let height = scroll.bounds.height
+            let end = max(-scroll.adjustedContentInset.top,
+                scroll.contentSize.height + scroll.adjustedContentInset.bottom - height)
+            scroll.setContentOffset(CGPoint(x: 0, y: end), animated: false)
+            try await Task.sleep(for: .milliseconds(400))
+            XCTAssertTrue(panelVisible, "\(step): panel must appear at the end")
+            XCTAssertEqual(scroll.bounds.height, height, accuracy: 1, "Panel must not resize the viewport")
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: image); attachment.name = "step-navigation-\(step.rawValue)-bottom"
+            attachment.lifetime = .keepAlways; add(attachment)
+            scroll.setContentOffset(CGPoint(x: 0, y: max(-scroll.adjustedContentInset.top, end - 80)), animated: false)
+            try await Task.sleep(for: .milliseconds(400))
+            XCTAssertFalse(panelVisible, "\(step): panel must hide on upward scrolling")
+            scroll.setContentOffset(CGPoint(x: 0, y: end), animated: false)
+            try await Task.sleep(for: .milliseconds(400))
+            XCTAssertTrue(panelVisible, "\(step): panel must reappear without flicker")
+        }
+    }
+
+    @MainActor func testCustomizationNavigationRequiresDoneAndCardNextOpensPlacement() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        for step in [OiCreationStep.cucumber, .card] {
+            let local = OiLocalDraft(draft: draft(title: "완료 후 이동 확인"), version: 1, creationStep: step.rawValue)
+            try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+            var visible = false
+            var actions: OiStoryEditor.NavigationTestActions?
+            let controller = UIHostingController(rootView: NavigationStack {
+                OiStoryEditor(remote: store, localID: local.id)
+                    .observeNavigationForTest({ visible = $0 }, actions: { actions = $0 })
+            })
+            let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            window.rootViewController = controller; window.isHidden = false
+            defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+            try await Task.sleep(for: .seconds(2))
+            XCTAssertFalse(visible, "Editing must not reveal navigation")
+            func verticalScrolls(_ view: UIView) -> [UIScrollView] {
+                let own = (view as? UIScrollView).map { [$0] } ?? []
+                return own + view.subviews.flatMap(verticalScrolls)
+            }
+            let settings = try XCTUnwrap(verticalScrolls(controller.view).filter {
+                $0.bounds.height > 80 && $0.contentSize.height > $0.bounds.height + 20
+            }.max { $0.bounds.height < $1.bounds.height })
+            let frame = settings.convert(settings.bounds, to: window)
+            XCTAssertGreaterThan(frame.minY, 200, "Settings must sit below the fixed preview and tabs")
+            XCTAssertEqual(frame.maxY, window.bounds.maxY, accuracy: 1,
+                "Editing settings must scroll all the way to the screen bottom")
+            for scrolled in [false, true] {
+                settings.setContentOffset(CGPoint(x: 0, y: scrolled
+                    ? max(0, settings.contentSize.height - settings.bounds.height + settings.adjustedContentInset.bottom)
+                    : -settings.adjustedContentInset.top), animated: false)
+                try await Task.sleep(for: .milliseconds(300))
+                XCTAssertFalse(visible, "Scrolling settings must not bypass Done")
+                XCTAssertEqual(settings.convert(settings.bounds, to: window).minY, frame.minY, accuracy: 1)
+                let screenshot = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                    window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+                }
+                let proof = XCTAttachment(image: screenshot)
+                proof.name = "customization-panel-\(step)-\(scrolled ? "scrolled" : "top")"
+                proof.lifetime = .keepAlways; add(proof)
+            }
+
+            try XCTUnwrap(actions).finish()
+            try await Task.sleep(for: .seconds(1))
+            XCTAssertTrue(visible, "Done must reveal navigation without scrolling")
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: image); attachment.name = "step-navigation-\(step)-after-done"
+            attachment.lifetime = .keepAlways; add(attachment)
+            try XCTUnwrap(actions).finish()
+            try await Task.sleep(for: .milliseconds(400))
+            XCTAssertFalse(visible, "Editing again must hide navigation")
+            try XCTUnwrap(actions).finish()
+            try await Task.sleep(for: .milliseconds(200))
+            try XCTUnwrap(actions).next()
+            try await Task.sleep(for: .milliseconds(400))
+            XCTAssertFalse(visible, "Next must leave the finished customization panel")
+            if step == .card {
+                XCTAssertTrue(try XCTUnwrap(actions).isPlacementPreview())
+                try XCTUnwrap(actions).editFromReview(.card)
+                try await Task.sleep(for: .milliseconds(400))
+                XCTAssertFalse(try XCTUnwrap(actions).isPlacementPreview(),
+                    "Editing the current card from review must reopen its controls")
+                XCTAssertFalse(visible)
+                try XCTUnwrap(actions).finish()
+                try await Task.sleep(for: .milliseconds(400))
+                XCTAssertTrue(visible, "The corrected card must keep its Done navigation flow")
+                XCTAssertNil(backend.snapshot().story, "Editing from review must not submit a story")
+            }
+        }
+    }
+
+    @MainActor func testStepOneExitSavesDraftAndKeepsItOnSaveFailure() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        for fails in [false, true] {
+            let local = OiLocalDraft(draft: draft(title: "약관 화면 나가기"), version: 1,
+                creationStep: OiCreationStep.consent.rawValue,
+                agreedConsentClauseIDs: OiStoryConsentState().savedIDs,
+                personalPlacement: .init(regionID: "test", name: "내 오이", latitude: 36, longitude: 129,
+                    heightMeters: 1.5, headingDegrees: 0))
+            try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+            var actions: OiStoryEditor.NavigationTestActions?
+            let controller = UIHostingController(rootView: NavigationStack {
+                OiStoryEditor(remote: store, localID: local.id)
+                    .observeNavigationForTest({ _ in }, actions: { actions = $0 })
+            })
+            let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            window.rootViewController = controller; window.isHidden = false
+            defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+            try await Task.sleep(for: .seconds(1))
+            let backup = directory.appendingPathExtension("backup")
+            if fails {
+                try FileManager.default.moveItem(at: directory, to: backup)
+                try Data("blocked storage".utf8).write(to: directory)
+            }
+            let saved = await (try XCTUnwrap(actions)).exit()
+            XCTAssertEqual(saved, !fails)
+            if fails {
+                XCTAssertNotNil(controller.view.window, "A failed save must keep the editor mounted")
+                try FileManager.default.removeItem(at: directory)
+                try FileManager.default.moveItem(at: backup, to: directory)
+            }
+            let loaded = try await store.localDraft(id: local.id, owner: OiTestBackend.owner)
+            let restored = try XCTUnwrap(loaded)
+            XCTAssertEqual(restored.draft, local.draft)
+            XCTAssertEqual(restored.personalPlacement, local.personalPlacement, "Exit must not delete a map placement")
+            XCTAssertEqual(restored.creationStep, OiCreationStep.consent.rawValue)
+            XCTAssertNil(backend.snapshot().story, "Exit saves locally and must not submit a story")
+        }
+    }
+
     @MainActor func testAccountAndEditorLayoutsAtSupportedWidths() async throws {
         let (store,backend,_,session,directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
@@ -2031,6 +2398,118 @@ final class OiRemoteStoreTests: XCTestCase {
         return value
     }
 
+    @MainActor func testInteractiveStoryListSwipeDeletion() async throws {
+        guard ProcessInfo.processInfo.environment["OI_STORY_LIST_INTERACTION_CHECK"] == "1" else {
+            throw XCTSkip("Opt in: swipe left → Delete → Cancel → swipe left → Delete → confirm")
+        }
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let photoID = UUID()
+        let bytes = Data([1, 2, 3])
+        var record = OiLocalDraft(draft: draft(title: "스와이프 삭제 검증"), photos: [photoID], version: 1)
+        record.personalPlacement = OiPersonalPlacement(regionID: "pond", name: "삭제 검증 오이", latitude: 36.0126,
+            longitude: 129.3197, heightMeters: 1.35, headingDegrees: 0)
+        try await store.savePersonalPlacement(record, owner: OiTestBackend.owner)
+        try await store.saveLocalPhoto(bytes, id: photoID, owner: OiTestBackend.owner)
+        let revision = store.localPlacementRevision
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: NavigationStack { OiStoryListScreen(remote: store) })
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
+        for _ in 0..<240 {
+            try await Task.sleep(for: .seconds(1))
+            if try await store.localDraft(id: record.id, owner: OiTestBackend.owner) == nil {
+                XCTAssertGreaterThan(store.localPlacementRevision, revision)
+                do {
+                    _ = try await store.localPhoto(id: photoID, owner: OiTestBackend.owner)
+                    XCTFail("Deleted draft attachments must be removed")
+                } catch { }
+                XCTAssertNil(backend.snapshot().story, "Local deletion must not create or mutate a server story")
+                return
+            }
+        }
+        XCTFail("The swipe and confirmation route did not finish")
+    }
+
+    @MainActor func testStoryListUsesNativeScrollingAtStandardAndAccessibilitySizes() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
+        func scrollViews(in view: UIView) -> [UIScrollView] {
+            (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
+        }
+        for size in [DynamicTypeSize.large, .accessibility3] {
+            window.rootViewController = UIHostingController(rootView: NavigationStack {
+                OiStoryListView(state: .preview, notices: OiStoryListView.listNotices,
+                    onSelectStory: { _ in }, onCreateStory: {}, onDeleteStory: { _ in })
+                    .environment(\.dynamicTypeSize, size)
+            })
+            window.makeKeyAndVisible()
+            try await Task.sleep(for: .seconds(1))
+            window.layoutIfNeeded()
+            let list = try XCTUnwrap(scrollViews(in: window).first { $0 is UICollectionView || $0 is UITableView })
+            XCTAssertGreaterThan(list.bounds.height, 100)
+            XCTAssertGreaterThan(list.contentSize.height, 400)
+            list.setContentOffset(CGPoint(x: 0, y: max(-list.adjustedContentInset.top, list.contentSize.height - list.bounds.height + list.adjustedContentInset.bottom)), animated: false)
+            try await Task.sleep(for: .milliseconds(300))
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "story-list-\(size)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+    }
+
+    @MainActor func testStoryListDeletionPreservesFailuresAndRemovesConfirmedReceipt() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { clean(session, directory: directory) }
+        await store.start()
+        let savedResult = await store.save(draft(title: "삭제 검증"))
+        let saved = try XCTUnwrap(savedResult)
+        backend.configure { $0.failDelete = true }
+        let rejected = await store.deleteStory(saved)
+        XCTAssertFalse(rejected)
+        XCTAssertEqual(store.ownStories.first?.id, saved.id)
+        XCTAssertNotNil(store.error)
+
+        backend.configure { $0.failDelete = false; $0.failReadsAfterDelete = true }
+        let deleted = await store.deleteStory(saved)
+        XCTAssertTrue(deleted, "A confirmed deletion succeeds even if the following refresh fails")
+        XCTAssertFalse(store.ownStories.contains { $0.id == saved.id })
+        XCTAssertFalse(store.stories.contains { $0.id == saved.id })
+        XCTAssertEqual(backend.snapshot().story?["status"] as? String, "deleted")
+        XCTAssertNotNil(store.syncWarning)
+        XCTAssertNil(store.error)
+    }
+
+    @MainActor func testStoryListDeletionRejectsStaleRevisionAndSignedOutAccount() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { clean(session, directory: directory) }
+        await store.start()
+        let firstResult = await store.save(draft())
+        let first = try XCTUnwrap(firstResult)
+        var edited = draft(title: "새 버전")
+        edited.id = first.id
+        edited.revision = first.revision
+        let latestResult = await store.save(edited)
+        let latest = try XCTUnwrap(latestResult)
+        let staleDelete = await store.deleteStory(first)
+        XCTAssertFalse(staleDelete)
+        XCTAssertEqual(store.ownStories.first?.revision, latest.revision)
+        let count = backend.snapshot().deleteCount
+        await store.signOut()
+        let signedOutDelete = await store.deleteStory(latest)
+        XCTAssertFalse(signedOutDelete)
+        XCTAssertEqual(backend.snapshot().deleteCount, count)
+    }
+
     @MainActor func testPersonalPlacementStaysInTheAccountVaultWhenPublicationIsPaused() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { clean(session, directory: directory) }
@@ -2284,6 +2763,208 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(campusStory.headingDegrees, 263.5, accuracy: 0.001)
     }
 
+    @MainActor func testGeographicCameraPairsAnOlderFixWithItsHistoricalPose() throws {
+        let now = Date()
+        // A target about 9m east. GPS was measured before an 8m walk.
+        let target = CampusPlacement(storyID: "walk-test", latitude: 36.012, longitude: 129.3231)
+        let fix = ARCameraGeoPlacement.Fix(latitude: 36.012, longitude: 129.323, accuracy: 1,
+                                          timestamp: now.addingTimeInterval(-8))
+        var poses = ARCameraPoseHistory()
+        poses.record(position: [0, 1.5, 0], timestamp: 100)
+        poses.record(position: [0.2, 1.5, 0], timestamp: 100.2)
+        poses.record(position: [8, 1.5, 0], timestamp: 108)
+        XCTAssertNil(poses.position(at: 99), "A fix measured before this AR world must wait")
+        XCTAssertNil(poses.position(at: 109), "Never extrapolate a future pose")
+        XCTAssertNil(poses.position(at: 104), "Never bridge a gap in AR tracking")
+        let interpolated = try XCTUnwrap(poses.position(at: 100.1))
+        XCTAssertEqual(interpolated.x, 0.1, accuracy: 0.001)
+        var resolution = ARCameraGeoPlacement(target: target)
+        XCTAssertEqual(resolution.update(fix: fix, trackingNormal: true, cameraAtFix: nil, now: now,
+                                         groundHeight: { _ in 0 }), .waitingForSynchronizedLocation)
+        let offset = target.offsetMeters(fromLatitude: fix.latitude, longitude: fix.longitude)
+        let status = resolution.update(fix: fix, trackingNormal: true, cameraAtFix: poses.position(at: 100), now: now,
+                                       groundHeight: { _ in 0 })
+        XCTAssertEqual(status, .ready([offset.x, 0, offset.z]), "The later 8m walk must not be added to the target")
+        poses.reset()
+        XCTAssertNil(poses.position(at: 100), "Restarting tracking must discard old world poses")
+        poses.record(position: .zero, timestamp: 200)
+        poses.record(position: [1, 0, 0], timestamp: 213)
+        XCTAssertNil(poses.position(at: 200), "Pose history must remain bounded")
+    }
+
+    @MainActor func testGeographicCameraWaitsForLocationPermissionBeforeHeadingTracking() {
+        final class Location: ARCameraLocationProviding {
+            var location: CLLocation?
+            var hasUsableFix = false
+            var hasPreciseLocationPermission = false
+            var message: String?
+            var stops = 0
+            func start() { }
+            func stop() { stops += 1 }
+        }
+        let target = CampusPlacement(storyID: "permission-test", latitude: 36.012, longitude: 129.323)
+        let subject = ARCameraSubject(id: target.id, title: "위치 권한 검사", heightMeters: 1.5, placement: target) { Entity() }
+        let location = Location()
+        let camera = ARSessionController(subject: subject, locationProvider: location)
+        XCTAssertEqual(camera.makeSessionConfiguration().worldAlignment, .gravity)
+        location.hasPreciseLocationPermission = true
+        let authorized = camera.makeSessionConfiguration()
+        XCTAssertEqual(authorized.worldAlignment, .gravityAndHeading)
+        XCTAssertEqual(authorized.planeDetection, [.horizontal])
+        XCTAssertTrue(authorized.isLightEstimationEnabled)
+        XCTAssertFalse(camera.canCapture, "Location authorization alone never allows capture before a valid placement")
+        location.hasPreciseLocationPermission = false
+        XCTAssertEqual(camera.makeSessionConfiguration().worldAlignment, .gravity)
+        camera.pause()
+        XCTAssertEqual(location.stops, 1)
+        XCTAssertFalse(camera.geographicReady)
+        XCTAssertEqual(ARSessionController().makeSessionConfiguration().worldAlignment, .gravity)
+    }
+
+    @MainActor func testGeographicCameraGatesLocationAndFreezesWorldPosition() throws {
+        let now = Date()
+        let target = CampusPlacement(storyID: "geographic-test", latitude: 36.012, longitude: 129.323,
+            heightMeters: 1.5, headingDegrees: 90)
+        var resolution = ARCameraGeoPlacement(target: target)
+        var groundQueries = 0
+        func fix(latitude: Double = 36.012, longitude: Double = 129.323,
+                 accuracy: Double = 5, age: Double = 0) -> ARCameraGeoPlacement.Fix {
+            .init(latitude: latitude, longitude: longitude, accuracy: accuracy, timestamp: now.addingTimeInterval(-age))
+        }
+        func update(_ sample: ARCameraGeoPlacement.Fix?, tracking: Bool = true,
+                    camera: SIMD3<Float> = [4, 1.7, 2], ground: Float? = 0.3) -> ARCameraGeoPlacement.Status {
+            resolution.update(fix: sample, trackingNormal: tracking, cameraAtFix: camera, now: now) { _ in
+                groundQueries += 1
+                return ground
+            }
+        }
+        XCTAssertEqual(update(nil), .waitingForLocation)
+        XCTAssertEqual(update(fix(accuracy: 16)), .waitingForLocation)
+        XCTAssertEqual(update(fix(accuracy: -1)), .waitingForLocation)
+        XCTAssertEqual(update(fix(age: 11)), .waitingForLocation)
+        XCTAssertEqual(update(fix(latitude: .nan)), .waitingForLocation)
+        if case .outsideRange(let distance) = update(fix(latitude: 36.013)) {
+            XCTAssertGreaterThan(distance, 25)
+        } else { XCTFail("A remote saved point must stay hidden") }
+        XCTAssertEqual(update(fix(), tracking: false), .waitingForTracking)
+        XCTAssertEqual(groundQueries, 0, "Invalid location/tracking must not place an anchor")
+        XCTAssertEqual(update(fix(), ground: nil), .waitingForGround)
+        XCTAssertEqual(update(fix(), ground: .nan), .waitingForGround)
+        XCTAssertNil(resolution.position)
+        let fixed = SIMD3<Float>(4, 0.3, 2)
+        XCTAssertEqual(update(fix()), .ready(fixed))
+        let queriesAfterPlacement = groundQueries
+        XCTAssertEqual(update(fix(latitude: 36.01201, longitude: 129.32301), camera: [8, 3, 6]), .ready(fixed),
+                       "GPS noise and walking must not move a placed character")
+        XCTAssertEqual(groundQueries, queriesAfterPlacement)
+        XCTAssertEqual(update(fix(accuracy: 30)), .waitingForLocation)
+        XCTAssertEqual(update(fix(), tracking: false), .waitingForTracking)
+        XCTAssertEqual(update(fix()), .ready(fixed), "A good fix resumes the same world anchor")
+        resolution.reset()
+        XCTAssertNil(resolution.position)
+        XCTAssertEqual(update(fix(), camera: [8, 3, 6], ground: 1), .ready([8, 1, 6]))
+    }
+
+    @MainActor func testGeographicCameraUsesMetresAndSavedHeadingWithoutManualFallback() throws {
+        let now = Date()
+        let target = CampusPlacement(storyID: "direction-test", latitude: 36.0121, longitude: 129.3231,
+                                     heightMeters: 1.5, headingDegrees: 90)
+        var resolution = ARCameraGeoPlacement(target: target)
+        let offset = target.offsetMeters(fromLatitude: 36.012, longitude: 129.323)
+        XCTAssertGreaterThan(offset.x, 8)
+        XCTAssertLessThan(offset.x, 10)
+        XCTAssertLessThan(offset.z, -10)
+        XCTAssertGreaterThan(offset.z, -12)
+        let status = resolution.update(fix: .init(latitude: 36.012, longitude: 129.323, accuracy: 5, timestamp: now),
+            trackingNormal: true, cameraAtFix: [3, 2, 4], now: now) { candidate in
+                XCTAssertEqual(candidate.x, 3 + offset.x, accuracy: 0.001)
+                XCTAssertEqual(candidate.z, 4 + offset.z, accuracy: 0.001)
+                return -0.7
+            }
+        XCTAssertEqual(status, .ready([3 + offset.x, -0.7, 4 + offset.z]))
+        let subject = ARCameraSubject(id: target.id, title: "위치 오이", heightMeters: 1.5, placement: target) { Entity() }
+        let controller = ARSessionController(subject: subject)
+        XCTAssertTrue(controller.usesGeographicPlacement)
+        XCTAssertFalse(controller.geographicReady)
+        XCTAssertFalse(controller.canCapture)
+        XCTAssertEqual(controller.settings.rotation, 90)
+        controller.settings.rotation = 0
+        controller.resetSettings()
+        XCTAssertEqual(controller.settings.rotation, 90)
+        XCTAssertEqual(controller.settings.height, 1.5)
+        controller.applyGeographicStatus(.outsideRange(40), locationMessage: nil)
+        XCTAssertTrue(controller.locationNotice.contains("40m"))
+        XCTAssertFalse(controller.canCapture)
+        controller.applyGeographicStatus(.waitingForLocation, locationMessage: "위치 접근을 허용해 주세요.")
+        XCTAssertEqual(controller.locationNotice, "위치 접근을 허용해 주세요.")
+        controller.pause()
+        XCTAssertFalse(controller.geographicReady)
+        XCTAssertFalse(ARSessionController().usesGeographicPlacement)
+    }
+
+    @MainActor func testARCameraCreatesOneSessionAcrossPresenterRefreshes() async throws {
+        var created = 0
+        func screen() -> ARCameraScreen {
+            ARCameraScreen(makeModel: {
+                created += 1
+                return ARCameraViewModel()
+            })
+        }
+        let initial = screen()
+        XCTAssertEqual(created, 0, "Constructing a view value must not allocate an ARView")
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive })
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: initial)
+        defer {
+            window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+            previousKey?.makeKey()
+        }
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.layoutIfNeeded()
+        for _ in 0..<20 where created == 0 { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(created, 1)
+        for _ in 0..<5 {
+            host.rootView = screen()
+            host.view.setNeedsLayout(); host.view.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(60))
+        }
+        XCTAssertEqual(created, 1, "Presenter refreshes must keep the same camera without allocating discarded ARViews")
+    }
+
+    @MainActor func testSelectedCucumberCameraNormalizesAndResetsItsFixedSubject() async throws {
+        let id = UUID()
+        let subject = ARCameraSubject(id: id, title: "선택한 오이", heightMeters: 1.5) {
+            ModelEntity(mesh: .generateBox(size: SIMD3<Float>(1, 3, 1)))
+        }
+        let camera = ARSessionController(subject: subject)
+        XCTAssertEqual(camera.subject?.id, id)
+        XCTAssertEqual(camera.settings.height, 1.5)
+        XCTAssertEqual(camera.settings.cucumberStoryID, id)
+        XCTAssertEqual(camera.settings.cucumberName, subject.title)
+        camera.settings.height = 0.8
+        camera.resetSettings()
+        XCTAssertEqual(camera.settings.height, 1.5, "Reset must preserve the selected cucumber and its initial height")
+        XCTAssertEqual(camera.settings.cucumberStoryID, id)
+        let loaded = try await ARCharacterController().load(subject)
+        let bounds = loaded.root.visualBounds(relativeTo: nil)
+        XCTAssertEqual(bounds.extents.y, 1, accuracy: 0.001)
+        XCTAssertEqual(bounds.min.y, 0, accuracy: 0.001)
+        loaded.root.scale = SIMD3(repeating: camera.settings.height)
+        XCTAssertEqual(loaded.root.visualBounds(relativeTo: nil).extents.y, 1.5, accuracy: 0.001)
+        let legacy = ARSessionController()
+        XCTAssertNil(legacy.subject)
+        XCTAssertEqual(legacy.settings.character, .neopjuk)
+        XCTAssertNil(legacy.settings.cucumberStoryID)
+        XCTAssertEqual(legacy.settings.height, 1.2)
+        let bytes = try JSONEncoder().encode(camera.settings)
+        XCTAssertEqual(try JSONDecoder().decode(ARCaptureSettings.self, from: bytes).cucumberStoryID, id)
+        let oldBytes = try JSONEncoder().encode(legacy.settings)
+        XCTAssertNil(try JSONDecoder().decode(ARCaptureSettings.self, from: oldBytes).cucumberStoryID)
+    }
+
     @MainActor func testPublishedOutfitSurvivesApprovalAndLoadsOnAnotherClient() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
@@ -2335,13 +3016,37 @@ final class OiRemoteStoreTests: XCTestCase {
         let clipStory = try await repository.fetchPublicStory(storyID: pending.id.uuidString)
         XCTAssertEqual(clipStory?.hasCustomCucumberImage, true)
         XCTAssertEqual(clipStory?.cucumberImageURL?.path, "/storage/v1/object/sign/oi-story-media/" + artwork.path(.portrait))
+        let projected = reader.campusStory(published)
+        let subject = try XCTUnwrap(CampusCucumberCameraSubject.make(story: projected, remote: reader))
+        XCTAssertEqual(subject.id, published.id)
+        XCTAssertEqual(subject.defaultSettings.height, Float(projected.heightMeters))
+        XCTAssertEqual(subject.placement, published.campusPlacement)
+        XCTAssertNotNil(subject.placement)
+        let normalized = try await ARCharacterController().load(subject)
+        XCTAssertNotNil(normalized.model.findEntity(named: "OiPhotoOverlay"), "The photo camera must use the selected approved outfit and its texture")
+        XCTAssertEqual(normalized.root.visualBounds(relativeTo: nil).extents.y, 1, accuracy: 0.001)
+        XCTAssertNil(CampusCucumberCameraSubject.make(story: CampusStoryExamples.stories[0], remote: reader))
+        let originalLatitude = published.latitude
+        backend.configure { $0.story?["latitude"] = originalLatitude + 0.001 }
+        do { _ = try await subject.loadModel(); XCTFail("A changed saved location must not use the stale camera target") }
+        catch { }
+        backend.configure { $0.story?["latitude"] = originalLatitude }
+        backend.configure { $0.story?["status"] = "hidden"; $0.ignoreStoryStatusFilter = true }
+        do { _ = try await subject.loadModel(); XCTFail("A withdrawn story must not remain available to the photo camera") }
+        catch { }
+        backend.configure {
+            $0.story?["status"] = "published"
+            $0.uploads.removeValue(forKey: "oi-story-media/" + artwork.path(.top))
+        }
+        do { _ = try await subject.loadModel(); XCTFail("Missing approved artwork must not fall back to a different cucumber") }
+        catch { }
     }
 
     @MainActor func testAuthoredCardIsReviewedAndReusedWhenStoryIsResubmitted() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
         backend.configure {
-            $0.isOperator = true; $0.publicStoryCard = true; $0.publicCucumberAppearance = true
+            $0.isOperator = true; $0.publicStoryCard = true; $0.publicCucumberAppearance = true; $0.duplexStoryCard = true
             $0.timeOutCardUploadAfterCommit = true
         }
         await store.start()
@@ -2354,8 +3059,8 @@ final class OiRemoteStoreTests: XCTestCase {
         let card = try preview.publication(colorScheme: .light)
         XCTAssertEqual(try preview.publication(colorScheme: .light).id, card.id)
         let image = try OiPublishedCucumberImage.decode(card.png, part: .portrait)
-        XCTAssertEqual(image.width, 724)
-        XCTAssertEqual(image.height, 1004)
+        XCTAssertEqual(image.width, 1086)
+        XCTAssertEqual(image.height, 1506)
         let cucumber = try OiCucumberPublication(look: OiWardrobeLook(), portrait: card.png)
 
         let draftReceipt = await store.save(input)
@@ -2371,6 +3076,20 @@ final class OiRemoteStoreTests: XCTestCase {
         let approved = try await store.reviewOperatorStory(pending, publish: true).story
         let publicCard = try await repository.fetchPublicStoryCard(storyID: saved.id.uuidString)
         XCTAssertEqual(publicCard?.imageURL?.path, "/storage/v1/object/sign/oi-story-media/" + cardPath)
+        XCTAssertEqual(pending.cardSnapshotFormat, 2)
+        XCTAssertNotNil(publicCard?.backImageURL)
+        XCTAssertNotNil(publicCard?.frontPreviewURL)
+        XCTAssertNotNil(publicCard?.backPreviewURL)
+        let details = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
+        XCTAssertEqual(details?.frontURL, publicCard?.frontPreviewURL, "NFC uses the same reviewed preview as the general Clip")
+        XCTAssertEqual(details?.backURL, publicCard?.backImageURL, "The scratch postcard shows the full-resolution back")
+        backend.configure { $0.failCardBackRead = true }
+        do {
+            _ = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
+            XCTFail("A missing format-2 back must not silently fall back to generated text")
+        } catch {}
+        backend.configure { $0.failCardBackRead = false }
+        for path in pending.cardArtworkPaths { XCTAssertNotNil(backend.snapshot().uploads["oi-story-media/" + path]) }
         XCTAssertEqual(store.campusStory(approved).cardArtworkPath, cardPath)
         let uploadCount = backend.snapshot().artworkUploadAttempts
 
@@ -2392,6 +3111,200 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(backend.snapshot().artworkUploadAttempts, uploadCount)
         let pendingCard = try await repository.fetchPublicStoryCard(storyID: saved.id.uuidString)
         XCTAssertNil(pendingCard)
+    }
+
+    @MainActor func testCoverCapabilityUploadsReviewsAndReadsFiveParts() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.publicStoryCard = true; $0.duplexStoryCard = true; $0.storyCardCover = true }
+        await store.start()
+        XCTAssertTrue(store.canPublishStoryCardCover)
+        let input = draft()
+        let card = try OiDraftCardPreview(draft: input, customization: OiDraftCustomization()).publication(colorScheme: .light, includeCover: true)
+        let savedReceipt = await store.save(input)
+        let saved = try XCTUnwrap(savedReceipt)
+        backend.configure { $0.failCardCoverUpload = true }
+        let partial = await store.submitStory(saved, card: card)
+        XCTAssertNil(partial)
+        XCTAssertEqual(backend.snapshot().submitCount, 0)
+        XCTAssertEqual(store.ownStories.first?.status, "draft")
+        backend.configure { $0.failCardCoverUpload = false }
+        let receipt = await store.submitStory(saved, card: card)
+        let pending = try XCTUnwrap(receipt)
+        XCTAssertEqual(pending.cardSnapshotFormat, 3)
+        XCTAssertEqual(pending.cardArtworkPaths.count, 5)
+        XCTAssertTrue(pending.cardArtworkPaths.last?.hasSuffix("/cover.png") == true)
+        XCTAssertNotNil(pending.cardBackArtworkPath)
+        for path in pending.cardArtworkPaths { XCTAssertNotNil(backend.snapshot().uploads["oi-story-media/" + path]) }
+        let repository = RealStoryRepository(key: "sb_publishable_testing", session: session)
+        let privateDetails = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
+        XCTAssertNil(privateDetails)
+        let approved = try await store.reviewOperatorStory(pending, publish: true).story
+        XCTAssertEqual(approved.cardSnapshotFormat, 3)
+        let details = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
+        XCTAssertTrue(details?.coverURL?.path.hasSuffix("/cover.png") == true)
+        XCTAssertTrue(details?.frontURL?.path.hasSuffix("/front-preview.png") == true)
+        XCTAssertTrue(details?.backURL?.path.hasSuffix("/back.png") == true)
+        backend.configure { $0.failCardCoverRead = true }
+        let fallback = try await repository.fetchPublicPostcardDetails(storyID: saved.id.uuidString)
+        XCTAssertNil(fallback?.coverURL)
+        XCTAssertNotNil(fallback?.frontURL, "A missing optional cover preserves the approved front fallback")
+    }
+
+    @MainActor private func jpegCard() throws -> OiStoryCardPublication {
+        try OiDraftCardPreview(draft: draft(), customization: OiDraftCustomization())
+            .publication(colorScheme: .light, includeCover: true, coverType: .jpeg)
+    }
+
+    @MainActor func testJPEGCoverUploadsReviewsAndReadsWithExactType() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.publicStoryCard = true; $0.duplexStoryCard = true; $0.storyCardCover = true; $0.storyCardCoverJpeg = true }
+        await store.start()
+        XCTAssertTrue(store.canPublishStoryCardCoverJPEG)
+        let card = try jpegCard()
+        let saved = await store.save(draft())
+        backend.configure { $0.failCardCoverUpload = true }
+        let failed = await store.submitStory(try XCTUnwrap(saved), card: card)
+        XCTAssertNil(failed)
+        XCTAssertEqual(backend.snapshot().submitCount, 0, "A partial bundle cannot enter review")
+        backend.configure { $0.failCardCoverUpload = false; $0.timeOutSubmitAfterCommit = true }
+        let submitted = await store.submitStory(try XCTUnwrap(saved), card: card)
+        let pending = try XCTUnwrap(submitted)
+        XCTAssertEqual(pending.cardSnapshotFormat, 3)
+        XCTAssertEqual(pending.cardCoverType, "jpeg")
+        XCTAssertEqual(pending.cardSnapshotId, card.id)
+        XCTAssertEqual(pending.cardArtworkPaths.count, 5)
+        let coverPath = try XCTUnwrap(pending.cardArtworkPaths.last)
+        XCTAssertTrue(coverPath.hasSuffix("/cover.jpg"))
+        for path in pending.cardArtworkPaths {
+            XCTAssertEqual(backend.snapshot().uploadContentTypes["oi-story-media/" + path], path == coverPath ? "image/jpeg" : "image/png")
+        }
+        let bytes = try await store.storyCoverData(coverPath, type: .jpeg)
+        XCTAssertEqual(bytes, card.parts[.cover])
+        let reused = try OiCardImageExport.publication(front: XCTUnwrap(UIImage(data: card.png)),
+            message: "뒷면 수정", author: "가상 작성자", cover: bytes, coverType: .jpeg)
+        XCTAssertEqual(reused.parts[.cover], bytes, "Saved JPEG must not be compressed again")
+        XCTAssertNotEqual(reused.id, card.id)
+        let approved = try await store.reviewOperatorStory(pending, publish: true).story
+        XCTAssertEqual(approved.cardCoverType, "jpeg")
+        XCTAssertEqual(backend.snapshot().reviewPayloads.last?["card_cover_type"] as? String, "jpeg")
+        let repository = RealStoryRepository(key: "sb_publishable_testing", session: session)
+        let details = try await repository.fetchPublicPostcardDetails(storyID: pending.id.uuidString)
+        XCTAssertEqual(details?.coverType, .jpeg)
+        XCTAssertTrue(details?.coverURL?.path.hasSuffix("/cover.jpg") == true)
+        XCTAssertTrue(details?.backURL?.path.hasSuffix("/back.png") == true)
+        backend.configure { $0.failCardCoverRead = true }
+        let fallback = try await repository.fetchPublicPostcardDetails(storyID: pending.id.uuidString)
+        XCTAssertNil(fallback?.coverURL)
+        XCTAssertNotNil(fallback?.frontURL)
+        await store.signOut()
+        XCTAssertFalse(store.canPublishStoryCardCoverJPEG)
+    }
+
+    @MainActor func testJPEGCoverFallsBackToRealPNGOnPNGOnlyServer() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.publicStoryCard = true; $0.duplexStoryCard = true; $0.storyCardCover = true }
+        await store.start()
+        XCTAssertFalse(store.canPublishStoryCardCoverJPEG)
+        let jpeg = try jpegCard(), png = try jpeg.withPNGCover()
+        XCTAssertNotEqual(jpeg.id, png.id)
+        let saved = await store.save(draft())
+        let submitted = await store.submitStory(try XCTUnwrap(saved), card: jpeg)
+        var pending = try XCTUnwrap(submitted)
+        XCTAssertEqual(pending.cardSnapshotId, png.id)
+        XCTAssertEqual(pending.cardSnapshotFormat, 3)
+        let path = try XCTUnwrap(pending.cardArtworkPaths.last)
+        XCTAssertTrue(path.hasSuffix("/cover.png"))
+        let data = try XCTUnwrap(backend.snapshot().uploads["oi-story-media/" + path])
+        _ = try OiPublishedStoryCover.decode(data, type: .png)
+        XCTAssertEqual(backend.snapshot().uploadContentTypes["oi-story-media/" + path], "image/png")
+        XCTAssertFalse(backend.snapshot().uploads.keys.contains { $0.hasSuffix("/cover.jpg") })
+        // A pre-JPEG server omits the metadata column entirely.
+        backend.configure { $0.story?.removeValue(forKey: "card_cover_type") }
+        pending.cardCoverType = nil
+        _ = try await store.reviewOperatorStory(pending, publish: true)
+        let details = try await RealStoryRepository(key: "sb_publishable_testing", session: session)
+            .fetchPublicPostcardDetails(storyID: pending.id.uuidString)
+        XCTAssertEqual(details?.coverType, .png)
+        XCTAssertTrue(details?.coverURL?.path.hasSuffix("/cover.png") == true)
+    }
+
+    @MainActor func testJPEGCoverRejectsWrongSubmissionTypeIncludingTimeout() async throws {
+        for timeout in [false, true] {
+            let (store, backend, _, session, directory) = try context()
+            defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+            backend.configure { $0.publicStoryCard = true; $0.duplexStoryCard = true; $0.storyCardCover = true; $0.storyCardCoverJpeg = true; $0.corruptSubmittedCoverType = true; $0.timeOutSubmitAfterCommit = timeout }
+            await store.start()
+            let saved = await store.save(draft())
+            let result = await store.submitStory(try XCTUnwrap(saved), card: try jpegCard())
+            XCTAssertNil(result, "Matching snapshot IDs with a different codec are not a confirmed submission")
+            XCTAssertNotNil(store.error)
+        }
+    }
+
+    @MainActor func testJPEGCoverRejectsWrongApprovalReceiptAndUnknownType() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true; $0.publicStoryCard = true; $0.duplexStoryCard = true; $0.storyCardCover = true; $0.storyCardCoverJpeg = true }
+        await store.start()
+        let saved = await store.save(draft())
+        let submitted = await store.submitStory(try XCTUnwrap(saved), card: try jpegCard())
+        var pending = try XCTUnwrap(submitted)
+        pending.cardCoverType = "future-codec"
+        XCTAssertFalse(pending.hasSupportedCardArtwork)
+        do { _ = try await store.reviewOperatorStory(pending, publish: true); XCTFail("Unknown cover types cannot be approved") } catch {}
+        XCTAssertEqual(backend.snapshot().reviewCount, 0)
+        pending.cardCoverType = "jpeg"
+        backend.configure { $0.corruptReviewedCoverType = true }
+        do { _ = try await store.reviewOperatorStory(pending, publish: true); XCTFail("Wrong type receipt must be rejected") }
+        catch { XCTAssertTrue(error is OiOperatorStoryError) }
+    }
+
+    @MainActor func testCoverFallsBackToSameDuplexVersionOnOlderServer() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.publicStoryCard = true; $0.duplexStoryCard = true }
+        await store.start()
+        XCTAssertFalse(store.canPublishStoryCardCover)
+        let input = draft()
+        let preview = OiDraftCardPreview(draft: input, customization: OiDraftCustomization())
+        let card = try preview.publication(colorScheme: .light, includeCover: true)
+        let legacy = try card.withoutCover()
+        XCTAssertEqual(legacy.id, try preview.publication(colorScheme: .light).id)
+        let savedReceipt = await store.save(input)
+        let receipt = await store.submitStory(try XCTUnwrap(savedReceipt), card: card)
+        XCTAssertEqual(receipt?.cardSnapshotFormat, 2)
+        XCTAssertEqual(receipt?.cardSnapshotId, legacy.id)
+        XCTAssertEqual(backend.snapshot().uploads.keys.filter { $0.contains("/card/") }.count, 4)
+        XCTAssertFalse(backend.snapshot().uploads.keys.contains { $0.hasSuffix("/cover.png") })
+    }
+
+    @MainActor func testDuplexCardPartialUploadAndOldServerPreserveDraft() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.publicStoryCard = true }
+        await store.start()
+        let input = draft()
+        let card = try OiDraftCardPreview(draft: input, customization: OiDraftCustomization()).publication(colorScheme: .light)
+        let savedReceipt = await store.save(input)
+        let saved = try XCTUnwrap(savedReceipt)
+        let oldServer = await store.submitStory(saved, card: card)
+        XCTAssertNil(oldServer)
+        XCTAssertEqual(backend.snapshot().artworkUploadAttempts, 0, "Never silently downgrade a two-sided card")
+        backend.configure { $0.duplexStoryCard = true; $0.failCardBackUpload = true }
+        await store.refresh()
+        let partial = await store.submitStory(saved, card: card)
+        XCTAssertNil(partial)
+        XCTAssertEqual(backend.snapshot().submitCount, 0)
+        XCTAssertEqual(store.ownStories.first?.status, "draft")
+        backend.configure { $0.failCardBackUpload = false }
+        let retried = await store.submitStory(saved, card: card)
+        XCTAssertEqual(retried?.status, "pending")
+        XCTAssertEqual(retried?.cardSnapshotFormat, 2)
+        XCTAssertEqual(backend.snapshot().uploads.keys.filter { $0.contains("/card/") }.count, 4)
+        XCTAssertEqual(backend.snapshot().submitCount, 1)
     }
 }
 
@@ -3401,6 +4314,135 @@ final class OiCostumePhotoTests: XCTestCase {
 /// A valid ZIP alone cannot catch unsupported materials or missing bundled textures.
 @MainActor
 final class OiWardrobeAssetTests: XCTestCase {
+    func testFittedCardiganShortsKeepShapeWhenPhotosAreAppliedAndRemoved() async throws {
+        var plain = OiWardrobeLook(); plain.top = .cardigan; plain.bottom = .shorts
+        plain.topColor = 0xD7CBB8; plain.bottomColor = 0xD7CBB8
+        let (base, _) = try await OiWardrobeAsset.prepare(plain)
+        let bottom = try XCTUnwrap(base.findEntity(named: "Bottom"))
+        // The original protruding shorts reached +0.192m; the approved fit ends at +0.157m.
+        XCTAssertEqual(bottom.visualBounds(relativeTo: base).max.z, 0.156525, accuracy: 0.001)
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32)).image { context in
+            UIColor.magenta.setFill(); context.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+        }
+        let asset = try OiPhotoRenderer.asset(image)
+        var printed = plain
+        for slot in OiPhotoSlot.allCases {
+            let design = OiPhotoDesign(layers: [OiPhotoLayer(source: asset.id), OiPhotoLayer(source: asset.id, side: .back)])
+            try printed.artwork.set(design, sources: [asset.id: asset.data], for: slot.itemID(in: printed))
+        }
+        let restored = try JSONDecoder().decode(OiWardrobeLook.self, from: JSONEncoder().encode(printed))
+        XCTAssertEqual(restored, printed)
+        let (root, overlays) = try await OiWardrobeAsset.prepare(restored)
+        XCTAssertEqual(overlays.count, OiPhotoSlot.allCases.count)
+        for slot in OiPhotoSlot.allCases {
+            let garment = try XCTUnwrap(root.findEntity(named: slot.role))
+            let overlay = try XCTUnwrap(overlays[slot])
+            let expected = garment.visualBounds(relativeTo: root)
+            let actual = overlay.visualBounds(relativeTo: nil)
+            for axis in 0..<3 {
+                XCTAssertEqual(actual.min[axis], expected.min[axis], accuracy: 0.00001, slot.role)
+                XCTAssertEqual(actual.max[axis], expected.max[axis], accuracy: 0.00001, slot.role)
+            }
+        }
+        OiWardrobeAsset.assemble(restored, root: root, overlays: overlays)
+        for slot in OiPhotoSlot.allCases {
+            XCTAssertFalse(try XCTUnwrap(root.findEntity(named: slot.role)).isEnabled)
+            XCTAssertTrue(overlays[slot]?.parent === root)
+        }
+        let (removed, remaining) = try await OiWardrobeAsset.prepare(plain, existing: root)
+        OiWardrobeAsset.assemble(plain, root: removed, overlays: remaining)
+        XCTAssertTrue(remaining.isEmpty)
+        for slot in OiPhotoSlot.allCases {
+            XCTAssertTrue(try XCTUnwrap(removed.findEntity(named: slot.role)).isEnabled)
+        }
+        XCTAssertEqual(removed.visualBounds(relativeTo: nil).extents.y, 1.5, accuracy: 0.005)
+
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let controller = UIViewController()
+        window.frame = CGRect(x: 0, y: 0, width: 480, height: 600)
+        window.rootViewController = controller; window.isHidden = false
+        let scene = OiWardrobeScene()
+        let view = scene.install(); view.frame = window.bounds
+        controller.view.addSubview(view)
+        defer {
+            scene.uninstall(view); view.removeFromSuperview()
+            window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+        }
+        for (name, look) in [("plain", plain), ("photos", restored), ("removed", plain)] {
+            scene.update(look)
+            for _ in 0..<200 where scene.loading { try await Task.sleep(for: .milliseconds(100)) }
+            XCTAssertFalse(scene.loading); XCTAssertNil(scene.error)
+            for (angleName, angle) in [("side", -Float.pi / 2), ("angle", -Float.pi / 3)] {
+                scene.angle(angle)
+                try await Task.sleep(for: .milliseconds(650))
+                let image: UIImage? = await withCheckedContinuation { c in
+                    view.snapshot(saveToHDR: false) { c.resume(returning: $0) }
+                }
+                let attachment = XCTAttachment(image: try XCTUnwrap(image))
+                attachment.name = "cardigan-fit-\(name)-\(angleName)"
+                attachment.lifetime = .keepAlways; add(attachment)
+            }
+        }
+    }
+
+    func testModularOutfitsKeepApprovedSkinAndRenderInWardrobe() async throws {
+        func checkSkin(_ entity: Entity, role: String = "") -> Int {
+            let current = entity.name.hasPrefix("Skin_") ? entity.name : role
+            var count = 0
+            if current.hasPrefix("Skin_"), let model = entity.components[ModelComponent.self] {
+                for material in model.materials {
+                    guard let skin = material as? PhysicallyBasedMaterial else {
+                        XCTFail("Skin must load as PBR: \(entity.name)"); continue
+                    }
+                    XCTAssertNotNil(skin.baseColor.texture, entity.name)
+                    XCTAssertNotNil(skin.normal.texture, entity.name)
+                    XCTAssertEqual(skin.roughness.scale, 155 / 255, accuracy: 0.0001, entity.name)
+                    XCTAssertNil(skin.roughness.texture, entity.name)
+                    XCTAssertEqual(skin.metallic.scale, 0, entity.name)
+                    count += 1
+                }
+            }
+            return count + entity.children.reduce(0) { $0 + checkSkin($1, role: current) }
+        }
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let controller = UIViewController()
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 500)
+        window.rootViewController = controller; window.isHidden = false
+        let scene = OiWardrobeScene()
+        let view = scene.install(); view.frame = window.bounds
+        controller.view.addSubview(view)
+        defer {
+            scene.uninstall(view); view.removeFromSuperview()
+            window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+        }
+        for top in OiWardrobeLook.Top.allCases {
+            for bottom in OiWardrobeLook.Bottom.allCases {
+                var look = OiWardrobeLook(); look.top = top; look.bottom = bottom
+                let (model, overlays) = try await OiWardrobeAsset.prepare(look)
+                let expected = bottom == .shorts ? 5 : 3
+                XCTAssertEqual(checkSkin(model), expected, look.modelName)
+                OiWardrobeAsset.assemble(look, root: model, overlays: overlays)
+                XCTAssertEqual(checkSkin(model), expected, "Clothing tint must preserve the skin material")
+                XCTAssertEqual(model.visualBounds(relativeTo: nil).extents.y, 1.5, accuracy: 0.005)
+                scene.update(look)
+                for _ in 0..<200 {
+                    if !scene.loading { break }
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                XCTAssertFalse(scene.loading, look.modelName); XCTAssertNil(scene.error, look.modelName)
+                try await Task.sleep(for: .seconds(1))
+                let image: UIImage? = await withCheckedContinuation { c in
+                    view.snapshot(saveToHDR: false) { c.resume(returning: $0) }
+                }
+                let attachment = XCTAttachment(image: try XCTUnwrap(image, look.modelName))
+                attachment.name = "wardrobe-skin-" + look.modelName
+                attachment.lifetime = .keepAlways; add(attachment)
+            }
+        }
+    }
+
     @MainActor func testCardRotationSymbolExists() {
         XCTAssertNotNil(UIImage(systemName: "rotate.3d"))
     }
@@ -3445,7 +4487,7 @@ final class OiWardrobeAssetTests: XCTestCase {
         view.frame = window.bounds
         controller.view.addSubview(view)
         defer { scene.uninstall(view); view.removeFromSuperview() }
-        for costume: OiWardrobeLook.Costume in [.baseball, .farmer, .astronautNavy, .postechSelfie] {
+        for costume in OiWardrobeLook.Costume.allCases {
             var look = OiWardrobeLook(); look.costume = costume
             scene.update(look)
             for _ in 0..<200 {

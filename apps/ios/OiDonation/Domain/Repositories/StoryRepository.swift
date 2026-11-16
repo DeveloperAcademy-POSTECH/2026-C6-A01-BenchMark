@@ -13,6 +13,21 @@ protocol StoryRepository: Sendable {
     func fetchPublicStories(offset: Int) async throws -> [PublicStorySummary]
     func fetchPublicStory(storyID: String) async throws -> Story?
     func fetchPublicStoryCard(storyID: String) async throws -> StoryCard?
+    /// Story linked to an NFC postcard tag, or nil when the tag is unknown, retired or its story is not public (#291).
+    func fetchNFCPostcardStoryID(tag: String) async throws -> String?
+    /// Images and donor line for the scratch postcard of a published story (#291).
+    func fetchPublicPostcardDetails(storyID: String) async throws -> PublicPostcardDetails?
+    /// Story, card and postcard details for one scratch postcard, read in as few round trips as possible (#348).
+    func fetchPublicPostcard(storyID: String) async throws -> PublicPostcard?
+    /// Opens the server connection before the first real request so DNS and TLS are not on the critical path (#348).
+    func warmUpConnection() async
+}
+
+/// Everything the scratch postcard screen reads from the server for one published story (#348).
+struct PublicPostcard: Sendable {
+    let story: Story
+    let card: StoryCard
+    let details: PublicPostcardDetails
 }
 
 extension StoryRepository {
@@ -20,6 +35,47 @@ extension StoryRepository {
 }
 
 /// Public reads deliberately never use an owner or operator session.
+/// What the App Clip needs beyond `Story` to draw a scratch postcard.
+struct PublicPostcardDetails: Sendable {
+    /// Approved postcard preview, or the legacy original when no preview exists.
+    let frontURL: URL?
+    /// Postcard back rendered with the front; nil for stories submitted by older app versions.
+    let backURL: URL?
+    /// First story photo, used only when no approved postcard front exists.
+    let coverPhotoURL: URL?
+    /// "26학번 디벨로퍼학과 신수리" when the author filled in the public donor search fields.
+    let donorLine: String?
+    /// Approved sticker-free window from a format-3 snapshot.
+    var coverURL: URL? = nil
+    var coverType: StoryCard.CoverType = .png
+}
+
+extension StoryRepository {
+    func fetchNFCPostcardStoryID(tag: String) async throws -> String? { nil }
+    func fetchPublicPostcardDetails(storyID: String) async throws -> PublicPostcardDetails? { nil }
+
+    func warmUpConnection() async {}
+
+    /// Composes the three public reads concurrently; `RealStoryRepository` replaces it with a single pass.
+    func fetchPublicPostcard(storyID: String) async throws -> PublicPostcard? {
+        async let story = fetchPublicStory(storyID: storyID)
+        async let card = fetchPublicStoryCard(storyID: storyID)
+        async let details = fetchPublicPostcardDetails(storyID: storyID)
+        guard let story = try await story, let card = try await card, let details = try await details else { return nil }
+        return PublicPostcard(story: story, card: card, details: details)
+    }
+
+    /// Revalidate publication and tag assignment immediately before recording a collection.
+    func canCollectNFCPostcard(tag: String, storyID: String) async throws -> Bool {
+        guard AppClipLink.isValidPostcardTag(tag), let expected = UUID(uuidString: storyID),
+              let story = try await fetchPublicStory(storyID: storyID), UUID(uuidString: story.storyID) == expected else { return false }
+        try Task.checkCancellation()
+        let current = try await fetchNFCPostcardStoryID(tag: tag)
+        try Task.checkCancellation()
+        return current.flatMap(UUID.init(uuidString:)) == expected
+    }
+}
+
 struct RealStoryRepository: StoryRepository {
     private let key: String?
     private let transport: APIClient
@@ -37,9 +93,16 @@ struct RealStoryRepository: StoryRepository {
         let storageOwnerId: UUID?
         let cucumberAppearance: Appearance?
         let cardSnapshotId: UUID?
+        let cardSnapshotFormat: Int?
+        let cardCoverType: String?
     }
-    private struct Profile: Decodable { let id: UUID; let nickname: String }
-    private struct Region: Decodable { let id: String; let name: String }
+    // Decoded inside the concurrent postcard reads (#348).
+    private nonisolated struct Profile: Decodable, Sendable {
+        let id: UUID; let nickname: String
+        // Owner-entered public donor search fields; empty when not provided.
+        let publicName: String?; let department: String?; let admissionYear: String?
+    }
+    private nonisolated struct Region: Decodable, Sendable { let id: String; let name: String }
     private enum Failure: Error { case configuration, unavailable, invalidResponse }
 
     private func publicKey() throws -> String {
@@ -107,24 +170,33 @@ struct RealStoryRepository: StoryRepository {
 
     func fetchPublicStory(storyID: String) async throws -> Story? {
         guard let row = try await publishedRecord(storyID: storyID) else { return nil }
-        let id = row.id
         let profiles = try await rows("oi_profiles", id: row.userId.uuidString, as: Profile.self)
         let regions = try await rows("oi_regions", id: row.regionId, as: Region.self)
+        let portraitURL = await portraitURL(for: row)
+        try Task.checkCancellation()
+        guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
+        return try story(from: row, profile: profiles.first, region: regions.first, portraitURL: portraitURL)
+    }
+
+    private func story(from row: Record, profile: Profile?, region: Region?, portraitURL: URL?) throws -> Story {
         let parser = ISO8601DateFormatter(); parser.formatOptions = [.withInternetDateTime,.withFractionalSeconds]
         let fractional = parser.date(from: row.createdAt); parser.formatOptions = [.withInternetDateTime]
         guard let date = fractional ?? parser.date(from: row.createdAt) else { throw Failure.invalidResponse }
-        let portraitURL: URL?
-        if let appearance = row.cucumberAppearance {
-            let path = "\((row.storageOwnerId ?? row.userId).uuidString.lowercased())/\(id.uuidString.lowercased())/appearance/\(appearance.id.uuidString.lowercased())/portrait.png"
-            portraitURL = try? await publishedArtworkURL(path: path)
-        } else { portraitURL = cucumberImageURL(for: row.cucumberAsset) }
-        try Task.checkCancellation()
-        guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
-        return Story(storyID: id.uuidString, donorID: row.userId, donorDisplayName: profiles.first?.nickname ?? "농부",
+        return Story(storyID: row.id.uuidString, donorID: row.userId, donorDisplayName: profile?.nickname ?? "농부",
             title: row.title, content: row.body, publishedAt: date,
-            location: StoryLocation(locationID: row.regionId, displayName: regions.first?.name ?? "장소 확인 중"),
-            tags: [row.theme,row.emotion], cucumberID: id.uuidString, cucumberName: row.cucumberName,
+            location: StoryLocation(locationID: row.regionId, displayName: region?.name ?? "장소 확인 중"),
+            tags: [row.theme,row.emotion], cucumberID: row.id.uuidString, cucumberName: row.cucumberName,
             cucumberImageURL: portraitURL, hasCustomCucumberImage: row.cucumberAppearance != nil)
+    }
+
+    /// The approved custom portrait, or a bundled preset. A failed signature leaves the character out.
+    private func portraitURL(for row: Record) async -> URL? {
+        guard let appearance = row.cucumberAppearance else { return cucumberImageURL(for: row.cucumberAsset) }
+        return try? await publishedArtworkURL(path: Self.portraitPath(row: row, appearance: appearance))
+    }
+
+    private static func portraitPath(row: Record, appearance: Record.Appearance) -> String {
+        "\((row.storageOwnerId ?? row.userId).uuidString.lowercased())/\(row.id.uuidString.lowercased())/appearance/\(appearance.id.uuidString.lowercased())/portrait.png"
     }
 
     private func publishedArtworkURL(path: String) async throws -> URL {
@@ -166,6 +238,180 @@ struct RealStoryRepository: StoryRepository {
         } else { imageURL = nil }
         try Task.checkCancellation()
         guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
-        return StoryCard(cardID: row.id.uuidString, storyID: row.id.uuidString, imageURL: imageURL)
+        var card = StoryCard(cardID: row.id.uuidString, storyID: row.id.uuidString, imageURL: imageURL)
+        if [2, 3].contains(row.cardSnapshotFormat ?? 1), let snapshot = row.cardSnapshotId {
+            let owner = row.storageOwnerId ?? row.userId
+            card.backImageURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id, snapshot: snapshot, part: .back))
+            card.frontPreviewURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id, snapshot: snapshot, part: .frontPreview))
+            card.backPreviewURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id, snapshot: snapshot, part: .backPreview))
+        }
+        try Task.checkCancellation()
+        guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
+        return card
+    }
+
+    // MARK: - NFC postcard (#291)
+
+    private func authorized(_ url: URL, method: String = "GET", body: Data? = nil) throws -> URLRequest {
+        var request = URLRequest(url: url); request.timeoutInterval = 30; request.httpMethod = method
+        let key = try publicKey()
+        request.setValue(key, forHTTPHeaderField: "apikey")
+        if key.hasPrefix("ey") { request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
+        if let body { request.httpBody = body; request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        return request
+    }
+
+    func fetchNFCPostcardStoryID(tag: String) async throws -> String? {
+        guard AppClipLink.isValidPostcardTag(tag),
+              let url = URL(string: "https://\(transport.approvedHost)/rest/v1/rpc/oi_nfc_postcard") else { return nil }
+        let body = try JSONEncoder().encode(["p_tag": tag])
+        let data = try await transport.send(try authorized(url, method: "POST", body: body))
+        try Task.checkCancellation()
+        // The function returns a bare JSON string (story UUID) or null.
+        guard let value = try JSONDecoder().decode(String?.self, from: data) else { return nil }
+        guard let id = UUID(uuidString: value) else { throw Failure.invalidResponse }
+        return id.uuidString
+    }
+
+    func fetchPublicPostcardDetails(storyID: String) async throws -> PublicPostcardDetails? {
+        guard let row = try await publishedRecord(storyID: storyID) else { return nil }
+        let owner = row.storageOwnerId ?? row.userId
+        var frontURL: URL?, backURL: URL?, coverURL: URL?
+        if let snapshot = row.cardSnapshotId {
+            if row.cardSnapshotFormat == 3, let coverType = StoryCard.CoverType.resolve(row.cardCoverType) {
+                coverURL = try? await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id, snapshot: snapshot, part: .cover, coverType: coverType))
+            }
+            let isDuplex = [2, 3].contains(row.cardSnapshotFormat ?? 1)
+            frontURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id,
+                snapshot: snapshot, part: isDuplex ? .frontPreview : .front))
+            if isDuplex {
+                // A failed format-2 back must be retried, never replaced by an unreviewed fallback.
+                // The full 1086×1506 back (#358): the 724×1004 preview blurs handwriting when the card
+                // is drawn at ~362pt on a 3x screen, and the original is only ~30KB larger.
+                backURL = try await publishedArtworkURL(path: StoryCard.artworkPath(owner: owner, story: row.id,
+                    snapshot: snapshot, part: .back))
+            }
+        }
+        let coverPhotoURL = try await firstPhotoURL(storyID: row.id)
+        let profile = try await rows("oi_profiles", id: row.userId.uuidString, as: Profile.self).first
+        try Task.checkCancellation()
+        guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
+        return PublicPostcardDetails(frontURL: frontURL, backURL: backURL, coverPhotoURL: coverPhotoURL,
+                                     donorLine: profile.flatMap(Self.donorLine), coverURL: coverURL,
+                                     coverType: StoryCard.CoverType.resolve(row.cardCoverType) ?? .png)
+    }
+
+    /// One story read, then every other request in parallel. Unused card links are not signed, and the first
+    /// story photo is only looked up for stories without a postcard front (#348).
+    func fetchPublicPostcard(storyID: String) async throws -> PublicPostcard? {
+        guard let row = try await publishedRecord(storyID: storyID) else { return nil }
+        guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
+        let owner = row.storageOwnerId ?? row.userId
+        let format = row.cardSnapshotFormat ?? 1
+        let isDuplex = [2, 3].contains(format)
+        let snapshot = row.cardSnapshotId
+        // Nil for an unknown cover type, so the App Clip falls back to the approved front window (#363).
+        let coverType = StoryCard.CoverType.resolve(row.cardCoverType)
+        func cardPath(_ part: StoryCard.Part) -> String? {
+            snapshot.map { StoryCard.artworkPath(owner: owner, story: row.id, snapshot: $0, part: part, coverType: coverType ?? .png) }
+        }
+        // Paths are built here so the concurrent reads below only capture strings.
+        let coverPath = format == 3 && coverType != nil ? cardPath(.cover) : nil
+        let frontPath = cardPath(isDuplex ? .frontPreview : .front)
+        // The full 1086×1506 back (#358): the 724×1004 preview blurs handwriting at ~362pt on a 3x screen.
+        let backPath = isDuplex ? cardPath(.back) : nil
+
+        let portraitPath = row.cucumberAppearance.map { Self.portraitPath(row: row, appearance: $0) }
+
+        async let profiles = rows("oi_profiles", id: row.userId.uuidString, as: Profile.self)
+        async let regions = rows("oi_regions", id: row.regionId, as: Region.self)
+        // Every card and portrait link in one storage request (#348).
+        async let signed = publishedArtworkURLs(paths: [portraitPath, coverPath, frontPath, backPath].compactMap { $0 })
+        async let firstPhoto = firstPhotoURL(storyID: row.id, needed: snapshot == nil)
+
+        let links = try await signed
+        func required(_ path: String?) throws -> URL? {
+            guard let path else { return nil }
+            guard let url = links[path] else { throw Failure.unavailable }
+            return url
+        }
+        // A failed portrait leaves the character out, and a missing cover falls back to the approved front window.
+        let portraitURL = portraitPath.map { links[$0] } ?? cucumberImageURL(for: row.cucumberAsset)
+        let frontURL = try required(frontPath)
+        // A failed format-2 back must be retried, never replaced by an unreviewed fallback.
+        let backURL = try required(backPath)
+        let profile = try await profiles.first
+        let publicStory = try self.story(from: row, profile: profile, region: try await regions.first, portraitURL: portraitURL)
+        let details = PublicPostcardDetails(frontURL: frontURL, backURL: backURL,
+            coverPhotoURL: try await firstPhoto, donorLine: profile.flatMap(Self.donorLine), coverURL: coverPath.flatMap { links[$0] },
+            coverType: coverType ?? .png)
+        try Task.checkCancellation()
+        guard await MainActor.run(body: { !OiContentSafetyStore.shared.isBlocked(row.userId) }) else { return nil }
+        let card = StoryCard(cardID: row.id.uuidString, storyID: row.id.uuidString, imageURL: frontURL)
+        return PublicPostcard(story: publicStory, card: card, details: details)
+    }
+
+    private func artworkURL(_ path: String?) async throws -> URL? {
+        guard let path else { return nil }
+        return try await publishedArtworkURL(path: path)
+    }
+
+    /// Signs several published objects in one request. Objects the server cannot sign are left out.
+    private func publishedArtworkURLs(paths: [String]) async throws -> [String: URL] {
+        guard !paths.isEmpty else { return [:] }
+        struct Body: Encodable { let expiresIn: Int; let paths: [String] }
+        struct Item: Decodable { let path: String?; let signedURL: String? }
+        let base = "https://\(transport.approvedHost)/storage/v1"
+        guard let endpoint = URL(string: base + "/object/sign/oi-story-media") else { throw Failure.configuration }
+        var request = URLRequest(url: endpoint); request.httpMethod = "POST"
+        let key = try publicKey()
+        request.setValue(key, forHTTPHeaderField: "apikey")
+        if key.hasPrefix("ey") { request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(Body(expiresIn: 300, paths: paths))
+        let items = try JSONDecoder().decode([Item].self, from: try await transport.send(request))
+        var links: [String: URL] = [:]
+        for item in items {
+            // Only the requested paths, each signed for exactly that object.
+            guard let path = item.path, paths.contains(path), let signedURL = item.signedURL,
+                  signedURL.hasPrefix("/object/sign/oi-story-media/\(path)?"),
+                  let url = URL(string: base + signedURL) else { continue }
+            links[path] = url
+        }
+        return links
+    }
+
+    func warmUpConnection() async {
+        // Any response opens the shared session's connection; the version endpoint needs no key.
+        guard let url = URL(string: "https://\(transport.approvedHost)/storage/v1/version") else { return }
+        var request = URLRequest(url: url); request.httpMethod = "HEAD"
+        request.timeoutInterval = 5
+        _ = try? await transport.response(request)
+    }
+
+    /// Signed link to the story's first photo, or nil when it has none or `needed` is false.
+    private func firstPhotoURL(storyID: UUID, needed: Bool = true) async throws -> URL? {
+        guard needed else { return nil }
+        var components = URLComponents()
+        components.scheme = "https"; components.host = transport.approvedHost; components.path = "/rest/v1/oi_story_media"
+        components.queryItems = [
+            URLQueryItem(name: "select", value: "object_path"),
+            URLQueryItem(name: "story_id", value: "eq.\(storyID.uuidString.lowercased())"),
+            URLQueryItem(name: "order", value: "position.asc"),
+            URLQueryItem(name: "limit", value: "1")
+        ]
+        guard let mediaURL = components.url else { throw Failure.configuration }
+        struct Media: Decodable { let objectPath: String }
+        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let media = try decoder.decode([Media].self, from: try await transport.send(try authorized(mediaURL)))
+        return try await artworkURL(media.first?.objectPath)
+    }
+
+    private static func donorLine(_ profile: Profile) -> String? {
+        let name = profile.publicName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !name.isEmpty else { return nil }
+        let year = (profile.admissionYear ?? "").suffix(2)
+        let department = profile.department?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return [year.isEmpty ? "" : "\(year)학번", department, name].filter { !$0.isEmpty }.joined(separator: " ")
     }
 }

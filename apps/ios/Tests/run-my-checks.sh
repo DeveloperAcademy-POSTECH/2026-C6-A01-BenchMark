@@ -11,6 +11,7 @@ xcrun swiftc -parse-as-library \
   "$IOS_ROOT/OiDonation/Domain/Models/OiSampleStory.swift" \
   "$IOS_ROOT/OiDonation/Domain/Models/CollectedStoryCard.swift" \
   "$IOS_ROOT/OiDonation/Domain/Repositories/StoryRepository.swift" \
+  "$IOS_ROOT/OiDonation/Domain/Routing/AppClipLink.swift" \
   "$IOS_ROOT/OiDonation/Data/Networking/OiServiceModels.swift" \
   "$IOS_ROOT/OiDonation/Features/Campus/CampusStory.swift" \
   "$IOS_ROOT/OiDonation/Features/Campus/CampusStoryExamples.swift" \

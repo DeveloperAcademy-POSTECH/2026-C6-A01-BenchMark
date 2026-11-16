@@ -19,7 +19,6 @@ struct AppClipExperienceView<SafetyButton: View>: View {
 
     @State private var viewModel: AppClipViewModel
     @State private var selection: AppClipInvocation?
-    @State private var isPlaying = false
     @State private var showingBlocked = false
     @Environment(\.scenePhase) private var phase
     @State private var showingSupport = false
@@ -50,7 +49,7 @@ struct AppClipExperienceView<SafetyButton: View>: View {
                 List {
                     Section {
                         Text("오이기부").font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
-                        Text("공개 이야기를 읽고 AR에서 오이 카드를 모아 보세요.")
+                        Text("캠퍼스에 남겨진 공개 이야기를 읽어 보세요.")
                     }
                     Section("공개 이야기") {
                         ForEach(visibleStories) { story in
@@ -85,31 +84,24 @@ struct AppClipExperienceView<SafetyButton: View>: View {
                     .accessibilityLabel(viewModel.state.description)
             case .ready:
                 if let experience = viewModel.experience {
-                    if isPlaying {
-                        ARGameFlowView(
-                            experience: experience,
-                            onBack: { isPlaying = false },
-                            onRequestFullApp: onRequestFullApp,
-                            validateCollection: { await viewModel.canCollectCurrentStory() }
-                        )
-                    } else {
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 20) {
-                                Button("이야기 목록") { viewModel.showWelcome() }
-                                Text(experience.story.title).font(.title.bold())
-                                Text(experience.story.donorDisplayName + " · " + experience.story.location.displayName)
-                                    .font(.subheadline).foregroundStyle(.secondary)
-                                Text(experience.story.content).textSelection(.enabled)
-                                if let id = UUID(uuidString: experience.story.storyID) {
-                                    storySafetyButton(experience.story, id)
-                                }
-                                Button("AR에서 오이 찾기") { isPlaying = true }
-                                    .buttonStyle(.borderedProminent).frame(minHeight: 44)
-                                    .accessibilityIdentifier("appclip.story.ar")
-                                Text("카메라를 사용해 오이 3개를 찾으면 카드를 이 기기에 보관할 수 있어요. 기부·방문 인증이나 작성 승인이 아닙니다.")
-                                    .font(.footnote).foregroundStyle(.secondary)
-                            }.frame(maxWidth: .infinity, alignment: .leading).padding()
-                        }
+                    // Read-only story detail; the AR collection game was removed (#351).
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            Button("이야기 목록") { viewModel.showWelcome() }
+                            Text(experience.story.title).font(.title.bold())
+                            Text(experience.story.donorDisplayName + " · " + experience.story.location.displayName)
+                                .font(.subheadline).foregroundStyle(.secondary)
+                            AppClipCardPreview(card: experience.storyCard, story: experience.story,
+                                reloadCard: { try await viewModel.refreshedCard() })
+                                .aspectRatio(362 / 502, contentMode: .fit)
+                            if experience.storyCard.backImageURL != nil {
+                                Text("카드를 탭하면 앞·뒷면을 볼 수 있어요.").font(.footnote).foregroundStyle(.secondary)
+                            }
+                            Text(experience.story.content).textSelection(.enabled)
+                            if let id = UUID(uuidString: experience.story.storyID) {
+                                storySafetyButton(experience.story, id)
+                            }
+                        }.frame(maxWidth: .infinity, alignment: .leading).padding()
                     }
                 } else {
                     Text(viewModel.state.description)
@@ -136,7 +128,7 @@ struct AppClipExperienceView<SafetyButton: View>: View {
         .sheet(isPresented: $showingBlocked) { OiBlockedAuthorsView() }
         .onChange(of: OiContentSafetyStore.shared.authors) { _, _ in
             if let story = viewModel.story, OiContentSafetyStore.shared.isBlocked(story.donorID) {
-                isPlaying = false; viewModel.showWelcome()
+                viewModel.showWelcome()
             }
         }
         .onChange(of: phase) { _, phase in if phase == .active { OiContentSafetyStore.shared.reload() } }
@@ -144,8 +136,6 @@ struct AppClipExperienceView<SafetyButton: View>: View {
             if viewModel.state == .welcome { await viewModel.loadPublicStories(reset: true) }
         }
         .onChange(of: invocation) { _, invocation in selection = invocation }
-        .onChange(of: selection?.id) { _, _ in isPlaying = false }
-        .onChange(of: viewModel.state) { _, state in if state != .ready { isPlaying = false } }
         .task(id: selection?.id) {
             guard let selection else { return }
             await viewModel.handleInvocationURL(invocationURL: selection.url)

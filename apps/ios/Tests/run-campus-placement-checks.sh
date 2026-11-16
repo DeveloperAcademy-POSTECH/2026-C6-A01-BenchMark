@@ -7,6 +7,8 @@ xcrun swiftc -parse-as-library -module-cache-path "${TMPDIR:-/tmp}/oi-campus-swi
   "$IOS_ROOT/OiDonation/Features/Campus/Scene/CampusGeoreference.swift" \
   "$IOS_ROOT/OiDonation/Features/Campus/Scene/CampusMapData.swift" \
   "$IOS_ROOT/OiDonation/Features/Campus/Scene/CampusHeightField.swift" \
+  "$IOS_ROOT/OiDonation/Features/Campus/Scene/CampusEducationSite.swift" \
+  "$IOS_ROOT/OiDonation/Features/Campus/Scene/CampusEducationLandscape.swift" \
   "$IOS_ROOT/OiDonation/Features/Campus/Placement/CampusPlacement.swift" \
   "$IOS_ROOT/OiDonation/Features/Campus/Placement/CampusPlacementGeometry.swift" \
   "$IOS_ROOT/OiDonation/Features/Campus/Placement/CampusPlacementStore.swift" \

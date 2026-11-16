@@ -19,6 +19,7 @@ struct CampusStory: Identifiable, Hashable {
     var remoteMediaPaths: [String] = []
     var cucumberPortraitPath: String? = nil
     var cardArtworkPath: String? = nil
+    var cardBackArtworkPath: String? = nil
     var latitude: Double? = nil
     var longitude: Double? = nil
     var heightMeters: Double = 1

@@ -23,6 +23,8 @@ struct OiPostcardFront<Artwork: View>: View {
     var second: UInt32 = 0xD5DBC6
     var backgroundStyle: OiPostcardBackgroundStyle? = nil
     var date = ""
+    var design: OiCardDesign? = nil
+    var decorationsVisible = true
     @ViewBuilder var artwork: () -> Artwork
 
     var body: some View {
@@ -30,24 +32,36 @@ struct OiPostcardFront<Artwork: View>: View {
             if let backgroundStyle { OiPostcardBackground(style: backgroundStyle) }
             else { OiCardGradient(fill: fill, first: first, second: second) }
             artwork().frame(width: 296, height: 436).clipped().offset(x: 33, y: 33)
-            ForEach(0..<3) { index in
-                Image("OiPostcardWave\(index + 1)").resizable()
-                    .frame(width: 121, height: index == 1 ? 17 : 16)
-                    .offset(x: 23, y: CGFloat(26 + index * 13))
+            if decorationsVisible {
+                if design?.postcardLayoutVersion == 2 {
+                    Rectangle().stroke(Color(white: 0.62), lineWidth: 0.6)
+                        .frame(width: 296, height: 436).offset(x: 33, y: 33)
+                    OiPostcardDecorations(stamp: design?.postcardStamp, logo: design?.postcardLogo,
+                        logoOpacity: OiCardOpacity.normalized(design?.postcardLogoOpacity))
+                } else {
+                    ForEach(0..<3) { index in
+                        Image("OiPostcardWave\(index + 1)").resizable()
+                            .frame(width: 121, height: index == 1 ? 17 : 16)
+                            .offset(x: 23, y: CGFloat(26 + index * 13))
+                            .accessibilityHidden(true)
+                    }
+                    Text(date).font(OiPostcardTypography.date)
+                        .foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6)
+                        .frame(width: 150, height: 21, alignment: .trailing).offset(x: 167, y: 42)
+                        .accessibilityLabel("작성 날짜 \(date)")
+                    Text("OiD").font(OiPostcardTypography.mark).tracking(1.12)
+                        .foregroundStyle(.white).fixedSize().rotationEffect(.degrees(-90))
+                        .frame(width: 21, height: 58).offset(x: 43, y: 396)
+                        .accessibilityHidden(true)
+                }
+                Image("OiPostcardSeal").renderingMode(.template).resizable()
+                    .foregroundStyle(Color(oiRGB: OiPostcardInk.color(backgroundStyle?.visiblePaperColor ?? first)))
+                    .frame(width: design?.postcardLayoutVersion == 2 ? 98 : 116,
+                           height: design?.postcardLayoutVersion == 2 ? 98 : 116)
+                    .offset(x: design?.postcardLayoutVersion == 2 ? 243 : 229,
+                            y: design?.postcardLayoutVersion == 2 ? 380 : 365)
                     .accessibilityHidden(true)
             }
-            Text(date).font(OiPostcardTypography.date)
-                .foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6)
-                .frame(width: 150, height: 21, alignment: .trailing).offset(x: 167, y: 42)
-                .accessibilityLabel("작성 날짜 \(date)")
-            Text("OiD").font(OiPostcardTypography.mark).tracking(1.12)
-                .foregroundStyle(.white).fixedSize().rotationEffect(.degrees(-90))
-                .frame(width: 21, height: 58).offset(x: 43, y: 396)
-                .accessibilityHidden(true)
-            Image("OiPostcardSeal").renderingMode(.template).resizable()
-                .foregroundStyle(Color(oiRGB: OiPostcardInk.color(backgroundStyle?.color ?? first)))
-                .frame(width: 116, height: 116).offset(x: 229, y: 365)
-                .accessibilityHidden(true)
         }.frame(width: 362, height: 502).mask(OiPostcardPaper()).dynamicTypeSize(.medium)
     }
 }
@@ -60,15 +74,21 @@ struct OiPostcardBack: View {
     let message: String
     let author: String
     var scrollable = false
-    private var ink: Color { Color(oiRGB: OiPostcardInk.color(backgroundStyle?.color ?? first)) }
+    var exportFontSize: CGFloat? = nil
+    private var ink: Color { Color(oiRGB: OiPostcardInk.color(backgroundStyle?.visiblePaperColor ?? first)) }
     var body: some View {
         ZStack(alignment: .topLeading) {
             if let backgroundStyle { OiPostcardBackground(style: backgroundStyle) }
             else { OiCardGradient(fill: fill, first: first, second: second) }
-            Image("OiPostcardWatermark").renderingMode(.template).resizable()
-                .foregroundStyle(ink.opacity(0.15))
-                .frame(width: 213, height: 213).offset(x: 129, y: 259)
-                .accessibilityHidden(true)
+            Group {
+                if let selected = backgroundStyle?.backLogoColor {
+                    OiPostcardPostechLogo(color: selected)
+                } else {
+                    Image("OiPostcardWatermark").renderingMode(.template).resizable()
+                        .foregroundStyle(ink.opacity(0.15))
+                }
+            }.opacity(OiCardOpacity.normalized(backgroundStyle?.backLogoOpacity))
+                .frame(width: 213, height: 213).offset(x: 129, y: 259).accessibilityHidden(true)
             Group {
                 if scrollable {
                     ScrollView { letter.fixedSize(horizontal: false, vertical: true) }.scrollIndicators(.hidden)
@@ -85,7 +105,8 @@ struct OiPostcardBack: View {
     }
     private var letter: some View {
         Text(message.isEmpty ? "아직 남긴 이야기가 없어요." : message)
-            .font(OiPostcardTypography.handwriting).tracking(0.17).lineSpacing(OiPostcardTypography.lineSpacing)
+            .font(exportFontSize.map { .custom(OiPostcardTypography.handwritingName, fixedSize: $0) } ?? OiPostcardTypography.handwriting)
+            .tracking(0.17).lineSpacing(OiPostcardTypography.lineSpacing * (exportFontSize ?? 17) / 17)
             .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
@@ -106,19 +127,32 @@ enum OiPostcardInk {
 }
 
 /// A deterministic companion color for the 296 × 436 portrait window.
-/// No extra photo, network generation or saved draft field is needed.
+/// The automatic palette is local; an optional draft RGB can override it.
 enum OiPostcardCharacterBackdrop {
+    static func color(for design: OiCardDesign) -> UInt32 {
+        if let selected = design.characterBackdropColor, selected <= 0xFFFFFF { return selected }
+        return color(for: design.postcardBackground?.paperColor ?? design.borderFirst)
+    }
+
     static func color(for paper: UInt32) -> UInt32 {
-        // Exact paper/backdrop pairing from Figma 5400:6786 and 5400:6871.
-        if paper == 0xEECFDF { return 0x835C6E }
+        // Exact paper/backdrop pairs from Figma 5441:19270, 19640, 18718 and 18994.
+        if let reference = referenceColors[paper] { return reference }
         var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
         UIColor(Color(oiRGB: paper)).getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
-        // Preserve the chosen hue and enrich pale tones. A minimum brightness
-        // keeps near-black paper usable without jumps while dragging the color picker.
+        // The reference backdrops share ~30% saturation and ~51% brightness.
+        // Keep the paper's hue, enrich pale colors gently, and cap vivid custom
+        // papers at that muted saturation instead of producing a neon backdrop.
         let depth = max(0.16, brightness * 0.55)
-        let chroma = min(1, max(saturation, min(0.30, saturation * 2.3)))
+        let chroma = min(0.30, saturation * 2.3)
         return Color(UIColor(hue: hue, saturation: chroma, brightness: depth, alpha: 1)).oiRGB
     }
+
+    private static let referenceColors: [UInt32: UInt32] = [
+        0xEECFDF: 0x835C6E, // rose
+        0xEEE7CF: 0x83785C, // sand
+        0xE8EECF: 0x77835C, // lime
+        0xCFE1EE: 0x5C7183  // blue
+    ]
 }
 
 /// Only a horizontal gesture flips; vertical drags remain available for reading.
@@ -179,14 +213,26 @@ enum OiPostcardDate {
     }
 }
 
-/// Figma 5400:6605: a solid base and two 80% blurred color fields.
+/// Figma presets and custom paper share a base and two softly blurred color fields.
 /// Rasterize only when the chosen color changes, not while the card flips or moves.
 struct OiPostcardBackground: View {
     let style: OiPostcardBackgroundStyle
     var body: some View {
-        if style.fill == .gradient, let image = OiPostcardBackgroundTexture.image(color: style.color) {
-            Image(uiImage: image).resizable()
-        } else { Color(oiRGB: style.color) }
+        ZStack { Color.white; colors }
+    }
+    @ViewBuilder private var colors: some View {
+        if let key = style.preset, let preset = OiPostcardPreset(rawValue: key) {
+            Image(preset.asset).resizable().opacity(OiCardOpacity.normalized(style.startOpacity))
+        } else if let middle = style.middleColor, let end = style.endColor {
+            if let image = OiPostcardBackgroundTexture.image(start: style.color, middle: middle, end: end,
+                startOpacity: OiCardOpacity.normalized(style.startOpacity),
+                middleOpacity: OiCardOpacity.normalized(style.middleOpacity),
+                endOpacity: OiCardOpacity.normalized(style.endOpacity)) {
+                Image(uiImage: image).resizable()
+            } else { Color(oiRGB: middle).opacity(OiCardOpacity.normalized(style.middleOpacity)) }
+        } else if style.fill == .gradient, let image = OiPostcardBackgroundTexture.image(color: style.color) {
+            Image(uiImage: image).resizable().opacity(OiCardOpacity.normalized(style.startOpacity))
+        } else { Color(oiRGB: style.color).opacity(OiCardOpacity.normalized(style.startOpacity)) }
     }
 }
 
@@ -196,6 +242,58 @@ enum OiPostcardBackgroundTexture {
         return cache
     }()
     private static let context = CIContext(options: [.cacheIntermediates: false, .workingColorSpace: NSNull()])
+    /// Cache the Figma blur masks once; dragging a color changes only their tint.
+    private static let customMasks: [CIImage] = {
+        let size = CGSize(width: 362, height: 502), margin: CGFloat = 375
+        let extent = CGRect(origin: .zero, size: size)
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.preferredRange = .standard
+        let fields = [CGRect(x: -89, y: 252, width: 243, height: 234),
+                      CGRect(x: 268, y: -56, width: 243, height: 274)]
+        return fields.compactMap { rect in
+            let source = UIGraphicsImageRenderer(size: CGSize(width: size.width + margin * 2,
+                height: size.height + margin * 2), format: format).image { renderer in
+                renderer.cgContext.translateBy(x: margin, y: margin)
+                renderer.cgContext.setFillColor(UIColor.white.withAlphaComponent(0.8).cgColor)
+                renderer.cgContext.fillEllipse(in: rect)
+            }
+            guard let cg = source.cgImage else { return nil }
+            let blurred = CIImage(cgImage: cg).applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 125])
+                .cropped(to: CGRect(x: margin, y: margin, width: size.width, height: size.height))
+                .transformed(by: CGAffineTransform(translationX: -margin, y: -margin))
+            guard let mask = context.createCGImage(blurred, from: extent, format: .RGBA8,
+                colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) else { return nil }
+            return CIImage(cgImage: mask)
+        }
+    }()
+
+    static func image(start: UInt32, middle: UInt32, end: UInt32,
+                      startOpacity: Double = 1, middleOpacity: Double = 1, endOpacity: Double = 1) -> UIImage? {
+        let a = OiCardOpacity.normalized(startOpacity), b = OiCardOpacity.normalized(middleOpacity)
+        let c = OiCardOpacity.normalized(endOpacity)
+        let key = "figma-fields-v2-\(start)-\(middle)-\(end)-\(a)-\(b)-\(c)" as NSString
+        if let image = cache.object(forKey: key) { return image }
+        guard customMasks.count == 2 else { return nil }
+        let extent = CGRect(x: 0, y: 0, width: 362, height: 502)
+        let base = CIImage(color: CIColor(color: UIColor(Color(oiRGB: middle)).withAlphaComponent(b))).cropped(to: extent)
+        var output = base.composited(over: CIImage(color: CIColor.white).cropped(to: extent))
+        for (mask, field) in zip(customMasks, [(end, c), (start, a)]) {
+            let (color, opacity) = field
+            let zero = CIVector(x: 0, y: 0, z: 0, w: 0)
+            let tinted = mask.applyingFilter("CIColorMatrix", parameters: [
+                "inputRVector": zero, "inputGVector": zero, "inputBVector": zero,
+                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: opacity),
+                "inputBiasVector": CIVector(x: CGFloat((color >> 16) & 255) / 255,
+                    y: CGFloat((color >> 8) & 255) / 255, z: CGFloat(color & 255) / 255, w: 0)
+            ])
+            output = tinted.composited(over: output)
+        }
+        guard let cg = context.createCGImage(output, from: extent, format: .RGBA8,
+            colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) else { return nil }
+        let image = UIImage(cgImage: cg)
+        cache.setObject(image, forKey: key, cost: 362 * 502 * 4)
+        return image
+    }
+
     static func image(color: UInt32) -> UIImage? {
         let key = String(color) as NSString
         if let image = cache.object(forKey: key) { return image }
@@ -261,10 +359,13 @@ enum OiPostcardBackgroundTexture {
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let pngProperties = properties[kCGImagePropertyPNGDictionary] as? [CFString: Any],
               let value = pngProperties[kCGImagePropertyPNGDescription] as? String,
-              value.hasPrefix(prefix), value.count < 512,
+              value.hasPrefix(prefix), value.count < 1024,
               let data = Data(base64Encoded: String(value.dropFirst(prefix.count))),
               let style = try? JSONDecoder().decode(OiPostcardBackgroundStyle.self, from: data),
-              style.color <= 0xFFFFFF else { return }
+              [style.color, style.middleColor ?? 0, style.endColor ?? 0, style.backLogoColor ?? 0]
+                .allSatisfy({ $0 <= 0xFFFFFF }),
+              [style.startOpacity, style.middleOpacity, style.endOpacity, style.backLogoOpacity]
+                .compactMap({ $0 }).allSatisfy({ $0.isFinite && (0...1).contains($0) }) else { return }
         styles.setObject(data as NSData, forKey: image)
     }
     static func style(for image: UIImage) -> OiPostcardBackgroundStyle? {

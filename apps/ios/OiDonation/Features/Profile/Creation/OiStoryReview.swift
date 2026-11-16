@@ -40,6 +40,18 @@ struct OiStoryReview<StoryPhoto: View>: View {
     @State private var invalidCapture = false
     @State private var checkedPortrait = false
     @State private var savedCard: UIImage?
+    @State private var savedCoverData: Data?
+
+    private var savedStory: OiLiveStory? {
+        guard let savedCardPath else { return nil }
+        return remote.ownStories.first { $0.cardArtworkPath == savedCardPath }
+    }
+    private var savedCoverPath: String? {
+        guard let story = savedStory,
+              story.cardSnapshotFormat == 3 else { return nil }
+        return story.cardArtworkPaths.last
+    }
+    @State private var showingExport = false
     @State private var artworkLoadFailed = false
     @State private var artworkLoadAttempt = 0
     @State private var renderError: String?
@@ -246,7 +258,10 @@ struct OiStoryReview<StoryPhoto: View>: View {
             } else {
                 let orientation = customization.card?.characterOrientation ?? OiCardOrientation()
                 OiCardPortraitCapture(look: look, cacheKey: portraitKey(for: look), orientation: orientation,
-                    onCapture: { bytes, _ in invalidCapture = !acceptPortrait(bytes) })
+                    onCapture: { bytes, _ in invalidCapture = !acceptPortrait(bytes) },
+                    onFailure: { invalidCapture = true })
+                    .opacity(0.001)
+                    .overlay { ProgressView() }
             }
         } else if savedPortraitPath != nil {
             if !artworkLoadFailed { ProgressView() }
@@ -274,6 +289,9 @@ struct OiStoryReview<StoryPhoto: View>: View {
             .frame(maxWidth: 240).frame(maxWidth: .infinity)
             Text("승인 전에는 작성자와 검토 담당자만 이 카드를 볼 수 있어요. 승인되면 이 모습 그대로 공개돼요.")
                 .font(CampusStyle.body(12)).foregroundStyle(.secondary)
+            Button("카드 이미지 저장·공유", systemImage: "square.and.arrow.up") { showingExport = true }
+                .disabled(!artworkReady || artworkLoadFailed || isSubmitting)
+                .sheet(isPresented: $showingExport) { OiCardExportSheet { try OiCardExportImages(cardPublication()) } }
         }
     }
 
@@ -284,7 +302,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
     private var artworkReady: Bool {
         if customization.wardrobe != nil && portraitPNG == nil { return false }
         if savedPortraitPath != nil && portrait == nil { return false }
-        return savedCardPath == nil || savedCard != nil
+        return (savedStory?.hasSupportedCardArtwork ?? true) && (savedCardPath == nil || savedCard != nil) && (savedCoverPath == nil || savedCoverData != nil)
     }
 
     private var issuePanel: some View {
@@ -318,8 +336,10 @@ struct OiStoryReview<StoryPhoto: View>: View {
                                  enabled: canSubmit && !isSubmitting && artworkReady) {
                 renderError = nil
                 do {
-                    let card = try savedCardPath == nil ? draftCard.publication(colorScheme: colorScheme) : nil
+                    let card = try cardPublication()
                     onSubmit(portraitPNG, card)
+                } catch let error as OiCardExportError {
+                    renderError = error.localizedDescription
                 } catch {
                     renderError = "꾸민 카드 이미지를 준비하지 못했어요. 카드 설정을 확인해 주세요."
                 }
@@ -331,6 +351,17 @@ struct OiStoryReview<StoryPhoto: View>: View {
         .frame(maxWidth: .infinity)
         .background(alignment: .top) { Color(.systemBackground).ignoresSafeArea(edges: .bottom) }
         .overlay(alignment: .top) { Divider() }
+    }
+
+    private func cardPublication() throws -> OiStoryCardPublication {
+        if let savedCard {
+            return try OiCardImageExport.publication(front: savedCard, message: draft.body, author: donorName,
+                academicAuthor: OiPostcardAuthor.academic(department: remote.profile?.department, year: remote.profile?.admissionYear),
+                cover: remote.canPublishStoryCardCover ? savedCoverData : nil,
+                coverType: savedStory?.resolvedCardCoverType ?? .png)
+        }
+        return try draftCard.publication(colorScheme: .light, includeCover: remote.canPublishStoryCardCover,
+            coverType: remote.canPublishStoryCardCoverJPEG ? .jpeg : .png)
     }
 
     private func sectionHeader(_ title: String, symbol: String, edit step: OiCreationStep) -> some View {
@@ -390,6 +421,10 @@ struct OiStoryReview<StoryPhoto: View>: View {
             }
             if let savedCardPath {
                 savedCard = try await remote.cucumberImage(savedCardPath)
+                if let savedCoverPath {
+                    guard let type = savedStory?.resolvedCardCoverType else { throw OiCardExportError.imageUnavailable }
+                    savedCoverData = try await remote.storyCoverData(savedCoverPath, type: type)
+                }
             }
         } catch {
             if !OiServiceFailure.isCancellation(error) { artworkLoadFailed = true }
@@ -410,7 +445,9 @@ struct OiStoryReview<StoryPhoto: View>: View {
 
     private func acceptPortrait(_ bytes: Data) -> Bool {
         guard let image = try? OiPublishedCucumberImage.decode(bytes, part: .portrait) else { return false }
-        portrait = UIImage(cgImage: image); portraitPNG = bytes
+        let decoded = UIImage(cgImage: image)
+        guard OiPortraitMatte.hasTransparentBackground(decoded) else { return false }
+        portrait = decoded; portraitPNG = bytes
         return true
     }
 }

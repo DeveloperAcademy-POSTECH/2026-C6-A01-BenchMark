@@ -60,6 +60,7 @@ xcrun swiftc -parse-as-library -swift-version 5 -default-isolation MainActor \
   "$IOS_ROOT/OiDonation/Domain/Models/OiContentSafetyStore.swift" \
   "$IOS_ROOT/OiDonation/Data/Networking/APIClient.swift" \
   "$IOS_ROOT/OiDonation/Domain/Repositories/StoryRepository.swift" \
+  "$IOS_ROOT/OiDonation/Domain/Routing/AppClipLink.swift" \
   "$IOS_ROOT/Tests/AppClipPublicStoryChecks.swift" \
   "$IOS_ROOT/OiDonation/Domain/Models/Story.swift" \
   "$IOS_ROOT/OiDonation/Domain/Models/StoryCard.swift" \

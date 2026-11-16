@@ -1,0 +1,13 @@
+/* Keep the reference layout in daylight; unfold in the very same garden. */
+.reference-live.web-viewer{isolation:isolate}
+.web-viewer #scatterButton{display:none!important}
+.web-viewer .web-dimmer{position:absolute;inset:0;z-index:-1;pointer-events:none;background:#101914;opacity:0;transition:opacity .28s ease-out}
+.web-viewer.is-scattered .web-dimmer{opacity:.78}
+.reference-live.web-viewer.is-scattered :is(.intro,.funding,.garden-actions,.garden-notes,.view-controls,.garden-mascot,.space-mascot,.night-backdrop,.scene-bottom,.compact-scene-title,.scatter-hint,.bottom-dock,.garden-nav){visibility:hidden!important;opacity:0!important;pointer-events:none}
+.reference-live.web-viewer.is-scattered .masthead{background:none;border-color:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+.reference-live.web-viewer.is-scattered .brand{color:#c4c9b7}
+.reference-live.web-viewer.is-scattered .app-logo{filter:brightness(.66) saturate(.8)}
+.web-viewer #webGestureHint{font:500 14px/1.5 -apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif;color:#33421e;background:#fffbedcf;border:1px solid #ffffff8c;border-radius:999px;padding:9px 14px;white-space:nowrap}
+.reference-live.web-viewer .scene-bottom>#webGestureHint{display:inline-flex;align-items:center;gap:0}
+.reference-live.web-viewer.is-scattered{height:100svh;height:100dvh;min-height:0;padding:0;overflow:hidden}
+@media(prefers-reduced-motion:reduce){.web-viewer .web-dimmer{transition:none}}

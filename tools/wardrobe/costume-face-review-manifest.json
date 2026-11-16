@@ -1,0 +1,206 @@
+[
+  {
+    "id": "dinosaur",
+    "sourceSHA256": "dd63db06e325a95ae3c4b59c278043889882073aa7840a8ebdb06c9ec4c6c31e",
+    "lit": {
+      "path": "docs/assets/costume-face-audit/dinosaur-lit.png",
+      "sha256": "e27134f14e0d9d014eb5d8f413b74319a5961948362233b2acf6912d3105fc35"
+    },
+    "albedo": {
+      "path": "docs/assets/costume-face-audit/dinosaur-albedo.png",
+      "sha256": "f1b4fcfea54c049ab1ee71864fd97337400d46fcf7e3e9f95e70e902feb14810"
+    }
+  },
+  {
+    "id": "raincoat",
+    "sourceSHA256": "bf0a35225d091941d52c3b6ca47a4ec5e9e52b05f91d56daf6d8e8d2acb92afd",
+    "lit": {
+      "path": "docs/assets/costume-face-audit/raincoat-lit.png",
+      "sha256": "e1e167ed2f7c56be882207a86cabae373c77edbe4b72dcc8c7ae9d8ba9389262"
+    },
+    "albedo": {
+      "path": "docs/assets/costume-face-audit/raincoat-albedo.png",
+      "sha256": "978c011e7ac17d8ec7a7dacae24306e152412a16bd6f0c531efe0141dd99c3fe"
+    }
+  },
+  {
+    "id": "bee",
+    "sourceSHA256": "f6251a69c9d54ebece4318d6044ea4b8ef2cedf557432bd189481e4a1286413f",
+    "lit": {
+      "path": "docs/assets/costume-face-audit/bee-lit.png",
+      "sha256": "5ffaee473ed07d01b66f2124cd9201c6a6da0aadf64c297b183e7306235af674"
+    },
+    "albedo": {
+      "path": "docs/assets/costume-face-audit/bee-albedo.png",
+      "sha256": "2a4a253db53c41859b4a989d6489373eefebe5894448747bd326f0df5cfa1f70"
+    }
+  },
+  {
+    "id": "cat",
+    "sourceSHA256": "5891cc1ddd84898495bef9bbf8381410f93baf8c84de1fff137c9896da8039af",
+    "lit": {
+      "path": "docs/assets/costume-face-audit/cat-lit.png",
+      "sha256": "8288597e3770172c54d7597cb5c22de161dbd3203226a5c68937a73e6065931c"
+    },
+    "albedo": {
+      "path": "docs/assets/costume-face-audit/cat-albedo.png",
+      "sha256": "267c73087eba0e9a303c00d909dac14fe48590c2c47e01f707eac55b6230cbf0"
+    }
+  },
+  {
+    "id": "astronaut",
+    "sourceSHA256": "c13fee2a358d63d5cb355540cac64c405d1f454f49d46b47cd4ac13d2cb45d9b",
+    "lit": {
+      "path": "docs/assets/costume-face-audit/astronaut-lit.png",
+      "sha256": "ee7e933afd29e608f0a5a3ed7298db9ee81beb5a9603f2ec5b1485cd7686882b"
+    },
+    "albedo": {
+      "path": "docs/assets/costume-face-audit/astronaut-albedo.png",
+      "sha256": "e995613250dbba4eb0bd1dca28851a786446ee10ea62e6aafe3917c777bc99e9"
+    }
+  },
+  {
+    "id": "scientist",
+    "sourceSHA256": "5fcbe0e37990ebfd243a71ff1d61871833864e4ec113fde07de7f39ec2d8775d",
+    "lit": {
+      "path": "docs/assets/costume-face-audit/scientist-lit.png",
+      "sha256": "3960b6791e7b1be419fca5bff33114245904520c3ac435d22a852272f37dd213"
+    },
+    "albedo": {
+      "path": "docs/assets/costume-face-audit/scientist-albedo.png",
+      "sha256": "8d4eb81b485f9332424529ae7f368ef213fc31b4567071e08b9aa41c022b038d"
+    }
+  },
+  {
+    "id": "cat-bear",
+    "sourceSHA256": "eabbcce98c5a16f72517c3b69dd7e6d7899d7f11c0eedcc75130bda9ae16d445",
+    "lit": {
+      "path": "docs/assets/costume-face-audit/cat-bear-lit.png",
+      "sha256": "1e40a1758885071adc9026a61971c719bd9c577db4f1e34084ebbcb6a9adb27c"
+    },
+    "albedo": {
+      "path": "docs/assets/costume-face-audit/cat-bear-albedo.png",
+      "sha256": "81d11012d7fe62d9faf460393bcf73ba12eecd6986501c65298269ffb31d57cd"
+    }
+  },
+  {
+    "id": "school-uniform-trousers",
+    "sourceSHA256": "d655858b6f2fb26963852a0ab63b0e611cfed43b1de7f050fea822e6c8432c87",
+    "lit": {
+      "path": "docs/assets/costume-face-audit/school-uniform-trousers-lit.png",
+      "sha256": "c8d6a42701688bf37a5af043dae6f6947047315cd70fe807f03ac06ae94f050e"
+    },
+    "albedo": {
+      "path": "docs/assets/costume-face-audit/school-uniform-trousers-albedo.png",
+      "sha256": "dad6b89dd1f380cf3a15eccb594f271104832b6709f9a7943c8ede12bce8c15f"
+    }
+  },
+  {
+    "id": "astronaut-navy",
+    "sourceSHA256": "649bece696646c66921f5d17cb26c588b123f0e7a812655c1ee9a25c74dd7735",
+    "lit": {
+      "path": "docs/assets/costume-face-audit/astronaut-navy-lit.png",
+      "sha256": "68bb1a6154fd387338f0eae5eb0b82e71f9c3901426ba6629baff0cbc86f87a0"
+    },
+    "albedo": {
+      "path": "docs/assets/costume-face-audit/astronaut-navy-albedo.png",
+      "sha256": "db823b473017fc061a4555507310bbdf54d659fb116c30c350fe0ad098043487"
+    }
+  },
+  {
+    "id": "scientist-goggles",
+    "sourceSHA256": "48cccfa1bf4e43d1d3b1c4accedb0edd76dd65d874fe953e2c94a8fb3e0769b5",
+    "lit": {
+      "path": "docs/assets/costume-face-audit/scientist-goggles-lit.png",
+      "sha256": "540efaa42daa81a4fad01c1cd0635969cbe4b3af979997e79a2e266daeb0f6e4"
+    },
+    "albedo": {
+      "path": "docs/assets/costume-face-audit/scientist-goggles-albedo.png",
+      "sha256": "fdca93b048bf2751a92203d3dd477cb3c2f3a240522dc7303adff126deb00263"
+    }
+  },
+  {
+    "id": "baseball",
+    "sourceSHA256": "6ff165b17ac0cd3501ffe31b6f1ad358ea11ba81e21e71e5c4375c9e2d719970",
+    "lit": {
+      "path": "docs/assets/costume-face-audit/baseball-lit.png",
+      "sha256": "2150bfb351537c66626380e36b4b60ae39a9793f6419b7cd5b3348eba179bad6"
+    },
+    "albedo": {
+      "path": "docs/assets/costume-face-audit/baseball-albedo.png",
+      "sha256": "a8ea74c7b56041eb78b8df8b2b755905e8fde629a62eb8c13c84efc78fa6b74d"
+    }
+  },
+  {
+    "id": "cowboy",
+    "sourceSHA256": "454b0219ac289225bc020be1c938c4e9dd042441bdfbcc4be93bda1a73f611b3",
+    "lit": {
+      "path": "docs/assets/costume-face-audit/cowboy-lit.png",
+      "sha256": "f99c11da8e0de5f3e4c36efb42ca368121b3f722f4d721311f4cfe21a2e35407"
+    },
+    "albedo": {
+      "path": "docs/assets/costume-face-audit/cowboy-albedo.png",
+      "sha256": "8cc5d0685be97590bf54a40f96123e191e86a5c9ee7a75986899bf2c776567bf"
+    }
+  },
+  {
+    "id": "farmer",
+    "sourceSHA256": "b6be6204ea977a388fe65ea6ecc8347a4644db056161498905056ea3d730378c",
+    "lit": {
+      "path": "docs/assets/costume-face-audit/farmer-lit.png",
+      "sha256": "c29f2e7ba47fc53c426eb93401f4612b53162ce13c365cd938aff89db4f64037"
+    },
+    "albedo": {
+      "path": "docs/assets/costume-face-audit/farmer-albedo.png",
+      "sha256": "b793373323a919a40dd1c2ff02abc1b87bed66bf991b8fe94d2f54453635945f"
+    }
+  },
+  {
+    "id": "postech-selfie",
+    "sourceSHA256": "21832da1e1a7fcdfc2a0978a3d1a6b1e0316bd38563c8ae4ce1b5a44c065fa88",
+    "lit": {
+      "path": "docs/assets/costume-face-audit/postech-selfie-lit.png",
+      "sha256": "f11de0477ef55019f80993b9053f840bbacca84ead30e60aad0dfc911d15d6cd"
+    },
+    "albedo": {
+      "path": "docs/assets/costume-face-audit/postech-selfie-albedo.png",
+      "sha256": "51001576ed92ebb29b5e3956ced5fa4f92db8d29baa6dcc093e722868296eb83"
+    }
+  },
+  {
+    "id": "sportswear",
+    "sourceSHA256": "d9d6ba66f316ae5863ab8dc1d2c3436113c1c0a101d94291a87aa205458e5fee",
+    "lit": {
+      "path": "docs/assets/costume-face-audit/sportswear-lit.png",
+      "sha256": "40d996673c21615f7d7d8b37f3071d4d423edc4e2da6cfa7169410ca7fdb6925"
+    },
+    "albedo": {
+      "path": "docs/assets/costume-face-audit/sportswear-albedo.png",
+      "sha256": "0de703e61019b52164fb0fad0fcdc1f107f822b6475325b23e3d525d33735dd0"
+    }
+  },
+  {
+    "id": "martial-arts",
+    "sourceSHA256": "1ec358a6f40530fd47af1a9a262131dd8a5dc3a40bdda20eccc09b214de14092",
+    "lit": {
+      "path": "docs/assets/costume-face-audit/martial-arts-lit.png",
+      "sha256": "eadd3691644abb9b4e8298674f64d758b025b21a21b9ba8415aafaab61367748"
+    },
+    "albedo": {
+      "path": "docs/assets/costume-face-audit/martial-arts-albedo.png",
+      "sha256": "bdfdef032680f04019dbec00ce4408bb9e9bd621c7561f24b76e8e8a5e58dbca"
+    }
+  },
+  {
+    "id": "school-uniform",
+    "sourceSHA256": "889090ef68c059719178f904c492c2bd669cef3488373a2ae6b95781d55fd1b9",
+    "lit": {
+      "path": "docs/assets/costume-face-audit/school-uniform-lit.png",
+      "sha256": "fd9ddccc98fc3aede994f5a50b69b2ee705e370e7946aae8a37b3c49e769ea1a"
+    },
+    "albedo": {
+      "path": "docs/assets/costume-face-audit/school-uniform-albedo.png",
+      "sha256": "f67862b0fb4f1e6b2c64628204f322089f07b54ee6a3faa91c6a9c16b294913f"
+    }
+  }
+]

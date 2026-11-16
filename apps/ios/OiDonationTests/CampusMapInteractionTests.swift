@@ -7,6 +7,7 @@
 
 import RealityKit
 import UIKit
+import SwiftUI
 import XCTest
 import CryptoKit
 @testable import OiDonation
@@ -1214,21 +1215,234 @@ final class CampusEducationDistrictTests: XCTestCase {
         }
     }
 
-    func testOfflineExperienceLoadsSharedReferenceSurface() async throws {
+    func testOfflineExperienceLoadsLatestPearlGarden() async throws {
         let model = EducationLightWebModel()
-        for _ in 0..<100 {
+        let previousWindow = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: try XCTUnwrap(previousWindow?.windowScene))
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        model.webView.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        model.webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controller.view.addSubview(model.webView)
+        window.makeKeyAndVisible()
+        defer { model.setActive(false); model.webView.removeFromSuperview(); window.isHidden = true; previousWindow?.makeKeyAndVisible() }
+        for _ in 0..<300 {
             if !model.loading { break }
             try await Task.sleep(for: .milliseconds(100))
         }
-        XCTAssertFalse(model.loading, "Offline shared geometry did not load")
-        XCTAssertNil(model.failure)
+        XCTAssertFalse(model.loading, "Offline pearl garden did not load")
+        let errors = try await model.webView.evaluateJavaScript("JSON.stringify(window.__educationLoadErrors)")
+        guard model.failure == nil else { XCTFail("Web renderer: \(String(describing: errors))"); return }
         let result = try await model.webView.evaluateJavaScript("window.prototypeDiagnostics()")
         let diagnostics = try XCTUnwrap(result as? [String: Any])
-        XCTAssertEqual(diagnostics["revision"] as? String, "four-view-architecture-20261113-v4")
-        XCTAssertEqual(diagnostics["capacity"] as? Int, 110_869)
-        XCTAssertEqual(diagnostics["depthTriangles"] as? Int, 20_270)
+        XCTAssertEqual(diagnostics["revision"] as? String, "education-pearl-texture-screen-v30")
+        XCTAssertEqual(diagnostics["capacity"] as? Int, 44_006)
+        XCTAssertEqual(diagnostics["spacePearlCount"] as? Int, 10_000)
         XCTAssertEqual(diagnostics["webgl"] as? Bool, true)
+        XCTAssertEqual(diagnostics["gpuScatter"] as? Bool, true)
+        XCTAssertEqual(diagnostics["shaderErrors"] as? Int, 0)
+        XCTAssertLessThanOrEqual(diagnostics["pixelRatio"] as? Double ?? 100, 1.25)
+        XCTAssertEqual(diagnostics["transmissionScale"] as? Double, 0.5)
+        XCTAssertLessThan(diagnostics["fitPoints"] as? Int ?? 1000, 300)
+        XCTAssertLessThan(diagnostics["triangles"] as? Int ?? 100_000_000, 10_000_000)
+        let page = try await model.webView.evaluateJavaScript("""
+        ({title:document.querySelector('#pageTitle').textContent,
+          decorations:document.querySelectorAll('.funding-rays,.action-rays').length,
+          smoothDock:!!document.querySelector('.bottom-dock'),
+          stamps:document.querySelectorAll('.garden-note').length,
+          nativeLayout:document.querySelector('.experience').classList.contains('native-viewer'),
+          directionsInMenu:[...document.querySelectorAll('[data-view]')].every(b=>!!b.closest('#viewerMenu')),
+          toolbarHeight:document.querySelector('#writeButton').getBoundingClientRect().height,
+          noVerticalOverflow:document.documentElement.scrollHeight<=innerHeight+1,
+          base:document.baseURI})
+        """)
+        let presentation = try XCTUnwrap(page as? [String: Any])
+        XCTAssertTrue((presentation["title"] as? String)?.contains("작은 마음이 모여") == true)
+        XCTAssertEqual(presentation["decorations"] as? Int, 0)
+        XCTAssertEqual(presentation["smoothDock"] as? Bool, true)
+        XCTAssertEqual(presentation["stamps"] as? Int, 0)
+        XCTAssertEqual(presentation["nativeLayout"] as? Bool, true)
+        XCTAssertEqual(presentation["directionsInMenu"] as? Bool, true)
+        XCTAssertGreaterThanOrEqual(presentation["toolbarHeight"] as? Double ?? 0, 44)
+        XCTAssertEqual(presentation["noVerticalOverflow"] as? Bool, true)
+        XCTAssertEqual(presentation["base"] as? String, "oi-education://bundle/")
+
+        let input = """
+        const c=document.querySelector('#building'),r=c.getBoundingClientRect();
+        function fire(type,id,x,y){c.dispatchEvent(new PointerEvent(type,{bubbles:true,pointerId:id,pointerType:'touch',isPrimary:id===1,button:0,buttons:type==='pointerup'?0:1,clientX:x,clientY:y}));}
+        """
+        let drag = try await model.webView.evaluateJavaScript("""
+        (()=>{\(input)
+          const yaw=window.building3DDiagnostics().yaw,x=r.width*.5,y=r.height*.5;
+          fire('pointerdown',1,x,y);fire('pointermove',1,x+40,y);fire('pointermove',1,x,y);fire('pointerup',1,x,y);
+          return !document.querySelector('.experience').classList.contains('is-scattered')&&window.building3DDiagnostics().scatter===0;
+        })()
+        """)
+        XCTAssertEqual(drag as? Bool, true, "A drag returning to its origin must not unfold the building")
+        let pinch = try await model.webView.evaluateJavaScript("""
+        (()=>{\(input)
+          const x=r.width*.5,y=r.height*.5;
+          fire('pointerdown',1,x-30,y);fire('pointerdown',2,x+30,y);fire('pointermove',2,x+60,y);
+          fire('pointerup',2,x+60,y);fire('pointermove',1,x-29,y);fire('pointerup',1,x-29,y);
+          const valid=window.building3DDiagnostics().zoom>1&&!document.querySelector('.experience').classList.contains('is-scattered');
+          document.querySelector('[data-view="front"]').click();return valid;
+        })()
+        """)
+        XCTAssertEqual(pinch as? Bool, true, "Lifting fingers after a pinch must not activate the building")
+        let cancelled = try await model.webView.evaluateJavaScript("""
+        (()=>{\(input)
+          const x=r.width*.5,y=r.height*.5;fire('pointerdown',1,x,y);fire('pointercancel',1,x,y);fire('pointerup',1,x,y);
+          fire('pointerdown',1,r.left+1,r.top+1);fire('pointerup',1,r.left+1,r.top+1);
+          return !document.querySelector('.experience').classList.contains('is-scattered');
+        })()
+        """)
+        XCTAssertEqual(cancelled as? Bool, true, "Cancelled or empty-canvas taps must not unfold")
+        let tapped = try await model.webView.evaluateJavaScript("""
+        (()=>{\(input)
+          let point;for(let y=.25;y<.82;y+=.025){const x=r.left+r.width*.5,cy=r.top+r.height*y;if(window.educationBuildingHitTest(x,cy)){point=[x,cy];break;}}
+          if(!point)return false;
+          const [x,y]=point;fire('pointerdown',1,x,y);fire('pointermove',1,x+2,y+2);fire('pointermove',1,x,y);
+          if(document.querySelector('.experience').classList.contains('is-scattered'))return false;
+          fire('pointerup',1,x,y);return document.querySelector('.experience').classList.contains('is-scattered');
+        })()
+        """)
+        XCTAssertEqual(tapped as? Bool, true, "A real building hit with small finger jitter must unfold on release")
+        for _ in 0..<50 {
+            if try await model.webView.evaluateJavaScript("window.building3DDiagnostics().scatter===1") as? Bool == true { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertTrue(model.scattered)
+        let unfolded = try await model.webView.evaluateJavaScript("""
+        ({background:getComputedStyle(document.querySelector('.viewer-dimmer')).opacity,
+          space:document.querySelectorAll('.night-backdrop,.space-mascot').length,
+          hidden:['.viewer-header-controls','#viewerGestureHint','.bottom-dock'].every(s=>getComputedStyle(document.querySelector(s)).display==='none'),
+          noReturnButton:document.querySelectorAll('#viewerReturn').length===0,
+          aimLayout:(()=>{const a=document.querySelector('#viewerAim').getBoundingClientRect(),p=document.querySelector('#viewerAimStory').getBoundingClientRect();return Math.abs(a.left+a.width/2-innerWidth/2)<1&&Math.abs(a.top+a.height/2-innerHeight*.74)<1&&p.bottom<=innerHeight*.5&&a.top>innerHeight*.5;})(),
+          aimed:document.querySelector('#building-stage').dataset.aimPearl!==undefined,
+          story:document.querySelector('.aim-story-message').textContent,
+          shaderErrors:window.building3DDiagnostics().shaderErrors,
+          versions:window.building3DDiagnostics().instanceVersions})
+        """)
+        let unfoldedState = try XCTUnwrap(unfolded as? [String: Any])
+        XCTAssertEqual(unfoldedState["background"] as? String, "0.78")
+        XCTAssertEqual(unfoldedState["space"] as? Int, 0)
+        XCTAssertEqual(unfoldedState["hidden"] as? Bool, true)
+        XCTAssertEqual(unfoldedState["noReturnButton"] as? Bool, true)
+        XCTAssertEqual(unfoldedState["aimLayout"] as? Bool, true)
+        XCTAssertEqual(unfoldedState["aimed"] as? Bool, true)
+        XCTAssertFalse((unfoldedState["story"] as? String ?? "").isEmpty)
+        XCTAssertEqual(unfoldedState["shaderErrors"] as? Int, 0)
+        XCTAssertEqual(unfoldedState["versions"] as? [Int], diagnostics["instanceVersions"] as? [Int], "GPU morph must not upload every pearl matrix on each frame")
+        let gathering = try await model.webView.evaluateJavaScript("""
+        (()=>{\(input)
+          const stage=document.querySelector('#building-stage'),x=r.width*.5,y=r.height*.74;
+          fire('pointerdown',1,x,y);fire('pointerup',1,x,y);
+          const started=stage.dataset.scatterTransition==='gathering';
+          fire('pointerdown',1,x,y);fire('pointerup',1,x,y);document.querySelector('.brand').click();
+          return started&&stage.dataset.scatterTransition==='gathering';
+        })()
+        """)
+        XCTAssertEqual(gathering as? Bool, true, "A tap returns while repeated taps cannot restart scattering")
+        for _ in 0..<50 {
+            if try await model.webView.evaluateJavaScript("window.building3DDiagnostics().scatter===0") as? Bool == true { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertFalse(model.scattered)
+        let returned = try await model.webView.evaluateJavaScript("document.querySelector('#building').getAttribute('role')==='button'&&document.querySelectorAll('#viewerReturn').length===0")
+        XCTAssertEqual(returned as? Bool, true)
         model.setActive(false)
+        let paused = try await model.webView.evaluateJavaScript("window.prototypeDiagnostics().nativePaused")
+        XCTAssertEqual(paused as? Bool, true)
+        model.setActive(true)
+        let resumed = try await model.webView.evaluateJavaScript("window.prototypeDiagnostics().nativePaused")
+        XCTAssertEqual(resumed as? Bool, false)
+        _ = try await model.webView.evaluateJavaScript("document.querySelector('#viewerClose').click()")
+        for _ in 0..<10 {
+            if model.closeRequested { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertTrue(model.closeRequested)
+    }
+
+    func testAimedStoriesRotateBelowTheCloudAndTapRestoresTheOriginalPose() async throws {
+        let model = EducationLightWebModel()
+        let previous = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: try XCTUnwrap(previous?.windowScene))
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        window.rootViewController = UIHostingController(rootView: EducationLightExperience(model: model))
+        window.makeKeyAndVisible()
+        defer { model.setActive(false); window.isHidden = true; previous?.makeKeyAndVisible() }
+        for _ in 0..<300 {
+            if !model.loading { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertFalse(model.loading)
+        XCTAssertNil(model.failure)
+        let originalResult = try await model.webView.evaluateJavaScript("JSON.stringify(window.building3DDiagnostics())")
+        let original = try XCTUnwrap(originalResult as? String)
+        _ = try await model.webView.evaluateJavaScript("document.querySelector('#building').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'}))")
+        for _ in 0..<50 {
+            if try await model.webView.evaluateJavaScript("window.building3DDiagnostics().scatter===1") as? Bool == true { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let first = try await model.webView.evaluateJavaScript("document.querySelector('#building-stage').dataset.aimPearl")
+        XCTAssertNotNil(first as? String)
+        let input = """
+        const c=document.querySelector('#building'),r=c.getBoundingClientRect(),x=r.width*.5,y=r.height*.74;
+        function fire(type,id,x,y){c.dispatchEvent(new PointerEvent(type,{bubbles:true,pointerId:id,pointerType:'touch',isPrimary:id===1,button:0,buttons:type==='pointerup'?0:1,clientX:x,clientY:y}));}
+        """
+        _ = try await model.webView.evaluateJavaScript("""
+        (()=>{\(input)fire('pointerdown',1,x,y);fire('pointermove',1,x+180,y-400);fire('pointerup',1,x+180,y-400);})()
+        """)
+        try await Task.sleep(for: .milliseconds(150))
+        let explored = try await model.webView.evaluateJavaScript("""
+        ({pitch:window.building3DDiagnostics().pitch,scatter:window.building3DDiagnostics().scatter,
+          selected:document.querySelector('#building-stage').dataset.aimPearl,
+          story:document.querySelector('.aim-story-message').textContent,
+          returnButtons:document.querySelectorAll('#viewerReturn').length,
+          hiddenNote:document.querySelector('#pearlStoryNote').hidden,
+          shaderErrors:window.building3DDiagnostics().shaderErrors})
+        """)
+        let state = try XCTUnwrap(explored as? [String: Any])
+        XCTAssertLessThan(state["pitch"] as? Double ?? 0, -1.5)
+        XCTAssertEqual(state["scatter"] as? Double, 1)
+        XCTAssertNotEqual(state["selected"] as? String, first as? String)
+        XCTAssertFalse((state["story"] as? String ?? "").isEmpty)
+        XCTAssertEqual(state["returnButtons"] as? Int, 0)
+        XCTAssertEqual(state["hiddenNote"] as? Bool, true)
+        XCTAssertEqual(state["shaderErrors"] as? Int, 0)
+        _ = try await model.webView.evaluateJavaScript("""
+        (()=>{\(input)fire('pointerdown',1,x,y);fire('pointerup',1,x,y);})()
+        """)
+        for _ in 0..<50 {
+            if !model.scattered { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let restored = try await model.webView.evaluateJavaScript("""
+        (()=>{const before=JSON.parse(\(String(reflecting: original))),after=window.building3DDiagnostics();return after.scatter===0&&Math.abs(before.yaw-after.yaw)<.0001&&Math.abs(before.pitch-after.pitch)<.0001&&Math.abs(before.zoom-after.zoom)<.0001;})()
+        """)
+        XCTAssertEqual(restored as? Bool, true, "Gathering must restore the original camera as well as the same pearl positions")
+        XCTAssertFalse(model.scattered)
+    }
+
+    func testOfflineGardenAssetCatalogIsCompleteAndScoped() throws {
+        let catalog = try EducationLightAssetCatalog.load()
+        XCTAssertEqual(catalog.revision, "education-pearl-texture-screen-v30")
+        XCTAssertGreaterThan(catalog.assets.count, 20)
+        for (path, asset) in catalog.assets {
+            let request = try XCTUnwrap(URL(string: "oi-education://bundle" + path))
+            XCTAssertNotNil(catalog.asset(for: request))
+            let resource = try XCTUnwrap(asset.bundleURL(), "Missing packaged asset: \(path)")
+            XCTAssertGreaterThan(try Data(contentsOf: resource).count, 0)
+        }
+        for text in ["oi-education://other/assets/building-v25/model.json",
+                     "https://bundle/assets/building-v25/model.json",
+                     "oi-education://bundle/Service.local.plist",
+                     "oi-education://bundle/../Info.plist"] {
+            XCTAssertNil(catalog.asset(for: try XCTUnwrap(URL(string: text))))
+        }
+        XCTAssertNil(EducationLightAssetCatalog.Asset(resource: "../Info.plist", mime: "text/plain").bundleURL())
     }
 
     func testBatchedBuildingAndLevelOfDetailSharePlacement() throws {

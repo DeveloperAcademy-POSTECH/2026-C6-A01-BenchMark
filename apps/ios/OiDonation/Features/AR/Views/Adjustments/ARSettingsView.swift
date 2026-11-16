@@ -24,9 +24,11 @@ struct ARSettingsView: View {
                 }
                 .listRowBackground(Color.black.opacity(0.22))
                 Section("촬영 안내") {
-                    Text("밝은 그늘의 평평한 바닥에서 시작하세요. 바닥을 여러 각도에서 비춘 뒤 터치하여 배치합니다. 캐릭터와 사람은 비슷한 거리에 서 주세요.")
+                    Text(controller.usesGeographicPlacement
+                        ? "오이를 저장한 장소 주변에서 바닥을 천천히 비춰 주세요. 위치와 바닥이 확인되면 터치 없이 나타나요. GPS 기반 근사 위치입니다."
+                        : "밝은 그늘의 평평한 바닥에서 시작하세요. 바닥을 여러 각도에서 비춘 뒤 터치하여 배치합니다. 캐릭터와 사람은 비슷한 거리에 서 주세요.")
                     Text("촬영은 합성 화면 스냅샷입니다. JPG와 설정 JSON이 앱의 Documents/Experiments에 저장됩니다. 설정 데이터는 촬영 요청 직전 값이며 사진과 프레임 단위로 동기화되지 않습니다.").font(.caption)
-                    Button("설정 기본값 복원") { controller.settings = ARCaptureSettings() }
+                    Button("설정 기본값 복원") { controller.resetSettings() }
                     Button("캐릭터 다시 불러오기") { controller.loadCharacter() }
                 }
                 .listRowBackground(Color.black.opacity(0.22))

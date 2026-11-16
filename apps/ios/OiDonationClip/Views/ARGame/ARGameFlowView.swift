@@ -14,6 +14,7 @@ struct ARGameFlowView: View {
     let onBack: () -> Void
     let onRequestFullApp: (() -> Void)?
     var validateCollection: (() async -> Bool)? = nil
+    var reloadCard: (() async throws -> StoryCard)? = nil
     @State private var validating = false
     @State private var validationError: String?
     @State private var saveTask: Task<Void, Never>?
@@ -57,7 +58,7 @@ struct ARGameFlowView: View {
                     }
                     guard collectionStore.remove(storyID: experience.story.storyID) else { return }
                     retry()
-                }
+                }, reloadCard: reloadCard
             )
             .disabled(validating)
         }

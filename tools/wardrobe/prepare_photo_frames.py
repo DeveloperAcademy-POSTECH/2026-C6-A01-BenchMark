@@ -52,8 +52,10 @@ for source in sorted(OUT.glob('*.usdz')):
             height = anchor['height']
             cx, cy, width = 0, anchor[side]-NECK_GAP-height/2, .27
         else:
-            # Standalone trousers keep their original single-leg print area.
-            cx, cy, width, height = -.125, .35, .13, .14
+            # Modular trousers use full UVs at runtime. Keep legacy frame metadata
+            # stable even when a garment fit changes its projected bounds.
+            result[side] = legacy[source.stem][side]
+            continue
         u = .5 + (cx-(lo[0]+hi[0])/2)*scale*sign
         v = .5 - (cy-(lo[1]+hi[1])/2)*scale
         result[side] = frame(u-width*scale/2, v-height*scale/2, width*scale, height*scale)

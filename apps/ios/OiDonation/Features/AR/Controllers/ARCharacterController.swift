@@ -5,6 +5,15 @@ import Foundation
 final class ARCharacterController {
     func load(_ character: ARCharacter) async throws -> (root: Entity, model: Entity) {
         let model = try await Entity(named: character.modelFilename)
+        return try normalize(model)
+    }
+
+    func load(_ subject: ARCameraSubject) async throws -> (root: Entity, model: Entity) {
+        let model = try await subject.loadModel()
+        return try normalize(model)
+    }
+
+    private func normalize(_ model: Entity) throws -> (root: Entity, model: Entity) {
         try Task.checkCancellation()
         let bounds = model.visualBounds(relativeTo: nil)
         guard bounds.extents.y.isFinite, bounds.extents.y > 0.0001 else {
