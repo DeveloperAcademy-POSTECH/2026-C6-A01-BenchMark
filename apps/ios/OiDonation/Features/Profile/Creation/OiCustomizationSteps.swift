@@ -157,10 +157,14 @@ struct OiCardCustomizationStep: View {
                 Spacer()
                 if let onContinue {
                     Button { editingCaption = false; onContinue() } label: {
+                        // Figma `5919:12077`: 61×32 pill whose bottom lines up with the card's bottom edge;
+                        // the 44pt hit area extends past it without moving the pill.
                         Text(isFinished ? "다시 꾸미기" : "완료").font(CampusStyle.body(16)).tracking(0.32)
+                            .frame(height: 20)
                             .padding(.horizontal, 16).padding(.vertical, 6).background(Color("OiBorder"), in: Capsule())
                             .frame(minHeight: 44).contentShape(Rectangle())
                     }.buttonStyle(OiCreationPressStyle()).foregroundStyle(.black)
+                        .padding(.vertical, -6)
                         .disabled(!canContinue || needsPortrait).accessibilityIdentifier("oi.customization.done")
                 }
             }
@@ -245,7 +249,7 @@ struct OiCardCustomizationStep: View {
                         .focused($editingCaption)
                         .accessibilityIdentifier("oi.card.caption")
                     HStack(alignment: .lastTextBaseline) {
-                        Text(verbatim: "\(OiCreationStep.storyBytes(draft.body)) / \(OiCreationStep.storyBodyByteLimit)byte")
+                        Text(verbatim: "\(OiCreationStep.storyBytes(draft.body)) / \(OiCreationStep.storyBodyByteLimit) byte")
                             .foregroundStyle(Color(white: 177 / 255))
                         Spacer()
                         Button(editingCaption ? "완료" : "수정") { editingCaption.toggle() }

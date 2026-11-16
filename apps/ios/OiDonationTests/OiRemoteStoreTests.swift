@@ -2085,7 +2085,12 @@ final class OiRemoteStoreTests: XCTestCase {
         let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
         window.rootViewController = controller; window.isHidden = false
         defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
-        try await Task.sleep(for: .seconds(2))
+        try await Task.sleep(for: .seconds(4))
+        let card = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let cardAttachment = XCTAttachment(image: card); cardAttachment.name = "card-step-content"
+        cardAttachment.lifetime = .keepAlways; add(cardAttachment)
         XCTAssertFalse(try XCTUnwrap(actions).isCompletion())
         try XCTUnwrap(actions).finish()
         try await Task.sleep(for: .seconds(1))

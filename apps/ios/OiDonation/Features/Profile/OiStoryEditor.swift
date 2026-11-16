@@ -545,12 +545,17 @@ struct OiStoryEditor: View {
     }
 
     private func navigate(to destination: OiCreationStep) {
-        // STEP 1 ↔ STEP 2 switch at once, without a slide or fade (#373); other steps keep the short fade.
-        let switchesAtOnce = Set([step, destination]) == [.consent, .story]
-        withAnimation(reduceMotion || switchesAtOnce ? nil : .easeInOut(duration: 0.18)) {
+        // Every creation screen switches at once, without a slide or fade (#373, #386).
+        Self.withoutAnimation {
             if step != destination { customizationReady = false; cardPlacementReady = false }
             step = destination
         }
+    }
+
+    private static func withoutAnimation(_ change: () -> Void) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction, change)
     }
 
     /// Save the draft on this device before showing the completion summary; keep editing on failure.
@@ -560,7 +565,7 @@ struct OiStoryEditor: View {
         defer { saving = false }
         await pendingSave?.value
         guard await persist() else { return }
-        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { showingCardCompletion = true }
+        Self.withoutAnimation { showingCardCompletion = true }
     }
 
     private func toggleCustomizationReady() {
