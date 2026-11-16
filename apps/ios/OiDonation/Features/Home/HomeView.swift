@@ -169,6 +169,21 @@ struct HomeView: View {
             await scene.load()
         }
         .task(id: authoredSource) { await loadAuthoredPlacements(authoredSource) }
+        .task(id: region?.id) {
+            guard let region, let remote else { return }
+            do {
+                try await Task.sleep(for: .milliseconds(2500))
+                guard !ProcessInfo.processInfo.isLowPowerModeEnabled,
+                      ProcessInfo.processInfo.thermalState == .nominal else { return }
+                for story in store.stories(in: region.id, sortedBy: .latest).prefix(1) {
+                    try Task.checkCancellation()
+                    if let path = story.cardArtworkPath { _ = try? await remote.postcardImage(path) }
+                    else if let path = story.remoteMediaPaths.first, let resolver = store.mediaURL {
+                        _ = try? await remote.postcardPhotoImage(path, loadURL: resolver)
+                    }
+                }
+            } catch { }
+        }
         .onAppear {
             pruneAuthoredPlacements(authoredSource)
             isOnScreen = true
