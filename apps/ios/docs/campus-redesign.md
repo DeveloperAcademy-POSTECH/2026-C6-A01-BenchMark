@@ -22,7 +22,7 @@ Figma 파일 `nEDJaJBFrdzBCa1WcgADHH`의 다음 네 화면을 사용했다.
 - `App/RootTabView.swift`: 기존 이름을 유지한 루트 `NavigationStack`과 `CampusDestination` 등록, 공용 수집 상태, 공개 링크, AR 모달. 지도 마커·지역 목록·자세히보기는 같은 `NavigationPath`에 순서대로 추가한다.
 - `Features/Home/HomeView.swift`: 전체/지역 지도, 정렬·목록 높이·프로필 메뉴 상태. 지도 마커 선택은 `onOpenStory` 콜백으로 루트에 전달하며, 요약용 별도 item destination 상태를 사용하지 않는다.
 - `Features/Campus/Scene/CampusExploreScene.swift`: RealityKit non-AR 렌더러, 카메라·제스처, 3D 위치를 화면 좌표로 투영하는 터치 마커.
-- `CampusSummaryView` → `CampusStoryDetailView`: ID 기반 경로를 push한다. 상세에서 뒤로 가면 실제 진입한 요약 화면으로 돌아가며, 프로필에서 열린 화면도 해당 스택으로 복귀한다.
+- `CampusSummaryView` → `CampusCucumberStoryView`: ID 기반 경로를 push한다. 상세에서 뒤로 가면 실제 진입한 요약 화면으로 돌아가며, 프로필에서 열린 화면도 해당 스택으로 복귀한다.
 - `CampusStoryStore`: 예시 이야기와 지역별 개수, 정렬, 로컬 수집 상태. 서버 데이터와 기존 Domain의 기부 기록을 대체하지 않는다.
 - `CampusProfileMenu`: 기존 내 기부·후원·벤치·사진 테스트로 연결한다. 2026-10-28 NFC 기록 도구를 사진 테스트 아래에 통합했다. 이전 화면의 비즈니스 로직은 유지한다.
 

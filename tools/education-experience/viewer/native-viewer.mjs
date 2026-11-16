@@ -30,7 +30,7 @@ function returnToBuilding(){
 window.educationReturnToBuilding=returnToBuilding;
 const aim=document.createElement('div');aim.id='viewerAim';aim.setAttribute('aria-hidden','true');aim.innerHTML='<span></span>';
 const story=document.createElement('section');story.id='viewerAimStory';story.setAttribute('aria-label','에임으로 선택한 이야기');
-story.innerHTML='<p class="aim-story-kicker">빛으로 지은 이야기</p><div class="aim-story-content" role="status" aria-live="polite" aria-atomic="true"><p class="aim-story-category"></p><p class="aim-story-message"></p><p class="aim-story-author"></p><p class="aim-story-source"></p></div><p class="aim-story-help">드래그해 이야기 찾기 · 아래 구슬을 탭해 건물로 돌아가기</p>';
+story.innerHTML='<p class="aim-story-kicker">빛으로 지은 이야기</p><figure id="viewerAimPhoto" class="education-aim-preview aim-story-photo" hidden><img decoding="async" alt=""><span class="pearl-note-photo-placeholder">사진을 불러오는 중</span><button type="button">이야기 자세히 보기</button></figure><div class="aim-story-content" role="status" aria-live="polite" aria-atomic="true"><p class="aim-story-category"></p><p class="aim-story-message"></p><p class="aim-story-author"></p><p class="aim-story-source"></p></div><p class="aim-story-help">드래그해 이야기 찾기 · 아래 구슬을 탭해 건물로 돌아가기</p>';
 root.append(aim,story);
 document.querySelector('#viewerClose').addEventListener('click',() => window.webkit?.messageHandlers?.building?.postMessage({kind:'close'}));
 

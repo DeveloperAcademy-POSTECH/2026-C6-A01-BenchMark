@@ -183,7 +183,7 @@ struct OiCardPlacementEditor: View {
                     GeometryReader { proxy in
                         let p = placement.normalized
                         OiCardPortraitCapture(look: look, cacheKey: portraitKey,
-                            orientation: orientation.wrappedValue, interactivePreview: true,
+                            orientation: orientation.wrappedValue, interactivePreview: true, placeholder: image,
                             onCapture: { data, key in portraitFailed = false; onCapture(data, key) },
                             onFailure: { portraitFailed = true })
                             .id(renderAttempt)

@@ -24,6 +24,7 @@ struct OiStoryEditor: View {
     @State private var photoOrder: [String]?
     @State private var uploadedPhotos: Set<UUID> = []
     @State private var localVersion = 0
+    @State private var reviewedContentFingerprint: String?
     @State private var restored = false
     @State private var isRestoring = false
     @State private var restorationError: String?
@@ -42,7 +43,9 @@ struct OiStoryEditor: View {
     }
     @State private var photoSelections: [PhotosPickerItem] = []
     @State private var step: OiCreationStep = .story
-    @FocusState private var focusedStoryField: OiStoryWritingStep.Field?
+    @State private var focusedStoryField: OiStoryWritingStep.Field?
+    /// STEP 2 shows missing items under the buttons only after Next is tapped (#373).
+    @State private var showingStoryMissing = false
     @State private var customization = OiDraftCustomization()
     @State private var personalPlacement: OiPersonalPlacement?
     @State private var removedMediaPaths: [String] = []
@@ -62,8 +65,6 @@ struct OiStoryEditor: View {
     @State private var confirmingConsentExit = false
     @State private var customizationReady = false
     @State private var wardrobePhotoEditing = false
-    @State private var navigationAtBottom = false
-    @State private var navigationPanelHeight: CGFloat = 124
     @State private var bottomSafeAreaInset: CGFloat = 0
     @State private var cardPlacementReady = false
     /// Figma `5887:10243`: STEP 4 `완료` saves on this device and shows this summary (#377).
@@ -112,6 +113,8 @@ struct OiStoryEditor: View {
         let exit: @MainActor () async -> Bool
         let editFromReview: @MainActor (OiCreationStep) -> Void
         let isPlacementPreview: @MainActor () -> Bool
+        let currentStep: @MainActor () -> OiCreationStep
+        let shownMissingItems: @MainActor () -> [String]
         let isCompletion: @MainActor () -> Bool
         let completionDone: @MainActor () -> Void
     }
@@ -152,12 +155,20 @@ struct OiStoryEditor: View {
     private var editorContent: some View {
         presentedContent
         .task(id: restorationAttempt) { await restoreDraft() }
+        .task(id: step == .story) {
+            // Prepare only the selected source while the user fills in STEP 2.
+            guard step == .story, ProcessInfo.processInfo.thermalState.rawValue < ProcessInfo.ThermalState.serious.rawValue else { return }
+            let look = customization.wardrobe ?? OiWardrobeLook()
+            if let url = try? OiWardrobeAsset.url(look.modelName, folder: "Wardrobe") {
+                _ = try? await OiWardrobeModelCache.shared.clone(from: url)
+            }
+        }
         .onChange(of: draft) { _, _ in scheduleSave() }
         .onChange(of: photos) { _, _ in scheduleSave() }
         .onChange(of: uploadedPhotos) { _, _ in scheduleSave() }
         .onChange(of: step) { _, _ in
-            focusedStoryField = nil
-            navigationAtBottom = false
+            endStoryEditing()
+            showingStoryMissing = false
             scheduleSave()
         }
         .onChange(of: customization) { _, _ in scheduleSave() }
@@ -170,9 +181,10 @@ struct OiStoryEditor: View {
         .onAppear {
             onNavigationActionsForTest?(NavigationTestActions(
                 finish: { if step == .card { Task { await completeCard() } } else { toggleCustomizationReady() } },
-                next: { if step == .card { cardPlacementReady = true } else { advance() } },
+                next: { if step == .card { cardPlacementReady = true } else if step == .story { storyNext() } else { advance() } },
                 exit: saveAndExit, editFromReview: editFromReview,
                 isPlacementPreview: { step == .card && cardPlacementReady },
+                currentStep: { step }, shownMissingItems: { showingStoryMissing ? missingStoryItems : [] },
                 isCompletion: { showingCardCompletion }, completionDone: finish))
             onPhotoEditingReady?(PhotoEditingTestActions(
                 items: { editingPhotos }, open: openPhotoEditor, move: movePhoto,
@@ -182,27 +194,36 @@ struct OiStoryEditor: View {
         #endif
     }
 
-    private var presentedContent: some View {
+    private var cardCompletion: some View {
+        OiStoryCompletionView(draft: draft, customization: customization,
+            donorName: remote.profile?.publicName ?? "", location: completionLocation,
+            onDone: { finish() })
+    }
+
+    private var placementPreview: some View {
+        OiDraftPlacementPreview(draft: draft, wardrobe: customization.wardrobe, isShowingReview: showingPreview,
+            savedPlacement: personalPlacement, error: localError, autoStoryModeration: remote.autoStoryModeration,
+            onEdit: { cardPlacementReady = false; customizationReady = false },
+            onEditLocation: { navigate(to: .location) },
+            onPlace: { placement in Task { await placeOnMyMap(placement) } },
+            onReview: advance,
+            onPlacementChange: savePlacementPreview)
+    }
+
+    private var editorLayout: some View {
         VStack(spacing: 0) {
             if !restored {
                 restorationStatus
             } else if submitted {
                 completion
             } else if showingCardCompletion {
-                OiStoryCompletionView(draft: draft, customization: customization,
-                    donorName: remote.profile?.publicName ?? "", location: completionLocation, onDone: finish)
+                cardCompletion
             } else if step == .location {
                 OiLocationPicker(latitude: $draft.latitude, longitude: $draft.longitude,
                                  regionID: $draft.regionId,
                                  onFinish: { navigate(to: .story) })
             } else if step == .card && cardPlacementReady {
-                OiDraftPlacementPreview(draft: draft, wardrobe: customization.wardrobe, isShowingReview: showingPreview,
-                    savedPlacement: personalPlacement, error: localError,
-                    onEdit: { cardPlacementReady = false; customizationReady = false },
-                    onEditLocation: { navigate(to: .location) },
-                    onPlace: { placement in Task { await placeOnMyMap(placement) } },
-                    onReview: advance,
-                    onPlacementChange: savePlacementPreview)
+                placementPreview
             } else {
                 OiCreationProgressHeader(step: step.progress, onSelect: selectProgressStage,
                     canSelectStage: canSelectProgressStage)
@@ -222,6 +243,7 @@ struct OiStoryEditor: View {
                                 onContinue: advance, onExit: requestExit,
                                 showsHeader: false, state: $consentState)
                         }
+                        .task { prewarmStoryStep() }
                     } else if step == .cucumber || step == .card {
                         VStack(spacing: 0) {
                             editorStatus.padding(.horizontal, 20)
@@ -236,13 +258,18 @@ struct OiStoryEditor: View {
                         ScrollViewReader { scroll in
                             ScrollView { editorScrollContent }
                                 .modifier(OiCustomizationScrollEdge())
-                                .modifier(OiCreationScrollNavigation(onVisibilityChange: { navigationAtBottom = $0 }))
                                 .accessibilityIdentifier("oi.creation.storyScroll")
-                                .environment(\.oiCreationNavigationClearance, navigationPanelHeight + 12)
                                 .scrollDismissesKeyboard(.interactively)
                                 .onChange(of: step) { _, _ in scroll.scrollTo("creation.top", anchor: .top) }
                                 .onChange(of: wardrobePhotoEditing) { _, editing in
                                     if editing { scroll.scrollTo("creation.top", anchor: .top) }
+                                }
+                                .onChange(of: showingStoryMissing) { _, showing in
+                                    // The message sits under the buttons; bring it into view.
+                                    guard showing else { return }
+                                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
+                                        scroll.scrollTo("creation.storyButtons", anchor: .bottom)
+                                    }
                                 }
                                 .scrollDisabled(wardrobePhotoEditing)
                         }
@@ -260,19 +287,6 @@ struct OiStoryEditor: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
-                .overlay(alignment: .bottom) {
-                    if step == .story {
-                        OiCreationNavigationBar(canContinue: canLeaveCurrentStep,
-                            onPrevious: reviewPreviousStep, onNext: advance,
-                            onSaveAndExit: { Task { if await persist() { dismiss() } } })
-                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { navigationPanelHeight = $0 }
-                        .offset(y: showsNavigationPanel || reduceMotion ? 0 : navigationPanelHeight + 50)
-                        .opacity(showsNavigationPanel ? 1 : 0)
-                        .allowsHitTesting(showsNavigationPanel)
-                        .accessibilityHidden(!showsNavigationPanel)
-                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: showsNavigationPanel)
-                    }
-                }
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { bottomSafeAreaInset = $0 }
@@ -284,7 +298,7 @@ struct OiStoryEditor: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar(usesNavigationBar ? .visible : .hidden, for: .navigationBar)
         .disabled(remote.isBusy || preparingPhoto || publishing || saving || placing || replacingServerDraft || isDiscarding)
-        .navigationTitle(submitted ? "접수 완료" : step.title).navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(navigationTitle).navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden()
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -304,54 +318,47 @@ struct OiStoryEditor: View {
             }
         }
         .interactiveDismissDisabled()
-        .confirmationDialog("현재 입력을 어떻게 할까요?", isPresented: $choosingExit, titleVisibility: .visible) {
-            Button("임시저장 후 나가기") { Task { if await persist() { dismiss() } } }
-            Button(personalPlacement == nil ? "기기 초안 삭제" : "내 지도 배치와 기기 초안 삭제", role: .destructive) {
-                Task { await discardDraft() }
-            }
-            Button("계속 작성", role: .cancel) {}
-        } message: { Text("기기 초안과 사진 복사본을 삭제해요. 공개 요청을 보낸 이야기는 내 이야기에서 관리할 수 있어요.") }
-        .alert("현재 진행 상황을\n저장하고 나가시겠습니까?", isPresented: $confirmingConsentExit) {
-            Button("저장하고 나가기") { Task { _ = await saveAndExit() } }
-                .accessibilityIdentifier("oi.consent.exit.save")
-            Button("삭제하기", role: .destructive) { Task { await discardDraft() } }
-                .accessibilityIdentifier("oi.consent.exit.discard")
-        } message: {
-            Text("작성하신 내용들은 삭제되지 않고\n기기에 로컬로 임시 저장됩니다")
-        }
-        .alert("서버 버전으로 바꿀까요?", isPresented: Binding(
-            get: { serverRevisionToReplace != nil },
-            set: { if !$0 { serverRevisionToReplace = nil } }
-        ), presenting: serverRevisionToReplace) { revision in
-            Button("계속 편집", role: .cancel) {}
-            Button("서버 버전으로 바꾸기", role: .destructive) {
-                Task { await replaceWithServerDraft(revision: revision) }
-            }
-        } message: { _ in
-            Text("제목, 본문, 위치를 서버 버전으로 바꿉니다. 추가한 사진과 기기에서 꾸민 오이·카드는 보관합니다.")
-        }
-        .fullScreenCover(item: $photoCheckpoint) { _ in photoEditorContent }
-        .sheet(isPresented: $showingPreview, onDismiss: {
-            guard openingPhotosAfterReview else { return }
-            openingPhotosAfterReview = false
-            openPhotoEditor()
-        }) { reviewSheet }
-        .sheet(item: $supplementaryScreen) { screen in
-            NavigationStack {
-                Group {
-                    switch screen {
-                    case .completion: completionContent(isPreview: true)
-                    }
+    }
+
+    private var presentedContent: some View {
+        editorLayout
+            .confirmationDialog("현재 입력을 어떻게 할까요?", isPresented: $choosingExit, titleVisibility: .visible) {
+                Button("임시저장 후 나가기") { Task { if await persist() { dismiss() } } }
+                Button(personalPlacement == nil ? "기기 초안 삭제" : "내 지도 배치와 기기 초안 삭제", role: .destructive) {
+                    Task { await discardDraft() }
                 }
-                .toolbar { ToolbarItem(placement: .cancellationAction) {
-                    Button("작성으로 돌아가기") { supplementaryScreen = nil }
-                } }
+                Button("계속 작성", role: .cancel) {}
+            } message: { Text("기기 초안과 사진 복사본을 삭제해요. 공개 요청을 보낸 이야기는 내 이야기에서 관리할 수 있어요.") }
+            .alert("현재 진행 상황을\n저장하고 나가시겠습니까?", isPresented: $confirmingConsentExit) {
+                Button("저장하고 나가기") { Task { _ = await saveAndExit() } }
+                    .accessibilityIdentifier("oi.consent.exit.save")
+                Button("삭제하기", role: .destructive) { Task { await discardDraft() } }
+                    .accessibilityIdentifier("oi.consent.exit.discard")
+            } message: {
+                Text("작성하신 내용들은 삭제되지 않고\n기기에 로컬로 임시 저장됩니다")
             }
-        }
+            .alert("서버 버전으로 바꿀까요?", isPresented: Binding(
+                get: { serverRevisionToReplace != nil },
+                set: { if !$0 { serverRevisionToReplace = nil } }
+            ), presenting: serverRevisionToReplace) { revision in
+                Button("계속 편집", role: .cancel) {}
+                Button("서버 버전으로 바꾸기", role: .destructive) {
+                    Task { await replaceWithServerDraft(revision: revision) }
+                }
+            } message: { _ in
+                Text("제목, 본문, 위치를 서버 버전으로 바꿉니다. 추가한 사진과 기기에서 꾸민 오이·카드는 보관합니다.")
+            }
+            .fullScreenCover(item: $photoCheckpoint) { _ in photoEditorContent }
+            .sheet(isPresented: $showingPreview, onDismiss: {
+                guard openingPhotosAfterReview else { return }
+                openingPhotosAfterReview = false
+                openPhotoEditor()
+            }) { reviewSheet }
+            .sheet(item: $supplementaryScreen) { supplementaryContent($0) }
     }
 
     private var showsNavigationPanel: Bool {
-        if step == .story { return navigationAtBottom && focusedStoryField == nil }
+        if step == .story { return false } // STEP 2 keeps its buttons at the end of the scroll (#373).
         return (step == .cucumber || step == .card) && customizationReady && !cardPlacementReady
     }
 
@@ -432,9 +439,16 @@ struct OiStoryEditor: View {
             previewWidth: previewWidth, previewHeight: previewHeight)
     }
 
+    /// The story fields are UIKit text views; resign them synchronously so no keyboard survives a screen change.
+    private func endStoryEditing() {
+        focusedStoryField = nil
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
     private func openPhotoEditor() {
         guard restored, !submitted, photoCheckpoint == nil else { return }
-        focusedStoryField = nil
+        // Resign before presenting; otherwise UIKit keeps (and later restores) the story keyboard over the photo editor.
+        endStoryEditing()
         photoCheckpoint = PhotoCheckpoint(photos: photos, order: photoOrder, uploaded: uploadedPhotos,
             removedPaths: removedMediaPaths, removedIDs: removedPhotoIDs)
     }
@@ -484,6 +498,14 @@ struct OiStoryEditor: View {
         VStack(alignment: .leading, spacing: 20) {
             editorStatus
             stepContent.id("creation.top")
+            if step == .story {
+                // Figma `5400:7726`: the buttons follow the last section instead of floating over it.
+                OiCreationNavigationBar(inline: true, missingItems: showingStoryMissing ? missingStoryItems : [],
+                    onPrevious: reviewPreviousStep, onNext: storyNext,
+                    onSaveAndExit: { Task { if await persist() { dismiss() } } })
+                    .padding(.top, 30)
+                    .id("creation.storyButtons")
+            }
             if step != .story {
                 Text(saveLabel).font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("oi.draft.saveState")
             }
@@ -491,7 +513,7 @@ struct OiStoryEditor: View {
             .background {
                 if step == .story && focusedStoryField != nil {
                     Color.clear.contentShape(Rectangle())
-                        .onTapGesture { focusedStoryField = nil }
+                        .onTapGesture { endStoryEditing() }
                         .accessibilityHidden(true)
                 }
             }
@@ -517,8 +539,22 @@ struct OiStoryEditor: View {
         return stage <= OiCreationStep.story.progress || storyInputIsComplete
     }
 
+    /// The first STEP 2 draw caches TextKit and the Korean glyphs of its fonts; prepare them while STEP 1
+    /// is idle so switching to STEP 2 shows without a hitch. The rendered image is discarded.
+    private func prewarmStoryStep() {
+        OiStoryTextView.prewarm()
+        let renderer = ImageRenderer(content: VStack(alignment: .leading, spacing: 50) {
+            OiStoryWritingStep(draft: .constant(draft), focusedField: .constant(nil))
+            OiCreationNavigationBar(inline: true, onPrevious: {}, onNext: {}, onSaveAndExit: {})
+        }.frame(width: 362).environment(\.colorScheme, .light))
+        renderer.scale = 3
+        _ = renderer.cgImage
+    }
+
     private func navigate(to destination: OiCreationStep) {
-        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
+        // STEP 1 ↔ STEP 2 switch at once, without a slide or fade (#373); other steps keep the short fade.
+        let switchesAtOnce = Set([step, destination]) == [.consent, .story]
+        withAnimation(reduceMotion || switchesAtOnce ? nil : .easeInOut(duration: 0.18)) {
             if step != destination { customizationReady = false; cardPlacementReady = false }
             step = destination
         }
@@ -581,13 +617,42 @@ struct OiStoryEditor: View {
         }
     }
 
-    /// Theme, emotion, title, story, at least one photo and a campus location are all required before the cucumber step.
+    /// Next stays enabled on STEP 2; missing input shows what to fill instead of moving on.
+    private func storyNext() {
+        endStoryEditing()
+        guard storyInputIsComplete else {
+            showingStoryMissing = true
+            AccessibilityNotification.Announcement(missingStoryItems.joined(separator: ", ")).post()
+            return
+        }
+        showingStoryMissing = false
+        advance()
+    }
+
+    /// Figma `5400:7726` order: theme, emotion, title, story, photo, location (#373).
+    private var missingStoryItems: [String] {
+        func blank(_ value: String) -> Bool { value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        var items: [String] = []
+        if blank(draft.theme) { items.append("테마가 선택되지 않았습니다") }
+        if blank(draft.emotion) { items.append("감정이 선택되지 않았습니다") }
+        if blank(draft.title) { items.append("제목이 입력되지 않았습니다") }
+        else if OiCreationStep.storyBytes(draft.title) > OiCreationStep.storyTitleByteLimit { items.append("제목을 \(OiCreationStep.storyTitleByteLimit)byte 이내로 줄여주세요") }
+        if blank(draft.body) { items.append("이야기가 입력되지 않았습니다") }
+        else if OiCreationStep.storyBytes(draft.body) > OiCreationStep.storyBodyByteLimit { items.append("이야기를 \(OiCreationStep.storyBodyByteLimit)byte 이내로 줄여주세요") }
+        if editingPhotos.isEmpty { items.append("사진은 1장 이상 추가해주세요 (대표이미지)") }
+        else if editingPhotos.count > OiCreationStep.storyPhotoLimit { items.append("사진은 \(OiCreationStep.storyPhotoLimit)장만 선택할 수 있습니다") }
+        if !OiCreationStep.location.canContinue(draft: draft) { items.append("오이 위치가 설정되지 않았습니다") }
+        return items
+    }
+
+    /// Theme, emotion, title, story, one photo and a campus location are all required before the cucumber step.
     private var storyInputIsComplete: Bool {
         OiCreationStep.story.canContinue(draft: draft) && hasValidStoryPhotoCount
             && OiCreationStep.location.canContinue(draft: draft)
     }
 
     private func advance() {
+        if step == .cucumber { endStoryEditing() }
         guard canLeaveCurrentStep else { return }
         if let next = step.next { navigate(to: next) } else { showingPreview = true }
     }
@@ -597,6 +662,7 @@ struct OiStoryEditor: View {
         placing = true
         defer { placing = false }
         await pendingSave?.value
+        savePlacementPreview(placement, region: nil)
         let name = draft.cucumberName.trimmingCharacters(in: .whitespacesAndNewlines)
         let saved = OiPersonalPlacement(regionID: draft.regionId, name: name.isEmpty ? "내 오이" : name,
             latitude: placement.latitude, longitude: placement.longitude,
@@ -673,8 +739,9 @@ struct OiStoryEditor: View {
             try Task.checkCancellation()
             guard remote.account?.id == accountID else { throw OiServiceError.accountChanged }
             if let record {
-                draft = record.draft; photos = record.photos; uploadedPhotos = Set(record.uploadedPhotos)
+                draft = record.draftWithSavedLocation; photos = record.photos; uploadedPhotos = Set(record.uploadedPhotos)
                 localVersion = record.version; submitted = record.submitted
+                reviewedContentFingerprint = record.reviewedContentFingerprint
                 step = record.creationStep.flatMap(OiCreationStep.init(rawValue:)) ?? .story
                 customization = record.customization ?? OiDraftCustomization()
                 personalPlacement = record.personalPlacement
@@ -713,17 +780,22 @@ struct OiStoryEditor: View {
     }
 
     private var reviewSheet: some View {
-        OiStoryReview(draft: draft, customization: customization, savedCardPath: reusedCardPath,
+        let offersAIReview = remote.autoStoryModeration
+        return OiStoryReview(draft: draft, customization: customization, savedCardPath: reusedCardPath,
             savedPortraitPath: customization.wardrobe == nil ? currentStory?.cucumberArtwork?.path(.portrait) : nil,
             donorName: remote.profile?.publicName ?? "",
             location: OiCreationStep.location.canContinue(draft: draft) ? completionLocation : nil,
             photos: editingPhotos, remote: remote, issues: reviewIssues,
             error: localError ?? remote.error ?? publicationAvailabilityMessage,
             canSubmit: canSubmit && publicationAvailabilityMessage == nil && !remote.isBusy && !saving, isSubmitting: publishing,
+            offersAIReview: offersAIReview,
             onClose: { showingPreview = false },
             onEdit: editFromReview, onSubmit: { portrait, card in
                 let reviewedCardPath = reusedCardPath
-                Task { await submitReview(portrait: portrait, card: card, reviewedCardPath: reviewedCardPath) }
+                Task {
+                    await submitReview(portrait: portrait, card: card, reviewedCardPath: reviewedCardPath,
+                                       authorizesAIReview: offersAIReview)
+                }
             }) { photo, thumbnail in
                 reviewPhoto(photo, allowsRetry: !thumbnail, contentMode: thumbnail ? .fill : .fit,
                             maximumPixelSize: thumbnail ? 512 : 1600)
@@ -732,23 +804,11 @@ struct OiStoryEditor: View {
     }
 
     private var reviewIssues: [OiStoryReviewIssue] {
-        var issues: [OiStoryReviewIssue] = []
-        if !consentState.allRequiredClausesAreAgreed {
-            issues.append(.init(step: .consent, message: "공개하려면 필수 약관에 모두 동의해 주세요."))
+        let inputIssues = OiCreationStep.reviewInputIssues(draft: draft, photoCount: editingPhotos.count)
+        guard consentState.allRequiredClausesAreAgreed else {
+            return [.init(step: .consent, message: "공개하려면 필수 약관에 모두 동의해 주세요.")] + inputIssues
         }
-        if !OiCreationStep.story.canContinue(draft: draft) {
-            issues.append(.init(step: .story, message: "테마와 감정을 선택하고 제목은 45자, 이야기는 1,500byte 이내로 입력해 주세요."))
-        }
-        if !OiCreationStep.location.canContinue(draft: draft) {
-            issues.append(.init(step: .location, message: "캠퍼스 위치를 선택해 주세요."))
-        }
-        if !hasValidStoryPhotoCount {
-            issues.append(.init(step: .photos, message: "이야기 사진을 1~\(OiCreationStep.storyPhotoLimit)장 선택해 주세요."))
-        }
-        if draft.cucumberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draft.cucumberName.count > 50 {
-            issues.append(.init(step: .cucumber, message: "오이 커스텀의 내용 탭에서 오이 이름을 입력해 주세요."))
-        }
-        return issues
+        return inputIssues
     }
 
     private var publicationAvailabilityMessage: String? {
@@ -765,7 +825,8 @@ struct OiStoryEditor: View {
         return nil
     }
 
-    private func submitReview(portrait: Data?, card: OiStoryCardPublication?, reviewedCardPath: String?) async {
+    private func submitReview(portrait: Data?, card: OiStoryCardPublication?, reviewedCardPath: String?,
+                              authorizesAIReview: Bool) async {
         guard !publishing, !remote.isBusy, !saving, canSubmit, publicationAvailabilityMessage == nil else { return }
         publishing = true
         localError = nil
@@ -785,10 +846,25 @@ struct OiStoryEditor: View {
             localError = "저장된 카드가 바뀌었어요. 카드를 다시 확인하고 검토를 요청해 주세요."
             return
         }
-        if let receipt = await remote.submitStory(saved, cucumber: publication, card: card) {
-            draft = OiStoryDraft(story: receipt); submitted = true; localVersion += 1
+        let usesAIReview = remote.autoStoryModeration
+        let receipt = await remote.submitStory(saved, cucumber: publication, card: card,
+                                               agreesToAIReview: authorizesAIReview)
+        if let receipt {
+            draft = OiStoryDraft(story: receipt); localVersion += 1
+            if usesAIReview {
+                reviewedContentFingerprint = record().contentFingerprint
+                guard await persist() else { return }
+                showingPreview = false
+                finish()
+            } else {
+                submitted = true
+                _ = await persist()
+                showingPreview = false
+            }
+        } else if usesAIReview, remote.moderationResult(for: saved)?.status == .rejected {
+            reviewedContentFingerprint = record().contentFingerprint
+            localVersion += 1
             _ = await persist()
-            showingPreview = false
         }
     }
 
@@ -809,8 +885,7 @@ struct OiStoryEditor: View {
         (1...OiCreationStep.storyPhotoLimit).contains(editingPhotos.count)
     }
     private var canSubmit: Bool {
-        canWrite && consentState.allRequiredClausesAreAgreed && hasValidStoryPhotoCount &&
-        OiCreationStep.allCases.allSatisfy { $0.canContinue(draft: draft) }
+        canWrite && reviewIssues.isEmpty
     }
     private var serverMediaPaths: [String] { remote.mediaPaths(storyID: draft.id) }
     private var attachedPhotoIDs: Set<UUID> {
@@ -895,7 +970,7 @@ struct OiStoryEditor: View {
                 OiStoryWritingStep(draft: $draft, focusedField: $focusedStoryField)
                 OiStoryAttachmentSections(photoCount: editingPhotos.count,
                     latitude: draft.latitude, longitude: draft.longitude,
-                    onPhotos: openPhotoEditor, onLocation: { navigate(to: .location) })
+                    onPhotos: openPhotoEditor, onLocation: { endStoryEditing(); navigate(to: .location) })
             }
         case .cucumber:
             OiCucumberCustomizationStep(customization: $customization, cucumberName: $draft.cucumberName,
@@ -925,8 +1000,32 @@ struct OiStoryEditor: View {
         return try OiPhotoProcessor.prepare(data)
     }
 
-    private var completion: some View {
-        completionContent(isPreview: false)
+    private func supplementaryContent(_ screen: SupplementaryScreen) -> some View {
+        NavigationStack {
+            switch screen {
+            case .completion:
+                completionContent(isPreview: true)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("작성으로 돌아가기") { supplementaryScreen = nil }
+                        }
+                    }
+            }
+        }
+    }
+
+    @ViewBuilder private var completion: some View {
+        if currentStory?.status == "published" {
+            VStack(spacing: 20) {
+                Text("이야기가 등록됐어요").font(CampusStyle.semibold(20)).accessibilityAddTraits(.isHeader)
+                OiCreationNextButton(title: "확인", action: finish)
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color("OiLight"))
+        } else {
+            completionContent(isPreview: false)
+        }
     }
 
     private func completionContent(isPreview: Bool) -> some View {
@@ -975,6 +1074,11 @@ struct OiStoryEditor: View {
                     .shadow(color: Color("OiDark").opacity(0.4), radius: 5)
             }.padding(.horizontal, 20).padding(.top, 42).padding(.bottom, 24)
         }.background(Color("OiLight"))
+    }
+
+    private var navigationTitle: String {
+        if submitted { return currentStory?.status == "published" ? "" : "접수 완료" }
+        return step.title
     }
 
     private var completionLocation: String {
@@ -1035,11 +1139,11 @@ struct OiStoryEditor: View {
     }
 
     private func record() -> OiLocalDraft {
-        OiLocalDraft(draft: draft, photos: photos, uploadedPhotos: Array(uploadedPhotos), version: localVersion, submitted: submitted, creationStep: step.rawValue, customization: customization, removedMediaPaths: removedMediaPaths, removedPhotoIDs: removedPhotoIDs, agreedConsentClauseIDs: consentState.savedIDs, personalPlacement: personalPlacement, photoOrder: photoOrder)
+        OiLocalDraft(draft: draft, photos: photos, uploadedPhotos: Array(uploadedPhotos), version: localVersion, submitted: submitted, creationStep: step.rawValue, customization: customization, removedMediaPaths: removedMediaPaths, removedPhotoIDs: removedPhotoIDs, agreedConsentClauseIDs: consentState.savedIDs, personalPlacement: personalPlacement, photoOrder: photoOrder, reviewedContentFingerprint: reviewedContentFingerprint)
     }
 
     private func scheduleSave() {
-        guard restored, !placing, !replacingServerDraft, let owner else { return }
+        guard restored, !placing, !publishing, !replacingServerDraft, let owner else { return }
         localVersion += 1
         let snapshot = record()
         let previous = pendingSave
@@ -1060,48 +1164,26 @@ struct OiStoryEditor: View {
     }
 
     private func saveCurrent() async -> OiLiveStory? {
-        guard !saving, canSubmit else { return nil }
+        guard !saving, canSubmit, let owner else { return nil }
         saving = true
         defer { saving = false }
-        if let latest = remote.ownStories.first(where: { $0.id == draft.id }), latest.revision != draft.revision,
-           OiCreationAccess.canRebase(draft, to: latest) {
-            draft.revision = latest.revision
-            localVersion += 1
-        }
-        guard let owner, await persist(), remote.account?.id == owner else { return nil }
-        let saved: OiLiveStory?
-        if let existing = currentStory, OiCreationAccess.canRebase(draft, to: existing) { saved = existing }
-        else { saved = await remote.save(draft) }
-        guard var current = saved, remote.account?.id == owner else { return nil }
-        draft = OiStoryDraft(story: current); localVersion += 1
-        guard await persist() else { return nil }
-        let alreadyAttached = attachedPhotoIDs
-        for id in photos where !alreadyAttached.contains(id) && !removedPhotoIDs.contains(id) {
-            do {
-                let data = try await remote.localPhoto(id: id, owner: owner)
-                guard let updated = await remote.uploadStoryImage(data, photoID: id, story: current) else { return nil }
-                current = updated; uploadedPhotos.insert(id); draft.revision = updated.revision; localVersion += 1
-                guard await persist() else { return nil }
-            } catch { localError = error.localizedDescription; return nil }
-        }
-        if !removedMediaPaths.isEmpty || !removedPhotoIDs.isEmpty {
-            guard let updated = await remote.removeStoryMedia(
-                paths: Set(removedMediaPaths), photoIDs: removedPhotoIDs, story: current
-            ) else { return nil }
-            current = updated; draft.revision = updated.revision
-            removedMediaPaths = []; removedPhotoIDs = []; localVersion += 1
-            guard await persist() else { return nil }
-        }
-        if let photoOrder {
-            // Uses the existing attach_media call to keep the server's attachment order equal to the draft.
-            guard let updated = await remote.reorderStoryMedia(photoOrder, story: current) else { return nil }
-            if updated.revision != current.revision {
-                draft.revision = updated.revision; localVersion += 1
-                guard await persist() else { return nil }
+        await pendingSave?.value
+        var snapshot = record()
+        defer {
+            if remote.account?.id == owner {
+                draft = snapshot.draft
+                localVersion = snapshot.version
+                uploadedPhotos = Set(snapshot.uploadedPhotos)
+                removedMediaPaths = snapshot.removedMediaPaths ?? []
+                removedPhotoIDs = snapshot.removedPhotoIDs ?? []
             }
-            current = updated
         }
-        return current
+        do {
+            return try await remote.saveDraftForReview(&snapshot, owner: owner)
+        } catch {
+            localError = error.localizedDescription
+            return nil
+        }
     }
 }
 

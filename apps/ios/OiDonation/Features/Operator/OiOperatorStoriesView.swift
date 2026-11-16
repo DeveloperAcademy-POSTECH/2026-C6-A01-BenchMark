@@ -240,21 +240,25 @@ struct OiOperatorStoryDetailView: View {
                 }
             }
         }
-        Section("공개 검토") {
-            if model.isProcessing { ProgressView("공개 상태를 처리하는 중") }
-            Button {
-                confirmation = story; showingConfirmation = true
-            } label: {
-                Label(story.status == "published" ? "비공개로 변경" : "공개 승인",
-                      systemImage: story.status == "published" ? "eye.slash" : "checkmark.seal")
-                    .frame(maxWidth: .infinity, minHeight: 44)
+        if !remote.autoStoryModeration || story.status == "published" {
+            Section(remote.autoStoryModeration ? "공개 상태" : "공개 검토") {
+                if model.isProcessing { ProgressView("공개 상태를 처리하는 중") }
+                Button {
+                    confirmation = story; showingConfirmation = true
+                } label: {
+                    Label(story.status == "published" ? "비공개로 변경" : "공개 승인",
+                          systemImage: story.status == "published" ? "eye.slash" : "checkmark.seal")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!model.canReview || remote.isBusy || !remote.isOperator || remote.needsReauthentication
+                          || (story.status != "published" && !artworkReady))
+                .accessibilityIdentifier("operator.story.review")
+                if !remote.autoStoryModeration {
+                    Text("이야기와 사진, 꾸민 오이와 카드를 검토해 공개 여부를 결정합니다.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(!model.canReview || remote.isBusy || !remote.isOperator || remote.needsReauthentication
-                      || (story.status != "published" && !artworkReady))
-            .accessibilityIdentifier("operator.story.review")
-            Text("이야기와 사진, 꾸민 오이와 카드를 검토해 공개 여부를 결정합니다.")
-                .font(.footnote).foregroundStyle(.secondary)
         }
     }
 

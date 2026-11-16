@@ -42,7 +42,6 @@ struct OiCardRequestInboxView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @ScaledMetric(relativeTo: .body) private var headerHeight = 33
     @ScaledMetric(relativeTo: .body) private var emptyParagraphSpacing = 31.5
     @State private var confirmation: Confirmation?
@@ -67,12 +66,6 @@ struct OiCardRequestInboxView: View {
             await onReload()
             if !Task.isCancelled { didAttemptLoad = true }
         }
-        .background(sheetBackground.ignoresSafeArea())
-        .presentationDetents([.large])
-        .presentationCornerRadius(35)
-        .presentationBackground(.clear)
-        .presentationDragIndicator(.hidden)
-        .presentationContentInteraction(.scrolls)
         .alert(
             confirmation?.decision == .reject ? "카드 요청을 거절할까요?" : "카드 요청을 수락할까요?",
             isPresented: Binding(
@@ -88,12 +81,6 @@ struct OiCardRequestInboxView: View {
         } message: { selection in
             Text("\(selection.request.requesterName) 님이 ‘\(selection.request.storyTitle)’ 카드를 요청했어요.")
         }
-    }
-
-    private var sheetBackground: Color {
-        let tint = colorScheme == .dark ? Self.darkGreen : CampusStyle.mapSheet
-        // Figma uses a 70% green fill, without a second material layer.
-        return tint.opacity(reduceTransparency || colorSchemeContrast == .increased ? 1 : 0.7)
     }
 
     private var showsEmptyState: Bool {
@@ -144,7 +131,6 @@ struct OiCardRequestInboxView: View {
             .padding(.bottom, showsEmptyState ? 0 : 20)
         }
         .scrollIndicators(.hidden)
-        .scrollEdgeEffectHidden()
     }
 
     private var emptyState: some View {

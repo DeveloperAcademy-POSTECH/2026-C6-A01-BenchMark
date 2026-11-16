@@ -52,6 +52,19 @@ struct OiProfile: Codable, Equatable, Identifiable {
     var admissionYear: String? = nil
 }
 
+extension OiProfile {
+    /// "24학번 반도체공학과 서수리" when the public donor details are set, otherwise the nickname (Figma `5441:17267`).
+    var publicDonorLine: String {
+        func clean(_ value: String?) -> String? {
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        guard let name = clean(publicName) else { return clean(nickname) ?? "익명" }
+        let year = clean(admissionYear).map { "\($0.suffix(2))학번" }
+        return [year, clean(department), name].compactMap { $0 }.joined(separator: " ")
+    }
+}
+
 struct OiPublicAcademicInfo: Equatable {
     var name = ""
     var department = ""
@@ -293,6 +306,43 @@ struct OiCapabilities: Decodable {
     var duplexStoryCard: Bool? = nil
     var storyCardCover: Bool? = nil
     var storyCardCoverJpeg: Bool? = nil
+    var autoStoryModeration: Bool? = nil
+}
+
+struct OiStoryModerationResult: Decodable, Equatable {
+    enum Status: String, Decodable { case approved, rejected }
+
+    let storyId: UUID
+    let revision: Int
+    let status: Status
+    let reason: String?
+    let source: String?
+    let story: OiLiveStory?
+
+    var rejectionMessage: String? {
+        guard status == .rejected else { return nil }
+        let subject: String? = switch source {
+        case "story": "이야기"
+        case "photo": "첨부 사진"
+        case "appearance": "오이 이미지"
+        case "card": "카드 이미지"
+        default: nil
+        }
+        let explanation: String? = switch reason {
+        case "privacy": "공개하면 안 되는 개인정보가 포함돼 있어요."
+        case "rights": "다른 사람의 권리를 침해하는 내용이 포함돼 있어요."
+        case "unintelligible": "의미를 확인하기 어려운 내용이 포함돼 있어요."
+        case "profanity": "욕설이 포함돼 있어요."
+        case "harassment": "조롱·비방 또는 혐오 표현이 포함돼 있어요."
+        case "sexual": "노골적인 성적 내용이 포함돼 있어요."
+        case "violence": "위협 또는 폭력적인 내용이 포함돼 있어요."
+        case "spam": "광고 또는 스팸이 포함돼 있어요."
+        case "fraud": "허위 또는 도용된 기부 이야기가 포함돼 있어요."
+        default: nil
+        }
+        guard let subject, let explanation else { return nil }
+        return "\(subject)에 \(explanation)"
+    }
 }
 
 struct OiStoryDraft: Codable, Equatable {

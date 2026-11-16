@@ -12,10 +12,14 @@ struct RootTabView: View {
     @State private var showingStoryList = false
     @State private var authoredPlacementToReveal: UUID?
     @State private var photoSubject: ARCameraSubject?
-    @State private var collectionStory: CampusStory?
-    @State private var collectionReturnsToAR = false
     @State private var pendingStoryList = false
+    /// 수집하기 pressed over the AR camera: the scratch screen opens once the camera closes.
+    @State private var pendingScratchStoryID: String?
+    @State private var plantedSelectionCover: OiStoryPlantSelection?
+    @State private var plantedSelectionOpacity = 1.0
+    @State private var showingPlantConfirmation = false
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(container: AppContainer = .pilot, remote: OiRemoteStore? = nil) {
         self.container = container
@@ -48,10 +52,25 @@ struct RootTabView: View {
                     }
                 case .story(let id):
                     if let story = store.story(id) {
-                        CampusStoryDetailView(story: story, store: store)
+                        CampusCucumberStoryView(story: story, store: store)
                     } else {
                         ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc")
                     }
+                case .scratch(let id):
+                    if let story = store.story(id) {
+                        CampusScratchScreen(story: story, repository: container.storyRepository, remote: remote,
+                                            onDonate: { path.append(CampusDestination.storyList) },
+                                            onSaved: {
+                                                // 앨범에 저장하기 → MY 수집한 기부.
+                                                var next = NavigationPath()
+                                                next.append(MYDestination.collectedWorkshop)
+                                                path = next
+                                            })
+                    } else {
+                        ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc")
+                    }
+                case .storyList:
+                    OiStoryListScreen(remote: remote)
                 }
             }
             .navigationDestination(for: PublicLinkParser.Destination.self) { publicDestination($0) }
@@ -60,26 +79,22 @@ struct RootTabView: View {
                     summaryView($0)
                 }
             }
-            .navigationDestination(for: AppClipInvocation.self) { invocation in
-                AppClipExperienceView(storyRepository: container.storyRepository, invocation: invocation) { story, id in
-                    OiStorySafetyButton(storyID: id, authorID: story.donorID, authorName: story.donorDisplayName)
-                }
-                .navigationTitle("이야기·AR")
-                .navigationBarTitleDisplayMode(.inline)
-            }
         }
         .tint(.black)
+        .overlay { plantedSelectionOverlay }
+        .alert("이야기가 등록됐어요", isPresented: $showingPlantConfirmation) {
+            Button("확인", role: .cancel) {}
+        }
         .onChange(of: OiContentSafetyStore.shared.authors) { _, _ in
             synchronizeRemote()
-            if let author = collectionStory?.authorID, OiContentSafetyStore.shared.isBlocked(author) {
-                isARPresented = false
-            }
             if let photoSubject, let author = store.story(photoSubject.id.uuidString)?.authorID,
                OiContentSafetyStore.shared.isBlocked(author) { isARPresented = false }
         }
         .onChange(of: remote.revision) { _, _ in synchronizeRemote() }
         .onChange(of: remote.account?.id) { _, _ in
             authoredPlacementToReveal = nil
+            plantedSelectionCover = nil
+            showingPlantConfirmation = false
             myDemo.resetFilters()
         }
         .onReceive(NotificationCenter.default.publisher(for: ASAuthorizationAppleIDProvider.credentialRevokedNotification)) { _ in
@@ -90,12 +105,12 @@ struct RootTabView: View {
             guard scenePhase == .active else { return }
             OiContentSafetyStore.shared.reload()
             store.collectAction = { story in
-                guard collectionStory == nil else { return }
-                collectionReturnsToAR = isARPresented
-                collectionStory = story
-                isCameraCoverActive = true
-                isARPresented = true
+                if isARPresented {
+                    pendingScratchStoryID = story.id
+                    isARPresented = false
+                } else { path.append(CampusDestination.scratch(story.id)) }
             }
+            store.openStoryListAction = { path.append(CampusDestination.storyList) }
             store.createStoryAction = {
                 if isARPresented {
                     pendingStoryList = true
@@ -105,9 +120,7 @@ struct RootTabView: View {
             store.showAuthoredPlacementAction = { id in
                 // Home resolves this navigation intent against the current account's placements.
                 guard remote.canPlaceOi else { return }
-                authoredPlacementToReveal = id
-                showingStoryList = false
-                path = NavigationPath()
+                revealPlacement(id)
             }
             store.mediaURL = { path in try await remote.mediaURL(bucket: "oi-story-media", path: path) }
             myDemo.campusStore = store
@@ -125,16 +138,11 @@ struct RootTabView: View {
         .fullScreenCover(isPresented: $isARPresented, onDismiss: {
             // Restore the map only after the camera's dismissal has finished.
             isCameraCoverActive = false
-            collectionStory = nil
             photoSubject = nil
             if pendingStoryList { pendingStoryList = false; showingStoryList = true }
+            if let id = pendingScratchStoryID { pendingScratchStoryID = nil; path.append(CampusDestination.scratch(id)) }
         }) {
-            if let collectionStory {
-                CampusCollectionGameHost(story: collectionStory, remote: remote, store: store) {
-                    if collectionReturnsToAR { self.collectionStory = nil }
-                    else { isARPresented = false }
-                }
-            } else if let photoSubject {
+            if let photoSubject {
                 ARCameraScreen(subject: photoSubject).id(photoSubject.id)
             }
         }
@@ -144,7 +152,51 @@ struct RootTabView: View {
         }
         .environment(remote)
         .environment(store)
+        .environment(\.revealPlantedStory, revealPlantedPlacement)
         .environment(\.campusCucumberPortraitLoader, { try await remote.cucumberImage($0) })
+    }
+
+    private func revealPlacement(_ id: UUID) {
+        authoredPlacementToReveal = id
+        showingStoryList = false
+        path = NavigationPath()
+    }
+
+    private func revealPlantedPlacement(_ selection: OiStoryPlantSelection) {
+        guard remote.canPlaceOi else { return }
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            plantedSelectionOpacity = 1
+            plantedSelectionCover = reduceMotion ? nil : selection
+            revealPlacement(selection.selectedID)
+        }
+        if reduceMotion { showingPlantConfirmation = true }
+    }
+
+    @ViewBuilder private var plantedSelectionOverlay: some View {
+        if let selection = plantedSelectionCover {
+            NavigationStack {
+                OiStoryListView(state: .content(selection.items), minimumVisibleSlotCount: 0,
+                    reviewState: { _ in .approved }, onPlant: {}, canPlant: true,
+                    selectedPlantStoryID: selection.selectedID, onCancelPlant: {})
+            }
+            .opacity(plantedSelectionOpacity)
+            .accessibilityHidden(true)
+            .allowsHitTesting(false)
+            .task(id: selection.selectedID) {
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                // Figma 6101:9395 dissolves to the map over 300 ms after a successful planting.
+                withAnimation(.easeInOut(duration: 0.3), completionCriteria: .removed) {
+                    plantedSelectionOpacity = 0
+                } completion: {
+                    guard plantedSelectionCover?.selectedID == selection.selectedID else { return }
+                    plantedSelectionCover = nil
+                    showingPlantConfirmation = true
+                }
+            }
+        }
     }
 
     private func synchronizeRemote() {
@@ -200,11 +252,11 @@ struct RootTabView: View {
             path.append(CampusNFCPostcardRoute(tagID: tag))
             return
         }
+        // The default and `story=` App Clip links open the map home; the old story list is gone (#351).
         if AppClipLink.matches(url) {
             path = NavigationPath()
             pendingStoryList = false
             isARPresented = false
-            path.append(AppClipInvocation(url: url))
             return
         }
         if let host = container.approvedLinkHost,

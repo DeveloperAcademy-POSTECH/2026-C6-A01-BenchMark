@@ -14,6 +14,7 @@ struct EducationLightExperience: View {
     @State private var model: EducationLightWebModel
     @Environment(\.scenePhase) private var phase
     @Environment(\.dismiss) private var dismiss
+    @Environment(OiRemoteStore.self) private var remote: OiRemoteStore?
 
     @MainActor init(model: EducationLightWebModel? = nil) {
         _model = State(initialValue: model ?? EducationLightWebModel())
@@ -45,6 +46,20 @@ struct EducationLightExperience: View {
             }
         }
         .preferredColorScheme(model.scattered ? .dark : .light)
+        .onAppear { model.connectEducation(remote) }
+        .onChange(of: remote?.account?.id) { _, _ in model.educationSignInRequested = false; model.notifyEducationIdentity() }
+        .onChange(of: remote?.needsReauthentication) { _, _ in model.notifyEducationIdentity() }
+        .onChange(of: remote?.canStartStory) { _, _ in model.notifyEducationIdentity() }
+        .onChange(of: remote?.isOperator) { _, _ in model.notifyEducationIdentity() }
+        .sheet(isPresented: $model.educationSignInRequested) {
+            if let remote {
+                NavigationStack {
+                    ScrollView { OiSignInView(remote: remote).padding(24) }
+                        .navigationTitle("오이기부 로그인")
+                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("닫기") { model.educationSignInRequested = false } } }
+                }
+            }
+        }
         .onChange(of: phase) { _, value in model.setActive(value == .active) }
         .onChange(of: model.closeRequested) { _, requested in if requested { dismiss() } }
     }
@@ -56,6 +71,8 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
     var failure: String?
     var scattered = false
     var closeRequested = false
+    var educationSignInRequested = false
+    @ObservationIgnored private weak var educationRemote: OiRemoteStore?
     @ObservationIgnored let webView: WKWebView
     private var active = true
     private let logger = Logger(subsystem: "com.Spero.OiDonation.Education", category: "Building")
@@ -106,11 +123,55 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
     func setActive(_ active: Bool) {
         self.active = active
         webView.evaluateJavaScript("window.setNativeActive?.(\(active ? "true" : "false"))", completionHandler: nil)
+        if active {
+            webView.evaluateJavaScript("window.dispatchEvent(new Event('education-feed-refresh'))", completionHandler: nil)
+        }
+    }
+
+    func connectEducation(_ remote: OiRemoteStore?) {
+        educationRemote = remote
+        notifyEducationIdentity()
+    }
+
+    func notifyEducationIdentity() {
+        webView.evaluateJavaScript("window.dispatchEvent(new Event('education-auth-changed'))", completionHandler: nil)
+    }
+
+    private func educationMessage(_ body: [String: Any], message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame, webView.url?.isFileURL == true,
+              let id = body["id"] as? String, UUID(uuidString: id) != nil,
+              let action = body["action"] as? String else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            var response: [String: Any]
+            do {
+                guard let remote = self.educationRemote else { throw OiServiceError.unavailable }
+                let value: Any
+                if action == "login" {
+                    self.educationSignInRequested = true
+                    value = ["requested": true]
+                } else if action == "logout" {
+                    await remote.signOut()
+                    guard remote.account == nil else { throw OiServiceError.unavailable }
+                    value = ["signedOut": true]
+                } else {
+                    value = try await remote.educationRequest(action, values: body)
+                }
+                response = ["ok": true, "data": value]
+            } catch {
+                response = ["ok": false, "error": error.localizedDescription]
+            }
+            guard self.webView.url?.isFileURL == true else { return }
+            self.webView.callAsyncJavaScript("window.educationNativeReply?.(requestID, response)",
+                arguments: ["requestID": id, "response": response], in: nil, in: .page, completionHandler: nil)
+        }
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any], let kind = body["kind"] as? String else { return }
-        if kind == "close" {
+        if kind == "education" {
+            educationMessage(body, message: message)
+        } else if kind == "close" {
             closeRequested = true
         } else if kind == "appearance", let dark = body["dark"] as? Bool {
             scattered = dark
@@ -118,6 +179,7 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
             loading = false
             if body["webgl"] as? Bool != true { failure = "이 기기에서 3D 화면을 시작하지 못했습니다." }
             setActive(active)
+            notifyEducationIdentity()
             logger.info("Building ready: \(String(describing: body), privacy: .public)")
         } else if kind == "error" {
             loading = false

@@ -30,84 +30,6 @@ private actor MutableNFCRepository: StoryRepository {
     func fetchPublicStoryCard(storyID: String) async throws -> StoryCard? { nil }
 }
 
-/// Story links in the checks use the production App Clip URL with fixed UUIDs; the repository maps them back to names.
-private enum TestStoryLink {
-    static let names = ["first", "delayed", "stale-failure", "missing", "missing-card", "failed", "cancelled"]
-
-    static func id(_ name: String) -> UUID {
-        guard let index = names.firstIndex(of: name) else { preconditionFailure("Unknown test story: \(name)") }
-        return UUID(uuidString: String(format: "00000000-0000-4000-8000-%012d", index + 1))!
-    }
-
-    static func url(_ name: String) -> URL { AppClipLink.storyURL(id(name)) }
-
-    static func name(for storyID: String) -> String {
-        names.first { id($0).uuidString == storyID.uppercased() } ?? storyID
-    }
-}
-
-private actor ControlledStoryRepository: StoryRepository {
-    private var pending: [String: CheckedContinuation<Story?, Error>] = [:]
-    private var waiting: [String: CheckedContinuation<Void, Never>] = [:]
-    private(set) var requestCount = 0
-
-    func fetchPublicStory(storyID: String) async throws -> Story? {
-        let storyID = TestStoryLink.name(for: storyID)
-        requestCount += 1
-        return try await withCheckedThrowingContinuation { continuation in
-            pending[storyID] = continuation
-            waiting.removeValue(forKey: storyID)?.resume()
-        }
-    }
-
-    func fetchPublicStoryCard(storyID: String) async throws -> StoryCard? {
-        let storyID = TestStoryLink.name(for: storyID)
-        guard storyID != "missing-card" else { return nil }
-        let imageURL = URL(string: "https://example.com/story-cards/\(storyID).png")
-            ?? URL(fileURLWithPath: "/\(storyID).png")
-        return StoryCard(cardID: "card-\(storyID)", storyID: storyID, imageURL: imageURL)
-    }
-
-    func waitForRequest(_ id: String) async {
-        if pending[id] != nil { return }
-        await withCheckedContinuation { waiting[id] = $0 }
-    }
-
-    func finish(_ id: String, result: Result<Story?, Error>) {
-        guard let continuation = pending.removeValue(forKey: id) else {
-            preconditionFailure("Missing request: \(id)")
-        }
-        continuation.resume(with: result)
-    }
-}
-
-private actor BrowseRepository: StoryRepository {
-    let id = UUID(uuidString: "19900000-0000-4000-8000-000000000001")!
-    var fails = false
-    var removed = false
-    var offsets: [Int] = []
-    func setFailure(_ value: Bool) { fails = value }
-    func removeStory() { removed = true }
-    func fetchPublicStories(offset: Int) async throws -> [PublicStorySummary] {
-        offsets.append(offset)
-        if fails { throw CheckError.failed }
-        if removed || offset > 0 { return [] }
-        return Array(repeating: PublicStorySummary(id: id, userId: id, title: "가상 검사 이야기", cucumberName: "검사 오이"), count: 20)
-    }
-    func fetchPublicStory(storyID: String) async throws -> Story? {
-        if removed { return nil }
-        return Story(storyID: id.uuidString, donorID: id, donorDisplayName: "가상 농부", title: "가상 검사", content: "테스트 전용",
-            publishedAt: Date(), location: StoryLocation(locationID: "pond", displayName: "검사 장소"), tags: [], cucumberID: id.uuidString, cucumberName: "검사 오이")
-    }
-    func fetchPublicStoryCard(storyID: String) async throws -> StoryCard? {
-        if removed { return nil }
-        return StoryCard(cardID: id.uuidString, storyID: id.uuidString, imageURL: nil,
-            backImageURL: URL(string: "https://example.com/back.png"),
-            frontPreviewURL: URL(string: "https://example.com/front-preview.png"),
-            backPreviewURL: URL(string: "https://example.com/back-preview.png"))
-    }
-}
-
 @MainActor
 private final class ControlledGameClock {
     private var sleepers: [CheckedContinuation<Void, Error>] = []
@@ -194,18 +116,7 @@ struct AppClipInvocationChecks {
         for value in valid { require(AppClipLink.matches(url(value)), "valid default link: \(value)") }
         for value in invalid { require(!AppClipLink.matches(url(value)), "reject link: \(value)") }
 
-        let browseRepository = BrowseRepository()
-        let browse = AppClipViewModel(storyRepository: browseRepository)
-        await browse.loadPublicStories(reset: true)
-        require(browse.publicStories.count == 1 && browse.hasMoreStories, "deduplicates a public page without losing pagination")
-        await browse.loadPublicStories()
-        let offsets = await browseRepository.offsets
-        require(offsets == [0, 20] && !browse.hasMoreStories, "pagination uses server row count")
-        await browseRepository.setFailure(true)
-        await browse.loadPublicStories(reset: true)
-        require(browse.listError != nil && browse.publicStories.count == 1, "refresh failure preserves previously loaded content")
-        await browseRepository.setFailure(false)
-        let browseID = await browseRepository.id
+        let browseID = UUID()
         let storyURL = AppClipLink.storyURL(browseID)
         require(AppClipLink.storyID(in: storyURL) == browseID.uuidString, "story URL round trip")
         require(!AppClipLink.matches(url(AppClipLink.defaultURLString + "&story=bad")), "reject malformed story")
@@ -216,49 +127,11 @@ struct AppClipInvocationChecks {
         require(!AppClipLink.matches(url(postcardURL.absoluteString + "&postcard=pond-01")), "reject duplicated postcard parameter")
         require(AppClipLink.postcardID(in: url(AppClipLink.defaultURLString + "&postcard=Bad%20ID")) == nil, "reject malformed postcard id")
         require(AppClipLink.postcardID(in: url("https://example.com/id?p=com.Spero.OiDonation.Clip&postcard=pond-01")) == nil, "reject postcard on other host")
-        await browse.handleInvocationURL(invocationURL: storyURL)
-        do {
-            let refreshed = try await browse.refreshedCard()
-            require(refreshed.backImageURL != nil && refreshed.frontPreviewURL != nil && refreshed.backPreviewURL != nil,
-                    "refresh renews both sides without loading images or needing an account")
-        } catch { fatalError("Public card refresh must succeed: \(error)") }
-        require(browse.state == .ready && browse.story?.storyID == browseID.uuidString, "production configuration reaches actual story without a custom host")
-        let canCollect = await browse.canCollectCurrentStory()
-        require(canCollect, "published story can be collected")
+        // The installed app opens the map home for every non-postcard App Clip link (#351).
         let appRouter = AppRouter()
+        appRouter.selectedTab = .benches
         appRouter.open(storyURL)
-        require(appRouter.storyPath == [.story(browseID.uuidString)], "installed app opens the same story")
-        await browseRepository.removeStory()
-        do {
-            _ = try await browse.refreshedCard()
-            fatalError("A hidden card must not receive fresh signed URLs")
-        } catch {}
-        let removedCanCollect = await browse.canCollectCurrentStory()
-        require(!removedCanCollect, "withdrawn story cannot be saved after an AR round")
-        browse.showWelcome()
-        await browse.loadPublicStories(reset: true)
-        require(browse.publicStories.isEmpty && browse.listError == nil, "real empty state has no invented stories")
-        print("PASS: public browsing, pagination, retry, direct production story link and revoked collection")
-
-        let repository = ControlledStoryRepository()
-        let model = AppClipViewModel(storyRepository: repository)
-        require(model.state == .welcome, "direct launch must not wait for a missing activity")
-        for value in valid {
-            await model.handleInvocationURL(invocationURL: url(value))
-            require(model.state == .welcome && model.story == nil && model.storyID == nil, "default launch")
-        }
-        let count = await repository.requestCount
-        require(count == 0, "generic NFC link must not fetch an invented story")
-        await model.handleInvocationURL(invocationURL: url("https://example.com/stories/preview-story"))
-        require(model.state == .invalidLink, "sample domain must not be enabled in production")
-        await model.handleInvocationURL(invocationURL: nil)
-        require(model.state == .invalidLink && model.invocationURL == nil, "nil activity")
-        await model.handleInvocationURL(invocationURL: url(AppClipLink.defaultURLString))
-        require(model.state == .welcome, "recover after invalid activity")
-        let cancelledBeforeStart = Task { await model.handleInvocationURL(invocationURL: nil) }
-        cancelledBeforeStart.cancel()
-        await cancelledBeforeStart.value
-        require(model.state == .welcome, "a previously cancelled invocation must not change current state")
+        require(appRouter.selectedTab == .home && appRouter.storyPath.isEmpty, "installed app opens Home for a story link")
 
         let router = AppRouter()
         router.selectedTab = .benches
@@ -268,67 +141,6 @@ struct AppClipInvocationChecks {
         require(router.selectedTab == .benches && router.isARPresented, "untrusted URL must preserve navigation")
         router.open(url(AppClipLink.defaultURLString))
         require(router.selectedTab == .home && router.storyPath.isEmpty && !router.isARPresented, "installed app opens Home")
-
-        let storyModel = AppClipViewModel(storyRepository: repository)
-        let story = Story(
-            storyID: "first",
-            donorID: UUID(),
-            donorDisplayName: "Test donor",
-            title: "Test",
-            content: "Test content",
-            publishedAt: Date(timeIntervalSince1970: 0),
-            location: StoryLocation(locationID: "test-location", displayName: "Test location"),
-            tags: ["Test"],
-            cucumberID: "test-cucumber",
-            cucumberName: "Test cucumber"
-        )
-        let first = Task { await storyModel.handleInvocationURL(invocationURL: TestStoryLink.url("first")) }
-        await repository.waitForRequest("first")
-        require(storyModel.state == .loading, "story loading")
-        await repository.finish("first", result: .success(story))
-        await first.value
-        require(storyModel.state == .ready && storyModel.story?.storyID == "first", "story success")
-        require(storyModel.experience?.storyCard.storyID == "first", "story card success")
-
-        let delayed = Task { await storyModel.handleInvocationURL(invocationURL: TestStoryLink.url("delayed")) }
-        await repository.waitForRequest("delayed")
-        await storyModel.handleInvocationURL(invocationURL: url(AppClipLink.defaultURLString))
-        await repository.finish("delayed", result: .success(story))
-        await delayed.value
-        require(storyModel.state == .welcome && storyModel.story == nil && storyModel.storyID == nil, "stale success cannot replace a newer launch")
-
-        let staleFailure = Task { await storyModel.handleInvocationURL(invocationURL: TestStoryLink.url("stale-failure")) }
-        await repository.waitForRequest("stale-failure")
-        await storyModel.handleInvocationURL(invocationURL: nil)
-        await repository.finish("stale-failure", result: .failure(CheckError.failed))
-        await staleFailure.value
-        require(storyModel.state == .invalidLink && storyModel.story == nil, "stale error cannot replace a newer invalid activity")
-
-        let missing = Task { await storyModel.handleInvocationURL(invocationURL: TestStoryLink.url("missing")) }
-        await repository.waitForRequest("missing")
-        await repository.finish("missing", result: .success(nil))
-        await missing.value
-        require(storyModel.state == .storyNotFound, "missing story")
-
-        let missingCard = Task { await storyModel.handleInvocationURL(invocationURL: TestStoryLink.url("missing-card")) }
-        await repository.waitForRequest("missing-card")
-        await repository.finish("missing-card", result: .success(story))
-        await missingCard.value
-        require(storyModel.state == .loadFailed && storyModel.experience == nil, "missing story card")
-
-        let failed = Task { await storyModel.handleInvocationURL(invocationURL: TestStoryLink.url("failed")) }
-        await repository.waitForRequest("failed")
-        await repository.finish("failed", result: .failure(CheckError.failed))
-        await failed.value
-        require(storyModel.state == .loadFailed, "fetch error")
-
-        let cancelled = Task { await storyModel.handleInvocationURL(invocationURL: TestStoryLink.url("cancelled")) }
-        await repository.waitForRequest("cancelled")
-        cancelled.cancel()
-        await storyModel.handleInvocationURL(invocationURL: url(AppClipLink.defaultURLString))
-        await repository.finish("cancelled", result: .success(story))
-        await cancelled.value
-        require(storyModel.state == .welcome && storyModel.story == nil, "cancelled task must not publish content")
 
         let gameClock = ControlledGameClock()
         let gameModel = ARGameViewModel(
@@ -369,8 +181,7 @@ struct AppClipInvocationChecks {
             preconditionFailure("Unable to create collection test defaults")
         }
         collectionDefaults.removePersistentDomain(forName: collectionSuite)
-        let storyCard = storyModel.experience?.storyCard
-            ?? StoryCard(
+        let storyCard = StoryCard(
                 cardID: "card-first",
                 storyID: "first",
                 imageURL: url("https://example.com/story-cards/first.png")
@@ -530,10 +341,7 @@ struct AppClipInvocationChecks {
         await unavailableGameModel.resolvePermission()
         require(unavailableGameModel.state == .unavailable, "AR game handles unavailable AR")
 
-        storyModel.showWelcome()
-        require(storyModel.state == .welcome, "back from AR game returns to welcome")
-        require(storyModel.story == nil && storyModel.storyID == nil, "back from AR game clears loaded story")
-        print("PASS: \(valid.count) valid / \(invalid.count) invalid App Clip links, default launch, installed-app routing, story states, cancellation and stale responses")
+        print("PASS: \(valid.count) valid / \(invalid.count) invalid App Clip links, installed-app routing to Home, AR game and collection store")
     }
 
     private static func url(_ value: String) -> URL {

@@ -24,7 +24,7 @@ export function adaptNativeRenderer(input,{web=false}={}) {
   replace('"building-origin-space-v4"','"garden-unfold-gpu-v1"');
   if(!web){
     replace('const corners=framingPoints(positions).map(p=>new THREE.Vector3(...p)),projection=new THREE.Vector3();','const corners=spaceScatter.framePoints,projection=new THREE.Vector3();');
-    replace('const syncSceneUI=createSceneUI({stage,camera,positions,radius:model.radius});','const syncSceneUI=()=>{};');
+    replace('const syncSceneUI=createSceneUI({stage,camera,positions,radius:model.radius,renderer});','const syncSceneUI=()=>{};');
     replace('rect=mobile?{left:.03,right:.99,top:.30,bottom:.83}:{left:.118,right:.978,top:.22,bottom:.82}',
       'rect=window.educationViewerRect(scatter)');
     replace('function fit(){storyUI?.hide();','function fit(){');

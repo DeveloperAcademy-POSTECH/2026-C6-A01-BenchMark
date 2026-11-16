@@ -20,6 +20,7 @@ struct MYWorkshopContent: View {
     let tab: MYWorkshopTab
     let demo: MYLibraryStore
     var remote: OiRemoteStore?
+    var storyRepository: any StoryRepository = AppContainer.pilot.storyRepository
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var selectedCard: Selection?
     @State private var pendingDetail: Selection?
@@ -64,6 +65,9 @@ struct MYWorkshopContent: View {
             } else {
                 collectedContent
             }
+            if tab == .collected && !demo.pinnedOnly {
+                MYAppClipCollectionSection(remote: remote, repository: storyRepository)
+            }
         }
         .environment(remote)
         .sheet(item: $selectedCard, onDismiss: {
@@ -78,7 +82,7 @@ struct MYWorkshopContent: View {
                     .toolbar(.visible, for: .navigationBar)
             } else if let id = selection.card.storyID, let store = demo.campusStore,
                       let story = store.story(id) {
-                CampusStoryDetailView(story: story, store: store)
+                CampusCucumberStoryView(story: story, store: store)
             } else {
                 MYCardStoryView(card: selection.card)
             }
@@ -151,14 +155,6 @@ struct MYWorkshopContent: View {
                 }
             }
         }
-        // The existing library retains App Clip records and school grouping.
-        NavigationLink(value: MYDestination.collection) {
-            Label("전체 도감 · App Clip 카드", systemImage: "books.vertical")
-                .font(CampusStyle.body(13)).padding(.vertical, 12)
-                .frame(maxWidth: .infinity, minHeight: 44)
-        }
-        .padding(.top, 16)
-        .accessibilityIdentifier("my.v4.collection.library")
     }
 
     private var columns: [GridItem] {
@@ -263,6 +259,95 @@ struct MYWorkshopContent: View {
             }
         }
         .presentationDetents([.large]).presentationDragIndicator(.visible)
+    }
+}
+
+/// Retains access to this device's App Clip records after the old collection screen is removed.
+struct MYAppClipCollectionSection: View {
+    let remote: OiRemoteStore?
+    @State private var library: CollectedStoryLibrary
+    @State private var selected: CollectedStoryLibraryItem?
+    @State private var importTask: Task<Void, Never>?
+    @State private var importing = false
+    @Environment(\.scenePhase) private var scenePhase
+
+    init(remote: OiRemoteStore?, repository: any StoryRepository, collectionStore: StoryCollectionStore? = nil) {
+        self.remote = remote
+        _library = State(initialValue: CollectedStoryLibrary(repository: repository,
+            collectionStore: collectionStore ?? StoryCollectionStore()))
+    }
+
+    var body: some View {
+        Group {
+            if !library.records.isEmpty || library.persistenceError != nil {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("App Clip에서 수집한 카드").font(.headline)
+                    Text("이 기기에 보관된 카드예요. 로그인하면 내 계정에도 저장할 수 있어요.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if let error = library.persistenceError { Text(error).font(.caption).foregroundStyle(.secondary) }
+                    if library.isLoading { ProgressView("카드 불러오는 중") }
+                    ForEach(library.items) { item in
+                        Button { selected = item } label: {
+                            Label(item.story.cucumberName, systemImage: "rectangle.portrait")
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        }
+                        .accessibilityIdentifier("my.appClip.card.\(item.id)")
+                    }
+                    if !library.isLoading && library.items.isEmpty {
+                        Text("공개 상태, 차단 설정 또는 연결 상태로 표시할 수 없는 카드가 있어요.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Button("카드 다시 불러오기") { Task { await library.load() } }
+                        .disabled(library.isLoading)
+                }
+                .padding(.vertical, 16)
+                .accessibilityIdentifier("my.appClip.collection")
+            }
+        }
+        .task(id: scenePhase) { if scenePhase == .active { await library.load() } }
+        .onDisappear { importTask?.cancel() }
+        .onChange(of: remote?.account?.id) { _, _ in importTask?.cancel(); selected = nil }
+        .onChange(of: OiContentSafetyStore.shared.authors) { _, _ in
+            if let item = selected, OiContentSafetyStore.shared.isBlocked(item.story.donorID) { selected = nil }
+        }
+        .sheet(item: $selected) { item in
+            NavigationStack {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text(item.story.cucumberName).font(.title2.bold())
+                        Text(item.story.content)
+                        if let id = UUID(uuidString: item.id) {
+                            OiStorySafetyButton(storyID: id, authorID: item.story.donorID,
+                                authorName: item.story.donorDisplayName, onBlock: { selected = nil })
+                        }
+                        Button("내 계정에 저장") { importCard(item) }
+                            .disabled(importing || remote?.account == nil || remote?.needsReauthentication == true || remote?.isBusy == true)
+                            .accessibilityIdentifier("my.appClip.import")
+                        if importing { ProgressView() }
+                        if let error = remote?.error { Text(error).foregroundStyle(.red) }
+                        if let error = library.persistenceError { Text(error).foregroundStyle(.red) }
+                        Text("수집일 \(item.record.collectedAt.formatted(date: .abbreviated, time: .omitted))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }.padding(20)
+                }
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("닫기") { selected = nil } } }
+            }
+            .presentationDetents([.large]).presentationDragIndicator(.visible)
+            .onDisappear { importTask?.cancel() }
+        }
+    }
+
+    private func importCard(_ item: CollectedStoryLibraryItem) {
+        guard let remote, let owner = remote.account?.id, !remote.needsReauthentication,
+              !remote.isBusy, !importing, !OiContentSafetyStore.shared.isBlocked(item.story.donorID) else { return }
+        importing = true
+        importTask = Task { @MainActor in
+            defer { importing = false }
+            await remote.perform("collect", payload: ["id": item.id])
+            guard !Task.isCancelled, remote.account?.id == owner,
+                  remote.collections.contains(where: { $0.storyId.uuidString.caseInsensitiveCompare(item.id) == .orderedSame }) else { return }
+            if library.removeImported(storyID: item.id) { selected = nil }
+        }
     }
 }
 
