@@ -2046,3 +2046,82 @@ extension CampusMapInteractionTests {
         scene.finishEducationDistrict()
     }
 }
+
+@MainActor final class OiPostcardImageCacheTests: XCTestCase {
+    private func png() throws -> Data {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = false
+        return try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 362, height: 502), format: format).image { _ in
+            UIColor.red.setFill(); UIRectFill(CGRect(x: 20, y: 20, width: 322, height: 462))
+        }.pngData())
+    }
+    func testSharesConcurrentRequestsAndPreservesPixelsAndAlpha() async throws {
+        let cache = OiPostcardImageCache(), data = try png()
+        var calls = 0
+        let load: () async throws -> Data = {
+            calls += 1; try await Task.sleep(for: .milliseconds(50)); return data
+        }
+        async let first = cache.image("snapshot/front.png", load: load)
+        async let second = cache.image("snapshot/front.png", load: load)
+        let (a, b) = try await (first, second)
+        let c = try await cache.image("snapshot/front.png", load: load)
+        XCTAssertEqual(calls, 1)
+        XCTAssertTrue(a === b && b === c)
+        XCTAssertEqual(a.cgImage?.width, 362); XCTAssertEqual(a.cgImage?.height, 502)
+        XCTAssertTrue(OiPostcardSnapshot.isPostcard(a))
+        XCTAssertEqual(OiPostcardSnapshot.color(a, x: 0.5, y: 0.5), 0xFF0000)
+        cache.clear()
+        _ = try await cache.image("snapshot/front.png", load: load)
+        XCTAssertEqual(calls, 2, "Account/visibility invalidation must not reuse cached pixels")
+    }
+    func testFailureCanRetryAndInvalidationRejectsLateResults() async throws {
+        let cache = OiPostcardImageCache(), data = try png()
+        do { _ = try await cache.image("front") { throw URLError(.timedOut) }; XCTFail() } catch { }
+        var release: CheckedContinuation<Void, Never>?
+        let pending = Task { try await cache.image("front") {
+            await withCheckedContinuation { release = $0 }; return data
+        } }
+        for _ in 0..<100 where release == nil { await Task.yield() }
+        XCTAssertNotNil(release)
+        cache.clear(); release?.resume()
+        do { _ = try await pending.value; XCTFail("Invalidated loads must not repopulate the cache") } catch { }
+        _ = try await cache.image("front") { data }
+    }
+}
+
+extension OiPostcardImageCacheTests {
+    func testCancellingOneWaiterDoesNotCancelSharedDownload() async throws {
+        let cache = OiPostcardImageCache(), data = try png()
+        var calls = 0
+        let load: () async throws -> Data = {
+            calls += 1
+            try await Task.sleep(for: .milliseconds(100))
+            return data
+        }
+        let first = Task { try await cache.image("shared/front.png", load: load) }
+        try await Task.sleep(for: .milliseconds(20))
+        let second = Task { try await cache.image("shared/front.png", load: load) }
+        await Task.yield()
+        first.cancel()
+        do { _ = try await first.value; XCTFail("A cancelled caller must not receive the image") }
+        catch { XCTAssertTrue(error is CancellationError) }
+        let image = try await second.value
+        XCTAssertEqual(calls, 1)
+        XCTAssertTrue(OiPostcardSnapshot.isPostcard(image))
+    }
+
+    func testPhotoCachePreservesFullResolutionAndSharesReopening() async throws {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let original = UIGraphicsImageRenderer(size: CGSize(width: 1800, height: 1200), format: format).image { _ in
+            UIColor.blue.setFill(); UIRectFill(CGRect(x: 0, y: 0, width: 1800, height: 1200))
+        }
+        let bytes = try XCTUnwrap(original.jpegData(compressionQuality: 0.85))
+        let cache = OiPostcardImageCache()
+        var calls = 0
+        let image = try await cache.image("photo/sample", photo: true) { calls += 1; return bytes }
+        _ = try await cache.image("photo/sample", photo: true) { calls += 1; return bytes }
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(image.cgImage?.width, 1800); XCTAssertEqual(image.cgImage?.height, 1200)
+        let pixel = try XCTUnwrap(OiPostcardSnapshot.color(image, x: 0.5, y: 0.5))
+        XCTAssertGreaterThan(pixel & 255, 250)
+    }
+}
