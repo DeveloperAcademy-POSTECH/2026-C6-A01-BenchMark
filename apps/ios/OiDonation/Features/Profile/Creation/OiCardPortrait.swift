@@ -35,22 +35,30 @@ struct OiCardPortraitCapture: View {
     let cacheKey: String
     var orientation = OiCardOrientation()
     var interactivePreview = false
+    var placeholder: UIImage? = nil
     let onCapture: (Data, String) -> Void
     var onFailure: (() -> Void)? = nil
     @State private var scene = OiWardrobeScene()
     @State private var liveScene = OiWardrobeScene()
     @State private var failure = false
     @State private var attempt = 0
+    @State private var completedCapture: String?
+    private var captureID: String { "\(cacheKey)-\(attempt)" }
     var body: some View {
         ZStack {
             if interactivePreview {
+                if liveScene.loading, let placeholder {
+                    Image(uiImage: placeholder).resizable().scaledToFit().allowsHitTesting(false)
+                }
                 OiCardPortraitSurface(scene: liveScene, look: look, orientation: orientation)
                     .allowsHitTesting(false)
             }
             // Keep the capture surface mounted but visually hidden. Its black/white
             // passes must never flash in the interactive card placement preview.
-            OiCardPortraitSurface(scene: scene, look: look, orientation: orientation)
-                .opacity(interactivePreview ? 0.001 : 1).allowsHitTesting(false).accessibilityHidden(true)
+            if !interactivePreview || completedCapture != captureID {
+                OiCardPortraitSurface(scene: scene, look: look, orientation: orientation)
+                    .opacity(interactivePreview ? 0.001 : 1).allowsHitTesting(false).accessibilityHidden(true)
+            }
             if failure && !interactivePreview {
                 Button("오이 이미지 다시 만들기") {
                     scene.update(look, retry: true); attempt += 1
@@ -59,7 +67,7 @@ struct OiCardPortraitCapture: View {
                 ProgressView("꾸민 오이를 카드에 담는 중").font(.caption)
             }
         }
-        .task(id: "\(cacheKey)-\(attempt)") {
+        .task(id: captureID) {
             failure = false
             // Keep the loaded model/materials while rotating; only the camera changes.
             scene.update(look)
@@ -73,11 +81,13 @@ struct OiCardPortraitCapture: View {
                 try Task.checkCancellation()
                 // Allow RealityKit to render the complete assembly at its current angle.
                 try await Task.sleep(for: .milliseconds(100))
-                guard let image = await scene.cardPortrait(), let data = image.pngData() else {
+                guard let image = await scene.cardPortrait(),
+                      let data = await OiPortraitImages.shared.encode(image, key: cacheKey) else {
                     if !Task.isCancelled { failure = true; onFailure?() }; return
                 }
                 try Task.checkCancellation()
                 onCapture(data, cacheKey)
+                completedCapture = captureID
             } catch { /* A newer angle or a closed tab superseded this capture. */ }
         }
         .accessibilityLabel("커스텀 오이 3D 미리보기")
