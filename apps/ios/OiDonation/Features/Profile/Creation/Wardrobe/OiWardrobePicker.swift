@@ -201,8 +201,9 @@ struct OiCucumberCustomizationStep: View {
 
     @ViewBuilder private var clothingControls: some View {
         if tab == .set {
+            // Same #D9D9D9 tray as 상의·하의 (#377).
             items.id(tab).padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color("OiSoft"), in: RoundedRectangle(cornerRadius: 14))
+                .background(Color(white: 217 / 255), in: RoundedRectangle(cornerRadius: 10))
             if let slot = selectedPhotoSlot { photoControls(slot) }
         } else {
             // Figma `5719:9981` 상의 (also 하의·신발): the fixed item tray above, then custom color/image, colors and denim.
