@@ -29,6 +29,7 @@ struct HomeView: View {
     /// Live vertical drag of the region list: negative grows it, positive pulls it down (#395).
     @State private var listDrag: CGFloat = 0
     @State private var showingEducationDistrict = false
+    @State private var selectedBuilding: CampusBuildingTarget?
     @State private var loadedAuthoredSource: AuthoredPlacementSource?
     @State private var selectedAuthoredDestination: AuthoredDestination?
 
@@ -65,11 +66,15 @@ struct HomeView: View {
         let authoredSource = authoredPlacementSource
         GeometryReader { geometry in
             ZStack {
-                CampusMapSurface(scene: scene).ignoresSafeArea().accessibilityHidden(expanded)
+                CampusMapSurface(scene: scene)
+                    .frame(height: selectedBuilding == nil ? nil : max(120, geometry.size.height - buildingPanelHeight(geometry.size.height) + geometry.safeAreaInsets.top + 40))
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .ignoresSafeArea(edges: selectedBuilding == nil ? .all : .top)
+                    .accessibilityHidden(expanded)
                 VStack {
-                    mapHeader.padding(.horizontal, 20).padding(.top, region == nil ? 9 : 4)
+                    mapHeader.padding(.horizontal, 20).padding(.top, region == nil && selectedBuilding == nil ? 9 : 4)
                     Spacer()
-                    if region == nil {
+                    if region == nil && selectedBuilding == nil {
                         if let remote, remote.loadError != nil || remote.syncWarning != nil || remote.needsReauthentication {
                             OiConnectionStatus(remote: remote, showsInitialProgress: false)
                                 .padding(10).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 20)
@@ -96,7 +101,13 @@ struct HomeView: View {
             }
             // Keep the RealityKit viewport fixed while the list changes height.
             .overlay(alignment: .bottom) {
-                if let region {
+                if let building = selectedBuilding, let remote {
+                    CampusBuildingNotesView(building: building, remote: remote).id(building.id)
+                        .frame(height: buildingPanelHeight(geometry.size.height))
+                        .background(alignment: .bottom) {
+                            Color.white.frame(height: 50).padding(.bottom, -geometry.safeAreaInsets.bottom)
+                        }
+                } else if let region {
                     regionPanel(region, availableHeight: geometry.size.height, bottomInset: geometry.safeAreaInsets.bottom)
                         .transition(.move(edge: .bottom))
                 }
@@ -108,6 +119,7 @@ struct HomeView: View {
             .onChange(of: geometry.safeAreaInsets) { _, _ in configureMapLabels(geometry) }
             .onChange(of: region?.id) { _, _ in configureMapLabels(geometry) }
             .onChange(of: expanded) { _, _ in configureMapLabels(geometry) }
+            .onChange(of: selectedBuilding?.id) { _, _ in configureMapLabels(geometry) }
         }
         .toolbar(.hidden, for: .navigationBar)
         .background(CampusStyle.lightGreen)
@@ -231,6 +243,9 @@ struct HomeView: View {
     }
 
     private func configureSceneCallbacks() {
+        if remote != nil {
+            scene.onBuilding = { building in selectedBuilding = building; expanded = false }
+        }
         scene.onEducationDistrict = { showingEducationDistrict = true }
         if let remote {
             scene.loadCucumberPortrait = { try await remote.cucumberImage($0) }
@@ -307,6 +322,7 @@ struct HomeView: View {
         guard let placement = item?.placement ?? story?.campusPlacement,
               let selectedRegion = CampusRegion.campus.first(where: { $0.id == (item?.regionID ?? story?.regionId) }) ?? scene.nearestRegion()
         else { return }
+        if selectedBuilding != nil { selectedBuilding = nil; scene.finishBuilding() }
         region = selectedRegion; expanded = false; sort = .latest; searchResults = nil
         scene.focus(selectedRegion, stories: store.stories(in: selectedRegion.id, sortedBy: .latest), placement: placement)
         distances = scene.distances()
@@ -314,6 +330,10 @@ struct HomeView: View {
     }
 
     private func configureMapLabels(_ geometry: GeometryProxy) {
+        if selectedBuilding != nil {
+            scene.setMapLabelPresentation(enabled: false, topInset: 0, bottomInset: 0)
+            return
+        }
         let bottom = region == nil ? 8 : regionPanelHeight(geometry.size.height) + 58
         let bottomY = geometry.size.height + geometry.safeAreaInsets.top
         let controls = region == nil ? [
@@ -327,6 +347,10 @@ struct HomeView: View {
 
     private func regionPanelHeight(_ availableHeight: CGFloat) -> CGFloat {
         expanded ? max(200, availableHeight - 68) : max(220, availableHeight * 0.416)
+    }
+
+    private func buildingPanelHeight(_ availableHeight: CGFloat) -> CGFloat {
+        min(481, max(240, availableHeight * 0.618))
     }
 
     private var homeActions: some View {
@@ -396,7 +420,17 @@ struct HomeView: View {
 
     private var mapHeader: some View {
         HStack(alignment: .top) {
-            if region != nil {
+            if selectedBuilding != nil {
+                Button {
+                    selectedBuilding = nil
+                    scene.finishBuilding()
+                } label: {
+                    Image(systemName: "chevron.left").font(.system(size: 19, weight: .semibold))
+                        .frame(width: 50, height: 50).contentShape(Circle())
+                }.buttonStyle(.plain).glassEffect(.regular.interactive(), in: Circle())
+                    .accessibilityLabel("지도 탐색으로 돌아가기").accessibilityIdentifier("campus.notes.close")
+                Spacer()
+            } else if region != nil {
                 // No back button (#395): tap the map outside the list or swipe the list down to close it.
                 Spacer().frame(height: 50)
             } else {
@@ -412,7 +446,7 @@ struct HomeView: View {
             }
         }
         .overlay(alignment: .top) {
-            if region != nil && !expanded {
+            if selectedBuilding == nil && region != nil && !expanded {
                 searchAreaButton.alignmentGuide(.top) { ($0.height - 34) / 2 }.transition(.opacity)
             }
         }
