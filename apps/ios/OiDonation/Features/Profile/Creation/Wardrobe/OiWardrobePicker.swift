@@ -48,15 +48,20 @@ struct OiCucumberCustomizationStep: View {
                     : min(320, geometry.size.height * 0.5)
                 preview(height: previewHeight(full: fullHeight, in: geometry), fullHeight: fullHeight)
                     .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 14)
+                    // While the image sheet is open, a tap above it closes the sheet without saving (#377).
+                    .contentShape(Rectangle())
+                    .simultaneousGesture(TapGesture().onEnded { if photoSlot != nil { closePhotoEditor() } })
                 if let slot = photoSlot {
                     OiWardrobePhotoEditor(slot: slot, look: look, scene: photoScene,
                         onClose: closePhotoEditor) { artwork in
                             change { $0.artwork = artwork }
                         }
                         .frame(height: panelHeight)
+                        // Figma `5719:9585`: #EAEEE2 sheet, 35pt top corners, soft shadow.
                         .background {
                             UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35)
-                                .fill(CampusStyle.mapSheet)
+                                .fill(Color(red: 234 / 255, green: 238 / 255, blue: 226 / 255))
+                                .shadow(color: .black.opacity(0.25), radius: 5)
                                 .ignoresSafeArea(.container, edges: .bottom)
                         }
                         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -202,9 +207,10 @@ struct OiCucumberCustomizationStep: View {
         } else {
             // Figma `5719:9981` 상의 (also 하의·신발): the fixed item tray above, then custom color/image, colors and denim.
             VStack(alignment: .leading, spacing: 20) {
-                if showsColors || selectedPhotoSlot != nil {
+                // The postech jacket keeps its own colors and print, so neither option is offered.
+                if showsColors {
                     HStack(spacing: 21) {
-                        if showsColors { customColorButton }
+                        customColorButton
                         if let slot = selectedPhotoSlot { addImageButton(slot) }
                     }
                 }
