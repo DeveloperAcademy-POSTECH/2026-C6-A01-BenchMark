@@ -2,6 +2,7 @@ import UIKit
 
 /// A noninteractive screen-space layer. Labels follow roof coordinates as the camera moves.
 @MainActor final class CampusMapLabels {
+    var onSelectBuilding: ((String) -> Void)?
     private struct Entry {
         let id: String
         let anchor: SIMD3<Float>
@@ -43,9 +44,19 @@ import UIKit
         let label = CampusMapNameLabel()
         label.text = title; label.font = .systemFont(ofSize: size, weight: .semibold)
         label.accessibilityIdentifier = "campus.label.\(id)"
+        if id.hasPrefix("building."), onSelectBuilding != nil {
+            label.accessibilityTraits.insert(.button)
+            label.accessibilityHint = "건물을 확대하고 글 보기"
+            label.onActivate = { [weak self] in self?.onSelectBuilding?(String(id.dropFirst("building.".count))) }
+        }
         label.sizeToFit(); label.bounds.size.width += 6; label.bounds.size.height += 6
         label.isHidden = true; host?.addSubview(label)
         return Entry(id: id, anchor: point, roof: roof, label: label)
+    }
+
+    func building(at point: CGPoint) -> String? {
+        guard enabled else { return nil }
+        return buildings.first { !$0.label.isHidden && $0.label.frame.contains(point) }?.id.replacingOccurrences(of: "building.", with: "")
     }
 
     func update(projection: CampusMapProjection, viewport bounds: CGRect, radius: Float, pins: [UIView]) {
@@ -105,6 +116,11 @@ import UIKit
 }
 
 @MainActor private final class CampusMapNameLabel: UILabel {
+    var onActivate: (() -> Void)?
+    override func accessibilityActivate() -> Bool {
+        guard let onActivate else { return super.accessibilityActivate() }
+        onActivate(); return true
+    }
     override init(frame: CGRect) {
         super.init(frame: frame)
         textColor = UIColor(red: 0.19, green: 0.25, blue: 0.15, alpha: 1)

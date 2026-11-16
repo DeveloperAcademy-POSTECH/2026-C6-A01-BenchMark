@@ -328,7 +328,10 @@ grant execute on function auth.jwt() to anon,authenticated;
             run(database + ['-f', 'supabase/tests/oi-postcard-cover.sql'])
             run(database + ['-f', 'supabase/tests/oi-postcard-cover-jpeg.sql'])
             run(database + ['-f', 'supabase/tests/oi-public-cucumber-appearance.sql'])
+            run(database + ['-f', 'supabase/tests/oi-building-notes.sql'])
+            run(database + ['-f', 'supabase/tests/oi-building-note-moderation.sql'])
         print('PASS: card formats 1/2/3, PNG/JPEG cover validation/access/review, and deletion on both histories')
+        print('PASS: building notes writes, reports, AI/operator review, pagination, merge and deletion on both histories')
         print('PASS: retired evidence RPCs and uploads, retained private records and deletion, story moderation on both histories')
         # Unknown owning function edits must stop the migration before any schema change commits.
         run(connection + ['-c', 'create database unknown_drift'])

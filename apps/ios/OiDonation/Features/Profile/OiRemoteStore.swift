@@ -1131,3 +1131,35 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         return image
     }
 }
+
+
+extension OiRemoteStore: CampusBuildingNoteServing {
+    var buildingNoteAccountID: UUID? { account?.id }
+    var canWriteBuildingNote: Bool { canPlaceOi }
+
+    func buildingNotes(building: String, before: CampusBuildingNote?) async throws -> [CampusBuildingNote] {
+        guard let api else { throw OiServiceError.configuration }
+        // Public-role reads never reveal deleted/restricted content, even to operators.
+        return try await api.buildingNotes(building: building, before: before)
+    }
+    func postBuildingNote(id: UUID, building: String, body: String) async throws -> CampusBuildingNote {
+        guard canWriteBuildingNote else { throw OiServiceError.signInRequired }
+        return try await withCardRequestSession { api, token in
+            try await api.postBuildingNote(id: id, building: building, body: body, token: token)
+        }
+    }
+    func deleteBuildingNote(id: UUID) async throws {
+        try await withCardRequestSession { api, token in try await api.deleteBuildingNote(id: id, token: token) }
+    }
+    func reportBuildingNote(id: UUID, reason: String, detail: String) async throws -> String {
+        try await withCardRequestSession { api, token in
+            try await api.reportBuildingNote(id: id, reason: reason, detail: detail, token: token).status
+        }
+    }
+    func buildingNoteReports(offset: Int) async throws -> [CampusBuildingNoteReport] {
+        try await withOperatorSession { api, token in try await api.buildingNoteReports(offset: offset, token: token) }
+    }
+    func reviewBuildingNote(report: UUID, action: String, note: String) async throws {
+        try await withOperatorSession { api, token in try await api.reviewBuildingNote(report: report, action: action, note: note, token: token) }
+    }
+}

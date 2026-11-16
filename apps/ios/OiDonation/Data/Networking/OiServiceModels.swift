@@ -482,3 +482,8 @@ struct OiContentReport: Decodable, Identifiable, Sendable {
     let reviewNote: String?
 }
 struct OiContentReportReceipt: Decodable { let id: UUID; let status: String }
+
+enum CampusBuildingNoteError: LocalizedError {
+    case notDeployed
+    var errorDescription: String? { "건물 글 서비스를 아직 사용할 수 없어요. 잠시 후 다시 시도해 주세요." }
+}

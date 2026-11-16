@@ -18,6 +18,7 @@
 		87169571307CB1D00090D456 /* OiDonationClip.app in Embed App Clips */ = {isa = PBXBuildFile; fileRef = 87169565307CB1CF0090D456 /* OiDonationClip.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		C02610260000000000000001 /* OiDonation.icon in Resources */ = {isa = PBXBuildFile; fileRef = C02610260000000000000002 /* OiDonation.icon */; };
 		C15211040000000000000002 /* CampusMapInteractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15211040000000000000001; };
+		C59111160000000000000001 /* CampusBuildingNotesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59111160000000000000002; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -65,6 +66,7 @@
 		8736DA6930777C9800D0CFC9 /* OiDonation.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OiDonation.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C02610260000000000000002 /* OiDonation.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = OiDonation.icon; path = "../../design/app-icon/OiDonation.icon"; sourceTree = SOURCE_ROOT; };
 		C15211040000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/CampusMapInteractionTests.swift; sourceTree = SOURCE_ROOT; };
+		C59111160000000000000002 /* CampusBuildingNotesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/CampusBuildingNotesTests.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -198,6 +200,7 @@
 			isa = PBXGroup;
 			children = (
 				B10000000000000000000008,
+				C59111160000000000000002,
 				C13211030000000000000010,
 				C37911160000000000000002 /* MYV4Figma */,
 				C15211040000000000000001 /* CampusMapInteractionTests.swift */,
@@ -383,7 +386,7 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		B10000000000000000000004 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (B10000000000000000000009,C13211030000000000000011,C15211040000000000000002,C15811050000000000000001,); runOnlyForDeploymentPostprocessing = 0; };
+		B10000000000000000000004 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (C59111160000000000000001,B10000000000000000000009,C13211030000000000000011,C15211040000000000000002,C15811050000000000000001,); runOnlyForDeploymentPostprocessing = 0; };
 		87169561307CB1CF0090D456 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -447,11 +450,11 @@
 		87169573307CB1D00090D456 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				COMPRESS_PNG_FILES = NO;
 				CODE_SIGN_ENTITLEMENTS = OiDonationClip/OiDonationClip.entitlements;
-				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 20261114;
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
@@ -485,11 +488,11 @@
 		87169574307CB1D00090D456 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				COMPRESS_PNG_FILES = NO;
 				CODE_SIGN_ENTITLEMENTS = OiDonationClip/OiDonationClip.entitlements;
-				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 20261114;
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
@@ -644,10 +647,10 @@
 		8736DA7530777C9A00D0CFC9 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = OiDonation/OiDonation.entitlements;
-				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 20261114;
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
@@ -683,10 +686,10 @@
 		8736DA7630777C9A00D0CFC9 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = OiDonation/OiDonation.entitlements;
-				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 20261114;
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
