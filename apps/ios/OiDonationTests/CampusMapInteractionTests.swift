@@ -1779,10 +1779,22 @@ final class CampusEducationDistrictTests: XCTestCase {
         })()
         """)
         XCTAssertEqual(gathering as? Bool, true, "A tap returns while repeated taps cannot restart scattering")
-        for _ in 0..<50 {
-            if try await model.webView.evaluateJavaScript("window.building3DDiagnostics().scatter===0") as? Bool == true { break }
-            try await Task.sleep(for: .milliseconds(100))
+        var backgroundFadedDuringReturn = false
+        for _ in 0..<80 {
+            let sample = try await model.webView.evaluateJavaScript("""
+            ({progress:window.building3DDiagnostics().scatter,
+              darkness:Number(getComputedStyle(document.querySelector('.viewer-dimmer')).opacity)})
+            """)
+            let state = try XCTUnwrap(sample as? [String: Any])
+            let progress = try XCTUnwrap(state["progress"] as? Double)
+            let darkness = try XCTUnwrap(state["darkness"] as? Double)
+            XCTAssertEqual(darkness, 0.78 * progress, accuracy: 0.01,
+                           "Background must follow the pearls, without waiting for the scattered class to clear")
+            if progress > 0 && progress < 0.95 { backgroundFadedDuringReturn = true }
+            if progress == 0 { break }
+            try await Task.sleep(for: .milliseconds(25))
         }
+        XCTAssertTrue(backgroundFadedDuringReturn, "Verify the background during the return, not just its endpoints")
         XCTAssertFalse(model.scattered)
         let returned = try await model.webView.evaluateJavaScript("document.querySelector('#building').getAttribute('role')==='button'&&document.querySelectorAll('#viewerReturn').length===0")
         XCTAssertEqual(returned as? Bool, true)
