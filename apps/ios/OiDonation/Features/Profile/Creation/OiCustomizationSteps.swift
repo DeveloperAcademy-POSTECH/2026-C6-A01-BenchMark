@@ -29,8 +29,6 @@ struct OiCardCustomizationStep: View {
     @State private var showingPhotoEditor = false
     @State private var showingAttachments = false
     @State private var showingExport = false
-    @State private var nameInput = ""
-    @FocusState private var editingName: Bool
     @FocusState private var editingCaption: Bool
     @Environment(\.oiCustomizationBottomInset) private var bottomInset
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -55,11 +53,14 @@ struct OiCardCustomizationStep: View {
                             VStack(spacing: 16) {
                                 Text("카드 꾸미기를 마쳤어요").font(CampusStyle.semibold(20))
                                 Text("다음을 눌러 배치 미리보기를 확인해 주세요.").font(CampusStyle.body(14))
-                                storageDetails
                             }.padding(20).padding(.bottom, bottomInset)
                         }.modifier(OiCustomizationScrollEdge())
                     } else {
-                        tabs.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 8)
+                        tabs.padding(.horizontal, 20)
+                        // Figma `5919:12004`: 스탠다드/커스텀 stays above the scrolling colors (#377).
+                        if tab == .background && !isSizeEditing {
+                            backgroundModeToggle.padding(.horizontal, 20).padding(.top, 8)
+                        }
                         if isSizeEditing {
                             GeometryReader { editor in
                                 let paperHeight = max(1, min(editor.size.height - 50, (editor.size.width - 80) * 502 / 362))
@@ -77,10 +78,10 @@ struct OiCardCustomizationStep: View {
                             }
                         } else {
                             ScrollView {
+                                // Card save/share stays available elsewhere; this step no longer shows it (#377).
                                 VStack(alignment: .leading, spacing: 24) {
                                     controls
-                                    storageDetails.padding(.top, 12)
-                                }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 24 + bottomInset)
+                                }.padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 24 + bottomInset)
                             }
                             .modifier(OiCustomizationScrollEdge())
                             .accessibilityIdentifier("oi.card.settingsScroll")
@@ -88,8 +89,9 @@ struct OiCardCustomizationStep: View {
                         }
                     }
                 }
-                .modifier(OiCustomizationPanelSurface())
-            }.background(OiCustomizationStyle.previewBackground)
+            }
+            // Figma `5919:12077`: one white page, like STEP 3 (#377).
+            .background(Color.white.ignoresSafeArea(.container, edges: .bottom))
         }
         .sheet(isPresented: $showingAttachments) { attachmentPicker }
         .sheet(isPresented: $showingPhotoEditor) {
@@ -107,14 +109,13 @@ struct OiCardCustomizationStep: View {
         .onAppear {
             prepareBackground()
             if design.postcardDate == nil { change { $0.postcardDate = Date() } }
-            refreshPortrait(); nameInput = baseName; onSizeEditingChanged?(isSizeEditing)
+            refreshPortrait(); onSizeEditingChanged?(isSizeEditing)
         }
         .onChange(of: customization.wardrobe) { _, _ in refreshPortrait() }
-        .onChange(of: tab) { _, _ in saveOrientation(); editingName = false; editingCaption = false }
+        .onChange(of: tab) { _, _ in saveOrientation(); editingCaption = false }
         .onChange(of: isSizeEditing) { _, editing in onSizeEditingChanged?(editing) }
         .onDisappear { saveOrientation(); onSizeEditingChanged?(false) }
-        .onChange(of: editingName) { _, focused in if !focused { commitName() } }
-        .onChange(of: isFinished) { _, finished in if finished { editingName = false; commitName() } }
+        .onChange(of: isFinished) { _, finished in if finished { editingCaption = false } }
     }
 
     private func preview(height: CGFloat) -> some View {
@@ -149,9 +150,10 @@ struct OiCardCustomizationStep: View {
                 }
                 Spacer()
                 if let onContinue {
-                    Button { editingName = false; editingCaption = false; commitName(); onContinue() } label: {
-                        Text(isFinished ? "다시 꾸미기" : "완료").underline().font(CampusStyle.body(16))
+                    Button { editingCaption = false; onContinue() } label: {
+                        Text(isFinished ? "다시 꾸미기" : "완료").font(CampusStyle.body(16)).tracking(0.32)
                             .padding(.horizontal, 16).padding(.vertical, 6).background(Color("OiBorder"), in: Capsule())
+                            .frame(minHeight: 44).contentShape(Rectangle())
                     }.buttonStyle(OiCreationPressStyle()).foregroundStyle(.black)
                         .disabled(!canContinue || needsPortrait).accessibilityIdentifier("oi.customization.done")
                 }
@@ -161,7 +163,7 @@ struct OiCardCustomizationStep: View {
     private func faceButton(_ title: String, back: Bool) -> some View {
         Button { showingBack = back } label: {
             Text(title).font(showingBack == back ? CampusStyle.semibold(10) : CampusStyle.body(10))
-                .frame(width: 30, height: 42).background(showingBack == back ? Color.white : .clear, in: Capsule())
+                .frame(width: 30, height: 43).background(showingBack == back ? Color.white : .clear, in: Capsule())
         }.buttonStyle(.plain).foregroundStyle(.black).accessibilityLabel("카드 \(back ? "뒷면" : "앞면")")
             .accessibilityAddTraits(showingBack == back ? .isSelected : []).accessibilityIdentifier("oi.postcard.side.\(back ? "back" : "front")")
     }
@@ -225,47 +227,52 @@ struct OiCardCustomizationStep: View {
                     }
                 }
                 Text("우표 위의 이미지 또는 오이캐릭터의 크기는 위의 ‘이미지’ 탭에서 조정할 수 있습니다")
-                    .font(CampusStyle.body(10)).foregroundStyle(Color(white: 0.67)).fixedSize(horizontal: false, vertical: true)
+                    .font(Self.hintFont).foregroundStyle(Self.hintColor).fixedSize(horizontal: false, vertical: true)
             }.frame(height: dynamicTypeSize.isAccessibilitySize ? nil : 20, alignment: .top)
             VStack(alignment: .leading, spacing: 6) {
                 Text("내용").font(CampusStyle.medium(16))
-                VStack(alignment: .leading, spacing: 6) {
+                // Figma `5919:12095`: the same story text as STEP 2 (`draft.body`), so editing here updates the story.
+                VStack(alignment: .leading, spacing: 4) {
                     TextField("엽서에 남길 이야기", text: OiStoryWritingStep.limitedStoryText($draft.body), axis: .vertical)
-                        .lineLimit(3...5).font(CampusStyle.body(16)).lineSpacing(5).focused($editingCaption)
+                        .lineLimit(3...5).font(CampusStyle.body(16)).tracking(0.32).lineSpacing(5)
+                        .foregroundStyle(Color(white: 65 / 255))
+                        .focused($editingCaption)
                         .accessibilityIdentifier("oi.card.caption")
-                    HStack {
-                        Text("\(draft.body.count) / \(OiCreationStep.storyBodyLimit)자").foregroundStyle(Color(white: 0.67))
+                    HStack(alignment: .lastTextBaseline) {
+                        Text(verbatim: "\(draft.body.count) / \(OiCreationStep.storyBodyLimit)자")
+                            .foregroundStyle(Color(white: 177 / 255))
                         Spacer()
-                        Button(editingCaption ? "완료" : "수정") { editingCaption.toggle() }.underline().tint(Color("OiGreen"))
-                    }.font(CampusStyle.body(10))
+                        Button(editingCaption ? "완료" : "수정") { editingCaption.toggle() }
+                            .underline().foregroundStyle(Color("OiGreen"))
+                            .frame(minWidth: 44, minHeight: 30, alignment: .trailing)
+                    }.font(CampusStyle.body(10)).tracking(0.2)
                 }.padding(.horizontal, 20).padding(.vertical, 16)
-                    .background(Color(white: 0.97), in: RoundedRectangle(cornerRadius: 30))
-                Text("줄바꿈 및 띄어쓰기를 조절해주세요! 내용이 너무 튀어나오지 않는지 확인해서 수정해주세요!")
-                    .font(CampusStyle.body(10)).foregroundStyle(Color(white: 0.67)).fixedSize(horizontal: false, vertical: true)
+                    .background(Color(white: 247 / 255), in: RoundedRectangle(cornerRadius: 30))
+                Text("줄바꿈 및 띄어쓰기 조절해주세요! 내용이 너무 튀어나오지 않는지 확인해서 수정해주세요!")
+                    .font(Self.hintFont).foregroundStyle(Self.hintColor).fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 35) {
                 Text("기부자").font(CampusStyle.medium(16))
-                HStack(spacing: 14) {
-                    authorChoice("익명", mode: "anonymous")
-                    authorChoice("학과, 학번만", mode: "academic")
-                    authorChoice("실명", mode: "name")
+                // Figma: 20pt between choices; tighter only when the screen is narrow.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 20) { authorChoices }
+                    HStack(spacing: 12) { authorChoices }
                 }
             }
             if style.authorMode == "academic", academicAuthor.isEmpty {
                 Text("계정에 공개할 학과와 학번을 등록하면 선택할 수 있어요.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            VStack(alignment: .leading, spacing: 8) {
-                Text("오이 이름").font(CampusStyle.medium(16))
-                HStack {
-                    TextField("다섯 글자 이내", text: $nameInput).focused($editingName)
-                        .submitLabel(.done).onSubmit { editingName = false }.accessibilityIdentifier("oi.draft.cucumberName")
-                    Text("오이").foregroundStyle(.secondary)
-                }.font(CampusStyle.body(16)).padding(16).background(Color(white: 0.97), in: RoundedRectangle(cornerRadius: 16))
-                if nameInput.count > 5 { Text("다섯 글자까지 입력할 수 있어요.").font(.caption).foregroundStyle(.red) }
-            }
         }.foregroundStyle(.black)
     }
+    @ViewBuilder private var authorChoices: some View {
+        authorChoice("익명", mode: "anonymous")
+        authorChoice("학과, 학번만", mode: "academic")
+        authorChoice("실명", mode: "name")
+    }
+    /// Figma hint text: Paperlogy Light 10, #ABABAB.
+    private static let hintFont = Font.custom("Paperlogy-3Light", size: 10, relativeTo: .caption2)
+    private static let hintColor = Color(white: 171 / 255)
     private func choice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 6) {
@@ -301,10 +308,6 @@ struct OiCardCustomizationStep: View {
     }
     var backgroundEditor: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Picker("배경", selection: $customBackground) {
-                Text("스탠다드").tag(false)
-                Text("커스텀").tag(true)
-            }.pickerStyle(.segmented).accessibilityIdentifier("oi.postcard.background.mode")
             characterBackdropControls
             if customBackground { customColors }
             else {
@@ -326,6 +329,29 @@ struct OiCardCustomizationStep: View {
                 }
             }
         }.tint(Color("OiGreen"))
+    }
+    /// Figma `5919:12004`: a light track with a white thumb under the selected mode.
+    private var backgroundModeToggle: some View {
+        HStack(spacing: 0) {
+            ForEach([(false, "스탠다드"), (true, "커스텀")], id: \.0) { custom, title in
+                let selected = customBackground == custom
+                Button { customBackground = custom } label: {
+                    Text(title)
+                        .font(selected ? CampusStyle.semibold(16) : CampusStyle.body(16)).tracking(0.32)
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity, minHeight: 32)
+                        .background { if selected { Capsule().fill(.white) } }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .padding(2)
+        .background(Color(white: 242 / 255), in: Capsule())
+        .frame(height: 36)
+        .animation(.easeInOut(duration: 0.18), value: customBackground)
+        .accessibilityIdentifier("oi.postcard.background.mode")
     }
     private var characterBackdropControls: some View {
         let color = OiPostcardCharacterBackdrop.color(for: design)
@@ -350,7 +376,6 @@ struct OiCardCustomizationStep: View {
                     .accessibilityIdentifier("oi.card.character.backdrop.color")
             }
             HStack(spacing: 8) {
-                Text(design.characterBackdropColor == nil ? "종이색에 맞춘 자동 색상" : "직접 선택한 색상")
                 Text(String(format: "#%06X · %d%%", color, Int((OiCardOpacity.normalized(design.characterBackdropOpacity) * 100).rounded()))).monospacedDigit()
                 Spacer(minLength: 0)
                 if design.characterBackdropColor != nil || design.characterBackdropOpacity != nil {
@@ -508,13 +533,6 @@ struct OiCardCustomizationStep: View {
         return result
     }
     #endif
-    private var baseName: String { draft.cucumberName.hasSuffix("오이") ? String(draft.cucumberName.dropLast(2)) : draft.cucumberName }
-    private func commitName() {
-        // Visiting an older draft must not silently truncate a previously valid name.
-        guard nameInput != baseName else { return }
-        nameInput = String(nameInput.trimmingCharacters(in: .whitespacesAndNewlines).prefix(5))
-        draft.cucumberName = nameInput.isEmpty ? "" : nameInput + "오이"
-    }
     private func refreshPortrait() {
         portraitFailed = false
         // Hash photo bytes only when the wardrobe changes, not on every drag frame.

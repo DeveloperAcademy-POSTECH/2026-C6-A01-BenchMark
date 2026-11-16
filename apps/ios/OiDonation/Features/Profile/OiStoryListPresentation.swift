@@ -3,7 +3,11 @@ import Foundation
 struct OiStoryListItem: Identifiable, Equatable, Sendable {
     let id: UUID
     let cucumberName: String
+    /// Story title shown under the name (Figma `5441:17267`).
+    let title: String
     let cucumberAsset: String
+    /// The draft's customised cucumber, when the card step has rendered one.
+    let portraitPNG: Data?
     let donorDisplayName: String
     let locationDisplayName: String
     let tags: [String]
@@ -12,7 +16,9 @@ struct OiStoryListItem: Identifiable, Equatable, Sendable {
     init(
         id: UUID,
         cucumberName: String,
+        title: String = "",
         cucumberAsset: String,
+        portraitPNG: Data? = nil,
         donorDisplayName: String,
         locationDisplayName: String,
         tags: [String],
@@ -20,7 +26,9 @@ struct OiStoryListItem: Identifiable, Equatable, Sendable {
     ) {
         self.id = id
         self.cucumberName = cucumberName
+        self.title = title
         self.cucumberAsset = cucumberAsset
+        self.portraitPNG = portraitPNG
         self.donorDisplayName = donorDisplayName
         self.locationDisplayName = locationDisplayName
         self.tags = Array(tags.prefix(2))
@@ -31,6 +39,7 @@ struct OiStoryListItem: Identifiable, Equatable, Sendable {
         self.init(
             id: story.id,
             cucumberName: story.cucumberName,
+            title: story.title,
             cucumberAsset: story.cucumberAsset,
             donorDisplayName: donorDisplayName,
             locationDisplayName: locationDisplayName,
@@ -51,8 +60,13 @@ enum OiStoryListState: Equatable, Sendable {
         return []
     }
 
-    func slots(minimumVisibleCount: Int = 4) -> [OiStoryListSlot] {
-        let visibleCount = max(max(0, minimumVisibleCount), items.count)
+    /// The story list keeps at most this many saved drafts, so it fits on one screen (#368).
+    static let draftCapacity = 4
+
+    var isFull: Bool { items.count >= Self.draftCapacity }
+
+    func slots(minimumVisibleCount: Int = Self.draftCapacity) -> [OiStoryListSlot] {
+        let visibleCount = min(max(max(0, minimumVisibleCount), items.count), Self.draftCapacity)
         return (0..<visibleCount).map { index in
             OiStoryListSlot(index: index, item: items.indices.contains(index) ? items[index] : nil)
         }
@@ -70,6 +84,7 @@ extension OiStoryListState {
         OiStoryListItem(
             id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
             cucumberName: "지각변동오이",
+            title: "포항에서의 소중한 인연들",
             cucumberAsset: "StoryListEarthquakeCucumber",
             donorDisplayName: "26학번 디벨로퍼학과 신수리",
             locationDisplayName: "포항공과대학교 C5 앞",
@@ -79,6 +94,7 @@ extension OiStoryListState {
         OiStoryListItem(
             id: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
             cucumberName: "과잠입었오이",
+            title: "반도체 HINT 연구실의 추억",
             cucumberAsset: "StoryListJacketCucumber",
             donorDisplayName: "익명",
             locationDisplayName: "포항공과대학교 폭풍의 언덕 중앙",
@@ -91,6 +107,7 @@ extension OiStoryListState {
         OiStoryListItem(
             id: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!,
             cucumberName: "아주긴이름을가진행복한오이",
+            title: "아주 긴 제목을 가진 이야기도 한 줄로 보여야 해요",
             cucumberAsset: "StoryListEarthquakeCucumber",
             donorDisplayName: "26학번 아주 긴 이름의 디벨로퍼학과 기부자",
             locationDisplayName: "포항공과대학교 폭풍의 언덕과 학생회관 사이 중앙 벤치",

@@ -71,6 +71,16 @@ struct MYDemoChecks {
         let stressSlots = OiStoryListState.layoutStressPreview.slots()
         precondition(stressSlots.count == 4)
         precondition(stressSlots[0].item?.tags == ["행복한추억", "오랜우정"])
+        // #368: at most four draft slots, and a full list blocks new stories.
+        precondition(!OiStoryListState.preview.isFull && !OiStoryListState.empty.isFull)
+        let fullItems = (0..<5).map { index in
+            OiStoryListItem(id: UUID(), cucumberName: "오이\(index)", cucumberAsset: "StoryListEarthquakeCucumber",
+                            donorDisplayName: "익명", locationDisplayName: "C5", tags: [], dateLabel: "작성 중")
+        }
+        let fullSlots = OiStoryListState.content(Array(fullItems.prefix(4))).slots()
+        precondition(fullSlots.count == 4 && fullSlots.allSatisfy { $0.item != nil })
+        precondition(OiStoryListState.content(Array(fullItems.prefix(4))).isFull)
+        precondition(OiStoryListState.content(fullItems).slots().count == 4)
 
         let remoteStory = OiLiveStory(
             id: UUID(),
@@ -98,7 +108,7 @@ struct MYDemoChecks {
         precondition(listItem.tags == ["행복함", "우정"])
         precondition(listItem.cucumberName == "테스트오이")
 
-        precondition(OiStoryConsentClause.writingClauses.map(\.id) == [.storyWriting, .moderation])
+        precondition(OiStoryConsentClause.writingClauses.map(\.id) == [.storyWriting, .donationVerification, .moderation])
         var consent = OiStoryConsentState()
         let restoredConsent = OiStoryConsentState(savedIDs: ["storyWriting", "unknown"])
         precondition(restoredConsent.savedIDs == ["storyWriting"])
@@ -106,7 +116,8 @@ struct MYDemoChecks {
         let previousConsent = OiStoryConsentState(savedIDs: ["storyWriting", "moderation"])
         precondition(previousConsent.savedIDs == ["storyWriting", "moderation"])
         precondition(!previousConsent.isAgreed(to: .donationVerification))
-        precondition(previousConsent.allRequiredClausesAreAgreed)
+        // #370: the restored Figma donation clause must be agreed again.
+        precondition(!previousConsent.allRequiredClausesAreAgreed)
         let legacyConsent = OiStoryConsentState(savedIDs: ["storyWriting", "donationVerification"])
         precondition(legacyConsent.isAgreed(to: .donationVerification))
         precondition(!legacyConsent.allRequiredClausesAreAgreed, "Donation consent cannot substitute for content rules")
@@ -114,6 +125,8 @@ struct MYDemoChecks {
         consent.setAgreed(true, to: .storyWriting)
         precondition(!consent.allRequiredClausesAreAgreed)
         consent.setAgreed(true, to: .moderation)
+        precondition(!consent.allRequiredClausesAreAgreed)
+        consent.setAgreed(true, to: .donationVerification)
         precondition(consent.allRequiredClausesAreAgreed)
         precondition(OiStoryConsentState(savedIDs: consent.savedIDs) == consent)
         consent.setAgreed(false, to: .moderation)

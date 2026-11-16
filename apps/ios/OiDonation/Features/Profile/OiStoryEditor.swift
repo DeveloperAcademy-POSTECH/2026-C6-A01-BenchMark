@@ -57,12 +57,16 @@ struct OiStoryEditor: View {
     @State private var consentState = OiStoryConsentState()
     @State private var supplementaryScreen: SupplementaryScreen?
     @State private var choosingExit = false
+    /// STEP 1 exit alert, Figma `5400:8313` (#370).
+    @State private var confirmingConsentExit = false
     @State private var customizationReady = false
     @State private var wardrobePhotoEditing = false
     @State private var navigationAtBottom = false
     @State private var navigationPanelHeight: CGFloat = 124
     @State private var bottomSafeAreaInset: CGFloat = 0
     @State private var cardPlacementReady = false
+    /// Figma `5887:10243`: STEP 4 `완료` saves on this device and shows this summary (#377).
+    @State private var showingCardCompletion = false
     @State private var serverRevisionToReplace: Int?
     @State private var replacingServerDraft = false
     @State private var pendingSave: Task<Void, Never>?
@@ -101,6 +105,8 @@ struct OiStoryEditor: View {
         let exit: @MainActor () async -> Bool
         let editFromReview: @MainActor (OiCreationStep) -> Void
         let isPlacementPreview: @MainActor () -> Bool
+        let isCompletion: @MainActor () -> Bool
+        let completionDone: @MainActor () -> Void
     }
     private var onNavigationVisibilityForTest: ((Bool) -> Void)?
     private var onNavigationActionsForTest: ((NavigationTestActions) -> Void)?
@@ -155,10 +161,12 @@ struct OiStoryEditor: View {
         #if DEBUG
         .onChange(of: showsNavigationPanel) { _, visible in onNavigationVisibilityForTest?(visible) }
         .onAppear {
-            onNavigationActionsForTest?(NavigationTestActions(finish: toggleCustomizationReady,
+            onNavigationActionsForTest?(NavigationTestActions(
+                finish: { if step == .card { Task { await completeCard() } } else { toggleCustomizationReady() } },
                 next: { if step == .card { cardPlacementReady = true } else { advance() } },
                 exit: saveAndExit, editFromReview: editFromReview,
-                isPlacementPreview: { step == .card && cardPlacementReady }))
+                isPlacementPreview: { step == .card && cardPlacementReady },
+                isCompletion: { showingCardCompletion }, completionDone: finish))
             onPhotoEditingReady?(PhotoEditingTestActions(
                 items: { editingPhotos }, open: openPhotoEditor, move: movePhoto,
                 cancel: cancelPhotoEditing, done: saveAndClosePhotoEditor, edit: editPhoto, remove: removePhoto
@@ -173,6 +181,9 @@ struct OiStoryEditor: View {
                 restorationStatus
             } else if submitted {
                 completion
+            } else if showingCardCompletion {
+                OiStoryCompletionView(draft: draft, customization: customization,
+                    donorName: remote.profile?.publicName ?? "", location: completionLocation, onDone: finish)
             } else if step == .location {
                 OiLocationPicker(latitude: $draft.latitude, longitude: $draft.longitude,
                                  regionID: $draft.regionId,
@@ -201,7 +212,6 @@ struct OiStoryEditor: View {
                                     .accessibilityIdentifier("oi.consent.saveError")
                             }
                             OiStoryConsentView(clauses: OiStoryConsentClause.writingClauses,
-                                continueTitle: "공개 약관에 동의하고 계속",
                                 onContinue: advance, onExit: requestExit,
                                 showsHeader: false, state: $consentState)
                         }
@@ -213,6 +223,8 @@ struct OiStoryEditor: View {
                         .environment(\.oiCustomizationBottomInset, customizationReady ? 0 : bottomSafeAreaInset)
                         .ignoresSafeArea(.container, edges:
                             !customizationReady && !wardrobePhotoEditing ? .bottom : [])
+                        // STEP 3 follows the keyboard itself to scale the cucumber smoothly (#377).
+                        .ignoresSafeArea(.keyboard, edges: step == .cucumber ? .bottom : [])
                     } else {
                         ScrollViewReader { scroll in
                             ScrollView { editorScrollContent }
@@ -292,6 +304,14 @@ struct OiStoryEditor: View {
             }
             Button("계속 작성", role: .cancel) {}
         } message: { Text("기기 초안과 사진 복사본을 삭제해요. 공개 요청을 보낸 이야기는 내 이야기에서 관리할 수 있어요.") }
+        .alert("현재 진행 상황을\n저장하고 나가시겠습니까?", isPresented: $confirmingConsentExit) {
+            Button("저장하고 나가기") { Task { _ = await saveAndExit() } }
+                .accessibilityIdentifier("oi.consent.exit.save")
+            Button("삭제하기", role: .destructive) { Task { await discardDraft() } }
+                .accessibilityIdentifier("oi.consent.exit.discard")
+        } message: {
+            Text("작성하신 내용들은 삭제되지 않고\n기기에 로컬로 임시 저장됩니다")
+        }
         .alert("서버 버전으로 바꿀까요?", isPresented: Binding(
             get: { serverRevisionToReplace != nil },
             set: { if !$0 { serverRevisionToReplace = nil } }
@@ -497,6 +517,16 @@ struct OiStoryEditor: View {
         }
     }
 
+    /// Save the draft on this device before showing the completion summary; keep editing on failure.
+    private func completeCard() async {
+        guard restored, step == .card, !saving, !placing, !publishing, !isDiscarding else { return }
+        saving = true
+        defer { saving = false }
+        await pendingSave?.value
+        guard await persist() else { return }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { showingCardCompletion = true }
+    }
+
     private func toggleCustomizationReady() {
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
             customizationReady.toggle()
@@ -522,7 +552,7 @@ struct OiStoryEditor: View {
 
     private func requestExit() {
         guard restored else { dismiss(); return }
-        if step == .consent { Task { _ = await saveAndExit() } }
+        if step == .consent { confirmingConsentExit = true }
         else { choosingExit = true }
     }
 
@@ -713,7 +743,7 @@ struct OiStoryEditor: View {
     private var reviewIssues: [OiStoryReviewIssue] {
         var issues: [OiStoryReviewIssue] = []
         if !consentState.allRequiredClausesAreAgreed {
-            issues.append(.init(step: .consent, message: "공개하려면 이야기와 게시물 조치 규정에 동의해 주세요."))
+            issues.append(.init(step: .consent, message: "공개하려면 필수 약관에 모두 동의해 주세요."))
         }
         if !OiCreationStep.story.canContinue(draft: draft) {
             issues.append(.init(step: .story, message: "테마와 감정을 선택하고 제목은 \(OiCreationStep.storyTextLimit)자, 이야기는 \(OiCreationStep.storyBodyLimit)자 이내로 입력해 주세요."))
@@ -725,7 +755,7 @@ struct OiStoryEditor: View {
             issues.append(.init(step: .photos, message: "이야기 사진을 \(OiCreationStep.storyPhotoLimit)장 선택해 주세요."))
         }
         if draft.cucumberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draft.cucumberName.count > 50 {
-            issues.append(.init(step: .card, message: "오이 이름을 1~50자로 입력해 주세요."))
+            issues.append(.init(step: .cucumber, message: "오이 커스텀의 내용 탭에서 오이 이름을 입력해 주세요."))
         }
         return issues
     }
@@ -869,15 +899,16 @@ struct OiStoryEditor: View {
                     onPhotos: openPhotoEditor, onLocation: { navigate(to: .location) })
             }
         case .cucumber:
-            OiCucumberCustomizationStep(customization: $customization,
-                canContinue: true, isFinished: customizationReady, onContinue: toggleCustomizationReady,
+            OiCucumberCustomizationStep(customization: $customization, cucumberName: $draft.cucumberName,
+                // Figma: 완료 goes straight to STEP 4 card customization (`5919:12077`, #377).
+                canContinue: true, isFinished: false, onContinue: advance,
                 onPhotoEditingChanged: { wardrobePhotoEditing = $0 })
         case .card:
             OiCardCustomizationStep(draft: $draft, customization: $customization,
                 donorName: remote.profile?.publicName ?? "",
                 academicAuthor: OiPostcardAuthor.academic(department: remote.profile?.department, year: remote.profile?.admissionYear),
                 storyPhotos: editingPhotos, loadStoryPhoto: cardStoryPhoto,
-                isFinished: customizationReady, onContinue: toggleCustomizationReady)
+                isFinished: false, onContinue: { Task { await completeCard() } })
 
         }
     }
