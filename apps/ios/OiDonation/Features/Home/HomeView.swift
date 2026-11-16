@@ -57,6 +57,10 @@ struct HomeView: View {
         return remote.isRefreshing && !remote.hasLoadedRemote
     }
 
+    private var canOpenNotifications: Bool {
+        remote?.account != nil && remote?.needsReauthentication == false
+    }
+
     var body: some View {
         let authoredSource = authoredPlacementSource
         GeometryReader { geometry in
@@ -163,7 +167,12 @@ struct HomeView: View {
             }
         }
         .sheet(isPresented: $showingNotifications) {
-            if let remote { CampusNotificationSheet(remote: remote).id(remote.account?.id) }
+            if canOpenNotifications, let remote {
+                CampusNotificationSheet(remote: remote).id(remote.account?.id)
+            }
+        }
+        .onChange(of: canOpenNotifications) { _, canOpen in
+            if !canOpen { showingNotifications = false }
         }
         .task {
             configureSceneCallbacks()
@@ -330,7 +339,7 @@ struct HomeView: View {
             }.disabled(store.isExample)
             Spacer()
             VStack(spacing: 10) {
-                if remote != nil {
+                if canOpenNotifications {
                     mapAction("envelope", label: "알림", id: "campus.notifications") { showingNotifications = true }
                 }
                 mapAction("magnifyingglass", label: "오이 검색", id: "campus.search",

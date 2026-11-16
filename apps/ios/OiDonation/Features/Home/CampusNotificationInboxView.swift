@@ -12,22 +12,35 @@ struct CampusNotificationInboxView: View {
     let isLoading: Bool
     let loadError: String?
     var unconfirmedRequestID: UUID? = nil
+    var onOpenOlderRequests: (() -> Void)? = nil
     let onReload: () async -> Void
     let onOpenRequest: (UUID) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var contrast
-    @Environment(\.displayScale) private var displayScale
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .body) private var emptyLineHeight = 31.5
 
     var body: some View {
-        GeometryReader { viewport in
-            ScrollView {
-                content
-                    .frame(maxWidth: .infinity, minHeight: viewport.size.height,
-                        alignment: requests.isEmpty && unconfirmedRequestID == nil ? .center : .top)
+        VStack(alignment: .leading, spacing: 20) {
+            CampusNotificationRetentionNotice()
+            GeometryReader { viewport in
+                ScrollView {
+                    content
+                        .frame(maxWidth: .infinity, minHeight: viewport.size.height,
+                            alignment: requests.isEmpty && unconfirmedRequestID == nil ? .center : .top)
+                }
+                .refreshable { await onReload() }
             }
-            .refreshable { await onReload() }
+            if let onOpenOlderRequests {
+                Button("이전 카드 요청 보기", action: onOpenOlderRequests)
+                    .font(CampusStyle.medium(16))
+                    .disabled(unconfirmedRequestID != nil)
+            }
         }
+        .padding(.horizontal, 20)
+        .padding(.top, 20)
+        .padding(.bottom, 9)
         .accessibilityIdentifier("campus.notifications.inbox")
     }
 
@@ -50,6 +63,7 @@ struct CampusNotificationInboxView: View {
                     Text("알림 없음")
                         .font(CampusStyle.medium(21))
                         .tracking(0.42)
+                        .lineHeight(.exact(points: emptyLineHeight))
                         .foregroundStyle(colorScheme == .light && contrast == .standard
                             ? Color("OiGreen") : .primary)
                         .multilineTextAlignment(.center)
@@ -83,7 +97,6 @@ struct CampusNotificationInboxView: View {
                     .disabled(unconfirmedRequestID.map { $0 != request.id } ?? false)
             }
         }
-        .padding(20)
     }
 
     private func requestRow(_ request: OiCardRequestInboxItem) -> some View {
@@ -91,34 +104,37 @@ struct CampusNotificationInboxView: View {
             VStack(alignment: .leading, spacing: 10) {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 6) {
-                        Text("카드 요청").fixedSize()
+                        Text("카드 요청 · \(request.requesterName)").fixedSize()
                         Spacer(minLength: 0)
                         requestDate(request.createdAt).fixedSize()
                     }
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("카드 요청")
+                        Text("카드 요청 · \(request.requesterName)")
                         requestDate(request.createdAt)
                     }
                 }
                 .font(.custom("Paperlogy-4Regular", size: 12, relativeTo: .caption))
                 .tracking(0.24)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(colorScheme == .light && contrast == .standard
+                    ? Color(white: 157 / 255) : .secondary)
 
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(request.storyTitle)
-                            .font(CampusStyle.body(18))
-                            .tracking(0.36)
-                        Text(request.requesterName)
-                            .font(CampusStyle.body(14))
-                            .foregroundStyle(.secondary)
-                    }
-                    .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.forward")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
+                let layout = dynamicTypeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+                    : AnyLayout(HStackLayout(spacing: 8))
+                layout {
+                    Text(request.storyTitle)
+                        .font(CampusStyle.body(18))
+                        .tracking(0.36)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text("응답 대기")
+                        .font(CampusStyle.body(14))
+                        .tracking(0.28)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 3)
+                        .background(CampusStyle.mapSheet, in: RoundedRectangle(cornerRadius: 10))
                 }
             }
             .foregroundStyle(.primary)
@@ -126,11 +142,6 @@ struct CampusNotificationInboxView: View {
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
             .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 20))
-            .overlay {
-                RoundedRectangle(cornerRadius: 20)
-                    .strokeBorder(Color(uiColor: .separator), lineWidth: 1 / displayScale)
-                    .allowsHitTesting(false)
-            }
             .contentShape(.rect(cornerRadius: 20))
         }
         .buttonStyle(.plain)
@@ -139,6 +150,24 @@ struct CampusNotificationInboxView: View {
 
     private func requestDate(_ date: Date) -> Text {
         Text(verbatim: date.formatted(.relative(presentation: .numeric).locale(Locale(identifier: "ko_KR"))))
+    }
+}
+
+struct CampusNotificationRetentionNotice: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
+    @ScaledMetric(relativeTo: .body) private var lineHeight = 24
+
+    var body: some View {
+        let period = Text("30일").font(.custom("Paperlogy-7Bold", size: 16, relativeTo: .body))
+        Text("알림은 \(period)이 지나면 삭제됩니다")
+            .font(CampusStyle.medium(16))
+            .tracking(0.32)
+            .lineHeight(.exact(points: lineHeight))
+            .foregroundStyle(colorScheme == .light && contrast == .standard
+                ? Color(white: 169 / 255) : .secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("campus.notifications.retention")
     }
 }
 

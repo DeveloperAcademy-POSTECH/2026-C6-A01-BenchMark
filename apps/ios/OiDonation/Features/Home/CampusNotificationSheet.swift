@@ -11,61 +11,62 @@ struct CampusNotificationSheet: View {
     let remote: OiRemoteStore
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
     @State private var requests: [OiCardRequestInboxItem] = []
     @State private var isLoading = false
     @State private var hasLoadedRequests = false
     @State private var selectedRequestID: UUID?
+    @State private var showingOlderRequests = false
     @State private var pendingRequestID: UUID?
     @State private var loadError: String?
     @State private var actionError: String?
     @State private var unconfirmedDecision: (id: UUID, decision: OiCardRequestDecision)?
 
     var body: some View {
+        let now = Date.now
+        let recentRequests = requests.filter { Self.isRecent($0.createdAt, now: now) }
+        let hasOlderRequests = recentRequests.count != requests.count
+        let hasSession = remote.account != nil && !remote.needsReauthentication
         NavigationStack {
-            Group {
-                if remote.account == nil || remote.needsReauthentication {
-                    ContentUnavailableView {
-                        Label("알림을 보려면 로그인해 주세요", systemImage: "envelope")
-                    } actions: {
-                        NavigationLink("설정에서 로그인하기") { MYSettingsView(remote: remote) }
-                            .buttonStyle(.borderedProminent)
-                    }
-                } else {
-                    CampusNotificationInboxView(
-                        requests: requests,
-                        isLoading: isLoading || (!hasLoadedRequests && loadError == nil),
-                        loadError: loadError,
-                        unconfirmedRequestID: unconfirmedDecision?.id,
-                        onReload: reload,
-                        onOpenRequest: { id in
-                            if unconfirmedDecision == nil { actionError = nil }
-                            selectedRequestID = id
-                        }
-                    )
-                    .task { await reload() }
+            CampusNotificationInboxView(
+                requests: hasSession ? recentRequests : [],
+                isLoading: hasSession && (isLoading || (!hasLoadedRequests && loadError == nil)),
+                loadError: hasSession ? loadError : nil,
+                unconfirmedRequestID: hasSession ? unconfirmedDecision?.id : nil,
+                onOpenOlderRequests: hasSession && hasOlderRequests ? { showingOlderRequests = true } : nil,
+                onReload: reload,
+                onOpenRequest: { id in
+                    guard hasSession else { return }
+                    if unconfirmedDecision == nil { actionError = nil }
+                    selectedRequestID = id
                 }
-            }
-            .navigationTitle("알림")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("닫기", systemImage: "xmark", action: { dismiss() })
-                        .labelStyle(.iconOnly)
-                        .disabled(pendingRequestID != nil)
-                        .accessibilityIdentifier("campus.notifications.close")
-                }
-            }
+            )
+            .task { await reload() }
+            .toolbar(.hidden, for: .navigationBar)
+            .accessibilityAction(.escape) { if pendingRequestID == nil { dismiss() } }
             .navigationDestination(item: $selectedRequestID) { id in
                 if remote.account != nil && !remote.needsReauthentication {
-                    requestDetail(id)
+                    requestDetail(requests.filter { $0.id == id }, title: "카드 요청")
+                }
+            }
+            .navigationDestination(isPresented: $showingOlderRequests) {
+                if remote.account != nil && !remote.needsReauthentication {
+                    requestDetail(requests.filter { !Self.isRecent($0.createdAt, now: now) }, title: "이전 카드 요청")
                 }
             }
         }
         .interactiveDismissDisabled(pendingRequestID != nil)
-        .modifier(CampusCardRequestSheetPresentation())
+        .presentationDetents([.large])
+        .presentationCornerRadius(35)
+        .presentationDragIndicator(.hidden)
+        .presentationBackground {
+            CampusStyle.mapSheet.opacity(reduceTransparency || contrast == .increased ? 1 : 0.7)
+        }
         .onChange(of: remote.needsReauthentication) { _, needsReauthentication in
             if needsReauthentication {
                 selectedRequestID = nil
+                showingOlderRequests = false
                 requests = []
                 hasLoadedRequests = false
                 loadError = nil
@@ -75,9 +76,13 @@ struct CampusNotificationSheet: View {
         }
     }
 
-    private func requestDetail(_ id: UUID) -> some View {
+    static func isRecent(_ createdAt: Date, now: Date) -> Bool {
+        createdAt > now.addingTimeInterval(-30 * 24 * 60 * 60)
+    }
+
+    private func requestDetail(_ rows: [OiCardRequestInboxItem], title: String) -> some View {
         OiCardRequestInboxView(
-            requests: requests.filter { $0.id == id },
+            requests: rows,
             isLoading: isLoading,
             loadError: loadError,
             pendingRequestID: pendingRequestID,
@@ -87,8 +92,9 @@ struct CampusNotificationSheet: View {
             onRetryDecision: retryAction,
             showsHeader: false
         )
-        .navigationTitle("카드 요청")
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
         .navigationBarBackButtonHidden(pendingRequestID != nil)
     }
 
@@ -156,17 +162,5 @@ struct CampusNotificationSheet: View {
     private var retryAction: (() async -> Void)? {
         guard unconfirmedDecision != nil else { return nil }
         return { await retryDecision() }
-    }
-}
-
-/// Let the system own the glass, corners, and transition to an opaque full-height sheet.
-struct CampusCardRequestSheetPresentation: ViewModifier {
-    @State private var detent: PresentationDetent = .medium
-
-    func body(content: Content) -> some View {
-        content
-            .presentationDetents([.medium, .large], selection: $detent)
-            .presentationDragIndicator(.visible)
-            .presentationContentInteraction(.resizes)
     }
 }
