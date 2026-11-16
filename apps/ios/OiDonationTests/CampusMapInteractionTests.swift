@@ -271,7 +271,7 @@ final class CampusMapInteractionTests: XCTestCase {
         XCTAssertEqual(layouts, 3)
     }
 
-    func testPublicOiAppearsAndOpensOnOverviewBeforeSelectingARegion() async throws {
+    func testPublicOiOnlyAppearsWithStoryListAndHidesWhenClosed() async throws {
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: windowScene)
         let controller = UIViewController()
@@ -313,11 +313,15 @@ final class CampusMapInteractionTests: XCTestCase {
 
         // The public feed can arrive after the overview has already loaded.
         scene.setOverviewStories([story])
+        XCTAssertFalse(canvas.subviews.contains { $0.accessibilityIdentifier == "campus.pin." + story.id })
+        XCTAssertTrue(paths.isEmpty, "Overview must not download character artwork")
+        XCTAssertTrue(badges(in: canvas).values.contains { $0.label.contains("오이 1개") })
+        scene.showStoriesInCurrentArea(region, stories: [story])
         let markerID = "campus.pin." + story.id
         let marker = try XCTUnwrap(canvas.subviews.first { $0.accessibilityIdentifier == markerID } as? UIButton)
         XCTAssertFalse(marker.isHidden)
         XCTAssertTrue(scene.visibleStoryIDs().contains(story.id))
-        XCTAssertTrue(badges(in: canvas).values.contains { $0.label.contains("오이 1개") })
+        XCTAssertFalse(badges(in: canvas).keys.contains { $0.hasPrefix("campus.region.") || $0.hasPrefix("campus.cluster.") })
         XCTAssertTrue(canvas.hitTest(marker.center, with: nil) === marker, "The character is tappable above the region count")
         marker.sendActions(for: .touchUpInside)
         XCTAssertEqual(opened, story.id)
@@ -420,7 +424,7 @@ final class CampusMapInteractionTests: XCTestCase {
         scene.showStoriesInCurrentArea(region, stories: [shorter])
         XCTAssertLessThan(try currentHeight(), closerHeight, "Close markers must reflect the saved height")
         scene.showOverview()
-        XCTAssertEqual(canvas.subviews.filter { $0.accessibilityIdentifier == markerID }.count, 1)
+        XCTAssertEqual(canvas.subviews.filter { $0.accessibilityIdentifier == markerID }.count, 0)
         scene.setOverviewStories([])
         XCTAssertFalse(canvas.subviews.contains { $0.accessibilityIdentifier == markerID })
         XCTAssertFalse(scene.visibleStoryIDs().contains(story.id))
@@ -465,6 +469,8 @@ final class CampusMapInteractionTests: XCTestCase {
             return try await OiWardrobeAsset.loadForPlacement(outfit)
         }
         scene.setOverviewStories([story])
+        XCTAssertTrue(modelRequests.isEmpty)
+        scene.showStoriesInCurrentArea(region, stories: [story])
         let map = try XCTUnwrap(canvas.map)
         let name = "public:" + story.id
         func marker() throws -> UIButton {
@@ -472,15 +478,11 @@ final class CampusMapInteractionTests: XCTestCase {
         }
         try await waitUntil("The approved character must load as a 3D entity") { map.scene.findEntity(named: name) != nil }
         let button = try marker()
-        let countBadge = try XCTUnwrap(canvas.subviews.compactMap { $0 as? UIButton }.first {
-            !$0.isHidden && $0.isUserInteractionEnabled && $0.accessibilityLabel?.hasSuffix("오이 1개") == true
-        })
+        XCTAssertFalse(badges(in: canvas).keys.contains { $0.hasPrefix("campus.region.") || $0.hasPrefix("campus.cluster.") }, "The story list replaces number panels")
         XCTAssertEqual(modelRequests, [story])
         XCTAssertTrue(try XCTUnwrap(button.imageView).isHidden)
-        XCTAssertFalse(countBadge.frame.intersects(button.frame), "The count must not obscure the 3D character")
-        XCTAssertTrue(canvas.hitTest(countBadge.center, with: nil) === countBadge)
         XCTAssertTrue(canvas.hitTest(button.center, with: nil) === button)
-        try await capture("public-oi-on-overview", in: canvas)
+        try await capture("public-oi-with-story-list", in: canvas)
 
         scene.focus(region, stories: [story])
         let model = try XCTUnwrap(map.scene.findEntity(named: name))
@@ -575,7 +577,11 @@ final class CampusMapInteractionTests: XCTestCase {
         XCTAssertEqual(personal.visibility, .personal)
         XCTAssertEqual(personal.placement.headingDegrees, 135)
         XCTAssertEqual(personal.wardrobe, look)
-        XCTAssertNotNil(canvas.map?.scene.findEntity(named: modelName), "The outfit loads on the campus overview")
+        XCTAssertNil(canvas.map?.scene.findEntity(named: modelName), "Overview must not load a private outfit")
+        XCTAssertFalse(canvas.subviews.contains { $0.accessibilityIdentifier == markerID })
+        scene.focus(region, stories: [], placement: personal.placement)
+        await scene.loadAuthoredModels()
+        XCTAssertNotNil(canvas.map?.scene.findEntity(named: modelName))
 
         let legacy = try XCTUnwrap(CampusAuthoredPlacement(story: pending, owner: owner, localDraft: local))
         XCTAssertNil(CampusAuthoredPlacement(story: pending, owner: UUID(), localDraft: local))
@@ -655,6 +661,8 @@ final class CampusMapInteractionTests: XCTestCase {
         scene.setAuthoredPlacements([published])
         XCTAssertFalse(canvas.subviews.contains { $0.accessibilityIdentifier == publicPinID })
         scene.setAuthoredPlacements([])
+        XCTAssertEqual(canvas.subviews.filter { $0.accessibilityIdentifier == publicPinID }.count, 0)
+        scene.showStoriesInCurrentArea(region, stories: [publicStory])
         XCTAssertEqual(canvas.subviews.filter { $0.accessibilityIdentifier == publicPinID }.count, 1)
     }
 
@@ -881,6 +889,7 @@ final class CampusMapInteractionTests: XCTestCase {
         scene.onStory = { opened = $0 }
         scene.onEmptyMapTap = { emptyTaps += 1 }
         scene.setOverviewStories([story])
+        scene.showStoriesInCurrentArea(region, stories: [story])
         let marker = try XCTUnwrap(canvas.subviews.first { $0.accessibilityIdentifier == "campus.pin." + story.id } as? UIButton)
         marker.sendActions(for: .touchUpInside)
         XCTAssertEqual(opened, story.id)
@@ -1933,5 +1942,107 @@ final class CampusEducationDistrictTests: XCTestCase {
             let attachment = XCTAttachment(image: try XCTUnwrap(rendered))
             attachment.name = "education-" + name; attachment.lifetime = .keepAlways; add(attachment)
         }
+    }
+}
+
+extension CampusMapInteractionTests {
+    func testAuthoredLoadingIncludesCharactersRevealedWhileAnotherModelLoads() async throws {
+        let scene = CampusExploreScene()
+        let controller = UIViewController()
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        window.rootViewController = controller
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        controller.view.addSubview(canvas); window.isHidden = false
+        var release: CheckedContinuation<Void, Never>?
+        defer {
+            release?.resume()
+            scene.suspendRendering(); window.isHidden = true
+            window.rootViewController = nil; window.windowScene = nil
+        }
+        await scene.load()
+        let data = try XCTUnwrap(scene.data)
+        let region = try XCTUnwrap(CampusRegion.campus.first { $0.id == "pond" })
+        scene.focus(region, stories: [])
+        try await Task.sleep(for: .milliseconds(350))
+        let renderer = try XCTUnwrap(canvas.map)
+        let center = data.world(try XCTUnwrap(data.pois.first { $0.id == region.placeID }).p)
+        let viewport = canvas.bounds.insetBy(dx: -100, dy: -100)
+        let outside = try XCTUnwrap(data.graph.values.map { data.world($0.p) }
+            .sorted { simd_distance($0, center) < simd_distance($1, center) }
+            .first { point in
+                let distance = simd_distance(point, center)
+                return distance > 60 && distance < 150 && renderer.project(point).map(viewport.contains) != true
+            })
+        let owner = UUID()
+        let firstID = try XCTUnwrap(UUID(uuidString: "00000000-0000-4000-8000-000000000001"))
+        let secondID = try XCTUnwrap(UUID(uuidString: "90000000-0000-4000-8000-000000000002"))
+        func item(_ id: UUID, at point: SIMD3<Float>) throws -> CampusAuthoredPlacement {
+            let coordinate = data.coordinate(point)
+            var story = OiLiveStory(id: id, userId: owner, grantId: nil, regionId: region.id,
+                title: "검증용 이야기", body: "검증용 본문", theme: "우정", emotion: "즐거움",
+                cucumberName: "검증용 오이", cucumberAsset: "OiCats", cardAsset: "MYBasicCard",
+                latitude: coordinate.latitude, longitude: coordinate.longitude,
+                status: "published", revision: 1, createdAt: "2026-11-16T00:00:00Z")
+            story.cucumberAppearance = OiCucumberAppearance(id: UUID(), top: "tshirt", bottom: "shorts", costume: nil,
+                topColor: 0xFFFFFF, bottomColor: 0xFFFFFF, shoeColor: 0xFFFFFF, topTexture: false, bottomTexture: false)
+            return try XCTUnwrap(CampusAuthoredPlacement(story: story, owner: owner, localDraft: nil))
+        }
+        var requests: [UUID] = []
+        scene.loadCucumberModel = { artwork in
+            requests.append(artwork.storyID)
+            if artwork.storyID == secondID { await withCheckedContinuation { release = $0 } }
+            return ModelEntity(mesh: .generateBox(size: [0.5, 1, 0.5]))
+        }
+        scene.setAuthoredPlacements(try [item(firstID, at: outside), item(secondID, at: center)])
+        try await waitUntil("The visible model must begin loading") { release != nil }
+        XCTAssertEqual(requests, [secondID])
+        let pinch = TestPinch()
+        pinch.state = .began
+        scene.perform(NSSelectorFromString("pinch:"), with: pinch)
+        pinch.state = .changed; pinch.scale = 0.1
+        scene.perform(NSSelectorFromString("pinch:"), with: pinch)
+        pinch.state = .ended
+        scene.perform(NSSelectorFromString("pinch:"), with: pinch)
+        try await Task.sleep(for: .milliseconds(350))
+        let marker = try XCTUnwrap(canvas.subviews.first { $0.accessibilityIdentifier == "campus.authored." + firstID.uuidString })
+        XCTAssertFalse(marker.isHidden, "Zooming out reveals the previously skipped character")
+        release?.resume(); release = nil
+        await scene.loadAuthoredModels()
+        XCTAssertEqual(requests, [secondID, firstID], "Newly visible characters must load without another gesture")
+        XCTAssertNotNil(renderer.scene.findEntity(named: "authored:" + firstID.uuidString))
+    }
+
+    func testEducationBuildingTapOpensGuideBeforeAndAfterIdle() async throws {
+        let scene = CampusExploreScene(stillFrameDelay: .milliseconds(500))
+        let controller = UIViewController()
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        window.rootViewController = controller
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        controller.view.addSubview(canvas); window.isHidden = false
+        defer { scene.suspendRendering(); window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+        await scene.load()
+        try await Task.sleep(for: .milliseconds(350))
+        let renderer = try XCTUnwrap(canvas.map)
+        let building = try XCTUnwrap(renderer.scene.findEntity(named: "campus.education-district"))
+        let bounds = building.visualBounds(recursive: false, relativeTo: building)
+        let world = building.convert(position: bounds.center, to: nil)
+        let point = try XCTUnwrap(renderer.project(world))
+        var opened = 0
+        scene.onEducationDistrict = { opened += 1 }
+        let tap = TestTap(); tap.point = point
+        scene.perform(NSSelectorFromString("selectPlacement:"), with: tap)
+        XCTAssertEqual(opened, 1)
+        scene.finishEducationDistrict()
+        for _ in 0..<60 where renderer.superview != nil { try await Task.sleep(for: .milliseconds(100)) }
+        XCTAssertNil(renderer.superview)
+        // Selecting the retained building must work on the first tap of a parked map.
+        scene.perform(NSSelectorFromString("selectPlacement:"), with: tap)
+        XCTAssertEqual(opened, 2)
+        XCTAssertTrue(renderer.superview === canvas)
+        scene.finishEducationDistrict()
     }
 }

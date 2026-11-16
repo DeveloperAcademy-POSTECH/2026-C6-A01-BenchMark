@@ -218,7 +218,7 @@ struct HomeView: View {
         }
         scene.onRegion = { selected in
             region = selected; sort = .latest; expanded = false; searchResults = nil
-            scene.focus(selected, stories: store.stories(in: selected.id, sortedBy: .latest))
+            scene.focus(selected, stories: store.stories(in: selected.id, sortedBy: .latest), animated: true)
             distances = scene.distances()
         }
         // Tapping the map outside the list closes it, as the removed back button did (#395).
