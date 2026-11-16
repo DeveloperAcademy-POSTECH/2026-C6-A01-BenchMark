@@ -145,6 +145,14 @@ struct OiStoryEditor: View {
     private var editorContent: some View {
         presentedContent
         .task(id: restorationAttempt) { await restoreDraft() }
+        .task(id: step == .consent) {
+            // Prepare only the selected source while the user reads STEP 2.
+            guard step == .consent, ProcessInfo.processInfo.thermalState.rawValue < ProcessInfo.ThermalState.serious.rawValue else { return }
+            let look = customization.wardrobe ?? OiWardrobeLook()
+            if let url = try? OiWardrobeAsset.url(look.modelName, folder: "Wardrobe") {
+                _ = try? await OiWardrobeModelCache.shared.clone(from: url)
+            }
+        }
         .onChange(of: draft) { _, _ in scheduleSave() }
         .onChange(of: photos) { _, _ in scheduleSave() }
         .onChange(of: uploadedPhotos) { _, _ in scheduleSave() }
