@@ -91,8 +91,13 @@ struct HomeView: View {
             }
             // Keep the RealityKit viewport fixed while the list changes height.
             .overlay(alignment: .bottom) {
-                if let region { regionPanel(region, availableHeight: geometry.size.height, bottomInset: geometry.safeAreaInsets.bottom) }
+                if let region {
+                    regionPanel(region, availableHeight: geometry.size.height, bottomInset: geometry.safeAreaInsets.bottom)
+                        .transition(.move(edge: .bottom))
+                }
             }
+            // The list slides up when a bubble opens it and back down when it closes (#395).
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.3), value: region == nil)
             .onAppear { configureMapLabels(geometry) }
             .onChange(of: geometry.size) { _, _ in configureMapLabels(geometry) }
             .onChange(of: geometry.safeAreaInsets) { _, _ in configureMapLabels(geometry) }
@@ -214,6 +219,8 @@ struct HomeView: View {
             scene.focus(selected, stories: store.stories(in: selected.id, sortedBy: .latest))
             distances = scene.distances()
         }
+        // Tapping the map outside the list closes it, as the removed back button did (#395).
+        scene.onEmptyMapTap = { if region != nil { closeRegionList() } }
         scene.onStory = { id in
             guard store.story(id) != nil else { return }
             // Use the same value-based path as list links and the summary's detail link.
@@ -362,16 +369,8 @@ struct HomeView: View {
     private var mapHeader: some View {
         HStack(alignment: .top) {
             if region != nil {
-                Button {
-                    region = nil; expanded = false; searchResults = nil; scene.showOverview()
-                } label: {
-                    // A plain SF Symbol button needs an explicit hit area for its glass circle.
-                    Image(systemName: "chevron.left").font(.system(size: 19, weight: .semibold)).frame(width: 50, height: 50)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain).glassEffect(.regular.interactive(), in: Circle())
-                .accessibilityLabel("캠퍼스 전체 지도").accessibilityIdentifier("campus.overview")
-                Spacer()
+                // No back button (#395): tap the map outside the list or swipe the list down to close it.
+                Spacer().frame(height: 50)
             } else {
                 Button { showingSchools = true } label: {
                     HStack(spacing: 8) {
@@ -409,14 +408,6 @@ struct HomeView: View {
         // Figma: sheet starts at y=516 (collapsed) or y=130 (expanded) in an 874pt screen.
         let height = regionPanelHeight(availableHeight)
         return VStack(spacing: 9.5) {
-            Button { setListExpanded(!expanded) } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: expanded ? "xmark" : "list.star").font(.system(size: 16))
-                    Text(expanded ? "목록닫기" : "목록보기").font(CampusStyle.body(16))
-                }.padding(.horizontal, 20).frame(height: 35)
-                    .background(.white, in: Capsule()).frame(minHeight: 44)
-                    .contentShape(Capsule())
-            }.buttonStyle(.plain).accessibilityIdentifier("campus.list.toggle")
             VStack(spacing: 20) {
                 HStack(spacing: 7) {
                     ForEach([CampusStorySort.latest, .oldest], id: \.self) { item in
@@ -472,9 +463,19 @@ struct HomeView: View {
             .simultaneousGesture(DragGesture(minimumDistance: 30).onEnded { gesture in
                 guard abs(gesture.translation.height) > abs(gesture.translation.width) else { return }
                 if gesture.translation.height < -50 { setListExpanded(true) }
-                else if gesture.translation.height > 50 && listIsAtTop { setListExpanded(false) }
+                // Down steps back: a tall list first returns to its default height, then closes (#395).
+                else if gesture.translation.height > 50 && listIsAtTop {
+                    if expanded { setListExpanded(false) } else { closeRegionList() }
+                }
             })
+            .accessibilityAction(named: "목록 닫기") { closeRegionList() }
+            .accessibilityAction(named: expanded ? "목록 줄이기" : "목록 크게 보기") { setListExpanded(!expanded) }
         }
+    }
+
+    /// Closes the region list and returns to the whole campus, like the removed back button (#395).
+    private func closeRegionList() {
+        region = nil; expanded = false; searchResults = nil; scene.showOverview()
     }
 
     private func setListExpanded(_ value: Bool) {

@@ -90,6 +90,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private var sharedMap = false
     var onStory: ((String) -> Void)?
     var onAuthoredPlacement: ((UUID) -> Void)?
+    /// A tap that hits no cucumber, placement or landmark; map drags never count (#395).
+    var onEmptyMapTap: (() -> Void)?
     @ObservationIgnored var loadCucumberPortrait: ((String) async throws -> UIImage)?
     @ObservationIgnored var loadCucumberModel: ((OiCucumberArtworkReference) async throws -> Entity)?
     @ObservationIgnored var loadPublicCucumberModel: ((CampusStory) async throws -> Entity)?
@@ -1103,6 +1105,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                 }
                 entity = current.parent
             }
+            onEmptyMapTap?()
         }
     }
 
