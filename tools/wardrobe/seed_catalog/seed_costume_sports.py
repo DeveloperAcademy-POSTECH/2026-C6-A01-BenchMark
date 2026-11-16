@@ -2,6 +2,7 @@
 from functools import cache
 
 import numpy as np
+from PIL import Image, ImageDraw, ImageFilter
 
 import seed_costume_geometry as engine
 from seed_costume_geometry import arm_sections, smoothstep
@@ -16,6 +17,15 @@ def limb_sections():
     }
 
 
+def baseball_arms(co, rgb):
+    x, y = co[:, :2].T
+    r, g, b = rgb.T
+    left = (x < -.186) & (y > .469) & (y < .655)
+    right = (x > .201) & (y > .461) & (y < .638)
+    skin = (g > r + 4) & (g > b + 13)
+    return (left | right) & skin
+
+
 def baseball(co, green, rgb, name):
     x, y, z = co.T
     r, g, b = rgb.T
@@ -26,9 +36,15 @@ def baseball(co, green, rgb, name):
     mitt = (x > .205) & (y < .57) & (y > .29) & tan & ~green
     cap = (y > 1.06) & (navy | ((r > 100) & ~green))
     cloth = (y < .824) & ((~green) | (r > 200)) & ((np.abs(x) < .28) | (y > .52) | (y < .28))
-    sleeve = (np.abs(x) > .215) & (y > .555) & (y < .777)
-    cloth |= sleeve & (r > 115) & (b > 82) & (b > .61 * r)
-    return bat | mitt | cap | cloth
+    # The donor's repaired face atlas contains ivory pixels on its old skin.
+    # Follow the sewn V-front and rounded back edge before using color.
+    front = smoothstep((z + .049) / .101)
+    neckline = (.742 + .235 * np.abs(x)) * (1 - front) + (.674 + .499 * np.abs(x)) * front
+    cloth &= (y < neckline) | (navy & (y < .812))
+    sleeve = (np.abs(x) > .211) & (y > .524) & (y < .784)
+    fabric = (r > 137) & (r - g > -5) & (g - b < 43) & (b > .65 * r)
+    cloth = np.where(sleeve, navy | fabric, cloth)
+    return bat | mitt | cap | cloth | baseball_arms(co, rgb) | (y < .231)
 
 def cowboy(co, green, rgb, name):
     x, y, z = co.T
@@ -56,7 +72,19 @@ def sportswear(co, green, rgb, name):
     return band | shoes | cloth
 
 def baseball_color(texture):
-    return engine.replace_baked_green(texture, (236, 224, 195))
+    # Green belongs on complete donor hands, but not on the fabric cutline.
+    stage, _ = engine.load("baseball")
+    height, width = texture.shape[:2]
+    skin_uv = Image.new("L", (width, height))
+    draw = ImageDraw.Draw(skin_uv)
+    for _, points, faces, uv in engine.meshes(stage):
+        face_rgb = engine.sample(texture, uv.mean(axis=1)).astype(float)
+        for triangle in uv[baseball_arms(points[faces].mean(axis=1), face_rgb)]:
+            pixels = triangle * [width, -height] + [0, height]
+            draw.polygon([tuple(point) for point in pixels], fill=255)
+    keep = np.asarray(skin_uv.filter(ImageFilter.MaxFilter(3))) != 0
+    fabric = engine.replace_baked_green(texture, (236, 224, 195))
+    return np.where(keep[:, :, None], texture, fabric)
 
 def sportswear_color(texture):
     return engine.replace_baked_green(texture, (24, 35, 55))
@@ -74,6 +102,25 @@ def envelope(p, model, active, margin):
     model.push_out(src, margin)
     p[active] = src
 
+
+def baseball_sleeves(points, fitted):
+    # Keep the complete donor sleeve and hand assembly. The bare seed arms
+    # are covered by this costume, so stretching donor rims to bare wrists
+    # is unnecessary and distorts the original toy silhouette.
+    x, y, z = points.T
+    inherited = points.copy()
+    inherited[:, 0] *= 1.065
+    inherited[:, 1] += .021
+    inherited[:, 2] = z * 1.090 + .029
+    left = smoothstep((-x - .180) / .045) * smoothstep((y - .451) / .025)
+    right = smoothstep((x - .180) / .045) * smoothstep((y - .350) / .049)
+    arm = np.maximum(left, right) * (1 - smoothstep((y - .757) / .085))
+    # Carry the bat in the same frame as the player's hand.
+    bat = smoothstep((-x - .188) / .026) * smoothstep((z + .040) / .027)
+    bat *= smoothstep((y - .452) / .024) * (1 - smoothstep((y - .945) / .055))
+    weight = np.maximum(arm, bat)
+    return fitted + weight[:, None] * (inherited - fitted)
+
 def costume_fit(p, faces, name, kind):
     limbs = limb_sections()
     left_arm, right_arm = limbs["LeftArm"], limbs["RightArm"]
@@ -84,7 +131,7 @@ def costume_fit(p, faces, name, kind):
     mitt = (kind == "baseball") & (x > .209) & (y > .31) & (y < .570)
     # Match the body while raising the inherited sleeve mouths to the master wrists.
     sleeve = smoothstep((absx - .22) / .10) * smoothstep((y - .37) / .15) * (1 - smoothstep((y - .75) / .13))
-    p[:,1] += sleeve * {"baseball": .052, "cowboy": .040, "farmer": .013, "sportswear": .076, "martial-arts": -.012}[kind]
+    p[:,1] += sleeve * {"baseball": .0, "cowboy": .040, "farmer": .013, "sportswear": .076, "martial-arts": -.012}[kind]
     body_mix = smoothstep((y - .105) / .25) * (1 - smoothstep((y - .88) / .08))
     p[:,0] *= 1 + body_mix * {"baseball": .065, "cowboy": .095, "farmer": .018, "sportswear": .03, "martial-arts": .055}[kind]
     p[:,2] *= 1 + body_mix * {"baseball": .10, "cowboy": .10, "farmer": .10, "sportswear": .095, "martial-arts": .075}[kind]
@@ -114,8 +161,8 @@ def costume_fit(p, faces, name, kind):
         p[hat,2] += {"baseball": .037, "cowboy": -.003, "farmer": -.008, "sportswear": -.006}[kind]
         envelope(p, engine.body, hat, .013 if kind == "sportswear" else .006)
     if kind == "baseball":
-        p[bat] = np.column_stack((x[bat] - .021, y[bat] + .028, z[bat] + .017))
-        p[mitt] = np.column_stack((x[mitt] + .014, y[mitt] + .047, z[mitt] + .039))
+        props = bat | mitt
+        p[props] = np.column_stack((x[props] * 1.065, y[props] + .021, z[props] * 1.090 + .029))
     if kind in ("baseball", "sportswear"):
         crotch = smoothstep((.095 - absx) / .07) * smoothstep((y - .183) / .10) * (1 - smoothstep((y - .301) / .054))
         p[:,1] -= .039 * crotch
@@ -125,15 +172,22 @@ def costume_fit(p, faces, name, kind):
     # cuffs so an arm correction cannot put the sleeve back inside the torso.
     for _ in range(3):
         envelope(p, engine.body, garment, .020 if kind in ("baseball", "sportswear") else .013)
-        envelope(p, left_arm, sleeve_zone & (x < 0), .016)
-        envelope(p, right_arm, sleeve_zone & (x > 0), .016)
+        if kind != "baseball":
+            envelope(p, left_arm, sleeve_zone & (x < 0), .016)
+            envelope(p, right_arm, sleeve_zone & (x > 0), .016)
     if kind == "baseball":
-        envelope(p, right_arm, mitt & (p[:,1] > .509), .009)
-        # The donor's elbow sits further back than the master. Keep its fabric
-        # from cutting through the front of the shoulder after radial fitting.
-        shoulder = smoothstep((absx - .18) / .045) * smoothstep((y - .614) / .077) * (1 - smoothstep((y - .787) / .062))
-        p[:,2] += .020 * shoulder * smoothstep((z + .064) / .087) * (~(bat | mitt))
+        p = baseball_sleeves(np.column_stack((x,y,z)), p)
+        # The torso grows wider than the donor's side seam. Give that seam
+        # room while leaving the sleeve silhouette and hands in their frame.
+        side_seam = (y > .397) & (y < .835) & (absx < .249)
+        envelope(p, engine.body, side_seam, .029)
+        # Keep the intact donor socks and cleats as one connected shape.
+        weight = 1 - smoothstep((y - .198) / .089)
+        feet = np.column_stack((x * 1.065, y + .008, z * 1.09 + .029))
+        p += weight[:, None] * (feet - p)
     lower = (p[:,1] < .36) & garment
+    if kind == "baseball":
+        lower &= y > .274
     envelope(p, left_leg, lower & (x < 0), .013)
     envelope(p, right_leg, lower & (x > 0), .013)
     return p
@@ -151,4 +205,5 @@ SPORT_COSTUMES = tuple(masks)
 
 def recipe(id):
     cleaner = {"baseball": baseball_color, "sportswear": sportswear_color}.get(id)
-    return masks[id], lambda points, faces, name: costume_fit(points, faces, name, id), (), cleaner
+    covered = ("LeftArm", "RightArm", "LeftLeg", "RightLeg") if id == "baseball" else ()
+    return masks[id], lambda points, faces, name: costume_fit(points, faces, name, id), covered, cleaner

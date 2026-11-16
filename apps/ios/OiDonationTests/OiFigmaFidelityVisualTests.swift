@@ -2044,6 +2044,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     func testStep3GarmentsShareBodyTransformAtEverySizeCorner() async throws {
         let shirt = try await OiSeedCucumberModel.loadGarment(.whiteTshirt)
         let pants = try await OiSeedCucumberModel.loadGarment(.longPants)
+        let costume = OiSeedCucumberGarment.costume(.cat)
+        let cat = try await OiSeedCucumberModel.loadGarment(costume)
         for width in [OiSeedCucumberAppearance.widthRange.lowerBound, OiSeedCucumberAppearance.widthRange.upperBound] {
             for height in [OiSeedCucumberAppearance.heightRange.lowerBound, OiSeedCucumberAppearance.heightRange.upperBound] {
                 var appearance = editedSeedCucumber3DAppearance()
@@ -2069,6 +2071,16 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 try OiSeedCucumberModel.setGarment(.longPants, asset: nil, on: model)
                 XCTAssertNil(shirt.parent)
                 XCTAssertNil(pants.parent)
+
+                try OiSeedCucumberModel.setGarment(costume, asset: cat, on: model)
+                OiSeedCucumberModel.updateCoverage(for: [costume], on: model)
+                XCTAssertTrue(cat.parent === parent)
+                XCTAssertFalse(body.isEnabled)
+                XCTAssertTrue(mouth.isEnabled)
+                XCTAssertEqual(mouth.transformMatrix(relativeTo: model).columns.3, mouthTransform.columns.3)
+                try OiSeedCucumberModel.setGarment(costume, asset: nil, on: model)
+                OiSeedCucumberModel.updateCoverage(for: [], on: model)
+                XCTAssertTrue(body.isEnabled)
             }
         }
     }
@@ -2129,6 +2141,10 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             let asset = try await OiSeedCucumberModel.loadGarment(garment)
             XCTAssertEqual(asset.name, garment.rawValue)
             XCTAssertTrue(hasModel(in: asset), "\(garment.title) must contain a renderable mesh")
+            if garment.coveredSeedParts.contains("Body") {
+                let faceSkin = try XCTUnwrap(asset.findEntity(named: "VisibleBody"))
+                XCTAssertTrue(hasModel(in: faceSkin))
+            }
         }
         @MainActor func hasModel(in entity: Entity) -> Bool {
             entity.components[ModelComponent.self] != nil || entity.children.contains(where: hasModel)
@@ -2165,6 +2181,10 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             let model = try XCTUnwrap(surface.scene.findEntity(named: "SeedCucumber"))
             let eye = try XCTUnwrap(model.findEntity(named: "LeftEye"))
             let eyeTransform = eye.transformMatrix(relativeTo: model)
+            let master = try XCTUnwrap(model.findEntity(named: "SeedCucumberMaster"))
+            let skin = try XCTUnwrap(master.findEntity(named: "Body"))
+            let leftArm = try XCTUnwrap(master.findEntity(named: "LeftArm"))
+            let leftLeg = try XCTUnwrap(master.findEntity(named: "LeftLeg"))
             let camera = try self.step3Camera(in: surface)
             let rotate = try XCTUnwrap(surface.accessibilityCustomActions?.first)
             XCTAssertTrue(try XCTUnwrap(rotate.actionHandler)(rotate))
@@ -2190,6 +2210,9 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             }
 
             XCTAssertEqual(mounted(), customOutfit)
+            XCTAssertTrue(skin.isEnabled)
+            XCTAssertTrue(leftArm.isEnabled)
+            XCTAssertFalse(leftLeg.isEnabled)
             let dinosaur: Set<OiSeedCucumberGarment> = [.costume(.dinosaur)]
             draft.value.selectSeedSet(.costume(.dinosaur))
             try await waitForReplacement(from: customOutfit, to: dinosaur)
@@ -2209,8 +2232,26 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             try await waitForReplacement(from: dinosaur, to: customOutfit)
             XCTAssertEqual(draft.value, original)
 
-            draft.value.selectSeedSet(.costume(.dinosaur))
-            try await waitForReplacement(from: customOutfit, to: dinosaur)
+            let cat: Set<OiSeedCucumberGarment> = [.costume(.cat)]
+            draft.value.selectSeedSet(.costume(.cat))
+            try await waitForReplacement(from: customOutfit, to: cat)
+            XCTAssertFalse(skin.isEnabled)
+            XCTAssertFalse(leftArm.isEnabled)
+            XCTAssertFalse(leftLeg.isEnabled)
+            XCTAssertTrue(eye.isEnabled)
+            XCTAssertNotNil(model.findEntity(named: OiSeedCucumberGarment.costume(.cat).rawValue)?
+                .findEntity(named: "VisibleBody"))
+            draft.value.selectSeedSet(.costume(.cat))
+            try await waitForReplacement(from: cat, to: customOutfit)
+            XCTAssertTrue(skin.isEnabled)
+            XCTAssertTrue(leftArm.isEnabled)
+            XCTAssertFalse(leftLeg.isEnabled)
+            draft.value.toggleSeedSneakers()
+            let withoutShoes: Set<OiSeedCucumberGarment> = [.hoodie, .shorts]
+            try await waitForReplacement(from: customOutfit, to: withoutShoes)
+            XCTAssertTrue(leftLeg.isEnabled)
+            draft.value.selectSeedSet(.costume(.cat))
+            try await waitForReplacement(from: withoutShoes, to: cat)
             return surface
         })
     }

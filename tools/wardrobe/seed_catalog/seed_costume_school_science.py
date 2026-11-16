@@ -5,10 +5,11 @@ import subprocess
 import zipfile
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFilter
 
 import seed_costume_geometry as geometry
 from seed_costume_geometry import arm_sections, as_mesh, load, meshes, sample, smoothstep, unit
+from seed_costume_geometry import clipped_surface, skin_part
 
 
 def make_school_mask(co, green, rgb, name):
@@ -36,12 +37,36 @@ def make_scientist_mask(co, green, rgb, name):
     neutral=(np.maximum.reduce([r,g,b]) - np.minimum.reduce([r,g,b])<47)
     raised=(x<-.202) & (y>.835)
     flask=(x<-.211) & (y>.939) & (z>.119) & ((pale & (x>-.351)) | (neutral & (y<1.4)))
-    hand_area=(x>.253)&(y>.421)&(y<.581)
-    right_hand=hand_area&(green | ((g-r>10)&(g>b+14)))
-    coat=(y < .962) & (~green) & ~right_hand & ~((y>.865) & ~pale & (z>.100))
+    # The unified legacy skin also contains blue-green stripes that fall
+    # outside the older yellow-green threshold.
+    colored_skin = green | ((g-r>10)&(g-b>14)&(r<175))
+    hand_area=(x>.253)&(y>.421)&(y<.596)
+    right_hand=hand_area&colored_skin
+    coat=(y < .962) & ~(green | ((y>.80)&colored_skin)) & ~right_hand & ~((y>.865) & ~pale & (z>.100))
     lower = (y<.684)&~right_hand
     # The lanyard and embroidered ink share the coat's original atlas.
     return lower | coat | (raised & ~green & pale & (y<.985)) | flask
+
+
+def clean_scientist_cuff(texture, centers, corners):
+    # A few right sleeve UV triangles share the old green hand's baked edge.
+    # Restrict the retouch to those triangle UVs and leave the lanyard intact.
+    width, height = texture.shape[1], texture.shape[0]
+    region = Image.new("1", (width, height))
+    draw = ImageDraw.Draw(region)
+    x, y, z = centers.T
+    cuff = (x > .187) & (y > .503) & (y < .685) & (abs(z) < .17)
+    for face in corners[cuff]:
+        uv = face % 1
+        if np.ptp(uv, axis=0).max() > .5:
+            continue
+        draw.polygon([(u * width, (1 - v) * height) for u, v in uv], fill=1)
+    atlas = texture.copy()
+    r, g, b = np.moveaxis(atlas.astype(np.int16), -1, 0)
+    green = (g - r > 5) & (g - b > 11)
+    in_region = np.asarray(region.convert("L").filter(ImageFilter.MaxFilter(3))) > 0
+    atlas[in_region & green] = [244, 239, 242]
+    return atlas
 
 
 def fit_model(p, faces, name, *, mode, body, arms, source):
@@ -75,13 +100,14 @@ def fit_model(p, faces, name, *, mode, body, arms, source):
         cuff = smoothstep((side*x-.229)/.102)*(1-smoothstep((y-.705)/.143))*smoothstep((y-.479)/.073)
         if mode=='scientist':
             cuff = smoothstep((side*x-.226)/.067)*(1-smoothstep((y-.635)/.170))*smoothstep((y-.435)/.046)
-        p[:,1] += (.041 if mode=='school' else (.099 if mode=='scientist' else .048))*cuff
+        p[:,1] += (.041 if mode=='school' else (.084 if mode=='scientist' else .048))*cuff
         p[:,2] += .029*cuff
         adjusted=p.copy()
         arms[arm].push_out(adjusted,.009)
         # Let the existing hand stay exposed under the sleeve opening.
         cuff_mesh=smoothstep((side*x-.212)/.039)*smoothstep((p[:,1]-.504)/.041)*(1-lens)
-        p += (adjusted-p)*cuff_mesh[:,None]
+        if mode != 'scientist':
+            p += (adjusted-p)*cuff_mesh[:,None]
     # Separate original cloth shells before applying the clearance clamp; otherwise
     # the dark trousers, shirt and the light lab coat can meet on the same surface.
     if mode in ('scientist','goggles'):
@@ -106,8 +132,17 @@ def fit_model(p, faces, name, *, mode, body, arms, source):
     torso=smoothstep((y-.264)/.010)*(1-lens)
     if mode=='scientist':
         raised=smoothstep((-x-.206)/.078)*smoothstep((y-.79)/.159)
-        p[:,0] -= .026*raised
-        p[:,2] += .013*raised
+        p[:,0] -= .045*raised
+        p[:,1] -= .061*raised
+        p[:,2] += .010*raised
+        # Give the jacket its own drape at the hip instead of pressing it into
+        # the fruit or the arm envelope. Leave the collar and inner outfit alone.
+        sleeve = smoothstep((x-.216)/.075)*smoothstep((y-.437)/.070)*(1-smoothstep((y-.658)/.145))
+        p[:,0] += .022 * sleeve
+        p[:,2] += (z-.012) * .16 * sleeve
+        skirt=smoothstep((y-.270)/.040)*(1-smoothstep((y-.603)/.196))*cloth_weight
+        direction=unit(p[:,[0,2]]-body.sample(p)[0])
+        p[:,[0,2]] += direction*(.030*skirt)[:,None]
         torso *= 1-raised
     adjusted = p.copy()
     body.push_out(adjusted,.018)
@@ -128,12 +163,7 @@ def fit_model(p, faces, name, *, mode, body, arms, source):
     if mode=='scientist':
         lower_front = (1-smoothstep((abs(x)-.042)/.058)) * smoothstep((z+.012)/.076)
         lower_front *= smoothstep((y-.258)/.045)*(1-smoothstep((y-.378)/.069))
-        p[:,2] += .053*lower_front
-        # At the distal cuff, use the measured neutral hand volume itself as the envelope.
-        collar = smoothstep((x-.220)/.042)*smoothstep((p[:,1]-.51)/.016)*(1-smoothstep((p[:,1]-.658)/.055))
-        candidate = p.copy()
-        arms['RightArm'].push_out(candidate,.019)
-        p += (candidate-p)*collar[:,None]
+        p[:,2] += .035*lower_front
     if mode != 'school':
         # Preserve smooth easing along the original prop and visor transition.
         if mode == 'goggles':
@@ -151,7 +181,7 @@ def fit_model(p, faces, name, *, mode, body, arms, source):
         # triangles span the seam and need more than the vertex radial correction.
         fill=(1-smoothstep((abs(p[:,0])-.04)/.091))*smoothstep((p[:,2]-.029)/.063)
         fill*=smoothstep((p[:,1]-.260)/.039)*(1-smoothstep((p[:,1]-.392)/.052))
-        p[:,2] += .048*fill
+        p[:,2] += .032*fill
     p[:,1] = np.maximum(p[:,1],0)
     return p
 
@@ -161,7 +191,7 @@ def author_arm(points):
     source_shoulder=np.array([-.233,.804,.009])
     source_hand=np.array([-.334,.567,.033])
     target_shoulder=np.array([-.236,.801,.015])
-    target_hand=np.array([-.342,.986,.202])
+    target_hand=np.array([-.365,.931,.199])
     source = unit(source_hand-source_shoulder)
     target = unit(target_hand-target_shoulder)
     axis=np.cross(source,target)
@@ -273,16 +303,20 @@ def add_accessories(id, output, mode, body, arm_data):
     stage=path.read_text()
     material=''; text=''
     if mode=='scientist':
-        arm_text=geometry.read_stage(geometry.assets/'Characters'/'SeedCucumberMaster.usdz')
-        material=re.search(r'(?ms)^        def Material "LeftArm"\n.*?^        }',arm_text)[0]
-        material=material.replace('/Cucumber/Materials/LeftArm','/SeedCostume/Materials/PosedLeftArmMaterial')
-        material=material.replace('def Material "LeftArm"','def Material "PosedLeftArmMaterial"')
-        material=re.sub(r'@(?:[^@]*\[)?(?:\./)?Textures/LeftArm\.png(?:\])?@', '@textures/MasterLeftArm.png@', material)
-        p, f, uv=arm_data['LeftArm']
-        pose=author_arm(p)
-        text=as_mesh('PosedLeftArm',pose,f,uv).replace('/SeedCostume/Materials/mat0','/SeedCostume/Materials/PosedLeftArmMaterial')
-        with zipfile.ZipFile(geometry.assets/'Characters/SeedCucumberMaster.usdz') as source:
-            (output/'textures/MasterLeftArm.png').write_bytes(source.read('Textures/LeftArm.png'))
+        # Keep the original textured hands. Crop hidden master forearms under
+        # the coat sleeves so their width does not dictate the garment's drape.
+        for arm in ('LeftArm','RightArm'):
+            points, faces, uv = arm_data[arm]
+            cuff_plane = .625 if arm == 'LeftArm' else .600
+            points, faces, uv = clipped_surface(points, faces, uv, lambda p: cuff_plane - p[:, 1])
+            if arm == 'LeftArm':
+                points = author_arm(points)
+            else:
+                points = points + [.037, -.028, .024]
+            mesh, skin = skin_part(arm, f'Posed{arm}', f'Posed{arm}Material',
+                                   points, faces, uv, output, prim='SeedCostume')
+            text += mesh
+            material += skin + '\n'
     if mode in ('scientist','goggles'):
         for name,p,f,mat in add_eyewear(mode, body):
             text+=as_mesh(name,p,f,np.zeros((len(f),3,2))).replace('/SeedCostume/Materials/mat0','/SeedCostume/Materials/'+mat)
@@ -306,7 +340,10 @@ def review(id, output, hidden):
     basename=f'seed-costume-{id}'
     stage=(output/f'{basename}.usda').read_text()
     parts=list(meshes(stage))
-    _,texture=load(id)
+    source, texture=load(id)
+    if id == 'scientist':
+        color_name = geometry.archive.findall(source)[0].removeprefix('./')
+        texture = np.asarray(Image.open(output / color_name).convert('RGB'))
     textures = [([part for part in parts if part[0] == 'mesh1'],texture)]
     for key,color in [('VisorFrame',[168,174,157] if id=='scientist' else [90,97,90]),('VisorStrap',[52,55,52])]:
         selected=[part for part in parts if part[0]==key]
@@ -314,8 +351,13 @@ def review(id, output, hidden):
     skin = geometry.assets/'Characters/SeedCucumberMaster.usdz'
     with zipfile.ZipFile(skin) as package:
         if id == 'scientist':
-            textures.append(([part for part in parts if part[0]=='PosedLeftArm'],
-                       np.asarray(Image.open(io.BytesIO(package.read('Textures/LeftArm.png'))).convert('RGB'))))
+            for arm in ('LeftArm','RightArm'):
+                textures.append(([part for part in parts if part[0] == f'Posed{arm}'],
+                           np.asarray(Image.open(io.BytesIO(package.read(f'Textures/{arm}.png'))).convert('RGB'))))
+        visible_skin = [part for part in parts if part[0] == 'VisibleBody']
+        if visible_skin:
+            face_texture = np.asarray(Image.open(output / 'Textures/BodyBaseColor.png').convert('RGB'))
+            textures.append((visible_skin, face_texture))
         for part in geometry.seed_data:
             name=part[0]
             if name in hidden: continue
@@ -328,7 +370,7 @@ def review(id, output, hidden):
 VARIANTS = {
     'school-uniform-trousers': ('school', make_school_mask, ()),
     'scientist-goggles': ('goggles', make_goggles_mask, ()),
-    'scientist': ('scientist', make_scientist_mask, ('LeftArm',)),
+    'scientist': ('scientist', make_scientist_mask, ('LeftArm', 'RightArm')),
 }
 
 
@@ -339,12 +381,14 @@ def prepare(id, output, preview=False):
                 if name in ('LeftArm', 'RightArm')}
     arms = {name: arm_sections(p, f) for name, (p, f, _) in arm_data.items()}
     source_text, source_texture = load(id)
-    _, _, source_faces, source_uv = next(meshes(source_text))
+    _, source_points, source_faces, source_uv = next(meshes(source_text))
     source = (source_faces, source_uv, source_texture)
     geometry.prepare(
         id, output, mask,
         lambda p, f, name: fit_model(p, f, name, mode=mode, body=body, arms=arms, source=source),
         hidden=hidden, render=False,
+        clean_color=(lambda texture: clean_scientist_cuff(texture, source_points[source_faces].mean(axis=1), source_uv))
+        if mode == 'scientist' else None,
     )
     add_accessories(id, output, mode, body, arm_data)
     if preview:

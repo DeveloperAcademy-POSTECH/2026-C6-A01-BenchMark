@@ -10,7 +10,8 @@ from pathlib import Path
 import seed_costume_geometry as geometry
 import seed_costume_school_science as school_science
 import seed_costume_sneakers as sneakers
-from seed_costume_extras import add_ribbon_calves, prepare_selfie
+from seed_costume_coverage import CUTS, add_visible_sections, prepare_trimmed_costume
+from seed_costume_extras import add_ribbon_calves, clear_navy_visor, prepare_selfie
 from seed_costume_hoods import colors, options
 from seed_costume_sports import SPORT_COSTUMES, recipe as sport_recipe
 
@@ -44,7 +45,13 @@ def main():
             sneakers.prepare(work / id)
             continue
         if id in school_science.VARIANTS:
-            school_science.prepare(id, work / id, preview=args.preview)
+            needs_body_cut = id in CUTS
+            school_science.prepare(id, work / id, preview=args.preview and not needs_body_cut)
+            if needs_body_cut:
+                add_visible_sections(id, work / id)
+                if args.preview:
+                    _, _, hidden = school_science.VARIANTS[id]
+                    school_science.review(id, work / id, {*hidden, "Body", "LeftLeg", "RightLeg"})
             continue
         if id in SPORT_COSTUMES:
             mask, fit, hidden, cleaner = sport_recipe(id)
@@ -57,7 +64,12 @@ def main():
         if id == "postech-selfie":
             prepare_selfie(work / id, args.preview)
             continue
+        if id in CUTS:
+            prepare_trimmed_costume(id, work / id, args.preview)
+            continue
         mask, fit, hidden = options(id)
+        if id == "astronaut-navy":
+            mask = clear_navy_visor(mask)
         cleaner = (lambda texture: geometry.replace_baked_green(texture, colors[id])) if id in colors else None
         geometry.prepare(id, work / id, mask, fit, hidden=hidden, render=args.preview, clean_color=cleaner)
 

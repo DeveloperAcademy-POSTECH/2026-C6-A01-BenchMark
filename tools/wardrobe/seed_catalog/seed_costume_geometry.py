@@ -137,6 +137,57 @@ def read_stage(source):
     return subprocess.run(["/usr/bin/usdcat", str(source)], check=True,
                           capture_output=True, text=True, timeout=30).stdout
 
+def clipped_surface(points, faces, uv, plane_distance):
+    """Keep the half-space above zero, splitting boundary faces and interpolating UVs."""
+    distances = plane_distance(points)
+    face_distances = distances[faces]
+    intact = np.all(face_distances >= 0, axis=1)
+    clipped = np.any(face_distances >= 0, axis=1) & ~intact
+    added_points, added_faces, added_uv = [], [], []
+    edges = {}
+    for face, corners in zip(faces[clipped], uv[clipped]):
+        polygon = []
+        for i in range(3):
+            j = (i + 1) % 3
+            a, b = int(face[i]), int(face[j])
+            da, db = distances[a], distances[b]
+            if da >= 0:
+                polygon.append((a, corners[i]))
+            if (da > 0 and db < 0) or (da < 0 and db > 0):
+                t = da / (da - db)
+                key = (min(a, b), max(a, b))
+                if key not in edges:
+                    edges[key] = len(points) + len(added_points)
+                    added_points.append(points[a] + (points[b] - points[a]) * t)
+                polygon.append((edges[key], corners[i] + (corners[j] - corners[i]) * t))
+        for j in range(1, len(polygon) - 1):
+            ids, values = zip(polygon[0], polygon[j], polygon[j + 1])
+            added_faces.append(ids)
+            added_uv.append(values)
+    if not added_faces:
+        return points, faces[intact], uv[intact]
+    return (np.vstack((points, added_points)), np.vstack((faces[intact], added_faces)),
+            np.concatenate((uv[intact], np.asarray(added_uv)), axis=0))
+
+
+def skin_part(name, package_name, material_name, points, faces, uv, output, *, prim):
+    master = assets / "Characters" / "SeedCucumberMaster.usdz"
+    stage = read_stage(master)
+    original = re.search(r'(?ms)^        def Material "' + re.escape(name) + r'"\n.*?^        }', stage)
+    if original is None:
+        raise ValueError("Missing master skin material " + name)
+    material = original[0].replace(f"/Cucumber/Materials/{name}", f"/{prim}/Materials/{material_name}")
+    material = material.replace(f'def Material "{name}"', f'def Material "{material_name}"')
+    texture = f"textures/{material_name}.png"
+    material = re.sub(r'@[^@]+@', f'@{texture}@', material)
+    with zipfile.ZipFile(master) as source:
+        (output / "textures").mkdir(exist_ok=True)
+        (output / texture).write_bytes(source.read(f"Textures/{name}.png"))
+    mesh = as_mesh(package_name, points, faces, uv).replace(
+        "/SeedCostume/Materials/mat0", f"/{prim}/Materials/{material_name}")
+    return mesh, material
+
+
 def configure(resources, scratch):
     global assets, root, seed_data, body
     assets = resources.resolve()
@@ -293,6 +344,37 @@ def render_seed(id, converted, texture, hidden, output):
             packages.append(([part],image))
     raster(None, packages, id+'-overlay')
 
+# Use mesh shading and the authored color blocks for the soft toy fabrics.
+MATTE_FINISH = {
+    "postech-selfie": .80,
+    "school-uniform": .82,
+    "sportswear": .79,
+    "astronaut-navy": .72,
+    "baseball": .79,
+    "bee": .78,
+    "cat": .85,
+    "cat-bear": .85,
+    "raincoat": .73,
+    "scientist": .82,
+}
+
+
+def matte_surface(scope, roughness):
+    strength = {"metallic": 0, "roughness": roughness, "normal": None}
+    used_maps = set()
+    for name, value in strength.items():
+        pattern = rf"(?m)^([ ]*)\w+ inputs:{name}\.connect = <[^>]+/([^/]+)\.outputs:[^>]+>\n"
+        for item in re.finditer(pattern, scope):
+            used_maps.add(item[2])
+        scope = re.sub(pattern, lambda item: "" if value is None else
+                       f"{item[1]}float inputs:{name} = {value}\n", scope)
+    for shader in used_maps:
+        if f"/{shader}.outputs:" not in scope:
+            scope = re.sub(rf'(?ms)^            def Shader "{re.escape(shader)}"\n'
+                           r'            \{.*?^            \}\n', "", scope)
+    return scope
+
+
 def prepare(id, output, mask: Callable, fit: Callable, hidden=(), render=True, clean_color=None):
     text, texture = load(id)
     parts=[]
@@ -313,6 +395,8 @@ def prepare(id, output, mask: Callable, fit: Callable, hidden=(), render=True, c
     scope=re.search(r'(?ms)^    def Scope "_materials"\n    \{.*?^    \}',text)[0]
     scope=scope.replace('def Scope "_materials"','def Scope "Materials"')
     scope=re.sub(r'</(?:OiCostume|OiCloset)/_materials/',r'</SeedCostume/Materials/',scope)
+    if id in MATTE_FINISH:
+        scope = matte_surface(scope, MATTE_FINISH[id])
     stage += scope+'\n}\n'
     basename=f'seed-costume-{id}'
     (output/f'{basename}.usda').write_text(stage)

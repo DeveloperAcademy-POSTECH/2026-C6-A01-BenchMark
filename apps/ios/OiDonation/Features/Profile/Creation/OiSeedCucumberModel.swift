@@ -76,13 +76,13 @@ enum OiSeedCucumberGarment: Hashable, CaseIterable {
 
     var coveredSeedParts: Set<String> {
         switch self {
-        case .costume(.dinosaur): ["LeftArm", "RightArm", "LeftLeg", "RightLeg"]
-        case .costume(.bee): ["LeftArm", "RightArm"]
-        case .costume(.catBear): ["RightArm"]
-        case .costume(.scientist): ["LeftArm", "LeftLeg", "RightLeg"]
-        case .costume(.postechSelfie): ["LeftArm", "RightArm", "LeftLeg", "RightLeg"]
+        case .costume(.cat), .costume(.catBear), .costume(.scientist): ["Body", "LeftArm", "RightArm", "LeftLeg", "RightLeg"]
+        case .costume(.bee): ["Body", "LeftArm", "RightArm"]
+        case .costume(.raincoat): ["Body", "LeftLeg", "RightLeg"]
+        case .costume(.dinosaur), .costume(.baseball), .costume(.postechSelfie):
+            ["LeftArm", "RightArm", "LeftLeg", "RightLeg"]
         case .costume(.astronaut), .costume(.astronautNavy), .costume(.schoolUniform),
-             .costume(.schoolUniformTrousers), .costume(.scientistGoggles):
+             .costume(.schoolUniformTrousers), .costume(.scientistGoggles), .sneakers:
             ["LeftLeg", "RightLeg"]
         default: []
         }
@@ -197,7 +197,9 @@ enum OiSeedCucumberGarment: Hashable, CaseIterable {
         let covered: Set<String> = garments.reduce(into: []) { parts, garment in
             parts.formUnion(garment.coveredSeedParts)
         }
-        for part in ["LeftArm", "RightArm", "LeftLeg", "RightLeg"] {
+        // Some garments include the original visible part with its covered section removed.
+        // Hide the untrimmed part only while that garment is mounted.
+        for part in ["Body", "LeftArm", "RightArm", "LeftLeg", "RightLeg"] {
             master.findEntity(named: part)?.isEnabled = !covered.contains(part)
         }
     }
