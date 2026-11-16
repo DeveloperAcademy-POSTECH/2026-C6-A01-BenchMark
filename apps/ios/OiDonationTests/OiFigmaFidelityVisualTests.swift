@@ -1656,10 +1656,10 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         for variant in variants {
             let cucumber = CreationCapturePage(step: 3) {
-                OiCucumberCustomizationStep(customization: .constant(Self.customization), canContinue: true, onContinue: {})
+                OiCucumberCustomizationStep(customization: .constant(Self.customization), cucumberName: .constant("힌트펩오이"), canContinue: true, onContinue: {})
                     .environment(\.scenePhase, .active)
             }
-            try await capture(cucumber, name: "cucumber-customization", variant: variant, defaults: fixture.defaults, delay: .seconds(2))
+            try await capture(cucumber, name: "cucumber-customization", variant: variant, defaults: fixture.defaults, delay: .seconds(2), attach: true)
             let card = CreationCapturePage(step: 4) {
                 OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
                     canContinue: true, onContinue: {})

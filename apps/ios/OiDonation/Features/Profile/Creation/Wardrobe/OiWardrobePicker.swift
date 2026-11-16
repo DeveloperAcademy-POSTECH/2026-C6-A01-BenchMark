@@ -1,12 +1,16 @@
 import SwiftUI
 
 private enum OiWardrobeTab: String, CaseIterable {
-    case pose = "포즈", top = "상의", bottom = "하의", shoes = "신발", hat = "모자", set = "세트", accessory = "악세서리", special = "스페셜"
-    var isAvailable: Bool { [.top, .bottom, .shoes, .set].contains(self) }
+    // Figma `5719:9790`: 내용 comes first (#377).
+    case content = "내용", pose = "포즈", top = "상의", bottom = "하의", shoes = "신발", hat = "모자", set = "세트", accessory = "악세서리", special = "스페셜"
+    var isAvailable: Bool { [.content, .top, .bottom, .shoes, .set].contains(self) }
+    var isClothing: Bool { [.top, .bottom, .shoes, .set].contains(self) }
 }
 
 struct OiCucumberCustomizationStep: View {
     @Binding var customization: OiDraftCustomization
+    /// The draft's cucumber name, edited in the 내용 tab. Nil hides the tab's name field.
+    var cucumberName: Binding<String>?
     var canContinue = true
     var isFinished = false
     var onContinue: (() -> Void)?
@@ -14,7 +18,7 @@ struct OiCucumberCustomizationStep: View {
     @Environment(\.oiCustomizationBottomInset) private var bottomInset
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var photoScene = OiWardrobeScene()
-    @State private var tab: OiWardrobeTab = .top
+    @State private var tab: OiWardrobeTab = .content
     @State private var wardrobeScrollPosition = ScrollPosition()
     @State private var photoSlot: OiPhotoSlot?
     private var look: OiWardrobeLook { customization.wardrobe ?? OiWardrobeLook() }
@@ -66,7 +70,6 @@ struct OiCucumberCustomizationStep: View {
         }
         .onAppear {
             if customization.wardrobe == nil { customization.wardrobe = OiWardrobeLook() }
-            if look.costume != nil { tab = .set }
         }
     }
 
@@ -113,19 +116,25 @@ struct OiCucumberCustomizationStep: View {
     }
 
     @ViewBuilder private var wardrobeControls: some View {
+        if tab == .content {
+            if let cucumberName { OiCucumberNameField(name: cucumberName) }
+        } else {
+            clothingControls
+        }
+    }
+
+    @ViewBuilder private var clothingControls: some View {
         items.id(tab).padding(12).frame(maxWidth: .infinity, alignment: .leading)
             .background(Color("OiSoft"), in: RoundedRectangle(cornerRadius: 14))
-        if look.costume != nil && tab.isAvailable && tab != .set {
+        if look.costume != nil && tab.isClothing && tab != .set {
             Text("한 벌 의상을 입고 있어요. 아이템을 고르면 개별 코디로 돌아가요.")
                 .font(.caption).foregroundStyle(.secondary)
         }
-        if tab.isAvailable && tab != .set && look.costume == nil {
+        if tab.isClothing && tab != .set && look.costume == nil {
             if tab == .top && look.top == .postech {
                 Text("포스텍 과잠은 원래 색상과 로고를 유지해요.").font(.footnote).foregroundStyle(Color("OiDark"))
             } else { colorPicker }
         }
-        Text("드래그로 돌려보세요. 옷에 맞는 오이가 함께 선택돼요.")
-            .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
         Text("꾸민 모습은 내 지도에 바로 배치할 수 있어요. 공개 검토를 요청하면 이 모습도 함께 검토해요.")
             .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
         if let slot = selectedPhotoSlot { photoControls(slot) }
@@ -168,7 +177,7 @@ struct OiCucumberCustomizationStep: View {
         } else {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 10) {
             switch tab {
-            case .pose, .hat, .accessory, .special:
+            case .content, .pose, .hat, .accessory, .special:
                 EmptyView()
             case .top:
                 ForEach(OiWardrobeLook.Top.allCases, id: \.self) { top in
@@ -305,11 +314,92 @@ struct OiCucumberCustomizationStep: View {
             case .top: value.topColor = rgb
             case .bottom: value.bottomColor = rgb
             case .shoes: value.shoeColor = rgb
-            case .set, .pose, .hat, .accessory, .special: break
+            case .content, .set, .pose, .hat, .accessory, .special: break
             }
         }
     }
     private func change(_ action: (inout OiWardrobeLook) -> Void) {
         var value = look; action(&value); customization.wardrobe = value
+    }
+}
+
+/// Figma `5719:10124` 오이 이름: five letter boxes before a fixed "오이", edited after tapping 수정 (#377).
+struct OiCucumberNameField: View {
+    @Binding var name: String
+    @State private var editing = false
+    @State private var input = ""
+    @FocusState private var focused: Bool
+    static let letterLimit = 5
+
+    private var baseName: String { name.hasSuffix("오이") ? String(name.dropLast(2)) : name }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .lastTextBaseline, spacing: 10) {
+                Text("오이 이름").font(CampusStyle.medium(16)).foregroundStyle(.black)
+                Text("‘오이’를 제외한 다섯글자 이내 오이이름을 작성해주세요")
+                    .font(.custom("Paperlogy-3Light", size: 10, relativeTo: .caption2))
+                    .foregroundStyle(Color(white: 171 / 255))
+                    .lineLimit(1).minimumScaleFactor(0.8)
+            }
+            HStack {
+                if editing {
+                    TextField("다섯 글자 이내", text: $input)
+                        .font(CampusStyle.body(16)).tracking(0.32)
+                        .focused($focused)
+                        .submitLabel(.done)
+                        .onSubmit(commit)
+                        .accessibilityIdentifier("oi.draft.cucumberName.step3")
+                    Text("오이").font(CampusStyle.body(16)).tracking(0.32)
+                } else {
+                    letterBoxes
+                }
+                Spacer(minLength: 8)
+                Button(editing ? "완료" : "수정") { editing ? commit() : beginEditing() }
+                    .font(CampusStyle.body(10)).tracking(0.2).underline()
+                    .foregroundStyle(Color("OiGreen"))
+                    .frame(minWidth: 44, minHeight: 44)
+                    .accessibilityIdentifier("oi.cucumberName.edit")
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 4)
+            .frame(minHeight: 70)
+            .background(Color(white: 247 / 255), in: RoundedRectangle(cornerRadius: 30))
+            if editing && input.count > Self.letterLimit {
+                Text("다섯 글자까지 입력할 수 있어요.").font(.caption).foregroundStyle(.red)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onChange(of: focused) { _, isFocused in if !isFocused && editing { commit() } }
+    }
+
+    private var letterBoxes: some View {
+        let letters = Array(baseName)
+        return HStack(spacing: 5) {
+            ForEach(0..<Self.letterLimit, id: \.self) { index in
+                Text(index < letters.count ? String(letters[index]) : "-")
+                    .font(CampusStyle.body(16)).tracking(0.32)
+                    .frame(width: 31, height: 36)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 10))
+            }
+            Text("오이").font(CampusStyle.body(16)).tracking(0.32).padding(.leading, 5)
+        }
+        .foregroundStyle(.black)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(baseName.isEmpty ? "오이 이름 없음" : "오이 이름 \(name)")
+    }
+
+    private func beginEditing() {
+        input = baseName
+        editing = true
+        focused = true
+    }
+
+    private func commit() {
+        let trimmed = String(input.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.letterLimit))
+        // An older name that already fits is kept as is when nothing changed.
+        if trimmed != baseName { name = trimmed.isEmpty ? "" : trimmed + "오이" }
+        editing = false
+        focused = false
     }
 }

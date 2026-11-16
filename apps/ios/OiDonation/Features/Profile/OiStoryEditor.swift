@@ -862,7 +862,7 @@ struct OiStoryEditor: View {
                     onPhotos: openPhotoEditor, onLocation: { navigate(to: .location) })
             }
         case .cucumber:
-            OiCucumberCustomizationStep(customization: $customization,
+            OiCucumberCustomizationStep(customization: $customization, cucumberName: $draft.cucumberName,
                 canContinue: true, isFinished: customizationReady, onContinue: toggleCustomizationReady,
                 onPhotoEditingChanged: { wardrobePhotoEditing = $0 })
         case .card:
