@@ -5,6 +5,7 @@
 //  Created by 이돈혁 on 10/28/26.
 //
 
+import CryptoKit
 import Foundation
 
 struct OiLocalDraft: Codable, Identifiable, Equatable {
@@ -22,7 +23,42 @@ struct OiLocalDraft: Codable, Identifiable, Equatable {
     var personalPlacement: OiPersonalPlacement?
     /// Preferred photo order by `OiEditingPhoto.orderKey`; nil keeps the attachment order.
     var photoOrder: [String]?
+    var reviewedContentFingerprint: String?
     var id: UUID { draft.id }
+
+    var draftWithSavedLocation: OiStoryDraft {
+        guard !OiCreationStep.location.canContinue(draft: draft), let placement = personalPlacement else { return draft }
+        var recovered = draft
+        recovered.regionId = placement.regionID
+        recovered.latitude = placement.latitude
+        recovered.longitude = placement.longitude
+        recovered.heightMeters = placement.heightMeters
+        recovered.headingDegrees = placement.headingDegrees
+        return OiCreationStep.location.canContinue(draft: recovered) ? recovered : draft
+    }
+
+    var contentFingerprint: String? {
+        struct Content: Encodable {
+            let draft: OiStoryDraft
+            let photos: [UUID]
+            let customization: OiDraftCustomization?
+            let removedMediaPaths: [String]
+            let removedPhotoIDs: [String]
+            let photoOrder: [String]?
+        }
+        let content = Content(draft: draft, photos: photos, customization: customization,
+            removedMediaPaths: (removedMediaPaths ?? []).sorted(),
+            removedPhotoIDs: (removedPhotoIDs ?? []).map(\.uuidString).sorted(), photoOrder: photoOrder)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        guard let data = try? encoder.encode(content) else { return nil }
+        return SHA256.hash(data: data).description
+    }
+
+    var matchesReviewedContent: Bool {
+        guard let reviewedContentFingerprint else { return false }
+        return reviewedContentFingerprint == contentFingerprint
+    }
 }
 
 /// The last confirmed position on this account's device map, separate from edits and public review.

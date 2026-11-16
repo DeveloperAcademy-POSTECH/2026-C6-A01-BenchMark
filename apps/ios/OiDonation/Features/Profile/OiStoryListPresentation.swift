@@ -1,5 +1,9 @@
 import Foundation
 
+enum OiStoryReviewRequest {
+    static let title = "내용 검토 요청하기"
+}
+
 struct OiStoryListItem: Identifiable, Equatable, Sendable {
     let id: UUID
     let cucumberName: String
@@ -35,17 +39,45 @@ struct OiStoryListItem: Identifiable, Equatable, Sendable {
         self.dateLabel = dateLabel
     }
 
-    init(story: OiLiveStory, donorDisplayName: String, locationDisplayName: String) {
+    init(story: OiLiveStory, portraitPNG: Data? = nil, donorDisplayName: String, locationDisplayName: String) {
         self.init(
             id: story.id,
             cucumberName: story.cucumberName,
             title: story.title,
             cucumberAsset: story.cucumberAsset,
+            portraitPNG: portraitPNG,
             donorDisplayName: donorDisplayName,
             locationDisplayName: locationDisplayName,
             tags: [story.emotion, story.theme].filter { !$0.isEmpty },
             dateLabel: story.createdDateLabel
         )
+    }
+}
+
+struct OiStoryPlantSelection: Equatable {
+    let items: [OiStoryListItem]
+    var selectedID: UUID
+}
+
+enum OiStoryListReviewState: Equatable {
+    case unreviewed, reviewing, approved, rejected
+
+    var title: String {
+        switch self {
+        case .unreviewed: "검토 전"
+        case .reviewing: "검토중"
+        case .approved: "게시 가능"
+        case .rejected: "수정 필요"
+        }
+    }
+
+    var background: UInt32 {
+        switch self {
+        case .unreviewed: 0xf3f3f3
+        case .reviewing: 0xfdf0df
+        case .approved: 0xeaeee2
+        case .rejected: 0xffe7e7
+        }
     }
 }
 
@@ -60,13 +92,13 @@ enum OiStoryListState: Equatable, Sendable {
         return []
     }
 
-    /// The story list keeps at most this many saved drafts, so it fits on one screen (#368).
+    /// New stories are limited to four slots. Previously submitted stories remain visible until reviewed.
     static let draftCapacity = 4
 
     var isFull: Bool { items.count >= Self.draftCapacity }
 
     func slots(minimumVisibleCount: Int = Self.draftCapacity) -> [OiStoryListSlot] {
-        let visibleCount = min(max(max(0, minimumVisibleCount), items.count), Self.draftCapacity)
+        let visibleCount = max(min(max(0, minimumVisibleCount), Self.draftCapacity), items.count)
         return (0..<visibleCount).map { index in
             OiStoryListSlot(index: index, item: items.indices.contains(index) ? items[index] : nil)
         }

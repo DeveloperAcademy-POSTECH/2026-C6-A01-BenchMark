@@ -21,11 +21,10 @@ struct HomeView: View {
     @State private var searchResults: Set<String>?
     @State private var isOnScreen = false
     @State private var showingSearchChoice = false
-    @State private var pendingSearchMode: CampusSearchMode?
     @State private var isSearchCoverActive = false
     @State private var searchMode: CampusSearchMode?
     @State private var pendingStoryID: String?
-    @State private var showingRequests = false
+    @State private var showingNotifications = false
     @State private var listIsAtTop = true
     /// Live vertical drag of the region list: negative grows it, positive pulls it down (#395).
     @State private var listDrag: CGFloat = 0
@@ -57,6 +56,10 @@ struct HomeView: View {
     private var isLoadingStories: Bool {
         guard let remote else { return false }
         return remote.isRefreshing && !remote.hasLoadedRemote
+    }
+
+    private var canOpenNotifications: Bool {
+        remote?.account != nil && remote?.needsReauthentication == false
     }
 
     var body: some View {
@@ -123,13 +126,13 @@ struct HomeView: View {
         .navigationDestination(for: MYDestination.self) { destination in
             switch destination {
             case .workshop:
-                MYWorkshopView(demo: myDemo, remote: remote)
+                MYWorkshopView(demo: myDemo, remote: remote, storyRepository: container.storyRepository)
             case .cucumberCustomization:
                 OiSeedCucumberCustomizationView()
                     .toolbar(.visible, for: .navigationBar)
             case .farm: MYFarmView(remote: remote).id(remote?.account?.id)
-            case .collection: MYCollectionView(demo: myDemo, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
-            case .school(let school): MYCollectionView(demo: myDemo, school: school, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
+            case .collectedWorkshop: MYWorkshopView(demo: myDemo, remote: remote, initialTab: .collected,
+                                                   storyRepository: container.storyRepository)
             }
         }
         .sheet(isPresented: $showingEducationDistrict, onDismiss: { scene.finishEducationDistrict() }) {
@@ -152,16 +155,19 @@ struct HomeView: View {
                 scene.showOverview()
             }
         }
-        .sheet(isPresented: $showingSearchChoice, onDismiss: {
-            if let pendingSearchMode {
-                isSearchCoverActive = true
-                scene.suspendRendering()
-                searchMode = pendingSearchMode
-                self.pendingSearchMode = nil
+        .accessibilityHidden(showingSearchChoice)
+        .overlay {
+            if showingSearchChoice {
+                CampusSearchChoiceSheet(choose: { mode in
+                    showingSearchChoice = false
+                    isSearchCoverActive = true
+                    scene.suspendRendering()
+                    searchMode = mode
+                }, dismiss: { showingSearchChoice = false })
+                .transition(.opacity)
             }
-        }) {
-            CampusSearchChoiceSheet { pendingSearchMode = $0; showingSearchChoice = false }
         }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: showingSearchChoice)
         .fullScreenCover(item: $searchMode, onDismiss: {
             // Push only after the search cover has gone, so it cannot cover the destination.
             isSearchCoverActive = false
@@ -172,8 +178,13 @@ struct HomeView: View {
                 pendingStoryID = $0.id; searchMode = nil
             }
         }
-        .sheet(isPresented: $showingRequests) {
-            if let remote { CampusCardRequestSheet(remote: remote).id(remote.account?.id) }
+        .sheet(isPresented: $showingNotifications) {
+            if canOpenNotifications, let remote {
+                CampusNotificationSheet(remote: remote).id(remote.account?.id)
+            }
+        }
+        .onChange(of: canOpenNotifications) { _, canOpen in
+            if !canOpen { showingNotifications = false }
         }
         .task {
             configureSceneCallbacks()
@@ -352,8 +363,8 @@ struct HomeView: View {
             }.disabled(store.isExample)
             Spacer()
             VStack(spacing: 10) {
-                if remote != nil {
-                    mapAction("envelope", label: "카드 요청", id: "campus.requests") { showingRequests = true }
+                if canOpenNotifications {
+                    mapAction("envelope", label: "알림", id: "campus.notifications") { showingNotifications = true }
                 }
                 mapAction("magnifyingglass", label: "오이 검색", id: "campus.search",
                     background: "CampusMapSearchBackground") { showingSearchChoice = true }
@@ -498,8 +509,13 @@ struct HomeView: View {
                                 .font(CampusStyle.body(14)).foregroundStyle(.secondary).padding()
                         }
                         ForEach(items) { story in
-                            Button { openStory(story.id) } label: { CampusStoryRow(story: story) }
-                                .buttonStyle(.plain).accessibilityIdentifier("campus.row.\(story.id)")
+                            // Same card as the story list (Figma `5441:17267`, #399).
+                            Button { openStory(story.id) } label: {
+                                OiCucumberCard(name: story.title, tags: story.tags, donor: story.donor,
+                                               title: story.storyTitle) { CampusCucumberPortrait(story: story) }
+                            }
+                            .buttonStyle(.plain).accessibilityIdentifier("campus.row.\(story.id)")
+                            .accessibilityElement(children: .combine)
                         }
                     }.padding(.bottom, 12)
                 }.scrollIndicators(.hidden)

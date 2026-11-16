@@ -37,6 +37,7 @@ struct OiCardRequestInboxView: View {
     let onReload: () async -> Void
     let onDecision: (UUID, OiCardRequestDecision) async -> Void
     var onRetryDecision: (() async -> Void)? = nil
+    var showsHeader = true
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -91,7 +92,7 @@ struct OiCardRequestInboxView: View {
     private func inboxScrollView(minimumHeight: CGFloat) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                header
+                if showsHeader { header }
                 if let actionError {
                     Label(actionError, systemImage: "exclamationmark.circle")
                         .font(.footnote)
@@ -118,7 +119,7 @@ struct OiCardRequestInboxView: View {
                         emptyState
                             // Keep the message centered in the space below the header,
                             // including the home-indicator area, as in the 402 × 803 sheet.
-                            .frame(minHeight: max(0, minimumHeight - 20 - headerHeight - 20))
+                            .frame(minHeight: max(0, minimumHeight - 20 - (showsHeader ? headerHeight + 20 : 0)))
                     }
                 } else {
                     LazyVStack(spacing: 26) {
@@ -137,8 +138,12 @@ struct OiCardRequestInboxView: View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
             VStack(spacing: emptyParagraphSpacing) {
-                Text("아직 받은 요청이 없습니다")
-                Text("동문들과 친구들의 오이를 살펴보고\n카드를 요청해보세요!")
+                if showsHeader {
+                    Text("아직 받은 요청이 없습니다")
+                    Text("동문들과 친구들의 오이를 살펴보고\n카드를 요청해보세요!")
+                } else {
+                    Text("이 카드 요청은 더 이상 대기 중이 아니에요.")
+                }
             }
             .font(CampusStyle.medium(21))
             .tracking(0.42)

@@ -15,6 +15,8 @@ struct CampusStory: Identifiable, Hashable {
     let popularity: Int
     let palette: Int
     var authorID: UUID? = nil
+    /// The story's own title, shown under the cucumber name on list cards (Figma `5441:17267`).
+    var storyTitle: String = ""
     var remoteBody: String? = nil
     var remoteMediaPaths: [String] = []
     var cucumberPortraitPath: String? = nil
@@ -57,6 +59,8 @@ final class CampusStoryStore {
     private(set) var stories: [CampusStory]
     var collectAction: ((CampusStory) -> Void)?
     var createStoryAction: (() -> Void)?
+    /// Opens the story list from the summary and the scratch screen (`이어서 기부하기`, #399).
+    var openStoryListAction: (() -> Void)?
     var showAuthoredPlacementAction: ((UUID) -> Void)?
     var mediaURL: ((String) async throws -> URL)?
     private(set) var collected: Set<String>
@@ -97,4 +101,7 @@ final class CampusStoryStore {
 enum CampusDestination: Hashable {
     case summary(String)
     case story(String)
+    /// The scratch postcard behind `수집하기` (#399).
+    case scratch(String)
+    case storyList
 }

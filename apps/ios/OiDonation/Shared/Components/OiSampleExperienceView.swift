@@ -38,6 +38,8 @@ struct OiSampleExperienceView: View {
                             OiSampleStoryDetailView(story: story, onCollect: { isPlaying = true })
                                 .modifier(OiSampleNoticeModifier())
                         }
+                    case .scratch, .storyList:
+                        EmptyView() // The sample experience keeps its own AR game.
                     }
                 }
         }
