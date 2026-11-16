@@ -787,6 +787,52 @@ final class CampusMapInteractionTests: XCTestCase {
         XCTAssertEqual(restored.scale, model.scale)
     }
 
+    /// #395: tapping the map outside the region list closes it; tapping a cucumber still opens its story.
+    func testEmptyMapTapIsReportedButMarkerTapOpensStory() async throws {
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        let scene = CampusExploreScene()
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controller.view.addSubview(canvas)
+        window.isHidden = false
+        defer {
+            scene.suspendRendering()
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+        }
+        await scene.load()
+        window.layoutIfNeeded()
+        canvas.layoutIfNeeded()
+        let region = try XCTUnwrap(CampusRegion.campus.first { $0.id == "pond" })
+        let data = try XCTUnwrap(scene.data)
+        let place = try XCTUnwrap(data.pois.first { $0.id == region.placeID })
+        let coordinate = data.coordinate(data.world(place.p))
+        let story = CampusStory(id: UUID().uuidString, regionID: region.id, title: "공개 오이",
+            image: "OiCats", tags: [], donor: "다른 작성자", location: region.title, date: "",
+            order: 0, popularity: 0, palette: 0, cucumberPortraitPath: nil,
+            latitude: coordinate.latitude, longitude: coordinate.longitude, heightMeters: 1.25)
+        var opened: String?
+        var emptyTaps = 0
+        scene.onStory = { opened = $0 }
+        scene.onEmptyMapTap = { emptyTaps += 1 }
+        scene.setOverviewStories([story])
+        let marker = try XCTUnwrap(canvas.subviews.first { $0.accessibilityIdentifier == "campus.pin." + story.id } as? UIButton)
+        marker.sendActions(for: .touchUpInside)
+        XCTAssertEqual(opened, story.id)
+        XCTAssertEqual(emptyTaps, 0, "Opening a cucumber must not close the list")
+
+        scene.focus(region, stories: [])
+        let tap = TestTap()
+        tap.point = CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY)
+        scene.perform(NSSelectorFromString("selectPlacement:"), with: tap)
+        XCTAssertEqual(emptyTaps, 1, "A tap on the ground must close the list")
+    }
+
     func testOverviewPinchReversalAndTilt() async throws {
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: windowScene)
@@ -1317,6 +1363,15 @@ final class CampusMapInteractionTests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
     }
+}
+
+private final class TestTap: UITapGestureRecognizer {
+    var point: CGPoint = .zero
+    override var state: State {
+        get { .ended }
+        set {}
+    }
+    override func location(in view: UIView?) -> CGPoint { point }
 }
 
 private final class TestPinch: UIPinchGestureRecognizer {

@@ -90,6 +90,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private var sharedMap = false
     var onStory: ((String) -> Void)?
     var onAuthoredPlacement: ((UUID) -> Void)?
+    /// A tap that hits no cucumber, placement or landmark; map drags never count (#395).
+    var onEmptyMapTap: (() -> Void)?
     @ObservationIgnored var loadCucumberPortrait: ((String) async throws -> UIImage)?
     @ObservationIgnored var loadCucumberModel: ((OiCucumberArtworkReference) async throws -> Entity)?
     @ObservationIgnored var loadPublicCucumberModel: ((CampusStory) async throws -> Entity)?
@@ -447,11 +449,12 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         updateCamera()
     }
 
-    func showOverview() {
+    /// `keepingCamera` returns to the overview markers without moving the map (closing a region list, #395).
+    func showOverview(keepingCamera: Bool = false) {
         stopNavigation()
-        region = nil; hasMovedFromOverview = false
+        region = nil; hasMovedFromOverview = keepingCamera
         clearRegionButtons()
-        target = SIMD3(32, 2, 1); radius = 305; yaw = 0; pitch = 1.02
+        if !keepingCamera { target = SIMD3(32, 2, 1); radius = 305; yaw = 0; pitch = 1.02 }
         if !sharedMap, let data {
             let sites = CampusRegion.campus.compactMap { region -> CampusRegionClustering.Site? in
                 guard let place = data.pois.first(where: { $0.id == region.placeID }) else { return nil }
@@ -474,7 +477,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             updateRegionCounts()
         }
         makeStoryPins(overviewStories)
-        radius = settledRadius()
+        // Keep the exact zoom when the list closes; only keep it inside the map's limits.
+        radius = keepingCamera ? min(zoomLimits.upperBound, max(zoomLimits.lowerBound, radius)) : settledRadius()
         updateCamera()
     }
 
@@ -1103,6 +1107,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                 }
                 entity = current.parent
             }
+            onEmptyMapTap?()
         }
     }
 
