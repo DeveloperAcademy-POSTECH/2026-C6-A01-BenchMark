@@ -22,27 +22,19 @@ struct MYSettingsView: View {
     @State private var showingBlockedAuthors = false
     @State private var showingSupport = false
     @State private var showingAcademicEditor = false
+    @State private var featureUsage = OiFeatureUsage.shared
+    @State private var pendingPermissionToEnable: MYPermission?
     @State private var locationPermission = MYLocationPermission()
     @State private var permissionInFlight: MYPermission?
     @State private var permissionTask: Task<Void, Never>?
     @State private var permissionError: String?
     @State private var permissionValues: [MYPermission: PermissionStatus] = [:]
     @State private var showingOperator = false
-    @State private var farmNameOwner: UUID?
-    @State private var farmNameInput = ""
-    @State private var farmNameError: String?
-    @FocusState private var farmNameFocused: Bool
-
     @State private var confirmingDeletion = false
     @State private var deletionInProgress = false
     @State private var deletionNotice: String?
     @State private var deletionSucceeded = false
     @State private var deletionAppleAuthentication = OiAppleAuthentication()
-
-    private var currentFarmName: String {
-        remote?.profile?.farmName ?? "오이"
-    }
-    private var cleanedFarmName: String { farmNameInput.precomposedStringWithCanonicalMapping.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     private var schoolName: String {
         guard let id = remote?.profile?.schoolId else { return "학교를 선택해 주세요" }
@@ -52,14 +44,6 @@ struct MYSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 40) {
-                section("콘텐츠 보호") {
-                    Button("차단한 작성자") { showingBlockedAuthors = true }.frame(minHeight: 44)
-                }
-                section("도움말") {
-                    Button("개인정보 및 지원") { showingSupport = true }
-                        .frame(minHeight: 44)
-                        .accessibilityIdentifier("my.settings.support")
-                }
                 section("소셜 로그인") {
                     if let remote {
                         OiSignInView(remote: remote, presentation: .settings)
@@ -81,7 +65,7 @@ struct MYSettingsView: View {
                             }
                         }
                     }
-                    section("권한허용", detail: "최초 요청 · 변경은 iPhone 설정") {
+                    section("권한허용", detail: "권한 허용 후 앱 안에서 켜고 끄기") {
                         if permissionValues.count < MYPermission.allCases.count {
                             ProgressView().accessibilityLabel("기기 권한 확인 중")
                         }
@@ -100,10 +84,16 @@ struct MYSettingsView: View {
                             }.accessibilityIdentifier("my.settings.operator")
                         }
                     }
-                    section("내 농장 이름", detail: "띄어쓰기 포함 6자 이내") {
-                        farmNameRow
-                            .accessibilityIdentifier("my.settings.farm")
-                    }
+                }
+                section("콘텐츠 보호") {
+                    Button("차단한 작성자") { showingBlockedAuthors = true }.frame(minHeight: 44)
+                }
+                section("도움말") {
+                    Button("개인정보 및 지원") { showingSupport = true }
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("my.settings.support")
+                }
+                if remote?.account != nil || demo != nil {
                     VStack(alignment: .leading, spacing: 0) {
                         if let remote {
                             Button(role: .destructive) {
@@ -136,9 +126,15 @@ struct MYSettingsView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             OiSettingsHeader(title: "설정", back: { dismiss() })
         }
-        .task(id: scenePhase) { if scenePhase == .active { await refreshPermissions() } }
+        .task(id: scenePhase) {
+            if scenePhase == .active {
+                await refreshPermissions()
+                completePendingPermission()
+            }
+        }
         .onChange(of: locationPermission.status) { _, status in
             permissionValues[.location] = locationStatus(status)
+            completePendingPermission()
         }
         .onDisappear {
             permissionTask?.cancel()
@@ -155,7 +151,6 @@ struct MYSettingsView: View {
         }
         .onChange(of: remote?.account?.id) { _, _ in
             showingOperator = false
-            resetFarmNameEditor()
             showingAcademicEditor = false
         }
         .confirmationDialog("회원 탈퇴", isPresented: $confirmingDeletion, titleVisibility: .visible) {
@@ -202,67 +197,6 @@ struct MYSettingsView: View {
         }
     }
 
-    @ViewBuilder private var farmNameRow: some View {
-        if let remote, let owner = remote.account?.id, remote.hasLoadedRemote, !remote.needsReauthentication {
-            if farmNameOwner == owner {
-                VStack(alignment: .leading, spacing: 10) {
-                    TextField("농장 이름", text: $farmNameInput)
-                        .font(CampusStyle.semibold(18))
-                        .textInputAutocapitalization(.never)
-                        .submitLabel(.done)
-                        .focused($farmNameFocused)
-                        .onAppear { farmNameFocused = true }
-                        .onSubmit { saveFarmName(remote: remote) }
-                        .accessibilityIdentifier("my.settings.farm.input")
-                    if let farmNameError { Text(farmNameError).font(.footnote).foregroundStyle(.secondary) }
-                    HStack {
-                        Button("취소", role: .cancel, action: resetFarmNameEditor)
-                            .buttonStyle(.bordered)
-                        Button("저장") { saveFarmName(remote: remote) }
-                            .buttonStyle(.borderedProminent)
-                            .tint(CampusStyle.green)
-                            .disabled(cleanedFarmName.isEmpty || cleanedFarmName.unicodeScalars.count > 6)
-                            .accessibilityIdentifier("my.settings.farm.save")
-                    }
-                }
-                .disabled(remote.isBusy)
-                .padding(.horizontal, 20).padding(.vertical, 18)
-                .background(Color(white: 243 / 255), in: RoundedRectangle(cornerRadius: 15))
-            } else {
-                Button {
-                    farmNameInput = currentFarmName
-                    farmNameOwner = owner
-                } label: {
-                    settingsCard(action: "수정") { farmNameLabel }
-                }.accessibilityIdentifier("my.settings.farm.edit")
-            }
-        } else {
-            settingsCard { farmNameLabel }.accessibilityIdentifier("my.settings.farm.edit")
-        }
-    }
-
-    private func saveFarmName(remote: OiRemoteStore) {
-        let value = cleanedFarmName
-        guard let owner = farmNameOwner, remote.account?.id == owner, remote.hasLoadedRemote, !remote.isBusy,
-              !remote.needsReauthentication, !value.isEmpty, value.unicodeScalars.count <= 6 else { return }
-        farmNameError = nil
-        Task {
-            guard remote.account?.id == owner, farmNameOwner == owner, remote.hasLoadedRemote,
-                  !remote.needsReauthentication, !remote.isBusy else { return }
-            await remote.updateFarmName(value)
-            guard remote.account?.id == owner, farmNameOwner == owner else { return }
-            if let error = remote.error { farmNameError = error }
-            else { resetFarmNameEditor() }
-        }
-    }
-
-    private func resetFarmNameEditor() {
-        farmNameFocused = false
-        farmNameOwner = nil
-        farmNameInput = ""
-        farmNameError = nil
-    }
-
     private func section<Content: View>(_ title: String, detail: String? = nil, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 20) {
             ViewThatFits(in: .horizontal) {
@@ -279,25 +213,6 @@ struct MYSettingsView: View {
 
     @ViewBuilder private func sectionDetail(_ value: String?) -> some View {
         if let value { Text(value).font(.custom("Paperlogy-3Light", size: 12, relativeTo: .caption)).tracking(0.24).foregroundStyle(CampusStyle.green) }
-    }
-
-    private func profileValue(_ value: String) -> some View {
-        Text(value).font(CampusStyle.semibold(18)).tracking(0.36)
-            .foregroundStyle(CampusStyle.sectionGreen)
-    }
-
-    private var farmNameLabel: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                profileValue(currentFarmName)
-                Text("밭").font(CampusStyle.body(18))
-                    .foregroundStyle(Color(red: 139 / 255, green: 98 / 255, blue: 53 / 255))
-            }
-            Text(currentFarmName + " 밭").font(CampusStyle.semibold(18))
-                .foregroundStyle(CampusStyle.sectionGreen)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder private var schoolRow: some View {
@@ -353,19 +268,19 @@ struct MYSettingsView: View {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
                         permissionTitle(permission.title)
-                        Text(status?.label ?? "확인 중")
+                        Text(permissionLabel(permission, status: status))
                             .font(CampusStyle.body(12)).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 8)
-                    permissionIndicator(status)
+                    permissionIndicator(status, feature: permission)
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     VStack(alignment: .leading, spacing: 3) {
                         permissionTitle(permission.title)
-                        Text(status?.label ?? "확인 중")
+                        Text(permissionLabel(permission, status: status))
                             .font(CampusStyle.body(12)).foregroundStyle(.secondary)
                     }
-                    permissionIndicator(status)
+                    permissionIndicator(status, feature: permission)
                 }
             }
             .padding(.horizontal, 20)
@@ -373,10 +288,22 @@ struct MYSettingsView: View {
             .contentShape(Rectangle())
         }
         .accessibilityLabel(permission.title)
-        .accessibilityValue(status?.label ?? "")
-        .accessibilityHint(status?.canRequest == true ? "시스템 권한 허용 요청" : "iPhone 설정에서 변경")
+        .accessibilityValue(permissionLabel(permission, status: status))
+        .accessibilityHint(status?.isGranted == true ? "앱 안에서 기능 사용 켜기 또는 끄기" : "iPhone 권한 허용 필요")
         .accessibilityIdentifier("my.settings.permission.\(permission)")
         .disabled(status == nil || permissionInFlight != nil)
+    }
+
+    private func permissionLabel(_ feature: MYPermission, status: PermissionStatus?) -> String {
+        guard let status else { return "확인 중" }
+        guard status.isGranted == true else { return status.label }
+        return featureUsage.isEnabled(feature) ? "앱에서 사용 중" : "앱에서 사용 안 함"
+    }
+
+    private func completePendingPermission() {
+        guard let feature = pendingPermissionToEnable, permissionValues[feature]?.isGranted == true else { return }
+        featureUsage.setEnabled(true, for: feature)
+        pendingPermissionToEnable = nil
     }
 
     private func permissionTitle(_ title: String) -> some View {
@@ -384,11 +311,12 @@ struct MYSettingsView: View {
             .tracking(0.32).foregroundStyle(.black)
     }
 
-    private func permissionIndicator(_ status: PermissionStatus?) -> some View {
+    private func permissionIndicator(_ status: PermissionStatus?, feature: MYPermission) -> some View {
         ZStack {
             if let isGranted = status?.isGranted {
-                Capsule().fill(isGranted ? CampusStyle.green : Color(uiColor: .tertiaryLabel))
-                    .overlay(alignment: isGranted ? .trailing : .leading) {
+                let isOn = isGranted && featureUsage.isEnabled(feature)
+                Capsule().fill(isOn ? CampusStyle.green : Color(uiColor: .tertiaryLabel))
+                    .overlay(alignment: isOn ? .trailing : .leading) {
                         Capsule().fill(.white).frame(width: 38, height: 24).padding(.horizontal, 2)
                     }
             }
@@ -452,6 +380,12 @@ struct MYSettingsView: View {
         defer { permissionInFlight = nil }
         await refreshPermissions()
         guard !Task.isCancelled, let status = permissionValues[permission] else { return }
+        if status.isGranted == true {
+            pendingPermissionToEnable = nil
+            featureUsage.setEnabled(!featureUsage.isEnabled(permission), for: permission)
+            return
+        }
+        pendingPermissionToEnable = permission
         guard status.canRequest else { openAppSettings(); return }
         if permission == .location {
             locationPermission.request()
@@ -467,6 +401,7 @@ struct MYSettingsView: View {
         }
         guard !Task.isCancelled else { return }
         await refreshPermissions()
+        completePendingPermission()
     }
 
     private func openAppSettings() {
@@ -524,18 +459,7 @@ private struct SettingsBackMaterial: ViewModifier {
     }
 }
 
-private enum MYPermission: CaseIterable, Hashable {
-    case notifications, location, camera, photos
-
-    var title: String {
-        switch self {
-        case .notifications: "알림"
-        case .location: "위치 정보"
-        case .camera: "카메라 접근"
-        case .photos: "사진 저장"
-        }
-    }
-}
+private typealias MYPermission = OiAppFeature
 
 #Preview("Settings · Reference", traits: .fixedLayout(width: 402, height: 874)) {
     NavigationStack { MYSettingsView(remote: OiRemoteStore()) }

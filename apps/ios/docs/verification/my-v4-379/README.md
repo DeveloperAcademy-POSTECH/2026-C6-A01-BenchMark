@@ -163,3 +163,36 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 ```
 
 결과: 빌드 성공, **3 tests, 0 failures / TEST SUCCEEDED**. 중복 인증 요청, 취소 시 기존 계정 보존, 취소 이후 도착한 성공 응답 차단을 검증했다. 실제 Google 웹 인증 완료는 실행하지 않았다. 전용 시뮬레이터는 검증 후 삭제했고 빌드 프로세스 종료를 확인했다. 동시 자원 최대 2그룹, 유지한 실행 자원 없음.
+
+## 설정 구성과 앱 내부 사용 토글 — 최종 사용자 결정
+
+`내 농장 이름`과 전용 편집 상태를 제거했다. `콘텐츠 보호`·`도움말`은 로그아웃·회원 탈퇴 바로 위로 이동했고, 로그인 전에도 도움말은 유지했다.
+
+권한이 이미 허용된 경우 토글은 **기기별 앱 내부 사용 설정**을 즉시 변경한다. iPhone 설정을 열지 않는다. 시스템 권한이 미허용인 경우에만 최초 시스템 요청/설정 이동을 수행한다. 이전 절의 “허용 후에는 설정에서 변경” 설명은 이 결정으로 대체한다.
+
+- 사용 선택을 UserDefaults에 저장하고 앱 재시작 후 복원한다. OS 권한과 로컬 사용 설정이 모두 허용될 때만 ON으로 표시한다.
+- 위치 OFF: 지도 현재 위치, 포항시 경계 확인, AR 위치 추적을 차단하고 진행 중인 작업과 늦은 결과도 중단한다.
+- 카메라 OFF: AR 세션·녹화/타이머·학교 자료 촬영을 중단하고 새 촬영 진입을 차단한다.
+- 사진 저장 OFF: 저장 서비스에서 권한 요청 전후 사용 설정을 검사하므로 사진/영상/카드 저장이 차단된다. 시스템 사진 선택기의 선택 접근은 사진 저장과 별개다.
+- 알림 OFF: 예약·표시 알림 정리 및 원격 알림 등록 해제, 재실행 시 적용. 현재 앱에는 알림 예약/푸시 등록·발송 경로가 없으므로 새 발송 기능은 추가하지 않았다.
+
+기능 OFF 상태에서 실제 위치·AR·사진 저장 서비스를 호출해 시스템 요청 전에 차단되는지 검사했고, 저장/재생성/ON 복원과 다른 기능의 독립성도 검사했다. 전용 시뮬레이터 `88A5A3CA-ACB1-470A-BC6E-D91E79E71235`를 사용했다.
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+  -project apps/ios/OiDonation.xcodeproj -scheme OiFlowChecks -configuration Debug \
+  -destination 'platform=iOS Simulator,id=88A5A3CA-ACB1-470A-BC6E-D91E79E71235' \
+  -derivedDataPath /private/tmp/benchmark-my-v4-379-evidence/build \
+  -resultBundlePath /private/tmp/benchmark-my-v4-379-evidence/feature-usage-final.xcresult \
+  CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO \
+  -only-testing:OiDonationTests/OiRemoteStoreTests/testFeatureUsagePersistsWithoutChangingOtherFeatures \
+  -only-testing:OiDonationTests/OiRemoteStoreTests/testDisabledFeaturesBlockLocationCameraAndPhotoStorage \
+  -only-testing:OiDonationTests/OiFigmaFidelityVisualTests/testMYSettingsCapturesWithOfflineAccounts test
+
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+SWIFT_MODULECACHE_PATH=/private/tmp/benchmark-my-v4-379-evidence/modulecache \
+CLANG_MODULE_CACHE_PATH=/private/tmp/benchmark-my-v4-379-evidence/modulecache \
+sh apps/ios/Tests/run-campus-card-location-checks.sh
+```
+
+결과: 화면 포함 3개 검사 통과. 늦은 위치 결과 차단 보완 후에는 위 명령에서 화면 검사 선택을 제외하고 resultBundlePath를 `feature-usage-reviewed.xcresult`로 바꿔 2개 기능 검사를 재실행하여 통과했다. 포항시 경계·거리 정확도·오래된 위치 검사도 PASS. 실제 iPhone의 권한 팝업·GPS·카메라 녹화·사진 저장 및 알림 수신은 별도 실기기 확인이 남아 있다.
