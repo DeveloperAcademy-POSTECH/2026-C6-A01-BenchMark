@@ -91,6 +91,7 @@ struct OiServiceAPI {
             case 404 where path == "rest/v1/rpc/oi_operator_audit": throw OiAuditError.notDeployed
             case 404 where OiNFCTagError.rpcPaths.contains(path): throw OiNFCTagError.notDeployed
             case 409: throw OiServiceError.conflict
+            case 426: throw OiServiceError.server("앱을 업데이트한 뒤 다시 시도해 주세요.")
             case 400, 422: throw OiServiceError.invalidInput
             case 429: throw OiServiceError.server("요청이 많습니다. 잠시 후 다시 시도해 주세요.")
             default: throw OiServiceError.unavailable
@@ -228,6 +229,23 @@ struct OiServiceAPI {
         let body = try JSONSerialization.data(withJSONObject: ["p_action": action, "p_payload": payload])
         let data = try await request("rest/v1/rpc/oi_mutate", method: "POST", token: token, body: body)
         return try decoder.decode(Value.self, from: data)
+    }
+
+    func moderateStory(_ payload: [String: Any], token: String) async throws -> OiStoryModerationResult {
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let data = try await request("functions/v1/moderate-story", method: "POST", token: token, body: body, timeout: 65)
+        return try decoder.decode(OiStoryModerationResult.self, from: data)
+    }
+
+    func storyModerationResults(token: String) async throws -> [OiStoryModerationResult] {
+        let data = try await request("rest/v1/rpc/oi_my_story_reviews", method: "POST", token: token, body: Data("{}".utf8))
+        return try decoder.decode([OiStoryModerationResult].self, from: data)
+    }
+
+    func plantStory(_ story: OiLiveStory, token: String) async throws -> OiLiveStory {
+        let body = try JSONSerialization.data(withJSONObject: ["p_story": story.id.uuidString, "p_revision": story.revision])
+        let data = try await request("rest/v1/rpc/oi_plant_story", method: "POST", token: token, body: body)
+        return try decoder.decode(OiLiveStory.self, from: data)
     }
 
     func cardRequests(token: String) async throws -> [OiCardRequest] {

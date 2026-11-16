@@ -176,7 +176,12 @@ struct OiCucumberCustomizationStep: View {
 
     private func tabButton(_ category: OiWardrobeTab) -> some View {
         let selected = tab == category
-        return Button { tab = category } label: {
+        return Button {
+            if tab == .content, category != .content {
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            }
+            tab = category
+        } label: {
             VStack(spacing: 5) {
                 Text(category.rawValue)
                     .font(selected ? .custom("Paperlogy-7Bold", size: 16, relativeTo: .body) : CampusStyle.medium(16))
@@ -523,7 +528,14 @@ struct OiCucumberNameField: View {
                         .accessibilityIdentifier("oi.cucumberName.boxes")
                 }
                 Spacer(minLength: 8)
-                Button(editing ? "완료" : "수정") { editing ? commit() : beginEditing() }
+                Button(editing ? "완료" : "수정") {
+                    if editing {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                        commit()
+                    } else {
+                        beginEditing()
+                    }
+                }
                     .font(CampusStyle.body(10)).tracking(0.2).underline()
                     .foregroundStyle(Color("OiGreen"))
                     .frame(minWidth: 44, minHeight: 44)
