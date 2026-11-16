@@ -218,10 +218,9 @@ struct OiCucumberCustomizationStep: View {
     /// The postech jacket and one-piece sets keep their own colors.
     private var showsColors: Bool { look.costume == nil && !(tab == .top && look.top == .postech) }
 
-    /// Figma `5719:10056`: 76×112 white cards on a #D9D9D9 tray.
+    /// Figma `5719:10056`: up to four 76×112 white cards centered on a #D9D9D9 tray, without scrolling.
     private var itemStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
+        HStack(spacing: 12) {
                 switch tab {
                 case .top:
                     ForEach(OiWardrobeLook.Top.allCases, id: \.self) { top in
@@ -242,11 +241,8 @@ struct OiCucumberCustomizationStep: View {
                 default:
                     EmptyView()
                 }
-            }
-            .padding(.horizontal, 12)
-            .frame(minWidth: 362 - 24, alignment: .center)
         }
-        .frame(height: 131)
+        .frame(maxWidth: .infinity, minHeight: 131)
         .background(Color(white: 217 / 255), in: RoundedRectangle(cornerRadius: 10))
         .id(tab)
     }
