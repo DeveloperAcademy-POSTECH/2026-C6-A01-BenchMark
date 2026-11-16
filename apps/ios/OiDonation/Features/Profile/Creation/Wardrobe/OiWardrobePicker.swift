@@ -112,11 +112,20 @@ struct OiCucumberCustomizationStep: View {
     private func preview(height: CGFloat, fullHeight: CGFloat) -> some View {
         ZStack(alignment: .bottomTrailing) {
             // The 3D surface keeps its full size and is scaled, so it shrinks smoothly without re-rendering at each step.
-            OiWardrobePreview(look: look, controls: photoSlot == nil, scene: photoScene,
+            OiWardrobePreview(look: look, controls: false, scene: photoScene,
                 backgroundColor: .white)
                 .frame(height: fullHeight)
                 .scaleEffect(fullHeight > 0 ? min(1, height / fullHeight) : 1, anchor: .center)
                 .frame(height: height)
+                // Only the cucumber shrinks; the 360° hint keeps its size (#377).
+                .overlay(alignment: .bottomLeading) {
+                    if photoSlot == nil {
+                        OiWardrobeRotationHint()
+                            .padding(.bottom, 8)
+                            .accessibilityAction(named: "오른쪽으로 돌리기") { photoScene.orbit(-157) }
+                            .accessibilityAction(named: "왼쪽으로 돌리기") { photoScene.orbit(157) }
+                    }
+                }
                 .overlay(alignment: .topTrailing) {
                     if photoSlot != nil {
                         Text("실시간 미리보기").font(.caption2).foregroundStyle(Color("OiGreen")).padding(8)
