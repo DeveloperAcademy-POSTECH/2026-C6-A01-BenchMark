@@ -45,7 +45,7 @@ struct OiStoryListScreen: View {
         OiStoryListView(
             state: state,
             seedCount: nil,
-            notices: remote.autoStoryModeration ? OiStoryListView.reviewListNotices : OiStoryListView.listNotices,
+            notices: OiStoryListView.listNotices,
             guidance: remote.autoStoryModeration ? nil : OiStoryListView.listGuidance,
             onRetry: { Task { await remote.refresh(); await loadLocalDrafts() } },
             onAddSeed: nil,

@@ -25,6 +25,7 @@ struct OiStoryListView: View {
     var canPlant = false
 
     @State private var listHeight: CGFloat = 0
+    @State private var showsProductionRules = false
 
     var body: some View {
         Group {
@@ -300,22 +301,13 @@ struct OiStoryListView: View {
     }
 
     private var footer: some View {
-        // Figma: 12pt from the notices to the buttons, 13pt above the home indicator.
-        VStack(alignment: .leading, spacing: 12) {
-            // 13pt text on a 19.5pt (150%) line.
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(notices.enumerated()), id: \.offset) { _, notice in
-                    Text("* \(notice)")
-                        .lineLimit(usesAccessibilityLayout ? nil : 1)
-                        .minimumScaleFactor(usesAccessibilityLayout ? 1 : 0.8)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+        VStack(alignment: .leading, spacing: showsPublicationReview ? 2 : 12) {
+            if showsPublicationReview {
+                OiStoryProductionRulesButton(isPresented: $showsProductionRules)
+                    .frame(maxWidth: .infinity)
+            } else {
+                legacyNotices
             }
-            .font(.custom("Paperlogy-4Regular", size: 13, relativeTo: .subheadline))
-            .tracking(0.26)
-            .foregroundStyle(Color(red: 147 / 255, green: 147 / 255, blue: 147 / 255))
-            .lineSpacing(4)
 
             if showsPublicationReview, let onPlant {
                 Button(action: onPlant) {
@@ -347,6 +339,22 @@ struct OiStoryListView: View {
         .padding(.horizontal, 20)
         .padding(.bottom, 13)
         .background(Color(.systemBackground))
+    }
+
+    private var legacyNotices: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(notices.enumerated()), id: \.offset) { _, notice in
+                Text("* \(notice)")
+                    .lineLimit(usesAccessibilityLayout ? nil : 1)
+                    .minimumScaleFactor(usesAccessibilityLayout ? 1 : 0.8)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .font(.custom("Paperlogy-4Regular", size: 13, relativeTo: .subheadline))
+        .tracking(0.26)
+        .foregroundStyle(Color(red: 147 / 255, green: 147 / 255, blue: 147 / 255))
+        .lineSpacing(4)
     }
 
     private var createStoryFooterButton: some View {
@@ -477,6 +485,57 @@ struct OiStoryListView: View {
     }
 }
 
+// Figma 6101:9175 and 6101:9195. SwiftUI provides the system material and arrow.
+struct OiStoryProductionRulesButton: View {
+    @Binding var isPresented: Bool
+    @ScaledMetric(relativeTo: .caption) private var ruleLineHeight: CGFloat = 24
+
+    var body: some View {
+        Button { isPresented = true } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "questionmark.circle")
+                    .font(.system(size: 16))
+                    .accessibilityHidden(true)
+                Text("오이 제작 규정")
+                    .font(.custom("Paperlogy-4Regular", size: 16, relativeTo: .body))
+                    .tracking(0.32)
+                    .underline()
+            }
+            .foregroundStyle(Color(oiRGB: 0x737373))
+            .frame(minHeight: 44)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("storyList.productionRules")
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 0) {
+                rule(Text("이야기 저장은 \(Text("\(OiStoryListState.draftCapacity)개").foregroundStyle(.red))까지 가능합니다"))
+                rule(Text("농장에 심기 전에는 저장된 오이를 눌러서 편집할 수 있습니다"))
+                rule(Text("저장된 오이를 슬라이드하여 삭제할 수 있습니다"))
+                rule(Text("내용 검토가 완료되어야 농장에 오이를 심을 수 있습니다"))
+            }
+            .font(.custom("Paperlogy-4Regular", size: 12, relativeTo: .caption))
+            .tracking(0.24)
+            .foregroundStyle(Color(oiRGB: 0x232323))
+            .padding(.horizontal, 30)
+            .padding(.vertical, 20)
+            .frame(idealWidth: 362, maxWidth: 362, alignment: .leading)
+            .accessibilityIdentifier("storyList.productionRulesContents")
+            .presentationCompactAdaptation(.popover)
+            .presentationCornerRadius(38)
+            .presentationBackground(.regularMaterial)
+        }
+    }
+
+    private func rule(_ text: Text) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 3) {
+            Text("*").accessibilityHidden(true)
+            text.fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(minHeight: ruleLineHeight, alignment: .leading)
+    }
+}
+
 struct OiSeedBalanceLabel: View {
     let count: Int?
 
@@ -535,10 +594,6 @@ struct OiStorySeedIcon: View {
 extension OiStoryListView {
     // Figma `5400:7662` and `5400:7661` (#368).
     static let listGuidance = "본인이 만든 오이를 씨앗을 통해 농장에 심을 수 있습니다"
-    static let reviewListNotices = [
-        "이야기 저장은 4개까지 가능합니다",
-        "농장에 심기 전에는 저장된 오이를 눌러서 편집할 수 있습니다"
-    ]
     static let listNotices = [
         "이야기 저장은 4개까지 가능합니다",
         "농장에 심기 전에는 이야기 및 오이를 눌러서 편집할 수 있습니다"

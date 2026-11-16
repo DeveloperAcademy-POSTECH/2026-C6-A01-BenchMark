@@ -2917,6 +2917,44 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertNil(store.moderationResult(for: approved))
     }
 
+    @MainActor func testStoryProductionRulesUsesAnchoredPopoverOnIPhone() async throws {
+        struct PopoverSample: View {
+            @State private var showingRules = false
+
+            var body: some View {
+                VStack {
+                    Spacer()
+                    OiStoryProductionRulesButton(isPresented: $showingRules)
+                    Text("농장에 오이 심기")
+                        .font(.custom("Paperlogy-6SemiBold", size: 18))
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                }
+                .padding(.horizontal, 20)
+                .task {
+                    try? await Task.sleep(for: .milliseconds(200))
+                    showingRules = true
+                }
+            }
+        }
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let controller = UIHostingController(rootView: PopoverSample())
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+        try await Task.sleep(for: .seconds(1))
+        let popup = try XCTUnwrap(controller.presentedViewController)
+        XCTAssertNotNil(popup.popoverPresentationController, "The rules remain a popover in a compact size class")
+        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "story-production-rules-popover"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     @MainActor func testPublicationUsesLatestSavedContentAndRevision() async throws {
         let (store,backend,_,session,directory) = try context()
         defer { clean(session, directory: directory) }
