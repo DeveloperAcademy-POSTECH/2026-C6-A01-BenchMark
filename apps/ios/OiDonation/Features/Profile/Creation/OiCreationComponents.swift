@@ -265,7 +265,7 @@ struct OiCreationNavigationBar: View {
                     .accessibilityIdentifier("oi.creation.next")
             }
             if !missingItems.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 8) {
                     ForEach(missingItems, id: \.self) { Text($0) }
                 }
                 .font(CampusStyle.body(15))
