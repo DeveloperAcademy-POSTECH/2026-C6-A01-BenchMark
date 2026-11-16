@@ -241,26 +241,44 @@ struct OiCustomizationScrollEdge: ViewModifier {
 struct OiCreationNavigationBar: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     var canContinue = true
+    /// STEP 2 (Figma `5400:7726` 하단 버튼): placed at the end of the scrolled content without a panel.
+    var inline = false
+    /// Required items still missing after Next was tapped on the story step, shown under the buttons (#373).
+    var missingItems: [String] = []
     let onPrevious: () -> Void
     let onNext: () -> Void
     let onSaveAndExit: () -> Void
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: inline ? 0 : 8) {
             Button("임시저장 후 나가기", action: onSaveAndExit)
                 .font(CampusStyle.body(14)).underline()
-                .foregroundStyle(.secondary).frame(minHeight: 44)
+                .foregroundStyle(inline ? Color(white: 64 / 255) : .secondary)
+                // Inline: Figma `5919:11738` leaves 12pt from the underline to the buttons; the 44pt hit area overlaps it.
+                .frame(minHeight: 44).contentShape(Rectangle())
+                .padding(.top, inline ? -9 : 0).padding(.bottom, inline ? -3 : 0)
                 .accessibilityIdentifier("oi.creation.saveAndExit")
             HStack(spacing: 12) {
-                navigationButton("이전", tint: Color("OiBorder"), action: onPrevious)
+                navigationButton("이전", tint: inline ? Color(oiRGB: 0xB6C59B) : Color("OiBorder"), action: onPrevious)
                     .accessibilityIdentifier("oi.creation.previous")
                 navigationButton("다음", tint: Color("OiGreen"), action: onNext)
                     .disabled(!canContinue).opacity(canContinue ? 1 : 0.45)
                     .accessibilityIdentifier("oi.creation.next")
             }
+            if !missingItems.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(missingItems, id: \.self) { Text($0) }
+                }
+                .font(CampusStyle.body(15))
+                .foregroundStyle(Color(red: 1, green: 56 / 255, blue: 60 / 255))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 12)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("oi.creation.missingItems")
+            }
         }
-        .padding(.horizontal, 20).padding(.bottom, 10)
+        .padding(.horizontal, inline ? 0 : 20).padding(.bottom, inline ? 0 : 10)
         .background {
-            navigationBackground.ignoresSafeArea(.container, edges: .bottom)
+            if !inline { navigationBackground.ignoresSafeArea(.container, edges: .bottom) }
         }
     }
     @ViewBuilder private var navigationBackground: some View {
@@ -275,10 +293,11 @@ struct OiCreationNavigationBar: View {
     }
     private func navigationButton(_ title: String, tint: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title).font(CampusStyle.medium(16)).frame(maxWidth: .infinity, minHeight: 46)
+            Text(title).font(CampusStyle.medium(16)).tracking(title == "이전" && inline ? 0.32 : 0)
+                .frame(maxWidth: .infinity, minHeight: 46)
                 .background(tint, in: RoundedRectangle(cornerRadius: 20))
         }.buttonStyle(OiCreationPressStyle())
-            .foregroundStyle(title == "이전" ? Color("OiDark") : .white)
+            .foregroundStyle(title == "이전" && !inline ? Color("OiDark") : .white)
     }
 }
 
@@ -338,21 +357,22 @@ struct OiStoryWritingStep: View {
     enum Field: Hashable { case title, body }
 
     @Binding var draft: OiStoryDraft
-    let focusedField: FocusState<Field?>.Binding
+    @Binding var focusedField: Field?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private let fieldBackground = Color(white: 244 / 255)
-    private let textLimit = OiCreationStep.storyTextLimit
     static let themes = ["가족", "우정", "사랑", "성장", "도전", "꿈", "배움", "경쟁", "협력", "갈등", "화해", "일탈", "나눔", "응원", "성취", "기타"]
     static let emotions = ["행복함", "즐거움", "뿌듯함", "고마움", "편안함", "설렘", "따뜻함", "짜릿함", "놀라움", "신남", "벅참", "그리움", "후련함", "부끄러움", "후회", "긴장감", "슬픔", "화남", "아쉬움", "기타"]
     var body: some View {
         VStack(alignment: .leading, spacing: 50) {
             OiCreationSection(title: "테마 선택", hint: "(택 1)") { tags(Self.themes, selected: $draft.theme) }
             OiCreationSection(title: "감정 선택", hint: "(택 1)") { tags(Self.emotions, selected: $draft.emotion) }
-            OiCreationSection(title: "제목 입력", hint: "(띄어쓰기 포함 \(textLimit)자 이내)") {
-                inputBox($draft.title, field: .title, label: "이야기 제목", identifier: "oi.draft.title")
+            OiCreationSection(title: "제목 입력", hint: "(띄어쓰기 포함 \(OiCreationStep.storyTitleByteLimit)byte 이내)") {
+                inputBox($draft.title, field: .title, limit: OiCreationStep.storyTitleByteLimit,
+                         label: "이야기 제목", identifier: "oi.draft.title")
             }
-            OiCreationSection(title: "이야기 입력", hint: "(띄어쓰기 포함 1,500byte 이내)") {
-                inputBox($draft.body, field: .body, label: "이야기 내용", identifier: "oi.draft.body")
+            OiCreationSection(title: "이야기 입력", hint: "(띄어쓰기 포함 \(OiCreationStep.storyBodyByteLimit)byte 이내)") {
+                inputBox($draft.body, field: .body, limit: OiCreationStep.storyBodyByteLimit,
+                         label: "이야기 내용", identifier: "oi.draft.body")
             }
         }
         .font(.custom("Paperlogy-4Regular", size: 16, relativeTo: .body))
@@ -360,57 +380,36 @@ struct OiStoryWritingStep: View {
     }
 
     static func limitedText(_ text: Binding<String>) -> Binding<String> {
-        let textLimit = OiCreationStep.storyTextLimit
-        return Binding(get: { text.wrappedValue }, set: { newValue in
-            let previousCount = text.wrappedValue.count
-            let newCount = newValue.count
-            // Keep longer drafts intact on restore and let the author shorten them.
-            let isShorteningLongDraft = previousCount > textLimit && newCount < previousCount
-            guard newCount <= textLimit || isShorteningLongDraft else { return }
-            text.wrappedValue = newValue
-        })
+        limited(text, byteLimit: OiCreationStep.storyTitleByteLimit)
     }
 
     static func limitedStoryText(_ text: Binding<String>) -> Binding<String> {
+        limited(text, byteLimit: OiCreationStep.storyBodyByteLimit)
+    }
+
+    private static func limited(_ text: Binding<String>, byteLimit: Int) -> Binding<String> {
         Binding(get: { text.wrappedValue }, set: { value in
-            let previousBytes = text.wrappedValue.utf8.count
-            let bytes = value.utf8.count
-            // Restore old stories without truncation; allow shortening an over-limit draft.
-            guard bytes <= OiCreationStep.storyBodyByteLimit ||
-                    (previousBytes > OiCreationStep.storyBodyByteLimit && bytes < previousBytes) else { return }
-            text.wrappedValue = value
+            text.wrappedValue = OiCreationStep.limitedEdit(value, previous: text.wrappedValue, byteLimit: byteLimit)
         })
     }
 
-    private func inputBox(_ text: Binding<String>, field: Field, label: String, identifier: String) -> some View {
-        // Measure the bound text so typing, pasting, and restoring use the same layout.
-        // The invisible character gives a trailing line break room for the caret.
+    private func inputBox(_ text: Binding<String>, field: Field, limit: Int, label: String, identifier: String) -> some View {
         let editorInset = EdgeInsets(top: 8, leading: 5, bottom: 8, trailing: 5)
         return HStack(alignment: .center) {
-            Text(verbatim: text.wrappedValue + "\u{200B}")
-                .fixedSize(horizontal: false, vertical: true)
+            // UIKit applies the byte limit after Korean composition so rejected text never stays on screen.
+            OiStoryTextView(text: text, focusedField: $focusedField, field: field, byteLimit: limit,
+                            label: label, identifier: identifier)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(editorInset)
-                .hidden()
-                .accessibilityHidden(true)
-                .overlay(alignment: .topLeading) {
-                    TextEditor(text: field == .body ? Self.limitedStoryText(text) : Self.limitedText(text))
-                        .scrollContentBackground(.hidden)
-                        .scrollDisabled(true)
-                        .focused(focusedField, equals: field)
-                        .accessibilityLabel(label)
-                        .accessibilityIdentifier(identifier)
-                }
                 .overlay(alignment: .topLeading) {
                     if text.wrappedValue.isEmpty {
                         Text("입력").foregroundStyle(Color(uiColor: .placeholderText))
+                            .font(.custom("Paperlogy-3Light", size: 18, relativeTo: .body))
+                            .tracking(0.36)
                             .padding(editorInset)
                             .allowsHitTesting(false)
                             .accessibilityHidden(true)
                     }
                 }
-                .font(.custom("Paperlogy-3Light", size: 18, relativeTo: .body))
-                .tracking(0.36)
             Image(systemName: "pencil")
                 .font(.system(size: 18, weight: .light))
                 .foregroundStyle(Color(white: 106 / 255))
@@ -473,6 +472,8 @@ struct OiStoryAttachmentSections: View {
     let longitude: Double?
     let onPhotos: () -> Void
     let onLocation: () -> Void
+    /// MapKit is the costliest view on STEP 2; create it just after STEP 2 appears so the switch shows at once.
+    @State private var showsMap = false
 
     private var coordinate: CLLocationCoordinate2D? {
         guard let latitude, let longitude else { return nil }
@@ -481,25 +482,32 @@ struct OiStoryAttachmentSections: View {
     }
 
     var body: some View {
+        // Figma `5400:7726`: the photo comes before the location, whose title is 30pt.
         VStack(alignment: .leading, spacing: 50) {
-            OiCreationSection(title: "이야기 사진", hint: "(1장 이상 3장 이내)") {
-                formButton(photoCount == 0 ? "사진 추가하기" : "선택한 사진 보기 · \(photoCount)장",
+            OiCreationSection(title: "사진 선택", hint: "(\(OiCreationStep.storyPhotoLimit)장)") {
+                formButton(photoCount == 0 ? "사진 추가하기" : "선택한 사진 보기",
                            highlighted: false, action: onPhotos)
                     .accessibilityIdentifier("oi.story.editPhotos")
-                if photoCount > OiCreationStep.storyPhotoLimit {
-                    Text("공개 검토를 요청하려면 사진을 \(OiCreationStep.storyPhotoLimit)장 이하로 줄여 주세요.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
             }
-            OiCreationSection(title: "오이 위치 설정") {
-                Map(position: .constant(.region(MKCoordinateRegion(
-                    center: coordinate ?? CLLocationCoordinate2D(latitude: 36.0139, longitude: 129.3232),
-                    latitudinalMeters: coordinate == nil ? 1_200 : 300,
-                    longitudinalMeters: coordinate == nil ? 1_200 : 300))), interactionModes: []) {
-                    if let coordinate { Marker("선택한 오이 위치", coordinate: coordinate).tint(.red) }
+            OiCreationSection(title: "오이 위치 설정", titleSize: 30) {
+                Group {
+                    if showsMap {
+                        Map(position: .constant(.region(MKCoordinateRegion(
+                            center: coordinate ?? CLLocationCoordinate2D(latitude: 36.0139, longitude: 129.3232),
+                            latitudinalMeters: coordinate == nil ? 1_200 : 300,
+                            longitudinalMeters: coordinate == nil ? 1_200 : 300))), interactionModes: []) {
+                            if let coordinate { Marker("선택한 오이 위치", coordinate: coordinate).tint(.red) }
+                        }
+                        .mapStyle(.standard(pointsOfInterest: .excludingAll))
+                    } else {
+                        Color(white: 244 / 255)
+                    }
                 }
-                .mapStyle(.standard(pointsOfInterest: .excludingAll))
                 .frame(height: 245).clipShape(RoundedRectangle(cornerRadius: 20))
+                .task {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    showsMap = true
+                }
                 .allowsHitTesting(false)
                 .overlay(alignment: .bottom) {
                     if coordinate == nil {
@@ -522,7 +530,7 @@ struct OiStoryAttachmentSections: View {
             Text(title).font(CampusStyle.medium(17)).tracking(0.34)
                 .frame(maxWidth: .infinity, minHeight: 57)
                 .foregroundStyle(highlighted ? Color("OiGreen") : Color(white: 106 / 255))
-                .background(highlighted ? Color("OiLight") : Color(white: 244 / 255),
+                .background(highlighted ? Color(red: 234 / 255, green: 238 / 255, blue: 226 / 255) : Color(white: 244 / 255),
                             in: RoundedRectangle(cornerRadius: 20))
         }.buttonStyle(OiCreationPressStyle())
     }
@@ -554,5 +562,95 @@ private struct OiCreationTagLayout: Layout {
             x += size.width + 10; rowHeight = max(rowHeight, size.height)
         }
         return (CGSize(width: width, height: y + rowHeight), points)
+    }
+}
+
+/// Self-sizing story field. The byte limit is checked only after Korean composition ends;
+/// SwiftUI `TextEditor` keeps showing composed text that its binding rejected (#373).
+struct OiStoryTextView: UIViewRepresentable {
+    @Binding var text: String
+    @Binding var focusedField: OiStoryWritingStep.Field?
+    let field: OiStoryWritingStep.Field
+    let byteLimit: Int
+    let label: String
+    let identifier: String
+
+    private static var attributes: [NSAttributedString.Key: Any] {
+        let base = UIFont(name: "Paperlogy-3Light", size: 18) ?? .systemFont(ofSize: 18, weight: .light)
+        return [.font: UIFontMetrics(forTextStyle: .body).scaledFont(for: base), .kern: 0.36, .foregroundColor: UIColor.label]
+    }
+
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.isScrollEnabled = false
+        view.backgroundColor = .clear
+        view.adjustsFontForContentSizeCategory = true
+        view.textContainerInset = UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
+        view.textContainer.lineFragmentPadding = 5
+        view.typingAttributes = Self.attributes
+        view.attributedText = NSAttributedString(string: text, attributes: Self.attributes)
+        view.delegate = context.coordinator
+        view.accessibilityLabel = label
+        view.accessibilityIdentifier = identifier
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return view
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+        let width = proposal.width ?? uiView.bounds.width
+        guard width > 0, width.isFinite else { return nil }
+        return CGSize(width: width, height: uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height)
+    }
+
+    func updateUIView(_ view: UITextView, context: Context) {
+        context.coordinator.parent = self
+        if view.markedTextRange == nil, view.text != text {
+            view.attributedText = NSAttributedString(string: text, attributes: Self.attributes)
+        }
+        if focusedField == field, !view.isFirstResponder, view.window != nil {
+            DispatchQueue.main.async { view.becomeFirstResponder() }
+        } else if focusedField != field, view.isFirstResponder {
+            view.resignFirstResponder()
+        }
+    }
+
+    /// The first UITextView in a process sets up TextKit and fonts; doing it while STEP 1 is idle
+    /// keeps the STEP 1 → 2 slide from dropping frames.
+    @MainActor static func prewarm() {
+        let view = UITextView()
+        view.attributedText = NSAttributedString(string: "이야기 Story", attributes: attributes)
+        _ = view.sizeThatFits(CGSize(width: 300, height: CGFloat.greatestFiniteMagnitude))
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var parent: OiStoryTextView
+        init(_ parent: OiStoryTextView) { self.parent = parent }
+
+        func textViewDidChange(_ view: UITextView) {
+            // Wait until a Korean syllable is committed before counting it.
+            guard view.markedTextRange == nil else { return }
+            let value = view.text ?? ""
+            let accepted = OiCreationStep.limitedEdit(value, previous: parent.text, byteLimit: parent.byteLimit)
+            if accepted != value {
+                let removed = (value as NSString).length - (accepted as NSString).length
+                let caret = max(0, view.selectedRange.location - removed)
+                view.attributedText = NSAttributedString(string: accepted, attributes: OiStoryTextView.attributes)
+                view.selectedRange = NSRange(location: min(caret, (accepted as NSString).length), length: 0)
+            }
+            if parent.text != accepted { parent.text = accepted }
+        }
+
+        func textViewDidBeginEditing(_ view: UITextView) {
+            let field = parent.field
+            if parent.focusedField != field { DispatchQueue.main.async { self.parent.focusedField = field } }
+        }
+
+        func textViewDidEndEditing(_ view: UITextView) {
+            textViewDidChange(view)
+            let field = parent.field
+            if parent.focusedField == field { DispatchQueue.main.async { self.parent.focusedField = nil } }
+        }
     }
 }

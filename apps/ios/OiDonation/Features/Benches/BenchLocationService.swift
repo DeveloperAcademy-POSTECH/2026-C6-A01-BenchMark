@@ -27,11 +27,14 @@ final class BenchLocationService: NSObject, CLLocationManagerDelegate {
     }
 
     var isAuthorized: Bool {
-        authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways
+        OiFeatureUsage.shared.isEnabled(.location) &&
+            (authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways)
     }
 
     override init() {
         super.init()
+        NotificationCenter.default.addObserver(self, selector: #selector(featureUsageChanged),
+            name: OiFeatureUsage.didChange, object: nil)
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
         authorizationStatus = manager.authorizationStatus
@@ -43,6 +46,10 @@ final class BenchLocationService: NSObject, CLLocationManagerDelegate {
     }
 
     func locate() {
+        guard OiFeatureUsage.shared.isEnabled(.location) else {
+            featureUsageChanged()
+            return
+        }
         guard !isLocating else { return }
         notice = nil
         refreshAuthorization()
@@ -68,6 +75,13 @@ final class BenchLocationService: NSObject, CLLocationManagerDelegate {
         @unknown default:
             notice = Notice(message: "현재 위치를 사용할 수 없어요. 잠시 후 다시 시도해 주세요.")
         }
+    }
+
+    @objc private func featureUsageChanged() {
+        guard !OiFeatureUsage.shared.isEnabled(.location) else { return }
+        cancel()
+        location = nil
+        notice = Notice(message: OiFeatureUsageError.disabled(.location).localizedDescription)
     }
 
     func cancel() {

@@ -43,7 +43,9 @@ struct ARPhotoLibraryService {
     }
 
     private func authorize() async throws {
+        try await MainActor.run { try OiFeatureUsage.shared.require(.photos) }
         let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        try await MainActor.run { try OiFeatureUsage.shared.require(.photos) }
         guard status == .authorized || status == .limited else {
             throw NSError(domain: "오이기부.PhotoLibrary", code: 1, userInfo: [NSLocalizedDescriptionKey:
                 "사진 추가 권한이 없습니다. 설정에서 사진 추가를 허용해 주세요."])

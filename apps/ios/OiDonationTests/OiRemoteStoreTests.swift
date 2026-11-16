@@ -6,6 +6,7 @@
 //
 
 import XCTest
+import CryptoKit
 import ARKit
 import CoreLocation
 import RealityKit
@@ -1821,7 +1822,9 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertNil(backend.snapshot().story, "A local portrait repair must not submit or change a server story")
     }
 
-    @MainActor func testStepNavigationAppearsOnlyAtScrollEndAndHidesOnReturn() async throws {
+    /// Figma `5400:7726`: STEP 2 keeps its buttons at the end of the scroll; Next with missing input
+    /// stays on the step and lists what is missing under the buttons (#373).
+    @MainActor func testStoryNextShowsMissingItemsUnderInlineButtons() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
         await store.start()
@@ -1829,49 +1832,98 @@ final class OiRemoteStoreTests: XCTestCase {
         func scrollViews(_ view: UIView) -> [UIScrollView] {
             (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews)
         }
-        for step in [OiCreationStep.story] {
-            var customization = OiDraftCustomization()
-            var look = OiWardrobeLook(); look.costume = .farmer
-            customization.wardrobe = look
-            let local = OiLocalDraft(draft: draft(title: "스크롤 버튼 확인"), version: 1,
-                creationStep: step.rawValue, customization: customization)
-            try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
-            var panelVisible = false
-            let controller = UIHostingController(rootView: NavigationStack {
-                OiStoryEditor(remote: store, localID: local.id)
-                    .observeNavigationForTest { panelVisible = $0 }
-            })
-            let window = UIWindow(windowScene: scene)
-            window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
-            window.rootViewController = controller; window.isHidden = false
-            defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
-            controller.view.frame = window.bounds
-            try await Task.sleep(for: .seconds(2))
-            let scroll = try XCTUnwrap(scrollViews(controller.view).filter {
-                $0.bounds.height > 100 && $0.contentSize.height + $0.adjustedContentInset.bottom > $0.bounds.height + 40
-            }.max { $0.bounds.height < $1.bounds.height }, step.rawValue)
-            scroll.setContentOffset(CGPoint(x: 0, y: -scroll.adjustedContentInset.top), animated: false)
-            try await Task.sleep(for: .milliseconds(300))
-            XCTAssertFalse(panelVisible, "\(step): panel must be hidden at the top")
-            let height = scroll.bounds.height
-            let end = max(-scroll.adjustedContentInset.top,
-                scroll.contentSize.height + scroll.adjustedContentInset.bottom - height)
-            scroll.setContentOffset(CGPoint(x: 0, y: end), animated: false)
-            try await Task.sleep(for: .milliseconds(400))
-            XCTAssertTrue(panelVisible, "\(step): panel must appear at the end")
-            XCTAssertEqual(scroll.bounds.height, height, accuracy: 1, "Panel must not resize the viewport")
-            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
-                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
-            }
-            let attachment = XCTAttachment(image: image); attachment.name = "step-navigation-\(step.rawValue)-bottom"
-            attachment.lifetime = .keepAlways; add(attachment)
-            scroll.setContentOffset(CGPoint(x: 0, y: max(-scroll.adjustedContentInset.top, end - 80)), animated: false)
-            try await Task.sleep(for: .milliseconds(400))
-            XCTAssertFalse(panelVisible, "\(step): panel must hide on upward scrolling")
-            scroll.setContentOffset(CGPoint(x: 0, y: end), animated: false)
-            try await Task.sleep(for: .milliseconds(400))
-            XCTAssertTrue(panelVisible, "\(step): panel must reappear without flicker")
+        let local = OiLocalDraft(draft: draft(title: "스크롤 버튼 확인"), version: 1,
+            creationStep: OiCreationStep.story.rawValue)
+        try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+        var panelVisible = false
+        var actions: OiStoryEditor.NavigationTestActions?
+        let controller = UIHostingController(rootView: NavigationStack {
+            OiStoryEditor(remote: store, localID: local.id)
+                .observeNavigationForTest({ panelVisible = $0 }, actions: { actions = $0 })
+        })
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = controller; window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+        try await Task.sleep(for: .seconds(2))
+        XCTAssertFalse(panelVisible, "STEP 2 must not float a navigation panel")
+        XCTAssertEqual(try XCTUnwrap(actions).shownMissingItems(), [], "Missing items stay hidden before Next")
+        try XCTUnwrap(actions).next()
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertEqual(try XCTUnwrap(actions).currentStep(), .story, "Next with missing input must stay on STEP 2")
+        XCTAssertTrue(try XCTUnwrap(actions).shownMissingItems().contains("사진은 1장 이상 추가해주세요 (대표이미지)"))
+        let scroll = try XCTUnwrap(scrollViews(controller.view).filter { $0.bounds.height > 100 }
+            .max { $0.bounds.height < $1.bounds.height })
+        let end = max(-scroll.adjustedContentInset.top,
+            scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height)
+        // The buttons and messages end above the 24pt content padding.
+        XCTAssertGreaterThan(scroll.contentOffset.y, end - 40, "Next must scroll the missing items into view")
+        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
+        let attachment = XCTAttachment(image: image); attachment.name = "story-missing-items-under-buttons"
+        attachment.lifetime = .keepAlways; add(attachment)
+    }
+
+    /// STEP 1 ↔ STEP 2 switch both ways without a slide; pauses leave room for a screen recording (#373).
+    @MainActor func testConsentStoryTransitionGoesBothWays() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let local = OiLocalDraft(draft: draft(title: "전환 확인"), version: 1, creationStep: OiCreationStep.consent.rawValue,
+            agreedConsentClauseIDs: Set(OiStoryConsentClause.ID.allCases.map(\.rawValue)))
+        try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+        var actions: OiStoryEditor.NavigationTestActions?
+        let controller = UIHostingController(rootView: NavigationStack {
+            OiStoryEditor(remote: store, localID: local.id).observeNavigationForTest({ _ in }, actions: { actions = $0 })
+        })
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = controller; window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+        try await Task.sleep(for: .seconds(5)) // past the launch splash
+        // Pauses let a screen recording show forward, backward and the next step separately.
+        try XCTUnwrap(actions).next()
+        try await Task.sleep(for: .seconds(1.5))
+        XCTAssertEqual(try XCTUnwrap(actions).currentStep(), .story)
+        try XCTUnwrap(actions).editFromReview(.consent)
+        try await Task.sleep(for: .seconds(1.5))
+        XCTAssertEqual(try XCTUnwrap(actions).currentStep(), .consent)
+        try XCTUnwrap(actions).next()
+        try await Task.sleep(for: .seconds(1.5))
+        XCTAssertEqual(try XCTUnwrap(actions).currentStep(), .story)
+    }
+
+    /// Opening the photo editor while typing must not leave the story keyboard over it (#373).
+    @MainActor func testOpeningPhotoEditorEndsStoryTyping() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        func textViews(_ view: UIView) -> [UITextView] {
+            (view as? UITextView).map { [$0] } ?? view.subviews.flatMap(textViews)
+        }
+        let local = OiLocalDraft(draft: draft(title: "키보드 확인"), version: 1, creationStep: OiCreationStep.story.rawValue)
+        try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+        var photoActions: OiStoryEditor.PhotoEditingTestActions?
+        let controller = UIHostingController(rootView: NavigationStack {
+            OiStoryEditor(remote: store, localID: local.id).observePhotoEditingForTest { photoActions = $0 }
+        })
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = controller; window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+        try await Task.sleep(for: .seconds(2))
+        let body = try XCTUnwrap(textViews(controller.view).first { $0.accessibilityIdentifier == "oi.draft.body" })
+        XCTAssertTrue(body.becomeFirstResponder())
+        try await Task.sleep(for: .milliseconds(400))
+        try XCTUnwrap(photoActions).open()
+        try await Task.sleep(for: .seconds(1))
+        XCTAssertFalse(body.isFirstResponder, "The story keyboard must close when the photo editor opens")
+        try XCTUnwrap(photoActions).cancel()
+        try await Task.sleep(for: .seconds(1))
+        XCTAssertFalse(body.isFirstResponder, "Closing the photo editor must not bring the keyboard back")
     }
 
     @MainActor func testCustomizationNavigationRequiresDoneAndCardNextOpensPlacement() async throws {
@@ -3712,6 +3764,56 @@ extension OiRemoteStoreTests {
         XCTAssertNil(store.loadError)
     }
 
+    @MainActor func testFeatureUsagePersistsWithoutChangingOtherFeatures() throws {
+        let suite = "OiFeatureUsage-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let usage = OiFeatureUsage(defaults: defaults)
+        XCTAssertTrue(OiAppFeature.allCases.allSatisfy(usage.isEnabled))
+        usage.setEnabled(false, for: .photos)
+        let restored = OiFeatureUsage(defaults: defaults)
+        XCTAssertFalse(restored.isEnabled(.photos))
+        XCTAssertTrue(restored.isEnabled(.camera))
+        XCTAssertTrue(restored.isEnabled(.location))
+        XCTAssertThrowsError(try restored.require(.photos)) {
+            XCTAssertEqual($0 as? OiFeatureUsageError, .disabled(.photos))
+        }
+        restored.setEnabled(true, for: .photos)
+        XCTAssertNoThrow(try restored.require(.photos))
+        XCTAssertTrue(OiFeatureUsage(defaults: defaults).isEnabled(.photos))
+    }
+
+    @MainActor func testDisabledFeaturesBlockLocationCameraAndPhotoStorage() async throws {
+        let usage = OiFeatureUsage.shared
+        let previous = Dictionary(uniqueKeysWithValues: OiAppFeature.allCases.map { ($0, usage.isEnabled($0)) })
+        defer { for (feature, enabled) in previous { usage.setEnabled(enabled, for: feature) } }
+        usage.setEnabled(false, for: .location)
+        usage.setEnabled(false, for: .camera)
+        usage.setEnabled(false, for: .photos)
+        let bench = BenchLocationService()
+        bench.locate()
+        XCTAssertFalse(bench.isLocating)
+        XCTAssertFalse(bench.isAuthorized)
+        XCTAssertEqual(bench.notice?.message, OiFeatureUsageError.disabled(.location).localizedDescription)
+        let location = CampusGeoLocation()
+        location.start()
+        XCTAssertNil(location.location)
+        XCTAssertFalse(location.hasPreciseLocationPermission)
+        XCTAssertEqual(location.message, OiFeatureUsageError.disabled(.location).localizedDescription)
+        do {
+            _ = try await CampusCardLocation().classify()
+            XCTFail("Disabled location must not start a system permission or location request")
+        } catch { XCTAssertEqual(error as? OiFeatureUsageError, .disabled(.location)) }
+        let nearby = CampusNearbyARController()
+        await nearby.start(location: location)
+        XCTAssertFalse(nearby.ready)
+        XCTAssertEqual(nearby.message, OiFeatureUsageError.disabled(.camera).localizedDescription)
+        do {
+            try await ARPhotoLibraryService().save(UIImage())
+            XCTFail("Disabled photo storage must not prompt or save")
+        } catch { XCTAssertEqual(error as? OiFeatureUsageError, .disabled(.photos)) }
+    }
+
     @MainActor func testRepeatedLoginDoesNotBecomeConfigurationError() async throws {
         let authentication = OiControlledAuthentication()
         let (store,backend,_,session,directory) = try context(authentication: authentication)
@@ -4668,5 +4770,186 @@ final class OiWardrobeAssetTests: XCTestCase {
     private func materialCount(in entity: Entity) -> Int {
         (entity.components[ModelComponent.self]?.materials.count ?? 0)
             + entity.children.reduce(0) { $0 + materialCount(in: $1) }
+    }
+}
+
+extension OiRemoteStoreTests {
+    @MainActor func testWardrobeModelCacheSharesLoadingAndKeepsClonesIndependent() async throws {
+        var loads = 0
+        let cache = OiWardrobeModelCache(observePressure: false) { _ in
+            loads += 1
+            try await Task.sleep(for: .milliseconds(40))
+            let root = Entity(); let child = Entity(); child.name = "Original"
+            root.addChild(child)
+            return root
+        }
+        let url = URL(fileURLWithPath: "/selected.usdz")
+        let cancelled = Task { try await cache.clone(from: url) }
+        let surviving = Task { try await cache.clone(from: url) }
+        try await Task.sleep(for: .milliseconds(10)); cancelled.cancel()
+        do { _ = try await cancelled.value; XCTFail("Cancelled callers must not publish a model") }
+        catch is CancellationError { }
+        let first = try await surviving.value
+        first.children.first?.name = "Edited"
+        let second = try await cache.clone(from: url)
+        XCTAssertEqual(loads, 1)
+        XCTAssertFalse(first === second)
+        XCTAssertEqual(second.children.first?.name, "Original", "One renderer must not modify another renderer's source")
+        cache.clear()
+        _ = try await cache.clone(from: url)
+        XCTAssertEqual(loads, 2, "Memory-pressure eviction must discard the retained source")
+    }
+
+    @MainActor func testWardrobeModelCacheBoundsLoadingAndRetainsOnlyLastSelection() async throws {
+        var active = 0, maximumActive = 0, loads = 0
+        let cache = OiWardrobeModelCache(observePressure: false) { _ in
+            active += 1; maximumActive = max(maximumActive, active); loads += 1
+            defer { active -= 1 }
+            try await Task.sleep(for: .milliseconds(30))
+            return Entity()
+        }
+        let a = URL(fileURLWithPath: "/a.usdz"), b = URL(fileURLWithPath: "/b.usdz")
+        let first = Task { try await cache.clone(from: a) }
+        try await Task.sleep(for: .milliseconds(5))
+        let second = Task { try await cache.clone(from: b) }
+        _ = try await first.value; _ = try await second.value
+        XCTAssertEqual(maximumActive, 1)
+        _ = try await cache.clone(from: b)
+        XCTAssertEqual(loads, 2)
+        _ = try await cache.clone(from: a)
+        XCTAssertEqual(loads, 3, "Previous selections must not accumulate in memory")
+    }
+
+    @MainActor func testPortraitImageWorkerPreservesResolutionAlphaAndReusesValidatedImage() async throws {
+        let worker = OiPortraitImages()
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = false
+        let original = UIGraphicsImageRenderer(size: CGSize(width: 80, height: 100), format: format).image { context in
+            UIColor.green.setFill(); context.fill(CGRect(x: 20, y: 20, width: 40, height: 60))
+            UIColor.black.setFill(); context.fill(CGRect(x: 30, y: 30, width: 5, height: 5))
+        }
+        let encoded = await worker.encode(original, key: "look-angle-a")
+        let data = try XCTUnwrap(encoded)
+        let firstValue = await worker.restore(data, key: "look-angle-a")
+        let first = try XCTUnwrap(firstValue)
+        let secondValue = await worker.restore(data, key: "look-angle-a")
+        let second = try XCTUnwrap(secondValue)
+        XCTAssertTrue(first === second)
+        XCTAssertEqual(first.cgImage?.width, 80); XCTAssertEqual(first.cgImage?.height, 100)
+        XCTAssertEqual(data, original.pngData(), "PNG bytes must not be recompressed at a lower quality")
+        XCTAssertTrue(OiPortraitMatte.hasTransparentBackground(first))
+        let opaque = UIGraphicsImageRenderer(size: CGSize(width: 80, height: 100)).image { context in
+            UIColor.black.setFill(); context.fill(CGRect(x: 0, y: 0, width: 80, height: 100))
+        }
+        let rejected = await worker.restore(try XCTUnwrap(opaque.pngData()), key: "look-angle-a")
+        XCTAssertNil(rejected, "A matching key must never bypass alpha validation for different bytes")
+        let otherAngle = await worker.cached(key: "different-angle")
+        XCTAssertNil(otherAngle)
+        await worker.clear()
+        let evicted = await worker.cached(key: "look-angle-a")
+        XCTAssertNil(evicted)
+        let restoredValue = await worker.restore(data, key: "look-angle-a")
+        let restored = try XCTUnwrap(restoredValue)
+        XCTAssertTrue(OiPortraitMatte.hasTransparentBackground(restored))
+        XCTAssertEqual(restored.cgImage?.width, 80)
+    }
+}
+
+
+extension OiRemoteStoreTests {
+    @MainActor func testPortraitMatteMatchesOriginalPixelOutputIncludingBlackFeatures() throws {
+        func linear(_ n: UInt8) -> Double {
+            let value = Double(n) / 255
+            return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        func encoded(_ n: Double) -> UInt8 {
+            UInt8(((n <= 0.0031308 ? n * 12.92 : 1.055 * pow(n, 1 / 2.4) - 0.055) * 255).rounded())
+        }
+        var black = [UInt8](), white = [UInt8]()
+        for y in 0..<32 {
+            for x in 0..<32 {
+                let alpha = [0.0, 1, 0.25, 0.5, 0.75, 1][x % 6]
+                let color = y % 4 == 0 ? [0, 0, 0] : [x * 7 % 256, y * 9 % 256, (x + y) * 5 % 256]
+                black += color.map { encoded(alpha * linear(UInt8($0))) } + [255]
+                white += color.map { encoded(alpha * linear(UInt8($0)) + 1 - alpha) } + [255]
+            }
+        }
+        func image(_ bytes: [UInt8]) throws -> UIImage {
+            let provider = try XCTUnwrap(CGDataProvider(data: Data(bytes) as CFData))
+            let cg = try XCTUnwrap(CGImage(width: 32, height: 32, bitsPerComponent: 8, bitsPerPixel: 32,
+                bytesPerRow: 128, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent))
+            return UIImage(cgImage: cg)
+        }
+        let result = try XCTUnwrap(OiPortraitMatte.image(black: image(black), white: image(white)))
+        let pixels = try XCTUnwrap(result.cgImage?.dataProvider?.data) as Data
+        // Golden hash from the original transparent-matte-v1 formula, before optimization.
+        XCTAssertEqual(SHA256.hash(data: pixels).map { String(format: "%02x", $0) }.joined(),
+            "a27fce77483f2c23c0578e810b61027dd0afeb19869c91632d74ecd21c55f39c")
+        XCTAssertTrue(OiPortraitMatte.hasTransparentBackground(result))
+    }
+}
+
+extension OiRemoteStoreTests {
+    @MainActor func testWardrobeModelCacheRecoversAfterFailureAndEvictionDuringLoading() async throws {
+        var loads = 0
+        let cache = OiWardrobeModelCache(observePressure: false) { _ in
+            loads += 1
+            try await Task.sleep(for: .milliseconds(30))
+            if loads == 1 { throw CocoaError(.fileReadCorruptFile) }
+            return Entity()
+        }
+        let url = URL(fileURLWithPath: "/retry.usdz")
+        do { _ = try await cache.clone(from: url); XCTFail("Broken sources cannot be cached") } catch { }
+        let request = Task { try await cache.clone(from: url) }
+        try await Task.sleep(for: .milliseconds(10)); cache.clear()
+        _ = try await request.value
+        _ = try await cache.clone(from: url)
+        XCTAssertEqual(loads, 3, "A load already in flight must not repopulate an evicted cache")
+    }
+}
+
+@MainActor private final class OiPortraitRotationProbe: ObservableObject {
+    @Published var orientation = OiCardOrientation()
+}
+@MainActor private struct OiPortraitRotationCheck: View {
+    @ObservedObject var probe: OiPortraitRotationProbe
+    let captured: (Data, String) -> Void
+    var body: some View {
+        OiCardPortraitCapture(look: OiWardrobeLook(), cacheKey: probe.orientation.cacheIdentity,
+            orientation: probe.orientation, interactivePreview: true, onCapture: captured)
+            .frame(width: 220, height: 308)
+    }
+}
+extension OiRemoteStoreTests {
+    @MainActor func testInteractivePortraitRecreatesCaptureSurfaceAfterRotation() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let probe = OiPortraitRotationProbe()
+        let initial = probe.orientation.cacheIdentity
+        let rotated = OiCardOrientation(yaw: 0.7, pitch: 0.1)
+        let finished = expectation(description: "Both settled orientations captured")
+        finished.expectedFulfillmentCount = 2
+        var keys: [String] = [], images: [UIImage] = []
+        window.rootViewController = UIHostingController(rootView: OiPortraitRotationCheck(probe: probe) { data, key in
+            keys.append(key)
+            if let image = UIImage(data: data) { images.append(image) }
+            finished.fulfill()
+            if key == initial {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(250))
+                    probe.orientation = rotated
+                }
+            }
+        })
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previous?.makeKey() }
+        await fulfillment(of: [finished], timeout: 30)
+        XCTAssertEqual(keys, [initial, rotated.cacheIdentity])
+        XCTAssertEqual(images.count, 2)
+        for image in images { XCTAssertTrue(OiPortraitMatte.hasTransparentBackground(image)) }
+        XCTAssertEqual(images.first?.cgImage?.width, images.last?.cgImage?.width)
+        XCTAssertEqual(images.first?.cgImage?.height, images.last?.cgImage?.height)
     }
 }

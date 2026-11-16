@@ -73,6 +73,8 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
             geoPlacement = ARCameraGeoPlacement(target: target)
         } else { self.locationProvider = nil }
         super.init()
+        NotificationCenter.default.addObserver(self, selector: #selector(featureUsageChanged),
+            name: OiFeatureUsage.didChange, object: nil)
         settings = subject?.defaultSettings ?? ARCaptureSettings()
         view.session.delegate = self
         view.session.delegateQueue = .main
@@ -99,7 +101,22 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         await start(recovering: false)
     }
 
+    @objc private func featureUsageChanged() {
+        if !OiFeatureUsage.shared.isEnabled(.camera) {
+            stop()
+            message = OiFeatureUsageError.disabled(.camera).localizedDescription
+        } else if usesGeographicPlacement && !OiFeatureUsage.shared.isEnabled(.location) {
+            stop()
+            message = OiFeatureUsageError.disabled(.location).localizedDescription
+        }
+    }
+
     private func start(recovering: Bool) async {
+        guard OiFeatureUsage.shared.isEnabled(.camera),
+              !usesGeographicPlacement || OiFeatureUsage.shared.isEnabled(.location) else {
+            featureUsageChanged()
+            return
+        }
         guard let attempt = lifecycle.beginStart(recovering: recovering) else { return }
         guard ARWorldTrackingConfiguration.isSupported else {
             if lifecycle.rejectStart(attempt) { showRecovery(.unsupported) }

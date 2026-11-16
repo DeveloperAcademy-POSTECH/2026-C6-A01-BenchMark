@@ -74,7 +74,7 @@ struct OiStoryPhotoStep<Photo: View>: View {
             } else {
                 thumbnailRow.padding(.top, 48)
             }
-            Text("첫번째 사진이 대표사진으로 설정됩니다\n사진을 꾹 누르고 순서를 조절해보세요")
+            Text(OiCreationStep.storyPhotoLimit > 1 ? "첫번째 사진이 대표사진으로 설정됩니다\n사진을 꾹 누르고 순서를 조절해보세요" : "선택한 사진이 대표사진으로 설정됩니다")
                 .font(CampusStyle.body(14))
                 .tracking(0.28)
                 .lineSpacing(4)
@@ -128,7 +128,7 @@ struct OiStoryPhotoStep<Photo: View>: View {
             VStack(spacing: 4) {
                 Text("이야기에 담을 사진을 추가해주세요")
                     .font(CampusStyle.medium(20)).tracking(0.4)
-                Text("사진은 최대 3장까지 가능합니다")
+                Text("사진은 \(OiCreationStep.storyPhotoLimit)장까지 가능합니다")
                     .font(.custom("Paperlogy-3Light", size: 14, relativeTo: .caption))
                     .tracking(0.28)
             }

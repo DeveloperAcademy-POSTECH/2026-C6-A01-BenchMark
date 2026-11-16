@@ -19,35 +19,38 @@ struct CampusCardRequestSheet: View {
     @State private var unconfirmedDecision: (id: UUID, decision: OiCardRequestDecision)?
 
     var body: some View {
-        if remote.account == nil || remote.needsReauthentication {
-            NavigationStack {
-                ContentUnavailableView {
-                    Label("카드 요청을 보려면 로그인해 주세요", systemImage: "envelope")
-                } actions: {
-                    NavigationLink("설정에서 로그인하기") { MYSettingsView(remote: remote) }
-                        .buttonStyle(.borderedProminent)
-                }
-                .navigationTitle("받은 카드 요청")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("닫기") { dismiss() }
+        Group {
+            if remote.account == nil || remote.needsReauthentication {
+                NavigationStack {
+                    ContentUnavailableView {
+                        Label("카드 요청을 보려면 로그인해 주세요", systemImage: "envelope")
+                    } actions: {
+                        NavigationLink("설정에서 로그인하기") { MYSettingsView(remote: remote) }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .navigationTitle("받은 카드 요청")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("닫기") { dismiss() }
+                        }
                     }
                 }
+            } else {
+                OiCardRequestInboxView(
+                    requests: requests,
+                    isLoading: isLoading,
+                    loadError: loadError,
+                    pendingRequestID: pendingRequestID,
+                    actionError: actionError,
+                    onReload: reload,
+                    onDecision: resolve,
+                    onRetryDecision: retryAction
+                )
+                .interactiveDismissDisabled(pendingRequestID != nil)
             }
-        } else {
-            OiCardRequestInboxView(
-                requests: requests,
-                isLoading: isLoading,
-                loadError: loadError,
-                pendingRequestID: pendingRequestID,
-                actionError: actionError,
-                onReload: reload,
-                onDecision: resolve,
-                onRetryDecision: retryAction
-            )
-            .interactiveDismissDisabled(pendingRequestID != nil)
         }
+        .modifier(CampusCardRequestSheetPresentation())
     }
 
     private func reload() async {
@@ -109,5 +112,17 @@ struct CampusCardRequestSheet: View {
     private var retryAction: (() async -> Void)? {
         guard unconfirmedDecision != nil else { return nil }
         return { await retryDecision() }
+    }
+}
+
+/// Let the system own the glass, corners, and transition to an opaque full-height sheet.
+struct CampusCardRequestSheetPresentation: ViewModifier {
+    @State private var detent: PresentationDetent = .medium
+
+    func body(content: Content) -> some View {
+        content
+            .presentationDetents([.medium, .large], selection: $detent)
+            .presentationDragIndicator(.visible)
+            .presentationContentInteraction(.resizes)
     }
 }

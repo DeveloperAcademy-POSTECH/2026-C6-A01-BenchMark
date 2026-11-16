@@ -16,6 +16,7 @@ struct OiAppleSignInButton: UIViewRepresentable {
 
     func makeUIView(context: Context) -> ASAuthorizationAppleIDButton {
         let button = ASAuthorizationAppleIDButton(type: type, style: .black)
+        button.cornerRadius = 6
         button.addTarget(context.coordinator, action: #selector(Coordinator.signIn), for: .touchUpInside)
         button.accessibilityIdentifier = "oi.auth.apple"
         return button
