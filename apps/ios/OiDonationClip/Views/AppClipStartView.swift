@@ -11,14 +11,29 @@ import SwiftUI
 /// The artwork keeps the 402pt design coordinates and scales to fit; the download panel spans the full width.
 struct AppClipStartView: View {
     let onDownload: () -> Void
+    @State private var showingSupport = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     /// Design area above the 93pt download panel.
     private static let canvas = CGSize(width: 402, height: 781)
     private static let panelHeight: CGFloat = 93
     private static let green = Color(red: 0x70 / 255, green: 0x8C / 255, blue: 0x40 / 255)
     private static let mint = Color(red: 0xD8 / 255, green: 0xE9 / 255, blue: 0xC6 / 255)
+    private static let stepTexts = [
+        "1. 학교에 기부 & 인증 하고", "2. 모교에서의 이야기를 남기고",
+        "3. 우표와 오이를 커스텀하여", "4. 동문들과 추억을 나눠보세요!"
+    ]
 
     var body: some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize { accessibleContent }
+            else { standardContent }
+        }
+        .environment(\.colorScheme, .light)
+        .sheet(isPresented: $showingSupport) { OiSupportView() }
+    }
+
+    private var standardContent: some View {
         GeometryReader { proxy in
             let screen = proxy.size // Full screen: the reader ignores the safe area below.
             let scale = min(screen.width / Self.canvas.width,
@@ -33,9 +48,59 @@ struct AppClipStartView: View {
             }
             .frame(width: screen.width, height: screen.height, alignment: .topLeading)
             .overlay(alignment: .bottom) { downloadPanel }
+            .overlay(alignment: .topTrailing) {
+                Button("개인정보 및 지원", systemImage: "hand.raised") { showingSupport = true }
+                    .labelStyle(.iconOnly)
+                    .font(.title3)
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("appclip.start.support")
+                    .padding(.top, 96 * scale)
+                    .padding(.trailing, 20)
+            }
         }
         .ignoresSafeArea()
-        .environment(\.colorScheme, .light)
+    }
+
+    /// Fixed design coordinates cannot fit enlarged text; keep every instruction readable by wrapping
+    /// and scrolling, with download and support actions outside the scaled artwork.
+    private var accessibleContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                Text("벤치마크 팀").font(.headline)
+                Text("Doony · Eepy · Jun · Kaelyn · Soori · Spero").font(.caption)
+                HStack(spacing: 12) {
+                    Image("ClipStartAppLogo").resizable().frame(width: 48, height: 48)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    Image("ClipStartWordmark").resizable().scaledToFit().frame(maxWidth: 230)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("오이기부")
+                .accessibilityAddTraits(.isHeader)
+                Text("작은 기부로 학교를 바꾸다")
+                    .font(.custom("Paperlogy-4Regular", size: 17))
+                ForEach(Self.stepTexts, id: \.self) { text in
+                    Text(text).font(.custom("Paperlogy-3Light", size: 16))
+                }
+                Button("개인정보 및 지원", systemImage: "hand.raised") { showingSupport = true }
+                    .font(.body)
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("appclip.start.support")
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .foregroundStyle(.white)
+            .padding(20)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            downloadPanel.background {
+                Color(red: 0xEA / 255, green: 0xEE / 255, blue: 0xE2 / 255)
+                    .ignoresSafeArea(edges: .bottom)
+            }
+        }
+        .background(Self.green.ignoresSafeArea())
     }
 
     /// #708C40 with two softly blurred ellipses (#435426 top right, #B0C85B 70% left), per the design SVG.
@@ -123,13 +188,13 @@ struct AppClipStartView: View {
 
     private var steps: some View {
         ZStack(alignment: .topLeading) {
-            step("1. 학교에 기부 & 인증 하고", x: 151.5, y: 422.5)
+            step(Self.stepTexts[0], x: 151.5, y: 422.5)
             arrow(x: 197, y: 444)
-            step("2. 모교에서의 이야기를 남기고", x: 232, y: 508.5)
+            step(Self.stepTexts[1], x: 232, y: 508.5)
             arrow(x: 164, y: 534, mirrored: true)
-            step("3. 우표와 오이를 커스텀하여", x: 158, y: 594.5)
+            step(Self.stepTexts[2], x: 158, y: 594.5)
             arrow(x: 197, y: 622)
-            step("4. 동문들과 추억을 나눠보세요!", x: 231, y: 680.5)
+            step(Self.stepTexts[3], x: 231, y: 680.5)
         }
         .accessibilityElement(children: .combine)
     }
@@ -155,6 +220,9 @@ struct AppClipStartView: View {
             Text("앱 다운로드 하기")
                 .font(.custom("Paperlogy-5Medium", size: 16))
                 .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, minHeight: 46)
                 .background(Self.green, in: RoundedRectangle(cornerRadius: 20))
                 .contentShape(RoundedRectangle(cornerRadius: 20))
