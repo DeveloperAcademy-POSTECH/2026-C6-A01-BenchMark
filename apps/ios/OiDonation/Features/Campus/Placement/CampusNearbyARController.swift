@@ -26,6 +26,22 @@ import RealityKit
     private var failed = false
     private var lastFrameCheck = 0.0
 
+    override init() {
+        super.init()
+        NotificationCenter.default.addObserver(self, selector: #selector(featureUsageChanged),
+            name: OiFeatureUsage.didChange, object: nil)
+    }
+
+    @objc private func featureUsageChanged() {
+        if !OiFeatureUsage.shared.isEnabled(.camera) {
+            stop()
+            message = OiFeatureUsageError.disabled(.camera).localizedDescription
+        } else if !OiFeatureUsage.shared.isEnabled(.location) {
+            stop()
+            message = OiFeatureUsageError.disabled(.location).localizedDescription
+        }
+    }
+
     func makeView() -> RealityKit.ARView {
         if let view { return view }
         let result = RealityKit.ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
@@ -38,6 +54,10 @@ import RealityKit
 
     func start(location: CampusGeoLocation) async {
         stop()
+        guard OiFeatureUsage.shared.isEnabled(.camera), OiFeatureUsage.shared.isEnabled(.location) else {
+            featureUsageChanged()
+            return
+        }
         self.location = location
         message = "카메라와 위치를 준비하고 있어요."
         guard ARWorldTrackingConfiguration.isSupported else {

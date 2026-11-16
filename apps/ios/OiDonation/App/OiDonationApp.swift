@@ -23,6 +23,7 @@ struct OiDonationApp: App {
     var body: some Scene {
         WindowGroup {
             OiLaunchView(container: .pilot)
+                .task { OiFeatureUsage.shared.applyNotificationChoice() }
         }
     }
 }

@@ -167,6 +167,12 @@ struct ARCameraScreen: View {
             }
         }
         .onDisappear { model.disappear() }
+        .onChange(of: OiFeatureUsage.shared.isEnabled(.camera)) { _, enabled in
+            if !enabled { model.disappear() }
+        }
+        .onChange(of: OiFeatureUsage.shared.isEnabled(.location)) { _, enabled in
+            if !enabled && model.controller.usesGeographicPlacement { model.disappear() }
+        }
         .background(.black)
         .statusBarHidden(true)
         .tint(.mint)

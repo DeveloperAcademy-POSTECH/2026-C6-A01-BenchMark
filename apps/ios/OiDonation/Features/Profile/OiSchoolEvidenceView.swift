@@ -171,6 +171,9 @@ struct OiSchoolEvidenceView: View {
         .task(id: requestingCamera) {
             if requestingCamera { await openCamera() }
         }
+        .onChange(of: OiFeatureUsage.shared.isEnabled(.camera)) { _, enabled in
+            if !enabled { showingCamera = false; capturedPhoto = nil }
+        }
         .fullScreenCover(isPresented: $showingCamera, onDismiss: {
             if let capturedPhoto { prepare(.camera(capturedPhoto)) }
             capturedPhoto = nil
@@ -512,6 +515,10 @@ struct OiSchoolEvidenceView: View {
 
     private func openCamera() async {
         defer { requestingCamera = false }
+        guard OiFeatureUsage.shared.isEnabled(.camera) else {
+            error = OiFeatureUsageError.disabled(.camera).localizedDescription
+            return
+        }
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
             error = "이 기기에서는 카메라를 사용할 수 없어요. 사진 보관함이나 파일 앱에서 선택해 주세요."
             return
@@ -523,6 +530,10 @@ struct OiSchoolEvidenceView: View {
         default: allowed = false
         }
         guard !Task.isCancelled, let pickerOwner, pickerOwner == remote.account?.id else { return }
+        guard OiFeatureUsage.shared.isEnabled(.camera) else {
+            error = OiFeatureUsageError.disabled(.camera).localizedDescription
+            return
+        }
         if allowed { showingCamera = true } else { cameraDenied = true }
     }
 

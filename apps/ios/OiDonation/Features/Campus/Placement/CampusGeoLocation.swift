@@ -11,11 +11,17 @@ import Observation
 
     override init() {
         super.init()
+        NotificationCenter.default.addObserver(self, selector: #selector(featureUsageChanged),
+            name: OiFeatureUsage.didChange, object: nil)
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBest
         manager.distanceFilter = kCLDistanceFilterNone
     }
     func start() {
+        guard OiFeatureUsage.shared.isEnabled(.location) else {
+            featureUsageChanged()
+            return
+        }
         active = true
         switch manager.authorizationStatus {
         case .notDetermined:
@@ -33,9 +39,15 @@ import Observation
         @unknown default: location = nil; message = "위치 권한을 확인해 주세요."
         }
     }
+    @objc private func featureUsageChanged() {
+        guard !OiFeatureUsage.shared.isEnabled(.location) else { return }
+        stop()
+        message = OiFeatureUsageError.disabled(.location).localizedDescription
+    }
+
     func stop() { active = false; manager.stopUpdatingLocation(); location = nil }
     var hasPreciseLocationPermission: Bool {
-        manager.accuracyAuthorization == .fullAccuracy &&
+        OiFeatureUsage.shared.isEnabled(.location) && manager.accuracyAuthorization == .fullAccuracy &&
             (manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways)
     }
     var hasUsableFix: Bool {
