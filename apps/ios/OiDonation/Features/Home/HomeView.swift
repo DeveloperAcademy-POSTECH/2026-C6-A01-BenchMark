@@ -25,7 +25,7 @@ struct HomeView: View {
     @State private var isSearchCoverActive = false
     @State private var searchMode: CampusSearchMode?
     @State private var pendingStoryID: String?
-    @State private var showingRequests = false
+    @State private var showingNotifications = false
     @State private var listIsAtTop = true
     /// Live vertical drag of the region list: negative grows it, positive pulls it down (#395).
     @State private var listDrag: CGFloat = 0
@@ -160,8 +160,8 @@ struct HomeView: View {
                 pendingStoryID = $0.id; searchMode = nil
             }
         }
-        .sheet(isPresented: $showingRequests) {
-            if let remote { CampusCardRequestSheet(remote: remote).id(remote.account?.id) }
+        .sheet(isPresented: $showingNotifications) {
+            if let remote { CampusNotificationSheet(remote: remote).id(remote.account?.id) }
         }
         .task {
             configureSceneCallbacks()
@@ -329,7 +329,7 @@ struct HomeView: View {
             Spacer()
             VStack(spacing: 10) {
                 if remote != nil {
-                    mapAction("envelope", label: "카드 요청", id: "campus.requests") { showingRequests = true }
+                    mapAction("envelope", label: "알림", id: "campus.notifications") { showingNotifications = true }
                 }
                 mapAction("magnifyingglass", label: "오이 검색", id: "campus.search",
                     background: "CampusMapSearchBackground") { showingSearchChoice = true }
