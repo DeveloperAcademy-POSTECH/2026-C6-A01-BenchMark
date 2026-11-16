@@ -46,7 +46,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             let home = HomeView(container: .pilot, store: store, myDemo: MYLibraryStore(),
                 isCameraCoverActive: false, onOpenProfile: {}, onOpenStory: { _ in }, remote: remote)
             try await capture(NavigationStack { home.environment(\.scenePhase, .active) }, name: "campus-map-polish", variant: variant,
-                defaults: fixture.defaults, delay: .seconds(2), attach: true, includesRealityKit: true, waitsForCampus: true)
+                defaults: fixture.defaults, delay: .seconds(2), attach: true, waitsForStillMap: true)
         }
     }
 
@@ -2328,12 +2328,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 try await capture(inbox, name: state.name, variant: variant, defaults: fixture.defaults, attach: true)
             }
         }
-        // Compare the sheet content at the Figma node's own dimensions. The
-        // dark backing makes its 70% fill visible without depending on live map data.
+        // Content-only capture; the system-sheet test below verifies its native backdrop.
         let sheetVariant = Variant(name: "402x803-sheet", size: CGSize(width: 402, height: 803), dynamicTypeSize: .large)
         let emptySheet = OiCardRequestInboxView(requests: [], isLoading: false, loadError: nil,
             pendingRequestID: nil, actionError: nil, onReload: {}, onDecision: { _, _ in })
-        try await capture(emptySheet.background(Color(white: 0.117)), name: "card-requests-empty",
+        try await capture(emptySheet, name: "card-requests-empty",
             variant: sheetVariant, defaults: fixture.defaults, includesSafeArea: false, attach: true)
 
         let reference = try XCTUnwrap(variants.first)
@@ -2342,6 +2341,30 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             onReload: {}, onDecision: { _, _ in }, onRetryDecision: {})
         try await capture(unconfirmed, name: "card-requests-unconfirmed-decision",
             variant: reference, defaults: fixture.defaults, attach: true)
+    }
+
+    func testCardRequestSystemSheetStartsMediumAndExpands() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let rows = [OiCardRequestInboxItem(id: UUID(), requesterName: "검증용 농부",
+            storyTitle: "캠퍼스에 남긴 이야기", schoolName: "POSTECH", portraitURL: nil, createdAt: .now)]
+        for variant in variants where variant.name == "402x874" || variant.name == "375x667" {
+            for expanded in [false, true] {
+                let remote = OiRemoteStore(vault: OiMemorySession())
+                let home = HomeView(container: .pilot, store: CampusStoryStore(defaults: fixture.defaults),
+                    myDemo: MYLibraryStore(), isCameraCoverActive: false, onOpenProfile: {}, onOpenStory: { _ in }, remote: remote)
+                let view = NavigationStack { home.environment(\.scenePhase, .active) }
+                    .sheet(isPresented: .constant(true)) {
+                        OiCardRequestInboxView(requests: rows, isLoading: false, loadError: nil,
+                            pendingRequestID: nil, actionError: nil, onReload: {}, onDecision: { _, _ in })
+                            .modifier(CampusCardRequestSheetPresentation())
+                    }
+                try await capture(view, name: expanded ? "card-requests-glass-large" : "card-requests-glass-medium",
+                    variant: variant, defaults: fixture.defaults, delay: .seconds(1), attach: true,
+                    checksBottomSheet: true, waitsForStillMap: true,
+                    sheetDetent: expanded ? .large : .medium)
+            }
+        }
     }
 
     func testMYScreenCapturesWithoutRemoteStore() async throws {
@@ -3214,7 +3237,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                                  includesSafeArea: Bool = true,
                                  delay: Duration = .milliseconds(180), attach: Bool = false,
                                  checksBottomSheet: Bool = false, cucumberCameraYaw: Float? = nil,
-                                 includesRealityKit: Bool = false, waitsForCampus: Bool = false) async throws -> Data {
+                                 includesRealityKit: Bool = false, waitsForStillMap: Bool = false,
+                                 sheetDetent: UISheetPresentationController.Detent.Identifier? = nil) async throws -> Data {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first, "The isolated simulator test host must have a window scene")
@@ -3264,21 +3288,35 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             let presented = try XCTUnwrap(root.presentedViewController ?? host.presentedViewController)
             let sheet = try XCTUnwrap(presented.presentationController)
             XCTAssertTrue(sheet is UISheetPresentationController)
+            if let sheetDetent {
+                let controller = try XCTUnwrap(sheet as? UISheetPresentationController)
+                XCTAssertEqual(controller.selectedDetentIdentifier, .medium, "Card requests must initially open at medium height")
+                if sheetDetent == .large {
+                    controller.animateChanges { controller.selectedDetentIdentifier = .large }
+                    try await Task.sleep(for: .milliseconds(600))
+                }
+                XCTAssertEqual(controller.selectedDetentIdentifier, sheetDetent)
+                let ratio = sheet.frameOfPresentedViewInContainerView.height / (sheet.containerView?.bounds.height ?? 1)
+                if sheetDetent == .medium { XCTAssertLessThan(ratio, 0.8) }
+                else { XCTAssertGreaterThan(ratio, 0.8) }
+            }
             let frame = sheet.frameOfPresentedViewInContainerView
             let bounds = try XCTUnwrap(sheet.containerView?.bounds)
             XCTAssertGreaterThan(frame.minY, bounds.minY)
-            XCTAssertEqual(frame.maxY, bounds.maxY, accuracy: 1)
+            XCTAssertLessThanOrEqual(frame.maxY, bounds.maxY + 1)
+            XCTAssertGreaterThanOrEqual(frame.maxY, bounds.maxY - 34, "Native inset sheets must stay near the bottom edge")
         }
-        if waitsForCampus {
+        if waitsForStillMap {
             func ready(in view: UIView) -> Bool {
-                if let canvas = view as? CampusMapCanvas {
-                    return canvas.map?.scene.findEntity(named: "POSTECH v09 apricot cream copy") != nil
+                guard let canvas = view as? CampusMapCanvas else {
+                    return view.subviews.contains(where: ready)
                 }
-                return view.subviews.contains { ready(in: $0) }
+                guard let map = canvas.map, map.superview == nil,
+                      map.scene.findEntity(named: "POSTECH v09 apricot cream copy") != nil else { return false }
+                return canvas.subviews.contains { ($0 as? UIImageView)?.image != nil }
             }
             for _ in 0..<150 where !ready(in: host.view) { try await Task.sleep(for: .milliseconds(100)) }
-            XCTAssertTrue(ready(in: host.view), "The home capture must contain the loaded campus, not its spinner")
-            try await Task.sleep(for: .milliseconds(150))
+            XCTAssertTrue(ready(in: host.view), "The home capture must contain the idle campus frame")
         }
         let renderView: UIView = checksBottomSheet ? window : host.view
         // UIKit omits Metal layers. Temporarily display each surface's own snapshot

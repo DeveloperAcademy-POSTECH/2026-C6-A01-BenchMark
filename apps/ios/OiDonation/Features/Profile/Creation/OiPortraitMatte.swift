@@ -27,18 +27,19 @@ enum OiPortraitMatte {
         var result = [UInt8](repeating: 0, count: b.bytes.count)
         var clearCount = 0, solidCount = 0
         for offset in stride(from: 0, to: result.count, by: 4) {
-            let blackRGB = (0..<3).map { linear(b.bytes[offset + $0]) }
-            let differences = (0..<3).map {
-                (linear(w.bytes[offset + $0]) - blackRGB[$0]) / (light[$0] - dark[$0])
-            }.sorted()
-            var alpha = min(1, max(0, 1 - differences[1]))
+            let d0 = (linear(w.bytes[offset]) - linear(b.bytes[offset])) / (light[0] - dark[0])
+            let d1 = (linear(w.bytes[offset + 1]) - linear(b.bytes[offset + 1])) / (light[1] - dark[1])
+            let d2 = (linear(w.bytes[offset + 2]) - linear(b.bytes[offset + 2])) / (light[2] - dark[2])
+            // Same median as sorting three channels, without allocating arrays per pixel.
+            let median = max(min(d0, d1), min(max(d0, d1), d2))
+            var alpha = min(1, max(0, 1 - median))
             // Ignore sub-pixel render noise in fully covered/empty regions.
             if alpha < 0.01 { alpha = 0 }
             if alpha > 0.99 { alpha = 1 }
             if alpha == 0 { clearCount += 1; continue }
             if alpha == 1 { solidCount += 1 }
             for channel in 0..<3 {
-                let foreground = (blackRGB[channel] - (1 - alpha) * dark[channel]) / alpha
+                let foreground = (linear(b.bytes[offset + channel]) - (1 - alpha) * dark[channel]) / alpha
                 result[offset + channel] = UInt8((encoded(foreground) * alpha * 255).rounded())
             }
             result[offset + 3] = UInt8((alpha * 255).rounded())
@@ -62,10 +63,12 @@ enum OiPortraitMatte {
         return clearCount > rgba.width * rgba.height / 100 && foregroundCount > 100
     }
 
-    nonisolated private static func linear(_ byte: UInt8) -> Double {
-        let value = Double(byte) / 255
+    // The inputs are 8-bit values, so this is exactly the original transfer function.
+    nonisolated private static let linearValues: [Double] = (0...255).map {
+        let value = Double($0) / 255
         return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
     }
+    nonisolated private static func linear(_ byte: UInt8) -> Double { linearValues[Int(byte)] }
 
     nonisolated private static func encoded(_ linear: Double) -> Double {
         let value = min(1, max(0, linear))
