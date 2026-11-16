@@ -17,8 +17,6 @@ struct OiStoryListView: View {
     var isDeleting = false
     var reviewState: (UUID) -> OiStoryListReviewState = { _ in .unreviewed }
     var onRequestReview: ((UUID) -> Void)?
-    var needsReviewConsent: (UUID) -> Bool = { _ in false }
-    var onGrantReviewConsent: ((UUID) -> Void)?
     var reviewMessage: (UUID) -> String? = { _ in nil }
     var onPlant: (() -> Void)?
     var canPlant = false
@@ -220,14 +218,6 @@ struct OiStoryListView: View {
                 }
             }
             .accessibilityIdentifier("storyList.reviewStatus.\(id.uuidString)")
-            if needsReviewConsent(id), let onGrantReviewConsent {
-                Text(OiStoryConsentClause.aiReviewAgreement)
-                Button("동의하고 검토 요청") { onGrantReviewConsent(id) }
-                    .buttonStyle(.plain)
-                    .underline()
-                    .foregroundStyle(Color("OiGreen"))
-                    .frame(minHeight: 44)
-            }
             if let message = reviewMessage(id) {
                 Text(message).foregroundStyle(.red)
                     .accessibilityIdentifier("storyList.reviewReason.\(id.uuidString)")

@@ -3044,13 +3044,17 @@ final class OiRemoteStoreTests: XCTestCase {
         try await store.saveLocalDraft(record, owner: owner)
         for _ in 0..<60 where buttons.status(record.id) == .reviewing { try await Task.sleep(for: .milliseconds(50)) }
         buttons.request(record.id)
-        for _ in 0..<60 where !buttons.needsConsent(record.id) { try await Task.sleep(for: .milliseconds(50)) }
-        XCTAssertTrue(buttons.needsConsent(record.id))
+        for _ in 0..<60 where buttons.message(record.id) == nil { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(buttons.message(record.id), OiStoryConsentClause.aiReviewRequiredMessage)
         XCTAssertEqual(backend.snapshot().moderationCount, 0)
+        record.agreedConsentClauseIDs?.insert(OiStoryConsentClause.ID.aiReviewV1.rawValue)
+        record.version += 1
+        try await store.saveLocalDraft(record, owner: owner)
+        for _ in 0..<60 where buttons.status(record.id) == .reviewing { try await Task.sleep(for: .milliseconds(50)) }
 
         let held = expectation(description: "Review remains in progress until the server responds")
         backend.configure { $0.holdModerationResponse = true; $0.didHold = { held.fulfill() } }
-        buttons.grantConsent(record.id)
+        buttons.request(record.id)
         await fulfillment(of: [held], timeout: 15)
         XCTAssertEqual(buttons.status(record.id).title, "검토중")
         buttons.request(record.id)
@@ -3217,12 +3221,17 @@ final class OiRemoteStoreTests: XCTestCase {
         await store.refresh()
         XCTAssertEqual(buttons.status(record.id), .unreviewed)
         buttons.request(record.id)
-        for _ in 0..<60 where !buttons.needsConsent(record.id) { try await Task.sleep(for: .milliseconds(50)) }
-        XCTAssertTrue(buttons.needsConsent(record.id))
+        for _ in 0..<60 where buttons.message(record.id) == nil { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(buttons.message(record.id), "초안으로 되돌린 뒤 공개 약관에서 AI 검수에 동의해 주세요.")
         XCTAssertEqual(store.ownStories.first?.status, "pending")
         XCTAssertEqual(backend.snapshot().moderationCount, 0)
+        var optedIn = try XCTUnwrap(saved)
+        optedIn.agreedConsentClauseIDs?.insert(OiStoryConsentClause.ID.aiReviewV1.rawValue)
+        optedIn.version += 1
+        try await store.saveLocalDraft(optedIn, owner: owner)
+        for _ in 0..<60 where buttons.status(record.id) == .reviewing { try await Task.sleep(for: .milliseconds(50)) }
 
-        buttons.grantConsent(record.id)
+        buttons.request(record.id)
         for _ in 0..<120 where buttons.status(record.id) != .approved { try await Task.sleep(for: .milliseconds(50)) }
         XCTAssertEqual(buttons.status(record.id), .approved, buttons.message(record.id) ?? "")
         XCTAssertEqual(buttons.visibleIDs(), expectedIDs)

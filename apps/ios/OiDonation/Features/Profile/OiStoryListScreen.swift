@@ -27,7 +27,6 @@ struct OiStoryListScreen: View {
     @State private var deletingID: UUID?
     @State private var deletionError: String?
     @State private var reviewWork: ReviewWork?
-    @State private var reviewConsentID: UUID?
     @State private var reviewFailure: (id: UUID, message: String)?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.revealPlantedStory) private var revealPlantedStory
@@ -38,10 +37,8 @@ struct OiStoryListScreen: View {
     #if DEBUG
     struct ReviewTestActions {
         let request: (UUID) -> Void
-        let grantConsent: (UUID) -> Void
         let status: (UUID) -> OiStoryListReviewState
         let visibleIDs: () -> [UUID]
-        let needsConsent: (UUID) -> Bool
         let message: (UUID) -> String?
         let openPlantPicker: () -> Void
         let showsPlantPicker: () -> Bool
@@ -56,7 +53,7 @@ struct OiStoryListScreen: View {
 
     private struct ReviewWork {
         enum Stage {
-            case prepare(consentGranted: Bool)
+            case prepare
             case capture(owner: UUID, draft: OiLocalDraft, look: OiWardrobeLook, orientation: OiCardOrientation, key: String)
             case submit(owner: UUID, draft: OiLocalDraft, portrait: Data?)
         }
@@ -101,8 +98,6 @@ struct OiStoryListScreen: View {
             isDeleting: deletingID != nil || remote.isBusy || reviewWork != nil || plantingStoryID != nil,
             reviewState: { reviewState(for: $0) },
             onRequestReview: requestReview,
-            needsReviewConsent: { reviewConsentID == $0 },
-            onGrantReviewConsent: { requestReview($0, consentGranted: true) },
             reviewMessage: reviewMessage,
             onPlant: handlePlantTap,
             canPlant: remote.autoStoryModeration && canPlant(in: currentState),
@@ -125,10 +120,8 @@ struct OiStoryListScreen: View {
             .onDisappear { reviewWork = nil }
             #if DEBUG
             .onAppear {
-                onReviewActionsForTest?(.init(request: requestReview,
-                    grantConsent: { requestReview($0, consentGranted: true) }, status: reviewState,
-                    visibleIDs: { state.items.map(\.id) },
-                    needsConsent: { reviewConsentID == $0 }, message: reviewMessage,
+                onReviewActionsForTest?(.init(request: requestReview, status: reviewState,
+                    visibleIDs: { state.items.map(\.id) }, message: reviewMessage,
                     openPlantPicker: selectStoryToPlant, showsPlantPicker: { plantSelection != nil },
                     selectPlantCard: selectPlantCard, selectedPlantCard: { plantSelection?.selectedID },
                     cancelPlantPicker: cancelPlantSelection, confirmPlant: confirmPlant))
@@ -149,7 +142,6 @@ struct OiStoryListScreen: View {
             pendingDeletion = nil
             deletionError = nil
             reviewWork = nil
-            reviewConsentID = nil
             reviewFailure = nil
             plantSelection = nil
             plantingStoryID = nil
@@ -206,25 +198,20 @@ struct OiStoryListScreen: View {
     }
 
     private func requestReview(_ id: UUID) {
-        requestReview(id, consentGranted: false)
-    }
-
-    private func requestReview(_ id: UUID, consentGranted: Bool) {
         let status = reviewState(for: id)
         guard reviewWork == nil, !remote.isBusy, deletingID == nil,
               state.items.contains(where: { $0.id == id }),
               status == .unreviewed || status == .rejected else { return }
         reviewFailure = nil
-        reviewConsentID = nil
-        reviewWork = ReviewWork(storyID: id, stage: .prepare(consentGranted: consentGranted))
+        reviewWork = ReviewWork(storyID: id, stage: .prepare)
     }
 
     private func performReview(_ work: ReviewWork) async {
         guard let owner = remote.account?.id else { reviewWork = nil; return }
         do {
             switch work.stage {
-            case .prepare(let consentGranted):
-                try await prepareReview(work, owner: owner, consentGranted: consentGranted)
+            case .prepare:
+                try await prepareReview(work, owner: owner)
             case .capture:
                 break
             case .submit(let preparedOwner, var draft, let portrait):
@@ -239,7 +226,7 @@ struct OiStoryListScreen: View {
         }
     }
 
-    private func prepareReview(_ work: ReviewWork, owner: UUID, consentGranted: Bool) async throws {
+    private func prepareReview(_ work: ReviewWork, owner: UUID) async throws {
         guard remote.canStartStory else { throw OiServiceError.storyCreationUnavailable }
         guard remote.canPublishDuplexCard, remote.canPublishStoryCard else {
             throw OiServiceError.server("서버가 양면 카드 공개를 지원하면 다시 요청해 주세요.")
@@ -248,18 +235,16 @@ struct OiStoryListScreen: View {
         let local = try await remote.localDraft(id: work.storyID, owner: owner)
         try Task.checkCancellation()
         guard reviewWork?.id == work.id else { return }
+        let consent = OiStoryConsentState(savedIDs: local?.agreedConsentClauseIDs ?? [])
         if remote.autoStoryModeration, let story, story.status == "pending" {
-            guard consentGranted || local?.agreedConsentClauseIDs?.contains(OiStoryConsentClause.ID.aiReviewV1.rawValue) == true else {
-                reviewConsentID = work.storyID
-                reviewWork = nil
-                return
+            guard consent.isAgreed(to: .aiReviewV1) else {
+                throw OiServiceError.server("초안으로 되돌린 뒤 공개 약관에서 AI 검수에 동의해 주세요.")
             }
             try await submitLegacyReview(work, story: story, owner: owner, originalLocal: local)
             return
         }
-        guard var draft = local ?? story.map({ OiLocalDraft(draft: OiStoryDraft(story: $0)) }),
+        guard let draft = local ?? story.map({ OiLocalDraft(draft: OiStoryDraft(story: $0)) }),
               OiCreationAccess.canEdit(status: story?.status, submitted: draft.submitted) else { throw OiServiceError.conflict }
-        var consent = OiStoryConsentState(savedIDs: draft.agreedConsentClauseIDs ?? [])
         guard consent.allRequiredClausesAreAgreed else {
             throw OiServiceError.server("오이를 눌러 필수 약관에 동의해 주세요.")
         }
@@ -272,10 +257,7 @@ struct OiStoryListScreen: View {
             throw OiServiceError.server("서버가 꾸민 오이 공개를 지원하면 다시 요청해 주세요.")
         }
         if remote.autoStoryModeration && !consent.isAgreed(to: .aiReviewV1) {
-            guard consentGranted else { reviewConsentID = work.storyID; reviewWork = nil; return }
-            consent.setAgreed(true, to: .aiReviewV1)
-            draft.agreedConsentClauseIDs = consent.savedIDs
-            draft.version += 1
+            throw OiServiceError.server(OiStoryConsentClause.aiReviewRequiredMessage)
         }
 
         if let look = draft.customization?.wardrobe {
@@ -305,7 +287,8 @@ struct OiStoryListScreen: View {
         let reopened = try await remote.reopenPendingStoryForAIReview(story)
         try Task.checkCancellation()
         guard reviewWork?.id == work.id, remote.account?.id == owner else { return }
-        let receipt = await remote.submitStory(reopened, card: card, agreesToAIReview: true)
+        let agrees = OiStoryConsentState(savedIDs: originalLocal?.agreedConsentClauseIDs ?? []).isAgreed(to: .aiReviewV1)
+        let receipt = await remote.submitStory(reopened, card: card, agreesToAIReview: agrees)
         try Task.checkCancellation()
         guard reviewWork?.id == work.id, remote.account?.id == owner else { return }
         let rejected = remote.moderationResult(for: reopened)?.status == .rejected
@@ -314,9 +297,6 @@ struct OiStoryListScreen: View {
            OiCreationAccess.canRebase(local.draft, to: reopened) {
             local.draft = OiStoryDraft(story: receipt ?? reopened)
             local.submitted = false
-            var consent = OiStoryConsentState(savedIDs: local.agreedConsentClauseIDs ?? [])
-            consent.setAgreed(true, to: .aiReviewV1)
-            local.agreedConsentClauseIDs = consent.savedIDs
             local.reviewedContentFingerprint = receipt != nil || rejected ? local.contentFingerprint : nil
             local.version += 1
             try await remote.saveLocalDraft(local, owner: owner)
@@ -358,6 +338,7 @@ struct OiStoryListScreen: View {
         let card = try await reviewCard(for: reviewDraft, customization: customization, portrait: portrait, story: existing)
         let current = try await remote.localDraft(id: work.storyID, owner: owner)
         guard current?.contentFingerprint == draft.contentFingerprint,
+              current?.agreedConsentClauseIDs == draft.agreedConsentClauseIDs,
               (current?.version ?? 0) <= draft.version else { throw OiServiceError.conflict }
         draft.draft = reviewDraft
         let saved = try await remote.saveDraftForReview(&draft, owner: owner)

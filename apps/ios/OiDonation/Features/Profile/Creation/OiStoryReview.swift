@@ -23,8 +23,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
     let isSubmitting: Bool
     let onClose: () -> Void
     let onEdit: (OiCreationStep) -> Void
-    let onSubmit: (Data?, OiStoryCardPublication?, Bool) -> Void
-    @Binding var agreesToAIReview: Bool
+    let onSubmit: (Data?, OiStoryCardPublication?) -> Void
     let storyPhoto: (OiEditingPhoto, Bool) -> StoryPhoto
 
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -334,18 +333,12 @@ struct OiStoryReview<StoryPhoto: View>: View {
                 Text("오이와 카드 이미지가 준비되면 검토를 요청할 수 있어요.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            if remote.autoStoryModeration {
-                Toggle(OiStoryConsentClause.aiReviewAgreement,
-                       isOn: $agreesToAIReview)
-                    .font(.footnote).disabled(isSubmitting)
-            }
             OiCreationNextButton(title: submitTitle,
-                                 enabled: canSubmit && !isSubmitting && artworkReady
-                                     && (!remote.autoStoryModeration || agreesToAIReview)) {
+                                 enabled: canSubmit && !isSubmitting && artworkReady) {
                 renderError = nil
                 do {
                     let card = try cardPublication()
-                    onSubmit(portraitPNG, card, agreesToAIReview)
+                    onSubmit(portraitPNG, card)
                 } catch let error as OiCardExportError {
                     renderError = error.localizedDescription
                 } catch {

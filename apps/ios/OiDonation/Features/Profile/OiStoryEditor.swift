@@ -782,13 +782,12 @@ struct OiStoryEditor: View {
             error: localError ?? remote.error ?? publicationAvailabilityMessage,
             canSubmit: canSubmit && publicationAvailabilityMessage == nil && !remote.isBusy && !saving, isSubmitting: publishing,
             onClose: { showingPreview = false },
-            onEdit: editFromReview, onSubmit: { portrait, card, agreesToAIReview in
+            onEdit: editFromReview, onSubmit: { portrait, card in
                 let reviewedCardPath = reusedCardPath
                 Task {
-                    await submitReview(portrait: portrait, card: card, reviewedCardPath: reviewedCardPath,
-                                       agreesToAIReview: agreesToAIReview)
+                    await submitReview(portrait: portrait, card: card, reviewedCardPath: reviewedCardPath)
                 }
-            }, agreesToAIReview: aiReviewConsent) { photo, thumbnail in
+            }) { photo, thumbnail in
                 reviewPhoto(photo, allowsRetry: !thumbnail, contentMode: thumbnail ? .fill : .fit,
                             maximumPixelSize: thumbnail ? 512 : 1600)
             }
@@ -804,6 +803,9 @@ struct OiStoryEditor: View {
         let inputIssues = OiCreationStep.reviewInputIssues(draft: draft, photoCount: editingPhotos.count)
         guard consentState.allRequiredClausesAreAgreed else {
             return [.init(step: .consent, message: "공개하려면 필수 약관에 모두 동의해 주세요.")] + inputIssues
+        }
+        if remote.autoStoryModeration && !consentState.isAgreed(to: .aiReviewV1) {
+            return [.init(step: .consent, message: OiStoryConsentClause.aiReviewRequiredMessage)] + inputIssues
         }
         return inputIssues
     }
@@ -822,8 +824,7 @@ struct OiStoryEditor: View {
         return nil
     }
 
-    private func submitReview(portrait: Data?, card: OiStoryCardPublication?, reviewedCardPath: String?,
-                              agreesToAIReview: Bool) async {
+    private func submitReview(portrait: Data?, card: OiStoryCardPublication?, reviewedCardPath: String?) async {
         guard !publishing, !remote.isBusy, !saving, canSubmit, publicationAvailabilityMessage == nil else { return }
         publishing = true
         localError = nil
@@ -845,7 +846,7 @@ struct OiStoryEditor: View {
         }
         let usesAIReview = remote.autoStoryModeration
         let receipt = await remote.submitStory(saved, cucumber: publication, card: card,
-                                               agreesToAIReview: agreesToAIReview)
+                                               agreesToAIReview: consentState.isAgreed(to: .aiReviewV1))
         if let receipt {
             draft = OiStoryDraft(story: receipt); localVersion += 1
             if usesAIReview {

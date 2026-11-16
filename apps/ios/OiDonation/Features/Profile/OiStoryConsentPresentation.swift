@@ -56,6 +56,7 @@ struct OiStoryConsentState: Equatable, Sendable {
 
 extension OiStoryConsentClause {
     static let aiReviewAgreement = "공개 검수를 위해 이야기와 첨부 사진·오이·카드 이미지를 OpenAI에 보내는 데 동의합니다."
+    static let aiReviewRequiredMessage = "공개 약관에서 AI 검수에 동의해 주세요."
 
     /// Figma `5400:7693` original text and order (#370).
     static let writingClauses: [Self] = [
