@@ -1,48 +1,76 @@
 import SwiftUI
 
 private enum OiWardrobeTab: String, CaseIterable {
-    case pose = "포즈", top = "상의", bottom = "하의", shoes = "신발", hat = "모자", set = "세트", accessory = "악세서리", special = "스페셜"
-    var isAvailable: Bool { [.top, .bottom, .shoes, .set].contains(self) }
+    // Figma `5719:9790`: 내용 comes first (#377).
+    case content = "내용", pose = "포즈", top = "상의", bottom = "하의", shoes = "신발", hat = "모자", set = "세트", accessory = "악세서리", special = "스페셜"
+    var isAvailable: Bool { [.content, .top, .bottom, .shoes, .set].contains(self) }
+    var isClothing: Bool { [.top, .bottom, .shoes, .set].contains(self) }
 }
 
 struct OiCucumberCustomizationStep: View {
     @Binding var customization: OiDraftCustomization
+    /// The draft's cucumber name, edited in the 내용 tab. Nil hides the tab's name field.
+    var cucumberName: Binding<String>?
     var canContinue = true
     var isFinished = false
     var onContinue: (() -> Void)?
     var onPhotoEditingChanged: (Bool) -> Void = { _ in }
+    /// Opens on a tab by its title (e.g. "상의"); used by visual checks.
+    var initialTabTitle: String?
     @Environment(\.oiCustomizationBottomInset) private var bottomInset
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var photoScene = OiWardrobeScene()
-    @State private var tab: OiWardrobeTab = .top
+    @State private var tab: OiWardrobeTab = .content
     @State private var wardrobeScrollPosition = ScrollPosition()
     @State private var photoSlot: OiPhotoSlot?
+    /// Top of the keyboard in global coordinates, animated with the keyboard itself (#377).
+    @State private var keyboardTop: CGFloat?
     private var look: OiWardrobeLook { customization.wardrobe ?? OiWardrobeLook() }
+    /// Tabs, the name label and its field must stay above the keyboard while typing.
+    private static let nameEditingClearance: CGFloat = 44 + 15 + 32 + 70 + 16
+
+    /// Shrinks the cucumber only as far as the keyboard requires.
+    private func previewHeight(full: CGFloat, in geometry: GeometryProxy) -> CGFloat {
+        guard let keyboardTop, photoSlot == nil else { return full }
+        let frame = geometry.frame(in: .global)
+        let overlap = max(0, frame.maxY - keyboardTop)
+        let available = frame.height - overlap - Self.nameEditingClearance - 22
+        return min(full, max(120, available))
+    }
 
     var body: some View {
         GeometryReader { geometry in
             let panelHeight = min(462.0, max(300.0, geometry.size.height - 180))
             VStack(spacing: 0) {
                 // Keep one RealityKit surface mounted while opening/closing the tools.
-                preview(height: photoSlot != nil ? max(160, geometry.size.height - panelHeight)
-                    : min(isFinished ? 350 : 270, geometry.size.height * 0.52))
-                    .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 16)
+                // Figma `5719:9790`: the cucumber area ends about 14pt above the tabs at y=491.
+                let fullHeight = photoSlot != nil ? max(160, geometry.size.height - panelHeight)
+                    : min(320, geometry.size.height * 0.5)
+                preview(height: previewHeight(full: fullHeight, in: geometry), fullHeight: fullHeight)
+                    .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 14)
+                    // While the image sheet is open, a tap above it closes the sheet without saving (#377).
+                    .contentShape(Rectangle())
+                    .simultaneousGesture(TapGesture().onEnded { if photoSlot != nil { closePhotoEditor() } })
                 if let slot = photoSlot {
                     OiWardrobePhotoEditor(slot: slot, look: look, scene: photoScene,
                         onClose: closePhotoEditor) { artwork in
                             change { $0.artwork = artwork }
                         }
                         .frame(height: panelHeight)
+                        // Figma `5719:9585`: #EAEEE2 sheet, 35pt top corners, soft shadow.
                         .background {
                             UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35)
-                                .fill(CampusStyle.mapSheet)
+                                .fill(Color(red: 234 / 255, green: 238 / 255, blue: 226 / 255))
+                                .shadow(color: .black.opacity(0.25), radius: 5)
                                 .ignoresSafeArea(.container, edges: .bottom)
                         }
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
                     VStack(spacing: 0) {
                         if !isFinished {
-                            wardrobeTabs.frame(height: 44).padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 8)
+                            wardrobeTabs.frame(height: 44).padding(.horizontal, 20)
+                            // The item tray stays put; only the colors below it scroll (#377).
+                            if showsItemTray { itemStrip.padding(.horizontal, 20).padding(.bottom, 4) }
                         }
                         ScrollView {
                             VStack(spacing: 16) {
@@ -53,28 +81,63 @@ struct OiCucumberCustomizationStep: View {
                                 } else {
                                     wardrobeControls
                                 }
-                            }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 24 + bottomInset)
+                            // Figma: the 내용 tab starts 15pt below the tabs, the item tray directly under them.
+                            }.padding(.horizontal, 20).padding(.top, tab == .content || isFinished ? 15 : 0)
+                                .padding(.bottom, 24 + bottomInset)
                         }
+                        // The 내용 tab fits on screen, so it does not scroll (#377).
+                        .scrollDisabled(tab == .content && !isFinished)
                         .modifier(OiCustomizationScrollEdge())
                         .accessibilityIdentifier("oi.wardrobe.settingsScroll")
                         .scrollPosition($wardrobeScrollPosition)
                         .onChange(of: tab) { _, _ in wardrobeScrollPosition.scrollTo(edge: .top) }
                     }
-                    .modifier(OiCustomizationPanelSurface())
                 }
-            }.background(OiCustomizationStyle.previewBackground)
+            }
+            // Figma `5719:9790`: one white page without the separate grey preview and panel (#377).
+            .background(Color.white.ignoresSafeArea(.container, edges: .bottom))
+        }
+        // Follow the keyboard ourselves so the cucumber scales with the keyboard animation
+        // instead of the 3D view jumping to a new size (#377).
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            keyboardChanged(note, hiding: false)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { note in
+            keyboardChanged(note, hiding: true)
         }
         .onAppear {
             if customization.wardrobe == nil { customization.wardrobe = OiWardrobeLook() }
-            if look.costume != nil { tab = .set }
+            if let title = initialTabTitle, let initial = OiWardrobeTab(rawValue: title) { tab = initial }
         }
     }
 
-    private func preview(height: CGFloat) -> some View {
+    private func keyboardChanged(_ note: Notification, hiding: Bool) {
+        let info = note.userInfo ?? [:]
+        let end = (info[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect) ?? .zero
+        let duration = (info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+        let top: CGFloat? = hiding || end.height == 0 ? nil : end.minY
+        guard top != keyboardTop else { return }
+        withAnimation(reduceMotion ? nil : .smooth(duration: max(0.25, duration))) { keyboardTop = top }
+    }
+
+    private func preview(height: CGFloat, fullHeight: CGFloat) -> some View {
         ZStack(alignment: .bottomTrailing) {
-            OiWardrobePreview(look: look, controls: photoSlot == nil, scene: photoScene,
-                backgroundColor: OiCustomizationStyle.previewUIColor)
+            // The 3D surface keeps its full size and is scaled, so it shrinks smoothly without re-rendering at each step.
+            OiWardrobePreview(look: look, controls: false, scene: photoScene,
+                backgroundColor: .white)
+                .frame(height: fullHeight)
+                .scaleEffect(fullHeight > 0 ? min(1, height / fullHeight) : 1, anchor: .center)
                 .frame(height: height)
+                // Only the cucumber shrinks; the 360° hint keeps its size (#377).
+                .overlay(alignment: .bottomLeading) {
+                    if photoSlot == nil {
+                        OiWardrobeRotationHint()
+                            .padding(.bottom, 8)
+                            .accessibilityAction(named: "오른쪽으로 돌리기") { photoScene.orbit(-157) }
+                            .accessibilityAction(named: "왼쪽으로 돌리기") { photoScene.orbit(157) }
+                    }
+                }
                 .overlay(alignment: .topTrailing) {
                     if photoSlot != nil {
                         Text("실시간 미리보기").font(.caption2).foregroundStyle(Color("OiGreen")).padding(8)
@@ -94,41 +157,218 @@ struct OiCucumberCustomizationStep: View {
         onPhotoEditingChanged(false)
     }
 
+    /// Figma `5719:9606`: tabs spread across the width; the selected one is bold green with a 39pt underline.
     private var wardrobeTabs: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-          HStack(spacing: 20) {
-            ForEach(OiWardrobeTab.allCases.filter(\.isAvailable), id: \.self) { category in
-                Button { tab = category } label: {
-                    Text(category.rawValue).font(tab == category ? CampusStyle.semibold(16) : CampusStyle.medium(16))
-                        .frame(minHeight: 44)
-                        .overlay(alignment: .bottom) {
-                            if tab == category { Rectangle().fill(Color("OiGreen")).frame(height: 2) }
-                        }
-                }.buttonStyle(OiCreationPressStyle()).foregroundStyle(tab == category ? Color("OiGreen") : .secondary)
-                    .accessibilityIdentifier("oi.wardrobe.tab.\(category.rawValue)")
-                    .accessibilityAddTraits(tab == category ? .isSelected : [])
+        let categories = OiWardrobeTab.allCases.filter(\.isAvailable)
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 0) {
+                ForEach(Array(categories.enumerated()), id: \.element) { index, category in
+                    if index > 0 { Spacer(minLength: 12) }
+                    tabButton(category)
+                }
             }
-          }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 20) { ForEach(categories, id: \.self) { tabButton($0) } }
+            }
         }
     }
 
+    private func tabButton(_ category: OiWardrobeTab) -> some View {
+        let selected = tab == category
+        return Button { tab = category } label: {
+            VStack(spacing: 5) {
+                Text(category.rawValue)
+                    .font(selected ? .custom("Paperlogy-7Bold", size: 16, relativeTo: .body) : CampusStyle.medium(16))
+                    .tracking(0.32)
+                Rectangle().fill(selected ? Color("OiGreen") : .clear).frame(width: 39, height: 2)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(OiCreationPressStyle())
+        .foregroundStyle(selected ? Color("OiGreen") : Color(white: 113 / 255))
+        .accessibilityIdentifier("oi.wardrobe.tab.\(category.rawValue)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
     @ViewBuilder private var wardrobeControls: some View {
-        items.id(tab).padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color("OiSoft"), in: RoundedRectangle(cornerRadius: 14))
-        if look.costume != nil && tab.isAvailable && tab != .set {
-            Text("한 벌 의상을 입고 있어요. 아이템을 고르면 개별 코디로 돌아가요.")
-                .font(.caption).foregroundStyle(.secondary)
+        if tab == .content {
+            if let cucumberName { OiCucumberNameField(name: cucumberName) }
+        } else {
+            clothingControls
         }
-        if tab.isAvailable && tab != .set && look.costume == nil {
-            if tab == .top && look.top == .postech {
-                Text("포스텍 과잠은 원래 색상과 로고를 유지해요.").font(.footnote).foregroundStyle(Color("OiDark"))
-            } else { colorPicker }
+    }
+
+    @ViewBuilder private var clothingControls: some View {
+        if tab == .set {
+            // Same #D9D9D9 tray as 상의·하의 (#377).
+            items.id(tab).padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(white: 217 / 255), in: RoundedRectangle(cornerRadius: 10))
+            if let slot = selectedPhotoSlot { photoControls(slot) }
+        } else {
+            // Figma `5719:9981` 상의 (also 하의·신발): the fixed item tray above, then custom color/image, colors and denim.
+            VStack(alignment: .leading, spacing: 20) {
+                // The postech jacket keeps its own colors and print, so neither option is offered.
+                if showsColors {
+                    HStack(spacing: 21) {
+                        customColorButton
+                        if let slot = selectedPhotoSlot { addImageButton(slot) }
+                    }
+                }
+                if showsColors { colorRows }
+                if let slot = selectedPhotoSlot, showsColors { denimRow(slot) }
+            }
+            .padding(.horizontal, 8).padding(.top, 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        Text("드래그로 돌려보세요. 옷에 맞는 오이가 함께 선택돼요.")
-            .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-        Text("꾸민 모습은 내 지도에 바로 배치할 수 있어요. 공개 검토를 요청하면 이 모습도 함께 검토해요.")
-            .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-        if let slot = selectedPhotoSlot { photoControls(slot) }
+    }
+
+    private var showsItemTray: Bool { [.top, .bottom, .shoes].contains(tab) }
+
+    /// The postech jacket and one-piece sets keep their own colors.
+    private var showsColors: Bool { look.costume == nil && !(tab == .top && look.top == .postech) }
+
+    /// Figma `5719:10056`: up to four 76×112 white cards centered on a #D9D9D9 tray, without scrolling.
+    private var itemStrip: some View {
+        HStack(spacing: 12) {
+                switch tab {
+                case .top:
+                    ForEach(OiWardrobeLook.Top.allCases, id: \.self) { top in
+                        card(top.title, image: "oi-thumb-\(top.rawValue)", selected: look.costume == nil && look.top == top, id: top.rawValue) {
+                            change { $0.top = top; $0.costume = nil }
+                        }
+                    }
+                case .bottom:
+                    ForEach(OiWardrobeLook.Bottom.allCases, id: \.self) { bottom in
+                        card(bottom.title, image: "oi-thumb-\(bottom == .long ? "long-pants" : "shorts")", selected: look.costume == nil && look.bottom == bottom, id: bottom.rawValue) {
+                            change { $0.bottom = bottom; $0.costume = nil }
+                        }
+                    }
+                case .shoes:
+                    card("흰 운동화", image: "oi-thumb-sneakers", selected: look.costume == nil, id: "sneakers") {
+                        change { $0.shoeColor = 0xFFFFFF; $0.costume = nil }
+                    }
+                default:
+                    EmptyView()
+                }
+        }
+        .frame(maxWidth: .infinity, minHeight: 131)
+        .background(Color(white: 217 / 255), in: RoundedRectangle(cornerRadius: 10))
+        .id(tab)
+    }
+
+    private func card(_ title: String, image: String, selected: Bool, id: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                if let url = Bundle.main.url(forResource: image, withExtension: "png") ?? Bundle.main.url(forResource: image, withExtension: "jpg"), let thumbnail = UIImage(contentsOfFile: url.path) {
+                    Image(uiImage: thumbnail).resizable().scaledToFit().frame(maxHeight: 76)
+                } else {
+                    Image(systemName: "tshirt").font(.system(size: 30)).frame(maxHeight: 76)
+                }
+                Text(title).font(CampusStyle.body(12)).tracking(0.24).foregroundStyle(.black)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+            }
+            .padding(.horizontal, 6).padding(.top, 8).padding(.bottom, 12)
+            .frame(width: 76, height: 112)
+            .background(.white, in: RoundedRectangle(cornerRadius: 10))
+            .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(selected ? Color("OiGreen") : .clear, lineWidth: 2) }
+            .overlay(alignment: .topTrailing) { if selected { OiWardrobeSelectedBadge().padding(.top, 6).padding(.trailing, 6) } }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("oi.wardrobe.item.\(id)")
+        .accessibilityLabel(title).accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    /// Figma `5719:9986`: the system color well next to its label and current RGB.
+    private var customColorButton: some View {
+        HStack(spacing: 10) {
+            ColorPicker("직접 색상 선택", selection: customColor, supportsOpacity: false)
+                .labelsHidden().frame(width: 40, height: 40)
+                .accessibilityLabel("\(tab.rawValue) 직접 색상 선택")
+                .accessibilityIdentifier("oi.wardrobe.color.custom")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("직접 색상 선택").font(.custom("Paperlogy-7Bold", size: 13, relativeTo: .footnote)).tracking(0.26)
+                    .foregroundStyle(Color(white: 49 / 255))
+                Text("RGB 0-255 #" + String(format: "%06X", currentColor)).font(CampusStyle.body(10)).tracking(0.2)
+                    .foregroundStyle(Color(red: 170 / 255, green: 167 / 255, blue: 167 / 255))
+            }
+        }
+    }
+
+    /// Figma `5719:9991`: opens the photo editor for the selected garment.
+    private func addImageButton(_ slot: OiPhotoSlot) -> some View {
+        let design = look.artwork.designs[slot.itemID(in: look)]
+        return Button {
+            photoScene.editPhotos(in: slot, look: look)
+            onPhotoEditingChanged(true)
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { photoSlot = slot }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "photo.badge.plus").font(.system(size: 14))
+                    .foregroundStyle(Color(white: 123 / 255))
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(.white))
+                    .overlay(Circle().strokeBorder(Color(white: 225 / 255), lineWidth: 4))
+                Text(design == nil ? "직접 이미지 추가" : "직접 이미지 수정")
+                    .font(.custom("Paperlogy-7Bold", size: 13, relativeTo: .footnote)).tracking(0.26)
+                    .foregroundStyle(Color(white: 49 / 255))
+            }
+            .frame(minHeight: 44)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("oi.wardrobe.photo.edit")
+    }
+
+    /// Figma `5719:9997`: two rows of six 40pt swatches, 21pt apart.
+    private var colorRows: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            ForEach([Self.neutral, Self.pastel], id: \.first?.1) { row in
+                HStack(spacing: 21) {
+                    ForEach(row, id: \.1) { name, rgb in swatch(name, rgb: rgb) }
+                }
+            }
+        }
+    }
+
+    private func swatch(_ name: String, rgb: UInt32) -> some View {
+        let selected = currentFabric == nil && currentColor == rgb
+        return Button { selectColor(rgb) } label: {
+            VStack(spacing: 5) {
+                Circle().fill(Color(UIColor(wardrobeRGB: rgb)))
+                    .overlay { Circle().strokeBorder(selected ? Color("OiGreen") : Color.black.opacity(0.08), lineWidth: selected ? 2 : 1) }
+                    .frame(width: 40, height: 40)
+                Text(name).font(CampusStyle.body(10)).tracking(0.2).foregroundStyle(Color(white: 49 / 255))
+                    .lineLimit(1).minimumScaleFactor(0.8)
+            }.frame(width: 40)
+        }
+        .buttonStyle(.plain).accessibilityLabel("\(tab.rawValue) \(name)")
+        .accessibilityIdentifier("oi.wardrobe.color.\(name)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    /// Figma `5719:10036` 질감: the six denim textures.
+    private func denimRow(_ slot: OiPhotoSlot) -> some View {
+        HStack(spacing: 21) {
+            ForEach(OiDenim.allCases) { fabric in
+                let selected = currentFabric == fabric
+                Button { change { $0.fabrics[slot.itemID(in: look)] = fabric } } label: {
+                    VStack(spacing: 5) {
+                        Group {
+                            if let image = OiPhotoRenderer.fabricImage(fabric) {
+                                Image(uiImage: image).resizable().scaledToFill()
+                            } else { Color.gray }
+                        }
+                        .frame(width: 40, height: 40).clipShape(Circle())
+                        .overlay { Circle().strokeBorder(selected ? Color("OiGreen") : Color.black.opacity(0.08), lineWidth: selected ? 2 : 1) }
+                        Text(fabric.title).font(CampusStyle.body(10)).tracking(0.2).foregroundStyle(Color(white: 49 / 255))
+                    }.frame(width: 40)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(tab.rawValue) \(fabric.title) 데님")
+                .accessibilityIdentifier("oi.wardrobe.denim.\(fabric.rawValue)")
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
     }
 
     private var selectedPhotoSlot: OiPhotoSlot? {
@@ -168,7 +408,7 @@ struct OiCucumberCustomizationStep: View {
         } else {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 10) {
             switch tab {
-            case .pose, .hat, .accessory, .special:
+            case .content, .pose, .hat, .accessory, .special:
                 EmptyView()
             case .top:
                 ForEach(OiWardrobeLook.Top.allCases, id: \.self) { top in
@@ -215,75 +455,12 @@ struct OiCucumberCustomizationStep: View {
             }.padding(5).frame(maxWidth: .infinity)
                 .background(.white, in: RoundedRectangle(cornerRadius: 10))
                 .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(selected ? Color("OiGreen") : .clear, lineWidth: 2) }
-                .overlay(alignment: .topTrailing) {
-                    if selected { Image(systemName: "checkmark.circle.fill").font(.caption).foregroundStyle(Color("OiGreen")).padding(5).accessibilityHidden(true) }
-                }
+                .overlay(alignment: .topTrailing) { if selected { OiWardrobeSelectedBadge().padding(.top, 6).padding(.trailing, 6) } }
         }.buttonStyle(.plain).foregroundStyle(Color("OiDark"))
             .accessibilityIdentifier("oi.wardrobe.item.\(id)")
             .accessibilityLabel(title).accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private var colorPicker: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("\(tab.rawValue) 색상").font(CampusStyle.semibold(15))
-                Spacer()
-                Text(selectedColorName).font(.caption).foregroundStyle(.secondary)
-            }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 6)) {
-                ForEach(colors, id: \.1) { name, rgb in
-                    Button { selectColor(rgb) } label: {
-                        VStack(spacing: 4) {
-                            Circle().fill(Color(UIColor(wardrobeRGB: rgb)))
-                                .overlay { Circle().strokeBorder(Color.black.opacity(0.12), lineWidth: 1) }
-                                .overlay { if currentFabric == nil && currentColor == rgb { Image(systemName: "checkmark").font(.caption.bold()).foregroundStyle(rgb == 0x555957 ? .white : Color("OiDark")) } }
-                                .frame(width: 34, height: 34)
-                            Text(name).font(.system(size: 10)).foregroundStyle(Color("OiDark"))
-                        }.frame(maxWidth: .infinity, minHeight: 54)
-                    }.buttonStyle(.plain).accessibilityLabel("\(tab.rawValue) \(name)")
-                        .accessibilityIdentifier("oi.wardrobe.color.\(name)")
-                        .accessibilityAddTraits(currentFabric == nil && currentColor == rgb ? .isSelected : [])
-                }
-            }
-            if let slot = selectedPhotoSlot {
-                Text("데님 텍스처").font(CampusStyle.semibold(15))
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 6)) {
-                    ForEach(OiDenim.allCases) { fabric in
-                        Button { change { $0.fabrics[slot.itemID(in: look)] = fabric } } label: {
-                            VStack(spacing: 4) {
-                                if let image = OiPhotoRenderer.fabricImage(fabric) {
-                                    Image(uiImage: image).resizable().scaledToFill().frame(width: 38, height: 38)
-                                        .clipShape(RoundedRectangle(cornerRadius: 9))
-                                        .overlay {
-                                            if currentFabric == fabric {
-                                                Image(systemName: "checkmark.circle.fill").foregroundStyle(.white, Color("OiGreen"))
-                                            }
-                                        }
-                                }
-                                Text(fabric.title).font(.system(size: 10))
-                            }.frame(maxWidth: .infinity, minHeight: 56)
-                        }.buttonStyle(.plain).foregroundStyle(Color("OiDark"))
-                            .accessibilityLabel("\(tab.rawValue) \(fabric.title) 데님")
-                            .accessibilityIdentifier("oi.wardrobe.denim.\(fabric.rawValue)")
-                            .accessibilityAddTraits(currentFabric == fabric ? .isSelected : [])
-                    }
-                }
-            }
-            HStack(spacing: 12) {
-                ColorPicker("직접 색상 선택", selection: customColor, supportsOpacity: false)
-                    .labelsHidden().frame(width: 44, height: 44)
-                    .accessibilityLabel("\(tab.rawValue) 직접 색상 선택")
-                    .accessibilityIdentifier("oi.wardrobe.color.custom")
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("직접 색상 선택").font(CampusStyle.semibold(14))
-                    Text("RGB 0–255 · #" + String(format: "%06X", currentColor))
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-
-        }
-    }
     private static let neutral: [(String, UInt32)] = [("화이트", 0xFFFFFF), ("아이보리", 0xF2EBDD), ("오트밀", 0xD7CBB8), ("토프", 0xB2A398), ("스톤", 0xB9BFBA), ("차콜", 0x555957)]
     private static let pastel: [(String, UInt32)] = [("세이지", 0xC6D8C2), ("민트", 0xC2DED3), ("스카이", 0xC5DBEC), ("라벤더", 0xD6CCE8), ("블러시", 0xEDCCD2), ("버터", 0xF1E3B2)]
     private var colors: [(String, UInt32)] { Self.neutral + Self.pastel }
@@ -305,11 +482,154 @@ struct OiCucumberCustomizationStep: View {
             case .top: value.topColor = rgb
             case .bottom: value.bottomColor = rgb
             case .shoes: value.shoeColor = rgb
-            case .set, .pose, .hat, .accessory, .special: break
+            case .content, .set, .pose, .hat, .accessory, .special: break
             }
         }
     }
     private func change(_ action: (inout OiWardrobeLook) -> Void) {
         var value = look; action(&value); customization.wardrobe = value
+    }
+}
+
+/// Figma `5719:10124` 오이 이름: five letter boxes before a fixed "오이", edited after tapping 수정 (#377).
+struct OiCucumberNameField: View {
+    @Binding var name: String
+    @State private var editing = false
+    @State private var input = ""
+    static let letterLimit = 5
+
+    private var baseName: String { name.hasSuffix("오이") ? String(name.dropLast(2)) : name }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .lastTextBaseline, spacing: 10) {
+                Text("오이 이름").font(CampusStyle.medium(16)).foregroundStyle(.black)
+                Text("‘오이’를 제외한 다섯글자 이내 오이이름을 작성해주세요")
+                    .font(.custom("Paperlogy-3Light", size: 10, relativeTo: .caption2))
+                    .foregroundStyle(Color(white: 171 / 255))
+                    .lineLimit(1).minimumScaleFactor(0.8)
+            }
+            HStack {
+                if editing {
+                    OiLimitedTextField(text: $input, limit: Self.letterLimit,
+                                       placeholder: "다섯 글자 이내", onEnd: commit)
+                        .frame(minHeight: 36)
+                    Text("오이").font(CampusStyle.body(16)).tracking(0.32)
+                } else {
+                    Button(action: beginEditing) { letterBoxes }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("두 번 탭하여 오이 이름을 수정해요")
+                        .accessibilityIdentifier("oi.cucumberName.boxes")
+                }
+                Spacer(minLength: 8)
+                Button(editing ? "완료" : "수정") { editing ? commit() : beginEditing() }
+                    .font(CampusStyle.body(10)).tracking(0.2).underline()
+                    .foregroundStyle(Color("OiGreen"))
+                    .frame(minWidth: 44, minHeight: 44)
+                    .accessibilityIdentifier("oi.cucumberName.edit")
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 4)
+            .frame(minHeight: 70)
+            .background(Color(white: 247 / 255), in: RoundedRectangle(cornerRadius: 30))
+            if editing && input.count > Self.letterLimit {
+                Text("다섯 글자까지 입력할 수 있어요.").font(.caption).foregroundStyle(.red)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var letterBoxes: some View {
+        let letters = Array(baseName)
+        return HStack(spacing: 5) {
+            ForEach(0..<Self.letterLimit, id: \.self) { index in
+                Text(index < letters.count ? String(letters[index]) : "-")
+                    .font(CampusStyle.body(16)).tracking(0.32)
+                    .frame(width: 31, height: 36)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 10))
+            }
+            Text("오이").font(CampusStyle.body(16)).tracking(0.32).padding(.leading, 5)
+        }
+        .foregroundStyle(.black)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(baseName.isEmpty ? "오이 이름 없음" : "오이 이름 \(name)")
+    }
+
+    private func beginEditing() {
+        input = baseName
+        editing = true
+    }
+
+    private func commit() {
+        let trimmed = String(input.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.letterLimit))
+        // An older name that already fits is kept as is when nothing changed.
+        guard editing else { return }
+        if trimmed != baseName { name = trimmed.isEmpty ? "" : trimmed + "오이" }
+        editing = false
+    }
+}
+
+/// A UIKit field that limits letters only after Korean composition finishes; SwiftUI `TextField`
+/// keeps showing composed text that its binding rejected (#377).
+struct OiLimitedTextField: UIViewRepresentable {
+    @Binding var text: String
+    let limit: Int
+    var placeholder = ""
+    var onEnd: () -> Void = {}
+
+    func makeUIView(context: Context) -> UITextField {
+        let field = UITextField()
+        field.font = UIFont(name: "Paperlogy-4Regular", size: 16) ?? .systemFont(ofSize: 16)
+        field.defaultTextAttributes[.kern] = 0.32
+        field.textColor = .black
+        field.placeholder = placeholder
+        field.returnKeyType = .done
+        field.text = text
+        field.delegate = context.coordinator
+        field.accessibilityIdentifier = "oi.draft.cucumberName.step3"
+        field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        DispatchQueue.main.async { field.becomeFirstResponder() }
+        return field
+    }
+
+    func updateUIView(_ field: UITextField, context: Context) {
+        context.coordinator.parent = self
+        if field.markedTextRange == nil, field.text != text { field.text = text }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: OiLimitedTextField
+        init(_ parent: OiLimitedTextField) { self.parent = parent }
+
+        @objc func changed(_ field: UITextField) {
+            // Wait until a Korean syllable is committed before counting it.
+            guard field.markedTextRange == nil else { return }
+            var value = field.text ?? ""
+            // Past the limit, keep the previous text (an older longer name may still be shortened).
+            if value.count > parent.limit && value.count >= parent.text.count {
+                value = parent.text.count <= parent.limit ? parent.text : String(value.prefix(parent.limit))
+                field.text = value
+            }
+            parent.text = value
+        }
+
+        func textFieldShouldReturn(_ field: UITextField) -> Bool { field.resignFirstResponder(); return true }
+        func textFieldDidEndEditing(_ field: UITextField) { changed(field); parent.onEnd() }
+    }
+}
+
+/// Figma `5400:8139` 체크 표시: a 16pt #708C40 circle with a white bold check.
+struct OiWardrobeSelectedBadge: View {
+    var body: some View {
+        Image(systemName: "checkmark")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: 16, height: 16)
+            .background(Color("OiGreen"), in: Circle())
+            .accessibilityHidden(true)
     }
 }

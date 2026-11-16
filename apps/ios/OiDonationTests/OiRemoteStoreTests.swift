@@ -1919,6 +1919,22 @@ final class OiRemoteStoreTests: XCTestCase {
                 proof.lifetime = .keepAlways; add(proof)
             }
 
+            if step == .card {
+                // Figma `5887:10243`: STEP 4 Done saves locally and opens the completion summary (#377).
+                try XCTUnwrap(actions).finish()
+                try await Task.sleep(for: .seconds(1))
+                XCTAssertTrue(try XCTUnwrap(actions).isCompletion(), "Card Done must open the completion view")
+                XCTAssertFalse(try XCTUnwrap(actions).isPlacementPreview())
+                XCTAssertNil(backend.snapshot().story, "Card Done must not submit a story")
+                let saved = try await store.localDraft(id: local.id, owner: OiTestBackend.owner)
+                XCTAssertNotNil(saved, "Card Done must keep the draft on this device")
+                let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                    window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+                }
+                let attachment = XCTAttachment(image: image); attachment.name = "story-completion-view"
+                attachment.lifetime = .keepAlways; add(attachment)
+                continue
+            }
             try XCTUnwrap(actions).finish()
             try await Task.sleep(for: .seconds(1))
             XCTAssertTrue(visible, "Done must reveal navigation without scrolling")
@@ -1948,6 +1964,43 @@ final class OiRemoteStoreTests: XCTestCase {
                 XCTAssertNil(backend.snapshot().story, "Editing from review must not submit a story")
             }
         }
+    }
+
+    /// Figma `5887:10243`: STEP 4 Done saves locally, shows the completion view, and its Done returns to the list (#377).
+    @MainActor func testCardDoneShowsCompletionAndReturnsToList() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        var local = OiLocalDraft(draft: draft(title: "접수 완료 뷰"), version: 1, creationStep: OiCreationStep.card.rawValue)
+        local.draft.cucumberName = "기계이일구오이"
+        try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+        var actions: OiStoryEditor.NavigationTestActions?
+        var finished = false
+        let controller = UIHostingController(rootView: NavigationStack {
+            OiStoryEditor(remote: store, localID: local.id, onFinish: { finished = true })
+                .observeNavigationForTest({ _ in }, actions: { actions = $0 })
+        })
+        let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = controller; window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+        try await Task.sleep(for: .seconds(2))
+        XCTAssertFalse(try XCTUnwrap(actions).isCompletion())
+        try XCTUnwrap(actions).finish()
+        try await Task.sleep(for: .seconds(1))
+        XCTAssertTrue(try XCTUnwrap(actions).isCompletion(), "Card Done must open the completion view")
+        XCTAssertNil(backend.snapshot().story, "Card Done must not submit a story")
+        let saved = try await store.localDraft(id: local.id, owner: OiTestBackend.owner)
+        XCTAssertEqual(saved?.draft.cucumberName, "기계이일구오이", "Card Done must keep the draft on this device")
+        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image); attachment.name = "story-completion-view"
+        attachment.lifetime = .keepAlways; add(attachment)
+        XCTAssertFalse(finished)
+        try XCTUnwrap(actions).completionDone()
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(finished, "Completion Done must return to the story list")
     }
 
     @MainActor func testStepOneExitSavesDraftAndKeepsItOnSaveFailure() async throws {

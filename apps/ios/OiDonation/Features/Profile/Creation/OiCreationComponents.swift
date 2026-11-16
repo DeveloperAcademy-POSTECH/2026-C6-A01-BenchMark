@@ -301,11 +301,13 @@ struct OiCreationDoneButton: View {
     var title = "완료"
     let action: () -> Void
     var body: some View {
+        // Figma `5719:9874`: 16pt black on #D3DBC4, 16×6 padding, inside a 44pt hit area.
         Button(action: action) {
-            Text(title).font(CampusStyle.medium(20)).tracking(0.4)
-                .padding(.horizontal, 20).frame(minHeight: 44)
+            Text(title).font(CampusStyle.body(16)).tracking(0.32)
+                .padding(.horizontal, 16).padding(.vertical, 6)
                 .background(Color("OiBorder"), in: Capsule())
-        }.buttonStyle(OiCreationPressStyle()).foregroundStyle(Color("OiGreen")).disabled(!enabled)
+                .frame(minHeight: 44).contentShape(Rectangle())
+        }.buttonStyle(OiCreationPressStyle()).foregroundStyle(.black).disabled(!enabled)
     }
 }
 

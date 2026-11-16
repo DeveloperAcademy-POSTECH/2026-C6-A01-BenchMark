@@ -32,6 +32,24 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         ]
     }
 
+    func testCampusMapPolishCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        XCTAssertNotNil(UIFont(name: "YANGJIN", size: 26))
+        let house = try XCTUnwrap(UIImage(named: "CampusMyHouseButton"))
+        XCTAssertEqual(house.cgImage?.width, 402)
+        XCTAssertEqual(house.cgImage?.height, 402)
+        XCTAssertEqual(house.scale, 3)
+        for variant in variants where variant.name == "402x874" || variant.name == "375x667" {
+            let store = CampusStoryStore(defaults: fixture.defaults)
+            let remote = OiRemoteStore(vault: OiMemorySession())
+            let home = HomeView(container: .pilot, store: store, myDemo: MYLibraryStore(),
+                isCameraCoverActive: false, onOpenProfile: {}, onOpenStory: { _ in }, remote: remote)
+            try await capture(NavigationStack { home.environment(\.scenePhase, .active) }, name: "campus-map-polish", variant: variant,
+                defaults: fixture.defaults, delay: .seconds(2), attach: true, includesRealityKit: true, waitsForCampus: true)
+        }
+    }
+
     func testMYHouseArtworkDoesNotRevealImageMatte() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
@@ -1656,15 +1674,44 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         for variant in variants {
             let cucumber = CreationCapturePage(step: 3) {
-                OiCucumberCustomizationStep(customization: .constant(Self.customization), canContinue: true, onContinue: {})
+                OiCucumberCustomizationStep(customization: .constant(Self.customization), cucumberName: .constant("힌트펩오이"), canContinue: true, onContinue: {})
                     .environment(\.scenePhase, .active)
             }
-            try await capture(cucumber, name: "cucumber-customization", variant: variant, defaults: fixture.defaults, delay: .seconds(2))
+            try await capture(cucumber, name: "cucumber-customization", variant: variant, defaults: fixture.defaults, delay: .seconds(2), attach: true)
             let card = CreationCapturePage(step: 4) {
                 OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
                     canContinue: true, onContinue: {})
             }
             try await capture(card, name: "card-customization", variant: variant, defaults: fixture.defaults, attach: true)
+        }
+    }
+
+    /// One STEP 3 clothing tab per run (`TEST_RUNNER_OI_CAPTURE_TAB=상의`), because releasing the
+    /// wardrobe scene between captures currently aborts the test process (#377).
+    func testWardrobeClothingTabCapture() async throws {
+        let title = ProcessInfo.processInfo.environment["OI_CAPTURE_TAB"] ?? "상의"
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let page = CreationCapturePage(step: 3) {
+            OiCucumberCustomizationStep(customization: .constant(Self.customization), cucumberName: .constant("힌트펩오이"),
+                canContinue: true, onContinue: {}, initialTabTitle: title)
+                .environment(\.scenePhase, .active)
+        }
+        try await capture(page, name: "cucumber-\(title)", variant: variants[0], defaults: fixture.defaults, delay: .seconds(1), attach: true)
+    }
+
+    /// STEP 4 card 내용 tab (Figma `5919:12077`, #377).
+    func testCardContentTabCapture() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        for variant in [variants[0], variants[1]] {
+            let page = CreationCapturePage(step: 4) {
+                OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
+                    canContinue: true, onContinue: {})
+                    .tabForTest(ProcessInfo.processInfo.environment["OI_CAPTURE_CARD_TAB"] ?? "내용")
+            }
+            try await capture(page, name: "card-\(ProcessInfo.processInfo.environment["OI_CAPTURE_CARD_TAB"] ?? "내용")",
+                              variant: variant, defaults: fixture.defaults, attach: true)
         }
     }
 
@@ -2861,7 +2908,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                                  includesSafeArea: Bool = true,
                                  delay: Duration = .milliseconds(180), attach: Bool = false,
                                  checksBottomSheet: Bool = false, cucumberCameraYaw: Float? = nil,
-                                 includesRealityKit: Bool = false) async throws -> Data {
+                                 includesRealityKit: Bool = false, waitsForCampus: Bool = false) async throws -> Data {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first, "The isolated simulator test host must have a window scene")
@@ -2915,6 +2962,17 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             let bounds = try XCTUnwrap(sheet.containerView?.bounds)
             XCTAssertGreaterThan(frame.minY, bounds.minY)
             XCTAssertEqual(frame.maxY, bounds.maxY, accuracy: 1)
+        }
+        if waitsForCampus {
+            func ready(in view: UIView) -> Bool {
+                if let canvas = view as? CampusMapCanvas {
+                    return canvas.map?.scene.findEntity(named: "POSTECH v09 apricot cream copy") != nil
+                }
+                return view.subviews.contains { ready(in: $0) }
+            }
+            for _ in 0..<150 where !ready(in: host.view) { try await Task.sleep(for: .milliseconds(100)) }
+            XCTAssertTrue(ready(in: host.view), "The home capture must contain the loaded campus, not its spinner")
+            try await Task.sleep(for: .milliseconds(150))
         }
         let renderView: UIView = checksBottomSheet ? window : host.view
         // UIKit omits Metal layers. Temporarily display each surface's own snapshot

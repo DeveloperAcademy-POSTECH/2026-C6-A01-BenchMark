@@ -282,7 +282,7 @@ struct HomeView: View {
         let bottom = region == nil ? 8 : regionPanelHeight(geometry.size.height) + 58
         let bottomY = geometry.size.height + geometry.safeAreaInsets.top
         let controls = region == nil ? [
-            CGRect(x: 24, y: bottomY - 140, width: 112, height: 144),
+            CGRect(x: 22, y: bottomY - 108, width: 108, height: 112),
             CGRect(x: geometry.size.width - 84, y: bottomY - 204, width: 68, height: 208)
         ] : []
         scene.setMapLabelPresentation(enabled: !expanded,
@@ -297,19 +297,6 @@ struct HomeView: View {
     private var homeActions: some View {
         HStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 8) {
-                NavigationLink(value: MYDestination.cucumberCustomization) {
-                    HStack(spacing: -12) {
-                        MYFarmerArtwork(ownerID: remote?.account?.id, outfit: remote?.farmerOutfit)
-                            .frame(width: 38, height: 38).background(CampusStyle.secondaryAction, in: Circle())
-                            .clipShape(Circle()).overlay(Circle().stroke(CampusStyle.green, lineWidth: 1.5))
-                            .zIndex(1)
-                        Text(remote?.profile?.farmName ?? "오이").font(CampusStyle.medium(14)).tracking(0.28)
-                            .lineLimit(1).padding(.leading, 24).padding(.trailing, 15).padding(.vertical, 2)
-                            .background(.white, in: Capsule())
-                    }.shadow(color: CampusStyle.mapAction.opacity(0.4), radius: 7, y: 3)
-                        .frame(minHeight: 44)
-                }.buttonStyle(.plain).accessibilityLabel("오이 커스텀 열기")
-                    .accessibilityIdentifier("campus.profile")
                 Button(action: onOpenProfile) {
                     CampusMyHouseButtonArtwork()
                 }.buttonStyle(CampusMyHouseButtonStyle())
@@ -390,9 +377,9 @@ struct HomeView: View {
                     HStack(spacing: 8) {
                         Image("CampusSchoolIcon").renderingMode(.original).frame(width: 16, height: 16)
                         Text("POSTECH 농장").font(CampusStyle.semibold(18)).lineLimit(1).minimumScaleFactor(0.7)
-                    }.frame(width: 195, height: 42)
+                    }.padding(.horizontal, 14).frame(height: 42)
                 }
-                .buttonStyle(.plain).glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 20))
+                .buttonStyle(.plain).glassEffect(.clear.interactive(), in: Capsule())
                 .accessibilityLabel("캠퍼스 선택").accessibilityIdentifier("campus.school")
                 Spacer()
             }
@@ -501,24 +488,10 @@ struct HomeView: View {
 
 struct CampusMyHouseButtonArtwork: View {
     var body: some View {
-        Circle()
-            .fill(Color(red: 1, green: 247 / 255, blue: 219 / 255))
+        // Figma 5934:4877 includes the 100pt circle, house, border and 17pt shadow margin.
+        Image("CampusMyHouseButton").resizable().renderingMode(.original).scaledToFit()
+            .frame(width: 134, height: 134)
             .frame(width: 100, height: 100)
-            .overlay {
-                // The original export has an opaque white matte and a shadow that reaches its edges.
-                Image("CampusMyHouse").resizable().scaledToFit()
-                    .frame(width: 80, height: 80)
-                    .mask { Rectangle().padding(3).blur(radius: 2) }
-                    .offset(y: -3)
-                    .blendMode(.multiply)
-            }
-            .compositingGroup()
-            .clipShape(Circle())
-            .overlay {
-                Circle().strokeBorder(Color(red: 128 / 255, green: 99 / 255, blue: 33 / 255), lineWidth: 2)
-                    .frame(width: 104, height: 104)
-            }
-            .shadow(color: Color(red: 120 / 255, green: 77 / 255, blue: 25 / 255), radius: 7.5)
             .contentShape(Circle())
     }
 }
