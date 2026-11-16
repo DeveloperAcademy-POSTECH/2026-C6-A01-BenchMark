@@ -272,6 +272,7 @@ struct OiCucumberCustomizationStep: View {
             .frame(width: 76, height: 112)
             .background(.white, in: RoundedRectangle(cornerRadius: 10))
             .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(selected ? Color("OiGreen") : .clear, lineWidth: 2) }
+            .overlay(alignment: .topTrailing) { if selected { OiWardrobeSelectedBadge().padding(.top, 6).padding(.trailing, 6) } }
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("oi.wardrobe.item.\(id)")
@@ -454,9 +455,7 @@ struct OiCucumberCustomizationStep: View {
             }.padding(5).frame(maxWidth: .infinity)
                 .background(.white, in: RoundedRectangle(cornerRadius: 10))
                 .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(selected ? Color("OiGreen") : .clear, lineWidth: 2) }
-                .overlay(alignment: .topTrailing) {
-                    if selected { Image(systemName: "checkmark.circle.fill").font(.caption).foregroundStyle(Color("OiGreen")).padding(5).accessibilityHidden(true) }
-                }
+                .overlay(alignment: .topTrailing) { if selected { OiWardrobeSelectedBadge().padding(.top, 6).padding(.trailing, 6) } }
         }.buttonStyle(.plain).foregroundStyle(Color("OiDark"))
             .accessibilityIdentifier("oi.wardrobe.item.\(id)")
             .accessibilityLabel(title).accessibilityAddTraits(selected ? .isSelected : [])
@@ -620,5 +619,17 @@ struct OiLimitedTextField: UIViewRepresentable {
 
         func textFieldShouldReturn(_ field: UITextField) -> Bool { field.resignFirstResponder(); return true }
         func textFieldDidEndEditing(_ field: UITextField) { changed(field); parent.onEnd() }
+    }
+}
+
+/// Figma `5400:8139` 체크 표시: a 16pt #708C40 circle with a white bold check.
+struct OiWardrobeSelectedBadge: View {
+    var body: some View {
+        Image(systemName: "checkmark")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: 16, height: 16)
+            .background(Color("OiGreen"), in: Circle())
+            .accessibilityHidden(true)
     }
 }

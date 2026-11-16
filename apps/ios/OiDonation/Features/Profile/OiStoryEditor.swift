@@ -865,7 +865,8 @@ struct OiStoryEditor: View {
             }
         case .cucumber:
             OiCucumberCustomizationStep(customization: $customization, cucumberName: $draft.cucumberName,
-                canContinue: true, isFinished: customizationReady, onContinue: toggleCustomizationReady,
+                // Figma: 완료 goes straight to STEP 4 card customization (`5919:12077`, #377).
+                canContinue: true, isFinished: false, onContinue: advance,
                 onPhotoEditingChanged: { wardrobePhotoEditing = $0 })
         case .card:
             OiCardCustomizationStep(draft: $draft, customization: $customization,
