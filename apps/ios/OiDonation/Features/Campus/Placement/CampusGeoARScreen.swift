@@ -151,16 +151,19 @@ struct CampusGeoARScreen: View {
             NavigationStack {
                 Group {
                     if let story = stories.story(placement.storyID) {
-                        CampusStoryDetailView(story: story, store: stories)
+                        CampusCucumberStoryView(story: story, store: stories)
                             .navigationDestination(for: CampusDestination.self) { destination in
                                 // Keep related stories in this sheet without starting a second 3D renderer over AR.
                                 switch destination {
                                 case .summary(let id), .story(let id):
                                     if let related = stories.story(id) {
-                                        CampusStoryDetailView(story: related, store: stories)
+                                        CampusCucumberStoryView(story: related, store: stories)
                                     } else {
                                         ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc")
                                     }
+                                case .scratch, .storyList:
+                                    // Opened from the map's navigation after this cover closes.
+                                    EmptyView()
                                 }
                             }
                     } else {

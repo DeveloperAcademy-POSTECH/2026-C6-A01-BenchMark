@@ -604,13 +604,7 @@ struct OiStoryListScreen: View {
     }
 
     /// "24학번 반도체공학과 서수리" when the donor search details are set, otherwise the nickname (Figma `5441:17267`).
-    private var donorLine: String {
-        let profile = remote.profile
-        let name = profile?.publicName?.nonEmpty
-        let year = (profile?.admissionYear?.nonEmpty).map { "\($0.suffix(2))학번" }
-        let line = [year, profile?.department?.nonEmpty, name].compactMap { $0 }.joined(separator: " ")
-        return name == nil ? (profile?.nickname.nonEmpty ?? "익명") : line
-    }
+    private var donorLine: String { remote.profile?.publicDonorLine ?? "익명" }
 
     private func locationDisplayName(for regionID: String) -> String {
         guard let region = remote.regions.first(where: { $0.id == regionID }) else {

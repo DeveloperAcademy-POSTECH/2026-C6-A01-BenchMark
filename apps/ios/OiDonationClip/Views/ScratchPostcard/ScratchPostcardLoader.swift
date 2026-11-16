@@ -57,12 +57,15 @@ final class ScratchPostcardLoader {
     private(set) var state: State = .loading
     private var requestID = UUID()
 
-    func load(tag: String, repository: any StoryRepository) async {
+    /// `storyID` skips the tag lookup, for the full app opening a story's postcard straight from the map (#399).
+    func load(tag: String, repository: any StoryRepository, storyID preselected: String? = nil) async {
         let current = UUID()
         requestID = current
         state = .loading
         do {
-            guard let storyID = try await repository.fetchNFCPostcardStoryID(tag: tag),
+            let linked: String?
+            if let preselected { linked = preselected } else { linked = try await repository.fetchNFCPostcardStoryID(tag: tag) }
+            guard let storyID = linked,
                   let fetched = try await repository.fetchPublicPostcard(storyID: storyID) else {
                 guard requestID == current, !Task.isCancelled else { return }
                 state = .unavailable

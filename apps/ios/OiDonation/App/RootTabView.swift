@@ -12,9 +12,9 @@ struct RootTabView: View {
     @State private var showingStoryList = false
     @State private var authoredPlacementToReveal: UUID?
     @State private var photoSubject: ARCameraSubject?
-    @State private var collectionStory: CampusStory?
-    @State private var collectionReturnsToAR = false
     @State private var pendingStoryList = false
+    /// 수집하기 pressed over the AR camera: the scratch screen opens once the camera closes.
+    @State private var pendingScratchStoryID: String?
     @State private var plantedSelectionCover: OiStoryPlantSelection?
     @State private var plantedSelectionOpacity = 1.0
     @State private var showingPlantConfirmation = false
@@ -52,10 +52,25 @@ struct RootTabView: View {
                     }
                 case .story(let id):
                     if let story = store.story(id) {
-                        CampusStoryDetailView(story: story, store: store)
+                        CampusCucumberStoryView(story: story, store: store)
                     } else {
                         ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc")
                     }
+                case .scratch(let id):
+                    if let story = store.story(id) {
+                        CampusScratchScreen(story: story, repository: container.storyRepository, remote: remote,
+                                            onDonate: { path.append(CampusDestination.storyList) },
+                                            onSaved: {
+                                                // 앨범에 저장하기 → MY 수집한 기부.
+                                                var next = NavigationPath()
+                                                next.append(MYDestination.collectedWorkshop)
+                                                path = next
+                                            })
+                    } else {
+                        ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc")
+                    }
+                case .storyList:
+                    OiStoryListScreen(remote: remote)
                 }
             }
             .navigationDestination(for: PublicLinkParser.Destination.self) { publicDestination($0) }
@@ -72,9 +87,6 @@ struct RootTabView: View {
         }
         .onChange(of: OiContentSafetyStore.shared.authors) { _, _ in
             synchronizeRemote()
-            if let author = collectionStory?.authorID, OiContentSafetyStore.shared.isBlocked(author) {
-                isARPresented = false
-            }
             if let photoSubject, let author = store.story(photoSubject.id.uuidString)?.authorID,
                OiContentSafetyStore.shared.isBlocked(author) { isARPresented = false }
         }
@@ -93,12 +105,12 @@ struct RootTabView: View {
             guard scenePhase == .active else { return }
             OiContentSafetyStore.shared.reload()
             store.collectAction = { story in
-                guard collectionStory == nil else { return }
-                collectionReturnsToAR = isARPresented
-                collectionStory = story
-                isCameraCoverActive = true
-                isARPresented = true
+                if isARPresented {
+                    pendingScratchStoryID = story.id
+                    isARPresented = false
+                } else { path.append(CampusDestination.scratch(story.id)) }
             }
+            store.openStoryListAction = { path.append(CampusDestination.storyList) }
             store.createStoryAction = {
                 if isARPresented {
                     pendingStoryList = true
@@ -126,16 +138,11 @@ struct RootTabView: View {
         .fullScreenCover(isPresented: $isARPresented, onDismiss: {
             // Restore the map only after the camera's dismissal has finished.
             isCameraCoverActive = false
-            collectionStory = nil
             photoSubject = nil
             if pendingStoryList { pendingStoryList = false; showingStoryList = true }
+            if let id = pendingScratchStoryID { pendingScratchStoryID = nil; path.append(CampusDestination.scratch(id)) }
         }) {
-            if let collectionStory {
-                CampusCollectionGameHost(story: collectionStory, remote: remote, store: store) {
-                    if collectionReturnsToAR { self.collectionStory = nil }
-                    else { isARPresented = false }
-                }
-            } else if let photoSubject {
+            if let photoSubject {
                 ARCameraScreen(subject: photoSubject).id(photoSubject.id)
             }
         }

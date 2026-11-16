@@ -545,10 +545,11 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     func campusStory(_ item: OiLiveStory, order: Int = 0) -> CampusStory {
         var story = CampusStory(id: item.id.uuidString, regionID: item.regionId, title: item.cucumberName,
             image: item.cucumberAsset, tags: [item.theme, item.emotion],
-            donor: profiles.first { $0.id == item.userId }?.nickname ?? "작성자 정보 확인 중",
+            donor: profiles.first { $0.id == item.userId }.map(\.publicDonorLine) ?? "작성자 정보 확인 중",
             location: regions.first { $0.id == item.regionId }?.name ?? "POSTECH",
             date: item.createdDateLabel, order: order, popularity: collectionCounts[item.id] ?? 0, palette: 0)
         story.authorID = item.userId
+        story.storyTitle = item.title
         story.remoteBody = item.body
         story.remoteMediaPaths = mediaPaths(storyID: item.id)
         story.cucumberPortraitPath = item.cucumberArtwork?.path(.portrait)
@@ -730,7 +731,10 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         revision += 1
     }
 
-    private func change<Value: Decodable>(_ action: String, payload: [String: Any], as type: Value.Type) async -> Value? {
+    /// `refreshesInBackground` returns once the receipt is applied and reloads the lists afterwards, for callers
+    /// that only need the committed result on screen (#399).
+    private func change<Value: Decodable>(_ action: String, payload: [String: Any], as type: Value.Type,
+                                          refreshesInBackground: Bool = false) async -> Value? {
         guard !isBusy else { return nil }
         isBusy = true; error = nil
         defer { isBusy = false }
@@ -740,15 +744,16 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             let response = try await api.mutate(action, payload: payload, token: token(), as: type)
             guard started == generation else { throw OiServiceError.accountChanged }
             applyReceipt(response, action: action, payload: payload)
-            await refreshAfterCommit()
+            if refreshesInBackground { Task { await refreshAfterCommit() } }
+            else { await refreshAfterCommit() }
             return response
         } catch { if started == generation { noteAuthenticationFailure(error); self.error = error.localizedDescription }; return nil }
     }
 
-    func perform(_ action: String, payload: [String: Any]) async {
+    func perform(_ action: String, payload: [String: Any], refreshesInBackground: Bool = false) async {
         if ["reopen_story","delete_story","review_story","submit_story"].contains(action) {
-            _ = await change(action, payload: payload, as: OiLiveStory.self)
-        } else { _ = await change(action, payload: payload, as: OiMutationID.self) }
+            _ = await change(action, payload: payload, as: OiLiveStory.self, refreshesInBackground: refreshesInBackground)
+        } else { _ = await change(action, payload: payload, as: OiMutationID.self, refreshesInBackground: refreshesInBackground) }
     }
 
     func deleteStory(_ story: OiLiveStory) async -> Bool {

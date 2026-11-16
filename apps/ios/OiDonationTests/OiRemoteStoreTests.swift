@@ -4186,6 +4186,79 @@ extension OiRemoteStoreTests {
         } catch { XCTAssertEqual(error as? OiFeatureUsageError, .disabled(.photos)) }
     }
 
+    @MainActor func testCollectionSignInContinuationChangesForSameAccountReauthentication() async throws {
+        let authentication = OiControlledAuthentication()
+        let (store,backend,_,session,directory) = try context(expired: true, authentication: authentication)
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.failRefreshToken = true }
+        await store.start()
+        let owner = store.account?.id
+        XCTAssertTrue(store.needsReauthentication)
+        XCTAssertTrue(CampusCollectButton.needsSignIn(store))
+
+        let login = Task { await store.signIn() }
+        while !authentication.isPending { await Task.yield() }
+        authentication.complete(.success(try XCTUnwrap(OiMemorySession().value)))
+        await login.value
+
+        XCTAssertEqual(store.account?.id, owner, "Reauthentication need not change the account ID")
+        XCTAssertTrue(store.hasLoadedRemote)
+        XCTAssertFalse(CampusCollectButton.needsSignIn(store), "The collection continuation observes authentication readiness")
+    }
+
+    @MainActor func testScratchRevealWaitsForInitialAccountCollections() async throws {
+        let (store,backend,_,session,directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        let storyID = UUID()
+        let collection = try JSONSerialization.data(withJSONObject: [["story_id": storyID.uuidString]])
+        let fallback = OiStoreURLProtocol.handle
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.lastPathComponent == "oi_collections" { client.respond(200, collection) }
+            else { fallback?(request, client) }
+        }
+        let held = expectation(description: "Initial account read is pending")
+        backend.configure { $0.holdOwnerRead = true; $0.didHold = { held.fulfill() } }
+        let start = Task { await store.start() }
+        await fulfillment(of: [held], timeout: 5)
+        XCTAssertNotNil(store.account)
+        XCTAssertTrue(store.collections.isEmpty)
+        XCTAssertNil(CampusScratchScreen.initialRevealState(storyID: storyID, remote: store),
+                     "An in-flight read must not turn an existing collection into an unscratched postcard")
+
+        backend.releaseHeldRead(); await start.value
+        XCTAssertEqual(CampusScratchScreen.initialRevealState(storyID: storyID, remote: store), true)
+        XCTAssertEqual(CampusScratchScreen.initialRevealState(storyID: UUID(), remote: store), false)
+    }
+
+    @MainActor func testCancelledScratchSaveKeepsReceiptWithoutNavigating() async throws {
+        let (store,backend,_,session,directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let storyID = UUID(), owner = store.account?.id
+        let receipt = try JSONSerialization.data(withJSONObject: ["id": storyID.uuidString])
+        let collection = try JSONSerialization.data(withJSONObject: [["story_id": storyID.uuidString]])
+        let fallback = OiStoreURLProtocol.handle
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.lastPathComponent == "oi_mutate" { client.respond(200, receipt) }
+            else if request.url?.lastPathComponent == "oi_collections" { client.respond(200, collection) }
+            else { fallback?(request, client) }
+        }
+        var navigated = false
+        let save = Task { @MainActor in
+            await store.perform("collect", payload: ["id": storyID.uuidString])
+            // The server response has completed; cancel before the visible-screen continuation runs.
+            withUnsafeCurrentTask { $0?.cancel() }
+            return CampusScratchScreen.finishSaving(storyID: storyID, owner: owner, remote: store) { navigated = true }
+        }
+        let message = await save.value
+        XCTAssertTrue(store.collections.contains { $0.storyId == storyID }, "Committed collections survive UI cancellation")
+        XCTAssertFalse(navigated, "Leaving the scratch screen must suppress its late MY navigation")
+        XCTAssertNil(message)
+
+        XCTAssertNil(CampusScratchScreen.finishSaving(storyID: storyID, owner: owner, remote: store) { navigated = true })
+        XCTAssertTrue(navigated, "A visible, uncancelled save still opens MY")
+    }
+
     @MainActor func testRepeatedLoginDoesNotBecomeConfigurationError() async throws {
         let authentication = OiControlledAuthentication()
         let (store,backend,_,session,directory) = try context(authentication: authentication)

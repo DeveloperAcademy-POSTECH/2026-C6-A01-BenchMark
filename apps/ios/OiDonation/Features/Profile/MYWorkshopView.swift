@@ -10,13 +10,16 @@ import SwiftUI
 struct MYWorkshopView: View {
     let demo: MYLibraryStore
     var remote: OiRemoteStore?
+    let storyRepository: any StoryRepository
     @State private var selectedTab: MYWorkshopTab
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.dismiss) private var dismiss
 
-    init(demo: MYLibraryStore, remote: OiRemoteStore? = nil, initialTab: MYWorkshopTab = .authored) {
+    init(demo: MYLibraryStore, remote: OiRemoteStore? = nil, initialTab: MYWorkshopTab = .authored,
+         storyRepository: any StoryRepository = AppContainer.pilot.storyRepository) {
         self.demo = demo
         self.remote = remote
+        self.storyRepository = storyRepository
         _selectedTab = State(initialValue: initialTab)
     }
 
@@ -47,7 +50,7 @@ struct MYWorkshopView: View {
                     }
                     VStack(spacing: 10) {
                         tabs
-                        MYWorkshopContent(tab: selectedTab, demo: demo, remote: remote)
+                        MYWorkshopContent(tab: selectedTab, demo: demo, remote: remote, storyRepository: storyRepository)
                     }
                     .padding(.leading, 21).padding(.trailing, 19)
                     .padding(.top, 6)

@@ -52,6 +52,19 @@ struct OiProfile: Codable, Equatable, Identifiable {
     var admissionYear: String? = nil
 }
 
+extension OiProfile {
+    /// "24학번 반도체공학과 서수리" when the public donor details are set, otherwise the nickname (Figma `5441:17267`).
+    var publicDonorLine: String {
+        func clean(_ value: String?) -> String? {
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        guard let name = clean(publicName) else { return clean(nickname) ?? "익명" }
+        let year = clean(admissionYear).map { "\($0.suffix(2))학번" }
+        return [year, clean(department), name].compactMap { $0 }.joined(separator: " ")
+    }
+}
+
 struct OiPublicAcademicInfo: Equatable {
     var name = ""
     var department = ""
