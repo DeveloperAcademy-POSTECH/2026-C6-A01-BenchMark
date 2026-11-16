@@ -34,6 +34,19 @@ alter table benchmark_private.oi_building_notes enable row level security;
 alter table benchmark_private.oi_building_note_reports enable row level security;
 revoke all on benchmark_private.oi_note_buildings,benchmark_private.oi_building_notes,benchmark_private.oi_building_note_reports from public,anon,authenticated;
 
+-- Account deletion cascades notes; retain other channels' audits with the same UUID.
+create function benchmark_private.oi_building_note_cleanup_audit() returns trigger
+language plpgsql security definer set search_path='' as $$
+begin
+  delete from benchmark_private.oi_audit where target_id=old.id
+    and (starts_with(action,'building_note:') or starts_with(action,'building_note_ai:'));
+  return old;
+end;
+$$;
+revoke all on function benchmark_private.oi_building_note_cleanup_audit() from public,anon,authenticated;
+create trigger oi_building_note_cleanup_audit after delete on benchmark_private.oi_building_notes
+for each row execute function benchmark_private.oi_building_note_cleanup_audit();
+
 -- Stable IDs from the bundled POSTECH building catalog.
 insert into benchmark_private.oi_note_buildings(id,name) values
 ('135973462','포스코국제관'),

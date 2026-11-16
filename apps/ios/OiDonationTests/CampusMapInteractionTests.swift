@@ -11,10 +11,71 @@ import SwiftUI
 import XCTest
 import CryptoKit
 import Compression
+import WebKit
+import os
 @testable import OiDonation
 
 @MainActor
 final class CampusMapInteractionTests: XCTestCase {
+    func testIdleHomeMapStopsFrameUpdatesAndResumesWithoutReplacingScene() async throws {
+        let scene = CampusExploreScene(stillFrameDelay: .seconds(2))
+        let controller = UIViewController()
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        window.rootViewController = controller
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controller.view.addSubview(canvas)
+        window.isHidden = false
+        defer {
+            scene.suspendRendering()
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+        }
+        await scene.load()
+        XCTAssertTrue(scene.ready, scene.error ?? "Map did not load")
+        let renderer = try XCTUnwrap(canvas.map)
+        let anchor = try XCTUnwrap(renderer.scene.anchors.first)
+        let updates = OSAllocatedUnfairLock(initialState: 0)
+        let subscription = renderer.scene.subscribe(to: SceneEvents.Update.self) { _ in
+            updates.withLock { $0 += 1 }
+        }
+        defer { subscription.cancel() }
+
+        for _ in 0..<70 where renderer.superview != nil {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertNil(renderer.superview)
+        let stillFrame = try XCTUnwrap(canvas.subviews.compactMap { $0 as? UIImageView }.first?.image)
+        let attachment = XCTAttachment(image: stillFrame)
+        attachment.name = "Idle campus map frame"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        try await Task.sleep(for: .milliseconds(300))
+        let idleUpdates = updates.withLock { $0 }
+        XCTAssertGreaterThan(idleUpdates, 0, "A live renderer should update before parking")
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertEqual(updates.withLock { $0 }, idleUpdates, "The idle map must stop updating the RealityKit scene")
+
+        scene.recenter()
+        XCTAssertTrue(renderer.superview === canvas)
+        XCTAssertTrue(renderer.scene.anchors.first === anchor)
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertGreaterThan(updates.withLock { $0 }, idleUpdates)
+        XCTAssertFalse(canvas.subviews.contains { $0 is UIImageView })
+
+        for _ in 0..<70 where renderer.superview != nil {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertNil(renderer.superview)
+        scene.suspendRendering()
+        XCTAssertNil(canvas.map)
+        XCTAssertTrue(renderer.scene.anchors.isEmpty)
+        XCTAssertFalse(canvas.subviews.contains { $0 is UIImageView })
+    }
+
     func testTreeReductionKeepsWholeTreesAndCompactsOnlyVegetation() throws {
         func tile(_ index: Int, color: SIMD4<Float>, crown: Bool) -> CampusMeshPreparation.Tile {
             var positions: [SIMD3<Float>] = [], indices: [UInt32] = []
@@ -211,7 +272,7 @@ final class CampusMapInteractionTests: XCTestCase {
         XCTAssertEqual(layouts, 3)
     }
 
-    func testPublicOiAppearsAndOpensOnOverviewBeforeSelectingARegion() async throws {
+    func testPublicOiOnlyAppearsWithStoryListAndHidesWhenClosed() async throws {
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: windowScene)
         let controller = UIViewController()
@@ -253,11 +314,15 @@ final class CampusMapInteractionTests: XCTestCase {
 
         // The public feed can arrive after the overview has already loaded.
         scene.setOverviewStories([story])
+        XCTAssertFalse(canvas.subviews.contains { $0.accessibilityIdentifier == "campus.pin." + story.id })
+        XCTAssertTrue(paths.isEmpty, "Overview must not download character artwork")
+        XCTAssertTrue(badges(in: canvas).values.contains { $0.label.contains("오이 1개") })
+        scene.showStoriesInCurrentArea(region, stories: [story])
         let markerID = "campus.pin." + story.id
         let marker = try XCTUnwrap(canvas.subviews.first { $0.accessibilityIdentifier == markerID } as? UIButton)
         XCTAssertFalse(marker.isHidden)
         XCTAssertTrue(scene.visibleStoryIDs().contains(story.id))
-        XCTAssertTrue(badges(in: canvas).values.contains { $0.label.contains("오이 1개") })
+        XCTAssertFalse(badges(in: canvas).keys.contains { $0.hasPrefix("campus.region.") || $0.hasPrefix("campus.cluster.") })
         XCTAssertTrue(canvas.hitTest(marker.center, with: nil) === marker, "The character is tappable above the region count")
         marker.sendActions(for: .touchUpInside)
         XCTAssertEqual(opened, story.id)
@@ -360,7 +425,7 @@ final class CampusMapInteractionTests: XCTestCase {
         scene.showStoriesInCurrentArea(region, stories: [shorter])
         XCTAssertLessThan(try currentHeight(), closerHeight, "Close markers must reflect the saved height")
         scene.showOverview()
-        XCTAssertEqual(canvas.subviews.filter { $0.accessibilityIdentifier == markerID }.count, 1)
+        XCTAssertEqual(canvas.subviews.filter { $0.accessibilityIdentifier == markerID }.count, 0)
         scene.setOverviewStories([])
         XCTAssertFalse(canvas.subviews.contains { $0.accessibilityIdentifier == markerID })
         XCTAssertFalse(scene.visibleStoryIDs().contains(story.id))
@@ -405,6 +470,8 @@ final class CampusMapInteractionTests: XCTestCase {
             return try await OiWardrobeAsset.loadForPlacement(outfit)
         }
         scene.setOverviewStories([story])
+        XCTAssertTrue(modelRequests.isEmpty)
+        scene.showStoriesInCurrentArea(region, stories: [story])
         let map = try XCTUnwrap(canvas.map)
         let name = "public:" + story.id
         func marker() throws -> UIButton {
@@ -412,15 +479,11 @@ final class CampusMapInteractionTests: XCTestCase {
         }
         try await waitUntil("The approved character must load as a 3D entity") { map.scene.findEntity(named: name) != nil }
         let button = try marker()
-        let countBadge = try XCTUnwrap(canvas.subviews.compactMap { $0 as? UIButton }.first {
-            !$0.isHidden && $0.isUserInteractionEnabled && $0.accessibilityLabel?.hasSuffix("오이 1개") == true
-        })
+        XCTAssertFalse(badges(in: canvas).keys.contains { $0.hasPrefix("campus.region.") || $0.hasPrefix("campus.cluster.") }, "The story list replaces number panels")
         XCTAssertEqual(modelRequests, [story])
         XCTAssertTrue(try XCTUnwrap(button.imageView).isHidden)
-        XCTAssertFalse(countBadge.frame.intersects(button.frame), "The count must not obscure the 3D character")
-        XCTAssertTrue(canvas.hitTest(countBadge.center, with: nil) === countBadge)
         XCTAssertTrue(canvas.hitTest(button.center, with: nil) === button)
-        try await capture("public-oi-on-overview", in: canvas)
+        try await capture("public-oi-with-story-list", in: canvas)
 
         scene.focus(region, stories: [story])
         let model = try XCTUnwrap(map.scene.findEntity(named: name))
@@ -515,7 +578,11 @@ final class CampusMapInteractionTests: XCTestCase {
         XCTAssertEqual(personal.visibility, .personal)
         XCTAssertEqual(personal.placement.headingDegrees, 135)
         XCTAssertEqual(personal.wardrobe, look)
-        XCTAssertNotNil(canvas.map?.scene.findEntity(named: modelName), "The outfit loads on the campus overview")
+        XCTAssertNil(canvas.map?.scene.findEntity(named: modelName), "Overview must not load a private outfit")
+        XCTAssertFalse(canvas.subviews.contains { $0.accessibilityIdentifier == markerID })
+        scene.focus(region, stories: [], placement: personal.placement)
+        await scene.loadAuthoredModels()
+        XCTAssertNotNil(canvas.map?.scene.findEntity(named: modelName))
 
         let legacy = try XCTUnwrap(CampusAuthoredPlacement(story: pending, owner: owner, localDraft: local))
         XCTAssertNil(CampusAuthoredPlacement(story: pending, owner: UUID(), localDraft: local))
@@ -595,6 +662,8 @@ final class CampusMapInteractionTests: XCTestCase {
         scene.setAuthoredPlacements([published])
         XCTAssertFalse(canvas.subviews.contains { $0.accessibilityIdentifier == publicPinID })
         scene.setAuthoredPlacements([])
+        XCTAssertEqual(canvas.subviews.filter { $0.accessibilityIdentifier == publicPinID }.count, 0)
+        scene.showStoriesInCurrentArea(region, stories: [publicStory])
         XCTAssertEqual(canvas.subviews.filter { $0.accessibilityIdentifier == publicPinID }.count, 1)
     }
 
@@ -785,6 +854,53 @@ final class CampusMapInteractionTests: XCTestCase {
         let restoredGround = data.world(latitude: movedAgain.latitude, longitude: movedAgain.longitude)
         XCTAssertLessThan(simd_distance(restored.position(relativeTo: nil), restoredGround), 0.001)
         XCTAssertEqual(restored.scale, model.scale)
+    }
+
+    /// #395: tapping the map outside the region list closes it; tapping a cucumber still opens its story.
+    func testEmptyMapTapIsReportedButMarkerTapOpensStory() async throws {
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        let scene = CampusExploreScene()
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controller.view.addSubview(canvas)
+        window.isHidden = false
+        defer {
+            scene.suspendRendering()
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+        }
+        await scene.load()
+        window.layoutIfNeeded()
+        canvas.layoutIfNeeded()
+        let region = try XCTUnwrap(CampusRegion.campus.first { $0.id == "pond" })
+        let data = try XCTUnwrap(scene.data)
+        let place = try XCTUnwrap(data.pois.first { $0.id == region.placeID })
+        let coordinate = data.coordinate(data.world(place.p))
+        let story = CampusStory(id: UUID().uuidString, regionID: region.id, title: "공개 오이",
+            image: "OiCats", tags: [], donor: "다른 작성자", location: region.title, date: "",
+            order: 0, popularity: 0, palette: 0, cucumberPortraitPath: nil,
+            latitude: coordinate.latitude, longitude: coordinate.longitude, heightMeters: 1.25)
+        var opened: String?
+        var emptyTaps = 0
+        scene.onStory = { opened = $0 }
+        scene.onEmptyMapTap = { emptyTaps += 1 }
+        scene.setOverviewStories([story])
+        scene.showStoriesInCurrentArea(region, stories: [story])
+        let marker = try XCTUnwrap(canvas.subviews.first { $0.accessibilityIdentifier == "campus.pin." + story.id } as? UIButton)
+        marker.sendActions(for: .touchUpInside)
+        XCTAssertEqual(opened, story.id)
+        XCTAssertEqual(emptyTaps, 0, "Opening a cucumber must not close the list")
+
+        scene.focus(region, stories: [])
+        let tap = TestTap()
+        tap.point = CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY)
+        scene.perform(NSSelectorFromString("selectPlacement:"), with: tap)
+        XCTAssertEqual(emptyTaps, 1, "A tap on the ground must close the list")
     }
 
     func testOverviewPinchReversalAndTilt() async throws {
@@ -1319,6 +1435,15 @@ final class CampusMapInteractionTests: XCTestCase {
     }
 }
 
+private final class TestTap: UITapGestureRecognizer {
+    var point: CGPoint = .zero
+    override var state: State {
+        get { .ended }
+        set {}
+    }
+    override func location(in view: UIView?) -> CGPoint { point }
+}
+
 private final class TestPinch: UIPinchGestureRecognizer {
     private var testState: State = .possible
     private var testScale: CGFloat = 1
@@ -1349,6 +1474,139 @@ private final class TestTilt: UIPanGestureRecognizer {
 
 @MainActor
 final class CampusEducationDistrictTests: XCTestCase {
+    private func installReferenceCatalogFixture(_ model: EducationLightWebModel) {
+        model.webView.stopLoading()
+        let script = """
+        const referenceRoot='https://kfzfzarslqdqmrazohej.supabase.co/storage/v1/object/public/oi-education-reference/';
+        const fetchOriginal=window.fetch.bind(window);
+        window.fetch=(input,options)=>String(input)===referenceRoot+'catalog-v1.json'
+          ?Promise.resolve(new Response(JSON.stringify({version:1,stories:[{
+            id:'postech-900001',origin:'postech',kind:'Synthetic reference',category:'Synthetic',title:'Synthetic shared title',author:'Synthetic author',affiliation:'Synthetic affiliation',fund:'Synthetic fund',message:'Synthetic shared story body. '.repeat(30),
+            photo:referenceRoot+'postech-900001/'+'a'.repeat(64)+'.webp',photoAlt:'Synthetic portrait',sourceUrl:'https://vision.postech.ac.kr/web/?top=support&sub=story&key=detail&code=900001',sourceTitle:'Synthetic source',publishedAt:'2026-11-16',isSummary:true
+          }]}),{headers:{'Content-Type':'application/json'}}))
+          :fetchOriginal(input,options);
+        const portrait=document.createElement('canvas');portrait.width=32;portrait.height=24;
+        portrait.getContext('2d').fillRect(0,0,32,24);const portraitURL=portrait.toDataURL('image/png');
+        const originalSrc=Object.getOwnPropertyDescriptor(HTMLImageElement.prototype,'src');
+        Object.defineProperty(HTMLImageElement.prototype,'src',{...originalSrc,set(value){originalSrc.set.call(this,value===referenceRoot+'postech-900001/'+'a'.repeat(64)+'.webp'?portraitURL:value);}});
+        """
+        model.webView.configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        model.load()
+    }
+
+    func testEducationWriterSavesThroughNativeAccountWithoutMapPlacement() async throws {
+        let backend = OiTestBackend(); backend.install()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let remote = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: OiMemorySession())
+        await remote.start()
+        let original = OiStoreURLProtocol.handle
+        let saved = expectation(description: "Education draft saved using native session")
+        let photoStored = expectation(description: "Draft photo attached after native upload")
+        OiStoreURLProtocol.handle = { request, client in
+            guard request.url?.path == "/rest/v1/rpc/oi_education_mutate" else { original?(request, client); return }
+            do {
+                let body = try XCTUnwrap(JSONSerialization.jsonObject(with: OiTestBackend.body(request)) as? [String: Any])
+                var row = try XCTUnwrap(body["p_payload"] as? [String: Any])
+                XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer token-a")
+                for key in ["latitude", "longitude", "placement", "grant_id", "appearance"] { XCTAssertNil(row[key]) }
+                if body["p_action"] as? String == "save" {
+                    XCTAssertEqual(row["title"] as? String, "가상의 캠퍼스 추억"); saved.fulfill()
+                } else {
+                    XCTAssertEqual(body["p_action"] as? String, "attach_media")
+                    let paths = try XCTUnwrap(row["paths"] as? [String]); XCTAssertEqual(paths.count, 1)
+                    XCTAssertTrue(paths[0].contains("/education/")); XCTAssertTrue(paths[0].contains("/photos/"))
+                    XCTAssertEqual(backend.snapshot().uploads.count, 1); photoStored.fulfill()
+                    row["display_name"] = "가상 작성자"; row["title"] = "가상의 캠퍼스 추억"
+                    row["body"] = "테스트용 이야기입니다."; row["theme"] = "응원"; row["emotion"] = "따뜻함"
+                }
+                row["revision"] = (row["revision"] as? Int ?? 0) + 1
+                row["status"] = "draft"; row["origin"] = "education"
+                row["storage_owner_id"] = OiTestBackend.owner.uuidString.lowercased()
+                client.respond(200, try JSONSerialization.data(withJSONObject: row))
+            } catch { XCTFail(String(describing: error)); client.respond(400, Data()) }
+        }
+        let model = EducationLightWebModel(); installReferenceCatalogFixture(model); model.connectEducation(remote)
+        let previous = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: try XCTUnwrap(previous?.windowScene))
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let controller = UIViewController(); window.rootViewController = controller
+        model.webView.frame = window.frame; controller.view.addSubview(model.webView); window.makeKeyAndVisible()
+        defer {
+            model.setActive(false); model.webView.removeFromSuperview(); window.isHidden = true; previous?.makeKeyAndVisible()
+            session.invalidateAndCancel(); OiStoreURLProtocol.handle = nil; withExtendedLifetime(backend) {}
+            try? FileManager.default.removeItem(at: directory)
+        }
+        for _ in 0..<150 { if !model.loading { break }; try await Task.sleep(for: .milliseconds(100)) }
+        XCTAssertNil(model.failure)
+        _ = try await model.webView.evaluateJavaScript("document.querySelector('#storiesButton').click()")
+        var sharedReferenceVisible = false
+        for _ in 0..<50 {
+            if (try await model.webView.evaluateJavaScript("document.querySelector('#educationDialog').textContent.includes('Synthetic shared title')") as? Bool) == true { sharedReferenceVisible = true; break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertTrue(sharedReferenceVisible, "Native WebKit must display the same server reference title, not a bundled fictional story")
+        _ = try await model.webView.evaluateJavaScript("document.querySelector('#educationDialog').close()")
+        _ = try await model.webView.evaluateJavaScript("document.querySelector('#scatterButton').click()")
+        var photoVisible = false
+        for _ in 0..<50 {
+            if try await model.webView.evaluateJavaScript("document.querySelector('#viewerAimPhoto').classList.contains('is-ready')") as? Bool == true { photoVisible = true; break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertTrue(photoVisible, "The selected story must show its decoded photo above the text")
+        let layout = try await model.webView.evaluateJavaScript("""
+        (()=>{const photo=document.querySelector('#viewerAimPhoto'),image=photo.querySelector('img'),text=document.querySelector('.aim-story-content');
+        const before=photo.getBoundingClientRect(),body=text.getBoundingClientRect();text.scrollTop=text.scrollHeight;
+        const after=photo.getBoundingClientRect();return {width:before.width,height:before.height,above:before.bottom<=body.top,pinned:Math.abs(before.top-after.top)<1,scrolled:text.scrollTop>0,decoded:image.naturalWidth===32,story:photo.dataset.storyId};})()
+        """)
+        let photoLayout = try XCTUnwrap(layout as? [String: Any])
+        XCTAssertLessThanOrEqual(photoLayout["width"] as? Double ?? 999, 120)
+        XCTAssertGreaterThan(photoLayout["height"] as? Double ?? 0, 50)
+        XCTAssertLessThanOrEqual(photoLayout["height"] as? Double ?? 999, 85)
+        for key in ["above", "pinned", "scrolled", "decoded"] { XCTAssertEqual(photoLayout[key] as? Bool, true, key) }
+        XCTAssertEqual(photoLayout["story"] as? String, "postech-900001")
+        _ = try await model.webView.evaluateJavaScript("window.educationReturnToBuilding()")
+        for _ in 0..<30 { if !model.scattered { break }; try await Task.sleep(for: .milliseconds(100)) }
+        _ = try await model.webView.evaluateJavaScript("document.querySelector('#writeButton').click()")
+        for _ in 0..<50 {
+            if try await model.webView.evaluateJavaScript("!!document.querySelector('.education-form')") as? Bool == true { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let preparingPhoto = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
+            model.webView.callAsyncJavaScript("""
+            const c=document.createElement('canvas');c.width=c.height=16;c.getContext('2d').fillRect(0,0,16,16);
+            const blob=await new Promise(resolve=>c.toBlob(resolve,'image/png'));
+            const transfer=new DataTransfer();transfer.items.add(new File([blob],'synthetic.png',{type:'image/png'}));
+            const picker=document.querySelector('.education-form input[type=file]');picker.files=transfer.files;picker.dispatchEvent(new Event('change'));
+            [...document.querySelectorAll('.education-form button')].find(b=>b.textContent==='서버에 초안 저장').click();
+            return document.querySelector('.education-status').textContent.includes('사진을 준비하고 있어요') && !picker.disabled;
+            """, arguments: [:], in: nil, in: .page) { result in
+                continuation.resume(with: result.map { $0 as? Bool == true })
+            }
+        }
+        XCTAssertTrue(preparingPhoto, "Saving must wait for the newly selected photo, even if a cached preview is visible")
+        for _ in 0..<30 {
+            if try await model.webView.evaluateJavaScript("!document.querySelector('.education-photo-preview').hidden && document.querySelector('.education-form input[type=file]').parentElement.getAttribute('aria-busy')==='false'") as? Bool == true { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let editor = try await model.webView.evaluateJavaScript("""
+        (()=>{const form=document.querySelector('.education-form');if(!form)return false;
+        for(const [name,value] of Object.entries({theme:'응원',emotion:'따뜻함',display_name:'가상 작성자',title:'가상의 캠퍼스 추억',body:'테스트용 이야기입니다.'}))form.elements[name].value=value;
+        [...form.querySelectorAll('button')].find(b=>b.textContent==='서버에 초안 저장').click();
+        return [...form.querySelectorAll('input,textarea,select,button')].every(field=>field.disabled);})()
+        """)
+        XCTAssertEqual(editor as? Bool, true)
+        await fulfillment(of: [saved, photoStored], timeout: 5)
+        for _ in 0..<30 {
+            if (try await model.webView.evaluateJavaScript("document.querySelector('.education-status')?.textContent") as? String)?.contains("저장했어요") == true { return }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTFail("The WebKit editor must receive the native save receipt")
+    }
+
     func testBundledGeometryIsTheCompleteWebSurface() throws {
         let url = try XCTUnwrap(Bundle.main.url(forResource: "education-district-points", withExtension: "bin"))
         let bytes = try Data(contentsOf: url)
@@ -1622,8 +1880,9 @@ final class CampusEducationDistrictTests: XCTestCase {
         XCTAssertNil(EducationLightAssetCatalog.Asset(resource: "../Info.plist", mime: "text/plain").bundleURL())
     }
 
-    func testBatchedBuildingAndLevelOfDetailSharePlacement() throws {
+    func testBatchedBuildingAndLevelOfDetailSharePlacement() async throws {
         let data = try CampusMapData.load()
+        _ = try await CampusEducationDistrict.prepare(.far)
         let entity = try CampusEducationDistrict.makeEntity(data: data)
         let position = entity.position
         let orientation = entity.orientation
@@ -1637,7 +1896,9 @@ final class CampusEducationDistrictTests: XCTestCase {
         XCTAssertEqual(entity.name, "campus.education-district")
         XCTAssertGreaterThan(bounds.extents.x, 10)
         XCTAssertLessThan(bounds.extents.y, 6)
-        CampusEducationDistrict.update(entity, near: true)
+        let closeMesh = try await CampusEducationDistrict.prepare(.near)
+        XCTAssertFalse(entity.model?.mesh === closeMesh)
+        entity.model?.mesh = closeMesh
         XCTAssertEqual(entity.position, position)
         XCTAssertEqual(entity.orientation, orientation)
         let close = entity.visualBounds(recursive: false, relativeTo: entity)
@@ -1815,5 +2076,186 @@ final class CampusEducationDistrictTests: XCTestCase {
             let attachment = XCTAttachment(image: try XCTUnwrap(rendered))
             attachment.name = "education-" + name; attachment.lifetime = .keepAlways; add(attachment)
         }
+    }
+}
+
+extension CampusMapInteractionTests {
+    func testAuthoredLoadingIncludesCharactersRevealedWhileAnotherModelLoads() async throws {
+        let scene = CampusExploreScene()
+        let controller = UIViewController()
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        window.rootViewController = controller
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        controller.view.addSubview(canvas); window.isHidden = false
+        var release: CheckedContinuation<Void, Never>?
+        defer {
+            release?.resume()
+            scene.suspendRendering(); window.isHidden = true
+            window.rootViewController = nil; window.windowScene = nil
+        }
+        await scene.load()
+        let data = try XCTUnwrap(scene.data)
+        let region = try XCTUnwrap(CampusRegion.campus.first { $0.id == "pond" })
+        scene.focus(region, stories: [])
+        try await Task.sleep(for: .milliseconds(350))
+        let renderer = try XCTUnwrap(canvas.map)
+        let center = data.world(try XCTUnwrap(data.pois.first { $0.id == region.placeID }).p)
+        let viewport = canvas.bounds.insetBy(dx: -100, dy: -100)
+        let outside = try XCTUnwrap(data.graph.values.map { data.world($0.p) }
+            .sorted { simd_distance($0, center) < simd_distance($1, center) }
+            .first { point in
+                let distance = simd_distance(point, center)
+                return distance > 60 && distance < 150 && renderer.project(point).map(viewport.contains) != true
+            })
+        let owner = UUID()
+        let firstID = try XCTUnwrap(UUID(uuidString: "00000000-0000-4000-8000-000000000001"))
+        let secondID = try XCTUnwrap(UUID(uuidString: "90000000-0000-4000-8000-000000000002"))
+        func item(_ id: UUID, at point: SIMD3<Float>) throws -> CampusAuthoredPlacement {
+            let coordinate = data.coordinate(point)
+            var story = OiLiveStory(id: id, userId: owner, grantId: nil, regionId: region.id,
+                title: "검증용 이야기", body: "검증용 본문", theme: "우정", emotion: "즐거움",
+                cucumberName: "검증용 오이", cucumberAsset: "OiCats", cardAsset: "MYBasicCard",
+                latitude: coordinate.latitude, longitude: coordinate.longitude,
+                status: "published", revision: 1, createdAt: "2026-11-16T00:00:00Z")
+            story.cucumberAppearance = OiCucumberAppearance(id: UUID(), top: "tshirt", bottom: "shorts", costume: nil,
+                topColor: 0xFFFFFF, bottomColor: 0xFFFFFF, shoeColor: 0xFFFFFF, topTexture: false, bottomTexture: false)
+            return try XCTUnwrap(CampusAuthoredPlacement(story: story, owner: owner, localDraft: nil))
+        }
+        var requests: [UUID] = []
+        scene.loadCucumberModel = { artwork in
+            requests.append(artwork.storyID)
+            if artwork.storyID == secondID { await withCheckedContinuation { release = $0 } }
+            return ModelEntity(mesh: .generateBox(size: [0.5, 1, 0.5]))
+        }
+        scene.setAuthoredPlacements(try [item(firstID, at: outside), item(secondID, at: center)])
+        try await waitUntil("The visible model must begin loading") { release != nil }
+        XCTAssertEqual(requests, [secondID])
+        let pinch = TestPinch()
+        pinch.state = .began
+        scene.perform(NSSelectorFromString("pinch:"), with: pinch)
+        pinch.state = .changed; pinch.scale = 0.1
+        scene.perform(NSSelectorFromString("pinch:"), with: pinch)
+        pinch.state = .ended
+        scene.perform(NSSelectorFromString("pinch:"), with: pinch)
+        try await Task.sleep(for: .milliseconds(350))
+        let marker = try XCTUnwrap(canvas.subviews.first { $0.accessibilityIdentifier == "campus.authored." + firstID.uuidString })
+        XCTAssertFalse(marker.isHidden, "Zooming out reveals the previously skipped character")
+        release?.resume(); release = nil
+        await scene.loadAuthoredModels()
+        XCTAssertEqual(requests, [secondID, firstID], "Newly visible characters must load without another gesture")
+        XCTAssertNotNil(renderer.scene.findEntity(named: "authored:" + firstID.uuidString))
+    }
+
+    func testEducationBuildingTapOpensGuideBeforeAndAfterIdle() async throws {
+        let scene = CampusExploreScene(stillFrameDelay: .milliseconds(500))
+        let controller = UIViewController()
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        window.rootViewController = controller
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        controller.view.addSubview(canvas); window.isHidden = false
+        defer { scene.suspendRendering(); window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+        await scene.load()
+        try await Task.sleep(for: .milliseconds(350))
+        let renderer = try XCTUnwrap(canvas.map)
+        let building = try XCTUnwrap(renderer.scene.findEntity(named: "campus.education-district"))
+        let bounds = building.visualBounds(recursive: false, relativeTo: building)
+        let world = building.convert(position: bounds.center, to: nil)
+        let point = try XCTUnwrap(renderer.project(world))
+        var opened = 0
+        scene.onEducationDistrict = { opened += 1 }
+        let tap = TestTap(); tap.point = point
+        scene.perform(NSSelectorFromString("selectPlacement:"), with: tap)
+        XCTAssertEqual(opened, 1)
+        scene.finishEducationDistrict()
+        for _ in 0..<60 where renderer.superview != nil { try await Task.sleep(for: .milliseconds(100)) }
+        XCTAssertNil(renderer.superview)
+        // Selecting the retained building must work on the first tap of a parked map.
+        scene.perform(NSSelectorFromString("selectPlacement:"), with: tap)
+        XCTAssertEqual(opened, 2)
+        XCTAssertTrue(renderer.superview === canvas)
+        scene.finishEducationDistrict()
+    }
+}
+
+@MainActor final class OiPostcardImageCacheTests: XCTestCase {
+    private func png() throws -> Data {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = false
+        return try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 362, height: 502), format: format).image { _ in
+            UIColor.red.setFill(); UIRectFill(CGRect(x: 20, y: 20, width: 322, height: 462))
+        }.pngData())
+    }
+    func testSharesConcurrentRequestsAndPreservesPixelsAndAlpha() async throws {
+        let cache = OiPostcardImageCache(), data = try png()
+        var calls = 0
+        let load: () async throws -> Data = {
+            calls += 1; try await Task.sleep(for: .milliseconds(50)); return data
+        }
+        async let first = cache.image("snapshot/front.png", load: load)
+        async let second = cache.image("snapshot/front.png", load: load)
+        let (a, b) = try await (first, second)
+        let c = try await cache.image("snapshot/front.png", load: load)
+        XCTAssertEqual(calls, 1)
+        XCTAssertTrue(a === b && b === c)
+        XCTAssertEqual(a.cgImage?.width, 362); XCTAssertEqual(a.cgImage?.height, 502)
+        XCTAssertTrue(OiPostcardSnapshot.isPostcard(a))
+        XCTAssertEqual(OiPostcardSnapshot.color(a, x: 0.5, y: 0.5), 0xFF0000)
+        cache.clear()
+        _ = try await cache.image("snapshot/front.png", load: load)
+        XCTAssertEqual(calls, 2, "Account/visibility invalidation must not reuse cached pixels")
+    }
+    func testFailureCanRetryAndInvalidationRejectsLateResults() async throws {
+        let cache = OiPostcardImageCache(), data = try png()
+        do { _ = try await cache.image("front") { throw URLError(.timedOut) }; XCTFail() } catch { }
+        var release: CheckedContinuation<Void, Never>?
+        let pending = Task { try await cache.image("front") {
+            await withCheckedContinuation { release = $0 }; return data
+        } }
+        for _ in 0..<100 where release == nil { await Task.yield() }
+        XCTAssertNotNil(release)
+        cache.clear(); release?.resume()
+        do { _ = try await pending.value; XCTFail("Invalidated loads must not repopulate the cache") } catch { }
+        _ = try await cache.image("front") { data }
+    }
+}
+
+extension OiPostcardImageCacheTests {
+    func testCancellingOneWaiterDoesNotCancelSharedDownload() async throws {
+        let cache = OiPostcardImageCache(), data = try png()
+        var calls = 0
+        let load: () async throws -> Data = {
+            calls += 1
+            try await Task.sleep(for: .milliseconds(100))
+            return data
+        }
+        let first = Task { try await cache.image("shared/front.png", load: load) }
+        try await Task.sleep(for: .milliseconds(20))
+        let second = Task { try await cache.image("shared/front.png", load: load) }
+        await Task.yield()
+        first.cancel()
+        do { _ = try await first.value; XCTFail("A cancelled caller must not receive the image") }
+        catch { XCTAssertTrue(error is CancellationError) }
+        let image = try await second.value
+        XCTAssertEqual(calls, 1)
+        XCTAssertTrue(OiPostcardSnapshot.isPostcard(image))
+    }
+
+    func testPhotoCachePreservesFullResolutionAndSharesReopening() async throws {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let original = UIGraphicsImageRenderer(size: CGSize(width: 1800, height: 1200), format: format).image { _ in
+            UIColor.blue.setFill(); UIRectFill(CGRect(x: 0, y: 0, width: 1800, height: 1200))
+        }
+        let bytes = try XCTUnwrap(original.jpegData(compressionQuality: 0.85))
+        let cache = OiPostcardImageCache()
+        var calls = 0
+        let image = try await cache.image("photo/sample", photo: true) { calls += 1; return bytes }
+        _ = try await cache.image("photo/sample", photo: true) { calls += 1; return bytes }
+        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(image.cgImage?.width, 1800); XCTAssertEqual(image.cgImage?.height, 1200)
+        let pixel = try XCTUnwrap(OiPostcardSnapshot.color(image, x: 0.5, y: 0.5))
+        XCTAssertGreaterThan(pixel & 255, 250)
     }
 }

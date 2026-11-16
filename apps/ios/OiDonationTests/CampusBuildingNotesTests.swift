@@ -20,6 +20,7 @@ import RealityKit
     var holdSend = false
     var loadContinuation: CheckedContinuation<[CampusBuildingNote], Error>?
     var sendContinuation: CheckedContinuation<CampusBuildingNote, Error>?
+    private var sendStarted: CheckedContinuation<Void, Never>?
     var sendReceipt: CampusBuildingNote?
     var before: CampusBuildingNote?
     func buildingNotes(building: String, before: CampusBuildingNote?) async throws -> [CampusBuildingNote] {
@@ -31,11 +32,18 @@ import RealityKit
         attempts.append(id)
         let receipt = note(id: id, building: building, body: body)
         sendReceipt = receipt
-        if holdSend { return try await withCheckedThrowingContinuation { sendContinuation = $0 } }
+        if holdSend {
+            return try await withCheckedThrowingContinuation {
+                sendContinuation = $0; sendStarted?.resume(); sendStarted = nil
+            }
+        }
         if failFirstSend && attempts.count == 1 { throw URLError(.timedOut) }
         return receipt
     }
     func deleteBuildingNote(id: UUID) async throws { page.removeAll { $0.id == id } }
+    func waitForHeldSend() async {
+        if sendContinuation == nil { await withCheckedContinuation { sendStarted = $0 } }
+    }
     func note(id: UUID = UUID(), building: String = "136182168", body: String = "함께 공부해요") -> CampusBuildingNote {
         CampusBuildingNote(id: id, buildingId: building, authorId: buildingNoteAccountID!, body: body,
             createdAt: "2026-11-16T09:00:00+00:00", nickname: "농부", admissionYear: "2024", department: "기계공학과")
@@ -70,6 +78,52 @@ import RealityKit
         service.buildingNoteAccountID = UUID(); model.resetForAccount()
         pending.resume(returning: receipt); await second.value
         XCTAssertTrue(model.notes.isEmpty); XCTAssertTrue(model.text.isEmpty); XCTAssertFalse(model.sending)
+    }
+
+    func testDeletingRetriedNoteIgnoresLateResultAndPreservesChangedDraft() async throws {
+        for succeeds in [true, false] {
+            let service = BuildingNoteServiceFixture(); service.failFirstSend = true
+            let model = CampusBuildingNotesModel(buildingID: "136182168", service: service)
+            model.text = "삭제할 글"; await model.send()
+            let posted = try XCTUnwrap(service.sendReceipt)
+            service.page = [posted]; await model.load()
+            XCTAssertEqual(model.notes, [posted])
+
+            service.holdSend = true
+            let retry = Task { await model.send() }
+            await service.waitForHeldSend()
+            let continuation = try XCTUnwrap(service.sendContinuation)
+            XCTAssertEqual(service.attempts.last, posted.id)
+            model.text = "다음 글"
+            await model.delete(posted)
+            if succeeds { continuation.resume(returning: posted) }
+            else { continuation.resume(throwing: URLError(.timedOut)) }
+            await retry.value
+
+            XCTAssertTrue(model.notes.isEmpty, "A late retry receipt must not restore a deleted note")
+            XCTAssertEqual(model.text, "다음 글"); XCTAssertNil(model.sentID)
+            XCTAssertFalse(model.sending); XCTAssertNil(model.error)
+            service.holdSend = false
+            model.text = "삭제할 글"; await model.send()
+            XCTAssertNotEqual(service.attempts.last, posted.id, "Confirmed deletion retires the pending submission ID")
+            XCTAssertEqual(model.notes.map(\.body), ["삭제할 글"])
+        }
+    }
+
+    func testDeletingDifferentNotePreservesPendingSend() async throws {
+        let service = BuildingNoteServiceFixture()
+        let previous = service.note(body: "이전 글"); service.page = [previous]
+        let model = CampusBuildingNotesModel(buildingID: "136182168", service: service)
+        await model.load()
+        service.holdSend = true; model.text = "새 글"
+        let send = Task { await model.send() }
+        await service.waitForHeldSend()
+        let continuation = try XCTUnwrap(service.sendContinuation), receipt = try XCTUnwrap(service.sendReceipt)
+        await model.delete(previous)
+        continuation.resume(returning: receipt); await send.value
+
+        XCTAssertEqual(model.notes, [receipt]); XCTAssertEqual(model.sentID, receipt.id)
+        XCTAssertTrue(model.text.isEmpty); XCTAssertFalse(model.sending); XCTAssertNil(model.error)
     }
 
     func testStaleFeedDoesNotEraseNewlyPostedNote() async throws {

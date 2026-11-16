@@ -120,7 +120,8 @@ struct CampusBuildingNoteReport: Decodable, Identifiable {
         defer { if request == generation { sending = false } }
         do {
             let receipt = try await service.postBuildingNote(id: submission.id, building: buildingID, body: body)
-            guard request == generation, account == service.buildingNoteAccountID, !Task.isCancelled else { return }
+            guard request == generation, account == service.buildingNoteAccountID,
+                  pending?.id == submission.id, !Task.isCancelled else { return }
             guard receipt.id == submission.id, receipt.authorId == account,
                   receipt.buildingId == buildingID, receipt.body == body else { throw OiServiceError.conflict }
             contentRevision += 1
@@ -128,7 +129,8 @@ struct CampusBuildingNoteReport: Decodable, Identifiable {
             if cleanedText == body { text = "" }
             pending = nil; sentID = receipt.id
         } catch {
-            guard request == generation, account == service.buildingNoteAccountID, !OiServiceFailure.isCancellation(error) else { return }
+            guard request == generation, account == service.buildingNoteAccountID,
+                  pending?.id == submission.id, !OiServiceFailure.isCancellation(error) else { return }
             self.error = error.localizedDescription
         }
     }
@@ -141,6 +143,7 @@ struct CampusBuildingNoteReport: Decodable, Identifiable {
             guard request == generation, account == service.buildingNoteAccountID, !Task.isCancelled else { return }
             contentRevision += 1
             notes.removeAll { $0.id == note.id }
+            if pending?.id == note.id { pending = nil }
         } catch {
             guard request == generation, account == service.buildingNoteAccountID, !OiServiceFailure.isCancellation(error) else { return }
             self.error = error.localizedDescription

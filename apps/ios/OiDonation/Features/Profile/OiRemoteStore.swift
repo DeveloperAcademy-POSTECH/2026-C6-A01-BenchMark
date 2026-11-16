@@ -34,6 +34,49 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
 
     var canPlaceOi: Bool { account != nil && !needsReauthentication && !isAccountDeletionPending }
 
+    /// The bundled education page can request only this channel. Tokens and
+    /// public keys stay in native code; no campus mutation is exposed to JS.
+    func educationRequest(_ action: String, values: [String: Any]) async throws -> Any {
+        guard let api else { throw OiServiceError.unavailable }
+        let started = generation
+        let result: Any
+        if action == "identity" {
+            return ["id": (canPlaceOi ? account?.id.uuidString.lowercased() : nil) as Any? ?? NSNull(),
+                    "operator": isOperator, "canWrite": canStartStory]
+        }
+        let accessToken = canPlaceOi ? try await token() : nil
+        guard generation == started else { throw OiServiceError.accountChanged }
+        if action == "rpc" {
+            guard let name = values["name"] as? String,
+                  let payload = values["payload"] as? [String: Any] else { throw OiServiceError.invalidInput }
+            if ["oi_education_mutate", "oi_education_report"].contains(name), accessToken == nil {
+                throw OiServiceError.signInRequired
+            }
+            let data = try await api.educationRPC(name, payload: payload, token: accessToken)
+            result = (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) ?? NSNull()
+        } else if action == "media" || action == "upload" {
+            guard let path = values["path"] as? String, path.count <= 240,
+                  path.range(of: #"^[0-9a-f-]{36}/education/[0-9a-f-]{36}/(photos/[0-9a-f-]{36}\.(jpg|png)|card/[0-9a-f-]{36}(\.png|/(back|front-preview|back-preview)\.png))$"#, options: .regularExpression) != nil else {
+                throw OiServiceError.invalidInput
+            }
+            if action == "media" {
+                result = try await api.signedURL(bucket: "oi-story-media", path: path, token: accessToken).absoluteString
+            } else {
+                guard let accessToken, let mime = values["mime"] as? String,
+                      ["image/png", "image/jpeg"].contains(mime),
+                      let encoded = values["base64"] as? String, encoded.utf8.count <= 11_184_812,
+                      let data = Data(base64Encoded: encoded), !data.isEmpty, data.count <= 8_388_608 else {
+                    throw OiServiceError.invalidInput
+                }
+                try await api.upload(bucket: "oi-story-media", path: path, data: data, contentType: mime, token: accessToken)
+                result = ["uploaded": true]
+            }
+        } else { throw OiServiceError.invalidInput }
+        try Task.checkCancellation()
+        guard generation == started else { throw OiServiceError.accountChanged }
+        return result
+    }
+
     var canStartStory: Bool {
         account != nil && !needsReauthentication && hasLoadedRemote && unapprovedDraftsEnabled
     }
@@ -65,6 +108,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     private var session: OiSession?
     private var refreshTask: Task<OiSession, Error>?
     private var generation = UUID()
+    @ObservationIgnored private let postcardImages = OiPostcardImageCache()
     private var loadSequence = 0
     private var localSignOutWarning: String?
     @ObservationIgnored private var catalogLoadedAt: ContinuousClock.Instant?
@@ -284,6 +328,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     }
 
     private func resetAccountState() {
+        postcardImages.clear()
         generation = UUID(); loadSequence += 1; refreshTask?.cancel(); refreshTask = nil
         profile = nil; ownStories = []; reviewStories = []; profiles = []; media = []
         loadedStories = []; collections = []; favorites = []; collectionCounts = [:]; committedMediaPaths = [:]
@@ -596,6 +641,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             || !committedMediaPaths.isEmpty || members != accountMemberIDs || recoveryWarning != localRecoveryWarning
         if !catalogIsFresh { catalogLoadedAt = .now }
         schools = fetchedSchools; regions = fetchedRegions; assets = fetchedAssets
+        if loadedStories != published { postcardImages.clear() }
         loadedStories = published
         ownStories = owned
         reviewStories = capabilities?.operator == true ? fetched.filter { ["pending","published","hidden"].contains($0.status) } : []
@@ -1128,6 +1174,29 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         guard started == generation else { throw OiServiceError.accountChanged }
         let image = UIImage(cgImage: try OiPublishedCucumberImage.decode(bytes, part: part))
         if part == .portrait { OiPostcardBackgroundMetadata.remember(png: bytes, image: image) }
+        return image
+    }
+
+    func postcardImage(_ path: String) async throws -> UIImage {
+        guard let api else { throw OiServiceError.configuration }
+        let started = generation
+        let image = try await postcardImages.image(path) { [self] in
+            let accessToken = account == nil ? nil : try await token()
+            return try await api.downloadSignedObject(bucket: OiPublishedCucumberImage.bucket, path: path, token: accessToken)
+        }
+        try Task.checkCancellation()
+        guard generation == started else { throw OiServiceError.accountChanged }
+        return image
+    }
+
+    func postcardPhotoImage(_ path: String, loadURL: @escaping (String) async throws -> URL) async throws -> UIImage {
+        let started = generation
+        let image = try await postcardImages.image("photo/" + path, photo: true) {
+            let url = try await loadURL(path)
+            return try await APIClient(approvedHost: OiServiceAPI.projectHost).send(URLRequest(url: url))
+        }
+        try Task.checkCancellation()
+        guard generation == started else { throw OiServiceError.accountChanged }
         return image
     }
 }

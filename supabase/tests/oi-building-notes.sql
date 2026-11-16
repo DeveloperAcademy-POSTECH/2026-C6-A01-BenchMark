@@ -82,7 +82,17 @@ select set_config('request.jwt.claim.sub','',true);
 select pg_temp.check_true(public.oi_building_notes('136182168')='[]'::jsonb,'deleting accounts hidden');
 reset role;
 select pg_temp.check_true((select count(*)=1 from benchmark_private.oi_audit where action='building_note:deleted' and target_id='59170000-0000-4000-8000-000000000011'),'moderation is audited');
+insert into benchmark_private.oi_audit(actor_id,action,target_id) values
+ ('59170000-0000-4000-8000-000000000003','building_note_ai:keep','59170000-0000-4000-8000-000000000011'),
+ ('59170000-0000-4000-8000-000000000003','education:deleted','59170000-0000-4000-8000-000000000011'),
+ ('59170000-0000-4000-8000-000000000003','content:hidden','59170000-0000-4000-8000-000000000011');
 delete from benchmark_private.oi_account_members where auth_user_id='59170000-0000-4000-8000-000000000001';
 select pg_temp.check_true((select count(*)=0 from benchmark_private.oi_building_notes where author_member_id='59170000-0000-4000-8000-000000000001'),'account removal cascades notes');
+select pg_temp.check_true((select count(*)=0 from benchmark_private.oi_audit
+ where target_id='59170000-0000-4000-8000-000000000011' and action in ('building_note:deleted','building_note_ai:keep')),
+ 'account removal clears manual and AI note audits recorded by another account');
+select pg_temp.check_true((select count(*)=2 from benchmark_private.oi_audit
+ where target_id='59170000-0000-4000-8000-000000000011' and action in ('education:deleted','content:hidden')),
+ 'account removal preserves unrelated audit channels with the same target UUID');
 select 'PASS: building notes authentication, isolation, publication, idempotency, validation, reporting, moderation, cursor, merge and deletion' as result;
 rollback;
