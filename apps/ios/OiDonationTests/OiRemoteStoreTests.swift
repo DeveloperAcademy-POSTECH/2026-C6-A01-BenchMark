@@ -4953,3 +4953,37 @@ extension OiRemoteStoreTests {
         XCTAssertEqual(images.first?.cgImage?.height, images.last?.cgImage?.height)
     }
 }
+
+/// #409: MY `수집한 기부` merges account cards and App Clip cards.
+final class MYCollectedCardsTests: XCTestCase {
+    private func card(_ id: String) -> MYCard {
+        MYCard(id: id, title: id, image: "OiCats", school: .postech, order: 0, body: "", donor: "농부", date: "")
+    }
+    private func entry(_ id: String, _ time: TimeInterval?) -> MYCollectedCardEntry {
+        MYCollectedCardEntry(card: card(id), collectedAt: time.map { Date(timeIntervalSince1970: $0) })
+    }
+
+    func testMergesBySharedTimeNewestFirstAndRenumbers() {
+        let merged = MYCollectedCards.merged(
+            account: [entry("a", 300), entry("b", 100)], clip: [entry("c", 200), entry("d", 400)])
+        XCTAssertEqual(merged.map(\.id), ["d", "a", "c", "b"])
+        XCTAssertEqual(merged.map(\.order), [0, 1, 2, 3])
+    }
+
+    func testStoryInBothListsAppearsOnceAsTheAccountCard() {
+        let merged = MYCollectedCards.merged(account: [entry("a", 100)], clip: [entry("a", 900), entry("b", 500)])
+        XCTAssertEqual(merged.map(\.id), ["b", "a"])
+    }
+
+    func testUndatedAccountCardCountsAsNewest() {
+        let merged = MYCollectedCards.merged(account: [entry("a", nil)], clip: [entry("b", 900)])
+        XCTAssertEqual(merged.map(\.id), ["a", "b"])
+    }
+
+    func testParsesServerDatesWithAndWithoutFractionalSeconds() {
+        XCTAssertNotNil(MYCollectedCards.date(from: "2026-11-16T10:00:00.123456+00:00"))
+        XCTAssertNotNil(MYCollectedCards.date(from: "2026-11-16T10:00:00Z"))
+        XCTAssertNil(MYCollectedCards.date(from: nil))
+        XCTAssertNil(MYCollectedCards.date(from: "not a date"))
+    }
+}

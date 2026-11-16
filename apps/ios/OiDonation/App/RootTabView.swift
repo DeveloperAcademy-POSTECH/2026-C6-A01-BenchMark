@@ -16,6 +16,8 @@ struct RootTabView: View {
     @State private var collectionReturnsToAR = false
     @State private var pendingStoryList = false
     @Environment(\.scenePhase) private var scenePhase
+    /// Cards collected in the App Clip, shown with the account's saved cards in MY `수집한 기부` (#409).
+    @State private var clipCollection = StoryCollectionStore()
 
     init(container: AppContainer = .pilot, remote: OiRemoteStore? = nil) {
         self.container = container
@@ -71,6 +73,8 @@ struct RootTabView: View {
                OiContentSafetyStore.shared.isBlocked(author) { isARPresented = false }
         }
         .onChange(of: remote.revision) { _, _ in synchronizeRemote() }
+        // The App Clip may have collected cards since MY was last built; the records are read again on each screen change.
+        .onChange(of: path.count) { _, _ in synchronizeRemote() }
         .onChange(of: remote.account?.id) { _, _ in
             authoredPlacementToReveal = nil
             myDemo.resetFilters()
@@ -151,16 +155,28 @@ struct RootTabView: View {
             }
             if current == nil || current?.placement != photoSubject.placement { isARPresented = false }
         }
-        let cards = remote.collections.enumerated().compactMap { index, collection -> MYCard? in
-            guard let story = remote.stories.first(where: { $0.id == collection.storyId }) else { return nil }
+        func entry(for story: OiLiveStory, collectedAt: Date?) -> MYCollectedCardEntry? {
             guard let region = remote.regions.first(where: { $0.id == story.regionId }),
                   let school = remote.schools.first(where: { $0.id == region.schoolId }) else { return nil }
-            return MYCard(id: story.id.uuidString, title: story.cucumberName, image: story.cucumberAsset,
-                school: MYSchool(id: school.id, name: school.name), order: index,
+            let card = MYCard(id: story.id.uuidString, title: story.cucumberName, image: story.cucumberAsset,
+                school: MYSchool(id: school.id, name: school.name), order: 0,
                 body: story.body, donor: remote.profiles.first(where: { $0.id == story.userId })?.nickname ?? "농부",
                 date: story.createdDateLabel, storyID: story.id.uuidString, appearance: story.cardAsset,
                 cucumberPortraitPath: story.cucumberArtwork?.path(.portrait), cardArtworkPath: story.cardArtworkPath)
+            return MYCollectedCardEntry(card: card, collectedAt: collectedAt)
         }
+        clipCollection.reload()
+        let accountEntries = remote.collections.compactMap { collection -> MYCollectedCardEntry? in
+            guard let story = remote.stories.first(where: { $0.id == collection.storyId }) else { return nil }
+            return entry(for: story, collectedAt: MYCollectedCards.date(from: collection.createdAt))
+        }
+        // A private, deleted or blocked story is skipped here; its record stays on the device.
+        let clipEntries = clipCollection.cards.compactMap { record -> MYCollectedCardEntry? in
+            guard let id = UUID(uuidString: record.storyID),
+                  let story = remote.stories.first(where: { $0.id == id }) else { return nil }
+            return entry(for: story, collectedAt: record.collectedAt)
+        }
+        let cards = MYCollectedCards.merged(account: accountEntries, clip: clipEntries)
         myDemo.synchronize(nickname: remote.profile?.nickname ?? "농부", cards: cards,
             favorites: Set(remote.favorites.map(\.uuidString)))
     }

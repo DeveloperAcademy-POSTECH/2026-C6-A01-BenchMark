@@ -31,7 +31,7 @@ struct MYCard: Identifiable, Hashable {
     let title: String
     let image: String
     let school: MYSchool
-    let order: Int
+    var order: Int
     let body: String
     let donor: String
     let date: String
