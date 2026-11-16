@@ -720,7 +720,7 @@ struct OiStoryEditor: View {
             issues.append(.init(step: .photos, message: "이야기 사진을 1~\(OiCreationStep.storyPhotoLimit)장 선택해 주세요."))
         }
         if draft.cucumberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draft.cucumberName.count > 50 {
-            issues.append(.init(step: .card, message: "오이 이름을 1~50자로 입력해 주세요."))
+            issues.append(.init(step: .cucumber, message: "오이 커스텀의 내용 탭에서 오이 이름을 입력해 주세요."))
         }
         return issues
     }

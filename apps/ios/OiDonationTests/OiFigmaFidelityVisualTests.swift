@@ -1682,6 +1682,19 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         try await capture(page, name: "cucumber-\(title)", variant: variants[0], defaults: fixture.defaults, delay: .seconds(1), attach: true)
     }
 
+    /// STEP 4 card 내용 tab (Figma `5919:12077`, #377).
+    func testCardContentTabCapture() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        for variant in [variants[0], variants[1]] {
+            let page = CreationCapturePage(step: 4) {
+                OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
+                    canContinue: true, onContinue: {})
+            }
+            try await capture(page, name: "card-content", variant: variant, defaults: fixture.defaults, attach: true)
+        }
+    }
+
     func testCropToolbarContrastCapture() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
