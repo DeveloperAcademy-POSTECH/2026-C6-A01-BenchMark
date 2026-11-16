@@ -17,7 +17,9 @@ struct CampusCollectButton: View {
     @State private var showingSignIn = false
 
     private var isExample: Bool { story.isExample || store.isExample }
-    private var needsSignIn: Bool {
+    private var needsSignIn: Bool { Self.needsSignIn(remote) }
+
+    static func needsSignIn(_ remote: OiRemoteStore?) -> Bool {
         guard let remote else { return true }
         return remote.account == nil || remote.needsReauthentication
     }
@@ -45,8 +47,8 @@ struct CampusCollectButton: View {
             }
         }
         // Continue to the postcard as soon as the sign-in finishes.
-        .onChange(of: remote?.account?.id) { _, id in
-            guard showingSignIn, id != nil, !needsSignIn else { return }
+        .onChange(of: needsSignIn) { _, needsSignIn in
+            guard showingSignIn, !needsSignIn else { return }
             showingSignIn = false
             store.collect(story)
         }

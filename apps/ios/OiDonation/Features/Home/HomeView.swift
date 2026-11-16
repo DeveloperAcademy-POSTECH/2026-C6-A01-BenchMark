@@ -110,12 +110,13 @@ struct HomeView: View {
         .navigationDestination(for: MYDestination.self) { destination in
             switch destination {
             case .workshop:
-                MYWorkshopView(demo: myDemo, remote: remote)
+                MYWorkshopView(demo: myDemo, remote: remote, storyRepository: container.storyRepository)
             case .cucumberCustomization:
                 OiSeedCucumberCustomizationView()
                     .toolbar(.visible, for: .navigationBar)
             case .farm: MYFarmView(remote: remote).id(remote?.account?.id)
-            case .collectedWorkshop: MYWorkshopView(demo: myDemo, remote: remote, initialTab: .collected)
+            case .collectedWorkshop: MYWorkshopView(demo: myDemo, remote: remote, initialTab: .collected,
+                                                   storyRepository: container.storyRepository)
             }
         }
         .sheet(isPresented: $showingEducationDistrict, onDismiss: { scene.finishEducationDistrict() }) {

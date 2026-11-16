@@ -16,6 +16,12 @@ struct CampusCucumberStoryView: View {
     @State private var tab = Tab.related
     @Environment(\.dismiss) private var dismiss
 
+    init(story: CampusStory, store: CampusStoryStore, initialTab: Tab = .related) {
+        self.story = story
+        self.store = store
+        _tab = State(initialValue: initialTab)
+    }
+
     enum Tab: Int, CaseIterable {
         case related, location, donor
         var title: String { ["이어진 기부", "위치", "기부자"][rawValue] }
@@ -25,9 +31,11 @@ struct CampusCucumberStoryView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let panelHeight = min(457, geometry.size.height * 0.52)
+            // Keep both information buttons visible on compact phones; longer text can still scroll.
+            let compactPanelLimit = max(geometry.size.height * 0.35, geometry.size.height - 376)
+            let panelHeight = min(457, geometry.size.height * 0.52, compactPanelLimit)
             VStack(spacing: 0) {
-                top(height: geometry.size.height - panelHeight)
+                top(height: geometry.size.height - panelHeight, width: geometry.size.width)
                 CampusCucumberStoryPanel(story: story, store: store, tab: $tab)
                     .frame(height: panelHeight)
             }
@@ -46,17 +54,21 @@ struct CampusCucumberStoryView: View {
     }
 
     /// Cucumber on the left (`5441:16814`, 158×315 at 22,72) and the white information card (`5441:16812`).
-    private func top(height: CGFloat) -> some View {
-        HStack(alignment: .top, spacing: 7) {
-            CampusCucumberPortrait(story: story)
-                .frame(width: 158).frame(maxHeight: 315)
-                .padding(.leading, 22)
-            information.frame(width: 209)
+    private func top(height: CGFloat, width: CGFloat) -> some View {
+        let portraitWidth = min(158, max(0, width - 22 - 7 - 209))
+        return ScrollView {
+            HStack(alignment: .top, spacing: 7) {
+                CampusCucumberPortrait(story: story)
+                    .frame(width: portraitWidth).frame(maxHeight: 315)
+                    .padding(.leading, 22)
+                information.frame(width: 209)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 72).padding(.bottom, 16)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 72)
+        .scrollIndicators(.hidden)
+        .scrollBounceBehavior(.basedOnSize)
         .frame(height: height, alignment: .top)
-        .clipped()
     }
 
     private var information: some View {
@@ -118,7 +130,7 @@ private struct CampusCucumberStoryPanel: View {
                 switch tab {
                 case .related: CampusCucumberRelatedTab(story: story, store: store)
                 case .location: CampusCucumberLocationTab(story: story)
-                case .donor: CampusCucumberDonorTab(story: story, store: store)
+                case .donor: CampusCucumberDonorTab(story: story)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -180,6 +192,11 @@ private struct CampusCucumberRelatedTab: View {
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("같은 구역의 공개 이야기").font(CampusStyle.semibold(16))
+                    Text("이어진 기부 관계는 DB 연동 후 제공해요.")
+                        .font(CampusStyle.body(12)).foregroundStyle(.secondary)
+                }.frame(maxWidth: .infinity, alignment: .leading)
                 ForEach(items) { item in
                     NavigationLink(value: CampusDestination.summary(item.id)) {
                         OiCucumberCard(name: item.title, tags: item.tags, donor: item.donor,
@@ -191,7 +208,7 @@ private struct CampusCucumberRelatedTab: View {
                     }.buttonStyle(.plain)
                 }
                 if items.isEmpty {
-                    Text("아직 이어진 기부가 없어요.").font(CampusStyle.body(14))
+                    Text("같은 구역에 다른 공개 이야기가 없어요.").font(CampusStyle.body(14))
                         .foregroundStyle(.secondary).padding(.top, 40)
                 }
             }.padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 40)
@@ -246,52 +263,50 @@ private struct CampusCucumberLocationTab: View {
 
 private struct CampusCucumberDonorTab: View {
     let story: CampusStory
-    let store: CampusStoryStore
-
-    /// The public donor line is `학번 학과 이름`; fall back to the whole line when it has another shape.
-    private var parts: (year: String?, department: String?, name: String) {
-        let words = story.donor.split(separator: " ").map(String.init)
-        guard words.count >= 3, words[0].hasSuffix("학번") else { return (nil, nil, story.donor) }
-        return (words[0], words[1..<(words.count - 1)].joined(separator: " "), words[words.count - 1])
-    }
-    private var authored: Int {
-        guard let author = story.authorID else { return 1 }
-        return max(1, store.stories.filter { $0.authorID == author }.count)
-    }
-    private var continued: Int { store.stories(in: story.regionID, sortedBy: .latest).filter { $0.id != story.id }.count }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            Ellipse().fill(RadialGradient(colors: [.black.opacity(0.25), .clear], center: .center,
-                                          startRadius: 0, endRadius: 108))
-                .frame(width: 216, height: 42).position(x: 294, y: 353)
-            Image("OiStoryDonorFarmer").resizable().scaledToFit()
-                .frame(width: 264, height: 352).offset(x: 155, y: 22).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 2) {
-                    Image(systemName: "graduationcap.fill")
-                    Text(["포항공과대학교", parts.department].compactMap { $0 }.joined(separator: " "))
-                }.font(CampusStyle.body(14)).tracking(0.28).foregroundStyle(Color(oiRGB: 0x9D9D9D))
-                Text([parts.year, parts.name].compactMap { $0 }.joined(separator: " "))
-                    .font(.custom("Paperlogy-7Bold", size: 26, relativeTo: .title)).tracking(0.52)
-                    .foregroundStyle(Color(oiRGB: 0x2C2C2C)).padding(.top, 7)
-                VStack(alignment: .leading, spacing: 10) {
-                    chip("기부횟수", authored)
-                    chip("이어진 기부 횟수", continued)
-                }.padding(.top, 17)
-            }.padding(.leading, 30).padding(.top, 48)
-            Text("기부자 자세히보기 →").underline().font(CampusStyle.semibold(16))
-                .foregroundStyle(Color(oiRGB: 0x708C40))
-                .frame(maxHeight: .infinity, alignment: .bottom).padding(.leading, 30).padding(.bottom, 64)
+        GeometryReader { geometry in
+            ZStack(alignment: .topLeading) {
+                Ellipse().fill(RadialGradient(colors: [.black.opacity(0.25), .clear], center: .center,
+                                              startRadius: 0, endRadius: 108))
+                    .frame(width: 216, height: 42).position(x: 294, y: 353)
+                Image("OiStoryDonorFarmer").resizable().scaledToFit()
+                    .frame(width: 264, height: 352).offset(x: 155, y: 22).accessibilityHidden(true)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            HStack(spacing: 2) {
+                                Image(systemName: "person.crop.circle.fill")
+                                Text("공개 프로필")
+                            }.font(CampusStyle.body(14)).tracking(0.28).foregroundStyle(Color(oiRGB: 0x9D9D9D))
+                            Text(story.donor)
+                                .font(.custom("Paperlogy-7Bold", size: 26, relativeTo: .title)).tracking(0.52)
+                                .foregroundStyle(Color(oiRGB: 0x2C2C2C)).padding(.top, 7)
+                                .fixedSize(horizontal: false, vertical: true)
+                            VStack(alignment: .leading, spacing: 10) {
+                                chip("기부횟수")
+                                chip("이어진 기부 횟수")
+                            }.padding(.top, 17)
+                            Text("기부·연결 내역은 DB 연동 후 제공해요.")
+                                .font(CampusStyle.body(12)).foregroundStyle(.secondary).padding(.top, 10)
+                        }.padding(.horizontal, 30).padding(.top, 48)
+                        Spacer(minLength: 24)
+                        Text("기부자 자세히보기 →").underline().font(CampusStyle.semibold(16))
+                            .foregroundStyle(Color(oiRGB: 0x708C40))
+                            .padding(.leading, 30).padding(.bottom, 64)
+                    }.frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .topLeading)
+                }.scrollIndicators(.hidden).scrollBounceBehavior(.basedOnSize)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).clipped()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).clipped()
     }
 
-    private func chip(_ title: String, _ count: Int) -> some View {
+    private func chip(_ title: String) -> some View {
         HStack(spacing: 4) {
             Text(title).font(CampusStyle.medium(15)).foregroundStyle(Color(oiRGB: 0x5D5D5D))
-            Text("\(count)회").font(CampusStyle.semibold(15)).foregroundStyle(Color(oiRGB: 0x708C40))
+            Text("—").font(CampusStyle.semibold(15)).foregroundStyle(Color(oiRGB: 0x708C40))
         }.tracking(0.3).padding(.horizontal, 20).padding(.vertical, 10)
             .background(Color(oiRGB: 0xEAEEE2), in: Capsule())
+            .accessibilityElement(children: .ignore).accessibilityLabel("\(title): DB 연동 전")
     }
 }

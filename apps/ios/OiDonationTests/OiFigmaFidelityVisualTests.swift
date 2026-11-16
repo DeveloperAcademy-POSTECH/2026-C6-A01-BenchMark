@@ -3173,6 +3173,53 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             defaults: fixture.defaults, delay: .seconds(2), attach: true)
     }
 
+    func testCucumberStoryTabsOnCompactScreenAndLongPublicName() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        var story = CampusStory(id: UUID().uuidString, regionID: "pond", title: "기계이일구오이", image: "OiCats",
+            tags: ["고마움", "우정"], donor: "24학번 컴퓨터공학과 John Doe", location: "지곡연못 산책로",
+            date: "2026년 11월 16일", order: 0, popularity: 0, palette: 0)
+        story.storyTitle = "공개 프로필 이름과 작은 화면 확인"
+        let store = CampusStoryStore(defaults: fixture.defaults)
+        store.synchronize(stories: [story], collected: [])
+        store.openStoryListAction = {}
+        for variant in variants where variant.name != "440x956" {
+            for tab in CampusCucumberStoryView.Tab.allCases {
+                let content = NavigationStack { CampusCucumberStoryView(story: story, store: store, initialTab: tab) }
+                try await capture(content, name: "cucumber-story-tab-\(tab.rawValue)", variant: variant,
+                                  defaults: fixture.defaults, delay: .milliseconds(500), attach: true)
+            }
+        }
+    }
+
+    func testAppClipCardsRemainReadableWithoutAnAccount() async throws {
+        struct Repository: StoryRepository {
+            let story: Story
+            let card: StoryCard
+            func fetchPublicStory(storyID: String) async throws -> Story? { storyID == story.id ? story : nil }
+            func fetchPublicStoryCard(storyID: String) async throws -> StoryCard? { storyID == story.id ? card : nil }
+        }
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let id = UUID().uuidString
+        let story = Story(storyID: id, donorID: UUID(), donorDisplayName: "공개 작성자", title: "Clip에서 모은 이야기",
+            content: "기기에 보관한 엽서는 로그인 전에도 확인할 수 있어요.", publishedAt: .now,
+            location: StoryLocation(locationID: "pond", displayName: "지곡연못"), tags: [],
+            cucumberID: "OiCats", cucumberName: "Clip에서 모은 오이")
+        let card = StoryCard(cardID: UUID().uuidString, storyID: id, imageURL: nil)
+        let records = StoryCollectionStore(defaults: fixture.defaults)
+        XCTAssertTrue(records.collect(card))
+        let repository = Repository(story: story, card: card)
+        let library = CollectedStoryLibrary(repository: repository, collectionStore: records)
+        await library.load()
+        XCTAssertEqual(library.items.map(\.id), [id])
+        let view = MYAppClipCollectionSection(remote: nil, repository: repository, collectionStore: records)
+        try await capture(view.padding(20).environment(\.scenePhase, .active), name: "my-appclip-without-account", variant: variants[0],
+                          defaults: fixture.defaults, delay: .seconds(1), attach: true)
+        XCTAssertEqual(StoryCollectionStore(defaults: fixture.defaults).cards.map(\.storyID), [id],
+                       "Viewing a device card must never silently import or remove it")
+    }
+
     func testFarmCapturesWithOfflineOwnedStory() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
