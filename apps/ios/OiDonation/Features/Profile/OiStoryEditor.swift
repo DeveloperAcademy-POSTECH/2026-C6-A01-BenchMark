@@ -41,7 +41,9 @@ struct OiStoryEditor: View {
     }
     @State private var photoSelections: [PhotosPickerItem] = []
     @State private var step: OiCreationStep = .story
-    @FocusState private var focusedStoryField: OiStoryWritingStep.Field?
+    @State private var focusedStoryField: OiStoryWritingStep.Field?
+    /// STEP 2 shows missing items under the buttons only after Next is tapped (#373).
+    @State private var showingStoryMissing = false
     @State private var customization = OiDraftCustomization()
     @State private var personalPlacement: OiPersonalPlacement?
     @State private var removedMediaPaths: [String] = []
@@ -61,8 +63,6 @@ struct OiStoryEditor: View {
     @State private var confirmingConsentExit = false
     @State private var customizationReady = false
     @State private var wardrobePhotoEditing = false
-    @State private var navigationAtBottom = false
-    @State private var navigationPanelHeight: CGFloat = 124
     @State private var bottomSafeAreaInset: CGFloat = 0
     @State private var cardPlacementReady = false
     /// Figma `5887:10243`: STEP 4 `완료` saves on this device and shows this summary (#377).
@@ -105,6 +105,8 @@ struct OiStoryEditor: View {
         let exit: @MainActor () async -> Bool
         let editFromReview: @MainActor (OiCreationStep) -> Void
         let isPlacementPreview: @MainActor () -> Bool
+        let currentStep: @MainActor () -> OiCreationStep
+        let shownMissingItems: @MainActor () -> [String]
         let isCompletion: @MainActor () -> Bool
         let completionDone: @MainActor () -> Void
     }
@@ -157,8 +159,8 @@ struct OiStoryEditor: View {
         .onChange(of: photos) { _, _ in scheduleSave() }
         .onChange(of: uploadedPhotos) { _, _ in scheduleSave() }
         .onChange(of: step) { _, _ in
-            focusedStoryField = nil
-            navigationAtBottom = false
+            endStoryEditing()
+            showingStoryMissing = false
             scheduleSave()
         }
         .onChange(of: customization) { _, _ in scheduleSave() }
@@ -171,9 +173,10 @@ struct OiStoryEditor: View {
         .onAppear {
             onNavigationActionsForTest?(NavigationTestActions(
                 finish: { if step == .card { Task { await completeCard() } } else { toggleCustomizationReady() } },
-                next: { if step == .card { cardPlacementReady = true } else { advance() } },
+                next: { if step == .card { cardPlacementReady = true } else if step == .story { storyNext() } else { advance() } },
                 exit: saveAndExit, editFromReview: editFromReview,
                 isPlacementPreview: { step == .card && cardPlacementReady },
+                currentStep: { step }, shownMissingItems: { showingStoryMissing ? missingStoryItems : [] },
                 isCompletion: { showingCardCompletion }, completionDone: finish))
             onPhotoEditingReady?(PhotoEditingTestActions(
                 items: { editingPhotos }, open: openPhotoEditor, move: movePhoto,
@@ -223,6 +226,7 @@ struct OiStoryEditor: View {
                                 onContinue: advance, onExit: requestExit,
                                 showsHeader: false, state: $consentState)
                         }
+                        .task { prewarmStoryStep() }
                     } else if step == .cucumber || step == .card {
                         VStack(spacing: 0) {
                             editorStatus.padding(.horizontal, 20)
@@ -237,13 +241,18 @@ struct OiStoryEditor: View {
                         ScrollViewReader { scroll in
                             ScrollView { editorScrollContent }
                                 .modifier(OiCustomizationScrollEdge())
-                                .modifier(OiCreationScrollNavigation(onVisibilityChange: { navigationAtBottom = $0 }))
                                 .accessibilityIdentifier("oi.creation.storyScroll")
-                                .environment(\.oiCreationNavigationClearance, navigationPanelHeight + 12)
                                 .scrollDismissesKeyboard(.interactively)
                                 .onChange(of: step) { _, _ in scroll.scrollTo("creation.top", anchor: .top) }
                                 .onChange(of: wardrobePhotoEditing) { _, editing in
                                     if editing { scroll.scrollTo("creation.top", anchor: .top) }
+                                }
+                                .onChange(of: showingStoryMissing) { _, showing in
+                                    // The message sits under the buttons; bring it into view.
+                                    guard showing else { return }
+                                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
+                                        scroll.scrollTo("creation.storyButtons", anchor: .bottom)
+                                    }
                                 }
                                 .scrollDisabled(wardrobePhotoEditing)
                         }
@@ -259,19 +268,6 @@ struct OiStoryEditor: View {
                             },
                             onSaveAndExit: { Task { if await persist() { dismiss() } } })
                         .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-                }
-                .overlay(alignment: .bottom) {
-                    if step == .story {
-                        OiCreationNavigationBar(canContinue: canLeaveCurrentStep,
-                            onPrevious: reviewPreviousStep, onNext: advance,
-                            onSaveAndExit: { Task { if await persist() { dismiss() } } })
-                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { navigationPanelHeight = $0 }
-                        .offset(y: showsNavigationPanel || reduceMotion ? 0 : navigationPanelHeight + 50)
-                        .opacity(showsNavigationPanel ? 1 : 0)
-                        .allowsHitTesting(showsNavigationPanel)
-                        .accessibilityHidden(!showsNavigationPanel)
-                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: showsNavigationPanel)
                     }
                 }
             }
@@ -352,7 +348,7 @@ struct OiStoryEditor: View {
     }
 
     private var showsNavigationPanel: Bool {
-        if step == .story { return navigationAtBottom && focusedStoryField == nil }
+        if step == .story { return false } // STEP 2 keeps its buttons at the end of the scroll (#373).
         return (step == .cucumber || step == .card) && customizationReady && !cardPlacementReady
     }
 
@@ -433,9 +429,16 @@ struct OiStoryEditor: View {
             previewWidth: previewWidth, previewHeight: previewHeight)
     }
 
+    /// The story fields are UIKit text views; resign them synchronously so no keyboard survives a screen change.
+    private func endStoryEditing() {
+        focusedStoryField = nil
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
     private func openPhotoEditor() {
         guard restored, !submitted, photoCheckpoint == nil else { return }
-        focusedStoryField = nil
+        // Resign before presenting; otherwise UIKit keeps (and later restores) the story keyboard over the photo editor.
+        endStoryEditing()
         photoCheckpoint = PhotoCheckpoint(photos: photos, order: photoOrder, uploaded: uploadedPhotos,
             removedPaths: removedMediaPaths, removedIDs: removedPhotoIDs)
     }
@@ -485,6 +488,14 @@ struct OiStoryEditor: View {
         VStack(alignment: .leading, spacing: 20) {
             editorStatus
             stepContent.id("creation.top")
+            if step == .story {
+                // Figma `5400:7726`: the buttons follow the last section instead of floating over it.
+                OiCreationNavigationBar(inline: true, missingItems: showingStoryMissing ? missingStoryItems : [],
+                    onPrevious: reviewPreviousStep, onNext: storyNext,
+                    onSaveAndExit: { Task { if await persist() { dismiss() } } })
+                    .padding(.top, 30)
+                    .id("creation.storyButtons")
+            }
             if step != .story {
                 Text(saveLabel).font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("oi.draft.saveState")
             }
@@ -492,7 +503,7 @@ struct OiStoryEditor: View {
             .background {
                 if step == .story && focusedStoryField != nil {
                     Color.clear.contentShape(Rectangle())
-                        .onTapGesture { focusedStoryField = nil }
+                        .onTapGesture { endStoryEditing() }
                         .accessibilityHidden(true)
                 }
             }
@@ -518,8 +529,22 @@ struct OiStoryEditor: View {
         return stage <= OiCreationStep.story.progress || storyInputIsComplete
     }
 
+    /// The first STEP 2 draw caches TextKit and the Korean glyphs of its fonts; prepare them while STEP 1
+    /// is idle so switching to STEP 2 shows without a hitch. The rendered image is discarded.
+    private func prewarmStoryStep() {
+        OiStoryTextView.prewarm()
+        let renderer = ImageRenderer(content: VStack(alignment: .leading, spacing: 50) {
+            OiStoryWritingStep(draft: .constant(draft), focusedField: .constant(nil))
+            OiCreationNavigationBar(inline: true, onPrevious: {}, onNext: {}, onSaveAndExit: {})
+        }.frame(width: 362).environment(\.colorScheme, .light))
+        renderer.scale = 3
+        _ = renderer.cgImage
+    }
+
     private func navigate(to destination: OiCreationStep) {
-        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
+        // STEP 1 ↔ STEP 2 switch at once, without a slide or fade (#373); other steps keep the short fade.
+        let switchesAtOnce = Set([step, destination]) == [.consent, .story]
+        withAnimation(reduceMotion || switchesAtOnce ? nil : .easeInOut(duration: 0.18)) {
             if step != destination { customizationReady = false; cardPlacementReady = false }
             step = destination
         }
@@ -582,7 +607,35 @@ struct OiStoryEditor: View {
         }
     }
 
-    /// Theme, emotion, title, story, at least one photo and a campus location are all required before the cucumber step.
+    /// Next stays enabled on STEP 2; missing input shows what to fill instead of moving on.
+    private func storyNext() {
+        endStoryEditing()
+        guard storyInputIsComplete else {
+            showingStoryMissing = true
+            AccessibilityNotification.Announcement(missingStoryItems.joined(separator: ", ")).post()
+            return
+        }
+        showingStoryMissing = false
+        advance()
+    }
+
+    /// Figma `5400:7726` order: theme, emotion, title, story, photo, location (#373).
+    private var missingStoryItems: [String] {
+        func blank(_ value: String) -> Bool { value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        var items: [String] = []
+        if blank(draft.theme) { items.append("테마가 선택되지 않았습니다") }
+        if blank(draft.emotion) { items.append("감정이 선택되지 않았습니다") }
+        if blank(draft.title) { items.append("제목이 입력되지 않았습니다") }
+        else if OiCreationStep.storyBytes(draft.title) > OiCreationStep.storyTitleByteLimit { items.append("제목을 \(OiCreationStep.storyTitleByteLimit)byte 이내로 줄여주세요") }
+        if blank(draft.body) { items.append("이야기가 입력되지 않았습니다") }
+        else if OiCreationStep.storyBytes(draft.body) > OiCreationStep.storyBodyByteLimit { items.append("이야기를 \(OiCreationStep.storyBodyByteLimit)byte 이내로 줄여주세요") }
+        if editingPhotos.isEmpty { items.append("사진은 1장 이상 추가해주세요 (대표이미지)") }
+        else if editingPhotos.count > OiCreationStep.storyPhotoLimit { items.append("사진은 \(OiCreationStep.storyPhotoLimit)장만 선택할 수 있습니다") }
+        if !OiCreationStep.location.canContinue(draft: draft) { items.append("오이 위치가 설정되지 않았습니다") }
+        return items
+    }
+
+    /// Theme, emotion, title, story, one photo and a campus location are all required before the cucumber step.
     private var storyInputIsComplete: Bool {
         OiCreationStep.story.canContinue(draft: draft) && hasValidStoryPhotoCount
             && OiCreationStep.location.canContinue(draft: draft)
@@ -738,13 +791,13 @@ struct OiStoryEditor: View {
             issues.append(.init(step: .consent, message: "공개하려면 필수 약관에 모두 동의해 주세요."))
         }
         if !OiCreationStep.story.canContinue(draft: draft) {
-            issues.append(.init(step: .story, message: "테마와 감정을 선택하고 제목은 45자, 이야기는 1,500byte 이내로 입력해 주세요."))
+            issues.append(.init(step: .story, message: "테마와 감정을 선택하고 제목은 \(OiCreationStep.storyTitleByteLimit)byte, 이야기는 \(OiCreationStep.storyBodyByteLimit)byte 이내로 입력해 주세요."))
         }
         if !OiCreationStep.location.canContinue(draft: draft) {
             issues.append(.init(step: .location, message: "캠퍼스 위치를 선택해 주세요."))
         }
         if !hasValidStoryPhotoCount {
-            issues.append(.init(step: .photos, message: "이야기 사진을 1~\(OiCreationStep.storyPhotoLimit)장 선택해 주세요."))
+            issues.append(.init(step: .photos, message: "이야기 사진을 \(OiCreationStep.storyPhotoLimit)장 선택해 주세요."))
         }
         if draft.cucumberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draft.cucumberName.count > 50 {
             issues.append(.init(step: .cucumber, message: "오이 커스텀의 내용 탭에서 오이 이름을 입력해 주세요."))
@@ -888,7 +941,7 @@ struct OiStoryEditor: View {
                 OiStoryWritingStep(draft: $draft, focusedField: $focusedStoryField)
                 OiStoryAttachmentSections(photoCount: editingPhotos.count,
                     latitude: draft.latitude, longitude: draft.longitude,
-                    onPhotos: openPhotoEditor, onLocation: { navigate(to: .location) })
+                    onPhotos: openPhotoEditor, onLocation: { endStoryEditing(); navigate(to: .location) })
             }
         case .cucumber:
             OiCucumberCustomizationStep(customization: $customization, cucumberName: $draft.cucumberName,

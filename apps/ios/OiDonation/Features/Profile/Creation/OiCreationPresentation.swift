@@ -3,9 +3,18 @@ import Foundation
 enum OiCreationStep: String, CaseIterable {
     case consent, story, photos, location, cucumber, card
 
-    static let storyTextLimit = 45
-    static let storyBodyByteLimit = 1_500
-    static let storyPhotoLimit = 3
+    /// Figma `5400:7726`: title up to 90 byte and story up to 870 byte including spaces (#373).
+    /// Hangul and other non-ASCII characters count as 2 byte, ASCII letters/digits/spaces as 1 byte.
+    static let storyTitleByteLimit = 90
+    static let storyBodyByteLimit = 870
+    static func storyBytes(_ text: String) -> Int { text.reduce(0) { $0 + ($1.isASCII ? 1 : 2) } }
+    /// Accept an edit only within the limit; an older over-limit text may be shortened but not extended.
+    static func limitedEdit(_ value: String, previous: String, byteLimit: Int) -> String {
+        let bytes = storyBytes(value)
+        return bytes <= byteLimit || bytes < storyBytes(previous) ? value : previous
+    }
+    /// Figma `5400:7726`: one story photo (#373).
+    static let storyPhotoLimit = 1
 
     var title: String {
         switch self {
@@ -46,7 +55,8 @@ enum OiCreationStep: String, CaseIterable {
         case .consent: true
         case .story:
             [draft.title, draft.body, draft.theme, draft.emotion].allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                && draft.title.count <= Self.storyTextLimit && draft.body.utf8.count <= Self.storyBodyByteLimit
+                && Self.storyBytes(draft.title) <= Self.storyTitleByteLimit
+                && Self.storyBytes(draft.body) <= Self.storyBodyByteLimit
                 && draft.theme.count <= 30 && draft.emotion.count <= 30
         case .photos: true
         case .location:
