@@ -10,10 +10,187 @@ import UIKit
 import SwiftUI
 import XCTest
 import CryptoKit
+import Compression
 @testable import OiDonation
 
 @MainActor
 final class CampusMapInteractionTests: XCTestCase {
+    func testTreeReductionKeepsWholeTreesAndCompactsOnlyVegetation() throws {
+        func tile(_ index: Int, color: SIMD4<Float>, crown: Bool) -> CampusMeshPreparation.Tile {
+            var positions: [SIMD3<Float>] = [], indices: [UInt32] = []
+            for x in [Float(0), 3, 6, 9, 12] {
+                let start = UInt32(positions.count)
+                positions += crown ? [[x-0.4,1.2,3.6], [x+0.4,1.2,3.6], [x,2,4.4]] : [[x-0.1,0,4], [x+0.1,0,4], [x,1,4]]
+                indices += [start, start+1, start+2]
+            }
+            return .init(index: index, color: color, positions: positions,
+                normals: Array(repeating: [0,1,0], count: positions.count), indices: indices)
+        }
+        let original = [tile(0, color: [0.18,0.14,0.09,1], crown: false),
+                        tile(1, color: [0.12,0.23,0.08,1], crown: true),
+                        tile(2, color: [0.27,0.33,0.12,1], crown: true),
+                        tile(3, color: [0.26,0.32,0.15,1], crown: false)]
+        let reduced = try CampusTreeDensity.apply(to: original)
+        let reordered = try CampusTreeDensity.apply(to: original.reversed())
+        XCTAssertEqual(reduced.originalCount, 5); XCTAssertEqual(reduced.removedCount, 3)
+        for index in 0..<3 {
+            let part = try XCTUnwrap(reduced.tiles.first { $0.index == index })
+            let buffers = CampusEducationSite.MeshBuffers(positions: part.positions, normals: part.normals, indices: part.indices)
+            let centers = CampusEducationSite.components(buffers).map { CampusEducationSite.componentCenter($0, in: buffers).x }.sorted()
+            XCTAssertEqual(centers, [0,9], "The prototype's fixed seed must retain the same complete trees")
+            XCTAssertEqual(part.positions.count, 6); XCTAssertEqual(part.normals.count, 6)
+            XCTAssertEqual(Set(part.indices), Set(UInt32(0)..<UInt32(6)), "Upload only vertices used by retained trees")
+            XCTAssertEqual(part.positions, reordered.tiles.first { $0.index == index }?.positions)
+        }
+        let ground = try XCTUnwrap(reduced.tiles.first { $0.index == 3 })
+        XCTAssertEqual(ground.positions, original[3].positions)
+        XCTAssertEqual(ground.normals, original[3].normals)
+        XCTAssertEqual(ground.indices, original[3].indices)
+        XCTAssertEqual(ground.color, original[3].color)
+    }
+
+    func testBundledTreeDensityAndWarmCacheRetain1200Trees() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let result = try await Task.detached {
+            let data = try CampusMapData.load()
+            let url = try XCTUnwrap(Bundle.main.url(forResource: "campus-mobile", withExtension: "oimesh"))
+            let cold = try CampusMeshPreparation.load(url: url, mapData: data, cacheDirectory: directory)
+            let warm = try CampusMeshPreparation.load(url: url, mapData: data, cacheDirectory: directory)
+            func count(_ asset: CampusMeshPreparation.Asset) -> (Int, Int) {
+                let vegetation = asset.tiles.filter { CampusMeshPreparation.isVegetation($0.color) }
+                let trees = vegetation.filter { simd_distance($0.color, SIMD4<Float>(0.18,0.14,0.09,1)) < 0.001 }.reduce(0) {
+                    $0 + CampusEducationSite.components(.init(positions: $1.positions, normals: $1.normals, indices: $1.indices)).count
+                }
+                return (trees, vegetation.reduce(0) { $0 + $1.indices.count / 3 })
+            }
+            return (cold.cacheHit, warm.cacheHit, count(cold), count(warm))
+        }.value
+        XCTAssertFalse(result.0); XCTAssertTrue(result.1)
+        XCTAssertEqual(result.2.0, 1200); XCTAssertEqual(result.3.0, 1200, "Reading a cache must not reduce the trees a second time")
+        XCTAssertLessThan(result.2.1, 100_000, "Retained tree geometry must stay within the reviewed density budget")
+        XCTAssertEqual(result.2.1, result.3.1, "The warm cache must preserve the complete retained geometry")
+    }
+
+    func testCampusColdLoadResponsiveness() async throws {
+        let scene = CampusExploreScene()
+        let controller = UIViewController()
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        window.rootViewController = controller
+        let canvas = scene.makeView()
+        canvas.frame = controller.view.bounds
+        canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        controller.view.addSubview(canvas)
+        window.isHidden = false
+        defer {
+            scene.suspendRendering()
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+        }
+        var longestGap: Double = 0
+        var previous = CACurrentMediaTime()
+        var samples = 0
+        let heartbeat = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(10))
+                let now = CACurrentMediaTime()
+                longestGap = max(longestGap, now - previous)
+                previous = now
+                samples += 1
+            }
+        }
+        await Task.yield()
+        let start = CACurrentMediaTime()
+        await scene.load()
+        let elapsed = CACurrentMediaTime() - start
+        heartbeat.cancel()
+        await heartbeat.value
+        XCTAssertTrue(scene.ready, scene.error ?? "Map did not load")
+        XCTAssertGreaterThan(samples, 0)
+        print("CAMPUS_COLD_LOAD seconds=\(elapsed) maxMainActorGap=\(longestGap) samples=\(samples)")
+    }
+
+    private func meshFixture(x: Float = 0) throws -> Data {
+        var data = Data("OICAMP07".utf8)
+        func append<T>(_ values: [T]) { values.withUnsafeBytes { data.append(contentsOf: $0) } }
+        append([UInt32(1), UInt32(3), UInt32(3)])
+        append([Float(0.3), 0.4, 0.5, 1])
+        append([SIMD4<Float>(x,0,0,0), [1,0,0,0], [0,0,1,0]])
+        append([SIMD4<Float>(0,1,0,0), [0,1,0,0], [0,1,0,0]])
+        append([UInt32(0), 2, 1])
+        var packed = Data(count: 2048)
+        let count = packed.withUnsafeMutableBytes { dst in data.withUnsafeBytes { src in
+            compression_encode_buffer(dst.bindMemory(to: UInt8.self).baseAddress!, 2048,
+                src.bindMemory(to: UInt8.self).baseAddress!, data.count, nil, COMPRESSION_ZLIB)
+        }}
+        XCTAssertGreaterThan(count, 0)
+        packed.count = count
+        var result = Data()
+        var size = UInt32(data.count)
+        withUnsafeBytes(of: &size) { result.append(contentsOf: $0) }
+        result.append(packed)
+        return result
+    }
+
+    func testGeometryCachePreservesBuffersAndInvalidatesChangedSource() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("campus.oimesh"), cache = directory.appendingPathComponent("cache")
+        try meshFixture().write(to: url)
+        let cold = try CampusMeshPreparation.load(url: url, mapData: nil, cacheDirectory: cache)
+        let warm = try CampusMeshPreparation.load(url: url, mapData: nil, cacheDirectory: cache)
+        XCTAssertFalse(cold.cacheHit); XCTAssertTrue(warm.cacheHit)
+        XCTAssertEqual(warm.tiles.count, 1)
+        XCTAssertEqual(warm.tiles[0].positions, cold.tiles[0].positions)
+        XCTAssertEqual(warm.tiles[0].normals, cold.tiles[0].normals)
+        XCTAssertEqual(warm.tiles[0].indices, [0,2,1])
+        XCTAssertEqual(warm.tiles[0].color, cold.tiles[0].color)
+        try meshFixture(x: 0.25).write(to: url)
+        let changed = try CampusMeshPreparation.load(url: url, mapData: nil, cacheDirectory: cache)
+        XCTAssertFalse(changed.cacheHit)
+        XCTAssertEqual(changed.tiles[0].positions[0].x, 0.25)
+        try meshFixture(x: 0.5).write(to: url)
+        _ = try CampusMeshPreparation.load(url: url, mapData: nil, cacheDirectory: cache)
+        XCTAssertLessThanOrEqual(try FileManager.default.contentsOfDirectory(atPath: cache.path).count, 2)
+    }
+
+    func testBrokenOrUnavailableGeometryCacheFallsBackToBundledSource() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("campus.oimesh"), cache = directory.appendingPathComponent("cache")
+        try meshFixture().write(to: url)
+        _ = try CampusMeshPreparation.load(url: url, mapData: nil, cacheDirectory: cache)
+        let entry = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: cache, includingPropertiesForKeys: nil).first)
+        var corrupt = try Data(contentsOf: entry); corrupt[8] ^= 1; try corrupt.write(to: entry)
+        let recovered = try CampusMeshPreparation.load(url: url, mapData: nil, cacheDirectory: cache)
+        XCTAssertFalse(recovered.cacheHit)
+        XCTAssertEqual(recovered.tiles[0].positions.count, 3)
+        XCTAssertTrue(try CampusMeshPreparation.load(url: url, mapData: nil, cacheDirectory: cache).cacheHit)
+        let blocked = directory.appendingPathComponent("not-a-directory")
+        try Data([1]).write(to: blocked)
+        let uncached = try CampusMeshPreparation.load(url: url, mapData: nil, cacheDirectory: blocked)
+        XCTAssertFalse(uncached.cacheHit); XCTAssertEqual(uncached.tiles.count, 1)
+    }
+
+    func testCancelledGeometryPreparationDoesNotWriteCache() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("campus.oimesh"), cache = directory.appendingPathComponent("cache")
+        try meshFixture().write(to: url)
+        let task = Task.detached {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try CampusMeshPreparation.load(url: url, mapData: nil, cacheDirectory: cache)
+        }
+        do { _ = try await task.value; XCTFail("Cancelled work must stop before reading/writing geometry") }
+        catch { XCTAssertTrue(error is CancellationError) }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cache.path))
+    }
+
     func testMapProjectsOverlaysWhenViewportOrArtworkChanges() {
         let canvas = CampusMapCanvas(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         var layouts = 0
@@ -1027,7 +1204,7 @@ final class CampusMapInteractionTests: XCTestCase {
         let sun = try XCTUnwrap(litView.scene.anchors.first?.findEntity(named: "campus-sun") as? DirectionalLight)
         XCTAssertNotNil(sun.shadow)
         XCTAssertNotNil(litView.environment.lighting.resource)
-        XCTAssertEqual(litView.environment.lighting.intensityExponent, 1)
+        XCTAssertEqual(litView.environment.lighting.intensityExponent, 0.8)
         let apricot = try root()
         XCTAssertEqual(apricot.children.count, original.children.count)
         XCTAssertEqual(apricot.visualBounds(relativeTo: nil).extents, bounds.extents)
