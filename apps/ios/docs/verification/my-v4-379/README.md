@@ -1,0 +1,202 @@
+# MY ver.4 구현 및 화면 검증 — #379
+
+## 기준과 범위
+
+- 요청: 최신 `main`에서 작업 브랜치를 만들고 `develop` 대상 Draft PR을 생성한다.
+- 분기점: `9fcb6006296dd3e35436946601ca23827e2229bd` (`main`), 작업 브랜치 `feat/#379-my-v4`.
+- Figma: [프로토타입 ver.4](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=5400-4605), [MY 본인 화면](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=5400-14427), [수집 탭](https://www.figma.com/design/nEDJaJBFrdzBCa1WcgADHH?node-id=5903-10611).
+- 기준 프레임은 402×874pt이다. Figma MCP의 레이어/수치/원본 이미지를 읽고 SwiftUI로 구현했다. 전체 디자인 스크린샷은 비교 자료로만 쓰며 앱에 넣지 않는다.
+- 설정·농부 꾸미기·이야기 관리·기존 전체 도감은 기존 화면을 연결한다. 타인 프로필 신규 공개 API와 새 기부/코인 데이터 계약은 추가하지 않는다.
+
+## 확정된 정책 차이
+
+2026-11-16 사용자 결정에 따라 디자인 문구는 유지한다. `기부횟수`, `이어진 기부 횟수`는 `—`, 피클코인은 `—pc`와 접근성 사용 불가 안내, `이어진 기부` 탭은 미제공 안내다. Figma의 `8회`·`3pc`를 실데이터로 표시하지 않는다.
+
+`나의 기부`는 본인 이야기, `수집한 기부`는 기존 계정 수집 카드를 보여준다. 납입·공식 기부 확인을 의미하지 않는다. 이름/학번/학과는 공개용 필드만 읽으며 비공개 학교 자료 입력값으로 대체하지 않는다. 공개 이름이 없으면 기존 농장 이름을 사용한다.
+
+## 레이어와 자산 대응
+
+| 디자인 | 구현/재사용 | 기준 geometry |
+| --- | --- | --- |
+| 작업실 배경 `5894:10512` | `MYProfileRoom` 배경만 MCP 내보내기 | 402×356, 상단 프로필 높이 325 |
+| 여자 농부 `5400:14430` | 기존 `OiFarmer` 및 `MYFarmerArtwork` | x213, y69, 177.75×237 |
+| 농부 그림자 `5400:14429` | `MYProfileFarmerShadow` | 원본 blur 포함 166×49 PNG |
+| 학적/이름 | 기존 Paperlogy Regular12/Bold26, 공개 프로필 | x28, y90/103 |
+| 집계 배지 | Paperlogy Medium/Semibold12 | x28, y149/185, 너비102/141 |
+| 피클코인 `5903:10550` | `MYProfileCoin` | 24.609×24.609 이미지, 미제공 값 |
+| 종이 패널 `5903:10530` | `MYProfilePaper` 원본 질감 | y325, 상단 반경30 |
+| 탭 | Paperlogy Medium16, tracking0.32 | x21/142/263, y337, 너비120 |
+| 카드 | 기존 `MYCardArtwork` 및 원격 승인 이미지 | 3열, 115×159, 간격8.5 |
+| 오이 | 기존 원격 portrait 및 프리셋 | 카드 기준 x8/y87, 43×85 |
+| 오이 그림자 `5400:14586` | `MYProfileCardShadow` | blur 포함 122×159, 카드 기준 x−31/y50 |
+| 설정 | MCP 지정 `gearshape.fill` | 20pt, 44pt 조작 영역 |
+| 나가기 `5903:10556` | 기존 `MYExitDoor` | 50×50, 원형 조작 영역66×66 |
+
+농부와 나가기 이미지의 SHA-256이 기존 파일과 완전히 동일함을 확인했다. 새 배경/종이/코인/농부 그림자/오이 그림자 5종은 로컬 imageset으로 추가해 임시 Figma URL을 런타임에서 사용하지 않는다. 기존 폰트·계정 저장소·농부 의상 저장·카드 상세·고정 기능을 재사용한다.
+
+상단 방·농부는 가용 폭에 맞춰 비례 배치한다. 본문은 가변폭 3열 그리드로 만들고 짧은 화면은 스크롤한다. 큰 글자나 긴 공개 프로필은 세로 배치로 전환하며 텍스트를 자르지 않는다. 확대 상태에서도 설정과 닫기, 로그인 안내가 유지된다.
+
+Liquid Glass는 [Apple의 `glassEffect` 안내](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views)에 따라 네이티브 효과를 사용한다. [Apple 접근성 지침](https://developer.apple.com/design/human-interface-guidelines/accessibility)에 맞춰 글자 확대와 조작 영역·접근성 이름/상태를 제공한다. Figma의 합성 유리층을 픽셀 그림으로 버튼에 덮지 않는다.
+
+## 검증
+
+실제 사용 도구체인: Xcode 27.1 / iOS Simulator 26.5. 저장소의 iOS 26.2 배포 대상과 Swift 5.0 언어 모드는 유지했다.
+
+전용 시뮬레이터: `BenchMark MY v4 379`, `F01A8DF6-D293-4A40-8ABF-A8412C0DF41C`.
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+SWIFT_MODULECACHE_PATH=/private/tmp/benchmark-my-v4-379-evidence/modulecache \
+CLANG_MODULE_CACHE_PATH=/private/tmp/benchmark-my-v4-379-evidence/modulecache \
+sh apps/ios/Tests/run-my-checks.sh
+
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+  -project apps/ios/OiDonation.xcodeproj -scheme OiFlowChecks -configuration Debug \
+  -destination 'platform=iOS Simulator,id=F01A8DF6-D293-4A40-8ABF-A8412C0DF41C' \
+  -derivedDataPath /private/tmp/benchmark-my-v4-379-evidence/build \
+  -resultBundlePath /private/tmp/benchmark-my-v4-379-evidence/my-v4-reviewed.xcresult \
+  CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO \
+  -only-testing:OiDonationTests/OiFigmaFidelityVisualTests/testMYV4Captures \
+  -only-testing:OiDonationTests/OiFigmaFidelityVisualTests/testMYV4FigmaReferenceCapture test
+```
+
+`run-my-checks.sh`는 계정 도감·App Clip 기록·계정 분리 검사를 통과했다. 최초 제한 샌드박스 실행은 모듈 캐시/Swift 매크로 실행 권한 문제로 실패했고, 동일 검사를 정상 Xcode 실행 권한에서 통과했다. 검사를 약화하거나 생략하지 않았다.
+
+화면 테스트는 본인 이야기만 표시, 로그아웃 후 이전 도감 숨김, 로딩/오류/빈 상태 구별, 미제공 탭, 공개 프로필의 비공개 학적 정보 독립성을 검증한다. 402×874, 375×667, 440×956, accessibility5 및 긴 프로필을 캡처한다. 캡처 창은 key window를 빼앗지 않으며 사용 후 숨김 창까지 scene에서 분리됐음을 assert한다.
+
+최종 `xcodebuild` 결과는 **2 tests, 0 failures / TEST SUCCEEDED**이다. 디자인 카드 3개를 테스트 번들에서만 공급하는 별도 캡처를 추가해, 원격 카드/오이 이미지 로딩 경로도 검증했다. 프로덕션 데이터나 스토리 업로드는 수행하지 않는다.
+
+## 픽셀 비교 결과
+
+[원본](reference.png)과 [구현](actual.png)을 402×874, 1pt=1px로 비교했다. 리사이즈·좌표 보정·마스크로 오차를 숨기지 않았으며, sRGB/흰색 배경 알파 합성만 동일하게 적용했다. 아래 수치는 자동 합격 기준이 아닌 최종 측정 결과다.
+
+| 영역 | 평균 절대 RGB 오차(0–255) | 최대 채널 차이 >10인 픽셀 |
+| --- | ---: | ---: |
+| 전체 | 3.7579 | 8.3646% |
+| 상단 방 빈 영역 | 0.4305 | 0.0000% |
+| 농부 | 3.1351 | 8.5358% |
+| 종이 빈 영역 | 1.2693 | 0.0014% |
+| 탭 | 5.5936 | 11.7809% |
+
+![Figma 왼쪽 / 구현 오른쪽](comparison/side-by-side.png)
+
+- [50% 겹침](comparison/overlay-50-percent.png) · [픽셀 차이 지도](comparison/absolute-diff-heatmap.png) · [원시 측정값](comparison/metrics.json)
+- [작은 화면](authored-375x667.png) · [큰 화면](authored-440x956.png) · [큰 글자](authored-accessibility5.png) · [긴 공개 프로필](long-public-profile-402x874.png)
+- [수집 탭](collected-402x874.png) · [미제공 탭](connected-unavailable-402x874.png) · [로그아웃](signed-out-402x874.png) · [오류](error-402x874.png)
+
+최종 검토에서 패널 좌우 여백(21/19), 상단 반경30과 모서리 뒤 방 배경, Paperlogy 광학 기준선, 카드·오이 그림자를 보정했다. 그림자는 터치에서 제외하고 카드 버튼의 입력 범위를 명시했다.
+
+남은 차이는 다음과 같다.
+
+- Figma의 9:41/배터리 등 시스템 표시줄은 앱 뷰 캡처에 합성하지 않는다. 실제 기기에서는 시스템이 표시한다.
+- 사용자 결정에 따른 `—`/`—pc`와 `8회`/`3pc`의 차이는 의도된 결과다.
+- Figma는 오이 예시마다 43×85/52×88을 사용한다. 실제 데이터는 동일한 43×85 슬롯에서 원본 비율을 보존하므로 두 번째 예시는 크기가 다르다. 카드별 임의 좌표를 저장하는 새 데이터 계약은 추가하지 않는다.
+- 네이티브 Liquid Glass, SwiftUI/Core Text의 글리프·질감 보간·그림자 렌더링은 Figma 합성 결과와 픽셀 단위로 완전히 같지 않다. 특히 닫기 버튼의 색/반사와 탭 글리프 차이가 있다.
+
+재현 명령(저장소 루트):
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+SWIFT_MODULECACHE_PATH=/private/tmp/benchmark-my-v4-379-evidence/modulecache \
+CLANG_MODULE_CACHE_PATH=/private/tmp/benchmark-my-v4-379-evidence/modulecache \
+xcrun swift apps/ios/docs/verification/my-v4-379/compare-my.swift \
+  apps/ios/docs/verification/my-v4-379/reference.png \
+  apps/ios/docs/verification/my-v4-379/actual.png \
+  /private/tmp/my-v4-comparison
+
+git diff --check
+plutil -lint apps/ios/OiDonation.xcodeproj/project.pbxproj
+```
+
+비교 스크립트와 두 정적 검사는 모두 통과했다. 실기기·실계정 서버 통합·실제 탭/스크롤/화면 이동 UI 자동화는 수행하지 않았다. 화면 캡처는 시뮬레이터 테스트 호스트에서 실제 SwiftUI 뷰를 렌더링한 결과이며, 가상 백엔드의 상태 검증과 실제 서버 검증을 구분한다. `xcodebuild` 로그에는 기존 RealityKit 시뮬레이터 셰이더/SDK 메타데이터 진단이 있었으나 테스트는 성공했고 캡처 이미지에서 렌더링 결과를 확인했다.
+
+## 실행 자원 정리
+
+작업 소유 동시 실행 그룹은 최대 2개(빌드/테스트, 전용 시뮬레이터)였다. 빌드/테스트 프로세스는 종료됐고 전용 시뮬레이터 `F01A8DF6-D293-4A40-8ABF-A8412C0DF41C`는 종료 후 삭제하여 장치 목록에 없음을 확인했다. 캡처용 UIWindow는 테스트마다 숨긴 뒤 scene에서 분리하고 숨김/표시 창 목록에서 해제 여부를 검사했다. Computer Use 핸들·브라우저·서버는 생성하지 않았으며, 남긴 실행 자원은 없다. 다른 작업의 프로세스와 원래 체크아웃의 변경은 보존했다.
+
+## 설정 화면 후속 수정 — 2026-11-16
+
+Google 로그인에 [Google 공식 컬러 로고](https://developers.google.com/static/identity/images/g-logo.png)를 원본으로 사용했다. [로그인 브랜딩 안내](https://developers.google.com/identity/branding-guidelines)를 확인했으며 Google의 흰 배경/회색 테두리를 적용하고 기존 Apple 버튼과 가로 배치 170×60pt, 모서리 반경6을 맞췄다. 작은 화면에서는 두 버튼 모두 같은 가용 폭으로 세로 배치된다. 기존 인증·추가 연결·비활성 조건은 유지했다.
+
+![Google과 Apple 로그인](settings-google-apple.png)
+
+권한 버튼은 이전에 최초 요청 없이 앱 설정만 열고 있었다. 사진은 실제 저장 기능의 `.addOnly`와 다른 `.readWrite`를 조회했다. 사용자 승인 후 다음을 수정했다.
+
+- 요청 전에는 알림·위치·카메라·사진 저장의 시스템 허용 요청을 실행한다.
+- 허용/거절 후에는 앱 설정에서 변경한다. 앱이 시스템 권한을 임의로 끄거나 이미 거절된 권한을 재요청하지 않는다.
+- 사진 저장은 `.addOnly` 조회/요청으로 일치시킨다. 사진 선택기는 기존 시스템 선택기를 유지한다.
+- 위치 권한 delegate를 유지하여 응답을 반영하고, GPS 추적은 시작하지 않는다. 설정 복귀 시 전체 상태를 갱신한다.
+- 요청 상태를 문구로 표시하고 중복 요청·취소·알림 요청 오류를 처리한다.
+
+[권한 표시 스크린샷](settings-permissions.png)
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+  -project apps/ios/OiDonation.xcodeproj -scheme OiFlowChecks -configuration Debug \
+  -destination 'platform=iOS Simulator,id=81674770-0D92-40A7-8A0B-80542BB047CB' \
+  -derivedDataPath /private/tmp/benchmark-my-v4-379-evidence/build \
+  -resultBundlePath /private/tmp/benchmark-my-v4-379-evidence/settings-followup.xcresult \
+  CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO \
+  -only-testing:OiDonationTests/OiFigmaFidelityVisualTests/testMYSettingsCapturesWithOfflineAccounts test
+```
+
+결과: `TEST SUCCEEDED`, 설정 화면 캡처 검사 1개 통과. 기준/작은/큰/접근성 화면과 로그인 전후를 렌더링했다. `git diff --check` 통과. 실제 시스템 권한 팝업에서 허용/거절하고 설정 앱에서 되돌아오는 실기기 조작은 미검증이다.
+
+후속 검증도 동시 실행 최대 2그룹(빌드/테스트, 전용 시뮬레이터)을 사용했다. 테스트 완료 후 캡처 창 해제 검사를 통과했으며 전용 시뮬레이터를 삭제했다. 사용자 로컬 서명 변경은 커밋에서 제외했다.
+
+최신 `develop` (`0e7d282`)을 `b725341`에서 통합한 뒤 동일 테스트를 재실행했다. 위 명령의 destination을 `0C508E1B-9CF4-44C4-B44E-6583D8A4B1A0`, resultBundlePath를 `/private/tmp/benchmark-my-v4-379-evidence/settings-integrated.xcresult`로 변경해 실행했으며 **1 test, 0 failures / TEST SUCCEEDED**를 확인했다. 이 전용 시뮬레이터도 삭제했다.
+
+## 로그인 직접 진입 수정 — 2026-11-16
+
+사용자 요청에 따라 설정의 Google·Apple 버튼에서 `OiAccountMergeView`로 이동하는 분기와 계정 연결 준비 상태에 따른 차단을 제거했다. 버튼은 기존 `remote.signIn`을 바로 호출한다. `추가 연동` 표시도 `로그인하기`로 변경했다. 인증 성공 시 해당 계정으로 로그인하며 취소/실패 시 기존 계정을 유지하는 기존 저장소 로직을 사용한다. 이전 절의 추가 연결 흐름 유지 설명은 이 결정으로 대체한다.
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+  -project apps/ios/OiDonation.xcodeproj -scheme OiFlowChecks -configuration Debug \
+  -destination 'platform=iOS Simulator,id=B662B252-34EB-4153-9B0B-674023907D65' \
+  -derivedDataPath /private/tmp/benchmark-my-v4-379-evidence/build \
+  -resultBundlePath /private/tmp/benchmark-my-v4-379-evidence/direct-login.xcresult \
+  CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO \
+  -only-testing:OiDonationTests/OiRemoteStoreTests/testRepeatedLoginDoesNotBecomeConfigurationError \
+  -only-testing:OiDonationTests/OiRemoteStoreTests/testCanceledLoginPreservesPreviousAccountWithoutGlobalError \
+  -only-testing:OiDonationTests/OiRemoteStoreTests/testCanceledLoginTaskCannotCommitLateSuccess test
+```
+
+결과: 빌드 성공, **3 tests, 0 failures / TEST SUCCEEDED**. 중복 인증 요청, 취소 시 기존 계정 보존, 취소 이후 도착한 성공 응답 차단을 검증했다. 실제 Google 웹 인증 완료는 실행하지 않았다. 전용 시뮬레이터는 검증 후 삭제했고 빌드 프로세스 종료를 확인했다. 동시 자원 최대 2그룹, 유지한 실행 자원 없음.
+
+## 설정 구성과 앱 내부 사용 토글 — 최종 사용자 결정
+
+`내 농장 이름`과 전용 편집 상태를 제거했다. `콘텐츠 보호`·`도움말`은 로그아웃·회원 탈퇴 바로 위로 이동했고, 로그인 전에도 도움말은 유지했다.
+
+권한이 이미 허용된 경우 토글은 **기기별 앱 내부 사용 설정**을 즉시 변경한다. iPhone 설정을 열지 않는다. 시스템 권한이 미허용인 경우에만 최초 시스템 요청/설정 이동을 수행한다. 이전 절의 “허용 후에는 설정에서 변경” 설명은 이 결정으로 대체한다.
+
+- 사용 선택을 UserDefaults에 저장하고 앱 재시작 후 복원한다. OS 권한과 로컬 사용 설정이 모두 허용될 때만 ON으로 표시한다.
+- 위치 OFF: 지도 현재 위치, 포항시 경계 확인, AR 위치 추적을 차단하고 진행 중인 작업과 늦은 결과도 중단한다.
+- 카메라 OFF: AR 세션·녹화/타이머·학교 자료 촬영을 중단하고 새 촬영 진입을 차단한다.
+- 사진 저장 OFF: 저장 서비스에서 권한 요청 전후 사용 설정을 검사하므로 사진/영상/카드 저장이 차단된다. 시스템 사진 선택기의 선택 접근은 사진 저장과 별개다.
+- 알림 OFF: 예약·표시 알림 정리 및 원격 알림 등록 해제, 재실행 시 적용. 현재 앱에는 알림 예약/푸시 등록·발송 경로가 없으므로 새 발송 기능은 추가하지 않았다.
+
+기능 OFF 상태에서 실제 위치·AR·사진 저장 서비스를 호출해 시스템 요청 전에 차단되는지 검사했고, 저장/재생성/ON 복원과 다른 기능의 독립성도 검사했다. 전용 시뮬레이터 `88A5A3CA-ACB1-470A-BC6E-D91E79E71235`를 사용했다.
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+  -project apps/ios/OiDonation.xcodeproj -scheme OiFlowChecks -configuration Debug \
+  -destination 'platform=iOS Simulator,id=88A5A3CA-ACB1-470A-BC6E-D91E79E71235' \
+  -derivedDataPath /private/tmp/benchmark-my-v4-379-evidence/build \
+  -resultBundlePath /private/tmp/benchmark-my-v4-379-evidence/feature-usage-final.xcresult \
+  CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO \
+  -only-testing:OiDonationTests/OiRemoteStoreTests/testFeatureUsagePersistsWithoutChangingOtherFeatures \
+  -only-testing:OiDonationTests/OiRemoteStoreTests/testDisabledFeaturesBlockLocationCameraAndPhotoStorage \
+  -only-testing:OiDonationTests/OiFigmaFidelityVisualTests/testMYSettingsCapturesWithOfflineAccounts test
+
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+SWIFT_MODULECACHE_PATH=/private/tmp/benchmark-my-v4-379-evidence/modulecache \
+CLANG_MODULE_CACHE_PATH=/private/tmp/benchmark-my-v4-379-evidence/modulecache \
+sh apps/ios/Tests/run-campus-card-location-checks.sh
+```
+
+결과: 화면 포함 3개 검사 통과. 늦은 위치 결과 차단 보완 후에는 위 명령에서 화면 검사 선택을 제외하고 resultBundlePath를 `feature-usage-reviewed.xcresult`로 바꿔 2개 기능 검사를 재실행하여 통과했다. 포항시 경계·거리 정확도·오래된 위치 검사도 PASS. 실제 iPhone의 권한 팝업·GPS·카메라 녹화·사진 저장 및 알림 수신은 별도 실기기 확인이 남아 있다.
+
+최종 통합 검증: `develop`의 `323476d`를 `abd85cb`에서 통합한 뒤 위 3개 선택 명령을 resultBundlePath `/private/tmp/benchmark-my-v4-379-evidence/feature-usage-integrated.xcresult`로 실행해 **3 tests, 0 failures / TEST SUCCEEDED**를 확인했다. 최종 스크린샷도 이 결과로 갱신했다.
+
+전체 후속 작업의 최대 동시 실행 자원은 3그룹(시뮬레이터, Xcode 빌드/테스트, 짧은 독립 위치 검사)이었다. 모두 종료했으며 전용 장치를 삭제하고 장치 목록에서 제거됐음을 확인했다. 캡처 창 해제 검사는 통과했고 Computer Use 핸들은 생성하지 않았다. 남긴 실행 자원은 없다.

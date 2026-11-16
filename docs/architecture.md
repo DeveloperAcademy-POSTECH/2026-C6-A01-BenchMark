@@ -737,3 +737,12 @@ AR 게임 시작 시 정규화된 캐릭터를 한 번 로드하여 카메라와
 2026-11-13 #310: `OiOperatorNFCTagsView`가 운영자 관리의 NFC 태그 메뉴에서 목록·추가·수정을 제공한다. `OiRemoteStore`의 운영자 세션 재확인을 거쳐 기존 RPC만 호출하고, 응답 영수증이 요청과 일치할 때만 저장으로 처리한다. 서버 스키마 변경은 없다.
 
 2026-11-15 #351: App Clip 타깃에서 `Views/ARGame/*`, `AppClipStoryCardView`, `ARCollectionResultView`, 체험 화면(`OiSample*View`)과 `ARCollectionAssets`·`OiSampleAssets`, `Paperlogy-2ExtraLight`를 제외한다. 파일은 본 앱이 계속 사용하므로 삭제하지 않고 타깃 멤버십만 바꾼다. 이야기 상세의 카드 미리보기는 `AppClipCardPreview.swift`로 분리해 두 타깃이 공유한다. 공유 `AppClipExperienceView`는 AR 진입 없이 읽기 전용 이야기 상세를 표시한다. Release 기준 App Clip 번들은 약 16.3MB에서 8.9MB(축소 전)로 줄었다.
+
+
+### 2026-11-16 적용: 앱 내부 기능 사용 설정 (#379)
+
+- 사용자 확정 범위: 시스템 권한과 별개로 이 기기의 알림·위치·카메라·사진 저장 사용 여부를 유지한다.
+- `OiFeatureUsage`는 UserDefaults 기반 선택을 보관하고 변경을 관찰 가능 상태 및 NotificationCenter로 전달한다. 별도 선택 전에는 기존 동작을 유지한다.
+- 설정 토글은 시스템 권한 허용 후 로컬 사용 여부만 변경한다. 위치/AR 서비스는 OFF 이벤트에서 진행 중인 작업을 중단하고 새 작업 진입도 차단한다. 사진 저장 서비스는 권한 요청 전후 사용 설정을 확인한다.
+- 알림 OFF는 예약·표시 알림을 정리하고 원격 알림 등록을 해제한다. 현재 앱에는 알림 예약/푸시 등록·발송 경로가 없으며 신규 발송 기능은 범위에 포함하지 않는다.
+- 인증 계정/프로필/서버 권한을 변경하지 않으며, 앱 내부 OFF로 iOS 시스템 권한을 해제하지 않는다.

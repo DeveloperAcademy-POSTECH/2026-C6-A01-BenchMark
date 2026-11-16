@@ -3653,6 +3653,56 @@ extension OiRemoteStoreTests {
         XCTAssertNil(store.loadError)
     }
 
+    @MainActor func testFeatureUsagePersistsWithoutChangingOtherFeatures() throws {
+        let suite = "OiFeatureUsage-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let usage = OiFeatureUsage(defaults: defaults)
+        XCTAssertTrue(OiAppFeature.allCases.allSatisfy(usage.isEnabled))
+        usage.setEnabled(false, for: .photos)
+        let restored = OiFeatureUsage(defaults: defaults)
+        XCTAssertFalse(restored.isEnabled(.photos))
+        XCTAssertTrue(restored.isEnabled(.camera))
+        XCTAssertTrue(restored.isEnabled(.location))
+        XCTAssertThrowsError(try restored.require(.photos)) {
+            XCTAssertEqual($0 as? OiFeatureUsageError, .disabled(.photos))
+        }
+        restored.setEnabled(true, for: .photos)
+        XCTAssertNoThrow(try restored.require(.photos))
+        XCTAssertTrue(OiFeatureUsage(defaults: defaults).isEnabled(.photos))
+    }
+
+    @MainActor func testDisabledFeaturesBlockLocationCameraAndPhotoStorage() async throws {
+        let usage = OiFeatureUsage.shared
+        let previous = Dictionary(uniqueKeysWithValues: OiAppFeature.allCases.map { ($0, usage.isEnabled($0)) })
+        defer { for (feature, enabled) in previous { usage.setEnabled(enabled, for: feature) } }
+        usage.setEnabled(false, for: .location)
+        usage.setEnabled(false, for: .camera)
+        usage.setEnabled(false, for: .photos)
+        let bench = BenchLocationService()
+        bench.locate()
+        XCTAssertFalse(bench.isLocating)
+        XCTAssertFalse(bench.isAuthorized)
+        XCTAssertEqual(bench.notice?.message, OiFeatureUsageError.disabled(.location).localizedDescription)
+        let location = CampusGeoLocation()
+        location.start()
+        XCTAssertNil(location.location)
+        XCTAssertFalse(location.hasPreciseLocationPermission)
+        XCTAssertEqual(location.message, OiFeatureUsageError.disabled(.location).localizedDescription)
+        do {
+            _ = try await CampusCardLocation().classify()
+            XCTFail("Disabled location must not start a system permission or location request")
+        } catch { XCTAssertEqual(error as? OiFeatureUsageError, .disabled(.location)) }
+        let nearby = CampusNearbyARController()
+        await nearby.start(location: location)
+        XCTAssertFalse(nearby.ready)
+        XCTAssertEqual(nearby.message, OiFeatureUsageError.disabled(.camera).localizedDescription)
+        do {
+            try await ARPhotoLibraryService().save(UIImage())
+            XCTFail("Disabled photo storage must not prompt or save")
+        } catch { XCTAssertEqual(error as? OiFeatureUsageError, .disabled(.photos)) }
+    }
+
     @MainActor func testRepeatedLoginDoesNotBecomeConfigurationError() async throws {
         let authentication = OiControlledAuthentication()
         let (store,backend,_,session,directory) = try context(authentication: authentication)
