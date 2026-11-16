@@ -1805,6 +1805,36 @@ final class OiRemoteStoreTests: XCTestCase {
         attachment.lifetime = .keepAlways; add(attachment)
     }
 
+    /// STEP 1 ↔ STEP 2 slide both ways; pauses leave room for a screen recording (#373).
+    @MainActor func testConsentStoryTransitionGoesBothWays() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let local = OiLocalDraft(draft: draft(title: "전환 확인"), version: 1, creationStep: OiCreationStep.consent.rawValue,
+            agreedConsentClauseIDs: Set(OiStoryConsentClause.ID.allCases.map(\.rawValue)))
+        try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+        var actions: OiStoryEditor.NavigationTestActions?
+        let controller = UIHostingController(rootView: NavigationStack {
+            OiStoryEditor(remote: store, localID: local.id).observeNavigationForTest({ _ in }, actions: { actions = $0 })
+        })
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = controller; window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+        try await Task.sleep(for: .seconds(5)) // past the launch splash
+        // Pauses let a screen recording show forward, backward and the next step separately.
+        try XCTUnwrap(actions).next()
+        try await Task.sleep(for: .seconds(1.5))
+        XCTAssertEqual(try XCTUnwrap(actions).currentStep(), .story)
+        try XCTUnwrap(actions).editFromReview(.consent)
+        try await Task.sleep(for: .seconds(1.5))
+        XCTAssertEqual(try XCTUnwrap(actions).currentStep(), .consent)
+        try XCTUnwrap(actions).next()
+        try await Task.sleep(for: .seconds(1.5))
+        XCTAssertEqual(try XCTUnwrap(actions).currentStep(), .story)
+    }
+
     /// Opening the photo editor while typing must not leave the story keyboard over it (#373).
     @MainActor func testOpeningPhotoEditorEndsStoryTyping() async throws {
         let (store, backend, _, session, directory) = try context()

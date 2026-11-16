@@ -472,6 +472,8 @@ struct OiStoryAttachmentSections: View {
     let longitude: Double?
     let onPhotos: () -> Void
     let onLocation: () -> Void
+    /// MapKit is the costliest view on STEP 2; create it after the STEP 1 → 2 slide so the slide keeps its frames.
+    @State private var showsMap = false
 
     private var coordinate: CLLocationCoordinate2D? {
         guard let latitude, let longitude else { return nil }
@@ -488,14 +490,24 @@ struct OiStoryAttachmentSections: View {
                     .accessibilityIdentifier("oi.story.editPhotos")
             }
             OiCreationSection(title: "오이 위치 설정", titleSize: 30) {
-                Map(position: .constant(.region(MKCoordinateRegion(
-                    center: coordinate ?? CLLocationCoordinate2D(latitude: 36.0139, longitude: 129.3232),
-                    latitudinalMeters: coordinate == nil ? 1_200 : 300,
-                    longitudinalMeters: coordinate == nil ? 1_200 : 300))), interactionModes: []) {
-                    if let coordinate { Marker("선택한 오이 위치", coordinate: coordinate).tint(.red) }
+                Group {
+                    if showsMap {
+                        Map(position: .constant(.region(MKCoordinateRegion(
+                            center: coordinate ?? CLLocationCoordinate2D(latitude: 36.0139, longitude: 129.3232),
+                            latitudinalMeters: coordinate == nil ? 1_200 : 300,
+                            longitudinalMeters: coordinate == nil ? 1_200 : 300))), interactionModes: []) {
+                            if let coordinate { Marker("선택한 오이 위치", coordinate: coordinate).tint(.red) }
+                        }
+                        .mapStyle(.standard(pointsOfInterest: .excludingAll))
+                    } else {
+                        Color(white: 244 / 255)
+                    }
                 }
-                .mapStyle(.standard(pointsOfInterest: .excludingAll))
                 .frame(height: 245).clipShape(RoundedRectangle(cornerRadius: 20))
+                .task {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    showsMap = true
+                }
                 .allowsHitTesting(false)
                 .overlay(alignment: .bottom) {
                     if coordinate == nil {
@@ -600,6 +612,14 @@ struct OiStoryTextView: UIViewRepresentable {
         } else if focusedField != field, view.isFirstResponder {
             view.resignFirstResponder()
         }
+    }
+
+    /// The first UITextView in a process sets up TextKit and fonts; doing it while STEP 1 is idle
+    /// keeps the STEP 1 → 2 slide from dropping frames.
+    @MainActor static func prewarm() {
+        let view = UITextView()
+        view.attributedText = NSAttributedString(string: "이야기 Story", attributes: attributes)
+        _ = view.sizeThatFits(CGSize(width: 300, height: CGFloat.greatestFiniteMagnitude))
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
