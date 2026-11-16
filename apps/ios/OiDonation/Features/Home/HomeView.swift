@@ -449,8 +449,13 @@ struct HomeView: View {
                                 .font(CampusStyle.body(14)).foregroundStyle(.secondary).padding()
                         }
                         ForEach(items) { story in
-                            Button { openStory(story.id) } label: { CampusStoryRow(story: story) }
-                                .buttonStyle(.plain).accessibilityIdentifier("campus.row.\(story.id)")
+                            // Same card as the story list (Figma `5441:17267`, #399).
+                            Button { openStory(story.id) } label: {
+                                OiCucumberCard(name: story.title, tags: story.tags, donor: story.donor,
+                                               title: story.storyTitle) { CampusCucumberPortrait(story: story) }
+                            }
+                            .buttonStyle(.plain).accessibilityIdentifier("campus.row.\(story.id)")
+                            .accessibilityElement(children: .combine)
                         }
                     }.padding(.bottom, 12)
                 }.scrollIndicators(.hidden)

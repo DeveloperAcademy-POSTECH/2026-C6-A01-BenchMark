@@ -138,94 +138,21 @@ struct OiStoryListView: View {
         .accessibilityIdentifier("storyList.list")
     }
 
-    /// Figma `5441:17267` (오이가로): name, tags and donor, then the title, with the cucumber on the right.
+    /// Figma `5441:17267` (오이가로), shared with the map's region list (`OiCucumberCard`).
     private func storySlot(_ item: OiStoryListItem) -> some View {
         optionalButton(action: onSelectStory.map { select in { select(item.id) } }) {
-                Group {
-                    if usesAccessibilityLayout {
-                        VStack(alignment: .leading, spacing: 12) {
-                            storyText(item)
-                            storyCucumberImage(item)
-                        }
-                    } else {
-                        HStack(spacing: 10) {
-                            storyText(item)
-                            storyCucumberImage(item)
-                        }
-                    }
+            OiCucumberCard(name: item.cucumberName, tags: item.tags, donor: item.donorDisplayName,
+                           title: item.title, metrics: OiCucumberCardMetrics(cardHeight: metrics.cardHeight)) {
+                if let data = item.portraitPNG, let image = UIImage(data: data) {
+                    Image(uiImage: image).resizable().scaledToFit()
+                } else {
+                    Image(item.cucumberAsset).resizable().scaledToFit()
                 }
-                .padding(.leading, 16)
-                .padding(.trailing, 12)
-                .padding(.vertical, metrics.cardPadding)
-                .frame(maxWidth: .infinity, minHeight: metrics.cardHeight,
-                       maxHeight: usesAccessibilityLayout ? nil : metrics.cardHeight, alignment: .leading)
-                .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 28))
-                .shadow(color: .black.opacity(0.25), radius: 2)
+            }
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("storyList.item.\(item.id.uuidString)")
     }
-
-    private func storyText(_ item: OiStoryListItem) -> some View {
-        VStack(alignment: .leading, spacing: metrics.textSpacing * 0.6) {
-            VStack(alignment: .leading, spacing: metrics.textSpacing * 0.4) {
-                Text(item.cucumberName)
-                    .font(.custom("YANGJIN", size: 22, relativeTo: .title2))
-                    .tracking(0.44)
-                    .foregroundStyle(.black)
-                    .lineLimit(usesAccessibilityLayout ? nil : 1)
-                    .minimumScaleFactor(usesAccessibilityLayout ? 1 : 0.8)
-                    .frame(minHeight: 20, alignment: .bottomLeading)
-
-                storyTagsAndDonor(item)
-            }
-            if !item.title.isEmpty {
-                Text(item.title)
-                    .font(.custom("Paperlogy-3Light", size: 18, relativeTo: .body))
-                    .foregroundStyle(.black)
-                    .lineLimit(usesAccessibilityLayout ? nil : 1)
-                    .frame(minHeight: 18, alignment: .leading)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private func storyTagsAndDonor(_ item: OiStoryListItem) -> some View {
-        let tags = HStack(spacing: 4) {
-            ForEach(Array(item.tags.prefix(2).enumerated()), id: \.offset) { _, tag in
-                Text("#" + tag).foregroundStyle(Self.tagColor)
-            }
-        }
-        let donor = Text(item.donorDisplayName).foregroundStyle(Self.donorColor)
-        Group {
-            if usesAccessibilityLayout {
-                VStack(alignment: .leading, spacing: 4) { tags; donor }
-            } else {
-                HStack(spacing: 6) { tags; donor }
-            }
-        }
-        .font(.custom("Paperlogy-4Regular", size: 12, relativeTo: .caption))
-        .tracking(0.24)
-        .lineLimit(usesAccessibilityLayout ? nil : 1)
-    }
-
-    private func storyCucumberImage(_ item: OiStoryListItem) -> some View {
-        Group {
-            if let data = item.portraitPNG, let image = UIImage(data: data) {
-                Image(uiImage: image).resizable().scaledToFit()
-            } else {
-                Image(item.cucumberAsset).resizable().scaledToFit()
-            }
-        }
-        .frame(width: 50 * metrics.imageHeight / 86, height: 78 * metrics.imageHeight / 86)
-        .frame(width: 66 * metrics.imageHeight / 86, height: metrics.imageHeight)
-        .background(Color(red: 239 / 255, green: 239 / 255, blue: 239 / 255), in: RoundedRectangle(cornerRadius: 16))
-        .accessibilityHidden(true)
-    }
-
-    private static let tagColor = Color(red: 79 / 255, green: 110 / 255, blue: 223 / 255)
-    private static let donorColor = Color(red: 83 / 255, green: 83 / 255, blue: 83 / 255)
 
     private func emptySlot(index: Int) -> some View {
         VStack(spacing: 4) {
