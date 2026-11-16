@@ -397,6 +397,14 @@ struct OiCucumberNameField: View {
 
     private var baseName: String { name.hasSuffix("오이") ? String(name.dropLast(2)) : name }
 
+    /// Rejects typing or pasting past five letters; an older longer name can still be shortened.
+    private var limitedInput: Binding<String> {
+        Binding(get: { input }, set: { value in
+            guard value.count <= Self.letterLimit || value.count < input.count else { return }
+            input = value
+        })
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .lastTextBaseline, spacing: 10) {
@@ -408,7 +416,7 @@ struct OiCucumberNameField: View {
             }
             HStack {
                 if editing {
-                    TextField("다섯 글자 이내", text: $input)
+                    TextField("다섯 글자 이내", text: limitedInput)
                         .font(CampusStyle.body(16)).tracking(0.32)
                         .focused($focused)
                         .submitLabel(.done)
