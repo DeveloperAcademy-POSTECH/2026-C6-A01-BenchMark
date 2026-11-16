@@ -9,7 +9,7 @@ import simd
 
 /// Replace the former parking slabs and their two access spurs with one grass
 /// surface. The main road, other paths and neighboring foundations are cutouts.
-struct CampusEducationLandscape {
+nonisolated struct CampusEducationLandscape {
     typealias Buffers = CampusEducationSite.MeshBuffers
     static let boundary: [SIMD2<Float>] = [
         [52,28.8], [55.9521,30.7484], [59.7106,38.8984], [63.416,46.984],

@@ -32,6 +32,24 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         ]
     }
 
+    func testCampusMapPolishCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        XCTAssertNotNil(UIFont(name: "YANGJIN", size: 26))
+        let house = try XCTUnwrap(UIImage(named: "CampusMyHouseButton"))
+        XCTAssertEqual(house.cgImage?.width, 402)
+        XCTAssertEqual(house.cgImage?.height, 402)
+        XCTAssertEqual(house.scale, 3)
+        for variant in variants where variant.name == "402x874" || variant.name == "375x667" {
+            let store = CampusStoryStore(defaults: fixture.defaults)
+            let remote = OiRemoteStore(vault: OiMemorySession())
+            let home = HomeView(container: .pilot, store: store, myDemo: MYLibraryStore(),
+                isCameraCoverActive: false, onOpenProfile: {}, onOpenStory: { _ in }, remote: remote)
+            try await capture(NavigationStack { home.environment(\.scenePhase, .active) }, name: "campus-map-polish", variant: variant,
+                defaults: fixture.defaults, delay: .seconds(2), attach: true, includesRealityKit: true, waitsForCampus: true)
+        }
+    }
+
     func testMYHouseArtworkDoesNotRevealImageMatte() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
@@ -2890,7 +2908,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                                  includesSafeArea: Bool = true,
                                  delay: Duration = .milliseconds(180), attach: Bool = false,
                                  checksBottomSheet: Bool = false, cucumberCameraYaw: Float? = nil,
-                                 includesRealityKit: Bool = false) async throws -> Data {
+                                 includesRealityKit: Bool = false, waitsForCampus: Bool = false) async throws -> Data {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first, "The isolated simulator test host must have a window scene")
@@ -2944,6 +2962,17 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             let bounds = try XCTUnwrap(sheet.containerView?.bounds)
             XCTAssertGreaterThan(frame.minY, bounds.minY)
             XCTAssertEqual(frame.maxY, bounds.maxY, accuracy: 1)
+        }
+        if waitsForCampus {
+            func ready(in view: UIView) -> Bool {
+                if let canvas = view as? CampusMapCanvas {
+                    return canvas.map?.scene.findEntity(named: "POSTECH v09 apricot cream copy") != nil
+                }
+                return view.subviews.contains { ready(in: $0) }
+            }
+            for _ in 0..<150 where !ready(in: host.view) { try await Task.sleep(for: .milliseconds(100)) }
+            XCTAssertTrue(ready(in: host.view), "The home capture must contain the loaded campus, not its spinner")
+            try await Task.sleep(for: .milliseconds(150))
         }
         let renderView: UIView = checksBottomSheet ? window : host.view
         // UIKit omits Metal layers. Temporarily display each surface's own snapshot

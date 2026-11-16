@@ -164,6 +164,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private var regionCounts: [String: Int]?
     private var visible = true
     private static var cachedMesh: Entity?
+    private static var loadingMesh: Task<Entity, Error>?
     @ObservationIgnored private var displayedMap: Entity?
 
     private struct AuthoredModel {
@@ -235,15 +236,22 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     func load() async {
         guard !ready, !isLoading else { return }
         isLoading = true; error = nil
-        defer { isLoading = false }
+        #if DEBUG
+        let began = CACurrentMediaTime()
+        #endif
+        defer {
+            isLoading = false
+            #if DEBUG
+            if ready { print("CAMPUS_READY seconds=\(CACurrentMediaTime() - began) thermal=\(ProcessInfo.processInfo.thermalState.rawValue)") }
+            #endif
+        }
         do {
             let data = try CampusMapData.load()
             guard let url = Bundle.main.url(forResource: "campus-mobile", withExtension: "oimesh") else { throw CocoaError(.fileNoSuchFile) }
-            if Self.cachedMesh == nil {
-                let loaded = try await CampusMeshLoader.load(url: url, mapData: data)
-                try Task.checkCancellation()
-                Self.cachedMesh = loaded
-            }
+            async let mesh = Self.sharedMesh(url: url, data: data)
+            async let education: Void = CampusEducationDistrict.prepare()
+            _ = try await (mesh, education)
+            try Task.checkCancellation()
             // Loading may finish while AR has suspended the map. Keep the template
             // detached until a renderer is available instead of reviving the old scene.
             if canvas?.map != nil { try installMap() }
@@ -255,6 +263,22 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             updateCamera()
         } catch is CancellationError { }
         catch { self.error = "캠퍼스 지도를 불러오지 못했어요. 다시 시도해 주세요." }
+    }
+
+    private static func sharedMesh(url: URL, data: CampusMapData) async throws -> Entity {
+        if let cachedMesh { return cachedMesh }
+        if let loadingMesh { return try await loadingMesh.value }
+        // Home and summary maps can overlap during navigation. Share one preparation/upload.
+        let task = Task { try await CampusMeshLoader.load(url: url, mapData: data) }
+        loadingMesh = task
+        do {
+            let mesh = try await task.value
+            cachedMesh = mesh; loadingMesh = nil
+            return mesh
+        } catch {
+            loadingMesh = nil
+            throw error
+        }
     }
 
     func setAppearance(_ appearance: CampusMapAppearance) {
@@ -1291,6 +1315,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                         CampusMapMotion.Spring(from: radius, to: destinationRadius, velocity: velocity),
                         CACurrentMediaTime())
         let link = CADisplayLink(target: self, selector: #selector(advanceCameraMotion(_:)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
         motionDisplayLink = link
         link.add(to: .main, forMode: .common)
     }
@@ -1520,7 +1545,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         addSubview(panel)
 
         icon.contentMode = .scaleAspectFit
-        number.font = UIFont(name: "Paperlogy-7Bold", size: 26) ?? .systemFont(ofSize: 26, weight: .bold)
+        number.font = UIFont(name: "YANGJIN", size: 26) ?? .systemFont(ofSize: 26, weight: .bold)
         number.textColor = UIColor(red: 84 / 255, green: 105 / 255, blue: 48 / 255, alpha: 1)
         number.textAlignment = .center
         content.addArrangedSubview(icon); content.addArrangedSubview(number)
