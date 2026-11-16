@@ -25,6 +25,9 @@ struct OiCardCustomizationStep: View {
     @State private var portraitFailed = false
     @State private var captureAttempt = 0
     @State private var wardrobeKey: String?
+    @State private var restoringPortrait = false
+    @State private var portraitRestoreTask: Task<Void, Never>?
+    @State private var portraitAcceptTask: Task<Void, Never>?
     @State private var orientation = OiCardOrientation()
     @State private var showingPhotoEditor = false
     @State private var showingAttachments = false
@@ -114,7 +117,10 @@ struct OiCardCustomizationStep: View {
         .onChange(of: customization.wardrobe) { _, _ in refreshPortrait() }
         .onChange(of: tab) { _, _ in saveOrientation(); editingCaption = false }
         .onChange(of: isSizeEditing) { _, editing in onSizeEditingChanged?(editing) }
-        .onDisappear { saveOrientation(); onSizeEditingChanged?(false) }
+        .onDisappear {
+            portraitRestoreTask?.cancel(); portraitAcceptTask?.cancel()
+            saveOrientation(); onSizeEditingChanged?(false)
+        }
         .onChange(of: isFinished) { _, finished in if finished { editingCaption = false } }
     }
 
@@ -124,7 +130,7 @@ struct OiCardCustomizationStep: View {
                                portrait: portrait, showingBack: showingBack)
                 .frame(width: height * 362 / 502, height: height)
                 .overlay {
-                    if needsPortrait, (tab != .size || isFinished), let look = customization.wardrobe {
+                    if needsPortrait, !restoringPortrait, (tab != .size || isFinished), let look = customization.wardrobe {
                         OiCardPortraitCapture(look: look, cacheKey: portraitKey ?? "", orientation: orientation,
                             onCapture: acceptPortrait, onFailure: { portraitFailed = true })
                             .id(captureAttempt).aspectRatio(332 / 472, contentMode: .fit)
@@ -534,6 +540,7 @@ struct OiCardCustomizationStep: View {
     }
     #endif
     private func refreshPortrait() {
+        _ = OiWardrobeModelCache.shared // Installs shared memory/thermal-pressure eviction.
         portraitFailed = false
         // Hash photo bytes only when the wardrobe changes, not on every drag frame.
         if let look = customization.wardrobe { wardrobeKey = OiCardPortrait.key(for: look) }
@@ -547,9 +554,22 @@ struct OiCardCustomizationStep: View {
         restorePortrait()
     }
     private func restorePortrait() {
-        if design.portraitKey == portraitKey, let data = design.portraitPNG,
-           let image = UIImage(data: data), OiPortraitMatte.hasTransparentBackground(image) { portrait = image }
-        else { portrait = customization.wardrobe == nil ? UIImage(named: draft.cucumberAsset) : nil }
+        portraitRestoreTask?.cancel(); portraitAcceptTask?.cancel()
+        portrait = nil
+        guard let key = portraitKey, design.portraitKey == key, let data = design.portraitPNG else {
+            restoringPortrait = false
+            portrait = customization.wardrobe == nil ? UIImage(named: draft.cucumberAsset) : nil
+            return
+        }
+        // Wait for validation before mounting a renderer; a saved valid PNG needs no 3D scene.
+        restoringPortrait = true
+        portraitRestoreTask = Task { @MainActor in
+            // A changed angle or replacement PNG must also release the loading gate.
+            defer { if !Task.isCancelled { restoringPortrait = false } }
+            let image = await OiPortraitImages.shared.restore(data, key: key)
+            guard !Task.isCancelled, portraitKey == key, design.portraitPNG == data else { return }
+            portrait = image
+        }
     }
     private func saveOrientation() {
         guard customization.wardrobe != nil,
@@ -558,15 +578,19 @@ struct OiCardCustomizationStep: View {
     }
     private func acceptPortrait(_ data: Data, _ key: String) {
         guard key == portraitKey else { return }
-        guard let image = UIImage(data: data),
-              OiPortraitMatte.hasTransparentBackground(image) else { portraitFailed = true; return }
-        portraitFailed = false
-        // Persist once after a rotation, not for every finger movement (PNG drafts can be large).
-        change {
-            $0.characterOrientation = orientation.normalized
-            $0.portraitPNG = data; $0.portraitKey = key
+        portraitAcceptTask?.cancel()
+        portraitAcceptTask = Task { @MainActor in
+            let image = await OiPortraitImages.shared.restore(data, key: key)
+            guard !Task.isCancelled, key == portraitKey else { return }
+            guard let image else { portraitFailed = true; return }
+            portraitFailed = false
+            // Persist once after a rotation, never for every finger movement.
+            change {
+                $0.characterOrientation = orientation.normalized
+                $0.portraitPNG = data; $0.portraitKey = key
+            }
+            portrait = image
         }
-        portrait = UIImage(data: data)
     }
     private func change(_ edit: (inout OiCardDesign) -> Void) {
         var value = design; edit(&value); customization.card = value

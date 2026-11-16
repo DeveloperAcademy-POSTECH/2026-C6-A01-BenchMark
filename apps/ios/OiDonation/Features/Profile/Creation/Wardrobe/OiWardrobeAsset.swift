@@ -3,7 +3,7 @@ import UIKit
 
 /// Same authored geometry and material composition for closet, campus and AR.
 @MainActor enum OiWardrobeAsset {
-    static func prepare(_ look: OiWardrobeLook, existing: Entity? = nil,
+    static func prepare(_ look: OiWardrobeLook, existing: Entity? = nil, reuseSource: Bool = false,
                         editingSlot: OiPhotoSlot? = nil, previewTexture: TextureResource? = nil, previewImage: CGImage? = nil,
                         publishedTextures: [OiPhotoSlot: CGImage] = [:]) async throws -> (Entity, [OiPhotoSlot: Entity]) {
         guard look.artwork.isValid else { throw OiPhotoDataError.unreadable }
@@ -12,7 +12,9 @@ import UIKit
             OiCostumePhotoMaterial.restore(root)
             for child in Array(root.children) where child.name == "OiPhotoOverlay" { child.removeFromParent() }
         }
-        else { root = try await Entity(contentsOf: url(look.modelName, folder: "Wardrobe")) }
+        else if reuseSource {
+            root = try await OiWardrobeModelCache.shared.clone(from: url(look.modelName, folder: "Wardrobe"))
+        } else { root = try await Entity(contentsOf: url(look.modelName, folder: "Wardrobe")) }
         var overlays: [OiPhotoSlot: Entity] = [:]
         for slot in OiPhotoSlot.allCases where slot.supports(look) {
             let design = look.artwork.designs[slot.itemID(in: look)]

@@ -6,6 +6,7 @@
 //
 
 import XCTest
+import CryptoKit
 import ARKit
 import CoreLocation
 import RealityKit
@@ -4764,5 +4765,186 @@ final class OiWardrobeAssetTests: XCTestCase {
     private func materialCount(in entity: Entity) -> Int {
         (entity.components[ModelComponent.self]?.materials.count ?? 0)
             + entity.children.reduce(0) { $0 + materialCount(in: $1) }
+    }
+}
+
+extension OiRemoteStoreTests {
+    @MainActor func testWardrobeModelCacheSharesLoadingAndKeepsClonesIndependent() async throws {
+        var loads = 0
+        let cache = OiWardrobeModelCache(observePressure: false) { _ in
+            loads += 1
+            try await Task.sleep(for: .milliseconds(40))
+            let root = Entity(); let child = Entity(); child.name = "Original"
+            root.addChild(child)
+            return root
+        }
+        let url = URL(fileURLWithPath: "/selected.usdz")
+        let cancelled = Task { try await cache.clone(from: url) }
+        let surviving = Task { try await cache.clone(from: url) }
+        try await Task.sleep(for: .milliseconds(10)); cancelled.cancel()
+        do { _ = try await cancelled.value; XCTFail("Cancelled callers must not publish a model") }
+        catch is CancellationError { }
+        let first = try await surviving.value
+        first.children.first?.name = "Edited"
+        let second = try await cache.clone(from: url)
+        XCTAssertEqual(loads, 1)
+        XCTAssertFalse(first === second)
+        XCTAssertEqual(second.children.first?.name, "Original", "One renderer must not modify another renderer's source")
+        cache.clear()
+        _ = try await cache.clone(from: url)
+        XCTAssertEqual(loads, 2, "Memory-pressure eviction must discard the retained source")
+    }
+
+    @MainActor func testWardrobeModelCacheBoundsLoadingAndRetainsOnlyLastSelection() async throws {
+        var active = 0, maximumActive = 0, loads = 0
+        let cache = OiWardrobeModelCache(observePressure: false) { _ in
+            active += 1; maximumActive = max(maximumActive, active); loads += 1
+            defer { active -= 1 }
+            try await Task.sleep(for: .milliseconds(30))
+            return Entity()
+        }
+        let a = URL(fileURLWithPath: "/a.usdz"), b = URL(fileURLWithPath: "/b.usdz")
+        let first = Task { try await cache.clone(from: a) }
+        try await Task.sleep(for: .milliseconds(5))
+        let second = Task { try await cache.clone(from: b) }
+        _ = try await first.value; _ = try await second.value
+        XCTAssertEqual(maximumActive, 1)
+        _ = try await cache.clone(from: b)
+        XCTAssertEqual(loads, 2)
+        _ = try await cache.clone(from: a)
+        XCTAssertEqual(loads, 3, "Previous selections must not accumulate in memory")
+    }
+
+    @MainActor func testPortraitImageWorkerPreservesResolutionAlphaAndReusesValidatedImage() async throws {
+        let worker = OiPortraitImages()
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = false
+        let original = UIGraphicsImageRenderer(size: CGSize(width: 80, height: 100), format: format).image { context in
+            UIColor.green.setFill(); context.fill(CGRect(x: 20, y: 20, width: 40, height: 60))
+            UIColor.black.setFill(); context.fill(CGRect(x: 30, y: 30, width: 5, height: 5))
+        }
+        let encoded = await worker.encode(original, key: "look-angle-a")
+        let data = try XCTUnwrap(encoded)
+        let firstValue = await worker.restore(data, key: "look-angle-a")
+        let first = try XCTUnwrap(firstValue)
+        let secondValue = await worker.restore(data, key: "look-angle-a")
+        let second = try XCTUnwrap(secondValue)
+        XCTAssertTrue(first === second)
+        XCTAssertEqual(first.cgImage?.width, 80); XCTAssertEqual(first.cgImage?.height, 100)
+        XCTAssertEqual(data, original.pngData(), "PNG bytes must not be recompressed at a lower quality")
+        XCTAssertTrue(OiPortraitMatte.hasTransparentBackground(first))
+        let opaque = UIGraphicsImageRenderer(size: CGSize(width: 80, height: 100)).image { context in
+            UIColor.black.setFill(); context.fill(CGRect(x: 0, y: 0, width: 80, height: 100))
+        }
+        let rejected = await worker.restore(try XCTUnwrap(opaque.pngData()), key: "look-angle-a")
+        XCTAssertNil(rejected, "A matching key must never bypass alpha validation for different bytes")
+        let otherAngle = await worker.cached(key: "different-angle")
+        XCTAssertNil(otherAngle)
+        await worker.clear()
+        let evicted = await worker.cached(key: "look-angle-a")
+        XCTAssertNil(evicted)
+        let restoredValue = await worker.restore(data, key: "look-angle-a")
+        let restored = try XCTUnwrap(restoredValue)
+        XCTAssertTrue(OiPortraitMatte.hasTransparentBackground(restored))
+        XCTAssertEqual(restored.cgImage?.width, 80)
+    }
+}
+
+
+extension OiRemoteStoreTests {
+    @MainActor func testPortraitMatteMatchesOriginalPixelOutputIncludingBlackFeatures() throws {
+        func linear(_ n: UInt8) -> Double {
+            let value = Double(n) / 255
+            return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        func encoded(_ n: Double) -> UInt8 {
+            UInt8(((n <= 0.0031308 ? n * 12.92 : 1.055 * pow(n, 1 / 2.4) - 0.055) * 255).rounded())
+        }
+        var black = [UInt8](), white = [UInt8]()
+        for y in 0..<32 {
+            for x in 0..<32 {
+                let alpha = [0.0, 1, 0.25, 0.5, 0.75, 1][x % 6]
+                let color = y % 4 == 0 ? [0, 0, 0] : [x * 7 % 256, y * 9 % 256, (x + y) * 5 % 256]
+                black += color.map { encoded(alpha * linear(UInt8($0))) } + [255]
+                white += color.map { encoded(alpha * linear(UInt8($0)) + 1 - alpha) } + [255]
+            }
+        }
+        func image(_ bytes: [UInt8]) throws -> UIImage {
+            let provider = try XCTUnwrap(CGDataProvider(data: Data(bytes) as CFData))
+            let cg = try XCTUnwrap(CGImage(width: 32, height: 32, bitsPerComponent: 8, bitsPerPixel: 32,
+                bytesPerRow: 128, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent))
+            return UIImage(cgImage: cg)
+        }
+        let result = try XCTUnwrap(OiPortraitMatte.image(black: image(black), white: image(white)))
+        let pixels = try XCTUnwrap(result.cgImage?.dataProvider?.data) as Data
+        // Golden hash from the original transparent-matte-v1 formula, before optimization.
+        XCTAssertEqual(SHA256.hash(data: pixels).map { String(format: "%02x", $0) }.joined(),
+            "a27fce77483f2c23c0578e810b61027dd0afeb19869c91632d74ecd21c55f39c")
+        XCTAssertTrue(OiPortraitMatte.hasTransparentBackground(result))
+    }
+}
+
+extension OiRemoteStoreTests {
+    @MainActor func testWardrobeModelCacheRecoversAfterFailureAndEvictionDuringLoading() async throws {
+        var loads = 0
+        let cache = OiWardrobeModelCache(observePressure: false) { _ in
+            loads += 1
+            try await Task.sleep(for: .milliseconds(30))
+            if loads == 1 { throw CocoaError(.fileReadCorruptFile) }
+            return Entity()
+        }
+        let url = URL(fileURLWithPath: "/retry.usdz")
+        do { _ = try await cache.clone(from: url); XCTFail("Broken sources cannot be cached") } catch { }
+        let request = Task { try await cache.clone(from: url) }
+        try await Task.sleep(for: .milliseconds(10)); cache.clear()
+        _ = try await request.value
+        _ = try await cache.clone(from: url)
+        XCTAssertEqual(loads, 3, "A load already in flight must not repopulate an evicted cache")
+    }
+}
+
+@MainActor private final class OiPortraitRotationProbe: ObservableObject {
+    @Published var orientation = OiCardOrientation()
+}
+@MainActor private struct OiPortraitRotationCheck: View {
+    @ObservedObject var probe: OiPortraitRotationProbe
+    let captured: (Data, String) -> Void
+    var body: some View {
+        OiCardPortraitCapture(look: OiWardrobeLook(), cacheKey: probe.orientation.cacheIdentity,
+            orientation: probe.orientation, interactivePreview: true, onCapture: captured)
+            .frame(width: 220, height: 308)
+    }
+}
+extension OiRemoteStoreTests {
+    @MainActor func testInteractivePortraitRecreatesCaptureSurfaceAfterRotation() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let probe = OiPortraitRotationProbe()
+        let initial = probe.orientation.cacheIdentity
+        let rotated = OiCardOrientation(yaw: 0.7, pitch: 0.1)
+        let finished = expectation(description: "Both settled orientations captured")
+        finished.expectedFulfillmentCount = 2
+        var keys: [String] = [], images: [UIImage] = []
+        window.rootViewController = UIHostingController(rootView: OiPortraitRotationCheck(probe: probe) { data, key in
+            keys.append(key)
+            if let image = UIImage(data: data) { images.append(image) }
+            finished.fulfill()
+            if key == initial {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(250))
+                    probe.orientation = rotated
+                }
+            }
+        })
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previous?.makeKey() }
+        await fulfillment(of: [finished], timeout: 30)
+        XCTAssertEqual(keys, [initial, rotated.cacheIdentity])
+        XCTAssertEqual(images.count, 2)
+        for image in images { XCTAssertTrue(OiPortraitMatte.hasTransparentBackground(image)) }
+        XCTAssertEqual(images.first?.cgImage?.width, images.last?.cgImage?.width)
+        XCTAssertEqual(images.first?.cgImage?.height, images.last?.cgImage?.height)
     }
 }

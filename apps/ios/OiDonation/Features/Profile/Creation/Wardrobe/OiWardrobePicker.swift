@@ -125,7 +125,8 @@ struct OiCucumberCustomizationStep: View {
         ZStack(alignment: .bottomTrailing) {
             // The 3D surface keeps its full size and is scaled, so it shrinks smoothly without re-rendering at each step.
             OiWardrobePreview(look: look, controls: false, scene: photoScene,
-                backgroundColor: .white)
+                backgroundColor: .white, portraitKey: customization.card?.portraitKey,
+                portraitPNG: customization.card?.portraitPNG)
                 .frame(height: fullHeight)
                 .scaleEffect(fullHeight > 0 ? min(1, height / fullHeight) : 1, anchor: .center)
                 .frame(height: height)
