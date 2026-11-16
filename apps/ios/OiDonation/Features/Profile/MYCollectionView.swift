@@ -128,7 +128,7 @@ struct MYCollectionView: View {
         }
         .navigationDestination(item: $selectedDetail) { card in
             if let id = card.storyID, let store = demo.campusStore, let story = store.story(id) {
-                CampusStoryDetailView(story: story, store: store)
+                CampusCucumberStoryView(story: story, store: store)
             } else { MYCardStoryView(card: card) }
         }
     }

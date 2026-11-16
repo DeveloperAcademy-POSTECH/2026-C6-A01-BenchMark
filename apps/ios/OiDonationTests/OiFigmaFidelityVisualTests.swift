@@ -3042,7 +3042,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         for variant in variants {
             for bottom in [false, true] {
                 let detail = NavigationStack {
-                    CampusStoryDetailView(story: story, store: store)
+                    CampusCucumberStoryView(story: story, store: store)
                         .defaultScrollAnchor(bottom ? .bottom : .top)
                 }
                 try await capture(detail, name: "campus-detail\(bottom ? "-bottom" : "")",

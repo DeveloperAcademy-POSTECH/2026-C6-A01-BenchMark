@@ -60,7 +60,10 @@ struct CampusSummaryView: View {
                 Text("| " + story.location)
                 Text("| " + story.date)
             }.font(CampusStyle.body(10)).tracking(0.2).lineLimit(1).minimumScaleFactor(0.8)
+            // Always pinned to the trailing edge, whatever the text length (#399).
+            Spacer(minLength: 0)
             Image(systemName: "chevron.forward").font(.system(size: 16, weight: .bold)).foregroundStyle(.gray)
+                .accessibilityHidden(true)
         }.foregroundStyle(.black).padding(16).frame(maxWidth: .infinity, alignment: .leading)
             .background(.white, in: RoundedRectangle(cornerRadius: 20))
             .shadow(color: Color(oiRGB: 0x1C3700).opacity(0.25), radius: 3.5)

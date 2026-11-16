@@ -78,7 +78,7 @@ struct MYWorkshopContent: View {
                     .toolbar(.visible, for: .navigationBar)
             } else if let id = selection.card.storyID, let store = demo.campusStore,
                       let story = store.story(id) {
-                CampusStoryDetailView(story: story, store: store)
+                CampusCucumberStoryView(story: story, store: store)
             } else {
                 MYCardStoryView(card: selection.card)
             }

@@ -48,7 +48,7 @@ struct RootTabView: View {
                     }
                 case .story(let id):
                     if let story = store.story(id) {
-                        CampusStoryDetailView(story: story, store: store)
+                        CampusCucumberStoryView(story: story, store: store)
                     } else {
                         ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc")
                     }
