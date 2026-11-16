@@ -47,22 +47,14 @@ struct CampusBuildingNotesView: View {
                                 .frame(maxWidth: .infinity, minHeight: 150)
                         }
                         ForEach(visibleNotes) { note in
-                            CampusBuildingNoteBubble(note: note, isOwn: note.authorId == remote.account?.id)
+                            CampusBuildingNoteBubble(note: note, isOwn: note.authorId == remote.account?.id,
+                                onDelete: { deletingNote = note },
+                                onReport: {
+                                    if remote.canWriteBuildingNote { reportedNote = note }
+                                    else { showingLogin = true }
+                                },
+                                onBlock: { OiContentSafetyStore.shared.setBlocked(note.authorId, name: note.authorLabel, blocked: true) })
                                 .id(note.id)
-                                .contextMenu {
-                                    if note.authorId == remote.account?.id {
-                                        Button("글 삭제", systemImage: "trash", role: .destructive) { deletingNote = note }
-                                    } else {
-                                        Button("신고", systemImage: "flag") {
-                                            if remote.canWriteBuildingNote { reportedNote = note }
-                                            else { showingLogin = true }
-                                        }
-                                        Button("작성자 차단", systemImage: "person.crop.circle.badge.xmark") {
-                                            OiContentSafetyStore.shared.setBlocked(note.authorId, name: note.authorLabel, blocked: true)
-                                        }
-                                    }
-                                }
-                                .accessibilityHint(note.authorId == remote.account?.id ? "내 글. 길게 눌러 삭제" : "길게 눌러 신고하거나 작성자 차단")
                         }
                         Color.clear.frame(height: 1).id("notes.bottom")
                     }.padding(.horizontal, 20).padding(.bottom, 12)
@@ -166,21 +158,48 @@ struct CampusBuildingNotesView: View {
 struct CampusBuildingNoteBubble: View {
     let note: CampusBuildingNote
     let isOwn: Bool
+    let onDelete: () -> Void
+    let onReport: () -> Void
+    let onBlock: () -> Void
+
     var body: some View {
-        HStack {
-            if isOwn { Spacer(minLength: 48) }
-            VStack(alignment: isOwn ? .trailing : .leading, spacing: 5) {
-                Text(note.authorLabel).font(CampusStyle.body(10))
-                    .foregroundStyle(isOwn ? Color(red: 112/255, green: 140/255, blue: 64/255) : Color(white: 152/255))
-                    .padding(.horizontal, 10)
+        VStack(alignment: isOwn ? .trailing : .leading, spacing: 5) {
+            Text(note.authorLabel).font(CampusStyle.body(10))
+                .foregroundStyle(isOwn ? Color(red: 112/255, green: 140/255, blue: 64/255) : Color(white: 152/255))
+                .padding(.horizontal, 10).accessibilityHidden(true)
+            HStack(spacing: 4) {
+                if isOwn { Spacer(minLength: 0); moreButton }
                 Text(note.body).font(CampusStyle.body(14)).foregroundStyle(Color(white: 35/255))
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 14).padding(.vertical, 12)
                     .background(isOwn ? Color(red: 234/255, green: 238/255, blue: 226/255) : Color(white: 243/255),
                                 in: RoundedRectangle(cornerRadius: 10))
+                    .contextMenu { actions }
+                    .accessibilityLabel("\(note.authorLabel), \(note.body)")
+                if !isOwn { moreButton; Spacer(minLength: 0) }
             }
-            if !isOwn { Spacer(minLength: 48) }
-        }.accessibilityElement(children: .combine)
+        }.accessibilityElement(children: .contain)
+    }
+
+    private var moreButton: some View {
+        Menu { actions } label: {
+            Image(systemName: "ellipsis").font(.system(size: 17, weight: .medium))
+                .foregroundStyle(.secondary).frame(width: 28, height: 28)
+                .background(Color(.secondarySystemBackground), in: Circle())
+                .frame(width: 44, height: 44).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isOwn ? "내 쪽지 더보기" : "\(note.authorLabel)의 쪽지 더보기")
+        .accessibilityIdentifier("campus.notes.more.\(note.id.uuidString)")
+    }
+
+    @ViewBuilder private var actions: some View {
+        if isOwn {
+            Button("쪽지 삭제", systemImage: "trash", role: .destructive, action: onDelete)
+        } else {
+            Button("신고", systemImage: "flag", action: onReport)
+            Button("작성자 차단", systemImage: "person.crop.circle.badge.xmark", action: onBlock)
+        }
     }
 }
 
