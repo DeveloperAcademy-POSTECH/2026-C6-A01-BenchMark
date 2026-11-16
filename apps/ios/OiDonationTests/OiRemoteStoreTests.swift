@@ -1762,7 +1762,9 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertNil(backend.snapshot().story, "A local portrait repair must not submit or change a server story")
     }
 
-    @MainActor func testStepNavigationAppearsOnlyAtScrollEndAndHidesOnReturn() async throws {
+    /// Figma `5400:7726`: STEP 2 keeps its buttons at the end of the scroll; Next with missing input
+    /// stays on the step and lists what is missing under the buttons (#373).
+    @MainActor func testStoryNextShowsMissingItemsUnderInlineButtons() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
         await store.start()
@@ -1770,49 +1772,37 @@ final class OiRemoteStoreTests: XCTestCase {
         func scrollViews(_ view: UIView) -> [UIScrollView] {
             (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews)
         }
-        for step in [OiCreationStep.story] {
-            var customization = OiDraftCustomization()
-            var look = OiWardrobeLook(); look.costume = .farmer
-            customization.wardrobe = look
-            let local = OiLocalDraft(draft: draft(title: "스크롤 버튼 확인"), version: 1,
-                creationStep: step.rawValue, customization: customization)
-            try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
-            var panelVisible = false
-            let controller = UIHostingController(rootView: NavigationStack {
-                OiStoryEditor(remote: store, localID: local.id)
-                    .observeNavigationForTest { panelVisible = $0 }
-            })
-            let window = UIWindow(windowScene: scene)
-            window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
-            window.rootViewController = controller; window.isHidden = false
-            defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
-            controller.view.frame = window.bounds
-            try await Task.sleep(for: .seconds(2))
-            let scroll = try XCTUnwrap(scrollViews(controller.view).filter {
-                $0.bounds.height > 100 && $0.contentSize.height + $0.adjustedContentInset.bottom > $0.bounds.height + 40
-            }.max { $0.bounds.height < $1.bounds.height }, step.rawValue)
-            scroll.setContentOffset(CGPoint(x: 0, y: -scroll.adjustedContentInset.top), animated: false)
-            try await Task.sleep(for: .milliseconds(300))
-            XCTAssertFalse(panelVisible, "\(step): panel must be hidden at the top")
-            let height = scroll.bounds.height
-            let end = max(-scroll.adjustedContentInset.top,
-                scroll.contentSize.height + scroll.adjustedContentInset.bottom - height)
-            scroll.setContentOffset(CGPoint(x: 0, y: end), animated: false)
-            try await Task.sleep(for: .milliseconds(400))
-            XCTAssertTrue(panelVisible, "\(step): panel must appear at the end")
-            XCTAssertEqual(scroll.bounds.height, height, accuracy: 1, "Panel must not resize the viewport")
-            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
-                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
-            }
-            let attachment = XCTAttachment(image: image); attachment.name = "step-navigation-\(step.rawValue)-bottom"
-            attachment.lifetime = .keepAlways; add(attachment)
-            scroll.setContentOffset(CGPoint(x: 0, y: max(-scroll.adjustedContentInset.top, end - 80)), animated: false)
-            try await Task.sleep(for: .milliseconds(400))
-            XCTAssertFalse(panelVisible, "\(step): panel must hide on upward scrolling")
-            scroll.setContentOffset(CGPoint(x: 0, y: end), animated: false)
-            try await Task.sleep(for: .milliseconds(400))
-            XCTAssertTrue(panelVisible, "\(step): panel must reappear without flicker")
+        let local = OiLocalDraft(draft: draft(title: "스크롤 버튼 확인"), version: 1,
+            creationStep: OiCreationStep.story.rawValue)
+        try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+        var panelVisible = false
+        var actions: OiStoryEditor.NavigationTestActions?
+        let controller = UIHostingController(rootView: NavigationStack {
+            OiStoryEditor(remote: store, localID: local.id)
+                .observeNavigationForTest({ panelVisible = $0 }, actions: { actions = $0 })
+        })
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = controller; window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+        try await Task.sleep(for: .seconds(2))
+        XCTAssertFalse(panelVisible, "STEP 2 must not float a navigation panel")
+        XCTAssertEqual(try XCTUnwrap(actions).shownMissingItems(), [], "Missing items stay hidden before Next")
+        try XCTUnwrap(actions).next()
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertEqual(try XCTUnwrap(actions).currentStep(), .story, "Next with missing input must stay on STEP 2")
+        XCTAssertTrue(try XCTUnwrap(actions).shownMissingItems().contains("사진은 1장 이상 추가해주세요 (대표이미지)"))
+        let scroll = try XCTUnwrap(scrollViews(controller.view).filter { $0.bounds.height > 100 }
+            .max { $0.bounds.height < $1.bounds.height })
+        let end = max(-scroll.adjustedContentInset.top,
+            scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height)
+        // The buttons and messages end above the 24pt content padding.
+        XCTAssertGreaterThan(scroll.contentOffset.y, end - 40, "Next must scroll the missing items into view")
+        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
+        let attachment = XCTAttachment(image: image); attachment.name = "story-missing-items-under-buttons"
+        attachment.lifetime = .keepAlways; add(attachment)
     }
 
     @MainActor func testCustomizationNavigationRequiresDoneAndCardNextOpensPlacement() async throws {

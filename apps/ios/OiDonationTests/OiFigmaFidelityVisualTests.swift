@@ -433,22 +433,24 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     }
 
     func testStoryBodyByteLimitAndLongCardExport() throws {
-        // #373: 435 characters including spaces, whatever the script.
-        let limit = OiCreationStep.storyBodyLimit
-        var body = String(repeating: "가", count: limit)
+        // #373: 870 byte including spaces; Hangul and other non-ASCII count as 2, ASCII as 1.
+        let limit = OiCreationStep.storyBodyByteLimit
+        XCTAssertEqual(OiCreationStep.storyBytes("가a 🙂"), 6)
+        var body = String(repeating: "가", count: limit / 2)
         let binding = OiStoryWritingStep.limitedStoryText(Binding(get: { body }, set: { body = $0 }))
         binding.wrappedValue += "!"
-        XCTAssertEqual(body.count, limit)
-        binding.wrappedValue = String(repeating: "🙂", count: limit)
-        XCTAssertEqual(body.count, limit)
-        binding.wrappedValue += "🙂"
-        XCTAssertEqual(body.count, limit)
+        XCTAssertEqual(OiCreationStep.storyBytes(body), limit, "Input past the limit must be rejected")
+        body = String(repeating: "a", count: limit - 1)
+        binding.wrappedValue += "가"
+        XCTAssertEqual(body.count, limit - 1, "A Hangul letter needs 2 byte")
+        binding.wrappedValue += "b"
+        XCTAssertEqual(OiCreationStep.storyBytes(body), limit)
         body = String(repeating: "가", count: 600)
         binding.wrappedValue = String(body.dropLast())
         XCTAssertEqual(body.count, 599, "Over-limit old drafts must be recoverable without truncation")
         binding.wrappedValue += "가"
         XCTAssertEqual(body.count, 599)
-        for text in [String(repeating: "가", count: limit), String(repeating: "a", count: limit)] {
+        for text in [String(repeating: "가", count: limit / 2), String(repeating: "a", count: limit)] {
             var draft = Self.draft; draft.body = text
             XCTAssertTrue(OiCreationStep.story.canContinue(draft: draft))
             draft.body += "!"
@@ -525,10 +527,10 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         binding.wrappedValue = shortened + "가"
         XCTAssertEqual(text, shortened, "An over-limit draft may be shortened but not extended")
 
-        let atLimit = String(repeating: "가", count: OiCreationStep.storyTextLimit)
+        let atLimit = String(repeating: "가", count: OiCreationStep.storyTitleByteLimit / 2)
         binding.wrappedValue = atLimit
         XCTAssertEqual(text, atLimit)
-        binding.wrappedValue = String(repeating: "나", count: OiCreationStep.storyTextLimit + 1)
+        binding.wrappedValue = String(repeating: "나", count: OiCreationStep.storyTitleByteLimit / 2 + 1)
         XCTAssertEqual(text, atLimit, "Over-limit pastes must be rejected, not silently truncated")
 
         binding.wrappedValue = "짧은 이야기"
@@ -538,7 +540,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
 
     private struct StoryPasteFixture: View {
         @State private var draft = OiStoryDraft()
-        @FocusState private var focusedField: OiStoryWritingStep.Field?
+        @State private var focusedField: OiStoryWritingStep.Field?
 
         var body: some View {
             OiStoryWritingStep(draft: $draft, focusedField: $focusedField)
@@ -547,15 +549,15 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
 
     private struct StoryWritingCapture: View {
         let draft: OiStoryDraft
-        @FocusState private var focusedField: OiStoryWritingStep.Field?
+        @State private var focusedField: OiStoryWritingStep.Field?
 
         var body: some View {
             VStack(alignment: .leading, spacing: 50) {
                 OiStoryWritingStep(draft: .constant(draft), focusedField: $focusedField)
                 OiStoryAttachmentSections(photoCount: 0, latitude: draft.latitude,
                     longitude: draft.longitude, onPhotos: {}, onLocation: {})
-                // #373: missing required items above the bottom buttons.
-                OiCreationNavigationBar(canContinue: false,
+                // #373: buttons at the end of the content; missing items under them after Next.
+                OiCreationNavigationBar(inline: true,
                     missingItems: ["제목이 입력되지 않았습니다", "이야기가 입력되지 않았습니다", "사진은 1장 이상 추가해주세요 (대표이미지)"],
                     onPrevious: {}, onNext: {}, onSaveAndExit: {})
             }
@@ -3156,7 +3158,8 @@ private struct CreationCapturePage<Content: View>: View {
                 }
             }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    if step == 2 || showsNavigation {
+                    // STEP 2 places its buttons inside the scrolled content (#373).
+                    if showsNavigation {
                         OiCreationNavigationBar(onPrevious: {}, onNext: {}, onSaveAndExit: {})
                     }
                 }
