@@ -18,8 +18,9 @@ import UIKit
     nonisolated static let farCount = 37_282
     nonisolated static let nearCount = 62_107
     nonisolated static let totalCount = 110_869
-    private static var meshes: (far: MeshResource, near: MeshResource)?
-    private static var preparation: Task<Void, Error>?
+    enum Detail: Sendable { case far, near }
+    private static var meshes: [Detail: MeshResource] = [:]
+    private static var preparation: [Detail: Task<MeshResource, Error>] = [:]
 
     nonisolated struct Sample: Sendable {
         let position: SIMD3<Float>
@@ -53,33 +54,30 @@ import UIKit
         }
     }
 
-    static func prepare() async throws {
-        if meshes != nil { return }
-        if let preparation { return try await preparation.value }
+    static func preparedMesh(_ detail: Detail) -> MeshResource? { meshes[detail] }
+
+    static func prepare(_ detail: Detail) async throws -> MeshResource {
+        if let mesh = meshes[detail] { return mesh }
+        if let pending = preparation[detail] { return try await pending.value }
+        let count = detail == .near ? nearCount : farCount
+        let radius: Float = detail == .near ? 0.025 : 0.031
         let task = Task { @MainActor in
-            let descriptors = try await Task.detached(priority: .userInitiated) {
+            defer { preparation[detail] = nil }
+            let descriptor = try await Task.detached(priority: .userInitiated) {
                 let source = try geometry()
-                try Task.checkCancellation()
-                return (pearlDescriptor(Array(source.points.prefix(farCount)), radius: 0.031, ground: source.groundOffset),
-                        pearlDescriptor(Array(source.points.prefix(nearCount)), radius: 0.025, ground: source.groundOffset))
+                return pearlDescriptor(Array(source.points.prefix(count)), radius: radius, ground: source.groundOffset)
             }.value
-            async let far = MeshResource(from: [descriptors.0])
-            async let near = MeshResource(from: [descriptors.1])
-            meshes = try await (far, near)
+            let mesh = try await MeshResource(from: [descriptor])
+            meshes[detail] = mesh
+            return mesh
         }
-        preparation = task
-        do { try await task.value; preparation = nil }
-        catch { preparation = nil; throw error }
+        preparation[detail] = task
+        return try await task.value
     }
 
     static func makeEntity(data: CampusMapData) throws -> ModelEntity {
-        if meshes == nil {
-            let source = try geometry()
-            // Prefixes are the web's spatially interleaved tiers. Striding loses rows.
-            meshes = (try pearls(Array(source.points.prefix(farCount)), radius: 0.031, ground: source.groundOffset),
-                      try pearls(Array(source.points.prefix(nearCount)), radius: 0.025, ground: source.groundOffset))
-        }
-        let model = ModelEntity(mesh: meshes!.far, materials: materials)
+        guard let mesh = meshes[.far] else { throw CocoaError(.fileReadCorruptFile) }
+        let model = ModelEntity(mesh: mesh, materials: materials)
         model.name = "campus.education-district"
         model.position = center
         model.orientation = simd_quatf(angle: heading, axis: [0, 1, 0])
@@ -94,12 +92,6 @@ import UIKit
         let bounds = model.visualBounds(recursive: false, relativeTo: model)
         model.collision = CollisionComponent(shapes: [.generateBox(size: bounds.extents).offsetBy(translation: bounds.center)], mode: .default, filter: .default)
         return model
-    }
-
-    static func update(_ entity: ModelEntity, near: Bool) {
-        guard let meshes else { return }
-        let desired = near ? meshes.near : meshes.far
-        if entity.model?.mesh !== desired { entity.model?.mesh = desired }
     }
 
     private static var materials: [any Material] {
