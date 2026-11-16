@@ -294,18 +294,34 @@ struct OiWardrobePreview: View {
                 }
             }.clipped()
             if controls {
-                VStack(spacing: 0) {
-                    ForEach(Array([("앞", Float(0)), ("뒤", .pi), ("좌", .pi / 2), ("우", -.pi / 2)].enumerated()), id: \.offset) { _, item in
-                        Button(item.0) { scene.angle(item.1) }.font(CampusStyle.body(12))
-                            .frame(minWidth: 44, minHeight: 44)
-                            .buttonStyle(OiCreationPressStyle())
-                            .accessibilityLabel("오이 \(item.0) 보기")
-                            .accessibilityIdentifier("oi.wardrobe.angle.\(item.0 == "앞" ? "정면" : item.0)")
-                    }
-                }.foregroundStyle(Color("OiGreen"))
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+                OiWardrobeRotationHint()
+                    .frame(maxHeight: .infinity, alignment: .bottomLeading)
+                    .padding(.bottom, 8)
+                    .accessibilityAction(named: "오른쪽으로 돌리기") { scene.orbit(-157) }
+                    .accessibilityAction(named: "왼쪽으로 돌리기") { scene.orbit(157) }
             }
         }
+    }
+}
+
+/// Figma `5719:9948`/`5719:9947`: drag anywhere on the cucumber to turn it a full 360° (#377).
+struct OiWardrobeRotationHint: View {
+    var body: some View {
+        VStack(spacing: 8) {
+            ZStack(alignment: .bottom) {
+                Image("Oi360Arc").resizable().frame(width: 57, height: 14).offset(y: 7)
+                Text("360°").font(CampusStyle.body(16)).tracking(0.32)
+                    .foregroundStyle(Color(white: 106 / 255))
+            }
+            Text("직접 만든 오이를\n회전시켜보세요!")
+                .font(CampusStyle.body(10)).tracking(0.2).lineSpacing(3)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(Color(white: 162 / 255))
+        }
+        .padding(.top, 8)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("오이를 드래그해 360도 돌려 볼 수 있어요")
+        .accessibilityIdentifier("oi.wardrobe.rotationHint")
     }
 }
 
