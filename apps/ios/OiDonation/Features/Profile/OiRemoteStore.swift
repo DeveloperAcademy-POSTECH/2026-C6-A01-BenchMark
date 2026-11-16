@@ -108,6 +108,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     private var session: OiSession?
     private var refreshTask: Task<OiSession, Error>?
     private var generation = UUID()
+    @ObservationIgnored private let postcardImages = OiPostcardImageCache()
     private var loadSequence = 0
     private var localSignOutWarning: String?
     @ObservationIgnored private var catalogLoadedAt: ContinuousClock.Instant?
@@ -327,6 +328,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     }
 
     private func resetAccountState() {
+        postcardImages.clear()
         generation = UUID(); loadSequence += 1; refreshTask?.cancel(); refreshTask = nil
         profile = nil; ownStories = []; reviewStories = []; profiles = []; media = []
         loadedStories = []; collections = []; favorites = []; collectionCounts = [:]; committedMediaPaths = [:]
@@ -639,6 +641,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             || !committedMediaPaths.isEmpty || members != accountMemberIDs || recoveryWarning != localRecoveryWarning
         if !catalogIsFresh { catalogLoadedAt = .now }
         schools = fetchedSchools; regions = fetchedRegions; assets = fetchedAssets
+        if loadedStories != published { postcardImages.clear() }
         loadedStories = published
         ownStories = owned
         reviewStories = capabilities?.operator == true ? fetched.filter { ["pending","published","hidden"].contains($0.status) } : []
@@ -1171,6 +1174,29 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         guard started == generation else { throw OiServiceError.accountChanged }
         let image = UIImage(cgImage: try OiPublishedCucumberImage.decode(bytes, part: part))
         if part == .portrait { OiPostcardBackgroundMetadata.remember(png: bytes, image: image) }
+        return image
+    }
+
+    func postcardImage(_ path: String) async throws -> UIImage {
+        guard let api else { throw OiServiceError.configuration }
+        let started = generation
+        let image = try await postcardImages.image(path) { [self] in
+            let accessToken = account == nil ? nil : try await token()
+            return try await api.downloadSignedObject(bucket: OiPublishedCucumberImage.bucket, path: path, token: accessToken)
+        }
+        try Task.checkCancellation()
+        guard generation == started else { throw OiServiceError.accountChanged }
+        return image
+    }
+
+    func postcardPhotoImage(_ path: String, loadURL: @escaping (String) async throws -> URL) async throws -> UIImage {
+        let started = generation
+        let image = try await postcardImages.image("photo/" + path, photo: true) {
+            let url = try await loadURL(path)
+            return try await APIClient(approvedHost: OiServiceAPI.projectHost).send(URLRequest(url: url))
+        }
+        try Task.checkCancellation()
+        guard generation == started else { throw OiServiceError.accountChanged }
         return image
     }
 }

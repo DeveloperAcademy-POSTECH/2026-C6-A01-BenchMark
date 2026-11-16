@@ -6,6 +6,8 @@
 //
 
 import SwiftUI
+import CryptoKit
+import ImageIO
 
 /// Published snapshots remain approved pixels. New postcard snapshots are shown
 /// directly; older stories use their approved photo or cucumber portrait.
@@ -23,6 +25,11 @@ struct CampusPostcard: View {
     @Environment(\.campusCucumberPortraitLoader) private var loadImage
     @State private var failed = false
     @State private var retry = 0
+    private func loadPostcardImage(_ path: String) async throws -> UIImage {
+        if let remote { return try await remote.postcardImage(path) }
+        guard let loadImage else { throw OiServiceError.unavailable }
+        return try await loadImage(path)
+    }
     /// True once the approved front has been read (or found to be a legacy card) for the current story.
     @State private var artworkResolved = false
     private var localOwner: UUID? {
@@ -59,7 +66,7 @@ struct CampusPostcard: View {
                         ZStack {
                             Color(oiRGB: 0x77835C)
                             if let photo = story.remoteMediaPaths.first {
-                                OiStoryMediaImage(path: photo, contentMode: .fill) { path in
+                                OiPostcardRemotePhoto(path: photo) { path in
                                     guard let resolver = store.mediaURL else { throw OiServiceError.unavailable }
                                     return try await resolver(path)
                                 }
@@ -70,7 +77,8 @@ struct CampusPostcard: View {
             } back: {
                 if story.cardBackArtworkPath != nil {
                     if let backSnapshot { Image(uiImage: backSnapshot).resizable().frame(width: 362, height: 502) }
-                    else { ContentUnavailableView("카드 뒷면을 불러오지 못했어요", systemImage: "photo") }
+                    else if failed { ContentUnavailableView("카드 뒷면을 불러오지 못했어요", systemImage: "photo") }
+                    else { ProgressView("뒷면 불러오는 중") }
                 } else {
                     OiPostcardBack(first: colors.0, second: colors.1,
                                backgroundStyle: localDraft?.customization?.card?.postcardBackground ?? backgroundStyle,
@@ -109,7 +117,7 @@ struct CampusPostcard: View {
         .task(id: "\(story.id)/\(story.cardArtworkPath ?? "")/\(story.cardBackArtworkPath ?? "")/\(localOwner?.uuidString ?? "")/\(retry)") {
             snapshot = nil; backSnapshot = nil; localRecord = nil; backgroundStyle = nil; failed = false; colors = (0xE8EECF, 0xD5DBC6)
             artworkResolved = false
-            guard let path = story.cardArtworkPath, let loadImage else {
+            guard let path = story.cardArtworkPath, loadImage != nil || remote != nil else {
                 if let remote, let owner = localOwner, let id = UUID(uuidString: story.id),
                    let record = try? await remote.localDraft(id: id, owner: owner), !Task.isCancelled {
                     localRecord = (owner, record)
@@ -117,7 +125,7 @@ struct CampusPostcard: View {
                 return
             }
             do {
-                let image = try await loadImage(path)
+                let image = try await loadPostcardImage(path)
                 try Task.checkCancellation()
                 if OiPostcardSnapshot.isPostcard(image) {
                     colors = (OiPostcardSnapshot.color(image, x: 0.05, y: 0.10) ?? 0xE8EECF,
@@ -126,11 +134,41 @@ struct CampusPostcard: View {
                     snapshot = image
                 }
                 artworkResolved = true
-                if let backPath = story.cardBackArtworkPath {
-                    let back = try await loadImage(backPath)
-                    try Task.checkCancellation()
-                    backSnapshot = back
-                }
+
+            } catch { if !Task.isCancelled { failed = true } }
+        }
+        .task(id: "\(story.id)/\(story.cardBackArtworkPath ?? "")/\(showingBack)/\(retry)") {
+            guard showingBack, backSnapshot == nil, let path = story.cardBackArtworkPath else { return }
+            do {
+                let back = try await loadPostcardImage(path)
+                try Task.checkCancellation()
+                backSnapshot = back
+            } catch { if !Task.isCancelled { failed = true } }
+        }
+    }
+}
+
+private struct OiPostcardRemotePhoto: View {
+    let path: String
+    let loadURL: (String) async throws -> URL
+    @Environment(OiRemoteStore.self) private var remote: OiRemoteStore?
+    @State private var image: UIImage?
+    @State private var failed = false
+    @State private var retry = 0
+    var body: some View {
+        Group {
+            if remote == nil { OiStoryMediaImage(path: path, contentMode: .fill, loadURL: loadURL) }
+            else if let image { Image(uiImage: image).resizable().scaledToFill() }
+            else if failed { Button("사진 다시 불러오기") { retry += 1 } }
+            else { ProgressView().accessibilityLabel("사진 불러오는 중") }
+        }
+        .task(id: "\(path)/\(retry)/\(remote?.account?.id.uuidString ?? "public")") {
+            image = nil; failed = false
+            do {
+                guard let remote else { throw OiServiceError.unavailable }
+                let value = try await remote.postcardPhotoImage(path, loadURL: loadURL)
+                try Task.checkCancellation()
+                image = value
             } catch { if !Task.isCancelled { failed = true } }
         }
     }
@@ -158,5 +196,116 @@ enum OiPostcardSnapshot {
             context.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
         }
         return (rgba[0], rgba[1], rgba[2], rgba[3])
+    }
+}
+
+/// Display-only cache. Operator review and exports continue to read original artwork directly.
+@MainActor final class OiPostcardImageCache {
+    private final class Entry {
+        let image: UIImage
+        let expires: Date
+        init(_ image: UIImage) { self.image = image; expires = Date().addingTimeInterval(300) }
+    }
+    private let images = NSCache<NSString, Entry>()
+    private var pending: [String: Task<UIImage, Error>] = [:]
+    private var epoch = UUID()
+    private let worker = Worker()
+
+    init() { images.totalCostLimit = 16 * 1024 * 1024; images.countLimit = 2 }
+
+    func clear() {
+        epoch = UUID()
+        images.removeAllObjects()
+        pending.values.forEach { $0.cancel() }; pending.removeAll()
+    }
+
+    func image(_ path: String, photo: Bool = false, load: @escaping () async throws -> Data) async throws -> UIImage {
+        try Task.checkCancellation()
+        if let entry = images.object(forKey: path as NSString), entry.expires > Date() { return entry.image }
+        let started = epoch
+        if let task = pending[path] {
+            let value = try await task.value
+            try Task.checkCancellation()
+            guard epoch == started else { throw CancellationError() }
+            return value
+        }
+        let key = started.uuidString + "/" + path
+        let task = Task { [worker] in
+            let data: Data
+            if let cached = await worker.read(key) { data = cached }
+            else { data = try await load() }
+            try Task.checkCancellation()
+            let image = try await worker.decode(data, photo: photo)
+            try Task.checkCancellation()
+            await worker.write(data, key: key)
+            OiPostcardBackgroundMetadata.remember(png: data, image: image)
+            return image
+        }
+        pending[path] = task
+        do {
+            let image = try await task.value
+            guard epoch == started else { throw CancellationError() }
+            pending[path] = nil
+            if ProcessInfo.processInfo.thermalState.rawValue < ProcessInfo.ThermalState.serious.rawValue,
+               let cg = image.cgImage {
+                images.setObject(Entry(image), forKey: path as NSString, cost: cg.bytesPerRow * cg.height)
+            }
+            try Task.checkCancellation()
+            return image
+        } catch {
+            if epoch == started { pending[path] = nil }
+            throw error
+        }
+    }
+
+    /// Actor execution keeps file I/O and full-resolution PNG decoding off the UI actor.
+    private actor Worker {
+        private var directory: URL {
+            FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("OiPostcardDisplay-v1", isDirectory: true)
+        }
+        private func file(_ key: String) -> URL {
+            let hash = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
+            return directory.appendingPathComponent(hash)
+        }
+        func read(_ key: String) -> Data? {
+            let url = file(key)
+            guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
+                  let date = values.contentModificationDate, Date().timeIntervalSince(date) < 300 else { return nil }
+            return try? Data(contentsOf: url)
+        }
+        func write(_ data: Data, key: String) {
+            guard !Task.isCancelled else { return }
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let files = (try? FileManager.default.contentsOfDirectory(at: directory,
+                includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey])) ?? []
+            var total = data.count
+            for url in files.sorted(by: {
+                let a = try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+                let b = try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+                return (a ?? .distantPast) > (b ?? .distantPast)
+            }) {
+                let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+                let size = values?.fileSize ?? 0
+                if total + size > 64 * 1024 * 1024 || Date().timeIntervalSince(values?.contentModificationDate ?? .distantPast) > 300 {
+                    try? FileManager.default.removeItem(at: url)
+                } else { total += size }
+            }
+            try? data.write(to: file(key), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        }
+        func decode(_ data: Data, photo: Bool) throws -> UIImage {
+            if photo {
+                guard data.count <= 40_000_000, let source = CGImageSourceCreateWithData(data as CFData, nil),
+                      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                      let width = properties[kCGImagePropertyPixelWidth] as? Int,
+                      let height = properties[kCGImagePropertyPixelHeight] as? Int,
+                      width > 0, height > 0, width <= 8192, height <= 8192, width * height <= 16_777_216,
+                      let image = UIImage(data: data) else { throw OiPhotoDataError.unreadable }
+                return image.preparingForDisplay() ?? image
+            }
+            let cg = try OiPublishedCucumberImage.decode(data, part: .portrait)
+            let image = UIImage(cgImage: cg)
+            return image.preparingForDisplay() ?? image
+        }
     }
 }

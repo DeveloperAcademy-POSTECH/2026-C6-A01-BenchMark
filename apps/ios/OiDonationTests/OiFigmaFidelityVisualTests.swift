@@ -729,7 +729,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         _ = try render(style, name: "card-regions-pattern-character")
     }
 
-    func testPostcardPublicationAndDraftCompatibility() throws {
+    func testPostcardPublicationAndDraftCompatibility() async throws {
         var style = Self.customization
         style.showsCharacter = false
         style.card = OiCardDesign()
@@ -744,6 +744,12 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(image.cgImage?.width, 1086)
         XCTAssertEqual(image.cgImage?.height, 1506)
         XCTAssertTrue(OiPostcardSnapshot.isPostcard(image), "The scalloped edge must stay transparent in the public PNG")
+        let prepared = try await OiPostcardImageCache().image("local-published-front") { publication.png }
+        XCTAssertTrue(OiPostcardSnapshot.isPostcard(prepared), "Display preparation must preserve the actual scalloped postcard classification")
+        XCTAssertEqual(prepared.cgImage?.width, image.cgImage?.width)
+        XCTAssertEqual(prepared.cgImage?.height, image.cgImage?.height)
+        XCTAssertEqual(OiPostcardSnapshot.color(prepared, x: 0.05, y: 0.10),
+                       OiPostcardSnapshot.color(image, x: 0.05, y: 0.10))
         XCTAssertNotNil(OiPostcardSnapshot.color(image, x: 0.05, y: 0.10))
         let opaque = UIGraphicsImageRenderer(size: CGSize(width: 362, height: 502)).image { c in
             UIColor.white.setFill(); c.fill(CGRect(x: 0, y: 0, width: 362, height: 502))
