@@ -171,14 +171,17 @@ export function createStoryModerationHandler(config: Configuration, fetcher: typ
       const finding = await requestStructuredAnalysis({
         apiKey: config.openaiKey, model: config.model, fetcher, signal,
       }, format, content);
-      if (finding) return json({ status: "rejected", ...finding });
-
       const current = await verifiedSession();
       if (current.p_user !== identity.p_user || current.p_session !== identity.p_session) {
         throw new AnalysisError(401, "authentication_failed");
       }
-      const story = await supabase(rpc, "POST", serviceHeaders, { ...args, p_snapshot: draft.snapshot });
-      return json({ status: "published", story });
+      const review = await supabase(rpc, "POST", serviceHeaders, {
+        ...args, p_snapshot: draft.snapshot, p_reason: finding?.reason ?? null, p_source: finding?.source ?? null,
+      });
+      if (review.status !== (finding ? "rejected" : "approved")) {
+        throw new AnalysisError(502, "invalid_review_result");
+      }
+      return json(review);
     } catch (error) {
       if (signal.aborted) return json({ error: "publication_timeout" }, 504);
       // Provider refusals and malformed output are technical failures. Only a

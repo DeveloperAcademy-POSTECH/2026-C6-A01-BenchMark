@@ -10,9 +10,9 @@ create function pg_temp.submission() returns jsonb language sql as $$
   select '{"id":"a3880000-0000-4000-8000-000000000011","revision":1,"ai_review_consent_version":1,
     "card_snapshot_id":"a3880000-0000-4000-8000-000000000031"}'::jsonb;
 $$;
-create function pg_temp.moderate(snapshot text default null) returns jsonb language sql as $$
+create function pg_temp.moderate(snapshot text default null, reason text default null, source text default null) returns jsonb language sql as $$
   select public.oi_moderate_story('a3880000-0000-4000-8000-000000000001',
-    'a3880000-0000-4000-8000-000000000021',pg_temp.submission(),snapshot);
+    'a3880000-0000-4000-8000-000000000021',pg_temp.submission(),snapshot,reason,source);
 $$;
 
 insert into auth.users(id) values
@@ -96,15 +96,52 @@ exception when sqlstate 'PT409' then null;
 end;
 $$;
 select pg_temp.moderate() as prepared \gset
+select pg_temp.check_result(pg_temp.moderate(:'prepared'::jsonb->>'snapshot','profanity','story')
+  @> '{"status":"rejected","revision":1,"reason":"profanity"}','rejection persists without publishing');
+
+set local role authenticated;
+select pg_temp.check_result(public.oi_my_story_reviews()
+  @> '[{"revision":1,"status":"rejected","reason":"profanity"}]','owner sees the rejected review');
+do $$
+begin
+  perform public.oi_plant_story((pg_temp.submission()->>'id')::uuid,1);
+  raise exception 'rejected story was published';
+exception when sqlstate 'PT409' then null;
+end;
+$$;
+set local role service_role;
+select pg_temp.moderate() as prepared \gset
 select pg_temp.check_result(pg_temp.moderate(:'prepared'::jsonb->>'snapshot')
-  @> '{"status":"published","revision":2,"card_snapshot_id":"a3880000-0000-4000-8000-000000000031"}',
-  'matching snapshot is published in one revision');
+  @> '{"status":"approved","revision":2,"story":{"status":"draft","card_snapshot_id":"a3880000-0000-4000-8000-000000000031"}}',
+  'approval saves the reviewed assets while the story remains private');
+
+set local role anon;
+select set_config('request.jwt.claim.sub','',true);
+select set_config('request.jwt.claims','{}',true);
+select pg_temp.check_result(not exists(select 1 from public.oi_stories
+  where id=(pg_temp.submission()->>'id')::uuid),'approved draft is still private');
+reset role;
+update storage.objects set metadata=metadata||'{"size":102}' where name like 'a388%/photo.jpg';
+set local role authenticated;
+select set_config('request.jwt.claim.sub','a3880000-0000-4000-8000-000000000001',true);
+do $$
+begin
+  perform public.oi_plant_story((pg_temp.submission()->>'id')::uuid,2);
+  raise exception 'changed asset was planted';
+exception when sqlstate 'PT409' then null;
+end;
+$$;
+reset role;
+update storage.objects set metadata=metadata||'{"size":101}' where name like 'a388%/photo.jpg';
+set local role authenticated;
+select pg_temp.check_result(public.oi_plant_story((pg_temp.submission()->>'id')::uuid,2)
+  @> '{"status":"published","revision":3}','owner explicitly plants the reviewed story');
 
 set local role anon;
 select pg_temp.check_result((select status='published' from public.oi_stories
   where id=(pg_temp.submission()->>'id')::uuid),'published story is visible on the normal read path');
 set local role authenticated;
 select set_config('request.jwt.claim.sub','a3880000-0000-4000-8000-000000000002',true);
-select pg_temp.check_result(public.oi_mutate('review_story',pg_temp.submission()||'{"revision":2,"status":"hidden"}')
+select pg_temp.check_result(public.oi_mutate('review_story',pg_temp.submission()||'{"revision":3,"status":"hidden"}')
   @> '{"status":"hidden"}','operators can still remove a published story');
 rollback;

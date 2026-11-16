@@ -34,9 +34,15 @@ function setup({ finding = { reason: null, source: null }, failAt, resolution = 
       assert.equal(body.p_session, session);
       assert.deepEqual(body.p_submission, { id: storyId, revision: 1, ai_review_consent_version: 1 });
       if ("p_snapshot" in body) {
-        calls.push("publish");
+        calls.push("complete");
         assert.equal(body.p_snapshot, snapshot);
-        return Response.json({ id: storyId, revision: 2, status: "published" }, { status: resolution });
+        assert.equal(body.p_reason, finding.reason);
+        assert.equal(body.p_source, finding.source);
+        return Response.json({
+          story_id: storyId, revision: finding.reason ? 1 : 2,
+          status: finding.reason ? "rejected" : "approved", reason: finding.reason, source: finding.source,
+          story: finding.reason ? null : { id: storyId, revision: 2, status: "draft" },
+        }, { status: resolution });
       }
       calls.push("prepare");
       return failAt === "ownership" ? Response.json({}, { status: 403 }) : Response.json(draft);
@@ -68,18 +74,19 @@ function setup({ finding = { reason: null, source: null }, failAt, resolution = 
   return { calls, submit };
 }
 
-test("passes only the verified draft snapshot to publication after analyzing all images", async () => {
+test("records approval of the private draft after analyzing all images", async () => {
   const { calls, submit } = setup();
   const response = await submit();
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { status: "published", story: { id: storyId, revision: 2, status: "published" } });
-  assert.deepEqual(calls, ["auth", "prepare", "sign", "analysis", "auth", "publish"]);
+  assert.deepEqual(await response.json(), { story_id: storyId, revision: 2, status: "approved", reason: null, source: null,
+    story: { id: storyId, revision: 2, status: "draft" } });
+  assert.deepEqual(calls, ["auth", "prepare", "sign", "analysis", "auth", "complete"]);
 });
 
 test("returns only the bounded rejection reason and leaves the draft untouched", async () => {
   const { calls, submit } = setup({ finding: { reason: "privacy", source: "card" } });
-  assert.deepEqual(await (await submit()).json(), { status: "rejected", reason: "privacy", source: "card" });
-  assert.deepEqual(calls, ["auth", "prepare", "sign", "analysis"]);
+  assert.deepEqual(await (await submit()).json(), { story_id: storyId, revision: 1, status: "rejected", reason: "privacy", source: "card", story: null });
+  assert.deepEqual(calls, ["auth", "prepare", "sign", "analysis", "auth", "complete"]);
 });
 
 test("returns distinct refusal reasons for unintelligible stories and profanity", async () => {
@@ -88,8 +95,8 @@ test("returns distinct refusal reasons for unintelligible stories and profanity"
     const { calls, submit } = setup({ finding });
     const response = await submit();
     assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { status: "rejected", ...finding });
-    assert.ok(!calls.includes("publish"));
+    assert.deepEqual(await response.json(), { story_id: storyId, revision: 1, status: "rejected", ...finding, story: null });
+    assert.ok(calls.includes("complete"));
   }
 });
 
@@ -101,7 +108,7 @@ test("authorization, image access, provider failure and malformed verdicts never
   ]) {
     const { calls, submit } = setup(updates);
     assert.equal((await submit()).status, status, JSON.stringify(updates));
-    assert.ok(!calls.includes("publish"));
+    assert.ok(!calls.includes("complete"));
   }
 });
 
