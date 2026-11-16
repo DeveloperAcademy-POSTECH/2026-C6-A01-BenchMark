@@ -65,6 +65,8 @@ struct OiStoryEditor: View {
     @State private var navigationPanelHeight: CGFloat = 124
     @State private var bottomSafeAreaInset: CGFloat = 0
     @State private var cardPlacementReady = false
+    /// Figma `5887:10243`: STEP 4 `완료` saves on this device and shows this summary (#377).
+    @State private var showingCardCompletion = false
     @State private var serverRevisionToReplace: Int?
     @State private var replacingServerDraft = false
     @State private var pendingSave: Task<Void, Never>?
@@ -103,6 +105,8 @@ struct OiStoryEditor: View {
         let exit: @MainActor () async -> Bool
         let editFromReview: @MainActor (OiCreationStep) -> Void
         let isPlacementPreview: @MainActor () -> Bool
+        let isCompletion: @MainActor () -> Bool
+        let completionDone: @MainActor () -> Void
     }
     private var onNavigationVisibilityForTest: ((Bool) -> Void)?
     private var onNavigationActionsForTest: ((NavigationTestActions) -> Void)?
@@ -157,10 +161,12 @@ struct OiStoryEditor: View {
         #if DEBUG
         .onChange(of: showsNavigationPanel) { _, visible in onNavigationVisibilityForTest?(visible) }
         .onAppear {
-            onNavigationActionsForTest?(NavigationTestActions(finish: toggleCustomizationReady,
+            onNavigationActionsForTest?(NavigationTestActions(
+                finish: { if step == .card { Task { await completeCard() } } else { toggleCustomizationReady() } },
                 next: { if step == .card { cardPlacementReady = true } else { advance() } },
                 exit: saveAndExit, editFromReview: editFromReview,
-                isPlacementPreview: { step == .card && cardPlacementReady }))
+                isPlacementPreview: { step == .card && cardPlacementReady },
+                isCompletion: { showingCardCompletion }, completionDone: finish))
             onPhotoEditingReady?(PhotoEditingTestActions(
                 items: { editingPhotos }, open: openPhotoEditor, move: movePhoto,
                 cancel: cancelPhotoEditing, done: saveAndClosePhotoEditor, edit: editPhoto, remove: removePhoto
@@ -175,6 +181,9 @@ struct OiStoryEditor: View {
                 restorationStatus
             } else if submitted {
                 completion
+            } else if showingCardCompletion {
+                OiStoryCompletionView(draft: draft, customization: customization,
+                    donorName: remote.profile?.publicName ?? "", location: completionLocation, onDone: finish)
             } else if step == .location {
                 OiLocationPicker(latitude: $draft.latitude, longitude: $draft.longitude,
                                  regionID: $draft.regionId,
@@ -506,6 +515,16 @@ struct OiStoryEditor: View {
             if step != destination { customizationReady = false; cardPlacementReady = false }
             step = destination
         }
+    }
+
+    /// Save the draft on this device before showing the completion summary; keep editing on failure.
+    private func completeCard() async {
+        guard restored, step == .card, !saving, !placing, !publishing, !isDiscarding else { return }
+        saving = true
+        defer { saving = false }
+        await pendingSave?.value
+        guard await persist() else { return }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { showingCardCompletion = true }
     }
 
     private func toggleCustomizationReady() {
@@ -873,7 +892,7 @@ struct OiStoryEditor: View {
                 donorName: remote.profile?.publicName ?? "",
                 academicAuthor: OiPostcardAuthor.academic(department: remote.profile?.department, year: remote.profile?.admissionYear),
                 storyPhotos: editingPhotos, loadStoryPhoto: cardStoryPhoto,
-                isFinished: customizationReady, onContinue: toggleCustomizationReady)
+                isFinished: false, onContinue: { Task { await completeCard() } })
 
         }
     }
