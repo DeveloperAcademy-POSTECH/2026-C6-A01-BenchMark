@@ -57,6 +57,10 @@ struct OiCardCustomizationStep: View {
                         }.modifier(OiCustomizationScrollEdge())
                     } else {
                         tabs.padding(.horizontal, 20)
+                        // Figma `5919:12004`: 스탠다드/커스텀 stays above the scrolling colors (#377).
+                        if tab == .background && !isSizeEditing {
+                            backgroundModeToggle.padding(.horizontal, 20).padding(.top, 8)
+                        }
                         if isSizeEditing {
                             GeometryReader { editor in
                                 let paperHeight = max(1, min(editor.size.height - 50, (editor.size.width - 80) * 502 / 362))
@@ -304,10 +308,6 @@ struct OiCardCustomizationStep: View {
     }
     var backgroundEditor: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Picker("배경", selection: $customBackground) {
-                Text("스탠다드").tag(false)
-                Text("커스텀").tag(true)
-            }.pickerStyle(.segmented).accessibilityIdentifier("oi.postcard.background.mode")
             characterBackdropControls
             if customBackground { customColors }
             else {
@@ -329,6 +329,29 @@ struct OiCardCustomizationStep: View {
                 }
             }
         }.tint(Color("OiGreen"))
+    }
+    /// Figma `5919:12004`: a light track with a white thumb under the selected mode.
+    private var backgroundModeToggle: some View {
+        HStack(spacing: 0) {
+            ForEach([(false, "스탠다드"), (true, "커스텀")], id: \.0) { custom, title in
+                let selected = customBackground == custom
+                Button { customBackground = custom } label: {
+                    Text(title)
+                        .font(selected ? CampusStyle.semibold(16) : CampusStyle.body(16)).tracking(0.32)
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity, minHeight: 32)
+                        .background { if selected { Capsule().fill(.white) } }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .padding(2)
+        .background(Color(white: 242 / 255), in: Capsule())
+        .frame(height: 36)
+        .animation(.easeInOut(duration: 0.18), value: customBackground)
+        .accessibilityIdentifier("oi.postcard.background.mode")
     }
     private var characterBackdropControls: some View {
         let color = OiPostcardCharacterBackdrop.color(for: design)
@@ -353,7 +376,6 @@ struct OiCardCustomizationStep: View {
                     .accessibilityIdentifier("oi.card.character.backdrop.color")
             }
             HStack(spacing: 8) {
-                Text(design.characterBackdropColor == nil ? "종이색에 맞춘 자동 색상" : "직접 선택한 색상")
                 Text(String(format: "#%06X · %d%%", color, Int((OiCardOpacity.normalized(design.characterBackdropOpacity) * 100).rounded()))).monospacedDigit()
                 Spacer(minLength: 0)
                 if design.characterBackdropColor != nil || design.characterBackdropOpacity != nil {

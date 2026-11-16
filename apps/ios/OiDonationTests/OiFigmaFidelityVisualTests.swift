@@ -1690,8 +1690,10 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             let page = CreationCapturePage(step: 4) {
                 OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(Self.customization),
                     canContinue: true, onContinue: {})
+                    .tabForTest(ProcessInfo.processInfo.environment["OI_CAPTURE_CARD_TAB"] ?? "내용")
             }
-            try await capture(page, name: "card-content", variant: variant, defaults: fixture.defaults, attach: true)
+            try await capture(page, name: "card-\(ProcessInfo.processInfo.environment["OI_CAPTURE_CARD_TAB"] ?? "내용")",
+                              variant: variant, defaults: fixture.defaults, attach: true)
         }
     }
 
