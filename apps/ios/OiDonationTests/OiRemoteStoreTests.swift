@@ -2575,7 +2575,7 @@ final class OiRemoteStoreTests: XCTestCase {
         }
         for size in [DynamicTypeSize.large, .accessibility3] {
             window.rootViewController = UIHostingController(rootView: NavigationStack {
-                OiStoryListView(state: .preview, notices: OiStoryListView.listNotices,
+                OiStoryListView(state: .preview,
                     onSelectStory: { _ in }, onCreateStory: {}, onDeleteStory: { _ in })
                     .environment(\.dynamicTypeSize, size)
             })
@@ -2915,6 +2915,30 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertTrue(planted)
         XCTAssertEqual(store.stories.first?.id, saved.id)
         XCTAssertNil(store.moderationResult(for: approved))
+    }
+
+    @MainActor func testStoryListShowsUpdatedLayoutWithLegacyReview() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let saved = await store.save(draft())
+        XCTAssertNotNil(saved)
+        XCTAssertFalse(store.autoStoryModeration)
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: NavigationStack { OiStoryListScreen(remote: store) })
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
+        try await Task.sleep(for: .seconds(1))
+        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "story-list-legacy-review"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     @MainActor func testStoryProductionRulesUsesAnchoredPopoverOnIPhone() async throws {

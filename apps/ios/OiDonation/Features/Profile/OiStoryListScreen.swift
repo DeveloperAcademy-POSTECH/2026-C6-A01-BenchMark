@@ -42,23 +42,18 @@ struct OiStoryListScreen: View {
     @State private var showingConsent = false
 
     private var list: some View {
-        OiStoryListView(
+        let plantAction: (() -> Void)? = remote.autoStoryModeration ? { selectStoryToPlant() } : nil
+        return OiStoryListView(
             state: state,
-            seedCount: nil,
-            notices: OiStoryListView.listNotices,
-            guidance: remote.autoStoryModeration ? nil : OiStoryListView.listGuidance,
             onRetry: { Task { await remote.refresh(); await loadLocalDrafts() } },
-            onAddSeed: nil,
             onSelectStory: selectStory,
             onCreateStory: beginCreatingStory,
-            onUseSeed: nil,
             onDeleteStory: requestDeletion,
             isDeleting: deletingID != nil || remote.isBusy,
-            showsPublicationReview: remote.autoStoryModeration,
             reviewState: { reviewState(for: $0) },
             onRequestReview: { selectedReviewID = $0 },
             onShowReviewFailure: showReviewFailure,
-            onPlant: { selectStoryToPlant() },
+            onPlant: plantAction,
             canPlant: !plantableStories.isEmpty
         )
     }

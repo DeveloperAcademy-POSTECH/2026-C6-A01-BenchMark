@@ -8,8 +8,6 @@ struct OiStoryListView: View {
     var minimumVisibleSlotCount = OiStoryListState.draftCapacity
     // nil means the seed balance has not been connected; it is not a zero balance.
     var seedCount: Int?
-    var notices: [String] = []
-    var guidance: String?
     var onRetry: () -> Void = {}
     var onAddSeed: (() -> Void)?
     var onSelectStory: ((UUID) -> Void)?
@@ -17,14 +15,12 @@ struct OiStoryListView: View {
     var onUseSeed: (() -> Void)?
     var onDeleteStory: ((UUID) -> Void)?
     var isDeleting = false
-    var showsPublicationReview = false
     var reviewState: (UUID) -> OiStoryListReviewState = { _ in .unreviewed }
     var onRequestReview: ((UUID) -> Void)?
     var onShowReviewFailure: ((UUID) -> Void)?
     var onPlant: (() -> Void)?
     var canPlant = false
 
-    @State private var listHeight: CGFloat = 0
     @State private var showsProductionRules = false
 
     var body: some View {
@@ -52,15 +48,15 @@ struct OiStoryListView: View {
                 Button {
                     dismiss()
                 } label: {
-                    Image(systemName: showsPublicationReview ? "xmark" : "chevron.left")
+                    Image(systemName: "xmark")
                         .font(.system(size: 19, weight: .semibold))
                         .foregroundStyle(.primary)
                 }
                 .buttonBorderShape(.circle)
                 .controlSize(.large)
-                .accessibilityLabel(showsPublicationReview ? "닫기" : "뒤로")
+                .accessibilityLabel("닫기")
             }
-            .sharedBackgroundVisibility(showsPublicationReview ? .hidden : .automatic)
+            .sharedBackgroundVisibility(.hidden)
 
             ToolbarItem(placement: .topBarTrailing) {
                 if let onAddSeed {
@@ -89,24 +85,12 @@ struct OiStoryListView: View {
 
     private var storySlots: some View {
         List {
-            if let guidance {
-                Text(guidance).font(CampusStyle.semibold(15)).tracking(0.3)
-                    .foregroundStyle(Color("OiGreen"))
-                    .multilineTextAlignment(.center)
-                    .lineLimit(usesAccessibilityLayout ? nil : 1)
-                    .minimumScaleFactor(usesAccessibilityLayout ? 1 : 0.8)
-                    .frame(maxWidth: .infinity, minHeight: Layout.guidanceHeight)
-                    // 18pt to the first card together with the card row's top inset.
-                    .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: Layout.guidanceGap - metrics.gap / 2, trailing: 20))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-            }
             ForEach(state.slots(minimumVisibleCount: minimumVisibleSlotCount)) { slot in
                 Group {
                     if let item = slot.item {
                         VStack(spacing: 0) {
                             storySlot(item)
-                            if showsPublicationReview { reviewRow(item.id, state: reviewState(item.id)) }
+                            if onRequestReview != nil { reviewRow(item.id, state: reviewState(item.id)) }
                         }
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 if let onDeleteStory {
@@ -125,7 +109,7 @@ struct OiStoryListView: View {
                     }
                 }
                 .disabled(isDeleting)
-                // Figma `5400:7649`: 20pt between slots.
+                // Figma `5400:7649`: 10pt between slots.
                 .listRowInsets(EdgeInsets(top: metrics.gap / 2, leading: 20, bottom: metrics.gap / 2, trailing: 20))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
@@ -138,13 +122,10 @@ struct OiStoryListView: View {
             }
         }
         .listStyle(.plain)
-        // Four draft slots always fit, so the list does not scroll (#368). Accessibility text sizes still scroll.
-        .scrollDisabled(!usesAccessibilityLayout && !showsPublicationReview)
         .listRowSpacing(0)
         .environment(\.defaultMinListRowHeight, 0)
         .contentMargins(.top, Layout.topMargin, for: .scrollContent)
         .contentMargins(.bottom, 0, for: .scrollContent)
-        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { listHeight = $0 }
         .scrollContentBackground(.hidden)
         .accessibilityIdentifier("storyList.list")
     }
@@ -172,12 +153,9 @@ struct OiStoryListView: View {
                        maxHeight: usesAccessibilityLayout ? nil : metrics.cardHeight, alignment: .leading)
                 .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 28))
                 .overlay {
-                    if showsPublicationReview {
-                        RoundedRectangle(cornerRadius: 28).strokeBorder(Color(oiRGB: 0xebebeb), lineWidth: 1)
-                            .allowsHitTesting(false)
-                    }
+                    RoundedRectangle(cornerRadius: 28).strokeBorder(Color(oiRGB: 0xebebeb), lineWidth: 1)
+                        .allowsHitTesting(false)
                 }
-                .shadow(color: .black.opacity(showsPublicationReview ? 0 : 0.25), radius: 2)
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("storyList.item.\(item.id.uuidString)")
@@ -301,15 +279,11 @@ struct OiStoryListView: View {
     }
 
     private var footer: some View {
-        VStack(alignment: .leading, spacing: showsPublicationReview ? 2 : 12) {
-            if showsPublicationReview {
-                OiStoryProductionRulesButton(isPresented: $showsProductionRules)
-                    .frame(maxWidth: .infinity)
-            } else {
-                legacyNotices
-            }
+        VStack(alignment: .leading, spacing: 2) {
+            OiStoryProductionRulesButton(isPresented: $showsProductionRules)
+                .frame(maxWidth: .infinity)
 
-            if showsPublicationReview, let onPlant {
+            if let onPlant {
                 Button(action: onPlant) {
                     Text("농장에 오이 심기")
                         .font(.custom("Paperlogy-6SemiBold", size: 18, relativeTo: .headline))
@@ -339,22 +313,6 @@ struct OiStoryListView: View {
         .padding(.horizontal, 20)
         .padding(.bottom, 13)
         .background(Color(.systemBackground))
-    }
-
-    private var legacyNotices: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(Array(notices.enumerated()), id: \.offset) { _, notice in
-                Text("* \(notice)")
-                    .lineLimit(usesAccessibilityLayout ? nil : 1)
-                    .minimumScaleFactor(usesAccessibilityLayout ? 1 : 0.8)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .font(.custom("Paperlogy-4Regular", size: 13, relativeTo: .subheadline))
-        .tracking(0.26)
-        .foregroundStyle(Color(red: 147 / 255, green: 147 / 255, blue: 147 / 255))
-        .lineSpacing(4)
     }
 
     private var createStoryFooterButton: some View {
@@ -444,41 +402,20 @@ struct OiStoryListView: View {
         Color(red: 255 / 255, green: 249 / 255, blue: 223 / 255)
     }
 
-    /// Figma `5400:7644` sizes, shrunk only as far as needed so four slots fit without scrolling on small screens.
     private enum Layout {
         static let topMargin: CGFloat = 15
-        static let guidanceHeight: CGFloat = 15
-        static let guidanceGap: CGFloat = 18
-        static let gap: CGFloat = 20, minimumGap: CGFloat = 6
-        static let cardHeight: CGFloat = 110, emptyHeight: CGFloat = 112, minimumCardHeight: CGFloat = 84
-        /// Name, tag row and title without the 8pt and 12pt gaps between them.
-        static let cardTextHeight: CGFloat = 59
     }
 
     private struct SlotMetrics {
-        var gap: CGFloat; var cardHeight: CGFloat; var emptyHeight: CGFloat
-        /// Figma 12pt top and bottom padding, 8pt only when the card is shortened.
-        var cardPadding: CGFloat { cardHeight >= 104 ? 12 : 8 }
-        /// Figma 8pt + 12pt between name, tags and title, tightened with the card.
-        var textSpacing: CGFloat { min(20, max(8, cardHeight - cardPadding * 2 - Layout.cardTextHeight)) }
-        var imageHeight: CGFloat { min(86, cardHeight - cardPadding * 2) }
+        let gap: CGFloat = 10
+        let cardHeight: CGFloat = 110
+        let emptyHeight: CGFloat = 112
+        let cardPadding: CGFloat = 12
+        let textSpacing: CGFloat = 20
+        let imageHeight: CGFloat = 86
     }
 
-    private var metrics: SlotMetrics {
-        let full = SlotMetrics(gap: showsPublicationReview ? 10 : Layout.gap, cardHeight: Layout.cardHeight, emptyHeight: Layout.emptyHeight)
-        if showsPublicationReview { return full }
-        guard !usesAccessibilityLayout, listHeight > 0 else { return full }
-        let slots = CGFloat(OiStoryListState.draftCapacity)
-        let fixed = Layout.topMargin + (guidance == nil ? 0 : Layout.guidanceHeight + Layout.guidanceGap - Layout.gap / 2)
-        let needed = fixed + Layout.cardHeight + Layout.emptyHeight * (slots - 1) + Layout.gap * slots
-        var deficit = max(0, needed - listHeight)
-        // Tighten the gaps first, then the slots.
-        let gapCut = min(deficit / slots, Layout.gap - Layout.minimumGap)
-        deficit -= gapCut * slots
-        let heightCut = min(deficit / slots, Layout.cardHeight - Layout.minimumCardHeight)
-        return SlotMetrics(gap: Layout.gap - gapCut, cardHeight: Layout.cardHeight - heightCut,
-                           emptyHeight: Layout.emptyHeight - heightCut)
-    }
+    private let metrics = SlotMetrics()
 
     private var usesAccessibilityLayout: Bool {
         dynamicTypeSize.isAccessibilitySize
@@ -591,22 +528,11 @@ struct OiStorySeedIcon: View {
     }
 }
 
-extension OiStoryListView {
-    // Figma `5400:7662` and `5400:7661` (#368).
-    static let listGuidance = "본인이 만든 오이를 씨앗을 통해 농장에 심을 수 있습니다"
-    static let listNotices = [
-        "이야기 저장은 4개까지 가능합니다",
-        "농장에 심기 전에는 이야기 및 오이를 눌러서 편집할 수 있습니다"
-    ]
-}
-
 #Preview("이야기 2개") {
     NavigationStack {
         OiStoryListView(
             state: .preview,
             seedCount: 3,
-            notices: OiStoryListView.listNotices,
-            guidance: OiStoryListView.listGuidance,
             onAddSeed: {}, onCreateStory: {}, onUseSeed: {}
         )
     }
@@ -617,8 +543,6 @@ extension OiStoryListView {
         OiStoryListView(
             state: .empty,
             seedCount: 0,
-            notices: OiStoryListView.listNotices,
-            guidance: OiStoryListView.listGuidance,
             onAddSeed: {}, onCreateStory: {}, onUseSeed: {}
         )
     }
