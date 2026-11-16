@@ -64,6 +64,8 @@ struct OiCucumberCustomizationStep: View {
                     VStack(spacing: 0) {
                         if !isFinished {
                             wardrobeTabs.frame(height: 44).padding(.horizontal, 20)
+                            // The item tray stays put; only the colors below it scroll (#377).
+                            if showsItemTray { itemStrip.padding(.horizontal, 20).padding(.bottom, 4) }
                         }
                         ScrollView {
                             VStack(spacing: 16) {
@@ -198,8 +200,7 @@ struct OiCucumberCustomizationStep: View {
                 .background(Color("OiSoft"), in: RoundedRectangle(cornerRadius: 14))
             if let slot = selectedPhotoSlot { photoControls(slot) }
         } else {
-            // Figma `5719:9981` 상의 (also 하의·신발): item cards, then custom color/image, colors and denim.
-            itemStrip
+            // Figma `5719:9981` 상의 (also 하의·신발): the fixed item tray above, then custom color/image, colors and denim.
             VStack(alignment: .leading, spacing: 20) {
                 if showsColors || selectedPhotoSlot != nil {
                     HStack(spacing: 21) {
@@ -210,10 +211,12 @@ struct OiCucumberCustomizationStep: View {
                 if showsColors { colorRows }
                 if let slot = selectedPhotoSlot, showsColors { denimRow(slot) }
             }
-            .padding(.horizontal, 8).padding(.top, 4)
+            .padding(.horizontal, 8).padding(.top, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
+
+    private var showsItemTray: Bool { [.top, .bottom, .shoes].contains(tab) }
 
     /// The postech jacket and one-piece sets keep their own colors.
     private var showsColors: Bool { look.costume == nil && !(tab == .top && look.top == .postech) }
