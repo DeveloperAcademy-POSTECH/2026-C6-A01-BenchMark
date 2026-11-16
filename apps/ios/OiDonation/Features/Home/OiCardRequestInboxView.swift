@@ -37,12 +37,12 @@ struct OiCardRequestInboxView: View {
     let onReload: () async -> Void
     let onDecision: (UUID, OiCardRequestDecision) async -> Void
     var onRetryDecision: (() async -> Void)? = nil
+    var showsHeader = true
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @ScaledMetric(relativeTo: .body) private var headerHeight = 33
     @ScaledMetric(relativeTo: .body) private var emptyParagraphSpacing = 31.5
     @State private var confirmation: Confirmation?
@@ -67,12 +67,6 @@ struct OiCardRequestInboxView: View {
             await onReload()
             if !Task.isCancelled { didAttemptLoad = true }
         }
-        .background(sheetBackground.ignoresSafeArea())
-        .presentationDetents([.large])
-        .presentationCornerRadius(35)
-        .presentationBackground(.clear)
-        .presentationDragIndicator(.hidden)
-        .presentationContentInteraction(.scrolls)
         .alert(
             confirmation?.decision == .reject ? "카드 요청을 거절할까요?" : "카드 요청을 수락할까요?",
             isPresented: Binding(
@@ -90,12 +84,6 @@ struct OiCardRequestInboxView: View {
         }
     }
 
-    private var sheetBackground: Color {
-        let tint = colorScheme == .dark ? Self.darkGreen : CampusStyle.mapSheet
-        // Figma uses a 70% green fill, without a second material layer.
-        return tint.opacity(reduceTransparency || colorSchemeContrast == .increased ? 1 : 0.7)
-    }
-
     private var showsEmptyState: Bool {
         didAttemptLoad && !isLoading && requests.isEmpty && pendingRequestID == nil
             && loadError == nil && actionError == nil && onRetryDecision == nil
@@ -104,7 +92,7 @@ struct OiCardRequestInboxView: View {
     private func inboxScrollView(minimumHeight: CGFloat) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                header
+                if showsHeader { header }
                 if let actionError {
                     Label(actionError, systemImage: "exclamationmark.circle")
                         .font(.footnote)
@@ -131,7 +119,7 @@ struct OiCardRequestInboxView: View {
                         emptyState
                             // Keep the message centered in the space below the header,
                             // including the home-indicator area, as in the 402 × 803 sheet.
-                            .frame(minHeight: max(0, minimumHeight - 20 - headerHeight - 20))
+                            .frame(minHeight: max(0, minimumHeight - 20 - (showsHeader ? headerHeight + 20 : 0)))
                     }
                 } else {
                     LazyVStack(spacing: 26) {
@@ -144,15 +132,18 @@ struct OiCardRequestInboxView: View {
             .padding(.bottom, showsEmptyState ? 0 : 20)
         }
         .scrollIndicators(.hidden)
-        .scrollEdgeEffectHidden()
     }
 
     private var emptyState: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
             VStack(spacing: emptyParagraphSpacing) {
-                Text("아직 받은 요청이 없습니다")
-                Text("동문들과 친구들의 오이를 살펴보고\n카드를 요청해보세요!")
+                if showsHeader {
+                    Text("아직 받은 요청이 없습니다")
+                    Text("동문들과 친구들의 오이를 살펴보고\n카드를 요청해보세요!")
+                } else {
+                    Text("이 카드 요청은 더 이상 대기 중이 아니에요.")
+                }
             }
             .font(CampusStyle.medium(21))
             .tracking(0.42)

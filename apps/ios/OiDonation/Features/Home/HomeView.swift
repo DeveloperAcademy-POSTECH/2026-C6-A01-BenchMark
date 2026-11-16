@@ -12,7 +12,7 @@ struct HomeView: View {
     var authoredPlacementToReveal: Binding<UUID?> = .constant(nil)
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var scene = CampusExploreScene()
+    @State private var scene = CampusExploreScene(stillFrameDelay: .seconds(2))
     @State private var region: CampusRegion?
     @State private var sort = CampusStorySort.latest
     @State private var distances: [String: Float] = [:]
@@ -21,12 +21,13 @@ struct HomeView: View {
     @State private var searchResults: Set<String>?
     @State private var isOnScreen = false
     @State private var showingSearchChoice = false
-    @State private var pendingSearchMode: CampusSearchMode?
     @State private var isSearchCoverActive = false
     @State private var searchMode: CampusSearchMode?
     @State private var pendingStoryID: String?
-    @State private var showingRequests = false
+    @State private var showingNotifications = false
     @State private var listIsAtTop = true
+    /// Live vertical drag of the region list: negative grows it, positive pulls it down (#395).
+    @State private var listDrag: CGFloat = 0
     @State private var showingEducationDistrict = false
     @State private var loadedAuthoredSource: AuthoredPlacementSource?
     @State private var selectedAuthoredDestination: AuthoredDestination?
@@ -54,6 +55,10 @@ struct HomeView: View {
     private var isLoadingStories: Bool {
         guard let remote else { return false }
         return remote.isRefreshing && !remote.hasLoadedRemote
+    }
+
+    private var canOpenNotifications: Bool {
+        remote?.account != nil && remote?.needsReauthentication == false
     }
 
     var body: some View {
@@ -91,8 +96,13 @@ struct HomeView: View {
             }
             // Keep the RealityKit viewport fixed while the list changes height.
             .overlay(alignment: .bottom) {
-                if let region { regionPanel(region, availableHeight: geometry.size.height, bottomInset: geometry.safeAreaInsets.bottom) }
+                if let region {
+                    regionPanel(region, availableHeight: geometry.size.height, bottomInset: geometry.safeAreaInsets.bottom)
+                        .transition(.move(edge: .bottom))
+                }
             }
+            // The list slides up when a bubble opens it and back down when it closes (#395).
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: region == nil)
             .onAppear { configureMapLabels(geometry) }
             .onChange(of: geometry.size) { _, _ in configureMapLabels(geometry) }
             .onChange(of: geometry.safeAreaInsets) { _, _ in configureMapLabels(geometry) }
@@ -104,13 +114,13 @@ struct HomeView: View {
         .navigationDestination(for: MYDestination.self) { destination in
             switch destination {
             case .workshop:
-                MYWorkshopView(demo: myDemo, remote: remote)
+                MYWorkshopView(demo: myDemo, remote: remote, storyRepository: container.storyRepository)
             case .cucumberCustomization:
                 OiSeedCucumberCustomizationView()
                     .toolbar(.visible, for: .navigationBar)
             case .farm: MYFarmView(remote: remote).id(remote?.account?.id)
-            case .collection: MYCollectionView(demo: myDemo, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
-            case .school(let school): MYCollectionView(demo: myDemo, school: school, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
+            case .collectedWorkshop: MYWorkshopView(demo: myDemo, remote: remote, initialTab: .collected,
+                                                   storyRepository: container.storyRepository)
             }
         }
         .sheet(isPresented: $showingEducationDistrict, onDismiss: { scene.finishEducationDistrict() }) {
@@ -133,16 +143,19 @@ struct HomeView: View {
                 scene.showOverview()
             }
         }
-        .sheet(isPresented: $showingSearchChoice, onDismiss: {
-            if let pendingSearchMode {
-                isSearchCoverActive = true
-                scene.suspendRendering()
-                searchMode = pendingSearchMode
-                self.pendingSearchMode = nil
+        .accessibilityHidden(showingSearchChoice)
+        .overlay {
+            if showingSearchChoice {
+                CampusSearchChoiceSheet(choose: { mode in
+                    showingSearchChoice = false
+                    isSearchCoverActive = true
+                    scene.suspendRendering()
+                    searchMode = mode
+                }, dismiss: { showingSearchChoice = false })
+                .transition(.opacity)
             }
-        }) {
-            CampusSearchChoiceSheet { pendingSearchMode = $0; showingSearchChoice = false }
         }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: showingSearchChoice)
         .fullScreenCover(item: $searchMode, onDismiss: {
             // Push only after the search cover has gone, so it cannot cover the destination.
             isSearchCoverActive = false
@@ -153,8 +166,13 @@ struct HomeView: View {
                 pendingStoryID = $0.id; searchMode = nil
             }
         }
-        .sheet(isPresented: $showingRequests) {
-            if let remote { CampusCardRequestSheet(remote: remote).id(remote.account?.id) }
+        .sheet(isPresented: $showingNotifications) {
+            if canOpenNotifications, let remote {
+                CampusNotificationSheet(remote: remote).id(remote.account?.id)
+            }
+        }
+        .onChange(of: canOpenNotifications) { _, canOpen in
+            if !canOpen { showingNotifications = false }
         }
         .task {
             configureSceneCallbacks()
@@ -162,6 +180,21 @@ struct HomeView: View {
             await scene.load()
         }
         .task(id: authoredSource) { await loadAuthoredPlacements(authoredSource) }
+        .task(id: region?.id) {
+            guard let region, let remote else { return }
+            do {
+                try await Task.sleep(for: .milliseconds(2500))
+                guard !ProcessInfo.processInfo.isLowPowerModeEnabled,
+                      ProcessInfo.processInfo.thermalState == .nominal else { return }
+                for story in store.stories(in: region.id, sortedBy: .latest).prefix(1) {
+                    try Task.checkCancellation()
+                    if let path = story.cardArtworkPath { _ = try? await remote.postcardImage(path) }
+                    else if let path = story.remoteMediaPaths.first, let resolver = store.mediaURL {
+                        _ = try? await remote.postcardPhotoImage(path, loadURL: resolver)
+                    }
+                }
+            } catch { }
+        }
         .onAppear {
             pruneAuthoredPlacements(authoredSource)
             isOnScreen = true
@@ -211,9 +244,11 @@ struct HomeView: View {
         }
         scene.onRegion = { selected in
             region = selected; sort = .latest; expanded = false; searchResults = nil
-            scene.focus(selected, stories: store.stories(in: selected.id, sortedBy: .latest))
+            scene.focus(selected, stories: store.stories(in: selected.id, sortedBy: .latest), animated: true)
             distances = scene.distances()
         }
+        // Tapping the map outside the list closes it, as the removed back button did (#395).
+        scene.onEmptyMapTap = { if region != nil { closeRegionList() } }
         scene.onStory = { id in
             guard store.story(id) != nil else { return }
             // Use the same value-based path as list links and the summary's detail link.
@@ -282,7 +317,7 @@ struct HomeView: View {
         let bottom = region == nil ? 8 : regionPanelHeight(geometry.size.height) + 58
         let bottomY = geometry.size.height + geometry.safeAreaInsets.top
         let controls = region == nil ? [
-            CGRect(x: 24, y: bottomY - 140, width: 112, height: 144),
+            CGRect(x: 22, y: bottomY - 108, width: 108, height: 112),
             CGRect(x: geometry.size.width - 84, y: bottomY - 204, width: 68, height: 208)
         ] : []
         scene.setMapLabelPresentation(enabled: !expanded,
@@ -297,19 +332,6 @@ struct HomeView: View {
     private var homeActions: some View {
         HStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 8) {
-                NavigationLink(value: MYDestination.cucumberCustomization) {
-                    HStack(spacing: -12) {
-                        MYFarmerArtwork(ownerID: remote?.account?.id, outfit: remote?.farmerOutfit)
-                            .frame(width: 38, height: 38).background(CampusStyle.secondaryAction, in: Circle())
-                            .clipShape(Circle()).overlay(Circle().stroke(CampusStyle.green, lineWidth: 1.5))
-                            .zIndex(1)
-                        Text(remote?.profile?.farmName ?? "오이").font(CampusStyle.medium(14)).tracking(0.28)
-                            .lineLimit(1).padding(.leading, 24).padding(.trailing, 15).padding(.vertical, 2)
-                            .background(.white, in: Capsule())
-                    }.shadow(color: CampusStyle.mapAction.opacity(0.4), radius: 7, y: 3)
-                        .frame(minHeight: 44)
-                }.buttonStyle(.plain).accessibilityLabel("오이 커스텀 열기")
-                    .accessibilityIdentifier("campus.profile")
                 Button(action: onOpenProfile) {
                     CampusMyHouseButtonArtwork()
                 }.buttonStyle(CampusMyHouseButtonStyle())
@@ -317,8 +339,8 @@ struct HomeView: View {
             }.disabled(store.isExample)
             Spacer()
             VStack(spacing: 10) {
-                if remote != nil {
-                    mapAction("envelope", label: "카드 요청", id: "campus.requests") { showingRequests = true }
+                if canOpenNotifications {
+                    mapAction("envelope", label: "알림", id: "campus.notifications") { showingNotifications = true }
                 }
                 mapAction("magnifyingglass", label: "오이 검색", id: "campus.search",
                     background: "CampusMapSearchBackground") { showingSearchChoice = true }
@@ -375,24 +397,16 @@ struct HomeView: View {
     private var mapHeader: some View {
         HStack(alignment: .top) {
             if region != nil {
-                Button {
-                    region = nil; expanded = false; searchResults = nil; scene.showOverview()
-                } label: {
-                    // A plain SF Symbol button needs an explicit hit area for its glass circle.
-                    Image(systemName: "chevron.left").font(.system(size: 19, weight: .semibold)).frame(width: 50, height: 50)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain).glassEffect(.regular.interactive(), in: Circle())
-                .accessibilityLabel("캠퍼스 전체 지도").accessibilityIdentifier("campus.overview")
-                Spacer()
+                // No back button (#395): tap the map outside the list or swipe the list down to close it.
+                Spacer().frame(height: 50)
             } else {
                 Button { showingSchools = true } label: {
                     HStack(spacing: 8) {
                         Image("CampusSchoolIcon").renderingMode(.original).frame(width: 16, height: 16)
                         Text("POSTECH 농장").font(CampusStyle.semibold(18)).lineLimit(1).minimumScaleFactor(0.7)
-                    }.frame(width: 195, height: 42)
+                    }.padding(.horizontal, 14).frame(height: 42)
                 }
-                .buttonStyle(.plain).glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 20))
+                .buttonStyle(.plain).glassEffect(.clear.interactive(), in: Capsule())
                 .accessibilityLabel("캠퍼스 선택").accessibilityIdentifier("campus.school")
                 Spacer()
             }
@@ -420,16 +434,11 @@ struct HomeView: View {
         let items = store.stories(in: searchResults == nil ? region.id : nil,
                                   matching: searchResults, sortedBy: sort, distances: distances)
         // Figma: sheet starts at y=516 (collapsed) or y=130 (expanded) in an 874pt screen.
-        let height = regionPanelHeight(availableHeight)
+        let restingHeight = regionPanelHeight(availableHeight)
+        let tallest = max(200, availableHeight - 68)
+        // The list follows the finger: pulling up grows it toward the tall height, pulling down slides it.
+        let height = listDrag < 0 ? min(tallest, restingHeight - listDrag) : restingHeight
         return VStack(spacing: 9.5) {
-            Button { setListExpanded(!expanded) } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: expanded ? "xmark" : "list.star").font(.system(size: 16))
-                    Text(expanded ? "목록닫기" : "목록보기").font(CampusStyle.body(16))
-                }.padding(.horizontal, 20).frame(height: 35)
-                    .background(.white, in: Capsule()).frame(minHeight: 44)
-                    .contentShape(Capsule())
-            }.buttonStyle(.plain).accessibilityIdentifier("campus.list.toggle")
             VStack(spacing: 20) {
                 HStack(spacing: 7) {
                     ForEach([CampusStorySort.latest, .oldest], id: \.self) { item in
@@ -466,11 +475,18 @@ struct HomeView: View {
                                 .font(CampusStyle.body(14)).foregroundStyle(.secondary).padding()
                         }
                         ForEach(items) { story in
-                            Button { openStory(story.id) } label: { CampusStoryRow(story: story) }
-                                .buttonStyle(.plain).accessibilityIdentifier("campus.row.\(story.id)")
+                            // Same card as the story list (Figma `5441:17267`, #399).
+                            Button { openStory(story.id) } label: {
+                                OiCucumberCard(name: story.title, tags: story.tags, donor: story.donor,
+                                               title: story.storyTitle) { CampusCucumberPortrait(story: story) }
+                            }
+                            .buttonStyle(.plain).accessibilityIdentifier("campus.row.\(story.id)")
+                            .accessibilityElement(children: .combine)
                         }
                     }.padding(.bottom, 12)
                 }.scrollIndicators(.hidden)
+                    // At the default height a drag moves the list itself instead of scrolling its rows.
+                    .scrollDisabled(!expanded)
                     .onScrollGeometryChange(for: Bool.self) { geometry in
                         geometry.contentOffset.y + geometry.contentInsets.top <= 1
                     } action: { _, isAtTop in listIsAtTop = isAtTop }
@@ -482,18 +498,44 @@ struct HomeView: View {
                     .padding(.bottom, -bottomInset)
                     .shadow(color: .black.opacity(0.25), radius: 20)
             }
-            .simultaneousGesture(DragGesture(minimumDistance: 30).onEnded { gesture in
-                guard abs(gesture.translation.height) > abs(gesture.translation.width) else { return }
-                if gesture.translation.height < -50 { setListExpanded(true) }
-                else if gesture.translation.height > 50 && listIsAtTop { setListExpanded(false) }
-            })
+            .offset(y: max(0, listDrag))
+            .simultaneousGesture(DragGesture(minimumDistance: 8)
+                .onChanged { gesture in
+                    let dy = gesture.translation.height
+                    guard abs(dy) > abs(gesture.translation.width) else { return }
+                    // A tall list scrolls its rows upward; it only follows a downward pull from the top.
+                    if dy < 0 { listDrag = expanded ? 0 : dy }
+                    else { listDrag = listIsAtTop ? dy : 0 }
+                }
+                .onEnded { gesture in
+                    // Decide from where the flick would land so a quick swipe responds at once.
+                    let landing = gesture.predictedEndTranslation.height
+                    let pulled = listDrag
+                    if pulled < 0, landing < -60 {
+                        setListExpanded(true)
+                    } else if pulled > 0, landing > 60 {
+                        // Down steps back: a tall list first returns to its default height, then closes (#395).
+                        if expanded { setListExpanded(false) } else { closeRegionList(); return }
+                    }
+                    withAnimation(reduceMotion ? nil : .spring(duration: 0.25)) { listDrag = 0 }
+                })
+            .accessibilityAction(named: "목록 닫기") { closeRegionList() }
+            .accessibilityAction(named: expanded ? "목록 줄이기" : "목록 크게 보기") { setListExpanded(!expanded) }
         }
+    }
+
+    /// Closes the region list and keeps the map exactly where it was (#395).
+    private func closeRegionList() {
+        region = nil; expanded = false; searchResults = nil
+        scene.showOverview(keepingCamera: true)
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) { listDrag = 0 }
     }
 
     private func setListExpanded(_ value: Bool) {
         guard expanded != value else { return }
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.4)) {
+        withAnimation(reduceMotion ? nil : .spring(duration: 0.3)) {
             expanded = value
+            listDrag = 0
         }
     }
 
@@ -501,24 +543,10 @@ struct HomeView: View {
 
 struct CampusMyHouseButtonArtwork: View {
     var body: some View {
-        Circle()
-            .fill(Color(red: 1, green: 247 / 255, blue: 219 / 255))
+        // Figma 5934:4877 includes the 100pt circle, house, border and 17pt shadow margin.
+        Image("CampusMyHouseButton").resizable().renderingMode(.original).scaledToFit()
+            .frame(width: 134, height: 134)
             .frame(width: 100, height: 100)
-            .overlay {
-                // The original export has an opaque white matte and a shadow that reaches its edges.
-                Image("CampusMyHouse").resizable().scaledToFit()
-                    .frame(width: 80, height: 80)
-                    .mask { Rectangle().padding(3).blur(radius: 2) }
-                    .offset(y: -3)
-                    .blendMode(.multiply)
-            }
-            .compositingGroup()
-            .clipShape(Circle())
-            .overlay {
-                Circle().strokeBorder(Color(red: 128 / 255, green: 99 / 255, blue: 33 / 255), lineWidth: 2)
-                    .frame(width: 104, height: 104)
-            }
-            .shadow(color: Color(red: 120 / 255, green: 77 / 255, blue: 25 / 255), radius: 7.5)
             .contentShape(Circle())
     }
 }

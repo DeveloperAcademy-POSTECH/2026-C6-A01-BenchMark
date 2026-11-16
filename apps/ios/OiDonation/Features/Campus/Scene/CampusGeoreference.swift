@@ -2,7 +2,7 @@ import Foundation
 import simd
 
 /// Same WGS84 ellipsoid/topocentric XY as the v07 Blender export. Terrain Z is separate.
-struct CampusGeoreference {
+nonisolated struct CampusGeoreference {
     let longitude:Double,latitude:Double,scale:Double
     private let a=6378137.0,e2=0.0066943799901413165
     private var rotation:simd_double3x3 {

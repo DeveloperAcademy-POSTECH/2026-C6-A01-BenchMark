@@ -15,23 +15,25 @@ import UIKit
     static let heading = CampusEducationSite.heading
     static let scale = CampusEducationSite.scale
     static let officialURL = URL(string: "https://www.postech.ac.kr/kor/innovation/education_district_cp.do")!
-    static let farCount = 37_282
-    static let nearCount = 62_107
-    static let totalCount = 110_869
-    private static var meshes: (far: MeshResource, near: MeshResource)?
+    nonisolated static let farCount = 37_282
+    nonisolated static let nearCount = 62_107
+    nonisolated static let totalCount = 110_869
+    enum Detail: Sendable { case far, near }
+    private static var meshes: [Detail: MeshResource] = [:]
+    private static var preparation: [Detail: Task<MeshResource, Error>] = [:]
 
-    struct Sample {
+    nonisolated struct Sample: Sendable {
         let position: SIMD3<Float>
         let normal: SIMD3<Float>
         let brightness: Float
     }
-    struct Geometry {
+    nonisolated struct Geometry: Sendable {
         let points: [Sample]
         let shell: [SIMD3<Float>]
         let groundOffset: Float
     }
 
-    static func geometry() throws -> Geometry {
+    nonisolated static func geometry() throws -> Geometry {
         guard let url = Bundle.main.url(forResource: "education-district-points", withExtension: "bin") else { throw CocoaError(.fileNoSuchFile) }
         let bytes = try Data(contentsOf: url)
         guard bytes.count >= 20, bytes.prefix(8) == Data("OIEDU002".utf8) else { throw CocoaError(.fileReadCorruptFile) }
@@ -52,14 +54,30 @@ import UIKit
         }
     }
 
-    static func makeEntity(data: CampusMapData) throws -> ModelEntity {
-        if meshes == nil {
-            let source = try geometry()
-            // Prefixes are the web's spatially interleaved tiers. Striding loses rows.
-            meshes = (try pearls(Array(source.points.prefix(farCount)), radius: 0.031, ground: source.groundOffset),
-                      try pearls(Array(source.points.prefix(nearCount)), radius: 0.025, ground: source.groundOffset))
+    static func preparedMesh(_ detail: Detail) -> MeshResource? { meshes[detail] }
+
+    static func prepare(_ detail: Detail) async throws -> MeshResource {
+        if let mesh = meshes[detail] { return mesh }
+        if let pending = preparation[detail] { return try await pending.value }
+        let count = detail == .near ? nearCount : farCount
+        let radius: Float = detail == .near ? 0.025 : 0.031
+        let task = Task { @MainActor in
+            defer { preparation[detail] = nil }
+            let descriptor = try await Task.detached(priority: .userInitiated) {
+                let source = try geometry()
+                return pearlDescriptor(Array(source.points.prefix(count)), radius: radius, ground: source.groundOffset)
+            }.value
+            let mesh = try await MeshResource(from: [descriptor])
+            meshes[detail] = mesh
+            return mesh
         }
-        let model = ModelEntity(mesh: meshes!.far, materials: materials)
+        preparation[detail] = task
+        return try await task.value
+    }
+
+    static func makeEntity(data: CampusMapData) throws -> ModelEntity {
+        guard let mesh = meshes[.far] else { throw CocoaError(.fileReadCorruptFile) }
+        let model = ModelEntity(mesh: mesh, materials: materials)
         model.name = "campus.education-district"
         model.position = center
         model.orientation = simd_quatf(angle: heading, axis: [0, 1, 0])
@@ -74,12 +92,6 @@ import UIKit
         let bounds = model.visualBounds(recursive: false, relativeTo: model)
         model.collision = CollisionComponent(shapes: [.generateBox(size: bounds.extents).offsetBy(translation: bounds.center)], mode: .default, filter: .default)
         return model
-    }
-
-    static func update(_ entity: ModelEntity, near: Bool) {
-        guard let meshes else { return }
-        let desired = near ? meshes.near : meshes.far
-        if entity.model?.mesh !== desired { entity.model?.mesh = desired }
     }
 
     private static var materials: [any Material] {
@@ -103,6 +115,10 @@ import UIKit
     /// Smooth normals on eight triangles per sphere: 497k triangles for the near 62k tier,
     /// no per-frame position uploads, entities, animation or transparency sorting.
     private static func pearls(_ points: [Sample], radius: Float, ground: Float = 0) throws -> MeshResource {
+        return try MeshResource.generate(from: [pearlDescriptor(points, radius: radius, ground: ground)])
+    }
+
+    nonisolated private static func pearlDescriptor(_ points: [Sample], radius: Float, ground: Float) -> MeshDescriptor {
         let unit: [SIMD3<Float>] = [[0,1,0], [1,0,0], [0,0,1], [-1,0,0], [0,0,-1], [0,-1,0]]
         let faces: [UInt32] = [0,2,1, 0,3,2, 0,4,3, 0,1,4, 5,1,2, 5,2,3, 5,3,4, 5,4,1]
         var positions: [SIMD3<Float>] = [], normals: [SIMD3<Float>] = [], indices: [UInt32] = [], materialIDs: [UInt32] = []
@@ -121,7 +137,7 @@ import UIKit
         descriptor.normals = MeshBuffers.Normals(normals)
         descriptor.primitives = .triangles(indices)
         descriptor.materials = .perFace(materialIDs)
-        return try MeshResource.generate(from: [descriptor])
+        return descriptor
     }
 
     private static func bridge(to end: SIMD3<Float>) throws -> Entity {

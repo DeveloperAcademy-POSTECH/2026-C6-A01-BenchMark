@@ -1,11 +1,26 @@
 import Foundation
 
+struct OiStoryReviewIssue: Identifiable {
+    let step: OiCreationStep
+    let message: String
+    var id: String { message }
+}
+
 enum OiCreationStep: String, CaseIterable {
     case consent, story, photos, location, cucumber, card
 
-    static let storyTextLimit = 45
-    static let storyBodyByteLimit = 1_500
-    static let storyPhotoLimit = 3
+    /// Figma `5400:7726`: title up to 90 byte and story up to 870 byte including spaces (#373).
+    /// Hangul and other non-ASCII characters count as 2 byte, ASCII letters/digits/spaces as 1 byte.
+    static let storyTitleByteLimit = 90
+    static let storyBodyByteLimit = 870
+    static func storyBytes(_ text: String) -> Int { text.reduce(0) { $0 + ($1.isASCII ? 1 : 2) } }
+    /// Accept an edit only within the limit; an older over-limit text may be shortened but not extended.
+    static func limitedEdit(_ value: String, previous: String, byteLimit: Int) -> String {
+        let bytes = storyBytes(value)
+        return bytes <= byteLimit || bytes < storyBytes(previous) ? value : previous
+    }
+    /// Figma `5400:7726`: one story photo (#373).
+    static let storyPhotoLimit = 1
 
     var title: String {
         switch self {
@@ -46,7 +61,8 @@ enum OiCreationStep: String, CaseIterable {
         case .consent: true
         case .story:
             [draft.title, draft.body, draft.theme, draft.emotion].allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                && draft.title.count <= Self.storyTextLimit && draft.body.utf8.count <= Self.storyBodyByteLimit
+                && Self.storyBytes(draft.title) <= Self.storyTitleByteLimit
+                && Self.storyBytes(draft.body) <= Self.storyBodyByteLimit
                 && draft.theme.count <= 30 && draft.emotion.count <= 30
         case .photos: true
         case .location:
@@ -56,6 +72,39 @@ enum OiCreationStep: String, CaseIterable {
         case .cucumber: true
         case .card: draft.valid && draft.cucumberName.count <= 50
         }
+    }
+
+    static func reviewInputIssues(draft: OiStoryDraft, photoCount: Int) -> [OiStoryReviewIssue] {
+        func blank(_ value: String) -> Bool { value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        var issues: [OiStoryReviewIssue] = []
+        if blank(draft.theme) || draft.theme.count > 30 {
+            issues.append(.init(step: .story, message: "이야기의 테마를 선택해 주세요."))
+        }
+        if blank(draft.emotion) || draft.emotion.count > 30 {
+            issues.append(.init(step: .story, message: "이야기의 감정을 선택해 주세요."))
+        }
+        if blank(draft.title) {
+            issues.append(.init(step: .story, message: "이야기 제목을 입력해 주세요."))
+        } else if storyBytes(draft.title) > storyTitleByteLimit {
+            issues.append(.init(step: .story, message: "제목을 \(storyTitleByteLimit)byte 이내로 줄여 주세요."))
+        }
+        if blank(draft.body) {
+            issues.append(.init(step: .story, message: "이야기 내용을 입력해 주세요."))
+        } else if storyBytes(draft.body) > storyBodyByteLimit {
+            issues.append(.init(step: .story, message: "이야기를 \(storyBodyByteLimit)byte 이내로 줄여 주세요."))
+        }
+        if !(1...storyPhotoLimit).contains(photoCount) {
+            issues.append(.init(step: .photos, message: "이야기 대표 사진을 \(storyPhotoLimit)장 선택해 주세요."))
+        }
+        if !location.canContinue(draft: draft) {
+            issues.append(.init(step: .location, message: "캠퍼스 지도에서 오이 위치를 선택해 주세요."))
+        }
+        if blank(draft.cucumberName) {
+            issues.append(.init(step: .cucumber, message: "오이 커스텀의 내용 탭에서 오이 이름을 입력해 주세요."))
+        } else if draft.cucumberName.count > 50 {
+            issues.append(.init(step: .cucumber, message: "오이 이름을 50자 이내로 줄여 주세요."))
+        }
+        return issues
     }
 }
 

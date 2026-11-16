@@ -1,21 +1,21 @@
 import Foundation
 import simd
 
-struct CampusMapData: Decodable {
+nonisolated struct CampusMapData: Codable, Sendable {
     /// Display-only building groups; these do not create server donation regions.
-    struct BuildingLabelGroup: Decodable {
+    struct BuildingLabelGroup: Codable, Sendable {
         let id: String
         let name: String
         let buildingIDs: [String]
     }
-    struct Road: Decodable { let wayId: String; let a: [Double]; let b: [Double]; let widthMeters: Double; let kind: String? }
+    struct Road: Codable, Sendable { let wayId: String; let a: [Double]; let b: [Double]; let widthMeters: Double; let kind: String? }
     var roads: [Road]? = nil
     var buildingLabelGroups: [BuildingLabelGroup]? = nil
-    struct Place: Decodable, Identifiable {let id:String;let name:String;let category:String;let p:[Double];let node:String;let buildingId:String?}
-    struct Node: Decodable {let p:[Double];let links:[String];let wgs84:[Double]?}
-    struct Building: Decodable {let id:String;let p:[[Double]];let name:String?;let levels:Double?;let kind:String?;let modelRoofZ:Double?}
-    struct CoordinateSystem:Decodable {let horizontalFrameVersion:String?}
-    struct InitialView:Decodable {let walkingStart:[Double]}
+    struct Place: Codable, Identifiable, Sendable {let id:String;let name:String;let category:String;let p:[Double];let node:String;let buildingId:String?}
+    struct Node: Codable, Sendable {let p:[Double];let links:[String];let wgs84:[Double]?}
+    struct Building: Codable, Sendable {let id:String;let p:[[Double]];let name:String?;let levels:Double?;let kind:String?;let modelRoofZ:Double?}
+    struct CoordinateSystem:Codable, Sendable {let horizontalFrameVersion:String?}
+    struct InitialView:Codable, Sendable {let walkingStart:[Double]}
     let coordinateSystem:CoordinateSystem?
     let initialView:InitialView?
     var surface:CampusHeightField?
@@ -48,8 +48,7 @@ struct CampusMapData: Decodable {
             throw CocoaError(.fileReadCorruptFile)
         }
         if data.enu {
-            data.surface = try CampusHeightField(directory: url.deletingLastPathComponent())
-            data.surface?.grading = CampusEducationSite.TerrainGrading(data: data)
+            data.surface = try CampusHeightField(directory: url.deletingLastPathComponent(), grading: CampusEducationSite.TerrainGrading(data: data))
         }
         return data
     }

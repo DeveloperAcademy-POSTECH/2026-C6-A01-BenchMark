@@ -66,7 +66,7 @@ final class OiWardrobeScene {
             defer { if generation == token { loading = false } }
             do {
                 let (prepared, overlays) = try await OiWardrobeAsset.prepare(look,
-                    existing: loadedName == look.modelName ? model : nil,
+                    existing: loadedName == look.modelName ? model : nil, reuseSource: true,
                     editingSlot: editingSlot, previewTexture: previewTexture, previewImage: previewImage)
                 try Task.checkCancellation()
                 guard generation == token, request == look else { return }
@@ -165,9 +165,7 @@ final class OiWardrobeScene {
             guard let white = await snapshot(canvas) else { return nil }
             try Task.checkCancellation()
             guard generation == token, cardPoseRevision == pose, isInstalled(canvas) else { return nil }
-            let result = await Task.detached(priority: .userInitiated) {
-                OiPortraitMatte.image(black: black, white: white)
-            }.value
+            let result = await OiPortraitImages.shared.matte(black: black, white: white)
             try Task.checkCancellation()
             guard generation == token, cardPoseRevision == pose, isInstalled(canvas) else { return nil }
             return result
@@ -275,9 +273,14 @@ struct OiWardrobePreview: View {
     let look: OiWardrobeLook
     var controls = true
     private let backgroundColor: UIColor
+    private let savedPortrait: (key: String?, data: Data?)
+    @State private var previewRevision = 0
+    @State private var loadingPreview: (look: OiWardrobeLook, image: UIImage)?
     @State private var scene: OiWardrobeScene
-    init(look: OiWardrobeLook, controls: Bool = true, scene: OiWardrobeScene? = nil, backgroundColor: UIColor = .white) {
+    init(look: OiWardrobeLook, controls: Bool = true, scene: OiWardrobeScene? = nil, backgroundColor: UIColor = .white,
+         portraitKey: String? = nil, portraitPNG: Data? = nil) {
         self.look = look; self.controls = controls; self.backgroundColor = backgroundColor
+        savedPortrait = (portraitKey, portraitPNG)
         _scene = State(initialValue: scene ?? OiWardrobeScene())
     }
     @Environment(\.scenePhase) private var scenePhase
@@ -287,25 +290,63 @@ struct OiWardrobePreview: View {
                 if scenePhase != .background {
                     OiWardrobeSurface(scene: scene, look: look, backgroundColor: backgroundColor)
                 }
-                if scene.loading { ProgressView().accessibilityLabel("옷 입는 중") }
+                if scene.loading {
+                    if let loadingPreview, loadingPreview.look == look {
+                        Image(uiImage: loadingPreview.image).resizable().scaledToFit()
+                            .allowsHitTesting(false).accessibilityHidden(true)
+                    }
+                    ProgressView().accessibilityLabel("옷 입는 중")
+                }
                 if let error = scene.error {
                     VStack { Text(error).font(.caption); Button("다시 시도") { scene.update(look, retry: true) } }
                         .padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
             }.clipped()
             if controls {
-                VStack(spacing: 0) {
-                    ForEach(Array([("앞", Float(0)), ("뒤", .pi), ("좌", .pi / 2), ("우", -.pi / 2)].enumerated()), id: \.offset) { _, item in
-                        Button(item.0) { scene.angle(item.1) }.font(CampusStyle.body(12))
-                            .frame(minWidth: 44, minHeight: 44)
-                            .buttonStyle(OiCreationPressStyle())
-                            .accessibilityLabel("오이 \(item.0) 보기")
-                            .accessibilityIdentifier("oi.wardrobe.angle.\(item.0 == "앞" ? "정면" : item.0)")
-                    }
-                }.foregroundStyle(Color("OiGreen"))
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+                OiWardrobeRotationHint()
+                    .frame(maxHeight: .infinity, alignment: .bottomLeading)
+                    .padding(.bottom, 8)
+                    .accessibilityAction(named: "오른쪽으로 돌리기") { scene.orbit(-157) }
+                    .accessibilityAction(named: "왼쪽으로 돌리기") { scene.orbit(157) }
             }
         }
+        .onChange(of: look) { _, _ in previewRevision += 1 }
+        .task(id: previewRevision) {
+            loadingPreview = nil
+            let key = OiCardPortrait.key(for: look) + "-angle-" + OiCardOrientation().cacheIdentity
+            var image = await OiPortraitImages.shared.cached(key: key)
+            if image == nil, savedPortrait.key == key, let data = savedPortrait.data {
+                image = await OiPortraitImages.shared.restore(data, key: key)
+            }
+            if image == nil, let costume = look.costume {
+                let url = Bundle.main.url(forResource: costume.thumbnailName, withExtension: "png", subdirectory: "WardrobeThumbnails")
+                    ?? Bundle.main.url(forResource: costume.thumbnailName, withExtension: "png")
+                if let url { image = await OiPortraitImages.shared.thumbnail(url) }
+            }
+            guard !Task.isCancelled, let image else { return }
+            loadingPreview = (look, image)
+        }
+    }
+}
+
+/// Figma `5719:9948`/`5719:9947`: drag anywhere on the cucumber to turn it a full 360° (#377).
+struct OiWardrobeRotationHint: View {
+    var body: some View {
+        VStack(spacing: 8) {
+            ZStack(alignment: .bottom) {
+                Image("Oi360Arc").resizable().frame(width: 57, height: 14).offset(y: 7)
+                Text("360°").font(CampusStyle.body(16)).tracking(0.32)
+                    .foregroundStyle(Color(white: 106 / 255))
+            }
+            Text("직접 만든 오이를\n회전시켜보세요!")
+                .font(CampusStyle.body(10)).tracking(0.2).lineSpacing(3)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(Color(white: 162 / 255))
+        }
+        .padding(.top, 8)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("오이를 드래그해 360도 돌려 볼 수 있어요")
+        .accessibilityIdentifier("oi.wardrobe.rotationHint")
     }
 }
 

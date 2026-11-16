@@ -120,7 +120,7 @@ enum OiPublishedStoryCover {
 enum OiPublishedCucumberImage {
     static let bucket = "oi-story-media"
 
-    static func decode(_ data: Data, part: OiCucumberArtworkReference.Part) throws -> CGImage {
+    nonisolated static func decode(_ data: Data, part: OiCucumberArtworkReference.Part) throws -> CGImage {
         guard data.count <= 8 * 1024 * 1024,
               let source = CGImageSourceCreateWithData(data as CFData, nil),
               CGImageSourceGetType(source) as String? == "public.png",
