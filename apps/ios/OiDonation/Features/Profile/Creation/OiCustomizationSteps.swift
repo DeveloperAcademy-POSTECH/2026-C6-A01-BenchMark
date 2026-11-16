@@ -239,7 +239,7 @@ struct OiCardCustomizationStep: View {
                         .focused($editingCaption)
                         .accessibilityIdentifier("oi.card.caption")
                     HStack(alignment: .lastTextBaseline) {
-                        Text(verbatim: "\(draft.body.utf8.count) / \(OiCreationStep.storyBodyByteLimit) byte")
+                        Text(verbatim: "\(OiCreationStep.storyBytes(draft.body)) / \(OiCreationStep.storyBodyByteLimit)byte")
                             .foregroundStyle(Color(white: 177 / 255))
                         Spacer()
                         Button(editingCaption ? "완료" : "수정") { editingCaption.toggle() }
