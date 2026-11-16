@@ -472,6 +472,9 @@ struct OiStoryAttachmentSections: View {
     let longitude: Double?
     let onPhotos: () -> Void
     let onLocation: () -> Void
+    /// The optional 이어질 기부 대상 section (Figma `6183:2698`) shows only when `onSelectDonor` is given (#411).
+    var connectedStory: CampusStory? = nil
+    var onSelectDonor: (() -> Void)? = nil
     /// MapKit is the costliest view on STEP 2; create it just after STEP 2 appears so the switch shows at once.
     @State private var showsMap = false
 
@@ -521,6 +524,20 @@ struct OiStoryAttachmentSections: View {
                 .accessibilityIdentifier("oi.story.locationPreview")
                 formButton(coordinate == nil ? "위치 설정하기" : "재설정하기", highlighted: true, action: onLocation)
                     .accessibilityIdentifier("oi.story.editLocation")
+            }
+            if let onSelectDonor {
+                OiCreationSection(title: "이어질 기부 대상", hint: "(선택)") {
+                    if let connectedStory {
+                        OiCucumberCard(name: connectedStory.title, tags: connectedStory.tags, donor: connectedStory.donor,
+                                       title: connectedStory.storyTitle, outline: Color(oiRGB: 0xD3DBC4), shadowOpacity: 0) {
+                            CampusCucumberPortrait(story: connectedStory)
+                        }
+                        .accessibilityIdentifier("oi.story.connectedCard")
+                    }
+                    formButton(connectedStory == nil ? "기부자 선택하기" : "다시 선택하기",
+                               highlighted: false, action: onSelectDonor)
+                        .accessibilityIdentifier("oi.story.selectDonor")
+                }
             }
         }
     }

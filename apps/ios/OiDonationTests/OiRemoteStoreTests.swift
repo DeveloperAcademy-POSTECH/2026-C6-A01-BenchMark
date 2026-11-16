@@ -5398,3 +5398,63 @@ extension OiRemoteStoreTests {
         XCTAssertEqual(images.first?.cgImage?.height, images.last?.cgImage?.height)
     }
 }
+
+/// #411: the stories an account opened most recently, offered as donations to continue from.
+@MainActor
+final class OiRecentStoriesTests: XCTestCase {
+    private func defaults() throws -> (name: String, value: UserDefaults) {
+        let name = "OiRecentStoriesTests.\(UUID().uuidString)"
+        return (name, try XCTUnwrap(UserDefaults(suiteName: name)))
+    }
+
+    private func story(_ id: String, author: UUID? = nil, example: Bool = false) -> CampusStory {
+        var story = CampusStory(id: id, regionID: "pond", title: "오이\(id)", image: "OiCats", tags: [], donor: "농부",
+                                location: "", date: "", order: 0, popularity: 0, palette: 0)
+        story.authorID = author
+        return story
+    }
+
+    func testNewestFirstWithoutDuplicatesAndPerAccount() throws {
+        let fixture = try defaults(); defer { fixture.value.removePersistentDomain(forName: fixture.name) }
+        let owner = UUID(), other = UUID()
+        for id in ["a", "b", "c", "a"] { OiRecentStories.record(id, owner: owner, defaults: fixture.value) }
+        OiRecentStories.record("z", owner: other, defaults: fixture.value)
+        XCTAssertEqual(OiRecentStories.ids(owner: owner, defaults: fixture.value), ["a", "c", "b"])
+        XCTAssertEqual(OiRecentStories.ids(owner: other, defaults: fixture.value), ["z"])
+    }
+
+    func testStoredHistoryIsCapped() throws {
+        let fixture = try defaults(); defer { fixture.value.removePersistentDomain(forName: fixture.name) }
+        let owner = UUID()
+        for index in 0..<(OiRecentStories.storedLimit + 5) { OiRecentStories.record("s\(index)", owner: owner, defaults: fixture.value) }
+        let ids = OiRecentStories.ids(owner: owner, defaults: fixture.value)
+        XCTAssertEqual(ids.count, OiRecentStories.storedLimit)
+        XCTAssertEqual(ids.first, "s\(OiRecentStories.storedLimit + 4)")
+    }
+
+    func testPickerShowsFivePublicStoriesWithoutTheOwnOnes() throws {
+        let fixture = try defaults(); defer { fixture.value.removePersistentDomain(forName: fixture.name) }
+        let owner = UUID(), author = UUID()
+        var stories = (0..<8).map { story("s\($0)", author: author) }
+        stories.append(story("mine", author: owner))
+        let byID = Dictionary(uniqueKeysWithValues: stories.map { ($0.id, $0) })
+        // s7 is the newest; "mine" and a story that is no longer public must not appear.
+        for id in ["s0", "s1", "s2", "gone", "s3", "mine", "s4", "s5", "s6", "s7"] {
+            OiRecentStories.record(id, owner: owner, defaults: fixture.value)
+        }
+        let shown = OiRecentStories.pickerStories(owner: owner, defaults: fixture.value) { byID[$0] }
+        XCTAssertEqual(shown.map(\.id), ["s7", "s6", "s5", "s4", "s3"])
+    }
+
+    func testDraftCustomizationKeepsTheConnectionAndReadsOlderDrafts() throws {
+        var customization = OiDraftCustomization()
+        XCTAssertNil(customization.connectedStoryID)
+        customization.connectedStoryID = "story"
+        let decoded = try JSONDecoder().decode(OiDraftCustomization.self, from: JSONEncoder().encode(customization))
+        XCTAssertEqual(decoded.connectedStoryID, "story")
+        let old = try JSONEncoder().encode(OiDraftCustomization())
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: old) as? [String: Any])
+        json.removeValue(forKey: "connectedStoryID")
+        XCTAssertNil(try JSONDecoder().decode(OiDraftCustomization.self, from: JSONSerialization.data(withJSONObject: json)).connectedStoryID)
+    }
+}

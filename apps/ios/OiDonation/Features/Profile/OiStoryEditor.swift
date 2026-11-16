@@ -45,6 +45,7 @@ struct OiStoryEditor: View {
     @State private var focusedStoryField: OiStoryWritingStep.Field?
     /// STEP 2 shows missing items under the buttons only after Next is tapped (#373).
     @State private var showingStoryMissing = false
+    @State private var showingDonorPicker = false
     @State private var customization = OiDraftCustomization()
     @State private var personalPlacement: OiPersonalPlacement?
     @State private var removedMediaPaths: [String] = []
@@ -342,6 +343,12 @@ struct OiStoryEditor: View {
                 Text("제목, 본문, 위치를 서버 버전으로 바꿉니다. 추가한 사진과 기기에서 꾸민 오이·카드는 보관합니다.")
             }
             .fullScreenCover(item: $photoCheckpoint) { _ in photoEditorContent }
+            .fullScreenCover(isPresented: $showingDonorPicker) {
+                OiConnectedDonationPicker(
+                    stories: recentDonationStories,
+                    onCancel: { showingDonorPicker = false },
+                    onDone: { customization.connectedStoryID = $0; showingDonorPicker = false })
+            }
             .sheet(isPresented: $showingPreview, onDismiss: {
                 guard openingPhotosAfterReview else { return }
                 openingPhotosAfterReview = false
@@ -955,7 +962,8 @@ struct OiStoryEditor: View {
                 OiStoryWritingStep(draft: $draft, focusedField: $focusedStoryField)
                 OiStoryAttachmentSections(photoCount: editingPhotos.count,
                     latitude: draft.latitude, longitude: draft.longitude,
-                    onPhotos: openPhotoEditor, onLocation: { endStoryEditing(); navigate(to: .location) })
+                    onPhotos: openPhotoEditor, onLocation: { endStoryEditing(); navigate(to: .location) },
+                    connectedStory: connectedStory, onSelectDonor: selectDonor)
             }
         case .cucumber:
             OiCucumberCustomizationStep(customization: $customization, cucumberName: $draft.cucumberName,
@@ -970,6 +978,23 @@ struct OiStoryEditor: View {
                 isFinished: false, onContinue: { Task { await completeCard() } })
 
         }
+    }
+
+    private var recentDonationStories: [CampusStory] {
+        guard let owner = remote.account?.id, let campusStore else { return [] }
+        return OiRecentStories.pickerStories(owner: owner) { campusStore.story($0) }
+    }
+
+    /// The story this donation continues from, while it is still public.
+    private var connectedStory: CampusStory? {
+        customization.connectedStoryID.flatMap { campusStore?.story($0) }
+    }
+
+    /// 기부자 선택하기 / 다시 선택하기: any earlier choice is cleared before the list opens.
+    private func selectDonor() {
+        endStoryEditing()
+        customization.connectedStoryID = nil
+        showingDonorPicker = true
     }
 
     private func cardStoryPhoto(_ photo: OiEditingPhoto) async throws -> Data {

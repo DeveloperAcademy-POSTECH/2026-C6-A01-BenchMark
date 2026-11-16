@@ -4,6 +4,7 @@ struct CampusSummaryView: View {
     let story: CampusStory
     let store: CampusStoryStore
     var isCameraCoverActive = false
+    @Environment(OiRemoteStore.self) private var remote: OiRemoteStore?
     var body: some View {
         GeometryReader { geometry in
             let cardWidth = min(440, geometry.size.width - 40,
@@ -25,6 +26,12 @@ struct CampusSummaryView: View {
             }
             .toolbar(.visible, for: .navigationBar).toolbarBackground(.hidden, for: .navigationBar)
             .navigationBarTitleDisplayMode(.inline).toolbarRole(.editor)
+            // The story form offers the five most recently opened stories as donations to continue from (#411).
+            .onAppear {
+                if let owner = remote?.account?.id, !story.isExample {
+                    OiRecentStories.record(story.id, owner: owner)
+                }
+            }
     }
 
     /// Figma `하단 버튼` (`5400:5165`): 93pt tall including the home indicator, two 175×46 buttons 20pt from the top.
