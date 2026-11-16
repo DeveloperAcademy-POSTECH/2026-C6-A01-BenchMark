@@ -196,3 +196,7 @@ sh apps/ios/Tests/run-campus-card-location-checks.sh
 ```
 
 결과: 화면 포함 3개 검사 통과. 늦은 위치 결과 차단 보완 후에는 위 명령에서 화면 검사 선택을 제외하고 resultBundlePath를 `feature-usage-reviewed.xcresult`로 바꿔 2개 기능 검사를 재실행하여 통과했다. 포항시 경계·거리 정확도·오래된 위치 검사도 PASS. 실제 iPhone의 권한 팝업·GPS·카메라 녹화·사진 저장 및 알림 수신은 별도 실기기 확인이 남아 있다.
+
+최종 통합 검증: `develop`의 `323476d`를 `abd85cb`에서 통합한 뒤 위 3개 선택 명령을 resultBundlePath `/private/tmp/benchmark-my-v4-379-evidence/feature-usage-integrated.xcresult`로 실행해 **3 tests, 0 failures / TEST SUCCEEDED**를 확인했다. 최종 스크린샷도 이 결과로 갱신했다.
+
+전체 후속 작업의 최대 동시 실행 자원은 3그룹(시뮬레이터, Xcode 빌드/테스트, 짧은 독립 위치 검사)이었다. 모두 종료했으며 전용 장치를 삭제하고 장치 목록에서 제거됐음을 확인했다. 캡처 창 해제 검사는 통과했고 Computer Use 핸들은 생성하지 않았다. 남긴 실행 자원은 없다.
