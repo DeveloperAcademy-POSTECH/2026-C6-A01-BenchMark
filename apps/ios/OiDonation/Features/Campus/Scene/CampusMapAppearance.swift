@@ -50,7 +50,7 @@ enum CampusMapAppearance {
         fill.look(at: .zero, from: SIMD3(-30, 40, -50), relativeTo: nil)
         rig.addChild(fill)
         view.environment.lighting.resource = sky
-        view.environment.lighting.intensityExponent = self == .apricotCream ? 1 : 0
+        view.environment.lighting.intensityExponent = self == .apricotCream ? 0.8 : 0
         root.addChild(rig)
         return sun
     }
@@ -78,11 +78,14 @@ enum CampusMapAppearance {
         guard self == .apricotCream else { return copy }
         let colors = try Self.apricotColors.get()
         guard copy.children.count <= colors.count else { throw CampusMeshLoader.Failure.invalidAsset }
+        var materials: [UInt32: SimpleMaterial] = [:]
         for child in copy.children {
             guard let model = child as? ModelEntity,
                   let index = Int(child.name.replacingOccurrences(of: "campus-tile-", with: "")),
                   colors.indices.contains(index) else { throw CampusMeshLoader.Failure.invalidAsset }
-            model.model?.materials = [SimpleMaterial(color: Self.color(colors[index]), roughness: 0.75, isMetallic: false)]
+            let hex = colors[index]
+            if materials[hex] == nil { materials[hex] = SimpleMaterial(color: Self.color(hex), roughness: 0.75, isMetallic: false) }
+            model.model?.materials = [materials[hex]!]
         }
         copy.name = "POSTECH v09 apricot cream copy"
         return copy

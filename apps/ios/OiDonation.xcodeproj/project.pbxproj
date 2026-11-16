@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C37911160000000000000001 /* MYV4Figma in Resources */ = {isa = PBXBuildFile; fileRef = C37911160000000000000002 /* MYV4Figma */; };
 		C15811050000000000000001 /* OiSchoolEvidenceContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15811050000000000000002; };
 		C10911020000000000000005 /* OiCats PNG in Resources */ = {isa = PBXBuildFile; fileRef = C10911020000000000000001 /* OiCats PNG */; };
 		C10911020000000000000006 /* OiGardener PNG in Resources */ = {isa = PBXBuildFile; fileRef = C10911020000000000000002 /* OiGardener PNG */; };
@@ -51,6 +52,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		C37911160000000000000002 /* MYV4Figma */ = {isa = PBXFileReference; lastKnownFileType = folder; path = OiDonationTests/Fixtures/MYV4Figma; sourceTree = SOURCE_ROOT; };
 		C15811050000000000000002 /* OiSchoolEvidenceContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiSchoolEvidenceContractTests.swift; sourceTree = SOURCE_ROOT; };
 		C10911020000000000000001 /* OiCats PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiCats PNG"; path = Resources/AppClipPresets/61272.png; sourceTree = SOURCE_ROOT; };
 		C10911020000000000000002 /* OiGardener PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiGardener PNG"; path = Resources/AppClipPresets/0e35d.png; sourceTree = SOURCE_ROOT; };
@@ -197,6 +199,7 @@
 			children = (
 				B10000000000000000000008,
 				C13211030000000000000010,
+				C37911160000000000000002 /* MYV4Figma */,
 				C15211040000000000000001 /* CampusMapInteractionTests.swift */,
 				C15811050000000000000002,
 				8736DA6B30777C9800D0CFC9 /* OiDonation */,
@@ -319,7 +322,7 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		B10000000000000000000006 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		B10000000000000000000006 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (C37911160000000000000001 /* MYV4Figma in Resources */,); runOnlyForDeploymentPostprocessing = 0; };
 		87169563307CB1CF0090D456 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;

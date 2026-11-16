@@ -52,8 +52,20 @@ final class CampusCardLocation: NSObject, CLLocationManagerDelegate {
     private var timeoutTask: Task<Void, Never>?
     private static let boundary = Result<CampusPohangBoundary, Error> { try CampusPohangBoundary.load() }
 
+    override init() {
+        super.init()
+        NotificationCenter.default.addObserver(self, selector: #selector(featureUsageChanged),
+            name: OiFeatureUsage.didChange, object: nil)
+    }
+
+    @objc private func featureUsageChanged() {
+        guard !OiFeatureUsage.shared.isEnabled(.location), let request else { return }
+        finish(request.id, with: .failure(OiFeatureUsageError.disabled(.location)))
+    }
+
     func classify(requestPermission: Bool = true) async throws -> CampusCardProximity {
         try Task.checkCancellation()
+        try OiFeatureUsage.shared.require(.location)
         guard request == nil else { throw CampusCardLocationError.locating }
         let boundary = try Self.boundary.get()
         let id = UUID()
@@ -73,11 +85,13 @@ final class CampusCardLocation: NSObject, CLLocationManagerDelegate {
             Task { @MainActor [weak self] in self?.finish(id, with: .failure(CancellationError())) }
         }
         try Task.checkCancellation()
+        try OiFeatureUsage.shared.require(.location)
         return try boundary.classify(fix)
     }
 
     private func checkAuthorization(for id: UUID, mayPrompt: Bool) {
         guard let request, request.id == id else { return }
+        guard OiFeatureUsage.shared.isEnabled(.location) else { featureUsageChanged(); return }
         switch request.manager.authorizationStatus {
         case .notDetermined:
             if mayPrompt { request.manager.requestWhenInUseAuthorization() }

@@ -9,7 +9,7 @@ import simd
 
 /// Display parcel fitted to the official aerial plan. X east, Z south, 0.12 units/m.
 /// This replaces Posville 6 and the parking surface, not the library, C5 or the road.
-enum CampusEducationSite {
+nonisolated enum CampusEducationSite {
     static let retiredBuildingID = "136961801"
     static let libraryID = "136182168"
     static let c5ID = "397201294"
@@ -85,7 +85,7 @@ enum CampusEducationSite {
         return start + axis * (distance + 0.03)
     }
 
-    struct MeshBuffers {
+    struct MeshBuffers: Sendable {
         var positions: [SIMD3<Float>]
         var normals: [SIMD3<Float>]
         var indices: [UInt32]
@@ -131,8 +131,8 @@ enum CampusEducationSite {
 
     /// One grading rule drives the visible mesh, placement height and ray picking.
     /// Existing roads and neighboring foundations keep their original elevations.
-    struct TerrainGrading {
-        struct Segment { let a: SIMD2<Float>; let b: SIMD2<Float>; let radius: Float; let footpath: Bool }
+    struct TerrainGrading: Sendable {
+        struct Segment: Sendable { let a: SIMD2<Float>; let b: SIMD2<Float>; let radius: Float; let footpath: Bool }
         let roads: [Segment]
         let foundations: [[SIMD2<Float>]]
         static let redevelopedRoads: Set<String> = ["1012928008", "1012928009"]
@@ -197,7 +197,7 @@ enum CampusEducationSite {
         }
     }
 
-    private static func componentCenter(_ ids: [UInt32], in source: MeshBuffers) -> SIMD2<Float> {
+    static func componentCenter(_ ids: [UInt32], in source: MeshBuffers) -> SIMD2<Float> {
         var lo = SIMD2<Float>(repeating: .greatestFiniteMagnitude), hi = -lo
         for id in ids {
             let p = source.positions[Int(id)], point = SIMD2(p.x, p.z)
@@ -206,7 +206,7 @@ enum CampusEducationSite {
         return (lo + hi) / 2
     }
 
-    private static func components(_ source: MeshBuffers) -> [[UInt32]] {
+    static func components(_ source: MeshBuffers) -> [[UInt32]] {
         var parent = Array(source.positions.indices)
         func root(_ index: Int) -> Int {
             var i = index

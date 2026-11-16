@@ -1,21 +1,29 @@
 import Foundation
+import CryptoKit
 import simd
 
 /// 2m campus samples plus a 25cm library patch. No full-campus physics mesh.
-final class CampusHeightField {
+nonisolated final class CampusHeightField: Sendable {
     struct Metadata:Decodable {let patches:[Patch];let verticalOffset:Float}
-    struct Patch:Decodable {let file:String;let width:Int;let height:Int;let minX:Float;let minY:Float;let step:Float}
+    struct Patch:Decodable, Sendable {let file:String;let width:Int;let height:Int;let minX:Float;let minY:Float;let step:Float}
     private let patches:[(Patch,[Float])]
-    var grading: CampusEducationSite.TerrainGrading?
+    let grading: CampusEducationSite.TerrainGrading?
+    let sourceDigest: Data
     let offset:Float
-    init(directory:URL)throws {
-        let meta=try JSONDecoder().decode(Metadata.self,from:Data(contentsOf:directory.appendingPathComponent("campus-height.json")));offset=meta.verticalOffset
+    init(directory:URL, grading: CampusEducationSite.TerrainGrading? = nil)throws {
+        self.grading = grading
+        var digest = SHA256()
+        let metadata = try Data(contentsOf: directory.appendingPathComponent("campus-height.json"))
+        digest.update(data: metadata)
+        let meta=try JSONDecoder().decode(Metadata.self,from:metadata);offset=meta.verticalOffset
         patches=try meta.patches.sorted{$0.step<$1.step}.map { p in
             let bytes=try Data(contentsOf:directory.appendingPathComponent(p.file));guard bytes.count==p.width*p.height*4 else{throw CocoaError(.fileReadCorruptFile)}
+            digest.update(data: bytes)
             var values=[Float](repeating:0,count:p.width*p.height)
             _=values.withUnsafeMutableBytes{bytes.copyBytes(to:$0)}
             return(p,values)
         }
+        sourceDigest = Data(digest.finalize())
     }
     func height(x:Float,z:Float)->Float? {
         guard let raw = rawHeight(x:x,z:z) else { return nil }

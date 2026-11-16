@@ -1,0 +1,96 @@
+{
+  "actual" : "/tmp/benchmark-my-v4-379/apps/ios/docs/verification/my-v4-379/actual.png",
+  "artifacts" : {
+    "absoluteDiffHeatmap" : "/private/tmp/benchmark-my-v4-379/apps/ios/docs/verification/my-v4-379/comparison/absolute-diff-heatmap.png",
+    "overlay50Percent" : "/private/tmp/benchmark-my-v4-379/apps/ios/docs/verification/my-v4-379/comparison/overlay-50-percent.png",
+    "sideBySideReferenceLeft" : "/private/tmp/benchmark-my-v4-379/apps/ios/docs/verification/my-v4-379/comparison/side-by-side.png"
+  },
+  "bitmapDrawingRequiredRowFlip" : false,
+  "coordinateSystem" : "Top-left origin in original image pixels; x rightward, y downward",
+  "fullFrame" : {
+    "bounds" : {
+      "height" : 874,
+      "width" : 402,
+      "x" : 0,
+      "y" : 0
+    },
+    "maximumRGBError" : 255,
+    "meanAbsoluteRGBError" : 3.7578801264463344,
+    "pixels" : 351348,
+    "pixelsAbove10RGB" : 29389,
+    "ratioAbove10RGB" : 0.08364641324271092,
+    "rootMeanSquareRGBError" : 12.52608736143486
+  },
+  "heatmapLegend" : "Per-pixel maximum absolute RGB delta d: R=min(255,4d), G=d, B=0; black is identical",
+  "height" : 874,
+  "intentionalDifferences" : [
+    "Figma device status bar and home indicator are reference chrome; the app uses native system chrome.",
+    "The reference capture loads Figma card assets through the isolated XCTest service fixture; production uses account data.",
+    "Unavailable donation counts and pickle coins use inactive placeholders instead of the sample 8회 and 3pc.",
+    "Native Liquid Glass can differ from Figma's simulated material and shadow layers.",
+    "Cucumber portraits preserve aspect ratio in a consistent 43×85 slot; Figma uses per-example 43×85 and 52×88 layouts."
+  ],
+  "normalization" : "8-bit sRGB RGBA, source alpha composited onto white; no resize or alignment correction",
+  "reference" : "/tmp/benchmark-my-v4-379/apps/ios/docs/verification/my-v4-379/reference.png",
+  "regions" : {
+    "farmer" : {
+      "bounds" : {
+        "height" : 208,
+        "width" : 110,
+        "x" : 265,
+        "y" : 85
+      },
+      "maximumRGBError" : 114,
+      "meanAbsoluteRGBError" : 3.135096153846154,
+      "pixels" : 22880,
+      "pixelsAbove10RGB" : 1953,
+      "ratioAbove10RGB" : 0.0853583916083916,
+      "rootMeanSquareRGBError" : 7.0521048206143675
+    },
+    "headerBlank" : {
+      "bounds" : {
+        "height" : 175,
+        "width" : 20,
+        "x" : 0,
+        "y" : 62
+      },
+      "maximumRGBError" : 2,
+      "meanAbsoluteRGBError" : 0.43047619047619046,
+      "pixels" : 3500,
+      "pixelsAbove10RGB" : 0,
+      "ratioAbove10RGB" : 0,
+      "rootMeanSquareRGBError" : 0.6952902785373685
+    },
+    "panelBlank" : {
+      "bounds" : {
+        "height" : 180,
+        "width" : 402,
+        "x" : 0,
+        "y" : 570
+      },
+      "maximumRGBError" : 11,
+      "meanAbsoluteRGBError" : 1.2692740003685277,
+      "pixels" : 72360,
+      "pixelsAbove10RGB" : 1,
+      "ratioAbove10RGB" : 1.3819789939192925e-05,
+      "rootMeanSquareRGBError" : 1.688963623204647
+    },
+    "tabBar" : {
+      "bounds" : {
+        "height" : 34,
+        "width" : 363,
+        "x" : 20,
+        "y" : 337
+      },
+      "maximumRGBError" : 137,
+      "meanAbsoluteRGBError" : 5.5936098957489335,
+      "pixels" : 12342,
+      "pixelsAbove10RGB" : 1454,
+      "ratioAbove10RGB" : 0.11780910711391995,
+      "rootMeanSquareRGBError" : 15.034012285965897
+    }
+  },
+  "thresholdDefinition" : "A pixel differs when max(abs(R), abs(G), abs(B)) > 10 on the 0–255 scale",
+  "verdict" : "MEASUREMENT ONLY: full-frame metrics are not a pass/fail verdict. Inspect fixed regions and overlays, and document residual differences.",
+  "width" : 402
+}

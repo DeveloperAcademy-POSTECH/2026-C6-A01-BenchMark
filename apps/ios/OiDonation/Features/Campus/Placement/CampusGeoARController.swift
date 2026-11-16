@@ -34,6 +34,22 @@ import UIKit
         trackedAnchor && !isTakingPhoto && !interrupted && !failed && (mode != .geographic || localized)
     }
 
+    override init() {
+        super.init()
+        NotificationCenter.default.addObserver(self, selector: #selector(featureUsageChanged),
+            name: OiFeatureUsage.didChange, object: nil)
+    }
+
+    @objc private func featureUsageChanged() {
+        if !OiFeatureUsage.shared.isEnabled(.camera) {
+            stop()
+            message = OiFeatureUsageError.disabled(.camera).localizedDescription
+        } else if !OiFeatureUsage.shared.isEnabled(.location) {
+            stop()
+            message = OiFeatureUsageError.disabled(.location).localizedDescription
+        }
+    }
+
     func makeView() -> RealityKit.ARView {
         if let view { return view }
         let result = RealityKit.ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
@@ -47,6 +63,10 @@ import UIKit
     func start(_ placement: CampusPlacement, location: CampusGeoLocation, wardrobe: OiWardrobeLook? = nil,
                loadPublishedModel: (() async throws -> Entity)? = nil) async {
         stop()
+        guard OiFeatureUsage.shared.isEnabled(.camera), OiFeatureUsage.shared.isEnabled(.location) else {
+            featureUsageChanged()
+            return
+        }
         self.placement = placement; self.location = location; isWardrobeTest = wardrobe != nil
         mode = .preparing; message = nil
         guard ARWorldTrackingConfiguration.isSupported else {
