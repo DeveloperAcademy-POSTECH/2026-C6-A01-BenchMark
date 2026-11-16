@@ -46,6 +46,9 @@ final class OiTestBackend {
         var duplexStoryCard = false
         var storyCardCover = false
         var storyCardCoverJpeg = false
+        var autoStoryModeration = false
+        var rejectModeration = false
+        var moderationCount = 0
         var corruptSubmittedCoverType = false
         var corruptReviewedCoverType = false
         var reviewPayloads: [[String: Any]] = []
@@ -231,9 +234,10 @@ final class OiTestBackend {
                 state.timeOutCardUploadAfterCommit = false
                 lock.unlock(); client.timeOut(); return
             }
-        } else if path.hasSuffix("/rpc/oi_mutate") {
-            let payload = body["p_payload"] as? [String:Any] ?? [:]
-            let action = body["p_action"] as? String ?? ""
+        } else if path.hasSuffix("/rpc/oi_mutate") || path.hasSuffix("/functions/v1/moderate-story") {
+            let automated = path.hasSuffix("/functions/v1/moderate-story")
+            let payload = automated ? body : (body["p_payload"] as? [String:Any] ?? [:])
+            let action = automated ? "submit_story" : (body["p_action"] as? String ?? "")
             if action == "save_story" {
                 var story = payload
                 story["grant_id"] = state.story?["id"] as? String == payload["id"] as? String
@@ -254,7 +258,11 @@ final class OiTestBackend {
                 let nextRevision = (state.story?["revision"] as? Int ?? 0)+1
                 state.story?["revision"] = nextRevision
                 result = state.story ?? [:]
+            } else if automated && state.rejectModeration {
+                state.moderationCount += 1
+                result = ["status": "rejected", "reason": "privacy", "source": "card"]
             } else if action == "submit_story" {
+                if automated { state.moderationCount += 1 }
                 state.submitCount += 1
                 if state.timeOutSubmitBeforeCommit {
                     state.timeOutSubmitBeforeCommit = false
@@ -268,10 +276,11 @@ final class OiTestBackend {
                     state.story?["card_cover_type"] = (format as? Int) == 3 ? (payload["card_cover_type"] ?? "png") : nil
                 }
                 if state.corruptSubmittedCoverType { state.story?["card_cover_type"] = "png" }
-                state.story?["status"] = "pending"
+                state.story?["status"] = automated ? "published" : "pending"
                 let nextRevision = (state.story?["revision"] as? Int ?? 0)+1
                 state.story?["revision"] = nextRevision
-                result = state.story ?? [:]
+                let story = state.story ?? [:]
+                result = automated ? ["status": "published", "story": story] as [String: Any] : story
                 if state.timeOutSubmitAfterCommit {
                     state.timeOutSubmitAfterCommit = false
                     lock.unlock(); client.timeOut(); return
@@ -377,6 +386,7 @@ final class OiTestBackend {
             if state.duplexStoryCard { capabilities["duplex_story_card"] = true }
             if state.storyCardCover { capabilities["story_card_cover"] = true }
             if state.storyCardCoverJpeg { capabilities["story_card_cover_jpeg"] = true }
+            if state.autoStoryModeration { capabilities["auto_story_moderation"] = true }
             if let canonical = state.canonicalAccountID {
                 capabilities["account_id"] = canonical.uuidString
                 capabilities["account_merge_enabled"] = true
@@ -2833,6 +2843,50 @@ final class OiRemoteStoreTests: XCTestCase {
         await oldRead.value
         XCTAssertEqual(store.account?.id, OiTestBackend.other)
         XCTAssertEqual(store.profile?.nickname, "Owner B")
+    }
+
+    @MainActor func testAutomaticPublicationShowsOnlyRejectionReasonAndConfirmsLostSuccessResponse() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { clean(session, directory: directory) }
+        backend.configure { $0.autoStoryModeration = true; $0.rejectModeration = true }
+        await store.start()
+        XCTAssertTrue(store.autoStoryModeration)
+        let savedReceipt = await store.save(draft())
+        let saved = try XCTUnwrap(savedReceipt)
+
+        let withoutConsent = await store.submitStory(saved)
+        XCTAssertNil(withoutConsent)
+        XCTAssertEqual(backend.snapshot().moderationCount, 0)
+
+        let rejected = await store.submitStory(saved, agreesToAIReview: true)
+        XCTAssertNil(rejected)
+        XCTAssertEqual(store.error, "카드 이미지에 공개하면 안 되는 개인정보가 포함돼 있어요.")
+        XCTAssertEqual(store.ownStories.first?.status, "draft")
+        XCTAssertTrue(store.stories.isEmpty)
+
+        backend.configure { $0.rejectModeration = false; $0.timeOutSubmitAfterCommit = true }
+        let published = await store.submitStory(saved, agreesToAIReview: true)
+        XCTAssertEqual(published?.status, "published")
+        XCTAssertEqual(published?.revision, saved.revision + 1)
+        XCTAssertEqual(store.stories.first?.id, saved.id)
+        XCTAssertEqual(backend.snapshot().moderationCount, 2)
+        XCTAssertEqual(backend.snapshot().submitCount, 1)
+        XCTAssertEqual(backend.snapshot().reviewCount, 0)
+
+        let story = try XCTUnwrap(published)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: NavigationStack { OiStoryEditor(remote: store, story: story) })
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+        try await Task.sleep(for: .seconds(1))
+        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "automatic-story-publication"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     @MainActor func testPublicationUsesLatestSavedContentAndRevision() async throws {

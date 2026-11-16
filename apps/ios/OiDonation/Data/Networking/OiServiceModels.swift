@@ -293,6 +293,7 @@ struct OiCapabilities: Decodable {
     var duplexStoryCard: Bool? = nil
     var storyCardCover: Bool? = nil
     var storyCardCoverJpeg: Bool? = nil
+    var autoStoryModeration: Bool? = nil
 }
 
 struct OiStoryDraft: Codable, Equatable {

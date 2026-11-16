@@ -31,6 +31,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     private(set) var canPublishDuplexCard = false
     private(set) var canPublishStoryCardCover = false
     private(set) var canPublishStoryCardCoverJPEG = false
+    private(set) var autoStoryModeration = false
 
     var canPlaceOi: Bool { account != nil && !needsReauthentication && !isAccountDeletionPending }
 
@@ -296,6 +297,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         canPublishDuplexCard = false
         canPublishStoryCardCover = false
         canPublishStoryCardCoverJPEG = false
+        autoStoryModeration = false
         localSignOutWarning = nil; loadError = nil; syncWarning = nil; error = nil; revision += 1
     }
 
@@ -608,6 +610,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         canPublishDuplexCard = capabilities?.duplexStoryCard == true
         canPublishStoryCardCover = capabilities?.storyCardCover == true
         canPublishStoryCardCoverJPEG = canPublishStoryCardCover && capabilities?.storyCardCoverJpeg == true
+        autoStoryModeration = capabilities?.autoStoryModeration == true
         isAccountMergeAvailable = capabilities?.accountMergeEnabled == true; accountMemberIDs = members
         isSchoolProfileAvailable = capabilities?.schoolProfileEnabled == true
         isFarmerOutfitAvailable = capabilities?.farmerOutfitEnabled == true; farmerOutfit = fetchedFarmerOutfit
@@ -698,7 +701,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     }
 
     func submitStory(_ story: OiLiveStory, cucumber: OiCucumberPublication? = nil,
-                     card proposedCard: OiStoryCardPublication? = nil) async -> OiLiveStory? {
+                     card proposedCard: OiStoryCardPublication? = nil, agreesToAIReview: Bool = false) async -> OiLiveStory? {
         guard canStartStory else { error = OiServiceError.storyCreationUnavailable.localizedDescription; return nil }
         let card: OiStoryCardPublication?
         do {
@@ -722,16 +725,26 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         }
         guard !isBusy, let api, account?.id == story.userId else { return nil }
         let started = generation
+        let autoPublish = autoStoryModeration
+        if autoPublish {
+            guard agreesToAIReview else { return nil }
+            payload["ai_review_consent_version"] = 1
+        }
+        let expectedStatus = autoPublish ? "published" : "pending"
         let expectedAppearance = cucumber?.appearance ?? story.cucumberAppearance
         let expectedCard = card?.id ?? story.cardSnapshotId
         let expectedFormat = card?.format ?? story.cardSnapshotFormat ?? 1
         let expectedCoverType = card.map { $0.coverType } ?? story.resolvedCardCoverType
         guard story.hasSupportedCardArtwork else { error = OiServiceError.invalidInput.localizedDescription; return nil }
         func confirmsSubmission(_ result: OiLiveStory) -> Bool {
-            result.id == story.id && result.userId == story.userId && result.status == "pending" &&
+            result.id == story.id && result.userId == story.userId && result.status == expectedStatus &&
             result.revision == story.revision + 1 && result.cucumberAppearance == expectedAppearance &&
             result.cardSnapshotId == expectedCard && (result.cardSnapshotFormat ?? 1) == expectedFormat &&
             result.resolvedCardCoverType == expectedCoverType
+        }
+        func isUnavailable(_ error: Error) -> Bool {
+            if case OiServiceError.unavailable = error { return true }
+            return false
         }
         isBusy = true; error = nil
         defer { isBusy = false }
@@ -768,13 +781,21 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             guard started == generation else { throw OiServiceError.accountChanged }
             let receipt: OiLiveStory
             do {
-                receipt = try await api.mutate("submit_story", payload: payload, token: accessToken, as: OiLiveStory.self)
-            } catch URLError.timedOut {
+                if autoPublish {
+                    receipt = try await api.publishStory(payload, token: accessToken)
+                } else {
+                    receipt = try await api.mutate("submit_story", payload: payload, token: accessToken, as: OiLiveStory.self)
+                }
+            } catch let failure where (failure as? URLError)?.code == .timedOut
+                || (autoPublish && (failure as? URLError)?.code == .networkConnectionLost)
+                || (autoPublish && isUnavailable(failure)) {
                 let rows = try? await api.rows("oi_stories", query: "id=eq.\(story.id.uuidString)&user_id=eq.\(story.userId.uuidString)",
                                               token: accessToken, as: OiLiveStory.self)
                 try Task.checkCancellation()
                 guard let confirmed = rows?.first, confirmsSubmission(confirmed) else {
-                    throw OiServiceError.server("검토 요청 접수를 확인하지 못했어요. 연결을 확인하고 다시 요청해 주세요.")
+                    throw OiServiceError.server(autoPublish
+                        ? "등록을 확인하지 못했어요. 잠시 후 다시 시도해 주세요."
+                        : "검토 요청 접수를 확인하지 못했어요. 연결을 확인하고 다시 요청해 주세요.")
                 }
                 receipt = confirmed
             }

@@ -178,27 +178,36 @@ struct OiStoryEditor: View {
         #endif
     }
 
-    private var presentedContent: some View {
+    private var cardCompletion: some View {
+        OiStoryCompletionView(draft: draft, customization: customization,
+            donorName: remote.profile?.publicName ?? "", location: completionLocation,
+            onDone: { finish() }, canPublish: remote.autoStoryModeration, onPublish: { advance() })
+    }
+
+    private var placementPreview: some View {
+        OiDraftPlacementPreview(draft: draft, wardrobe: customization.wardrobe, isShowingReview: showingPreview,
+            savedPlacement: personalPlacement, error: localError, autoStoryModeration: remote.autoStoryModeration,
+            onEdit: { cardPlacementReady = false; customizationReady = false },
+            onEditLocation: { navigate(to: .location) },
+            onPlace: { placement in Task { await placeOnMyMap(placement) } },
+            onReview: advance,
+            onPlacementChange: savePlacementPreview)
+    }
+
+    private var editorLayout: some View {
         VStack(spacing: 0) {
             if !restored {
                 restorationStatus
             } else if submitted {
                 completion
             } else if showingCardCompletion {
-                OiStoryCompletionView(draft: draft, customization: customization,
-                    donorName: remote.profile?.publicName ?? "", location: completionLocation, onDone: finish)
+                cardCompletion
             } else if step == .location {
                 OiLocationPicker(latitude: $draft.latitude, longitude: $draft.longitude,
                                  regionID: $draft.regionId,
                                  onFinish: { navigate(to: .story) })
             } else if step == .card && cardPlacementReady {
-                OiDraftPlacementPreview(draft: draft, wardrobe: customization.wardrobe, isShowingReview: showingPreview,
-                    savedPlacement: personalPlacement, error: localError,
-                    onEdit: { cardPlacementReady = false; customizationReady = false },
-                    onEditLocation: { navigate(to: .location) },
-                    onPlace: { placement in Task { await placeOnMyMap(placement) } },
-                    onReview: advance,
-                    onPlacementChange: savePlacementPreview)
+                placementPreview
             } else {
                 OiCreationProgressHeader(step: step.progress, onSelect: selectProgressStage,
                     canSelectStage: canSelectProgressStage)
@@ -273,7 +282,7 @@ struct OiStoryEditor: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar(usesNavigationBar ? .visible : .hidden, for: .navigationBar)
         .disabled(remote.isBusy || preparingPhoto || publishing || saving || placing || replacingServerDraft || isDiscarding)
-        .navigationTitle(submitted ? "접수 완료" : step.title).navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(navigationTitle).navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden()
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -293,50 +302,43 @@ struct OiStoryEditor: View {
             }
         }
         .interactiveDismissDisabled()
-        .confirmationDialog("현재 입력을 어떻게 할까요?", isPresented: $choosingExit, titleVisibility: .visible) {
-            Button("임시저장 후 나가기") { Task { if await persist() { dismiss() } } }
-            Button(personalPlacement == nil ? "기기 초안 삭제" : "내 지도 배치와 기기 초안 삭제", role: .destructive) {
-                Task { await discardDraft() }
-            }
-            Button("계속 작성", role: .cancel) {}
-        } message: { Text("기기 초안과 사진 복사본을 삭제해요. 공개 요청을 보낸 이야기는 내 이야기에서 관리할 수 있어요.") }
-        .alert("현재 진행 상황을\n저장하고 나가시겠습니까?", isPresented: $confirmingConsentExit) {
-            Button("저장하고 나가기") { Task { _ = await saveAndExit() } }
-                .accessibilityIdentifier("oi.consent.exit.save")
-            Button("삭제하기", role: .destructive) { Task { await discardDraft() } }
-                .accessibilityIdentifier("oi.consent.exit.discard")
-        } message: {
-            Text("작성하신 내용들은 삭제되지 않고\n기기에 로컬로 임시 저장됩니다")
-        }
-        .alert("서버 버전으로 바꿀까요?", isPresented: Binding(
-            get: { serverRevisionToReplace != nil },
-            set: { if !$0 { serverRevisionToReplace = nil } }
-        ), presenting: serverRevisionToReplace) { revision in
-            Button("계속 편집", role: .cancel) {}
-            Button("서버 버전으로 바꾸기", role: .destructive) {
-                Task { await replaceWithServerDraft(revision: revision) }
-            }
-        } message: { _ in
-            Text("제목, 본문, 위치를 서버 버전으로 바꿉니다. 추가한 사진과 기기에서 꾸민 오이·카드는 보관합니다.")
-        }
-        .fullScreenCover(item: $photoCheckpoint) { _ in photoEditorContent }
-        .sheet(isPresented: $showingPreview, onDismiss: {
-            guard openingPhotosAfterReview else { return }
-            openingPhotosAfterReview = false
-            openPhotoEditor()
-        }) { reviewSheet }
-        .sheet(item: $supplementaryScreen) { screen in
-            NavigationStack {
-                Group {
-                    switch screen {
-                    case .completion: completionContent(isPreview: true)
-                    }
+    }
+
+    private var presentedContent: some View {
+        editorLayout
+            .confirmationDialog("현재 입력을 어떻게 할까요?", isPresented: $choosingExit, titleVisibility: .visible) {
+                Button("임시저장 후 나가기") { Task { if await persist() { dismiss() } } }
+                Button(personalPlacement == nil ? "기기 초안 삭제" : "내 지도 배치와 기기 초안 삭제", role: .destructive) {
+                    Task { await discardDraft() }
                 }
-                .toolbar { ToolbarItem(placement: .cancellationAction) {
-                    Button("작성으로 돌아가기") { supplementaryScreen = nil }
-                } }
+                Button("계속 작성", role: .cancel) {}
+            } message: { Text("기기 초안과 사진 복사본을 삭제해요. 공개 요청을 보낸 이야기는 내 이야기에서 관리할 수 있어요.") }
+            .alert("현재 진행 상황을\n저장하고 나가시겠습니까?", isPresented: $confirmingConsentExit) {
+                Button("저장하고 나가기") { Task { _ = await saveAndExit() } }
+                    .accessibilityIdentifier("oi.consent.exit.save")
+                Button("삭제하기", role: .destructive) { Task { await discardDraft() } }
+                    .accessibilityIdentifier("oi.consent.exit.discard")
+            } message: {
+                Text("작성하신 내용들은 삭제되지 않고\n기기에 로컬로 임시 저장됩니다")
             }
-        }
+            .alert("서버 버전으로 바꿀까요?", isPresented: Binding(
+                get: { serverRevisionToReplace != nil },
+                set: { if !$0 { serverRevisionToReplace = nil } }
+            ), presenting: serverRevisionToReplace) { revision in
+                Button("계속 편집", role: .cancel) {}
+                Button("서버 버전으로 바꾸기", role: .destructive) {
+                    Task { await replaceWithServerDraft(revision: revision) }
+                }
+            } message: { _ in
+                Text("제목, 본문, 위치를 서버 버전으로 바꿉니다. 추가한 사진과 기기에서 꾸민 오이·카드는 보관합니다.")
+            }
+            .fullScreenCover(item: $photoCheckpoint) { _ in photoEditorContent }
+            .sheet(isPresented: $showingPreview, onDismiss: {
+                guard openingPhotosAfterReview else { return }
+                openingPhotosAfterReview = false
+                openPhotoEditor()
+            }) { reviewSheet }
+            .sheet(item: $supplementaryScreen) { supplementaryContent($0) }
     }
 
     private var showsNavigationPanel: Bool {
@@ -767,9 +769,12 @@ struct OiStoryEditor: View {
             error: localError ?? remote.error ?? publicationAvailabilityMessage,
             canSubmit: canSubmit && publicationAvailabilityMessage == nil && !remote.isBusy && !saving, isSubmitting: publishing,
             onClose: { showingPreview = false },
-            onEdit: editFromReview, onSubmit: { portrait, card in
+            onEdit: editFromReview, onSubmit: { portrait, card, agreesToAIReview in
                 let reviewedCardPath = reusedCardPath
-                Task { await submitReview(portrait: portrait, card: card, reviewedCardPath: reviewedCardPath) }
+                Task {
+                    await submitReview(portrait: portrait, card: card, reviewedCardPath: reviewedCardPath,
+                                       agreesToAIReview: agreesToAIReview)
+                }
             }) { photo, thumbnail in
                 reviewPhoto(photo, allowsRetry: !thumbnail, contentMode: thumbnail ? .fill : .fit,
                             maximumPixelSize: thumbnail ? 512 : 1600)
@@ -811,7 +816,8 @@ struct OiStoryEditor: View {
         return nil
     }
 
-    private func submitReview(portrait: Data?, card: OiStoryCardPublication?, reviewedCardPath: String?) async {
+    private func submitReview(portrait: Data?, card: OiStoryCardPublication?, reviewedCardPath: String?,
+                              agreesToAIReview: Bool) async {
         guard !publishing, !remote.isBusy, !saving, canSubmit, publicationAvailabilityMessage == nil else { return }
         publishing = true
         localError = nil
@@ -831,7 +837,8 @@ struct OiStoryEditor: View {
             localError = "저장된 카드가 바뀌었어요. 카드를 다시 확인하고 검토를 요청해 주세요."
             return
         }
-        if let receipt = await remote.submitStory(saved, cucumber: publication, card: card) {
+        if let receipt = await remote.submitStory(saved, cucumber: publication, card: card,
+                                                 agreesToAIReview: agreesToAIReview) {
             draft = OiStoryDraft(story: receipt); submitted = true; localVersion += 1
             _ = await persist()
             showingPreview = false
@@ -962,8 +969,32 @@ struct OiStoryEditor: View {
         return try OiPhotoProcessor.prepare(data)
     }
 
-    private var completion: some View {
-        completionContent(isPreview: false)
+    private func supplementaryContent(_ screen: SupplementaryScreen) -> some View {
+        NavigationStack {
+            switch screen {
+            case .completion:
+                completionContent(isPreview: true)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("작성으로 돌아가기") { supplementaryScreen = nil }
+                        }
+                    }
+            }
+        }
+    }
+
+    @ViewBuilder private var completion: some View {
+        if currentStory?.status == "published" {
+            VStack(spacing: 20) {
+                Text("이야기가 등록됐어요").font(CampusStyle.semibold(20)).accessibilityAddTraits(.isHeader)
+                OiCreationNextButton(title: "확인", action: finish)
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color("OiLight"))
+        } else {
+            completionContent(isPreview: false)
+        }
     }
 
     private func completionContent(isPreview: Bool) -> some View {
@@ -1012,6 +1043,11 @@ struct OiStoryEditor: View {
                     .shadow(color: Color("OiDark").opacity(0.4), radius: 5)
             }.padding(.horizontal, 20).padding(.top, 42).padding(.bottom, 24)
         }.background(Color("OiLight"))
+    }
+
+    private var navigationTitle: String {
+        if submitted { return currentStory?.status == "published" ? "" : "접수 완료" }
+        return step.title
     }
 
     private var completionLocation: String {

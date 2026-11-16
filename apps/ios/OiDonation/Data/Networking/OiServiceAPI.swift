@@ -91,6 +91,7 @@ struct OiServiceAPI {
             case 404 where path == "rest/v1/rpc/oi_operator_audit": throw OiAuditError.notDeployed
             case 404 where OiNFCTagError.rpcPaths.contains(path): throw OiNFCTagError.notDeployed
             case 409: throw OiServiceError.conflict
+            case 426: throw OiServiceError.server("앱을 업데이트한 뒤 다시 시도해 주세요.")
             case 400, 422: throw OiServiceError.invalidInput
             case 429: throw OiServiceError.server("요청이 많습니다. 잠시 후 다시 시도해 주세요.")
             default: throw OiServiceError.unavailable
@@ -228,6 +229,38 @@ struct OiServiceAPI {
         let body = try JSONSerialization.data(withJSONObject: ["p_action": action, "p_payload": payload])
         let data = try await request("rest/v1/rpc/oi_mutate", method: "POST", token: token, body: body)
         return try decoder.decode(Value.self, from: data)
+    }
+
+    func publishStory(_ payload: [String: Any], token: String) async throws -> OiLiveStory {
+        struct Receipt: Decodable {
+            let status: String
+            let story: OiLiveStory?
+            let reason: String?
+            let source: String?
+        }
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let data = try await request("functions/v1/moderate-story", method: "POST", token: token, body: body, timeout: 65)
+        let receipt = try decoder.decode(Receipt.self, from: data)
+        if receipt.status == "published", let story = receipt.story { return story }
+        guard receipt.status == "rejected" else { throw OiServiceError.unavailable }
+        let source: String = switch receipt.source {
+        case "story": "이야기"
+        case "photo": "첨부 사진"
+        case "appearance": "오이 이미지"
+        case "card": "카드 이미지"
+        default: throw OiServiceError.unavailable
+        }
+        let reason: String = switch receipt.reason {
+        case "privacy": "공개하면 안 되는 개인정보가 포함돼 있어요."
+        case "rights": "다른 사람의 권리를 침해하는 내용이 포함돼 있어요."
+        case "harassment": "욕설·비방 또는 혐오 표현이 포함돼 있어요."
+        case "sexual": "노골적인 성적 내용이 포함돼 있어요."
+        case "violence": "위협 또는 폭력적인 내용이 포함돼 있어요."
+        case "spam": "광고 또는 스팸이 포함돼 있어요."
+        case "fraud": "허위 또는 도용된 기부 이야기가 포함돼 있어요."
+        default: throw OiServiceError.unavailable
+        }
+        throw OiServiceError.server("\(source)에 \(reason)")
     }
 
     func cardRequests(token: String) async throws -> [OiCardRequest] {

@@ -183,6 +183,7 @@ struct OiDraftPlacementPreview: View {
     let isShowingReview: Bool
     let savedPlacement: OiPersonalPlacement?
     let error: String?
+    let autoStoryModeration: Bool
     let onEdit: () -> Void
     let onEditLocation: () -> Void
     let onPlace: (CampusPlacement) -> Void
@@ -279,14 +280,15 @@ struct OiDraftPlacementPreview: View {
                     onPlace(placement)
                 }
                 .accessibilityIdentifier("oi.creation.placeOnMyMap")
-                Button("공개 검토 요청") {
+                Button(autoStoryModeration ? "공개 등록" : "공개 검토 요청") {
                     scene.commitPlacementPreview()
                     onReview()
                 }
                 .font(CampusStyle.medium(15)).tint(CampusStyle.sectionGreen)
                 .frame(minHeight: 44).disabled(!canUsePlacement)
                 .accessibilityIdentifier("oi.creation.reviewPlacement")
-                .accessibilityHint("이야기와 사진을 다른 사람에게 공개하기 위한 검토 화면으로 이동해요.")
+                .accessibilityHint(autoStoryModeration ? "공개 등록 화면으로 이동해요."
+                                       : "이야기와 사진을 다른 사람에게 공개하기 위한 검토 화면으로 이동해요.")
             }
             .multilineTextAlignment(.center)
             .padding(.horizontal, 20).padding(.vertical, 12)

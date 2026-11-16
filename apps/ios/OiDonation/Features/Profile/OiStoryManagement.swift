@@ -18,7 +18,9 @@ struct OiStoryManagement: View {
             if let story = remote.ownStories.first(where: { $0.id == storyID }) {
                 List {
                     Text(story.title).font(.headline)
-                    Text(story.status == "pending" ? "공개 검토 중 · 나만 보기" : story.status.oiStatusTitle)
+                    Text(story.status == "pending"
+                         ? (remote.autoStoryModeration ? "미등록" : "공개 검토 중 · 나만 보기")
+                         : story.status.oiStatusTitle)
                     Text(story.body)
                     if story.status != "draft" {
                         CampusStoryCardArtwork(story: remote.campusStory(story))
@@ -30,10 +32,13 @@ struct OiStoryManagement: View {
                         Button("내 지도에서 오이 보기") { showPlacement(story.id) }
                     }
                     if story.status == "draft" {
-                        NavigationLink("초안 수정·배치·공개 검토 요청") { OiStoryEditor(remote: remote, story: story) }
+                        NavigationLink(remote.autoStoryModeration ? "초안 열기" : "초안 수정·배치·공개 검토 요청") { OiStoryEditor(remote: remote, story: story) }
                     } else {
-                        Text("수정을 시작하면 공개가 해제되고 다시 검토를 요청해야 합니다.").font(.footnote)
-                        Button("수정 시작") { Task { await remote.perform("reopen_story", payload: ["id":story.id.uuidString,"revision":story.revision]) } }
+                        if story.status == "published" {
+                            Text(remote.autoStoryModeration ? "수정을 시작하면 공개가 해제돼요."
+                                 : "수정을 시작하면 공개가 해제되고 다시 검토를 요청해야 합니다.").font(.footnote)
+                        }
+                        Button(remote.autoStoryModeration && story.status == "pending" ? "초안으로 되돌리기" : "수정 시작") { Task { await remote.perform("reopen_story", payload: ["id":story.id.uuidString,"revision":story.revision]) } }
                     }
                     Button("이야기 삭제", role: .destructive) { confirmingDelete = true }
                 }

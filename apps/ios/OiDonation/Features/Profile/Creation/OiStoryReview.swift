@@ -29,11 +29,12 @@ struct OiStoryReview<StoryPhoto: View>: View {
     let isSubmitting: Bool
     let onClose: () -> Void
     let onEdit: (OiCreationStep) -> Void
-    let onSubmit: (Data?, OiStoryCardPublication?) -> Void
+    let onSubmit: (Data?, OiStoryCardPublication?, Bool) -> Void
     let storyPhoto: (OiEditingPhoto, Bool) -> StoryPhoto
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorScheme) private var colorScheme
+    @State private var agreesToAIReview = false
     @State private var selection: Artwork?
     @State private var portrait: UIImage?
     @State private var portraitPNG: Data?
@@ -112,7 +113,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
             }
             .background(Color("OiLight").ignoresSafeArea())
             .safeAreaInset(edge: .bottom, spacing: 0) { submitBar }
-            .navigationTitle("공개 검토 전 확인")
+            .navigationTitle(remote.autoStoryModeration ? "공개 등록" : "공개 검토 전 확인")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color("OiLight"), for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
@@ -287,8 +288,10 @@ struct OiStoryReview<StoryPhoto: View>: View {
                 }
             }
             .frame(maxWidth: 240).frame(maxWidth: .infinity)
-            Text("승인 전에는 작성자와 검토 담당자만 이 카드를 볼 수 있어요. 승인되면 이 모습 그대로 공개돼요.")
-                .font(CampusStyle.body(12)).foregroundStyle(.secondary)
+            if !remote.autoStoryModeration {
+                Text("승인 전에는 작성자와 검토 담당자만 이 카드를 볼 수 있어요. 승인되면 이 모습 그대로 공개돼요.")
+                    .font(CampusStyle.body(12)).foregroundStyle(.secondary)
+            }
             Button("카드 이미지 저장·공유", systemImage: "square.and.arrow.up") { showingExport = true }
                 .disabled(!artworkReady || artworkLoadFailed || isSubmitting)
                 .sheet(isPresented: $showingExport) { OiCardExportSheet { try OiCardExportImages(cardPublication()) } }
@@ -322,22 +325,33 @@ struct OiStoryReview<StoryPhoto: View>: View {
         }
     }
 
+    private var submitTitle: String {
+        if remote.autoStoryModeration { return isSubmitting ? "등록 중…" : "등록하기" }
+        return isSubmitting ? "공개 검토 요청 중…" : "공개 검토 요청하기"
+    }
+
     private var submitBar: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let error = renderError ?? error {
                 Label(error, systemImage: "exclamationmark.circle")
                     .font(.footnote).foregroundStyle(.red)
             }
-            if !artworkReady {
+            if !artworkReady && !remote.autoStoryModeration {
                 Text("오이와 카드 이미지가 준비되면 검토를 요청할 수 있어요.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            OiCreationNextButton(title: isSubmitting ? "공개 검토 요청 중…" : "공개 검토 요청하기",
-                                 enabled: canSubmit && !isSubmitting && artworkReady) {
+            if remote.autoStoryModeration {
+                Toggle("공개 검수를 위해 이야기와 첨부 사진·오이·카드 이미지를 OpenAI에 보내는 데 동의합니다.",
+                       isOn: $agreesToAIReview)
+                    .font(.footnote).disabled(isSubmitting)
+            }
+            OiCreationNextButton(title: submitTitle,
+                                 enabled: canSubmit && !isSubmitting && artworkReady
+                                     && (!remote.autoStoryModeration || agreesToAIReview)) {
                 renderError = nil
                 do {
                     let card = try cardPublication()
-                    onSubmit(portraitPNG, card)
+                    onSubmit(portraitPNG, card, agreesToAIReview)
                 } catch let error as OiCardExportError {
                     renderError = error.localizedDescription
                 } catch {

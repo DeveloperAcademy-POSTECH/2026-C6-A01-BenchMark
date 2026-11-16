@@ -15,6 +15,8 @@ struct OiStoryCompletionView: View {
     let donorName: String
     let location: String
     let onDone: () -> Void
+    let canPublish: Bool
+    let onPublish: () -> Void
     @State private var showingBack = false
     /// The card portrait keeps transparent margins; trim them so the figure fills Figma's 269pt height.
     @State private var figure: UIImage?
@@ -54,6 +56,10 @@ struct OiStoryCompletionView: View {
                 .padding(.top, 13)
                 .padding(.bottom, 12)
                 .accessibilityHidden(true)
+            if canPublish {
+                OiCreationNextButton(title: "공개 등록", action: onPublish)
+                    .padding(.horizontal, 24).padding(.bottom, 12)
+            }
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
