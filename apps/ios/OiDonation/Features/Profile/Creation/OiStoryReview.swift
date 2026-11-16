@@ -8,12 +8,6 @@
 import SwiftUI
 import UIKit
 
-struct OiStoryReviewIssue: Identifiable {
-    let step: OiCreationStep
-    let message: String
-    var id: OiCreationStep { step }
-}
-
 struct OiStoryReview<StoryPhoto: View>: View {
     let draft: OiStoryDraft
     let customization: OiDraftCustomization

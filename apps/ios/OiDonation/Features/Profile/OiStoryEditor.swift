@@ -646,6 +646,7 @@ struct OiStoryEditor: View {
     }
 
     private func advance() {
+        if step == .cucumber { endStoryEditing() }
         guard canLeaveCurrentStep else { return }
         if let next = step.next { navigate(to: next) } else { showingPreview = true }
     }
@@ -655,6 +656,7 @@ struct OiStoryEditor: View {
         placing = true
         defer { placing = false }
         await pendingSave?.value
+        savePlacementPreview(placement, region: nil)
         let name = draft.cucumberName.trimmingCharacters(in: .whitespacesAndNewlines)
         let saved = OiPersonalPlacement(regionID: draft.regionId, name: name.isEmpty ? "내 오이" : name,
             latitude: placement.latitude, longitude: placement.longitude,
@@ -731,7 +733,7 @@ struct OiStoryEditor: View {
             try Task.checkCancellation()
             guard remote.account?.id == accountID else { throw OiServiceError.accountChanged }
             if let record {
-                draft = record.draft; photos = record.photos; uploadedPhotos = Set(record.uploadedPhotos)
+                draft = record.draftWithSavedLocation; photos = record.photos; uploadedPhotos = Set(record.uploadedPhotos)
                 localVersion = record.version; submitted = record.submitted
                 reviewedContentFingerprint = record.reviewedContentFingerprint
                 step = record.creationStep.flatMap(OiCreationStep.init(rawValue:)) ?? .story
@@ -799,23 +801,11 @@ struct OiStoryEditor: View {
     }
 
     private var reviewIssues: [OiStoryReviewIssue] {
-        var issues: [OiStoryReviewIssue] = []
-        if !consentState.allRequiredClausesAreAgreed {
-            issues.append(.init(step: .consent, message: "공개하려면 필수 약관에 모두 동의해 주세요."))
+        let inputIssues = OiCreationStep.reviewInputIssues(draft: draft, photoCount: editingPhotos.count)
+        guard consentState.allRequiredClausesAreAgreed else {
+            return [.init(step: .consent, message: "공개하려면 필수 약관에 모두 동의해 주세요.")] + inputIssues
         }
-        if !OiCreationStep.story.canContinue(draft: draft) {
-            issues.append(.init(step: .story, message: "테마와 감정을 선택하고 제목은 \(OiCreationStep.storyTitleByteLimit)byte, 이야기는 \(OiCreationStep.storyBodyByteLimit)byte 이내로 입력해 주세요."))
-        }
-        if !OiCreationStep.location.canContinue(draft: draft) {
-            issues.append(.init(step: .location, message: "캠퍼스 위치를 선택해 주세요."))
-        }
-        if !hasValidStoryPhotoCount {
-            issues.append(.init(step: .photos, message: "이야기 사진을 \(OiCreationStep.storyPhotoLimit)장 선택해 주세요."))
-        }
-        if draft.cucumberName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draft.cucumberName.count > 50 {
-            issues.append(.init(step: .cucumber, message: "오이 커스텀의 내용 탭에서 오이 이름을 입력해 주세요."))
-        }
-        return issues
+        return inputIssues
     }
 
     private var publicationAvailabilityMessage: String? {
@@ -892,8 +882,7 @@ struct OiStoryEditor: View {
         (1...OiCreationStep.storyPhotoLimit).contains(editingPhotos.count)
     }
     private var canSubmit: Bool {
-        canWrite && consentState.allRequiredClausesAreAgreed && hasValidStoryPhotoCount &&
-        OiCreationStep.allCases.allSatisfy { $0.canContinue(draft: draft) }
+        canWrite && reviewIssues.isEmpty
     }
     private var serverMediaPaths: [String] { remote.mediaPaths(storyID: draft.id) }
     private var attachedPhotoIDs: Set<UUID> {

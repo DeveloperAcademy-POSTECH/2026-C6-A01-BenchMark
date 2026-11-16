@@ -757,6 +757,21 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
                             as: OiLiveStory.self) != nil
     }
 
+    func reopenPendingStoryForAIReview(_ story: OiLiveStory) async throws -> OiLiveStory {
+        guard autoStoryModeration, story.status == "pending", story.userId == account?.id else {
+            throw OiServiceError.conflict
+        }
+        let payload: [String: Any] = ["id": story.id.uuidString, "revision": story.revision]
+        guard let reopened = await change("reopen_story", payload: payload, as: OiLiveStory.self) else {
+            throw error.map(OiServiceError.server) ?? .unavailable
+        }
+        guard reopened.id == story.id, reopened.userId == story.userId,
+              reopened.status == "draft", reopened.revision == story.revision + 1 else {
+            throw OiServiceError.conflict
+        }
+        return reopened
+    }
+
     func save(_ draft: OiStoryDraft) async -> OiLiveStory? {
         guard canStartStory else { error = OiServiceError.storyCreationUnavailable.localizedDescription; return nil }
         do { return await change("save_story", payload: try draft.payload(), as: OiLiveStory.self) }

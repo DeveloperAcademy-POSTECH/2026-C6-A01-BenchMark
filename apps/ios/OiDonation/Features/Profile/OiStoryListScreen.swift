@@ -248,19 +248,25 @@ struct OiStoryListScreen: View {
         let local = try await remote.localDraft(id: work.storyID, owner: owner)
         try Task.checkCancellation()
         guard reviewWork?.id == work.id else { return }
+        if remote.autoStoryModeration, let story, story.status == "pending" {
+            guard consentGranted || local?.agreedConsentClauseIDs?.contains(OiStoryConsentClause.ID.aiReviewV1.rawValue) == true else {
+                reviewConsentID = work.storyID
+                reviewWork = nil
+                return
+            }
+            try await submitLegacyReview(work, story: story, owner: owner, originalLocal: local)
+            return
+        }
         guard var draft = local ?? story.map({ OiLocalDraft(draft: OiStoryDraft(story: $0)) }),
               OiCreationAccess.canEdit(status: story?.status, submitted: draft.submitted) else { throw OiServiceError.conflict }
         var consent = OiStoryConsentState(savedIDs: draft.agreedConsentClauseIDs ?? [])
         guard consent.allRequiredClausesAreAgreed else {
             throw OiServiceError.server("오이를 눌러 필수 약관에 동의해 주세요.")
         }
-        guard OiCreationStep.allCases.allSatisfy({ $0.canContinue(draft: draft.draft) }) else {
-            throw OiServiceError.invalidDraft
-        }
         let photos = OiEditingPhoto.ordered(local: draft.photos, remote: remote.mediaPaths(storyID: work.storyID),
             removed: draft.removedMediaPaths ?? [], removedPhotoIDs: draft.removedPhotoIDs ?? [])
-        guard (1...OiCreationStep.storyPhotoLimit).contains(photos.count) else {
-            throw OiServiceError.server("이야기에 대표 사진을 한 장 넣어 주세요.")
+        if let issue = OiCreationStep.reviewInputIssues(draft: draft.draftWithSavedLocation, photoCount: photos.count).first {
+            throw OiServiceError.server(issue.message)
         }
         if draft.customization?.wardrobe != nil && !remote.canPublishCucumberAppearance {
             throw OiServiceError.server("서버가 꾸민 오이 공개를 지원하면 다시 요청해 주세요.")
@@ -289,6 +295,39 @@ struct OiStoryListScreen: View {
         }
     }
 
+    private func submitLegacyReview(_ work: ReviewWork, story: OiLiveStory, owner: UUID,
+                                    originalLocal: OiLocalDraft?) async throws {
+        // The manual submission already has its public photos and appearance attached.
+        let card = story.cardSnapshotId == nil
+            ? try await reviewCard(for: OiStoryDraft(story: story), customization: OiDraftCustomization(), portrait: nil, story: nil)
+            : nil
+        try Task.checkCancellation()
+        let reopened = try await remote.reopenPendingStoryForAIReview(story)
+        try Task.checkCancellation()
+        guard reviewWork?.id == work.id, remote.account?.id == owner else { return }
+        let receipt = await remote.submitStory(reopened, card: card, agreesToAIReview: true)
+        try Task.checkCancellation()
+        guard reviewWork?.id == work.id, remote.account?.id == owner else { return }
+        let rejected = remote.moderationResult(for: reopened)?.status == .rejected
+        if var local = try await remote.localDraft(id: story.id, owner: owner),
+           local.version == originalLocal?.version, local.contentFingerprint == originalLocal?.contentFingerprint,
+           OiCreationAccess.canRebase(local.draft, to: reopened) {
+            local.draft = OiStoryDraft(story: receipt ?? reopened)
+            local.submitted = false
+            var consent = OiStoryConsentState(savedIDs: local.agreedConsentClauseIDs ?? [])
+            consent.setAgreed(true, to: .aiReviewV1)
+            local.agreedConsentClauseIDs = consent.savedIDs
+            local.reviewedContentFingerprint = receipt != nil || rejected ? local.contentFingerprint : nil
+            local.version += 1
+            try await remote.saveLocalDraft(local, owner: owner)
+        }
+        guard receipt != nil || rejected else {
+            throw OiServiceError.server(remote.error ?? "검토 요청을 확인하지 못했어요. 다시 시도해 주세요.")
+        }
+        await loadLocalDrafts()
+        if reviewWork?.id == work.id { reviewWork = nil }
+    }
+
     @ViewBuilder private var reviewPortraitCapture: some View {
         if let work = reviewWork, case .capture(let owner, let draft, let look, let orientation, let key) = work.stage {
             OiCardPortraitCapture(look: look, cacheKey: key, orientation: orientation, onCapture: { bytes, _ in
@@ -315,10 +354,12 @@ struct OiStoryListScreen: View {
             cucumber = try OiCucumberPublication(look: look, portrait: portrait)
         } else { cucumber = nil }
         let existing = remote.ownStories.first { $0.id == work.storyID }
-        let card = try await reviewCard(for: draft.draft, customization: customization, portrait: portrait, story: existing)
+        let reviewDraft = draft.draftWithSavedLocation
+        let card = try await reviewCard(for: reviewDraft, customization: customization, portrait: portrait, story: existing)
         let current = try await remote.localDraft(id: work.storyID, owner: owner)
         guard current?.contentFingerprint == draft.contentFingerprint,
               (current?.version ?? 0) <= draft.version else { throw OiServiceError.conflict }
+        draft.draft = reviewDraft
         let saved = try await remote.saveDraftForReview(&draft, owner: owner)
         try Task.checkCancellation()
         guard reviewWork?.id == work.id, remote.account?.id == owner else { return }
@@ -398,7 +439,7 @@ struct OiStoryListScreen: View {
     private func reviewState(for id: UUID) -> OiStoryListReviewState {
         if reviewWork?.storyID == id || remote.reviewingStoryID == id { return .reviewing }
         guard let story = remote.ownStories.first(where: { $0.id == id }) else { return .unreviewed }
-        if story.status == "pending" { return .reviewing }
+        if story.status == "pending" { return remote.autoStoryModeration ? .unreviewed : .reviewing }
         guard let review = remote.moderationResult(for: story) else { return .unreviewed }
         if loadedDraftOwner == remote.account?.id,
            let local = localDrafts.first(where: { $0.id == id }),

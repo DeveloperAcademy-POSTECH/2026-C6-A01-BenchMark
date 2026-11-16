@@ -313,6 +313,14 @@ final class OiTestBackend {
                     state.timeOutSubmitAfterCommit = false
                     lock.unlock(); client.timeOut(); return
                 }
+            } else if action == "reopen_story" {
+                if state.story?["status"] as? String == "pending",
+                   state.story?["id"] as? String == payload["id"] as? String,
+                   let revision = state.story?["revision"] as? Int, revision == payload["revision"] as? Int {
+                    state.story?["status"] = "draft"
+                    state.story?["revision"] = revision + 1
+                    result = state.story ?? [:]
+                } else { status = 409 }
             } else if action == "delete_story" {
                 state.deleteCount += 1
                 if state.failDelete { status = 503 }
@@ -2994,8 +3002,16 @@ final class OiRemoteStoreTests: XCTestCase {
         await store.start()
         let owner = OiTestBackend.owner
         let photo = UUID()
-        let record = OiLocalDraft(draft: draft(), photos: [photo], version: 1,
-            agreedConsentClauseIDs: Set(OiStoryConsentClause.writingClauses.map { $0.id.rawValue }))
+        let completeDraft = draft()
+        var incompleteDraft = completeDraft
+        incompleteDraft.cucumberName = ""
+        incompleteDraft.latitude = nil
+        incompleteDraft.longitude = nil
+        var record = OiLocalDraft(draft: incompleteDraft, photos: [photo], version: 1,
+            agreedConsentClauseIDs: Set(OiStoryConsentClause.writingClauses.map { $0.id.rawValue }),
+            personalPlacement: .init(regionID: completeDraft.regionId, name: completeDraft.cucumberName,
+                latitude: try XCTUnwrap(completeDraft.latitude), longitude: try XCTUnwrap(completeDraft.longitude),
+                heightMeters: 0, headingDegrees: 0))
         let photoBytes = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 80, height: 80)).image { context in
             UIColor.systemGreen.setFill()
             context.fill(CGRect(x: 0, y: 0, width: 80, height: 80))
@@ -3019,6 +3035,14 @@ final class OiRemoteStoreTests: XCTestCase {
         try await Task.sleep(for: .seconds(1))
         let buttons = try XCTUnwrap(actions)
         XCTAssertEqual(buttons.status(record.id).title, "검토 전")
+        buttons.request(record.id)
+        for _ in 0..<60 where buttons.message(record.id) == nil { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(buttons.message(record.id), "오이 커스텀의 내용 탭에서 오이 이름을 입력해 주세요.")
+        XCTAssertEqual(backend.snapshot().moderationCount, 0)
+        record.draft.cucumberName = completeDraft.cucumberName
+        record.version += 1
+        try await store.saveLocalDraft(record, owner: owner)
+        for _ in 0..<60 where buttons.status(record.id) == .reviewing { try await Task.sleep(for: .milliseconds(50)) }
         buttons.request(record.id)
         for _ in 0..<60 where !buttons.needsConsent(record.id) { try await Task.sleep(for: .milliseconds(50)) }
         XCTAssertTrue(buttons.needsConsent(record.id))
@@ -3055,6 +3079,8 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertTrue(store.stories.isEmpty)
         let saved = try await store.localDraft(id: record.id, owner: owner)
         XCTAssertTrue(saved?.matchesReviewedContent == true)
+        XCTAssertEqual(saved?.draft.latitude, completeDraft.latitude)
+        XCTAssertEqual(saved?.draft.longitude, completeDraft.longitude)
         XCTAssertTrue(saved?.agreedConsentClauseIDs?.contains("aiReviewV1") == true)
         buttons.openPlantPicker()
         XCTAssertTrue(buttons.showsPlantPicker())
@@ -3185,6 +3211,26 @@ final class OiRemoteStoreTests: XCTestCase {
         attachment.name = "story-list-pending-after-scroll"
         attachment.lifetime = .keepAlways
         add(attachment)
+
+        let pending = try XCTUnwrap(store.ownStories.first)
+        backend.configure { $0.autoStoryModeration = true }
+        await store.refresh()
+        XCTAssertEqual(buttons.status(record.id), .unreviewed)
+        buttons.request(record.id)
+        for _ in 0..<60 where !buttons.needsConsent(record.id) { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertTrue(buttons.needsConsent(record.id))
+        XCTAssertEqual(store.ownStories.first?.status, "pending")
+        XCTAssertEqual(backend.snapshot().moderationCount, 0)
+
+        buttons.grantConsent(record.id)
+        for _ in 0..<120 where buttons.status(record.id) != .approved { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(buttons.status(record.id), .approved, buttons.message(record.id) ?? "")
+        XCTAssertEqual(buttons.visibleIDs(), expectedIDs)
+        XCTAssertEqual(backend.snapshot().moderationCount, 1)
+        XCTAssertEqual(store.ownStories.first?.status, "draft")
+        XCTAssertEqual(store.ownStories.first?.revision, pending.revision + 2)
+        XCTAssertEqual(store.ownStories.first?.cardSnapshotId, pending.cardSnapshotId)
+        XCTAssertTrue(store.stories.isEmpty)
     }
 
     @MainActor func testStoryProductionRulesUsesAnchoredPopoverOnIPhone() async throws {

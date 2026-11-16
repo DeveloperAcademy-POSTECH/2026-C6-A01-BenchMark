@@ -26,6 +26,17 @@ struct OiLocalDraft: Codable, Identifiable, Equatable {
     var reviewedContentFingerprint: String?
     var id: UUID { draft.id }
 
+    var draftWithSavedLocation: OiStoryDraft {
+        guard !OiCreationStep.location.canContinue(draft: draft), let placement = personalPlacement else { return draft }
+        var recovered = draft
+        recovered.regionId = placement.regionID
+        recovered.latitude = placement.latitude
+        recovered.longitude = placement.longitude
+        recovered.heightMeters = placement.heightMeters
+        recovered.headingDegrees = placement.headingDegrees
+        return OiCreationStep.location.canContinue(draft: recovered) ? recovered : draft
+    }
+
     var contentFingerprint: String? {
         struct Content: Encodable {
             let draft: OiStoryDraft
