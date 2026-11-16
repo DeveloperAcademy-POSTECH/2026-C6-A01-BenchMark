@@ -1668,6 +1668,20 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    /// One STEP 3 clothing tab per run (`TEST_RUNNER_OI_CAPTURE_TAB=상의`), because releasing the
+    /// wardrobe scene between captures currently aborts the test process (#377).
+    func testWardrobeClothingTabCapture() async throws {
+        let title = ProcessInfo.processInfo.environment["OI_CAPTURE_TAB"] ?? "상의"
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let page = CreationCapturePage(step: 3) {
+            OiCucumberCustomizationStep(customization: .constant(Self.customization), cucumberName: .constant("힌트펩오이"),
+                canContinue: true, onContinue: {}, initialTabTitle: title)
+                .environment(\.scenePhase, .active)
+        }
+        try await capture(page, name: "cucumber-\(title)", variant: variants[0], defaults: fixture.defaults, delay: .seconds(1), attach: true)
+    }
+
     func testCropToolbarContrastCapture() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
