@@ -132,6 +132,19 @@ def bee_crown():
     return "CrownInset", np.asarray(points), np.asarray(faces), np.zeros((len(faces), 3, 2))
 
 
+def bee_hood_lining(costume):
+    """Give the inside of the cut hood its own inward-facing fabric."""
+    lining = []
+    for name, points, faces, uv in costume:
+        x, y, z = points[faces].mean(axis=1).T
+        sides = (abs(x) > .09) & (z < .12) & (y > .76) & (y < 1.30)
+        if np.any(sides):
+            normals, _ = geometry.normals_for(points, faces)
+            inner = points - .0006 * normals
+            lining.append(("HoodLining" + name, inner, faces[sides, ::-1], uv[sides, ::-1]))
+    return lining
+
+
 def cat_cuff_lining(side):
     """Close the old sleeve openings behind the unchanged master paws."""
     angles = np.linspace(0, 2 * np.pi, 40, endpoint=False)
@@ -200,7 +213,7 @@ def add_visible_sections(id, output, hidden=(), preview=False):
     name = "seed-costume-" + id
     stage_file = output / (name + ".usda")
     stage = stage_file.read_text()
-    costume = list(geometry.meshes(stage)) if preview else []
+    costume = list(geometry.meshes(stage)) if preview or id == "bee" else []
     master_file = geometry.assets / "Characters/SeedCucumberMaster.usdz"
     master = geometry.read_stage(master_file)
     material_scope = '    def Scope "Materials"\n    {\n'
@@ -208,7 +221,10 @@ def add_visible_sections(id, output, hidden=(), preview=False):
     limbs, materials = [], []
     kept = []
     accents = []
+    lining = []
     if id == "bee":
+        lining = bee_hood_lining(costume)
+        limbs.extend(geometry.as_mesh(*mesh) for mesh in lining)
         accents.append(([bee_crown()], "CrownFabric", "(0.99, 0.61, 0.044)", (250, 205, 59)))
     if id == "cat":
         accents.append(([cat_cuff_lining(-1), cat_cuff_lining(1)], "CuffFabric",
@@ -232,7 +248,7 @@ def add_visible_sections(id, output, hidden=(), preview=False):
             kept.append((part, label, points, faces, uv))
         if preview:
             material = Image.open(output / textures[0]).convert("RGB")
-            packages = [(costume, np.asarray(material))]
+            packages = [([*costume, *lining], np.asarray(material))]
             packages.extend((meshes, np.full((4, 4, 3), rgb, dtype=np.uint8))
                             for meshes, _, _, rgb in accents)
             base = [(n, n, p, f, uv) for n, p, f, uv in geometry.seed_data if n not in hidden] + kept
