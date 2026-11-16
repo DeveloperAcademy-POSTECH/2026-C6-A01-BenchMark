@@ -1172,6 +1172,83 @@ private final class TestTilt: UIPanGestureRecognizer {
 
 @MainActor
 final class CampusEducationDistrictTests: XCTestCase {
+    func testEducationWriterSavesThroughNativeAccountWithoutMapPlacement() async throws {
+        let backend = OiTestBackend(); backend.install()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let remote = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: OiMemorySession())
+        await remote.start()
+        let original = OiStoreURLProtocol.handle
+        let saved = expectation(description: "Education draft saved using native session")
+        let photoStored = expectation(description: "Draft photo attached after native upload")
+        OiStoreURLProtocol.handle = { request, client in
+            guard request.url?.path == "/rest/v1/rpc/oi_education_mutate" else { original?(request, client); return }
+            do {
+                let body = try XCTUnwrap(JSONSerialization.jsonObject(with: OiTestBackend.body(request)) as? [String: Any])
+                var row = try XCTUnwrap(body["p_payload"] as? [String: Any])
+                XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer token-a")
+                for key in ["latitude", "longitude", "placement", "grant_id", "appearance"] { XCTAssertNil(row[key]) }
+                if body["p_action"] as? String == "save" {
+                    XCTAssertEqual(row["title"] as? String, "가상의 캠퍼스 추억"); saved.fulfill()
+                } else {
+                    XCTAssertEqual(body["p_action"] as? String, "attach_media")
+                    let paths = try XCTUnwrap(row["paths"] as? [String]); XCTAssertEqual(paths.count, 1)
+                    XCTAssertTrue(paths[0].contains("/education/")); XCTAssertTrue(paths[0].contains("/photos/"))
+                    XCTAssertEqual(backend.snapshot().uploads.count, 1); photoStored.fulfill()
+                    row["display_name"] = "가상 작성자"; row["title"] = "가상의 캠퍼스 추억"
+                    row["body"] = "테스트용 이야기입니다."; row["theme"] = "응원"; row["emotion"] = "따뜻함"
+                }
+                row["revision"] = (row["revision"] as? Int ?? 0) + 1
+                row["status"] = "draft"; row["origin"] = "education"
+                row["storage_owner_id"] = OiTestBackend.owner.uuidString.lowercased()
+                client.respond(200, try JSONSerialization.data(withJSONObject: row))
+            } catch { XCTFail(String(describing: error)); client.respond(400, Data()) }
+        }
+        let model = EducationLightWebModel(); model.connectEducation(remote)
+        let previous = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: try XCTUnwrap(previous?.windowScene))
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        let controller = UIViewController(); window.rootViewController = controller
+        model.webView.frame = window.frame; controller.view.addSubview(model.webView); window.makeKeyAndVisible()
+        defer {
+            model.setActive(false); model.webView.removeFromSuperview(); window.isHidden = true; previous?.makeKeyAndVisible()
+            session.invalidateAndCancel(); OiStoreURLProtocol.handle = nil; withExtendedLifetime(backend) {}
+            try? FileManager.default.removeItem(at: directory)
+        }
+        for _ in 0..<150 { if !model.loading { break }; try await Task.sleep(for: .milliseconds(100)) }
+        XCTAssertNil(model.failure)
+        _ = try await model.webView.evaluateJavaScript("document.querySelector('#writeButton').click()")
+        for _ in 0..<50 {
+            if try await model.webView.evaluateJavaScript("!!document.querySelector('.education-form')") as? Bool == true { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        _ = try await model.webView.callAsyncJavaScript("""
+        const c=document.createElement('canvas');c.width=c.height=16;c.getContext('2d').fillRect(0,0,16,16);
+        const blob=await new Promise(resolve=>c.toBlob(resolve,'image/png'));
+        const transfer=new DataTransfer();transfer.items.add(new File([blob],'synthetic.png',{type:'image/png'}));
+        const picker=document.querySelector('.education-form input[type=file]');picker.files=transfer.files;picker.dispatchEvent(new Event('change'));
+        """, arguments: [:], in: nil, in: .page)
+        for _ in 0..<30 {
+            if try await model.webView.evaluateJavaScript("!document.querySelector('.education-photo-preview').hidden") as? Bool == true { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let editor = try await model.webView.evaluateJavaScript("""
+        (()=>{const form=document.querySelector('.education-form');if(!form)return false;
+        for(const [name,value] of Object.entries({theme:'응원',emotion:'따뜻함',display_name:'가상 작성자',title:'가상의 캠퍼스 추억',body:'테스트용 이야기입니다.'}))form.elements[name].value=value;
+        [...form.querySelectorAll('button')].find(b=>b.textContent==='서버에 초안 저장').click();return true;})()
+        """)
+        XCTAssertEqual(editor as? Bool, true)
+        await fulfillment(of: [saved, photoStored], timeout: 5)
+        for _ in 0..<30 {
+            if (try await model.webView.evaluateJavaScript("document.querySelector('.education-status')?.textContent") as? String)?.contains("저장했어요") == true { return }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTFail("The WebKit editor must receive the native save receipt")
+    }
+
     func testBundledGeometryIsTheCompleteWebSurface() throws {
         let url = try XCTUnwrap(Bundle.main.url(forResource: "education-district-points", withExtension: "bin"))
         let bytes = try Data(contentsOf: url)

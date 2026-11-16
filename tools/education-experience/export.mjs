@@ -20,6 +20,11 @@ let html=sourceHTML;
 html=html.replace(/<div class="night-backdrop"[^>]*><\/div>/,'')
  .replace(/<div class="space-mascot"[^>]*><img[^>]*><\/div>/,'');
 const assetPaths=new Set(['assets/building-v25/model.json','assets/building-v25/pearls.bin','assets/building-v25/facades.bin','vendor/three-LICENSE.txt','assets/Pretendard-LICENSE.txt']);
+// Public source portraits remain on the website. The app repository bundles
+// only fictional examples; approved education cards are loaded from the API.
+for(const name of ['education-service.js','education-card.js','education-library.js','education-web-transport.js','education-native-transport.js','education-ui.js','education.css']){
+ if(await readFile(path.join(web,name),'utf8')!==await readFile(new URL('./shared/'+name,import.meta.url),'utf8'))throw Error('Review and synchronize the shared education module: '+name);
+}
 for(const material of Object.values(model.materials))if(material.texture)assetPaths.add('assets/building-v25/'+material.texture);
 function collectAssets(text){
  for(const match of text.matchAll(/(?:url\(\s*["']?|(?:src|href)=["'])(\.\/(?:assets|references)\/[^\s"'()<>]+)/g))assetPaths.add(match[1].slice(2));
@@ -47,6 +52,14 @@ const result=await build({
   builder.onLoad({filter:/scatter-stories\.js$/},async args=>({
    contents:adaptNativeStories(await readFile(args.path,'utf8')),loader:'js'
   }));
+  // The app uses its native Auth/HTTP bridge. No browser OAuth SDK or key
+  // configuration is bundled into the file-origin page.
+  builder.onLoad({filter:/education-web-transport\.js$/},()=>({contents:'export function createWebTransport(){throw Error("Use the native education bridge");}',loader:'js'}));
+  builder.onLoad({filter:/donor-stories\.json$/},()=>({contents:JSON.stringify([
+   {id:'example-1',category:'응원',author:'새로운 꿈을 응원하는 동문',message:'이곳에서 시작될 수많은 질문들이 세상을 조금 더 좋은 곳으로 만들기를.',isExample:true},
+   {id:'example-2',category:'감사',author:'배움을 기억하는 졸업생',message:'다음 세대의 가능성에도 작은 빛을 보탭니다.',isExample:true},
+   {id:'example-3',category:'축하',author:'내일을 기다리는 학생',message:'우리의 새로운 배움터를 축하해요.',isExample:true}
+  ]),loader:'json'}));
   builder.onResolve({filter:/^@education\/three$/},()=>({path:path.join(web,'vendor/three.module.js')}));
   builder.onLoad({filter:/building-3d\.js$/},async args=>{
    let source=adaptNativeRenderer(await readFile(args.path,'utf8'));
@@ -73,7 +86,7 @@ for(const name of [...assetPaths].sort()){
  // iPhoneOS runs pngcrush on .png bundle resources (CgBI). Keep standard web
  // PNG bytes untouched; the manifest still serves them with image/png MIME.
  const resource='education-light-'+sha(data).slice(0,24)+(extension==='.png'?'.bin':extension);
- const mime={'.png':'image/png','.jpg':'image/jpeg','.svg':'image/svg+xml','.woff2':'font/woff2','.json':'application/json','.bin':'application/octet-stream','.txt':'text/plain'}[extension];
+ const mime={'.png':'image/png','.jpg':'image/jpeg','.webp':'image/webp','.svg':'image/svg+xml','.woff2':'font/woff2','.json':'application/json','.bin':'application/octet-stream','.txt':'text/plain'}[extension];
  if(!mime)throw Error('Unreviewed asset type: '+name);
  await writeFile(path.join(destination,resource),data);
  assets['/'+name]={resource,mime,sha256:sha(data),bytes:data.length};
@@ -81,7 +94,7 @@ for(const name of [...assetPaths].sort()){
 const manifest={version:1,revision:model.revision,sourceHTMLSHA256:sha(sourceHTML),assets};
 await writeFile(path.join(destination,'education-light-assets.json'),JSON.stringify(manifest,null,2)+'\n');
 for(const script of scripts)html=html.replace(script[0],'');
-html=html.replace('<head>','<head>\n<base href="oi-education://bundle/">\n<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'unsafe-inline\'; style-src \'unsafe-inline\'; img-src oi-education: data: blob:; font-src oi-education:; connect-src oi-education:; base-uri oi-education:; form-action \'none\'">');
+html=html.replace('<head>','<head>\n<base href="oi-education://bundle/">\n<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'unsafe-inline\'; style-src \'unsafe-inline\'; img-src oi-education: data: blob: https://kfzfzarslqdqmrazohej.supabase.co; font-src oi-education:; connect-src oi-education: https://kfzfzarslqdqmrazohej.supabase.co; base-uri oi-education:; form-action \'none\'">');
 const javascript=result.outputFiles[0].text.replaceAll('</script','<\\/script');
 new Script(javascript,{filename:'education-experience.js'}); // Parse only; never execute the snapshot in Node.
 // A replacement callback preserves literal $&, $` and $' inside bundled shaders.

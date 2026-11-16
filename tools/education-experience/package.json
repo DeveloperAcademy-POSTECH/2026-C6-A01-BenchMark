@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "node export.mjs",
-    "test": "node --test viewer/*.test.mjs",
+    "test": "node --test viewer/*.test.mjs shared/*.test.mjs",
     "preview": "node preview.mjs"
   },
   "devDependencies": {

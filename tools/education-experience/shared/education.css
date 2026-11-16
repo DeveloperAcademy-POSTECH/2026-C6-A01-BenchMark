@@ -1,0 +1,24 @@
+.education-dialog{box-sizing:border-box;width:min(620px,calc(100% - 24px));max-height:calc(100dvh - 32px);border:1px solid #dce3cf;border-radius:26px;background:#fffaf0;color:#344329;padding:32px;overflow:auto;overscroll-behavior:contain;font-family:-apple-system,BlinkMacSystemFont,'Pretendard',sans-serif;box-shadow:0 18px 70px #14200d38}
+.education-dialog::backdrop{background:#14200d80}
+.education-dialog h2{font-size:clamp(23px,5vw,32px);line-height:1.3;margin:4px 28px 16px 0;word-break:keep-all}
+.education-kicker{font-size:11px;font-weight:700;letter-spacing:.05em;color:#7d8a60;margin:0 0 8px}
+.education-copy,.education-status{font-size:13px;line-height:1.7;white-space:pre-line;color:#72805e;margin:14px 0}
+.education-status{padding:12px 14px;background:#edf1e3;border-radius:12px}.education-status.is-error{color:#91422e;background:#f7e7dd}
+.education-button,.education-text-button{font:600 14px/1.4 -apple-system,BlinkMacSystemFont,'Pretendard',sans-serif;min-height:44px;padding:12px 17px;border:1px solid #cbd4b9;background:#fffdf6;color:#4f652e;border-radius:14px;cursor:pointer;margin:5px 6px 5px 0}
+.education-button.is-primary{background:#526a2b;color:#fff;border-color:transparent}.education-button:disabled{opacity:.45;cursor:default}.education-text-button{border:0;background:none;padding-left:0;padding-right:12px;text-align:left}
+.education-dialog :is(button,input,select,textarea):focus-visible{outline:2px solid #5276ad;outline-offset:3px}
+.education-form{display:grid;gap:16px;margin-top:22px}.education-form label{font-size:13px;line-height:1.6;font-weight:600;display:grid;gap:7px}
+.education-dialog :is(input:not([type=checkbox]),select,textarea){box-sizing:border-box;display:block;width:100%;min-height:46px;border:1px solid #cfd6c0;border-radius:12px;background:#fffef8;color:#344329;font:400 16px/1.65 -apple-system,BlinkMacSystemFont,'Pretendard',sans-serif;padding:10px 12px}
+.education-dialog textarea{resize:vertical}.education-counter{margin-top:-12px;font-size:11px;text-align:right;color:#788666}
+.education-form .education-check{display:flex;align-items:flex-start;gap:10px;font-size:12px;font-weight:400}.education-check input{width:18px;height:18px;flex:none;accent-color:#526a2b;margin-top:3px}
+.education-form details{font-size:12px;line-height:1.7;border:1px solid #dce3cf;border-radius:12px;padding:12px}.education-form summary{font-weight:600;cursor:pointer}
+.education-actions{display:flex;flex-wrap:wrap;gap:6px}.education-actions .education-button{flex:1;min-width:140px;margin:0}
+.education-photo-preview{width:100%;max-height:240px;object-fit:contain;border-radius:12px;background:#e9eddf}
+.education-story-list{display:grid;gap:10px;margin:14px 0}.education-list-item{display:grid;gap:7px;width:100%;text-align:left;padding:18px;border:1px solid #dce3cf;border-radius:16px;background:#fffef7;color:#344329}.education-list-item small{font-size:11px;color:#84916d}.education-list-item strong{font-size:17px}.education-list-item span{font-size:13px;line-height:1.6;color:#7a846b}
+.education-detail-photo{max-width:320px;margin:18px auto 22px;aspect-ratio:724/1004}.education-detail-body{font-size:16px;line-height:1.85;white-space:pre-wrap;overflow-wrap:anywhere}
+.education-card-controls{position:absolute;z-index:2;bottom:7px;left:50%;transform:translateX(-50%);display:flex;padding:3px;gap:3px;border:1px solid #e9eddf;border-radius:999px;background:#fffdf4f2}
+.education-card-controls button{font:600 11px/1.3 -apple-system,BlinkMacSystemFont,'Pretendard',sans-serif;border:0;background:none;color:#75835d;min-height:30px;min-width:49px;padding:7px 12px;border-radius:999px}.education-card-controls button[aria-pressed=true]{background:#526a2b;color:#fff}
+.education-review-images{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:18px 0}.education-review-images img{display:block;width:100%;border:1px solid #dce3cf;border-radius:12px}.education-report-note{grid-column:1/-1;font-size:12px;line-height:1.6;white-space:pre-wrap;background:#f7e7dd;padding:12px;border-radius:12px}
+.education-aim-preview{width:94px;aspect-ratio:724/1004;position:relative;float:left;margin:0 14px 8px 0;border-radius:10px;overflow:hidden;background:#f9f5e9}.education-aim-preview img{width:100%;height:100%;object-fit:contain}.education-aim-preview .education-card-controls{display:none}.education-aim-preview button{position:absolute;inset:0;opacity:0;cursor:pointer}
+@media(max-width:500px){.education-dialog{padding:26px 20px;border-radius:22px}.education-button{font-size:13px}.education-actions{gap:8px}}
+@media(prefers-reduced-motion:reduce){.education-dialog *{scroll-behavior:auto!important}}

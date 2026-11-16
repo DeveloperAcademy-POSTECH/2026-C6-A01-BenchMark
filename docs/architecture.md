@@ -1,5 +1,7 @@
 # 오이기부 아키텍처 및 팀 협업 제안
 
+2026-11-16 #378: 교육지구 전용 이야기·사진·카드를 `benchmark_private.oi_education_stories`와 별도 RPC로 저장한다. 캠퍼스 `oi_stories`·위치·작성 승인·오이 배치 모델을 재사용하지 않는다. 웹은 기존 Supabase Auth, 앱의 로컬 HTML은 네이티브 계정 브리지를 사용하고, 승인된 동일한 PNG 양면을 읽는다. 계정 통합·작성 중지·제한·탈퇴·운영자 검토 경계는 기존 서버 정책에 연결한다. [계약·적용·검증](education-shared-stories.md).
+
 2026-11-15 #331·#348 iOS 후속: 서버의 `story_card_cover_jpeg`를 확인해 새 스티커 없는 표지를 888×1308·JPEG 품질 0.8·최대 2MiB로 만든다. 양면 원본·미리보기 네 PNG는 유지한다. JPEG capability가 없으면 PNG 표지로 변환하고 snapshot ID를 다시 계산하며, 표지 capability도 없으면 형식 2를 쓴다. 저장된 타입으로 공개 URL·App Clip·운영자 이미지를 읽고 JPEG 승인에 `card_cover_type` 확인값을 보낸다. 저장된 JPEG는 재편집 시 원본 바이트로 재사용하고 제출·승인 응답도 타입까지 확인한다. 앱 PR 검증 단계이며 운영 DB 추가 변경·스토어 배포·실제 NFC 확인은 포함하지 않는다. [앱 계약과 검증](duplex-story-cards.md#jpeg-표지-ios-연결--2026-11-15).
 
 2026-11-15 #331·#348 서버 후속: 승인된 B안으로 형식 3에 `card_cover_type`을 추가한다. 기존 형식 3은 PNG로 보존하고 새 JPEG 표지는 `cover.jpg`·`image/jpeg`·최대 2MiB로 검사한다. 다른 네 PNG와 기존 PNG 표지는 8MiB를 유지한다. 타입별 경로는 다섯 인자 `oi_story_card_parts`로 계산하고 기존 네 인자 함수는 보존한다. JPEG 승인에는 현재 snapshot·형식·리비전과 일치하는 타입 확인값이 필수여서 구버전 운영자의 JPEG 승인을 막는다. PNG 요청의 타입 생략·재제출·읽기·탈퇴 삭제는 유지한다. **PR #359 리뷰·병합 및 drift 검사 후 2026-11-15 운영 52gibu 적용 완료, iOS 변경 없음**이다. 실제 JPEG 업로드·signed URL 다운로드와 구버전 승인 차단을 가상 자료로 확인하고 정리했다. 후속 앱과 운영자 업데이트가 필요하다. [계약·검증·적용 순서](duplex-story-cards.md#jpeg-표지-서버-후속--2026-11-15--331348).
