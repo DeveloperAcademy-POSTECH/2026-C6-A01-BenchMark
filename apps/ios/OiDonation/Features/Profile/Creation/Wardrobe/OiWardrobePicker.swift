@@ -28,9 +28,10 @@ struct OiCucumberCustomizationStep: View {
             let panelHeight = min(462.0, max(300.0, geometry.size.height - 180))
             VStack(spacing: 0) {
                 // Keep one RealityKit surface mounted while opening/closing the tools.
+                // Figma `5719:9790`: the cucumber area ends about 14pt above the tabs at y=491.
                 preview(height: photoSlot != nil ? max(160, geometry.size.height - panelHeight)
-                    : min(isFinished ? 350 : 270, geometry.size.height * 0.52))
-                    .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 16)
+                    : min(320, geometry.size.height * 0.5))
+                    .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 14)
                 if let slot = photoSlot {
                     OiWardrobePhotoEditor(slot: slot, look: look, scene: photoScene,
                         onClose: closePhotoEditor) { artwork in
@@ -46,7 +47,7 @@ struct OiCucumberCustomizationStep: View {
                 } else {
                     VStack(spacing: 0) {
                         if !isFinished {
-                            wardrobeTabs.frame(height: 44).padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 8)
+                            wardrobeTabs.frame(height: 44).padding(.horizontal, 20)
                         }
                         ScrollView {
                             VStack(spacing: 16) {
@@ -57,16 +58,19 @@ struct OiCucumberCustomizationStep: View {
                                 } else {
                                     wardrobeControls
                                 }
-                            }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 24 + bottomInset)
+                            }.padding(.horizontal, 20).padding(.top, 15).padding(.bottom, 24 + bottomInset)
                         }
+                        // The 내용 tab fits on screen, so it does not scroll (#377).
+                        .scrollDisabled(tab == .content && !isFinished)
                         .modifier(OiCustomizationScrollEdge())
                         .accessibilityIdentifier("oi.wardrobe.settingsScroll")
                         .scrollPosition($wardrobeScrollPosition)
                         .onChange(of: tab) { _, _ in wardrobeScrollPosition.scrollTo(edge: .top) }
                     }
-                    .modifier(OiCustomizationPanelSurface())
                 }
-            }.background(OiCustomizationStyle.previewBackground)
+            }
+            // Figma `5719:9790`: one white page without the separate grey preview and panel (#377).
+            .background(Color.white.ignoresSafeArea(.container, edges: .bottom))
         }
         .onAppear {
             if customization.wardrobe == nil { customization.wardrobe = OiWardrobeLook() }
@@ -76,7 +80,7 @@ struct OiCucumberCustomizationStep: View {
     private func preview(height: CGFloat) -> some View {
         ZStack(alignment: .bottomTrailing) {
             OiWardrobePreview(look: look, controls: photoSlot == nil, scene: photoScene,
-                backgroundColor: OiCustomizationStyle.previewUIColor)
+                backgroundColor: .white)
                 .frame(height: height)
                 .overlay(alignment: .topTrailing) {
                     if photoSlot != nil {
@@ -97,22 +101,38 @@ struct OiCucumberCustomizationStep: View {
         onPhotoEditingChanged(false)
     }
 
+    /// Figma `5719:9606`: tabs spread across the width; the selected one is bold green with a 39pt underline.
     private var wardrobeTabs: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-          HStack(spacing: 20) {
-            ForEach(OiWardrobeTab.allCases.filter(\.isAvailable), id: \.self) { category in
-                Button { tab = category } label: {
-                    Text(category.rawValue).font(tab == category ? CampusStyle.semibold(16) : CampusStyle.medium(16))
-                        .frame(minHeight: 44)
-                        .overlay(alignment: .bottom) {
-                            if tab == category { Rectangle().fill(Color("OiGreen")).frame(height: 2) }
-                        }
-                }.buttonStyle(OiCreationPressStyle()).foregroundStyle(tab == category ? Color("OiGreen") : .secondary)
-                    .accessibilityIdentifier("oi.wardrobe.tab.\(category.rawValue)")
-                    .accessibilityAddTraits(tab == category ? .isSelected : [])
+        let categories = OiWardrobeTab.allCases.filter(\.isAvailable)
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 0) {
+                ForEach(Array(categories.enumerated()), id: \.element) { index, category in
+                    if index > 0 { Spacer(minLength: 12) }
+                    tabButton(category)
+                }
             }
-          }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 20) { ForEach(categories, id: \.self) { tabButton($0) } }
+            }
         }
+    }
+
+    private func tabButton(_ category: OiWardrobeTab) -> some View {
+        let selected = tab == category
+        return Button { tab = category } label: {
+            VStack(spacing: 5) {
+                Text(category.rawValue)
+                    .font(selected ? .custom("Paperlogy-7Bold", size: 16, relativeTo: .body) : CampusStyle.medium(16))
+                    .tracking(0.32)
+                Rectangle().fill(selected ? Color("OiGreen") : .clear).frame(width: 39, height: 2)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(OiCreationPressStyle())
+        .foregroundStyle(selected ? Color("OiGreen") : Color(white: 113 / 255))
+        .accessibilityIdentifier("oi.wardrobe.tab.\(category.rawValue)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     @ViewBuilder private var wardrobeControls: some View {
@@ -352,7 +372,10 @@ struct OiCucumberNameField: View {
                         .accessibilityIdentifier("oi.draft.cucumberName.step3")
                     Text("오이").font(CampusStyle.body(16)).tracking(0.32)
                 } else {
-                    letterBoxes
+                    Button(action: beginEditing) { letterBoxes }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("두 번 탭하여 오이 이름을 수정해요")
+                        .accessibilityIdentifier("oi.cucumberName.boxes")
                 }
                 Spacer(minLength: 8)
                 Button(editing ? "완료" : "수정") { editing ? commit() : beginEditing() }
