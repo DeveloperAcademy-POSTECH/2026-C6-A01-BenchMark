@@ -21,7 +21,6 @@ struct HomeView: View {
     @State private var searchResults: Set<String>?
     @State private var isOnScreen = false
     @State private var showingSearchChoice = false
-    @State private var pendingSearchMode: CampusSearchMode?
     @State private var isSearchCoverActive = false
     @State private var searchMode: CampusSearchMode?
     @State private var pendingStoryID: String?
@@ -140,16 +139,19 @@ struct HomeView: View {
                 scene.showOverview()
             }
         }
-        .sheet(isPresented: $showingSearchChoice, onDismiss: {
-            if let pendingSearchMode {
-                isSearchCoverActive = true
-                scene.suspendRendering()
-                searchMode = pendingSearchMode
-                self.pendingSearchMode = nil
+        .accessibilityHidden(showingSearchChoice)
+        .overlay {
+            if showingSearchChoice {
+                CampusSearchChoiceSheet(choose: { mode in
+                    showingSearchChoice = false
+                    isSearchCoverActive = true
+                    scene.suspendRendering()
+                    searchMode = mode
+                }, dismiss: { showingSearchChoice = false })
+                .transition(.opacity)
             }
-        }) {
-            CampusSearchChoiceSheet { pendingSearchMode = $0; showingSearchChoice = false }
         }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: showingSearchChoice)
         .fullScreenCover(item: $searchMode, onDismiss: {
             // Push only after the search cover has gone, so it cannot cover the destination.
             isSearchCoverActive = false
