@@ -151,14 +151,6 @@ struct MYWorkshopContent: View {
                 }
             }
         }
-        // The existing library retains App Clip records and school grouping.
-        NavigationLink(value: MYDestination.collection) {
-            Label("전체 도감 · App Clip 카드", systemImage: "books.vertical")
-                .font(CampusStyle.body(13)).padding(.vertical, 12)
-                .frame(maxWidth: .infinity, minHeight: 44)
-        }
-        .padding(.top, 16)
-        .accessibilityIdentifier("my.v4.collection.library")
     }
 
     private var columns: [GridItem] {

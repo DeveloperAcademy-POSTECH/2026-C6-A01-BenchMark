@@ -16,7 +16,7 @@ struct CampusScratchScreen: View {
     let remote: OiRemoteStore
     /// Opens the story list (`이어서 기부하기`).
     let onDonate: () -> Void
-    /// Called once the postcard is saved, to open MY `수집한 기부`.
+    /// Called once the postcard is saved, to open MY 작업실의 `수집한 기부` 탭.
     var onSaved: () -> Void = {}
 
     @Environment(\.dismiss) private var dismiss
@@ -86,7 +86,7 @@ struct CampusScratchScreen: View {
         .accessibilityLabel("뒤로")
     }
 
-    /// Saves to the signed-in account; the root's receipt observer then refreshes MY `수집한 기부`.
+    /// Saves to the signed-in account; the root's receipt observer then refreshes MY 작업실의 `수집한 기부` 탭.
     private func save() async -> String? {
         guard let storyUUID, remote.account != nil, !remote.needsReauthentication else {
             return "로그인한 뒤 저장할 수 있어요."

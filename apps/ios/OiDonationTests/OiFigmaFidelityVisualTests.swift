@@ -2386,42 +2386,6 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
-    func testMYCollectionCaptures() async throws {
-        let fixture = try isolatedDefaults()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
-        let collectionStore = StoryCollectionStore(defaults: fixture.defaults)
-        let collectionVariants = variants + [Variant(name: "small-accessibility5", size: CGSize(width: 375, height: 667), dynamicTypeSize: .accessibility5)]
-        for populated in [false, true] {
-            for filter in MYCollectionFilter.allCases {
-                let library = MYLibraryStore()
-                let cards = populated ? (0..<7).map { index in
-                    MYCard(id: "my-capture-\(index)", title: "검증용 오이 \(index + 1)", image: "OiCats",
-                        school: .postech, order: index, body: Self.draft.body, donor: "검증용 농부", date: "2026.11.05")
-                } : []
-                library.synchronize(nickname: "검증용 농부", cards: cards, favorites: [])
-                library.collectionFilter = filter
-                for variant in collectionVariants {
-                    let view = NavigationStack {
-                        MYCollectionView(demo: library, storyRepository: AppContainer.preview.storyRepository,
-                            collectionStore: collectionStore)
-                    }
-                    try await capture(view, name: "my-collection-\(filter == .all ? "all" : "schools")-\(populated ? "content" : "empty")",
-                        variant: variant, defaults: fixture.defaults, attach: true)
-                }
-                if filter == .schools {
-                    for variant in collectionVariants {
-                        let view = NavigationStack {
-                            MYCollectionView(demo: library, school: .postech, storyRepository: AppContainer.preview.storyRepository,
-                                collectionStore: collectionStore)
-                        }
-                        try await capture(view, name: "my-collection-school-\(populated ? "content" : "empty")",
-                            variant: variant, defaults: fixture.defaults, attach: true)
-                    }
-                }
-            }
-        }
-    }
-
     func testFarmerWardrobeAssetsAndSelectionContract() throws {
         let wardrobe = try MYFarmerWardrobe.loaded.get()
         XCTAssertEqual(wardrobe.items.count, 120)
@@ -2493,28 +2457,6 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 }.padding(14).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).background(.white)
                 try await capture(gallery, name: "farmer-\(character)-\(slot.rawValue)", variant: variant,
                     defaults: fixture.defaults, includesSafeArea: false, attach: true)
-            }
-        }
-    }
-
-    func testEmptyCollectionCaptures() async throws {
-        let fixture = try isolatedDefaults()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
-        let collectionStore = StoryCollectionStore(defaults: fixture.defaults)
-        XCTAssertTrue(collectionStore.cards.isEmpty)
-        XCTAssertNil(collectionStore.persistenceError)
-        XCTAssertNotNil(UIImage(named: "MYEmptyCollection"))
-
-        for filter in [MYCollectionFilter.all, .schools] {
-            let library = MYLibraryStore()
-            library.collectionFilter = filter
-            let name = filter == .all ? "my-collection-empty" : "my-collection-schools-empty"
-            for variant in variants {
-                let collection = NavigationStack {
-                    MYCollectionView(demo: library, storyRepository: UnconnectedPilotRepository(),
-                        collectionStore: collectionStore)
-                }
-                try await capture(collection, name: name, variant: variant, defaults: fixture.defaults, attach: true)
             }
         }
     }

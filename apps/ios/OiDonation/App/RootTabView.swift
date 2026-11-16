@@ -57,10 +57,9 @@ struct RootTabView: View {
                         CampusScratchScreen(story: story, repository: container.storyRepository, remote: remote,
                                             onDonate: { path.append(CampusDestination.storyList) },
                                             onSaved: {
-                                                // 앨범에 저장하기 → MY 수집한 기부 (back returns to the workshop).
+                                                // 앨범에 저장하기 → MY 수집한 기부.
                                                 var next = NavigationPath()
-                                                next.append(MYDestination.workshop)
-                                                next.append(MYDestination.collection)
+                                                next.append(MYDestination.collectedWorkshop)
                                                 path = next
                                             })
                     } else {

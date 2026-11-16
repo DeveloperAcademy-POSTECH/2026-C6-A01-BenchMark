@@ -79,6 +79,6 @@ enum MYDestination: Hashable {
     case workshop
     case cucumberCustomization
     case farm
-    case collection
-    case school(MYSchool)
+    /// The workshop opened on `수집한 기부` (after saving a scratched postcard, #399).
+    case collectedWorkshop
 }

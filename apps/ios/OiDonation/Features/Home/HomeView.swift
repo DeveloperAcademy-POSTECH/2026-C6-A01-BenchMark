@@ -116,8 +116,7 @@ struct HomeView: View {
                 OiSeedCucumberCustomizationView()
                     .toolbar(.visible, for: .navigationBar)
             case .farm: MYFarmView(remote: remote).id(remote?.account?.id)
-            case .collection: MYCollectionView(demo: myDemo, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
-            case .school(let school): MYCollectionView(demo: myDemo, school: school, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
+            case .collectedWorkshop: MYWorkshopView(demo: myDemo, remote: remote, initialTab: .collected)
             }
         }
         .sheet(isPresented: $showingEducationDistrict, onDismiss: { scene.finishEducationDistrict() }) {
