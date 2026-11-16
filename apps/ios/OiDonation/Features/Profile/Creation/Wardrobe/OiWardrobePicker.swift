@@ -392,18 +392,9 @@ struct OiCucumberNameField: View {
     @Binding var name: String
     @State private var editing = false
     @State private var input = ""
-    @FocusState private var focused: Bool
     static let letterLimit = 5
 
     private var baseName: String { name.hasSuffix("오이") ? String(name.dropLast(2)) : name }
-
-    /// Rejects typing or pasting past five letters; an older longer name can still be shortened.
-    private var limitedInput: Binding<String> {
-        Binding(get: { input }, set: { value in
-            guard value.count <= Self.letterLimit || value.count < input.count else { return }
-            input = value
-        })
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -416,12 +407,9 @@ struct OiCucumberNameField: View {
             }
             HStack {
                 if editing {
-                    TextField("다섯 글자 이내", text: limitedInput)
-                        .font(CampusStyle.body(16)).tracking(0.32)
-                        .focused($focused)
-                        .submitLabel(.done)
-                        .onSubmit(commit)
-                        .accessibilityIdentifier("oi.draft.cucumberName.step3")
+                    OiLimitedTextField(text: $input, limit: Self.letterLimit,
+                                       placeholder: "다섯 글자 이내", onEnd: commit)
+                        .frame(minHeight: 36)
                     Text("오이").font(CampusStyle.body(16)).tracking(0.32)
                 } else {
                     Button(action: beginEditing) { letterBoxes }
@@ -445,7 +433,6 @@ struct OiCucumberNameField: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onChange(of: focused) { _, isFocused in if !isFocused && editing { commit() } }
     }
 
     private var letterBoxes: some View {
@@ -467,14 +454,66 @@ struct OiCucumberNameField: View {
     private func beginEditing() {
         input = baseName
         editing = true
-        focused = true
     }
 
     private func commit() {
         let trimmed = String(input.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.letterLimit))
         // An older name that already fits is kept as is when nothing changed.
+        guard editing else { return }
         if trimmed != baseName { name = trimmed.isEmpty ? "" : trimmed + "오이" }
         editing = false
-        focused = false
+    }
+}
+
+/// A UIKit field that limits letters only after Korean composition finishes; SwiftUI `TextField`
+/// keeps showing composed text that its binding rejected (#377).
+struct OiLimitedTextField: UIViewRepresentable {
+    @Binding var text: String
+    let limit: Int
+    var placeholder = ""
+    var onEnd: () -> Void = {}
+
+    func makeUIView(context: Context) -> UITextField {
+        let field = UITextField()
+        field.font = UIFont(name: "Paperlogy-4Regular", size: 16) ?? .systemFont(ofSize: 16)
+        field.defaultTextAttributes[.kern] = 0.32
+        field.textColor = .black
+        field.placeholder = placeholder
+        field.returnKeyType = .done
+        field.text = text
+        field.delegate = context.coordinator
+        field.accessibilityIdentifier = "oi.draft.cucumberName.step3"
+        field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        DispatchQueue.main.async { field.becomeFirstResponder() }
+        return field
+    }
+
+    func updateUIView(_ field: UITextField, context: Context) {
+        context.coordinator.parent = self
+        if field.markedTextRange == nil, field.text != text { field.text = text }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: OiLimitedTextField
+        init(_ parent: OiLimitedTextField) { self.parent = parent }
+
+        @objc func changed(_ field: UITextField) {
+            // Wait until a Korean syllable is committed before counting it.
+            guard field.markedTextRange == nil else { return }
+            var value = field.text ?? ""
+            // Past the limit, keep the previous text (an older longer name may still be shortened).
+            if value.count > parent.limit && value.count >= parent.text.count {
+                value = parent.text.count <= parent.limit ? parent.text : String(value.prefix(parent.limit))
+                field.text = value
+            }
+            parent.text = value
+        }
+
+        func textFieldShouldReturn(_ field: UITextField) -> Bool { field.resignFirstResponder(); return true }
+        func textFieldDidEndEditing(_ field: UITextField) { changed(field); parent.onEnd() }
     }
 }
