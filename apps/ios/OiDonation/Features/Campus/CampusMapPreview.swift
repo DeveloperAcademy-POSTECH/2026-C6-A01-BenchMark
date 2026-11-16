@@ -18,6 +18,8 @@ struct CampusMapPreviewHost: View {
                     if let story = store.story(id) { CampusSummaryView(story: story, store: store) }
                 case .story(let id):
                     if let story = store.story(id) { CampusStoryDetailView(story: story, store: store) }
+                case .scratch, .storyList:
+                    EmptyView() // The design preview has no collection flow.
                 }
             }
         }

@@ -3114,7 +3114,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
-    func testCampusSummaryShowsActionForVerifiedLocation() async throws {
+    func testCampusSummaryShowsCollectActionWhereverTheViewerIs() async throws {
         let fixture = try isolatedDefaults()
         let previousHandler = OiStoreURLProtocol.handle
         let backend = OiTestBackend()
@@ -3150,23 +3150,81 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let store = CampusStoryStore(defaults: fixture.defaults)
         store.synchronize(stories: [story], collected: [])
         let reference = try XCTUnwrap(variants.first)
-        let states: [(String, CampusCardProximity?)] = [
-            ("pohang-collect", .near),
-            ("outside-pohang-request", .away),
-            ("unknown-location-request", nil)
-        ]
-        for (name, proximity) in states {
-            let summary = NavigationStack { CampusSummaryView(story: story, store: store) }
-                .environment(remote)
-                .environment(\.campusCardProximity) { _ in
-                    guard let proximity else { throw CampusCardLocationError.permissionDenied }
-                    return proximity
-                }
-                .environment(\.scenePhase, .active)
-            try await capture(summary, name: name, variant: reference,
-                defaults: fixture.defaults, delay: .seconds(2), attach: true)
-        }
-        XCTAssertTrue(backend.snapshot().cardSendPayloads.isEmpty, "Checking the location must not send a request")
+        // #399: no location check; the same 수집하기 button everywhere.
+        let summary = NavigationStack { CampusSummaryView(story: story, store: store) }
+            .environment(remote)
+            .environment(\.scenePhase, .active)
+        try await capture(summary, name: "summary-collect", variant: reference,
+            defaults: fixture.defaults, delay: .seconds(2), attach: true)
+        XCTAssertTrue(backend.snapshot().cardSendPayloads.isEmpty, "Showing the summary must not send a card request")
+    }
+
+    private func scratchPostcardFixture() -> ScratchPostcard {
+        let story = Story(storyID: UUID().uuidString, donorID: UUID(), donorDisplayName: "19학번 디벨로퍼학과 신수리",
+            title: "이일구 모임의 추억", content: "폭짜했던 하루를 오래 남기고 싶어요.",
+            publishedAt: Date(timeIntervalSince1970: 1_793_000_000),
+            location: StoryLocation(locationID: "pond", displayName: "포항공과대학교 지곡회관 옆 연못길"),
+            tags: ["고마움", "우정"], cucumberID: "c", cucumberName: "기계이일구오이")
+        return ScratchPostcard(tagID: "", story: story,
+            card: StoryCard(cardID: "card", storyID: story.storyID, imageURL: nil),
+            donorLine: "19학번 디벨로퍼학과 신수리", front: nil, back: nil, coverPhoto: nil, character: nil)
+    }
+
+    /// #399: the full app's scratch postcard — Figma "수집 성공 뷰"(5400:14734) with the two bottom buttons.
+    func testScratchPostcardFullAppRevealedUnsaved() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let view = ScratchPostcardView(postcard: scratchPostcardFixture(), validateCollection: { true },
+            fullApp: ScratchPostcardFullApp(startsRevealed: true, isSaved: false,
+                onBack: {}, onDonate: {}, onSave: { nil }))
+        try await capture(view, name: "scratch-fullapp-revealed-unsaved", variant: variants[0],
+            defaults: fixture.defaults, delay: .seconds(1), attach: true)
+    }
+
+    func testScratchPostcardFullAppRevealedSaved() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let view = ScratchPostcardView(postcard: scratchPostcardFixture(), validateCollection: { true },
+            fullApp: ScratchPostcardFullApp(startsRevealed: true, isSaved: true,
+                onBack: {}, onDonate: {}, onSave: { nil }))
+        try await capture(view, name: "scratch-fullapp-revealed-saved", variant: variants[0],
+            defaults: fixture.defaults, delay: .seconds(1), attach: true)
+    }
+
+    func testScratchPostcardFullAppStartsCovered() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let view = ScratchPostcardView(postcard: scratchPostcardFixture(), validateCollection: { true },
+            fullApp: ScratchPostcardFullApp(startsRevealed: false, isSaved: false,
+                onBack: {}, onDonate: {}, onSave: { nil }))
+        try await capture(view, name: "scratch-fullapp-scratching", variant: variants[0],
+            defaults: fixture.defaults, delay: .seconds(1), attach: true)
+    }
+
+    /// #399: the map list card and the summary view.
+    func testMapListCardAndSummaryCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        var story = CampusStory(id: UUID().uuidString, regionID: "pond", title: "기계이일구오이", image: "OiCats",
+            tags: ["고마움", "우정"], donor: "19학번 기계공학과 신수리", location: "포항공과대학교 지곡회관 옆 연못길",
+            date: "2026년 10월 24일 토요일", order: 0, popularity: 0, palette: 0)
+        story.storyTitle = "이일구 모임의 폭짜했던 추억"
+        let list = VStack(spacing: 20) {
+            OiCucumberCard(name: story.title, tags: story.tags, donor: story.donor, title: story.storyTitle) {
+                CampusCucumberPortrait(story: story)
+            }
+            OiCucumberCard(name: "HINT펩오이", tags: ["즐거움", "연구"], donor: "24학번 반도체공학과 서수리",
+                           title: "반도체 HINT 연구실의 추억") { CampusCucumberPortrait(story: story) }
+        }.padding(20).background(Color(white: 0.96))
+        try await capture(list, name: "map-list-card", variant: variants[0],
+            defaults: fixture.defaults, delay: .seconds(1), attach: true)
+        let store = CampusStoryStore(defaults: fixture.defaults)
+        store.synchronize(stories: [story], collected: [])
+        store.openStoryListAction = {}
+        let summary = NavigationStack { CampusSummaryView(story: story, store: store) }
+            .environment(store).environment(\.scenePhase, .active)
+        try await capture(summary, name: "summary-view", variant: variants[0],
+            defaults: fixture.defaults, delay: .seconds(2), attach: true)
     }
 
     func testFarmCapturesWithOfflineOwnedStory() async throws {

@@ -161,6 +161,9 @@ struct CampusGeoARScreen: View {
                                     } else {
                                         ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc")
                                     }
+                                case .scratch, .storyList:
+                                    // Opened from the map's navigation after this cover closes.
+                                    EmptyView()
                                 }
                             }
                     } else {

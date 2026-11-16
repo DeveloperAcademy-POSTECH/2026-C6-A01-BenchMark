@@ -132,6 +132,8 @@ private struct CampusNearbyStoryView: View {
             switch destination {
             case .summary(let value), .story(let value):
                 if let nextID = UUID(uuidString: value) { CampusNearbyStoryView(id: nextID, stories: stories, remote: remote) }
+            case .scratch, .storyList:
+                EmptyView()
             }
         }
         .task(id: id) {
