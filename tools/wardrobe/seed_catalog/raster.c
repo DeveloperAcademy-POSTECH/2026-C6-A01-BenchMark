@@ -5,6 +5,9 @@
 
 typedef struct { float x,y,z,u,v; } Point;
 int main(int argc,char** argv){
+    if(argc < 8 || argc > 10) return 1;
+    float pitch = argc >= 9 ? atof(argv[8]) : 0;
+    int front_only = argc >= 10 && atoi(argv[9]);
     FILE *file=fopen(argv[1],"rb");
     if(!file) return 1;
     int n,w,h,tx,ty; float angle,shift,scale;
@@ -17,11 +20,14 @@ int main(int argc,char** argv){
     unsigned char *color=calloc(w*h*3,1);
     float *depth=malloc(w*h*sizeof(float));
     for(int i=0;i<w*h;i++) { depth[i]=-1e9f; color[i*3]=235; color[i*3+1]=237; color[i*3+2]=234; }
-    float co=cosf(angle),si=sinf(angle);
+    float co=cosf(angle),si=sinf(angle),cp=cosf(pitch),sp=sinf(pitch);
     for(int i=0;i<3*n;i++) {
         Point *p=points+i;
         float x=co*p->x-si*p->z,z=co*p->z+si*p->x;
-        p->x=x*scale+w/2.0f; p->y=(shift-p->y)*scale+h/2.0f; p->z=z;
+        float y=p->y-shift;
+        p->x=x*scale+w/2.0f;
+        p->y=(sp*z-cp*y)*scale+h/2.0f;
+        p->z=cp*z+sp*y;
     }
     for(int i=0;i<n;i++) {
         Point a=points[3*i], b=points[3*i+1], c=points[3*i+2];
@@ -29,7 +35,7 @@ int main(int argc,char** argv){
         float ny=(b.z-a.z)*(c.x-a.x)-(b.x-a.x)*(c.z-a.z);
         float nz=(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
         float det=(b.y-c.y)*(a.x-c.x)+(c.x-b.x)*(a.y-c.y);
-        if(fabsf(det)<.00001f) continue;
+        if(fabsf(det)<.00001f || (front_only && det >= 0)) continue;
         float normal=sqrtf(nx*nx+ny*ny+nz*nz);
         float shade=.90f+.11f*((.3f*nx-.3f*ny+.80f*fabsf(nz))/normal);
         int x0=fmaxf(0,floorf(fminf(a.x,fminf(b.x,c.x)))), x1=fminf(w-1,ceilf(fmaxf(a.x,fmaxf(b.x,c.x))));

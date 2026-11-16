@@ -2198,6 +2198,19 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 for part in bodyParts {
                     let visible = try XCTUnwrap(asset.findEntity(named: part))
                     XCTAssertTrue(hasModel(in: visible))
+                    if garment.rendersHoodInterior && part != "VisibleBodyLower" {
+                        let model = try XCTUnwrap(visible.components[ModelComponent.self])
+                        XCTAssertFalse(model.materials.isEmpty)
+                        for material in model.materials {
+                            let surface = try XCTUnwrap(material as? PhysicallyBasedMaterial)
+                            guard case .opaque = surface.blending else {
+                                return XCTFail("Hood skin must be opaque")
+                            }
+                            guard case .none = surface.faceCulling else {
+                                return XCTFail("Both faces of the head must be visible")
+                            }
+                        }
+                    }
                 }
             }
         }

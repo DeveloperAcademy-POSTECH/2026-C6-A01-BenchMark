@@ -14,7 +14,7 @@ import seed_costume_sneakers as sneakers
 from seed_costume_bee import prepare_bee
 from seed_costume_rigid_hoods import ORIGINAL_VOLUME_HOODS, prepare_rigid_hood
 from seed_costume_soft_hoods import SOFT_HOODS, prepare_soft_hood
-from seed_costume_coverage import add_scientist_body
+from seed_costume_scientist_original import prepare_scientist
 from seed_costume_extras import add_ribbon_calves, prepare_selfie
 from seed_costume_sports import SPORT_COSTUMES, recipe as sport_recipe
 
@@ -50,14 +50,11 @@ def main():
         if id == "sneakers":
             sneakers.prepare(work / id)
             continue
+        if id == "scientist":
+            prepare_scientist(work / id, preview=args.preview)
+            continue
         if id in school_science.VARIANTS:
-            needs_body_cut = id == "scientist"
-            school_science.prepare(id, work / id, preview=args.preview and not needs_body_cut)
-            if needs_body_cut:
-                add_scientist_body(work / id)
-                if args.preview:
-                    _, _, hidden = school_science.VARIANTS[id]
-                    school_science.review(id, work / id, {*hidden, "Body", "LeftLeg", "RightLeg"})
+            school_science.prepare(id, work / id, preview=args.preview)
             continue
         if id in SPORT_COSTUMES:
             mask, fit, hidden, cleaner = sport_recipe(id)

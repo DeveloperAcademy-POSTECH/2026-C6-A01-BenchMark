@@ -9,6 +9,7 @@ from PIL import Image
 
 import seed_costume_geometry as geometry
 from seed_costume_coverage import overlay_material
+from seed_costume_skin_volume import seal_skin_cuts
 
 
 HIDDEN = frozenset(("Body", "LeftArm", "RightArm"))
@@ -154,7 +155,7 @@ def interpolate(points, center, ring):
     return delta, values
 
 
-def body_surface(points, faces, uv, collar, waist):
+def body_surface(points, faces, uv, collar, waist, *, close_head):
     # Retain the neck and the skin visible below the hem. The hidden torso no
     # longer forces the hoodie profile outward in order to avoid collisions.
     center = np.array([-.004, -.005])
@@ -179,6 +180,14 @@ def body_surface(points, faces, uv, collar, waist):
     radius = current + t * (np.minimum(current, values[:, 1] - .007) - current)
     upper = upper.copy()
     upper[:, [0, 2]] = center + geometry.unit(delta) * radius[:, None]
+    if close_head:
+        def inside_collar(rim):
+            inside = rim.copy()
+            inside[:, [0, 2]] = center + (rim[:, [0, 2]] - center) * .78
+            inside[:, 1] -= .035
+            return inside
+
+        upper, upper_faces, upper_uv = seal_skin_cuts(upper, upper_faces, upper_uv, inside_collar)
     return (("BodyUpper", upper, upper_faces, upper_uv), ("BodyLower", below, below_faces, below_uv))
 
 
@@ -274,7 +283,7 @@ def make_stage(output, resources, *, preview=False, kind="hoodie"):
     with zipfile.ZipFile(master) as source:
         for skin_name, p, f, uv in geometry.seed_data:
             if skin_name=="Body":
-                sections = body_surface(p,f,uv,collar,waist)
+                sections = body_surface(p, f, uv, collar, waist, close_head=kind == "hoodie")
             elif skin_name in cuffs:
                 sections = [(skin_name,*arm_surface(skin_name,p,f,uv,cuffs[skin_name]))]
             else:

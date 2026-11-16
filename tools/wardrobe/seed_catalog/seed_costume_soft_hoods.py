@@ -3,6 +3,7 @@
 import numpy as np
 
 import seed_costume_geometry as geometry
+from seed_costume_hood_interior import cut_costume, hood_inside, raincoat_crown_inside, seal_hood_face
 from seed_costume_original import prepare_original_costume, source_face_depth
 
 
@@ -52,8 +53,13 @@ def prepare_soft_hood(id, output, preview=False):
     target = original[:, 2] + depth * weight
     source_limit = source_face_depth(id, original) - .002
     points[used, 2] = np.minimum(target, source_limit) + weight * np.maximum(target - source_limit, 0)
-    skin = [("Body", "VisibleBody", points, faces, uv)]
+    skin = [("Body", "VisibleBody", *seal_hood_face(id, points, faces, uv))]
     face_offsets = {name: (0, 0, depth) for name in ("LeftEye", "RightEye", "Mouth")}
-    prepare_original_costume(id, output,
-        lambda centers, green, rgb, name: keep_cloth(id, centers, green, rgb, stem_height),
-        HIDDEN, skin, preview_offsets={"Stem": stem, **face_offsets}, preview=preview)
+    def mask(centers, green, rgb, name):
+        return keep_cloth(id, centers, green, rgb, stem_height)
+
+    lining = hood_inside(id, cut_costume(id, mask))
+    if id == "raincoat":
+        lining.append(raincoat_crown_inside())
+    prepare_original_costume(id, output, mask, HIDDEN, skin, extras=lining,
+                             preview_offsets={"Stem": stem, **face_offsets}, preview=preview)

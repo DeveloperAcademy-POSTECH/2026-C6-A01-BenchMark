@@ -2,7 +2,7 @@
 import numpy as np
 
 import seed_costume_geometry as geometry
-from seed_costume_coverage import bee_hood_lining
+from seed_costume_hood_interior import cut_costume, hood_inside, seal_hood_face
 from seed_costume_original import prepare_original_costume
 
 
@@ -37,7 +37,7 @@ def bee_skin_sections():
                 return np.minimum.reduce((y - APERTURE_HEIGHTS[0], APERTURE_HEIGHTS[-1] - y,
                                           half_width - abs(x), z - .012))
 
-            visible = geometry.clipped_surface(points, faces, uv, crop_face)
+            visible = seal_hood_face('bee', *geometry.clipped_surface(points, faces, uv, crop_face))
         elif name in ('LeftLeg', 'RightLeg'):
             def crop_shin(samples):
                 y = samples[:, 1]
@@ -50,13 +50,6 @@ def bee_skin_sections():
 
 
 def prepare_bee(output, preview=False):
-    source, texture = geometry.load('bee')
-    original = []
-    for name, points, faces, uv in geometry.meshes(source):
-        center = points[faces].mean(axis=1)
-        colors = geometry.sample(texture, uv.mean(axis=1)).astype(float)
-        kept = keep_bee_cloth(center, geometry.skin_color(texture, uv), colors, name)
-        original.append((name, points, faces[kept], uv[kept]))
+    lining = hood_inside('bee', cut_costume('bee', keep_bee_cloth))
     prepare_original_costume('bee', output, keep_bee_cloth, HIDDEN, bee_skin_sections(),
-                             extras=bee_hood_lining(original), preview_offsets={'Stem': STEM_OFFSET},
-                             preview=preview)
+                             extras=lining, preview_offsets={'Stem': STEM_OFFSET}, preview=preview)

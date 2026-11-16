@@ -114,7 +114,7 @@ def source_face_depth(id, query):
 
 
 def prepare_original_costume(id, output, mask, hidden, skin_sections, *, extras=(),
-                             preview_offsets=None, preview=False):
+                             preview_offsets=None, skin_writer=compact_skin, preview=False):
     extras = tuple(extras)
     preview_offsets = preview_offsets or {}
     source, texture = geometry.load(id)
@@ -146,7 +146,7 @@ def prepare_original_costume(id, output, mask, hidden, skin_sections, *, extras=
             else:
                 for entry in entries:
                     (output / entry).write_bytes(archive.read(entry))
-            extra_meshes.append(compact_skin(name, points, faces, uv))
+            extra_meshes.append(skin_writer(name, points, faces, uv))
             new_materials.append(material)
             preview_sections.append((part, name, points, faces, uv))
             texture_entries.extend(entries)

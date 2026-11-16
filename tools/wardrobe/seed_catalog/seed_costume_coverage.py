@@ -1,12 +1,10 @@
 """Bake only the seed surfaces that remain visible through each full costume."""
 import re
-import zipfile
 
 import numpy as np
 from PIL import Image
 
 import seed_costume_geometry as geometry
-from seed_costume_extras import package_stage
 
 def overlay_material(source, name, part):
     start = re.search(r'(?m)^( +)def Material "' + re.escape(part) + r'"\n', source)
@@ -75,37 +73,3 @@ def crop_body_maps(source, output, uv, entries):
     remapped[..., 0] = (uv[..., 0] * width - x0) / (x1 - x0)
     remapped[..., 1] = 1 - ((1 - uv[..., 1]) * height - y0) / (y1 - y0)
     return remapped
-
-
-def bee_hood_lining(costume):
-    """Give the inside of the cut hood its own inward-facing fabric."""
-    lining = []
-    for name, points, faces, uv in costume:
-        x, y, z = points[faces].mean(axis=1).T
-        sides = (abs(x) > .09) & (z < .12) & (y > .76) & (y < 1.30)
-        if np.any(sides):
-            normals, _ = geometry.normals_for(points, faces)
-            inner = points - .0006 * normals
-            lining.append(("HoodLining" + name, inner, faces[sides, ::-1], uv[sides, ::-1]))
-    return lining
-
-
-def add_scientist_body(output):
-    name = "seed-costume-scientist"
-    stage_file = output / (name + ".usda")
-    stage = stage_file.read_text()
-    master_file = geometry.assets / "Characters/SeedCucumberMaster.usdz"
-    master = geometry.read_stage(master_file)
-    material_scope = '    def Scope "Materials"\n    {\n'
-    textures = [entry.removeprefix("./") for entry in geometry.archive.findall(stage)]
-    _, points, faces, uv = next(part for part in geometry.seed_data if part[0] == "Body")
-    sample = points[faces].mean(axis=1)
-    visible = (sample[:, 1] >= .76) & (sample[:, 1] <= 1.50) & (sample[:, 2] >= -1)
-    material = overlay_material(master, "VisibleBodyMaterial", "Body")
-    entries = list(dict.fromkeys(geometry.archive.findall(material)))
-    with zipfile.ZipFile(master_file) as source:
-        (output / "Textures").mkdir(exist_ok=True)
-        remapped = crop_body_maps(source, output, uv[visible], entries)
-    mesh = compact_skin("VisibleBody", points, faces[visible], remapped)
-    stage_file.write_text(stage.replace(material_scope, mesh + material_scope + material, 1))
-    package_stage(output, name, textures + entries)

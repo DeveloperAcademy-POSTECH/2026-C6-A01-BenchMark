@@ -89,6 +89,8 @@ enum OiSeedCucumberGarment: Hashable, CaseIterable {
         }
     }
 
+    var rendersHoodInterior: Bool { self == .hoodie || hoodAttachments != nil }
+
     // Positions are in the unscaled seed model's authored coordinates.
     var hoodAttachments: (faceDepth: Float, stem: SIMD3<Float>)? {
         switch self {
@@ -197,7 +199,25 @@ enum OiSeedCucumberGarment: Hashable, CaseIterable {
             throw AssetError.invalidMesh(garment.rawValue)
         }
         asset.name = garment.rawValue
+        if garment.rendersHoodInterior {
+            configureHoodSurfaces(in: asset)
+        }
         return asset
+    }
+
+    private static func configureHoodSurfaces(in entity: Entity) {
+        if var model = entity.components[ModelComponent.self] {
+            let isHead = entity.name == "VisibleBody" || entity.name == "VisibleBodyUpper"
+            model.materials = model.materials.map { material in
+                guard var surface = material as? PhysicallyBasedMaterial else { return material }
+                if isHead { surface.blending = .opaque }
+                // Keeping both sides renders the fabric when viewed through the opening.
+                if case .opaque = surface.blending { surface.faceCulling = .none }
+                return surface
+            }
+            entity.components.set(model)
+        }
+        for child in entity.children { configureHoodSurfaces(in: child) }
     }
 
     static func setGarment(_ garment: OiSeedCucumberGarment, asset: Entity?, on model: Entity) throws {
