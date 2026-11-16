@@ -93,7 +93,8 @@ struct CampusScratchScreen: View {
         }
         guard !remote.isBusy, !remote.isRefreshing else { return "잠시 뒤에 다시 시도해 주세요." }
         let owner = remote.account?.id
-        await remote.perform("collect", payload: ["id": storyUUID.uuidString])
+        // The receipt already adds the card, so MY opens now and the lists reload behind it.
+        await remote.perform("collect", payload: ["id": storyUUID.uuidString], refreshesInBackground: true)
         guard remote.account?.id == owner else { return "로그인한 계정이 바뀌었어요. 다시 시도해 주세요." }
         if remote.collections.contains(where: { $0.storyId == storyUUID }) { onSaved(); return nil }
         return remote.error ?? "수집 저장을 확인하지 못했어요. 다시 시도해 주세요."
