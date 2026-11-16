@@ -84,6 +84,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var educationEntity: ModelEntity?
     @ObservationIgnored private var educationButton: UIButton?
     private var educationNear = false
+    @ObservationIgnored private var educationDetailTask: Task<Void, Never>?
     private var educationCamera: (target: SIMD3<Float>, radius: Float, yaw: Float, pitch: Float)?
     var onRegion: ((CampusRegion) -> Void)?
     var onPlacement: ((UUID) -> Void)?
@@ -125,7 +126,11 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var authoredLayer = Entity()
     @ObservationIgnored private var storyLayer = Entity()
     @ObservationIgnored private var authoredPlacements: [String: CampusAuthoredPlacement] = [:]
-    @ObservationIgnored private var authoredModels: [String: AuthoredModel] = [:]
+    @ObservationIgnored private var authoredModelTask: Task<Void, Never>?
+    @ObservationIgnored private let authoredModels: NSCache<NSString, AuthoredModel> = {
+        let cache = NSCache<NSString, AuthoredModel>(); cache.countLimit = 8
+        return cache
+    }()
     @ObservationIgnored private var authoredPins: [String: AuthoredPin] = [:]
     @ObservationIgnored private var draftEntity: Entity?
     @ObservationIgnored private var placementReticle: Entity?
@@ -165,19 +170,22 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var overviewStories: [CampusStory] = []
     private var regionCounts: [String: Int]?
     private var visible = true
+    private let stillFrameDelay: Duration?
     private static var cachedMesh: Entity?
     private static var loadingMesh: Task<Entity, Error>?
     @ObservationIgnored private var displayedMap: Entity?
 
-    private struct AuthoredModel {
+    private final class AuthoredModel {
         let template: Entity
         let bounds: BoundingBox
+        init(template: Entity, bounds: BoundingBox) { self.template = template; self.bounds = bounds }
     }
 
     private struct AuthoredPin {
         let button: CampusAuthoredPinButton
         let ground: SIMD3<Float>
         var modelCorners: [SIMD3<Float>] = []
+        var entity: Entity?
     }
 
     private struct StoryPin {
@@ -194,6 +202,11 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         let entity: Entity
         let templateHeight: Float
         let unitCorners: [SIMD3<Float>]
+    }
+
+    init(stillFrameDelay: Duration? = nil) {
+        self.stillFrameDelay = stillFrameDelay
+        super.init()
     }
 
     func makeView() -> CampusMapCanvas {
@@ -251,7 +264,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             let data = try CampusMapData.load()
             guard let url = Bundle.main.url(forResource: "campus-mobile", withExtension: "oimesh") else { throw CocoaError(.fileNoSuchFile) }
             async let mesh = Self.sharedMesh(url: url, data: data)
-            async let education: Void = CampusEducationDistrict.prepare()
+            async let education = CampusEducationDistrict.prepare(.far)
             _ = try await (mesh, education)
             try Task.checkCancellation()
             // Loading may finish while AR has suspended the map. Keep the template
@@ -293,6 +306,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             updateMapShadows()
             if canvas?.map != nil, Self.cachedMesh != nil { try installMap() }
             canvas?.setAppearance(appearance)
+            updateCamera()
         } catch {
             self.appearance = previous
             if let view = canvas?.map { mapSun = try? previous.configureLighting(in: view, root: root) }
@@ -311,6 +325,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
 
     private func installEducationDistrict(data: CampusMapData) throws {
+        educationDetailTask?.cancel()
+        educationDetailTask = nil
         educationEntity?.removeFromParent()
         let entity = try CampusEducationDistrict.makeEntity(data: data)
         root.addChild(entity)
@@ -379,6 +395,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     func setVisible(_ active: Bool) {
         visible = active
         if !active {
+            canvas?.cancelStillFrameCapture()
             target = CampusMapMotion.clampedTarget(target)
             radius = settledRadius()
             stopNavigation()
@@ -398,11 +415,21 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     func suspendRendering() {
         setVisible(false)
+        educationDetailTask?.cancel()
+        educationDetailTask = nil
+        authoredModelTask?.cancel(); authoredModelTask = nil
         // Release the renderer and its scene while keeping navigation values and asset templates.
         guard let canvas, canvas.map != nil else { return }
         clearStoryPins()
+        for id in authoredPins.keys {
+            authoredPins[id]?.entity?.removeFromParent()
+            authoredPins[id]?.entity = nil; authoredPins[id]?.modelCorners = []
+        }
         canvas.removeRenderer()
         root = AnchorEntity(world: .zero)
+        displayedMap = nil
+        mapSun = nil
+        educationEntity = nil
         placementLayer = Entity()
         authoredLayer = Entity()
         storyLayer = Entity()
@@ -477,6 +504,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             updateRegionCounts()
         }
         makeStoryPins(overviewStories)
+        rebuildAuthoredPlacements()
         // Keep the exact zoom when the list closes; only keep it inside the map's limits.
         radius = keepingCamera ? min(zoomLimits.upperBound, max(zoomLimits.lowerBound, radius)) : settledRadius()
         updateCamera()
@@ -496,6 +524,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         self.region = region; self.stories = stories
         clearRegionButtons()
         makeStoryPins(stories)
+        rebuildAuthoredPlacements()
         updateCamera()
     }
 
@@ -526,21 +555,30 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         }
     }
 
-    func focus(_ region: CampusRegion, stories: [CampusStory], placement: CampusPlacement? = nil) {
+    func focus(_ region: CampusRegion, stories: [CampusStory], placement: CampusPlacement? = nil, animated: Bool = false) {
         stopNavigation()
         self.region = region; self.stories = stories
         guard let data else { return }
+        let destination: SIMD3<Float>
+        let destinationRadius: Float
         if let placement {
-            target = data.world(latitude: placement.latitude, longitude: placement.longitude)
-            radius = 23; yaw = 0; pitch = 0.75
+            destination = data.world(latitude: placement.latitude, longitude: placement.longitude)
+            destinationRadius = 23
+            if !animated { yaw = 0; pitch = 0.75 }
         } else {
             guard let place = data.pois.first(where: { $0.id == region.placeID }) else { return }
-            target = data.world(place.p); radius = 63; yaw = 0.1; pitch = 0.88
+            destination = data.world(place.p); destinationRadius = 63
+            if !animated { yaw = 0.1; pitch = 0.88 }
         }
+        if !animated { target = destination; radius = destinationRadius }
         clearRegionButtons()
         makeStoryPins(stories)
-        updateCamera()
+        rebuildAuthoredPlacements()
+        if animated { animateCamera(to: destination, radius: destinationRadius) }
+        else { updateCamera() }
     }
+
+    private var showsStoryCharacters: Bool { region != nil || sharedMap }
 
     private func makeStoryPins(_ stories: [CampusStory]) {
         clearStoryPins()
@@ -575,7 +613,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     private func attachStory(_ story: CampusStory, at point: SIMD3<Float>, mapScale: Float) {
         positions[story.id] = point
-        guard authoredPlacements[story.id] == nil else { return }
+        // Overview keeps only positions and counts, without images, models or download tasks.
+        guard showsStoryCharacters, authoredPlacements[story.id] == nil else { return }
         let button = CampusStoryPinButton(type: .custom)
         let placeholder = UIImage(systemName: "leaf")
         if let path = story.cucumberPortraitPath {
@@ -689,20 +728,50 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     func setAuthoredPlacements(_ placements: [CampusAuthoredPlacement]) {
         let updated = placements.reduce(into: [String: CampusAuthoredPlacement]()) { $0[$1.id] = $1 }
         guard authoredPlacements != updated else { return }
-        authoredModels = authoredModels.filter { id, _ in
-            updated[id] != nil && updated[id]?.wardrobe == authoredPlacements[id]?.wardrobe
-                && updated[id]?.submittedArtwork == authoredPlacements[id]?.submittedArtwork
+        authoredModelTask?.cancel(); authoredModelTask = nil
+        for (id, previous) in authoredPlacements where updated[id] == nil || updated[id]?.wardrobe != previous.wardrobe || updated[id]?.submittedArtwork != previous.submittedArtwork {
+            authoredModels.removeObject(forKey: id as NSString)
         }
+        if updated.isEmpty { authoredModels.removeAllObjects() }
         authoredPlacements = updated
         makeStoryPins(region == nil ? overviewStories : stories)
         rebuildAuthoredPlacements()
         updateCamera()
     }
 
+    private func authoredItemIsVisible(_ item: CampusAuthoredPlacement) -> Bool {
+        guard showsStoryCharacters, visible, !editingPlacement, educationCamera == nil,
+              let data, let canvas else { return false }
+        let point = data.world(latitude: item.placement.latitude, longitude: item.placement.longitude)
+        guard let screen = mapProjection(in: canvas.bounds).point(point) else { return false }
+        return canvas.bounds.insetBy(dx: -100, dy: -100).contains(screen)
+    }
+
+    private func requestAuthoredModels() {
+        guard showsStoryCharacters, visible, authoredModelTask == nil,
+              authoredPlacements.values.contains(where: { authoredModels.object(forKey: $0.id as NSString) == nil && authoredPins[$0.id]?.entity == nil && authoredItemIsVisible($0) }) else { return }
+        authoredModelTask = Task { [weak self] in
+            guard let self else { return }
+            await loadAuthoredModelsNow()
+            if !Task.isCancelled { authoredModelTask = nil }
+        }
+    }
+
     func loadAuthoredModels() async {
-        for item in authoredPlacements.values {
-            guard !Task.isCancelled else { return }
-            guard authoredModels[item.id] == nil else { continue }
+        requestAuthoredModels()
+        await authoredModelTask?.value
+    }
+
+    private func loadAuthoredModelsNow() async {
+        var attempted: Set<String> = []
+        while !Task.isCancelled, showsStoryCharacters, visible {
+            // Camera gestures can reveal an earlier ID while another model is awaiting I/O.
+            // Recheck visibility after each await, but do not repeatedly retry failed assets.
+            guard let item = authoredPlacements.values.filter({
+                !attempted.contains($0.id) && authoredModels.object(forKey: $0.id as NSString) == nil
+                    && authoredPins[$0.id]?.entity == nil && authoredItemIsVisible($0)
+            }).min(by: { $0.id < $1.id }) else { return }
+            attempted.insert(item.id)
             do {
                 let model: Entity
                 if let artwork = item.submittedArtwork {
@@ -711,14 +780,14 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                 } else if let wardrobe = item.wardrobe { model = try await OiWardrobeAsset.loadForPlacement(wardrobe) }
                 else { model = try await CampusOiAsset.load() }
                 try Task.checkCancellation()
-                guard authoredPlacements[item.id] == item else { continue }
+                guard authoredPlacements[item.id] == item, authoredItemIsVisible(item) else { continue }
                 let bounds = model.visualBounds(relativeTo: model)
                 let size = simd_max(bounds.extents, SIMD3(repeating: 0.05))
                 model.components.set(CollisionComponent(shapes: [
                     .generateBox(size: size).offsetBy(translation: bounds.center)
                 ]))
                 let authoredModel = AuthoredModel(template: model, bounds: bounds)
-                authoredModels[item.id] = authoredModel
+                authoredModels.setObject(authoredModel, forKey: item.id as NSString)
                 if let data {
                     attachAuthoredModel(item, model: authoredModel, data: data)
                     updateCamera()
@@ -733,10 +802,11 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
 
     private func rebuildAuthoredPlacements() {
+        authoredModelTask?.cancel(); authoredModelTask = nil
         authoredLayer.children.removeAll()
         authoredPins.values.forEach { $0.button.removeFromSuperview() }
         authoredPins.removeAll()
-        guard let data else { return }
+        guard showsStoryCharacters, let data else { return }
         for item in authoredPlacements.values.sorted(by: { $0.id < $1.id }) {
             let placement = item.placement
             let point = data.world(latitude: placement.latitude, longitude: placement.longitude)
@@ -745,11 +815,14 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             button.addAction(UIAction { [weak self] _ in self?.onAuthoredPlacement?(placement.id) }, for: .touchUpInside)
             canvas?.addSubview(button)
             authoredPins[item.id] = AuthoredPin(button: button, ground: point)
-            if let model = authoredModels[item.id] { attachAuthoredModel(item, model: model, data: data) }
+            if authoredItemIsVisible(item), let model = authoredModels.object(forKey: item.id as NSString) {
+                attachAuthoredModel(item, model: model, data: data)
+            }
         }
     }
 
     private func attachAuthoredModel(_ item: CampusAuthoredPlacement, model: AuthoredModel, data: CampusMapData) {
+        authoredPins[item.id]?.entity?.removeFromParent()
         let placement = item.placement
         let entity = model.template.clone(recursive: true)
         entity.name = "authored:" + item.id
@@ -759,6 +832,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                             * Float(placement.heightMeters) / templateHeight)
         entity.orientation = CampusOiAsset.heading(placement.headingDegrees)
         authoredLayer.addChild(entity)
+        authoredPins[item.id]?.entity = entity
 
         // Cache the rotated bounds so camera gestures only reproject points.
         let bounds = model.bounds
@@ -1094,9 +1168,12 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                 if isFirstSelection { focusPlacementFromAbove() }
             }
         } else {
+            if hitsEducationBuilding(at: point, viewport: view.bounds) {
+                selectEducationDistrict(); return
+            }
             var entity = view.entity(at: point)
             while let current = entity {
-                if current.name == "campus.education-district" { selectEducationDistrict(); return }
+                if current === educationEntity { selectEducationDistrict(); return }
                 if current.name.hasPrefix("authored:"),
                    let item = authoredPlacements[String(current.name.dropFirst("authored:".count))] {
                     onAuthoredPlacement?(item.placement.id)
@@ -1111,7 +1188,34 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         }
     }
 
+    /// Use the saved camera pose so the first tap also works while the renderer is parked.
+    /// One local bounding box avoids collision meshes for hundreds of thousands of pearl triangles.
+    private func hitsEducationBuilding(at point: CGPoint, viewport: CGRect) -> Bool {
+        guard let building = educationEntity,
+              let ray = mapProjection(in: viewport).ray(through: point) else { return false }
+        let inverse = building.transformMatrix(relativeTo: nil).inverse
+        let localOrigin = inverse * SIMD4<Float>(ray.origin, 1)
+        let localDirection = inverse * SIMD4<Float>(ray.direction, 0)
+        let bounds = building.visualBounds(recursive: false, relativeTo: building)
+        var entry: Float = 0, exit = Float.greatestFiniteMagnitude
+        for axis in 0..<3 {
+            let origin = localOrigin[axis], direction = localDirection[axis]
+            guard origin.isFinite, direction.isFinite else { return false }
+            if abs(direction) < 0.000001 {
+                guard origin >= bounds.min[axis], origin <= bounds.max[axis] else { return false }
+            } else {
+                let a = (bounds.min[axis] - origin) / direction
+                let b = (bounds.max[axis] - origin) / direction
+                entry = max(entry, min(a, b)); exit = min(exit, max(a, b))
+                if exit < entry { return false }
+            }
+        }
+        return exit >= entry
+    }
+
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if visible { canvas?.showLiveMap() }
+        scheduleStillFrame()
         guard gestureRecognizer is UITapGestureRecognizer else { return true }
         var view = touch.view
         while let current = view {
@@ -1173,7 +1277,9 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         updateMapShadows()
         camera.look(at: target, from: eye, relativeTo: nil)
         updateCenterLocation()
-        guard visible, let view = canvas?.map else { return }
+        guard visible, let canvas, let view = canvas.map else { return }
+        canvas.showLiveMap()
+        defer { scheduleStillFrame() }
         let projection = mapProjection(in: view.bounds)
         // Scale by the map zoom so rotating or tilting alone cannot swell the artwork.
         let pointsPerMapUnit = projection.focalLength / CGFloat(radius)
@@ -1211,10 +1317,16 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         }
 
         var visibleButtons: [UIView] = pins.map(\.button)
-        for pin in authoredPins.values {
+        for (id, pin) in authoredPins {
             guard !editingPlacement, educationCamera == nil, let screen = projection.point(pin.ground), visibleBounds.contains(screen) else {
                 pin.button.isHidden = true
+                pin.entity?.removeFromParent(); authoredPins[id]?.entity = nil
+                authoredPins[id]?.modelCorners = []
                 continue
+            }
+            if pin.entity == nil, let item = authoredPlacements[id], let data,
+               let model = authoredModels.object(forKey: id as NSString) {
+                attachAuthoredModel(item, model: model, data: data)
             }
             let top = pin.modelCorners.lazy.compactMap(projection.point).map(\.y).min() ?? screen.y
             pin.button.center = CGPoint(x: screen.x, y: top - pin.button.bounds.height / 2 - 4)
@@ -1222,6 +1334,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             visibleButtons.append(pin.button)
         }
 
+        requestAuthoredModels()
         let panelOpacity = CampusMapProjection.panelOpacity(pitch: pitch)
         let markers = regionClustering?.markers(radius: radius, focalLength: projection.focalLength,
                                                 reduceMotion: UIAccessibility.isReduceMotionEnabled,
@@ -1246,13 +1359,13 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             button.isHidden = true
         }
         if let entity = educationEntity, let button = educationButton {
-            let near = educationNear ? radius < 105 : radius < 85
+            let screen = projection.point(entity.position + SIMD3(0, 6.8, 0))
+            let near = radius < (educationNear ? 105 : 85) && screen.map(visibleBounds.contains) == true
             if near != educationNear {
                 educationNear = near
-                CampusEducationDistrict.update(entity, near: near)
+                updateEducationDetail(entity, near: near)
             }
-            let anchor = entity.position + SIMD3(0, 6.8, 0)
-            if !editingPlacement, !selectingCenterLocation, let screen = projection.point(anchor), visibleBounds.contains(screen) {
+            if !editingPlacement, !selectingCenterLocation, let screen, visibleBounds.contains(screen) {
                 // Measure against the viewport, never the previous narrow button frame.
                 button.bounds.size = button.sizeThatFits(CGSize(width: max(44, view.bounds.width - 24), height: 44))
                 // Keep the invisible hit area usable even when the overview caption is small.
@@ -1261,11 +1374,34 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                 button.center = CGPoint(x: min(max(screen.x, button.bounds.width / 2 + 12), view.bounds.width - button.bounds.width / 2 - 12),
                                         y: max(110, min(view.bounds.height - 100, screen.y)))
                 button.isHidden = false
-                canvas?.bringSubviewToFront(button)
+                canvas.bringSubviewToFront(button)
                 visibleButtons.append(button)
             } else { button.isHidden = true }
         }
         mapLabels.update(projection: projection, viewport: view.bounds, radius: radius, pins: visibleButtons)
+    }
+
+    private func updateEducationDetail(_ entity: ModelEntity, near: Bool) {
+        educationDetailTask?.cancel()
+        let detail: CampusEducationDistrict.Detail = near ? .near : .far
+        if let mesh = CampusEducationDistrict.preparedMesh(detail) {
+            educationDetailTask = nil
+            entity.model?.mesh = mesh
+            return
+        }
+        educationDetailTask = Task { [weak self, weak entity] in
+            let mesh = try? await CampusEducationDistrict.prepare(detail)
+            guard !Task.isCancelled, let self, let entity, self.educationEntity === entity else { return }
+            self.educationDetailTask = nil
+            guard let mesh else { return }
+            entity.model?.mesh = mesh
+            self.updateCamera()
+        }
+    }
+
+    private func scheduleStillFrame() {
+        guard let stillFrameDelay, visible, ready, activeNavigation.isEmpty, cameraMotion == nil else { return }
+        canvas?.scheduleStillFrame(after: stillFrameDelay)
     }
 
     private func expandCluster(_ node: CampusRegionClustering.Node) {
@@ -1310,6 +1446,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private func animateCamera(to destination: SIMD3<Float>, radius destinationRadius: Float,
                                velocity: Float = 0, targetVelocity: SIMD3<Float> = .zero) {
         stopCameraMotion()
+        if visible { canvas?.showLiveMap() }
         if UIAccessibility.isReduceMotionEnabled || !visible {
             target = destination
             radius = destinationRadius
@@ -1335,6 +1472,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         if sample.isComplete {
             stopCameraMotion()
             settleCamera()
+            scheduleStillFrame()
         }
     }
 
@@ -1360,6 +1498,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         let id = ObjectIdentifier(gesture)
         switch gesture.state {
         case .began, .changed:
+            canvas?.showLiveMap()
             if activeNavigation.isEmpty {
                 pinchReleaseVelocity = 0
                 panReleaseVelocity = .zero
@@ -1368,6 +1507,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             return true
         case .ended, .cancelled, .failed:
             if activeNavigation.remove(id) != nil { settleCamera() }
+            scheduleStillFrame()
             return false
         default:
             return false
@@ -1605,11 +1745,16 @@ final class CampusMapCanvas: UIView {
     let backdrop = CAGradientLayer()
     var didLayout: (() -> Void)?
     private var lastLayoutBounds: CGRect?
+    private let stillFrame = UIImageView()
+    private var stillFrameTask: Task<Void, Never>?
+    private var stillFrameRequest: UUID?
     override init(frame: CGRect) {
         super.init(frame: frame)
         backdrop.startPoint = CGPoint(x: 0.7, y: 0)
         backdrop.endPoint = CGPoint(x: 0.3, y: 1)
         backdrop.locations = [0, 0.46, 1]
+        stillFrame.isUserInteractionEnabled = false
+        stillFrame.accessibilityElementsHidden = true
         layer.insertSublayer(backdrop, at: 0)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -1632,7 +1777,49 @@ final class CampusMapCanvas: UIView {
         layer.insertSublayer(backdrop, below: view.layer)
         return view
     }
+    func scheduleStillFrame(after delay: Duration) {
+        guard stillFrameTask == nil, let map, map.superview === self, window != nil else { return }
+        let request = UUID()
+        stillFrameRequest = request
+        stillFrameTask = Task { [weak self, weak map] in
+            do { try await Task.sleep(for: delay) } catch { return }
+            guard let self, let map, !self.isHidden, self.window != nil,
+                  self.stillFrameRequest == request else { return }
+            map.snapshot(saveToHDR: false) { [weak self, weak map] image in
+                Task { @MainActor in
+                    guard let self, self.stillFrameRequest == request else { return }
+                    self.cancelStillFrameCapture()
+                    guard let image, let map, map.superview === self,
+                          !self.isHidden, self.window != nil else { return }
+                    self.stillFrame.image = image
+                    self.stillFrame.frame = self.bounds
+                    self.insertSubview(self.stillFrame, aboveSubview: map)
+                    // Keep the scene and camera ready to resume on the same renderer.
+                    map.removeFromSuperview()
+                }
+            }
+        }
+    }
+
+    func cancelStillFrameCapture() {
+        stillFrameRequest = nil
+        stillFrameTask?.cancel()
+        stillFrameTask = nil
+    }
+
+    func showLiveMap() {
+        cancelStillFrameCapture()
+        guard let map, map.superview == nil, stillFrame.superview === self else { return }
+        insertSubview(map, belowSubview: stillFrame)
+        layer.insertSublayer(backdrop, below: map.layer)
+        stillFrame.removeFromSuperview()
+        stillFrame.image = nil
+    }
+
     func removeRenderer() {
+        cancelStillFrameCapture()
+        stillFrame.removeFromSuperview()
+        stillFrame.image = nil
         map?.session.pause()
         map?.scene.anchors.removeAll()
         map?.removeFromSuperview()
@@ -1641,6 +1828,12 @@ final class CampusMapCanvas: UIView {
     func invalidateProjection() {
         lastLayoutBounds = nil
         setNeedsLayout()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { cancelStillFrameCapture() }
+        else { didLayout?() }
     }
 
     override func layoutSubviews() {

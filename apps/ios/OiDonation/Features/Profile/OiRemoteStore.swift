@@ -31,8 +31,54 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     private(set) var canPublishDuplexCard = false
     private(set) var canPublishStoryCardCover = false
     private(set) var canPublishStoryCardCoverJPEG = false
+    private(set) var autoStoryModeration = false
+    private(set) var reviewingStoryID: UUID?
+    private var storyModerationResults: [UUID: OiStoryModerationResult] = [:]
 
     var canPlaceOi: Bool { account != nil && !needsReauthentication && !isAccountDeletionPending }
+
+    /// The bundled education page can request only this channel. Tokens and
+    /// public keys stay in native code; no campus mutation is exposed to JS.
+    func educationRequest(_ action: String, values: [String: Any]) async throws -> Any {
+        guard let api else { throw OiServiceError.unavailable }
+        let started = generation
+        let result: Any
+        if action == "identity" {
+            return ["id": (canPlaceOi ? account?.id.uuidString.lowercased() : nil) as Any? ?? NSNull(),
+                    "operator": isOperator, "canWrite": canStartStory]
+        }
+        let accessToken = canPlaceOi ? try await token() : nil
+        guard generation == started else { throw OiServiceError.accountChanged }
+        if action == "rpc" {
+            guard let name = values["name"] as? String,
+                  let payload = values["payload"] as? [String: Any] else { throw OiServiceError.invalidInput }
+            if ["oi_education_mutate", "oi_education_report"].contains(name), accessToken == nil {
+                throw OiServiceError.signInRequired
+            }
+            let data = try await api.educationRPC(name, payload: payload, token: accessToken)
+            result = (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) ?? NSNull()
+        } else if action == "media" || action == "upload" {
+            guard let path = values["path"] as? String, path.count <= 240,
+                  path.range(of: #"^[0-9a-f-]{36}/education/[0-9a-f-]{36}/(photos/[0-9a-f-]{36}\.(jpg|png)|card/[0-9a-f-]{36}(\.png|/(back|front-preview|back-preview)\.png))$"#, options: .regularExpression) != nil else {
+                throw OiServiceError.invalidInput
+            }
+            if action == "media" {
+                result = try await api.signedURL(bucket: "oi-story-media", path: path, token: accessToken).absoluteString
+            } else {
+                guard let accessToken, let mime = values["mime"] as? String,
+                      ["image/png", "image/jpeg"].contains(mime),
+                      let encoded = values["base64"] as? String, encoded.utf8.count <= 11_184_812,
+                      let data = Data(base64Encoded: encoded), !data.isEmpty, data.count <= 8_388_608 else {
+                    throw OiServiceError.invalidInput
+                }
+                try await api.upload(bucket: "oi-story-media", path: path, data: data, contentType: mime, token: accessToken)
+                result = ["uploaded": true]
+            }
+        } else { throw OiServiceError.invalidInput }
+        try Task.checkCancellation()
+        guard generation == started else { throw OiServiceError.accountChanged }
+        return result
+    }
 
     var canStartStory: Bool {
         account != nil && !needsReauthentication && hasLoadedRemote && unapprovedDraftsEnabled
@@ -65,6 +111,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     private var session: OiSession?
     private var refreshTask: Task<OiSession, Error>?
     private var generation = UUID()
+    @ObservationIgnored private let postcardImages = OiPostcardImageCache()
     private var loadSequence = 0
     private var localSignOutWarning: String?
     @ObservationIgnored private var catalogLoadedAt: ContinuousClock.Instant?
@@ -284,6 +331,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     }
 
     private func resetAccountState() {
+        postcardImages.clear()
         generation = UUID(); loadSequence += 1; refreshTask?.cancel(); refreshTask = nil
         profile = nil; ownStories = []; reviewStories = []; profiles = []; media = []
         loadedStories = []; collections = []; favorites = []; collectionCounts = [:]; committedMediaPaths = [:]
@@ -296,6 +344,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         canPublishDuplexCard = false
         canPublishStoryCardCover = false
         canPublishStoryCardCoverJPEG = false
+        autoStoryModeration = false
+        reviewingStoryID = nil; storyModerationResults = [:]; isBusy = false
         localSignOutWarning = nil; loadError = nil; syncWarning = nil; error = nil; revision += 1
     }
 
@@ -530,6 +580,19 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             }
         }
         else { capabilities = nil }
+        var fetchedReviews: [UUID: OiStoryModerationResult]?
+        if capabilities?.autoStoryModeration == true, let accessToken {
+            do {
+                fetchedReviews = try await api.storyModerationResults(token: accessToken)
+                    .reduce(into: [:]) { $0[$1.storyId] = $1 }
+            } catch OiServiceError.signInRequired {
+                throw OiServiceError.signInRequired
+            } catch {
+                if Task.isCancelled || OiServiceFailure.isCancellation(error) { throw error }
+            }
+        } else {
+            fetchedReviews = [:]
+        }
         let resolvedOwner = capabilities?.accountId ?? account?.id
         let members = Set(capabilities?.accountMemberIds ?? resolvedOwner.map { [$0] } ?? [])
         // Only public reference data is cached for timer-driven refreshes.
@@ -597,8 +660,10 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             || !committedMediaPaths.isEmpty || members != accountMemberIDs || recoveryWarning != localRecoveryWarning
         if !catalogIsFresh { catalogLoadedAt = .now }
         schools = fetchedSchools; regions = fetchedRegions; assets = fetchedAssets
+        if loadedStories != published { postcardImages.clear() }
         loadedStories = published
         ownStories = owned
+        if let fetchedReviews { storyModerationResults = fetchedReviews }
         reviewStories = capabilities?.operator == true ? fetched.filter { ["pending","published","hidden"].contains($0.status) } : []
         profile = ownProfile
         profiles = fetchedProfiles; media = fetchedMedia; committedMediaPaths = [:]
@@ -609,6 +674,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         canPublishDuplexCard = capabilities?.duplexStoryCard == true
         canPublishStoryCardCover = capabilities?.storyCardCover == true
         canPublishStoryCardCoverJPEG = canPublishStoryCardCover && capabilities?.storyCardCoverJpeg == true
+        autoStoryModeration = capabilities?.autoStoryModeration == true
         isAccountMergeAvailable = capabilities?.accountMergeEnabled == true; accountMemberIDs = members
         isSchoolProfileAvailable = capabilities?.schoolProfileEnabled == true
         isFarmerOutfitAvailable = capabilities?.farmerOutfitEnabled == true; farmerOutfit = fetchedFarmerOutfit
@@ -696,14 +762,94 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
                             as: OiLiveStory.self) != nil
     }
 
+    func reopenPendingStoryForAIReview(_ story: OiLiveStory) async throws -> OiLiveStory {
+        guard autoStoryModeration, story.status == "pending", story.userId == account?.id else {
+            throw OiServiceError.conflict
+        }
+        let payload: [String: Any] = ["id": story.id.uuidString, "revision": story.revision]
+        guard let reopened = await change("reopen_story", payload: payload, as: OiLiveStory.self) else {
+            throw error.map(OiServiceError.server) ?? .unavailable
+        }
+        guard reopened.id == story.id, reopened.userId == story.userId,
+              reopened.status == "draft", reopened.revision == story.revision + 1 else {
+            throw OiServiceError.conflict
+        }
+        return reopened
+    }
+
     func save(_ draft: OiStoryDraft) async -> OiLiveStory? {
         guard canStartStory else { error = OiServiceError.storyCreationUnavailable.localizedDescription; return nil }
         do { return await change("save_story", payload: try draft.payload(), as: OiLiveStory.self) }
         catch { self.error = error.localizedDescription; return nil }
     }
 
+    func saveDraftForReview(_ record: inout OiLocalDraft, owner: UUID) async throws -> OiLiveStory {
+        let started = generation
+        func checkOwner() throws {
+            try Task.checkCancellation()
+            guard started == generation, account?.id == owner else { throw OiServiceError.accountChanged }
+        }
+        func checkpoint(_ record: OiLocalDraft) async throws {
+            try checkOwner()
+            guard try await drafts.save(record, owner: owner) else { throw OiServiceError.conflict }
+            try checkOwner()
+        }
+        func requireStory(_ story: OiLiveStory?) throws -> OiLiveStory {
+            try checkOwner()
+            guard let story else { throw error.map(OiServiceError.server) ?? .unavailable }
+            return story
+        }
+
+        try checkOwner()
+        let existing = ownStories.first { $0.id == record.id }
+        guard OiCreationAccess.canEdit(status: existing?.status, submitted: record.submitted) else {
+            throw OiServiceError.conflict
+        }
+        try await checkpoint(record)
+        let saved: OiLiveStory
+        if let existing, OiCreationAccess.canRebase(record.draft, to: existing) {
+            saved = existing
+        } else {
+            saved = try requireStory(await save(record.draft))
+        }
+        var current = saved
+        record.draft = OiStoryDraft(story: current)
+        record.version += 1
+        try await checkpoint(record)
+
+        let attached = Set(record.uploadedPhotos).union(mediaPaths(storyID: record.id).compactMap(OiEditingPhoto.localPhotoID(for:)))
+        let removedIDs = record.removedPhotoIDs ?? []
+        for id in record.photos where !attached.contains(id) && !removedIDs.contains(id) {
+            let data = try await localPhoto(id: id, owner: owner)
+            try checkOwner()
+            current = try requireStory(await uploadStoryImage(data, photoID: id, story: current))
+            record.uploadedPhotos.append(id)
+            record.draft.revision = current.revision
+            record.version += 1
+            try await checkpoint(record)
+        }
+        let removedPaths = Set(record.removedMediaPaths ?? [])
+        if !removedPaths.isEmpty || !removedIDs.isEmpty {
+            current = try requireStory(await removeStoryMedia(paths: removedPaths, photoIDs: removedIDs, story: current))
+            record.draft.revision = current.revision
+            record.removedMediaPaths = []
+            record.removedPhotoIDs = []
+            record.version += 1
+            try await checkpoint(record)
+        }
+        if let order = record.photoOrder {
+            current = try requireStory(await reorderStoryMedia(order, story: current))
+            if record.draft.revision != current.revision {
+                record.draft.revision = current.revision
+                record.version += 1
+                try await checkpoint(record)
+            }
+        }
+        return current
+    }
+
     func submitStory(_ story: OiLiveStory, cucumber: OiCucumberPublication? = nil,
-                     card proposedCard: OiStoryCardPublication? = nil) async -> OiLiveStory? {
+                     card proposedCard: OiStoryCardPublication? = nil, agreesToAIReview: Bool = false) async -> OiLiveStory? {
         guard canStartStory else { error = OiServiceError.storyCreationUnavailable.localizedDescription; return nil }
         let card: OiStoryCardPublication?
         do {
@@ -727,19 +873,35 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         }
         guard !isBusy, let api, account?.id == story.userId else { return nil }
         let started = generation
+        let usesAIReview = autoStoryModeration
+        guard usesAIReview == agreesToAIReview else {
+            error = "검토 방식을 다시 확인하고 요청해 주세요."
+            return nil
+        }
+        if usesAIReview {
+            payload["ai_review_consent_version"] = 1
+        }
+        let expectedStatus = usesAIReview ? "draft" : "pending"
         let expectedAppearance = cucumber?.appearance ?? story.cucumberAppearance
         let expectedCard = card?.id ?? story.cardSnapshotId
         let expectedFormat = card?.format ?? story.cardSnapshotFormat ?? 1
         let expectedCoverType = card.map { $0.coverType } ?? story.resolvedCardCoverType
         guard story.hasSupportedCardArtwork else { error = OiServiceError.invalidInput.localizedDescription; return nil }
         func confirmsSubmission(_ result: OiLiveStory) -> Bool {
-            result.id == story.id && result.userId == story.userId && result.status == "pending" &&
+            result.id == story.id && result.userId == story.userId && result.status == expectedStatus &&
             result.revision == story.revision + 1 && result.cucumberAppearance == expectedAppearance &&
             result.cardSnapshotId == expectedCard && (result.cardSnapshotFormat ?? 1) == expectedFormat &&
             result.resolvedCardCoverType == expectedCoverType
         }
+        func isUnavailable(_ error: Error) -> Bool {
+            if case OiServiceError.unavailable = error { return true }
+            return false
+        }
         isBusy = true; error = nil
-        defer { isBusy = false }
+        if usesAIReview { reviewingStoryID = story.id }
+        defer {
+            if started == generation { isBusy = false; reviewingStoryID = nil }
+        }
         do {
             let accessToken = try await token()
             let storageOwner = story.storageOwnerId ?? story.userId
@@ -773,15 +935,52 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             guard started == generation else { throw OiServiceError.accountChanged }
             let receipt: OiLiveStory
             do {
-                receipt = try await api.mutate("submit_story", payload: payload, token: accessToken, as: OiLiveStory.self)
-            } catch URLError.timedOut {
+                if usesAIReview {
+                    let result = try await api.moderateStory(payload, token: accessToken)
+                    guard started == generation, result.storyId == story.id else { throw OiServiceError.accountChanged }
+                    if result.status == .rejected {
+                        guard result.revision == story.revision, let message = result.rejectionMessage else {
+                            throw OiServiceError.unavailable
+                        }
+                        storyModerationResults[story.id] = result
+                        throw OiServiceError.server(message)
+                    }
+                    guard let reviewed = result.story, result.revision == reviewed.revision,
+                          confirmsSubmission(reviewed) else { throw OiServiceError.unavailable }
+                    storyModerationResults[story.id] = result
+                    receipt = reviewed
+                } else {
+                    receipt = try await api.mutate("submit_story", payload: payload, token: accessToken, as: OiLiveStory.self)
+                }
+            } catch let failure where (failure as? URLError)?.code == .timedOut
+                || (usesAIReview && (failure as? URLError)?.code == .networkConnectionLost)
+                || (usesAIReview && isUnavailable(failure)) {
                 let rows = try? await api.rows("oi_stories", query: "id=eq.\(story.id.uuidString)&user_id=eq.\(story.userId.uuidString)",
                                               token: accessToken, as: OiLiveStory.self)
                 try Task.checkCancellation()
-                guard let confirmed = rows?.first, confirmsSubmission(confirmed) else {
+                if usesAIReview {
+                    let results = try? await api.storyModerationResults(token: accessToken)
+                    guard started == generation else { throw OiServiceError.accountChanged }
+                    if let result = results?.first(where: { $0.storyId == story.id }) {
+                        if result.status == .rejected, result.revision == story.revision, let message = result.rejectionMessage {
+                            storyModerationResults[story.id] = result
+                            throw OiServiceError.server(message)
+                        }
+                        if let confirmed = rows?.first, confirmsSubmission(confirmed),
+                           result.status == .approved, result.revision == confirmed.revision {
+                            storyModerationResults[story.id] = result
+                            receipt = confirmed
+                        } else {
+                            throw OiServiceError.server("검수 결과를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.")
+                        }
+                    } else {
+                        throw OiServiceError.server("검수 결과를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.")
+                    }
+                } else if let confirmed = rows?.first, confirmsSubmission(confirmed) {
+                    receipt = confirmed
+                } else {
                     throw OiServiceError.server("검토 요청 접수를 확인하지 못했어요. 연결을 확인하고 다시 요청해 주세요.")
                 }
-                receipt = confirmed
             }
             guard started == generation else { throw OiServiceError.accountChanged }
             guard confirmsSubmission(receipt) else { throw OiServiceError.unavailable }
@@ -792,6 +991,42 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         } catch {
             if started == generation { noteAuthenticationFailure(error); self.error = error.localizedDescription }
             return nil
+        }
+    }
+
+    func moderationResult(for story: OiLiveStory) -> OiStoryModerationResult? {
+        guard story.status == "draft", let result = storyModerationResults[story.id],
+              result.revision == story.revision else { return nil }
+        return result
+    }
+
+    func plantStory(_ story: OiLiveStory) async -> Bool {
+        guard autoStoryModeration, !isBusy, let api, story.userId == account?.id,
+              moderationResult(for: story)?.status == .approved else { return false }
+        let started = generation
+        isBusy = true; error = nil
+        defer { if started == generation { isBusy = false } }
+        do {
+            let accessToken = try await token()
+            let published: OiLiveStory
+            do {
+                published = try await api.plantStory(story, token: accessToken)
+            } catch {
+                let rows = try? await api.rows("oi_stories", query: "id=eq.\(story.id.uuidString)",
+                                              token: accessToken, as: OiLiveStory.self)
+                guard let confirmed = rows?.first, confirmed.status == "published" else { throw error }
+                published = confirmed
+            }
+            guard started == generation else { return false }
+            guard published.id == story.id, published.userId == story.userId, published.status == "published",
+                  published.revision == story.revision + 1 else { throw OiServiceError.unavailable }
+            storyModerationResults[story.id] = nil
+            applyReceipt(published, action: "plant_story", payload: [:])
+            await refreshAfterCommit()
+            return started == generation
+        } catch {
+            if started == generation { noteAuthenticationFailure(error); self.error = error.localizedDescription }
+            return false
         }
     }
 
@@ -1133,6 +1368,29 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         guard started == generation else { throw OiServiceError.accountChanged }
         let image = UIImage(cgImage: try OiPublishedCucumberImage.decode(bytes, part: part))
         if part == .portrait { OiPostcardBackgroundMetadata.remember(png: bytes, image: image) }
+        return image
+    }
+
+    func postcardImage(_ path: String) async throws -> UIImage {
+        guard let api else { throw OiServiceError.configuration }
+        let started = generation
+        let image = try await postcardImages.image(path) { [self] in
+            let accessToken = account == nil ? nil : try await token()
+            return try await api.downloadSignedObject(bucket: OiPublishedCucumberImage.bucket, path: path, token: accessToken)
+        }
+        try Task.checkCancellation()
+        guard generation == started else { throw OiServiceError.accountChanged }
+        return image
+    }
+
+    func postcardPhotoImage(_ path: String, loadURL: @escaping (String) async throws -> URL) async throws -> UIImage {
+        let started = generation
+        let image = try await postcardImages.image("photo/" + path, photo: true) {
+            let url = try await loadURL(path)
+            return try await APIClient(approvedHost: OiServiceAPI.projectHost).send(URLRequest(url: url))
+        }
+        try Task.checkCancellation()
+        guard generation == started else { throw OiServiceError.accountChanged }
         return image
     }
 }

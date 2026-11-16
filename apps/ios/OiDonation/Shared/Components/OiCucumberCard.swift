@@ -28,6 +28,8 @@ struct OiCucumberCard<Portrait: View>: View {
     let donor: String
     let title: String
     var metrics = OiCucumberCardMetrics.standard
+    var selectionOutline: Color?
+    var showsShadow = true
     @ViewBuilder let portrait: () -> Portrait
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -50,7 +52,13 @@ struct OiCucumberCard<Portrait: View>: View {
         .frame(maxWidth: .infinity, minHeight: metrics.cardHeight,
                maxHeight: usesAccessibilityLayout ? nil : metrics.cardHeight, alignment: .leading)
         .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 28))
-        .shadow(color: .black.opacity(0.25), radius: 2)
+        .overlay {
+            if let selectionOutline {
+                RoundedRectangle(cornerRadius: 28).strokeBorder(selectionOutline, lineWidth: 2)
+                    .allowsHitTesting(false)
+            }
+        }
+        .shadow(color: .black.opacity(showsShadow ? 0.25 : 0), radius: 2)
         .contentShape(RoundedRectangle(cornerRadius: 28))
     }
 

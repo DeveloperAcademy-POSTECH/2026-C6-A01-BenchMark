@@ -12,7 +12,7 @@ struct HomeView: View {
     var authoredPlacementToReveal: Binding<UUID?> = .constant(nil)
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var scene = CampusExploreScene()
+    @State private var scene = CampusExploreScene(stillFrameDelay: .seconds(2))
     @State private var region: CampusRegion?
     @State private var sort = CampusStorySort.latest
     @State private var distances: [String: Float] = [:]
@@ -21,7 +21,6 @@ struct HomeView: View {
     @State private var searchResults: Set<String>?
     @State private var isOnScreen = false
     @State private var showingSearchChoice = false
-    @State private var pendingSearchMode: CampusSearchMode?
     @State private var isSearchCoverActive = false
     @State private var searchMode: CampusSearchMode?
     @State private var pendingStoryID: String?
@@ -139,16 +138,19 @@ struct HomeView: View {
                 scene.showOverview()
             }
         }
-        .sheet(isPresented: $showingSearchChoice, onDismiss: {
-            if let pendingSearchMode {
-                isSearchCoverActive = true
-                scene.suspendRendering()
-                searchMode = pendingSearchMode
-                self.pendingSearchMode = nil
+        .accessibilityHidden(showingSearchChoice)
+        .overlay {
+            if showingSearchChoice {
+                CampusSearchChoiceSheet(choose: { mode in
+                    showingSearchChoice = false
+                    isSearchCoverActive = true
+                    scene.suspendRendering()
+                    searchMode = mode
+                }, dismiss: { showingSearchChoice = false })
+                .transition(.opacity)
             }
-        }) {
-            CampusSearchChoiceSheet { pendingSearchMode = $0; showingSearchChoice = false }
         }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: showingSearchChoice)
         .fullScreenCover(item: $searchMode, onDismiss: {
             // Push only after the search cover has gone, so it cannot cover the destination.
             isSearchCoverActive = false
@@ -168,6 +170,21 @@ struct HomeView: View {
             await scene.load()
         }
         .task(id: authoredSource) { await loadAuthoredPlacements(authoredSource) }
+        .task(id: region?.id) {
+            guard let region, let remote else { return }
+            do {
+                try await Task.sleep(for: .milliseconds(2500))
+                guard !ProcessInfo.processInfo.isLowPowerModeEnabled,
+                      ProcessInfo.processInfo.thermalState == .nominal else { return }
+                for story in store.stories(in: region.id, sortedBy: .latest).prefix(1) {
+                    try Task.checkCancellation()
+                    if let path = story.cardArtworkPath { _ = try? await remote.postcardImage(path) }
+                    else if let path = story.remoteMediaPaths.first, let resolver = store.mediaURL {
+                        _ = try? await remote.postcardPhotoImage(path, loadURL: resolver)
+                    }
+                }
+            } catch { }
+        }
         .onAppear {
             pruneAuthoredPlacements(authoredSource)
             isOnScreen = true
@@ -217,7 +234,7 @@ struct HomeView: View {
         }
         scene.onRegion = { selected in
             region = selected; sort = .latest; expanded = false; searchResults = nil
-            scene.focus(selected, stories: store.stories(in: selected.id, sortedBy: .latest))
+            scene.focus(selected, stories: store.stories(in: selected.id, sortedBy: .latest), animated: true)
             distances = scene.distances()
         }
         // Tapping the map outside the list closes it, as the removed back button did (#395).

@@ -1,9 +1,21 @@
 import SwiftUI
 
+private struct OiPlantedStoryRevealKey: EnvironmentKey {
+    static let defaultValue: (@MainActor @Sendable (OiStoryPlantSelection) -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    var revealPlantedStory: (@MainActor @Sendable (OiStoryPlantSelection) -> Void)? {
+        get { self[OiPlantedStoryRevealKey.self] }
+        set { self[OiPlantedStoryRevealKey.self] = newValue }
+    }
+}
+
 struct OiStoryListScreen: View {
     let remote: OiRemoteStore
 
     @State private var localDrafts: [OiLocalDraft] = []
+    @State private var unchangedReviewedDraftIDs: Set<UUID> = []
     @State private var selectedLocalID: UUID?
     @State private var showingSettings = false
     @State private var localError: String?
@@ -14,6 +26,47 @@ struct OiStoryListScreen: View {
     @State private var pendingDeletion: DeletionTarget?
     @State private var deletingID: UUID?
     @State private var deletionError: String?
+    @State private var reviewWork: ReviewWork?
+    @State private var reviewFailure: (id: UUID, message: String)?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.revealPlantedStory) private var revealPlantedStory
+    @State private var plantSelection: OiStoryPlantSelection?
+    @State private var plantingStoryID: UUID?
+    @State private var publicationMessage: String?
+
+    #if DEBUG
+    struct ReviewTestActions {
+        let request: (UUID) -> Void
+        let status: (UUID) -> OiStoryListReviewState
+        let visibleIDs: () -> [UUID]
+        let message: (UUID) -> String?
+        let openPlantPicker: () -> Void
+        let showsPlantPicker: () -> Bool
+        let selectPlantCard: (UUID) -> Void
+        let selectedPlantCard: () -> UUID?
+        let cancelPlantPicker: () -> Void
+        let confirmPlant: () -> Void
+    }
+
+    var onReviewActionsForTest: ((ReviewTestActions) -> Void)?
+    #endif
+
+    private struct ReviewWork {
+        enum Stage {
+            case prepare
+            case capture(owner: UUID, draft: OiLocalDraft, look: OiWardrobeLook, orientation: OiCardOrientation, key: String)
+            case submit(owner: UUID, draft: OiLocalDraft, portrait: Data?)
+        }
+
+        let id = UUID()
+        let storyID: UUID
+        let authorizesAIReview: Bool
+        let stage: Stage
+
+        func advancing(to stage: Stage) -> Self {
+            Self(storyID: storyID, authorizesAIReview: authorizesAIReview, stage: stage)
+        }
+    }
 
     private struct DeletionTarget: Identifiable {
         let id: UUID
@@ -37,20 +90,53 @@ struct OiStoryListScreen: View {
     @State private var selectedStoryID: UUID?
     @State private var showingConsent = false
 
-    var body: some View {
-        OiStoryListView(
-            state: state,
-            seedCount: nil,
-            notices: OiStoryListView.listNotices,
-            guidance: OiStoryListView.listGuidance,
+    private var list: some View {
+        let currentState = state
+        let offersAIReview = remote.autoStoryModeration
+        let visibleState = plantSelection.map { OiStoryListState.content($0.items) } ?? currentState
+        return OiStoryListView(
+            state: visibleState,
+            minimumVisibleSlotCount: plantSelection == nil ? OiStoryListState.draftCapacity : 0,
             onRetry: { Task { await remote.refresh(); await loadLocalDrafts() } },
-            onAddSeed: nil,
-            onSelectStory: selectStory,
+            onSelectStory: handleStoryTap,
             onCreateStory: beginCreatingStory,
-            onUseSeed: nil,
             onDeleteStory: requestDeletion,
-            isDeleting: deletingID != nil || remote.isBusy
+            isDeleting: deletingID != nil || remote.isBusy || reviewWork != nil || plantingStoryID != nil,
+            reviewState: { reviewState(for: $0) },
+            onRequestReview: { requestReview($0, offersAIReview: offersAIReview) },
+            reviewMessage: reviewMessage,
+            onPlant: handlePlantTap,
+            canPlant: remote.autoStoryModeration && canPlant(in: currentState),
+            selectedPlantStoryID: plantSelection?.selectedID,
+            onCancelPlant: cancelPlantAction
         )
+    }
+
+    var body: some View {
+        listWithDraftManagement
+            .alert(publicationMessage ?? "", isPresented: Binding(
+                get: { publicationMessage != nil }, set: { if !$0 { publicationMessage = nil } }
+            )) {
+                Button("확인", role: .cancel) {}
+            }
+            .task(id: reviewWork?.id) {
+                if let work = reviewWork { await performReview(work) }
+            }
+            .overlay(alignment: .topLeading) { reviewPortraitCapture }
+            .onDisappear { reviewWork = nil }
+            #if DEBUG
+            .onAppear {
+                onReviewActionsForTest?(.init(request: { requestReview($0, offersAIReview: remote.autoStoryModeration) }, status: reviewState,
+                    visibleIDs: { state.items.map(\.id) }, message: reviewMessage,
+                    openPlantPicker: selectStoryToPlant, showsPlantPicker: { plantSelection != nil },
+                    selectPlantCard: selectPlantCard, selectedPlantCard: { plantSelection?.selectedID },
+                    cancelPlantPicker: cancelPlantSelection, confirmPlant: confirmPlant))
+            }
+            #endif
+    }
+
+    private var listWithDraftManagement: some View {
+        list
         .task(id: DraftLoadKey(owner: remote.account?.id, revision: remote.revision,
                                placementRevision: remote.localPlacementRevision)) {
             await loadLocalDrafts()
@@ -61,6 +147,11 @@ struct OiStoryListScreen: View {
             showingConsent = false
             pendingDeletion = nil
             deletionError = nil
+            reviewWork = nil
+            reviewFailure = nil
+            plantSelection = nil
+            plantingStoryID = nil
+            publicationMessage = nil
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             if let owner = remote.account?.id, loadedDraftOwner == owner, unreadableDraftCount > 0 || pendingDiscardCount > 0 {
@@ -112,30 +203,315 @@ struct OiStoryListScreen: View {
 
     }
 
+    private func requestReview(_ id: UUID, offersAIReview: Bool) {
+        let status = reviewState(for: id)
+        guard reviewWork == nil, !remote.isBusy, deletingID == nil,
+              state.items.contains(where: { $0.id == id }),
+              status == .unreviewed || status == .rejected else { return }
+        reviewFailure = nil
+        reviewWork = ReviewWork(storyID: id, authorizesAIReview: offersAIReview, stage: .prepare)
+    }
+
+    private func performReview(_ work: ReviewWork) async {
+        guard let owner = remote.account?.id else { reviewWork = nil; return }
+        do {
+            switch work.stage {
+            case .prepare:
+                try await prepareReview(work, owner: owner)
+            case .capture:
+                break
+            case .submit(let preparedOwner, var draft, let portrait):
+                guard preparedOwner == owner else { throw OiServiceError.accountChanged }
+                try await submitReview(work, owner: owner, draft: &draft, portrait: portrait)
+            }
+        } catch {
+            guard !Task.isCancelled, reviewWork?.id == work.id, remote.account?.id == owner else { return }
+            reviewFailure = (work.storyID, error.localizedDescription)
+            await loadLocalDrafts()
+            if reviewWork?.id == work.id { reviewWork = nil }
+        }
+    }
+
+    private func prepareReview(_ work: ReviewWork, owner: UUID) async throws {
+        guard remote.canStartStory else { throw OiServiceError.storyCreationUnavailable }
+        guard remote.canPublishDuplexCard, remote.canPublishStoryCard else {
+            throw OiServiceError.server("서버가 양면 카드 공개를 지원하면 다시 요청해 주세요.")
+        }
+        let story = remote.ownStories.first { $0.id == work.storyID }
+        let local = try await remote.localDraft(id: work.storyID, owner: owner)
+        try Task.checkCancellation()
+        guard reviewWork?.id == work.id else { return }
+        if work.authorizesAIReview, remote.autoStoryModeration, let story, story.status == "pending" {
+            try await submitLegacyReview(work, story: story, owner: owner, originalLocal: local)
+            return
+        }
+        guard let draft = local ?? story.map({ OiLocalDraft(draft: OiStoryDraft(story: $0)) }),
+              OiCreationAccess.canEdit(status: story?.status, submitted: draft.submitted) else { throw OiServiceError.conflict }
+        guard OiStoryConsentState(savedIDs: draft.agreedConsentClauseIDs ?? []).allRequiredClausesAreAgreed else {
+            throw OiServiceError.server("오이를 눌러 필수 약관에 동의해 주세요.")
+        }
+        let photos = OiEditingPhoto.ordered(local: draft.photos, remote: remote.mediaPaths(storyID: work.storyID),
+            removed: draft.removedMediaPaths ?? [], removedPhotoIDs: draft.removedPhotoIDs ?? [])
+        if let issue = OiCreationStep.reviewInputIssues(draft: draft.draftWithSavedLocation, photoCount: photos.count).first {
+            throw OiServiceError.server(issue.message)
+        }
+        if draft.customization?.wardrobe != nil && !remote.canPublishCucumberAppearance {
+            throw OiServiceError.server("서버가 꾸민 오이 공개를 지원하면 다시 요청해 주세요.")
+        }
+
+        if let look = draft.customization?.wardrobe {
+            let card = draft.customization?.card
+            let orientation = card?.characterOrientation ?? OiCardOrientation()
+            let key = OiCardPortrait.key(for: look) + "-angle-" + orientation.cacheIdentity
+            if card?.portraitKey == key, let bytes = card?.portraitPNG,
+               let decoded = try? OiPublishedCucumberImage.decode(bytes, part: .portrait),
+               OiPortraitMatte.hasTransparentBackground(UIImage(cgImage: decoded)) {
+                reviewWork = work.advancing(to: .submit(owner: owner, draft: draft, portrait: bytes))
+            } else {
+                reviewWork = work.advancing(to: .capture(owner: owner, draft: draft, look: look, orientation: orientation, key: key))
+            }
+        } else {
+            reviewWork = work.advancing(to: .submit(owner: owner, draft: draft, portrait: nil))
+        }
+    }
+
+    private func submitLegacyReview(_ work: ReviewWork, story: OiLiveStory, owner: UUID,
+                                    originalLocal: OiLocalDraft?) async throws {
+        // The manual submission already has its public photos and appearance attached.
+        let card = story.cardSnapshotId == nil
+            ? try await reviewCard(for: OiStoryDraft(story: story), customization: OiDraftCustomization(), portrait: nil, story: nil)
+            : nil
+        try Task.checkCancellation()
+        let reopened = try await remote.reopenPendingStoryForAIReview(story)
+        try Task.checkCancellation()
+        guard reviewWork?.id == work.id, remote.account?.id == owner else { return }
+        let receipt = await remote.submitStory(reopened, card: card, agreesToAIReview: work.authorizesAIReview)
+        try Task.checkCancellation()
+        guard reviewWork?.id == work.id, remote.account?.id == owner else { return }
+        let rejected = remote.moderationResult(for: reopened)?.status == .rejected
+        if var local = try await remote.localDraft(id: story.id, owner: owner),
+           local.version == originalLocal?.version, local.contentFingerprint == originalLocal?.contentFingerprint,
+           OiCreationAccess.canRebase(local.draft, to: reopened) {
+            local.draft = OiStoryDraft(story: receipt ?? reopened)
+            local.submitted = false
+            local.reviewedContentFingerprint = receipt != nil || rejected ? local.contentFingerprint : nil
+            local.version += 1
+            try await remote.saveLocalDraft(local, owner: owner)
+        }
+        guard receipt != nil || rejected else {
+            throw OiServiceError.server(remote.error ?? "검토 요청을 확인하지 못했어요. 다시 시도해 주세요.")
+        }
+        await loadLocalDrafts()
+        if reviewWork?.id == work.id { reviewWork = nil }
+    }
+
+    @ViewBuilder private var reviewPortraitCapture: some View {
+        if let work = reviewWork, case .capture(let owner, let draft, let look, let orientation, let key) = work.stage {
+            OiCardPortraitCapture(look: look, cacheKey: key, orientation: orientation, onCapture: { bytes, _ in
+                guard reviewWork?.id == work.id else { return }
+                reviewWork = work.advancing(to: .submit(owner: owner, draft: draft, portrait: bytes))
+            }, onFailure: {
+                guard reviewWork?.id == work.id else { return }
+                reviewFailure = (work.storyID, "꾸민 오이의 이미지를 준비하지 못했어요. 다시 검토를 요청해 주세요.")
+                reviewWork = nil
+            })
+            .frame(width: 112, height: 142)
+            .opacity(0.001)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .id(work.id)
+        }
+    }
+
+    private func submitReview(_ work: ReviewWork, owner: UUID, draft: inout OiLocalDraft, portrait: Data?) async throws {
+        let customization = draft.customization ?? OiDraftCustomization()
+        let cucumber: OiCucumberPublication?
+        if let look = customization.wardrobe {
+            guard let portrait else { throw OiPhotoDataError.unreadable }
+            cucumber = try OiCucumberPublication(look: look, portrait: portrait)
+        } else { cucumber = nil }
+        let existing = remote.ownStories.first { $0.id == work.storyID }
+        let reviewDraft = draft.draftWithSavedLocation
+        let card = try await reviewCard(for: reviewDraft, customization: customization, portrait: portrait, story: existing)
+        let current = try await remote.localDraft(id: work.storyID, owner: owner)
+        guard current?.contentFingerprint == draft.contentFingerprint,
+              current?.agreedConsentClauseIDs == draft.agreedConsentClauseIDs,
+              (current?.version ?? 0) <= draft.version else { throw OiServiceError.conflict }
+        draft.draft = reviewDraft
+        let saved = try await remote.saveDraftForReview(&draft, owner: owner)
+        try Task.checkCancellation()
+        guard reviewWork?.id == work.id, remote.account?.id == owner else { return }
+        let receipt = await remote.submitStory(saved, cucumber: cucumber, card: card, agreesToAIReview: work.authorizesAIReview)
+        try Task.checkCancellation()
+        guard reviewWork?.id == work.id, remote.account?.id == owner else { return }
+        if let receipt {
+            draft.draft = OiStoryDraft(story: receipt)
+            draft.submitted = receipt.status == "pending"
+        } else if remote.moderationResult(for: saved)?.status != .rejected {
+            throw OiServiceError.server(remote.error ?? "검토 요청을 확인하지 못했어요. 다시 시도해 주세요.")
+        }
+        draft.reviewedContentFingerprint = draft.submitted ? nil : draft.contentFingerprint
+        draft.version += 1
+        try await remote.saveLocalDraft(draft, owner: owner)
+        await loadLocalDrafts()
+        if reviewWork?.id == work.id { reviewWork = nil }
+    }
+
+    private func reviewCard(for draft: OiStoryDraft, customization: OiDraftCustomization, portrait: Data?,
+                            story: OiLiveStory?) async throws -> OiStoryCardPublication {
+        let author = remote.profile?.publicName ?? ""
+        if customization == OiDraftCustomization(), let story, let path = story.cardArtworkPath {
+            let front = try await remote.cucumberImage(path)
+            let type = story.resolvedCardCoverType ?? .png
+            let cover: Data?
+            if remote.canPublishStoryCardCover, story.cardSnapshotFormat == 3, let path = story.cardArtworkPaths.last {
+                cover = try await remote.storyCoverData(path, type: type)
+            } else { cover = nil }
+            return try OiCardImageExport.publication(front: front, message: draft.body, author: author,
+                academicAuthor: OiPostcardAuthor.academic(department: remote.profile?.department, year: remote.profile?.admissionYear),
+                cover: cover, coverType: type)
+        }
+        let preview = OiDraftCardPreview(draft: draft, customization: customization, donorName: author,
+                                         portrait: portrait.flatMap(UIImage.init(data:)))
+        return try preview.publication(colorScheme: .light, includeCover: remote.canPublishStoryCardCover,
+            coverType: remote.canPublishStoryCardCoverJPEG ? .jpeg : .png)
+    }
+
     private var state: OiStoryListState {
-        guard remote.account != nil else { return .empty }
-        let drafts = (loadedDraftOwner == remote.account?.id ? localDrafts : []).filter { record in
-            !record.submitted && !remote.ownStories.contains { $0.id == record.id }
-        }
-        if let error = (loadedDraftOwner == remote.account?.id ? localError : nil) ?? remote.loadError,
-           !remote.ownStories.contains(where: { $0.status == "draft" }) && drafts.isEmpty { return .failure(error) }
-        if !remote.hasLoadedRemote && drafts.isEmpty { return .loading }
+        guard let owner = remote.account?.id else { return .empty }
+        let drafts = loadedDraftOwner == owner ? localDrafts : []
+        let localIDs = Set(drafts.map(\.id))
+        let storiesByID = Dictionary(uniqueKeysWithValues: remote.ownStories.map { ($0.id, $0) })
         let donorName = donorLine
-        // Only saved drafts belong here; stories sent for review or published are not listed (#368).
-        let serverItems = remote.ownStories.filter { $0.status == "draft" }.map { story in
-            OiStoryListItem(story: story, donorDisplayName: donorName,
-                locationDisplayName: locationDisplayName(for: story.regionId))
+        func serverItem(_ story: OiLiveStory, portrait: Data? = nil) -> OiStoryListItem? {
+            guard story.status == "draft" || story.status == "pending" else { return nil }
+            return OiStoryListItem(story: story, portraitPNG: portrait,
+                donorDisplayName: donorName, locationDisplayName: locationDisplayName(for: story.regionId))
         }
-        let localItems = drafts.map { record in
-            OiStoryListItem(id: record.id, cucumberName: record.personalPlacement?.name ?? record.draft.cucumberName.nonEmpty ?? "작성 중인 오이",
+        let localItems = drafts.compactMap { record -> OiStoryListItem? in
+            let portrait = record.customization?.card?.portraitPNG
+            // A server receipt updates the existing row without moving it out of its local slot.
+            if let story = storiesByID[record.id] { return serverItem(story, portrait: portrait) }
+            guard !record.submitted else { return nil }
+            return OiStoryListItem(id: record.id, cucumberName: record.personalPlacement?.name ?? record.draft.cucumberName.nonEmpty ?? "작성 중인 오이",
                 title: record.draft.title, cucumberAsset: record.draft.cucumberAsset,
-                portraitPNG: record.customization?.card?.portraitPNG, donorDisplayName: donorName,
+                portraitPNG: portrait, donorDisplayName: donorName,
                 locationDisplayName: record.personalPlacement == nil ? "이 기기에 보관한 초안" : "내 지도에 배치됨",
                 tags: [record.draft.emotion, record.draft.theme].filter { !$0.isEmpty },
                 dateLabel: record.personalPlacement == nil ? "작성 중" : "나만 보기")
         }
-        let items = Array((localItems + serverItems).prefix(OiStoryListState.draftCapacity))
-        return items.isEmpty ? .empty : .content(items)
+        let serverItems = remote.ownStories.compactMap { localIDs.contains($0.id) ? nil : serverItem($0) }
+        var remainingDrafts = OiStoryListState.draftCapacity
+        let items = (localItems + serverItems).filter { item in
+            if storiesByID[item.id]?.status == "pending" { return true }
+            guard remainingDrafts > 0 else { return false }
+            remainingDrafts -= 1
+            return true
+        }
+        if !items.isEmpty { return .content(items) }
+        if let error = (loadedDraftOwner == owner ? localError : nil) ?? remote.loadError { return .failure(error) }
+        return remote.hasLoadedRemote ? .empty : .loading
+    }
+
+    private func reviewState(for id: UUID) -> OiStoryListReviewState {
+        if reviewWork?.storyID == id || remote.reviewingStoryID == id { return .reviewing }
+        guard let story = remote.ownStories.first(where: { $0.id == id }) else { return .unreviewed }
+        if story.status == "pending" { return remote.autoStoryModeration ? .unreviewed : .reviewing }
+        guard let review = remote.moderationResult(for: story) else { return .unreviewed }
+        if loadedDraftOwner == remote.account?.id,
+           let local = localDrafts.first(where: { $0.id == id }),
+           local.draft.revision != story.revision || !unchangedReviewedDraftIDs.contains(id) {
+            return .unreviewed
+        }
+        return review.status == .approved ? .approved : .rejected
+    }
+
+    private func canPlant(in state: OiStoryListState) -> Bool {
+        if let selection = plantSelection { return reviewState(for: selection.selectedID) == .approved }
+        return state.items.contains { reviewState(for: $0.id) == .approved }
+    }
+
+    private var cancelPlantAction: (() -> Void)? {
+        guard plantSelection != nil else { return nil }
+        return { cancelPlantSelection() }
+    }
+
+    private func handleStoryTap(_ id: UUID) {
+        if plantSelection == nil { selectStory(id: id) }
+        else { selectPlantCard(id) }
+    }
+
+    private func handlePlantTap() {
+        if plantSelection == nil { selectStoryToPlant() }
+        else { confirmPlant() }
+    }
+
+    private func selectStoryToPlant() {
+        guard remote.autoStoryModeration, plantSelection == nil, !remote.isBusy, reviewWork == nil else { return }
+        let items = state.items.filter { reviewState(for: $0.id) == .approved }
+        guard let first = items.first else { return }
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.1)) {
+            plantSelection = OiStoryPlantSelection(items: items, selectedID: first.id)
+        }
+    }
+
+    private func selectPlantCard(_ id: UUID) {
+        guard plantingStoryID == nil, let selection = plantSelection, selection.selectedID != id,
+              selection.items.contains(where: { $0.id == id }), reviewState(for: id) == .approved else { return }
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.3)) {
+            plantSelection?.selectedID = id
+        }
+    }
+
+    private func cancelPlantSelection() {
+        guard plantingStoryID == nil else { return }
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.1)) { plantSelection = nil }
+    }
+
+    private func confirmPlant() {
+        guard remote.autoStoryModeration, !remote.isBusy, plantingStoryID == nil, let selection = plantSelection,
+              reviewState(for: selection.selectedID) == .approved,
+              let story = remote.ownStories.first(where: { $0.id == selection.selectedID }) else { return }
+        plantingStoryID = story.id
+        Task {
+            await plant(story, selection: selection)
+            if plantingStoryID == story.id { plantingStoryID = nil }
+        }
+    }
+
+    private func plant(_ story: OiLiveStory, selection: OiStoryPlantSelection) async {
+        guard let owner = remote.account?.id else { return }
+        do {
+            let current = try await remote.localDraft(id: story.id, owner: owner)
+            guard owner == remote.account?.id else { return }
+            if let current, current.draft.revision != story.revision || !current.matchesReviewedContent {
+                publicationMessage = "내용이 바뀌었어요. 다시 검토해 주세요."
+                await loadLocalDrafts()
+                return
+            }
+        } catch {
+            publicationMessage = error.localizedDescription
+            return
+        }
+        let published = await remote.plantStory(story)
+        guard owner == remote.account?.id else { return }
+        if published {
+            if let revealPlantedStory {
+                revealPlantedStory(selection)
+            } else {
+                plantSelection = nil
+                publicationMessage = "이야기가 등록됐어요"
+            }
+        } else {
+            publicationMessage = remote.error ?? "현재 이야기를 다시 검토해 주세요."
+        }
+    }
+
+    private func reviewMessage(_ id: UUID) -> String? {
+        if reviewFailure?.id == id { return reviewFailure?.message }
+        guard reviewState(for: id) == .rejected,
+              let story = remote.ownStories.first(where: { $0.id == id }) else { return nil }
+        return remote.moderationResult(for: story)?.rejectionMessage
     }
 
     private func loadLocalDrafts() async {
@@ -144,6 +520,7 @@ struct OiStoryListScreen: View {
         guard let owner = remote.account?.id else {
             loadedDraftOwner = nil
             localDrafts = []
+            unchangedReviewedDraftIDs = []
             unreadableDraftCount = 0
             pendingDiscardCount = 0
             localError = nil
@@ -154,6 +531,7 @@ struct OiStoryListScreen: View {
             guard !Task.isCancelled, draftLoadAttempt == attempt, remote.account?.id == owner else { return }
             loadedDraftOwner = owner
             localDrafts = listing.drafts
+            unchangedReviewedDraftIDs = Set(listing.drafts.filter(\.matchesReviewedContent).map(\.id))
             unreadableDraftCount = listing.unreadableFiles.count
             pendingDiscardCount = listing.pendingDiscardCount
             localError = nil
@@ -161,6 +539,7 @@ struct OiStoryListScreen: View {
             guard !Task.isCancelled, draftLoadAttempt == attempt, remote.account?.id == owner else { return }
             if loadedDraftOwner != owner {
                 localDrafts = []
+                unchangedReviewedDraftIDs = []
                 unreadableDraftCount = 0
                 pendingDiscardCount = 0
             }

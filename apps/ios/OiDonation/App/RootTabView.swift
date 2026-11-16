@@ -15,7 +15,11 @@ struct RootTabView: View {
     @State private var pendingStoryList = false
     /// 수집하기 pressed over the AR camera: the scratch screen opens once the camera closes.
     @State private var pendingScratchStoryID: String?
+    @State private var plantedSelectionCover: OiStoryPlantSelection?
+    @State private var plantedSelectionOpacity = 1.0
+    @State private var showingPlantConfirmation = false
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(container: AppContainer = .pilot, remote: OiRemoteStore? = nil) {
         self.container = container
@@ -77,6 +81,10 @@ struct RootTabView: View {
             }
         }
         .tint(.black)
+        .overlay { plantedSelectionOverlay }
+        .alert("이야기가 등록됐어요", isPresented: $showingPlantConfirmation) {
+            Button("확인", role: .cancel) {}
+        }
         .onChange(of: OiContentSafetyStore.shared.authors) { _, _ in
             synchronizeRemote()
             if let photoSubject, let author = store.story(photoSubject.id.uuidString)?.authorID,
@@ -85,6 +93,8 @@ struct RootTabView: View {
         .onChange(of: remote.revision) { _, _ in synchronizeRemote() }
         .onChange(of: remote.account?.id) { _, _ in
             authoredPlacementToReveal = nil
+            plantedSelectionCover = nil
+            showingPlantConfirmation = false
             myDemo.resetFilters()
         }
         .onReceive(NotificationCenter.default.publisher(for: ASAuthorizationAppleIDProvider.credentialRevokedNotification)) { _ in
@@ -110,9 +120,7 @@ struct RootTabView: View {
             store.showAuthoredPlacementAction = { id in
                 // Home resolves this navigation intent against the current account's placements.
                 guard remote.canPlaceOi else { return }
-                authoredPlacementToReveal = id
-                showingStoryList = false
-                path = NavigationPath()
+                revealPlacement(id)
             }
             store.mediaURL = { path in try await remote.mediaURL(bucket: "oi-story-media", path: path) }
             myDemo.campusStore = store
@@ -144,7 +152,51 @@ struct RootTabView: View {
         }
         .environment(remote)
         .environment(store)
+        .environment(\.revealPlantedStory, revealPlantedPlacement)
         .environment(\.campusCucumberPortraitLoader, { try await remote.cucumberImage($0) })
+    }
+
+    private func revealPlacement(_ id: UUID) {
+        authoredPlacementToReveal = id
+        showingStoryList = false
+        path = NavigationPath()
+    }
+
+    private func revealPlantedPlacement(_ selection: OiStoryPlantSelection) {
+        guard remote.canPlaceOi else { return }
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            plantedSelectionOpacity = 1
+            plantedSelectionCover = reduceMotion ? nil : selection
+            revealPlacement(selection.selectedID)
+        }
+        if reduceMotion { showingPlantConfirmation = true }
+    }
+
+    @ViewBuilder private var plantedSelectionOverlay: some View {
+        if let selection = plantedSelectionCover {
+            NavigationStack {
+                OiStoryListView(state: .content(selection.items), minimumVisibleSlotCount: 0,
+                    reviewState: { _ in .approved }, onPlant: {}, canPlant: true,
+                    selectedPlantStoryID: selection.selectedID, onCancelPlant: {})
+            }
+            .opacity(plantedSelectionOpacity)
+            .accessibilityHidden(true)
+            .allowsHitTesting(false)
+            .task(id: selection.selectedID) {
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                // Figma 6101:9395 dissolves to the map over 300 ms after a successful planting.
+                withAnimation(.easeInOut(duration: 0.3), completionCriteria: .removed) {
+                    plantedSelectionOpacity = 0
+                } completion: {
+                    guard plantedSelectionCover?.selectedID == selection.selectedID else { return }
+                    plantedSelectionCover = nil
+                    showingPlantConfirmation = true
+                }
+            }
+        }
     }
 
     private func synchronizeRemote() {

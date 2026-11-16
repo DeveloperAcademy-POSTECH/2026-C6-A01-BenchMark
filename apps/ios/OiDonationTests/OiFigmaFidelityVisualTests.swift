@@ -46,7 +46,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             let home = HomeView(container: .pilot, store: store, myDemo: MYLibraryStore(),
                 isCameraCoverActive: false, onOpenProfile: {}, onOpenStory: { _ in }, remote: remote)
             try await capture(NavigationStack { home.environment(\.scenePhase, .active) }, name: "campus-map-polish", variant: variant,
-                defaults: fixture.defaults, delay: .seconds(2), attach: true, includesRealityKit: true, waitsForCampus: true)
+                defaults: fixture.defaults, delay: .seconds(2), attach: true, waitsForStillMap: true)
         }
     }
 
@@ -729,7 +729,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         _ = try render(style, name: "card-regions-pattern-character")
     }
 
-    func testPostcardPublicationAndDraftCompatibility() throws {
+    func testPostcardPublicationAndDraftCompatibility() async throws {
         var style = Self.customization
         style.showsCharacter = false
         style.card = OiCardDesign()
@@ -744,6 +744,12 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(image.cgImage?.width, 1086)
         XCTAssertEqual(image.cgImage?.height, 1506)
         XCTAssertTrue(OiPostcardSnapshot.isPostcard(image), "The scalloped edge must stay transparent in the public PNG")
+        let prepared = try await OiPostcardImageCache().image("local-published-front") { publication.png }
+        XCTAssertTrue(OiPostcardSnapshot.isPostcard(prepared), "Display preparation must preserve the actual scalloped postcard classification")
+        XCTAssertEqual(prepared.cgImage?.width, image.cgImage?.width)
+        XCTAssertEqual(prepared.cgImage?.height, image.cgImage?.height)
+        XCTAssertEqual(OiPostcardSnapshot.color(prepared, x: 0.05, y: 0.10),
+                       OiPostcardSnapshot.color(image, x: 0.05, y: 0.10))
         XCTAssertNotNil(OiPostcardSnapshot.color(image, x: 0.05, y: 0.10))
         let opaque = UIGraphicsImageRenderer(size: CGSize(width: 362, height: 502)).image { c in
             UIColor.white.setFill(); c.fill(CGRect(x: 0, y: 0, width: 362, height: 502))
@@ -1740,8 +1746,6 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         for variant in variants {
             let reference = NavigationStack {
                 OiStoryListView(state: .preview, seedCount: 3,
-                    notices: OiStoryListView.listNotices,
-                    guidance: OiStoryListView.listGuidance,
                     onAddSeed: {}, onCreateStory: {}, onUseSeed: {})
             }
             try await capture(reference, name: "story-list-seed-reference", variant: variant,
@@ -2361,7 +2365,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                     }
                 try await capture(view, name: expanded ? "card-requests-glass-large" : "card-requests-glass-medium",
                     variant: variant, defaults: fixture.defaults, delay: .seconds(1), attach: true,
-                    checksBottomSheet: true, includesRealityKit: true, waitsForCampus: true,
+                    checksBottomSheet: true, waitsForStillMap: true,
                     sheetDetent: expanded ? .large : .medium)
             }
         }
@@ -3237,7 +3241,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                                  includesSafeArea: Bool = true,
                                  delay: Duration = .milliseconds(180), attach: Bool = false,
                                  checksBottomSheet: Bool = false, cucumberCameraYaw: Float? = nil,
-                                 includesRealityKit: Bool = false, waitsForCampus: Bool = false,
+                                 includesRealityKit: Bool = false, waitsForStillMap: Bool = false,
                                  sheetDetent: UISheetPresentationController.Detent.Identifier? = nil) async throws -> Data {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
@@ -3306,16 +3310,17 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             XCTAssertLessThanOrEqual(frame.maxY, bounds.maxY + 1)
             XCTAssertGreaterThanOrEqual(frame.maxY, bounds.maxY - 34, "Native inset sheets must stay near the bottom edge")
         }
-        if waitsForCampus {
+        if waitsForStillMap {
             func ready(in view: UIView) -> Bool {
-                if let canvas = view as? CampusMapCanvas {
-                    return canvas.map?.scene.findEntity(named: "POSTECH v09 apricot cream copy") != nil
+                guard let canvas = view as? CampusMapCanvas else {
+                    return view.subviews.contains(where: ready)
                 }
-                return view.subviews.contains { ready(in: $0) }
+                guard let map = canvas.map, map.superview == nil,
+                      map.scene.findEntity(named: "POSTECH v09 apricot cream copy") != nil else { return false }
+                return canvas.subviews.contains { ($0 as? UIImageView)?.image != nil }
             }
             for _ in 0..<150 where !ready(in: host.view) { try await Task.sleep(for: .milliseconds(100)) }
-            XCTAssertTrue(ready(in: host.view), "The home capture must contain the loaded campus, not its spinner")
-            try await Task.sleep(for: .milliseconds(150))
+            XCTAssertTrue(ready(in: host.view), "The home capture must contain the idle campus frame")
         }
         let renderView: UIView = checksBottomSheet ? window : host.view
         // UIKit omits Metal layers. Temporarily display each surface's own snapshot

@@ -163,20 +163,35 @@ export function analyzeDocument(options: DocumentAnalysisInput): Promise<Assessm
   });
 }
 
-export async function requestDocumentAnalysis<T>(options: DocumentAnalysisInput, format: {
+type StructuredAnalysisFormat<T> = {
   instructions: string;
-  prompt: string;
   name: string;
   schema: object;
   parse: (value: unknown) => T;
   maxOutputTokens?: number;
-}): Promise<T> {
+};
+
+type AnalysisContent =
+  | { type: "input_text"; text: string }
+  | { type: "input_image"; image_url: string; detail: "high" }
+  | { type: "input_file"; filename: string; file_data: string };
+
+export async function requestDocumentAnalysis<T>(options: DocumentAnalysisInput,
+  format: StructuredAnalysisFormat<T> & { prompt: string }): Promise<T> {
   const mime = documentType(options.bytes, options.contentType);
-  if (!options.apiKey.trim()) throw new AnalysisError(503, "analysis_not_configured");
   const data = `data:${mime};base64,${base64(options.bytes)}`;
-  const attachment = mime === "application/pdf"
+  const attachment: AnalysisContent = mime === "application/pdf"
     ? { type: "input_file", filename: "evidence.pdf", file_data: data }
     : { type: "input_image", image_url: data, detail: "high" };
+  return requestStructuredAnalysis(options, format, [{ type: "input_text", text: format.prompt }, attachment]);
+}
+
+export async function requestStructuredAnalysis<T>(
+  options: Omit<DocumentAnalysisInput, "bytes" | "contentType">,
+  format: StructuredAnalysisFormat<T>,
+  content: AnalysisContent[],
+): Promise<T> {
+  if (!options.apiKey.trim()) throw new AnalysisError(503, "analysis_not_configured");
   let response: Response;
   try {
     response = await (options.fetcher ?? fetch)("https://api.openai.com/v1/responses", {
@@ -184,10 +199,7 @@ export async function requestDocumentAnalysis<T>(options: DocumentAnalysisInput,
       headers: { Authorization: `Bearer ${options.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: options.model ?? DEFAULT_MODEL, store: false, max_output_tokens: format.maxOutputTokens ?? 2400,
-        instructions: format.instructions, input: [{ role: "user", content: [
-          { type: "input_text", text: format.prompt },
-          attachment,
-        ] }],
+        instructions: format.instructions, input: [{ role: "user", content }],
         text: { format: { type: "json_schema", name: format.name, strict: true, schema: format.schema } },
       }),
     });

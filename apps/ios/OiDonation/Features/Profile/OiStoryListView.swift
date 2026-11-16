@@ -8,8 +8,6 @@ struct OiStoryListView: View {
     var minimumVisibleSlotCount = OiStoryListState.draftCapacity
     // nil means the seed balance has not been connected; it is not a zero balance.
     var seedCount: Int?
-    var notices: [String] = []
-    var guidance: String?
     var onRetry: () -> Void = {}
     var onAddSeed: (() -> Void)?
     var onSelectStory: ((UUID) -> Void)?
@@ -17,8 +15,15 @@ struct OiStoryListView: View {
     var onUseSeed: (() -> Void)?
     var onDeleteStory: ((UUID) -> Void)?
     var isDeleting = false
+    var reviewState: (UUID) -> OiStoryListReviewState = { _ in .unreviewed }
+    var onRequestReview: ((UUID) -> Void)?
+    var reviewMessage: (UUID) -> String? = { _ in nil }
+    var onPlant: (() -> Void)?
+    var canPlant = false
+    var selectedPlantStoryID: UUID?
+    var onCancelPlant: (() -> Void)?
 
-    @State private var listHeight: CGFloat = 0
+    @State private var showsProductionRules = false
 
     var body: some View {
         Group {
@@ -45,14 +50,18 @@ struct OiStoryListView: View {
                 Button {
                     dismiss()
                 } label: {
-                    Image(systemName: "chevron.left")
+                    Image(systemName: "xmark")
                         .font(.system(size: 19, weight: .semibold))
                         .foregroundStyle(.primary)
                 }
                 .buttonBorderShape(.circle)
                 .controlSize(.large)
-                .accessibilityLabel("뒤로")
+                .opacity(isSelectingPlant ? 0 : 1)
+                .disabled(isSelectingPlant)
+                .accessibilityHidden(isSelectingPlant)
+                .accessibilityLabel("닫기")
             }
+            .sharedBackgroundVisibility(.hidden)
 
             ToolbarItem(placement: .topBarTrailing) {
                 if let onAddSeed {
@@ -67,7 +76,13 @@ struct OiStoryListView: View {
                 footer
             }
         }
-        .background(Color(.systemBackground).ignoresSafeArea())
+        .background(screenBackground.ignoresSafeArea())
+    }
+
+    private var isSelectingPlant: Bool { onCancelPlant != nil }
+
+    private var screenBackground: Color {
+        isSelectingPlant ? Color(oiRGB: 0xe7eecc) : Color(.systemBackground)
     }
 
     private var showsStoryChrome: Bool {
@@ -80,25 +95,31 @@ struct OiStoryListView: View {
     }
 
     private var storySlots: some View {
+        let slots = state.slots(minimumVisibleCount: minimumVisibleSlotCount)
+        return ScrollViewReader { scroll in
+            storyList(slots)
+                .onChange(of: isSelectingPlant) { _, _ in
+                    if let first = slots.first { scroll.scrollTo(first.id, anchor: .top) }
+                }
+        }
+    }
+
+    private func storyList(_ slots: [OiStoryListSlot]) -> some View {
         List {
-            if let guidance {
-                Text(guidance).font(CampusStyle.semibold(15)).tracking(0.3)
-                    .foregroundStyle(Color("OiGreen"))
-                    .multilineTextAlignment(.center)
-                    .lineLimit(usesAccessibilityLayout ? nil : 1)
-                    .minimumScaleFactor(usesAccessibilityLayout ? 1 : 0.8)
-                    .frame(maxWidth: .infinity, minHeight: Layout.guidanceHeight)
-                    // 18pt to the first card together with the card row's top inset.
-                    .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: Layout.guidanceGap - metrics.gap / 2, trailing: 20))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-            }
-            ForEach(state.slots(minimumVisibleCount: minimumVisibleSlotCount)) { slot in
+            ForEach(slots) { slot in
                 Group {
                     if let item = slot.item {
-                        storySlot(item)
+                        VStack(spacing: 0) {
+                            storySlot(item)
+                            if onRequestReview != nil || isSelectingPlant {
+                                reviewRow(item.id, state: reviewState(item.id))
+                                    .opacity(isSelectingPlant ? 0 : 1)
+                                    .allowsHitTesting(!isSelectingPlant)
+                                    .accessibilityHidden(isSelectingPlant)
+                            }
+                        }
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                if let onDeleteStory {
+                                if !isSelectingPlant, let onDeleteStory {
                                     // Confirm before removing the row; a destructive role here removes it optimistically.
                                     Button {
                                         onDeleteStory(item.id)
@@ -114,10 +135,11 @@ struct OiStoryListView: View {
                     }
                 }
                 .disabled(isDeleting)
-                // Figma `5400:7649`: 20pt between slots.
+                // Figma `5400:7649`: 10pt between slots.
                 .listRowInsets(EdgeInsets(top: metrics.gap / 2, leading: 20, bottom: metrics.gap / 2, trailing: 20))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
+                .id(slot.id)
             }
             if usesAccessibilityLayout {
                 footer
@@ -127,22 +149,22 @@ struct OiStoryListView: View {
             }
         }
         .listStyle(.plain)
-        // Four draft slots always fit, so the list does not scroll (#368). Accessibility text sizes still scroll.
-        .scrollDisabled(!usesAccessibilityLayout)
         .listRowSpacing(0)
         .environment(\.defaultMinListRowHeight, 0)
         .contentMargins(.top, Layout.topMargin, for: .scrollContent)
         .contentMargins(.bottom, 0, for: .scrollContent)
-        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { listHeight = $0 }
         .scrollContentBackground(.hidden)
         .accessibilityIdentifier("storyList.list")
     }
 
     /// Figma `5441:17267` (오이가로), shared with the map's region list (`OiCucumberCard`).
     private func storySlot(_ item: OiStoryListItem) -> some View {
-        optionalButton(action: onSelectStory.map { select in { select(item.id) } }) {
+        let isSelected = isSelectingPlant && selectedPlantStoryID == item.id
+        return optionalButton(action: onSelectStory.map { select in { select(item.id) } }) {
             OiCucumberCard(name: item.cucumberName, tags: item.tags, donor: item.donorDisplayName,
-                           title: item.title, metrics: OiCucumberCardMetrics(cardHeight: metrics.cardHeight)) {
+                           title: item.title, metrics: OiCucumberCardMetrics(cardHeight: metrics.cardHeight),
+                           selectionOutline: isSelected ? Color(oiRGB: 0x849644) : nil,
+                           showsShadow: !isSelectingPlant || !isSelected) {
                 if let data = item.portraitPNG, let image = UIImage(data: data) {
                     Image(uiImage: image).resizable().scaledToFit()
                 } else {
@@ -151,7 +173,43 @@ struct OiStoryListView: View {
             }
         }
         .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("storyList.item.\(item.id.uuidString)")
+    }
+
+    // Figma 6101:8975 and 6101:8976.
+    private func reviewRow(_ id: UUID, state: OiStoryListReviewState) -> some View {
+        let status = Text(state.title)
+            .font(.custom("Paperlogy-3Light", size: 13, relativeTo: .caption)).tracking(0.26)
+            .padding(.horizontal, 10).padding(.vertical, 4)
+            .background(Color(oiRGB: state.background), in: RoundedRectangle(cornerRadius: 10))
+            .foregroundStyle(.black)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                status
+                Spacer(minLength: 0)
+                if state == .unreviewed || state == .rejected {
+                    Button {
+                        onRequestReview?(id)
+                    } label: {
+                        Text(OiStoryReviewRequest.title).underline()
+                            .foregroundStyle(Color(oiRGB: 0x232323))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("storyList.review.\(id.uuidString)")
+                } else {
+                    Text("요청 완료").underline().foregroundStyle(Color(oiRGB: 0x737373))
+                }
+            }
+            .accessibilityIdentifier("storyList.reviewStatus.\(id.uuidString)")
+            if let message = reviewMessage(id) {
+                Text(message).foregroundStyle(.red)
+                    .accessibilityIdentifier("storyList.reviewReason.\(id.uuidString)")
+            }
+        }
+        .font(.custom("Paperlogy-4Regular", size: 13, relativeTo: .caption)).tracking(0.26)
+        .padding(.horizontal, 20)
+        .padding(.top, 4)
     }
 
     private func emptySlot(index: Int) -> some View {
@@ -177,24 +235,46 @@ struct OiStoryListView: View {
     }
 
     private var footer: some View {
-        // Figma: 12pt from the notices to the buttons, 13pt above the home indicator.
-        VStack(alignment: .leading, spacing: 12) {
-            // 13pt text on a 19.5pt (150%) line.
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(notices.enumerated()), id: \.offset) { _, notice in
-                    Text("* \(notice)")
-                        .lineLimit(usesAccessibilityLayout ? nil : 1)
-                        .minimumScaleFactor(usesAccessibilityLayout ? 1 : 0.8)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 2) {
+            ZStack {
+                OiStoryProductionRulesButton(isPresented: $showsProductionRules)
+                    .opacity(isSelectingPlant ? 0 : 1)
+                    .allowsHitTesting(!isSelectingPlant)
+                    .accessibilityHidden(isSelectingPlant)
+                if let onCancelPlant {
+                    Button(action: onCancelPlant) {
+                        Text("취소하기")
+                            .font(.custom("Paperlogy-4Regular", size: 16, relativeTo: .body))
+                            .foregroundStyle(Color(oiRGB: 0x383838))
+                            .tracking(0.32)
+                            .underline()
+                            .frame(minWidth: 108, minHeight: 44)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isDeleting)
+                    .accessibilityIdentifier("storyList.cancelPlant")
+                    .transition(.opacity)
                 }
             }
-            .font(.custom("Paperlogy-4Regular", size: 13, relativeTo: .subheadline))
-            .tracking(0.26)
-            .foregroundStyle(Color(red: 147 / 255, green: 147 / 255, blue: 147 / 255))
-            .lineSpacing(4)
+            .frame(maxWidth: .infinity)
 
-            if usesAccessibilityLayout {
+            if let onPlant {
+                Button(action: onPlant) {
+                    Text("농장에 오이 심기")
+                        .font(.custom("Paperlogy-6SemiBold", size: 18, relativeTo: .headline))
+                        .foregroundStyle(seedButtonColor)
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                        .background {
+                            Capsule().fill(seedButtonBackgroundColor)
+                                .shadow(color: seedButtonColor.opacity(0.6), radius: 4)
+                        }
+                }
+                .buttonStyle(.plain)
+                .disabled(!canPlant || isDeleting)
+                .opacity(canPlant && !isDeleting ? 1 : 0.45)
+                .accessibilityIdentifier("storyList.plant")
+            } else if usesAccessibilityLayout {
                 VStack(spacing: 12) {
                     createStoryFooterButton
                     if onUseSeed != nil { useSeedFooterButton }
@@ -207,8 +287,8 @@ struct OiStoryListView: View {
             }
         }
         .padding(.horizontal, 20)
-        .padding(.bottom, 13)
-        .background(Color(.systemBackground))
+        .padding(.bottom, onPlant == nil ? 13 : 2)
+        .background(screenBackground)
     }
 
     private var createStoryFooterButton: some View {
@@ -222,10 +302,10 @@ struct OiStoryListView: View {
                 glow: Color(red: 125 / 255, green: 151 / 255, blue: 3 / 255)
             )
         }
-        // All draft slots are taken; finish or delete one to start another (#368).
+        // A story awaiting review still uses a slot.
         .disabled(state.isFull)
         .opacity(state.isFull ? 0.4 : 1)
-        .accessibilityHint(state.isFull ? "임시저장 칸이 모두 찼어요. 오이를 삭제하거나 제출하면 새로 만들 수 있어요" : "")
+        .accessibilityHint(state.isFull ? "이야기 칸이 모두 찼어요" : "")
         .accessibilityIdentifier("storyList.createStory")
     }
 
@@ -298,43 +378,74 @@ struct OiStoryListView: View {
         Color(red: 255 / 255, green: 249 / 255, blue: 223 / 255)
     }
 
-    /// Figma `5400:7644` sizes, shrunk only as far as needed so four slots fit without scrolling on small screens.
     private enum Layout {
         static let topMargin: CGFloat = 15
-        static let guidanceHeight: CGFloat = 15
-        static let guidanceGap: CGFloat = 18
-        static let gap: CGFloat = 20, minimumGap: CGFloat = 6
-        static let cardHeight: CGFloat = 110, emptyHeight: CGFloat = 112, minimumCardHeight: CGFloat = 84
-        /// Name, tag row and title without the 8pt and 12pt gaps between them.
-        static let cardTextHeight: CGFloat = 59
     }
 
     private struct SlotMetrics {
-        var gap: CGFloat; var cardHeight: CGFloat; var emptyHeight: CGFloat
-        /// Figma 12pt top and bottom padding, 8pt only when the card is shortened.
-        var cardPadding: CGFloat { cardHeight >= 104 ? 12 : 8 }
-        /// Figma 8pt + 12pt between name, tags and title, tightened with the card.
-        var textSpacing: CGFloat { min(20, max(8, cardHeight - cardPadding * 2 - Layout.cardTextHeight)) }
-        var imageHeight: CGFloat { min(86, cardHeight - cardPadding * 2) }
+        let gap: CGFloat = 10
+        let cardHeight: CGFloat = 110
+        let emptyHeight: CGFloat = 112
+        let cardPadding: CGFloat = 12
+        let textSpacing: CGFloat = 20
+        let imageHeight: CGFloat = 86
     }
 
-    private var metrics: SlotMetrics {
-        let full = SlotMetrics(gap: Layout.gap, cardHeight: Layout.cardHeight, emptyHeight: Layout.emptyHeight)
-        guard !usesAccessibilityLayout, listHeight > 0 else { return full }
-        let slots = CGFloat(OiStoryListState.draftCapacity)
-        let fixed = Layout.topMargin + (guidance == nil ? 0 : Layout.guidanceHeight + Layout.guidanceGap - Layout.gap / 2)
-        let needed = fixed + Layout.cardHeight + Layout.emptyHeight * (slots - 1) + Layout.gap * slots
-        var deficit = max(0, needed - listHeight)
-        // Tighten the gaps first, then the slots.
-        let gapCut = min(deficit / slots, Layout.gap - Layout.minimumGap)
-        deficit -= gapCut * slots
-        let heightCut = min(deficit / slots, Layout.cardHeight - Layout.minimumCardHeight)
-        return SlotMetrics(gap: Layout.gap - gapCut, cardHeight: Layout.cardHeight - heightCut,
-                           emptyHeight: Layout.emptyHeight - heightCut)
-    }
+    private let metrics = SlotMetrics()
 
     private var usesAccessibilityLayout: Bool {
         dynamicTypeSize.isAccessibilitySize
+    }
+}
+
+// Figma 6101:9175 and 6101:9195. SwiftUI provides the system material and arrow.
+struct OiStoryProductionRulesButton: View {
+    @Binding var isPresented: Bool
+    @ScaledMetric(relativeTo: .caption) private var ruleLineHeight: CGFloat = 24
+
+    var body: some View {
+        Button { isPresented = true } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "questionmark.circle")
+                    .font(.system(size: 16))
+                    .accessibilityHidden(true)
+                Text("오이 제작 규정")
+                    .font(.custom("Paperlogy-4Regular", size: 16, relativeTo: .body))
+                    .tracking(0.32)
+                    .underline()
+            }
+            .foregroundStyle(Color(oiRGB: 0x737373))
+            .frame(minHeight: 44)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("storyList.productionRules")
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 0) {
+                rule(Text("이야기 저장은 \(Text("\(OiStoryListState.draftCapacity)개").foregroundStyle(.red))까지 가능합니다"))
+                rule(Text("농장에 심기 전에는 저장된 오이를 눌러서 편집할 수 있습니다"))
+                rule(Text("저장된 오이를 슬라이드하여 삭제할 수 있습니다"))
+                rule(Text("내용 검토가 완료되어야 농장에 오이를 심을 수 있습니다"))
+            }
+            .font(.custom("Paperlogy-4Regular", size: 12, relativeTo: .caption))
+            .tracking(0.24)
+            .foregroundStyle(Color(oiRGB: 0x232323))
+            .padding(.horizontal, 30)
+            .padding(.vertical, 20)
+            .frame(idealWidth: 362, maxWidth: 362, alignment: .leading)
+            .accessibilityIdentifier("storyList.productionRulesContents")
+            .presentationCompactAdaptation(.popover)
+            .presentationCornerRadius(38)
+            .presentationBackground(.regularMaterial)
+        }
+    }
+
+    private func rule(_ text: Text) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 3) {
+            Text("*").accessibilityHidden(true)
+            text.fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(minHeight: ruleLineHeight, alignment: .leading)
     }
 }
 
@@ -393,22 +504,11 @@ struct OiStorySeedIcon: View {
     }
 }
 
-extension OiStoryListView {
-    // Figma `5400:7662` and `5400:7661` (#368).
-    static let listGuidance = "본인이 만든 오이를 씨앗을 통해 농장에 심을 수 있습니다"
-    static let listNotices = [
-        "이야기 저장은 4개까지 가능합니다",
-        "농장에 심기 전에는 이야기 및 오이를 눌러서 편집할 수 있습니다"
-    ]
-}
-
 #Preview("이야기 2개") {
     NavigationStack {
         OiStoryListView(
             state: .preview,
             seedCount: 3,
-            notices: OiStoryListView.listNotices,
-            guidance: OiStoryListView.listGuidance,
             onAddSeed: {}, onCreateStory: {}, onUseSeed: {}
         )
     }
@@ -419,9 +519,27 @@ extension OiStoryListView {
         OiStoryListView(
             state: .empty,
             seedCount: 0,
-            notices: OiStoryListView.listNotices,
-            guidance: OiStoryListView.listGuidance,
             onAddSeed: {}, onCreateStory: {}, onUseSeed: {}
         )
     }
+}
+
+private var storyPlantSelectionPreview: some View {
+    NavigationStack {
+        OiStoryListView(state: .preview, minimumVisibleSlotCount: 0, onSelectStory: { _ in },
+            reviewState: { _ in .approved }, onPlant: {}, canPlant: true,
+            selectedPlantStoryID: OiStoryListState.preview.items.first?.id, onCancelPlant: {})
+    }
+}
+
+#Preview("심을 오이 선택 · 기준", traits: .fixedLayout(width: 402, height: 874)) {
+    storyPlantSelectionPreview
+}
+
+#Preview("심을 오이 선택 · 작은 화면", traits: .fixedLayout(width: 375, height: 667)) {
+    storyPlantSelectionPreview
+}
+
+#Preview("심을 오이 선택 · 큰 화면", traits: .fixedLayout(width: 440, height: 956)) {
+    storyPlantSelectionPreview
 }
