@@ -16,6 +16,8 @@ struct CampusScratchScreen: View {
     let remote: OiRemoteStore
     /// Opens the story list (`이어서 기부하기`).
     let onDonate: () -> Void
+    /// Called once the postcard is saved, to open MY `수집한 기부`.
+    var onSaved: () -> Void = {}
 
     @Environment(\.dismiss) private var dismiss
     @State private var loader = ScratchPostcardLoader()
@@ -93,7 +95,7 @@ struct CampusScratchScreen: View {
         let owner = remote.account?.id
         await remote.perform("collect", payload: ["id": storyUUID.uuidString])
         guard remote.account?.id == owner else { return "로그인한 계정이 바뀌었어요. 다시 시도해 주세요." }
-        if remote.collections.contains(where: { $0.storyId == storyUUID }) { return nil }
+        if remote.collections.contains(where: { $0.storyId == storyUUID }) { onSaved(); return nil }
         return remote.error ?? "수집 저장을 확인하지 못했어요. 다시 시도해 주세요."
     }
 }

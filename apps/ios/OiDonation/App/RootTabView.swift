@@ -55,7 +55,14 @@ struct RootTabView: View {
                 case .scratch(let id):
                     if let story = store.story(id) {
                         CampusScratchScreen(story: story, repository: container.storyRepository, remote: remote,
-                                            onDonate: { path.append(CampusDestination.storyList) })
+                                            onDonate: { path.append(CampusDestination.storyList) },
+                                            onSaved: {
+                                                // 앨범에 저장하기 → MY 수집한 기부 (back returns to the workshop).
+                                                var next = NavigationPath()
+                                                next.append(MYDestination.workshop)
+                                                next.append(MYDestination.collection)
+                                                path = next
+                                            })
                     } else {
                         ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc")
                     }
