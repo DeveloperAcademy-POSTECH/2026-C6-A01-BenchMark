@@ -70,6 +70,7 @@ Apple 로그인 갱신 토큰은 탈퇴 시 로그인 연결을 해제하는 데
 - [팀 검토 중인 아키텍처·협업 제안](docs/architecture.md)
 - [웹 실행 및 Sites 배포](docs/MAT-WEB.md)
 - [Sites 운영 전환 상태와 남은 검증](docs/SITES-CUTOVER.md)
+- [교육지구 앱·웹 이야기와 카드 공유](docs/education-shared-stories.md)
 - [Apple 로그인·기존 계정 통합과 서버 적용 경계](docs/account-merge.md)
 - [앱 fail-safe 점검과 회귀 검사](apps/ios/docs/failsafe-audit-2026-11-03.md)
 
