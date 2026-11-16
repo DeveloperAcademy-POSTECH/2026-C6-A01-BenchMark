@@ -56,10 +56,12 @@ AI가 확인하는 동안 본문 해시와 90초 작업 lease를 유지하고, �
 - `OiFlowChecks` / `CampusBuildingNotesTests`: 재전송 ID, 오래된 응답, 계정 변경, 페이지와 삭제, 입력 검사, RPC 계약, 건물 선택·카메라 맞춤·복원 및 Figma 화면 캡처.
 - `npm test --prefix supabase`: Edge Function 테스트 65개 통과. 신고 검수 18개는 위반/비위반/불명확 결과, 세션 만료, 잘못된 모델 응답, 중복, 실패 시 판정 미적용을 확인한다. 로컬 SQL은 새 DB와 기존 배포 이력 모두에서 AI 전용 권한·신고 소유권·중복 비용 제한·운영자 우선 처리·감사 기록을 검사한다.
 - `deno check`: 학교 자료 분석과 건물 신고 검수 함수의 타입 검사 통과. 환경 PATH에 Deno가 없어 로컬 npm 캐시의 Deno 실행 파일을 사용했다.
-- Jun iPhone에 개발 서명 Release **1.2.0 (20261116)**을 설치하고 실행했다. 본 앱·App Clip의 버전이 같고 서명 검증이 통과했다. 실기기 작성·조회·삭제는 미러링 연결 후 확인한다.
+- Jun iPhone에 개발 서명 Release **1.2.0 (20261116)**을 설치하고 실행했다. 본 앱·App Clip의 버전이 같고 서명 검증이 통과했다. Jun iPhone의 실제 캠퍼스 지도에서 POSPLEX 건물을 직접 탭해 시험 쪽지를 등록하고, 뒤로 갔다가 재진입해 서버에 저장된 글을 조회한 뒤 길게 눌러 본인 삭제까지 확인했다. 뒤로 가면 원래 지도 구도와 숫자 패널이 복원된다.
 - XCTest: 건물 쪽지·지도 33개 통과. 기존 `OiRemoteStoreTests` 123개 중 118개 통과·4개 건너뜀·1개 실패. 꾸미기 화면 테스트(`testCustomizationNavigationRequiresDoneAndCardNextOpensPlacement`)의 UIScrollView 탐색 실패는 수정 전 develop `c19003b`에서도 같은 위치에서 재현됐다. 쪽지 변경으로 생긴 실패가 아니며 이번 PR에서 해당 화면은 수정하지 않았다.
 - AI 판별 품질과 실제 OpenAI 호출은 이번 수동 검토 운영 검증 범위에 포함하지 않는다.
 
 시뮬레이터 캡처의 글과 프로필은 테스트 전용 가상 자료이며 서버에 등록하지 않는다.
 
-2026-11-16 PR #403의 GitHub `verify`·`database` 검사 모두 통과했다. 실기기 확인 대기로 초안 PR을 유지한다.
+2026-11-16 PR #403의 GitHub `verify`·`database` 검사 모두 통과했다. 실기기 기본 작성·조회·삭제를 완료해 검토 가능한 PR로 전환했다.
+
+실기기 운영 확인: `QA 401-20261116 note - delete after test` 한 건을 POSPLEX(`136179047`)에 등록했다. 익명 HTTP 조회에 같은 UUID·본문이 보였고, 앱에서 삭제한 뒤 익명 조회 결과에서 제외됐다. 운영 DB에서도 해당 한 건의 `status=deleted`와 삭제 시각을 확인했다. 실제 다른 계정의 신고 및 운영자 수동 처리는 이번 실기기 시험에서 실행하지 않았으며, 권한·처리는 격리 DB 회귀 검사로 확인했다. App Store 업로드·심사 제출과 develop/main 병합은 하지 않았다.
