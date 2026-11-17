@@ -123,7 +123,7 @@ struct CampusBuildingNotesView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 8) {
                     TextField("입력", text: $model.text, axis: .vertical)
-                        .font(CampusStyle.semibold(18)).lineLimit(1...3).focused($composing)
+                        .font(CampusStyle.body(18)).lineLimit(1...3).focused($composing)
                         .submitLabel(.send).onSubmit(send)
                         .accessibilityLabel("건물에 남길 짧은 글").accessibilityIdentifier("campus.notes.input")
                     Button(action: send) {
