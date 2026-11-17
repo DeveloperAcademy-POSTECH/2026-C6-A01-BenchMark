@@ -539,7 +539,7 @@ struct OiStoryAttachmentSections: View {
                                highlighted: false, action: onSelectDonor)
                         .accessibilityIdentifier("oi.story.selectDonor")
                     if let onClearDonor {
-                        Button("연결 해제", action: onClearDonor).font(CampusStyle.body(14))
+                        Button(connectedStory == nil ? "선택 없이 진행하기" : "연결 해제", action: onClearDonor).font(CampusStyle.body(14))
                             .accessibilityIdentifier("oi.story.clearConnectedStory")
                     }
                     Text("공개된 이야기의 연결이며 실제 기부·납입 내역이 아니에요.")
