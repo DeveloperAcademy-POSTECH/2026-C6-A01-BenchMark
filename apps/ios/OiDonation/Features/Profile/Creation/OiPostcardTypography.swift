@@ -50,3 +50,22 @@ enum OiPostcardTypography {
     static let mark = Font.system(size: 14, weight: .light, design: .rounded)
     static let author = CampusStyle.body(12)
 }
+
+/// Figma 5400:5279 uses a same-ink 0.4pt outside stroke on the handwriting.
+struct OiPostcardHandwritingStroke: TextRenderer {
+    private static let offsets: [CGPoint] = (0..<8).map { direction in
+        let angle = Double(direction) * .pi / 4
+        return CGPoint(x: 0.4 * cos(angle), y: 0.4 * sin(angle))
+    }
+
+    func draw(layout: Text.Layout, in context: inout GraphicsContext) {
+        for line in layout {
+            for offset in Self.offsets {
+                var edge = context
+                edge.translateBy(x: offset.x, y: offset.y)
+                edge.draw(line)
+            }
+            context.draw(line)
+        }
+    }
+}

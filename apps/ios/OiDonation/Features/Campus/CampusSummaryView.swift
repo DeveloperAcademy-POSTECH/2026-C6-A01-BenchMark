@@ -72,40 +72,47 @@ struct CampusSummaryView: View {
             }.compositingGroup().clipShape(Rectangle().inset(by: -8).offset(y: -8))
         }
     }
-    /// Figma "오이 정보"(5400:5173): name with the trailing "오이" in green, tags, three info lines and a chevron.
+    /// Figma 6183:5167: name, tags, the published donor and campus placement, then the chevron.
     private var information: some View {
         let name = story.title
         let hasSuffix = name.hasSuffix("오이") && name.count > 2
         let lead = hasSuffix ? String(name.dropLast(2)) : name
-        return HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("\(Text(lead).foregroundStyle(.black))\(Text(hasSuffix ? "오이" : "").foregroundStyle(Color(oiRGB: 0x65804E)))")
-                    .font(ScratchPostcardFont.cucumberName).tracking(0.52)
-                    .lineLimit(1).minimumScaleFactor(0.6).frame(minHeight: 31)
-                HStack(spacing: 6) {
-                    ForEach(story.tags.filter { !$0.isEmpty }, id: \.self) { tag in
-                        HStack(spacing: 1) {
-                            Text("#").tracking(-0.52)
-                            Text(tag.trimmingCharacters(in: CharacterSet(charactersIn: "# "))).tracking(0.26)
+        let region = remote?.regions.first { $0.id == story.regionID }
+        let school = remote?.schools.first { $0.id == region?.schoolId }?.name
+        let location = [school, story.location].compactMap { $0 }.joined(separator: " ")
+        let tags = story.tags.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "# ").union(.whitespacesAndNewlines)) }
+            .filter { !$0.isEmpty }
+        return HStack(spacing: 6) {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("\(Text(lead).foregroundStyle(.black))\(Text(hasSuffix ? "오이" : "").foregroundStyle(Color(oiRGB: 0x65804E)))")
+                        .font(ScratchPostcardFont.cucumberName).tracking(0.52)
+                        .lineLimit(1).minimumScaleFactor(0.6).frame(minHeight: 31)
+                    HStack(spacing: 6) {
+                        ForEach(Array(tags.enumerated()), id: \.offset) { _, tag in
+                            HStack(spacing: 1) {
+                                Text("#").tracking(-0.52)
+                                Text(tag).tracking(0.26)
+                            }
                         }
                     }
+                    .font(CampusStyle.body(13)).foregroundStyle(Color(oiRGB: 0xA15C03))
+                    .lineLimit(1).minimumScaleFactor(0.8).frame(minHeight: 16)
                 }
-                .font(CampusStyle.body(13)).foregroundStyle(Color(oiRGB: 0xA15C03)).lineLimit(1)
-                .frame(minHeight: 16)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("| " + story.donor)
+                    Text("| " + location)
+                    Text("| " + story.date)
+                }.font(CampusStyle.body(10)).tracking(0.2).lineLimit(1).minimumScaleFactor(0.7)
             }
-            VStack(alignment: .leading, spacing: 6) {
-                Text("| " + story.donor)
-                Text("| " + story.location)
-                Text("| " + story.date)
-            }.font(CampusStyle.body(10)).tracking(0.2).lineLimit(1).minimumScaleFactor(0.8)
-            // Always pinned to the trailing edge, whatever the text length (#399).
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
             Image(systemName: "chevron.forward").font(.system(size: 16, weight: .bold)).tracking(0.32)
                 .foregroundStyle(Color(oiRGB: 0x949494))
                 .accessibilityHidden(true)
         }.foregroundStyle(.black).padding(.leading, 14).padding(.trailing, 16).padding(.vertical, 16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.white, in: RoundedRectangle(cornerRadius: 20))
-            .shadow(color: Color(oiRGB: 0x1C3700).opacity(0.25), radius: 3.5)
+            .background {
+                RoundedRectangle(cornerRadius: 20).fill(.white)
+                    .shadow(color: Color(oiRGB: 0x1C3700).opacity(0.25), radius: 3.5)
+            }
     }
 }

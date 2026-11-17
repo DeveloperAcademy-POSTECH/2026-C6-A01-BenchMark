@@ -127,7 +127,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(metadata.preset, "lime")
         XCTAssertEqual(metadata.authorMode, "anonymous")
         XCTAssertFalse(String(decoding: try JSONEncoder().encode(metadata), as: UTF8.self).contains("비공개 이름"))
-        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "다른 계정 이름")
+        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "다른 계정 이름", tags: [Self.draft.emotion, Self.draft.theme])
         XCTAssertEqual(anonymous.parts[.back], restored.parts[.back], "Reopening a remote card must retain anonymous attribution")
         XCTAssertEqual(OiPostcardAuthor.text(mode: "academic", name: "비공개 이름", academic: ""), "익명")
         XCTAssertEqual(OiPostcardAuthor.text(mode: "academic", name: "이름", academic: "컴퓨터공학과 23학번"), "컴퓨터공학과 23학번")
@@ -157,6 +157,33 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             for number in 1...6 { XCTAssertNotNil(UIImage(named: "OiPostcardStamp-\(color)\(number)")) }
             XCTAssertNotNil(UIImage(named: "OiPostcardLogo-" + color))
         }
+    }
+
+    func testPostcardV4DefaultLogoDateAndLegacyTexture() throws {
+        var value = Self.customization
+        value.showsCharacter = false
+        value.card = OiCardDesign()
+        value.card?.postcardLayoutVersion = 2
+        value.card?.postcardBackground = .init(color: 0x777777, fill: .solid)
+        let date = Date(timeIntervalSince1970: 1_799_779_200)
+        value.card?.postcardDate = date
+
+        func front() throws -> Data {
+            try OiDraftCardPreview(draft: Self.draft, customization: value).publication(colorScheme: .light).png
+        }
+
+        let baseline = try front()
+        value.card?.pattern = 5
+        XCTAssertEqual(try front(), baseline, "The current postcard must omit old paper textures")
+
+        value.card?.postcardLogo = "white"
+        XCTAssertEqual(try front(), baseline, "An unset color must render the same white mark")
+        value.card?.postcardLogo = "black"
+        XCTAssertNotEqual(try front(), baseline, "The selected black mark must render")
+
+        value.card?.postcardLogo = "white"
+        value.card?.postcardDate = date.addingTimeInterval(86_400)
+        XCTAssertNotEqual(try front(), baseline, "The printed date must be part of the current postcard")
     }
 
     func testPostcardCustomGradientUsesFigmaFields() throws {
@@ -317,7 +344,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let front = try XCTUnwrap(UIImage(data: publication.png))
         OiPostcardBackgroundMetadata.remember(png: publication.png, image: front)
         XCTAssertEqual(OiPostcardBackgroundMetadata.style(for: front)?.backLogoColor, 0x246BA0)
-        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "가상 작성자")
+        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "가상 작성자", tags: [Self.draft.emotion, Self.draft.theme])
         XCTAssertEqual(publication.parts[.back], restored.parts[.back], "A reused server front must retain the selected back logo color")
         XCTAssertEqual(publication.parts.count, 4)
         var invalid = style; invalid.backLogoColor = 0x1000000
@@ -1046,7 +1073,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let front = try XCTUnwrap(UIImage(data: publication.png))
         OiPostcardBackgroundMetadata.remember(png: publication.png, image: front)
         XCTAssertEqual(OiPostcardBackgroundMetadata.style(for: front), value.card?.postcardBackground)
-        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "")
+        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "", tags: [Self.draft.emotion, Self.draft.theme])
         XCTAssertEqual(restored.parts[.back], publication.parts[.back])
         var invalid = try XCTUnwrap(value.card?.postcardBackground)
         invalid.startOpacity = -0.1
@@ -1608,6 +1635,9 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     }
 
     func testPostcardHorizontalFlipAndDate() {
+        XCTAssertEqual(OiPostcardFlip.closingAngle(for: CGSize(width: -100, height: 5)), -90)
+        XCTAssertEqual(OiPostcardFlip.closingAngle(for: CGSize(width: 100, height: 5)), 90)
+        XCTAssertNil(OiPostcardFlip.closingAngle(for: CGSize(width: 10, height: 100)))
         XCTAssertTrue(OiPostcardFlip.accepts(CGSize(width: -100, height: 5)))
         XCTAssertTrue(OiPostcardFlip.accepts(CGSize(width: 100, height: 5)))
         XCTAssertFalse(OiPostcardFlip.accepts(CGSize(width: 10, height: 100)))
