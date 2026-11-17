@@ -1714,6 +1714,19 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     }
 
     /// STEP 4 card 내용 tab (Figma `5919:12077`, #377).
+    /// #386: while a styled cucumber is still being rendered, the card front must not show the preset cat.
+    func testCardFrontHasNoPlaceholderWhileStyledCucumberRenders() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        var customization = Self.customization
+        customization.wardrobe = OiWardrobeLook()
+        customization.showsCharacter = true
+        let view = OiDraftCardPreview(draft: Self.draft, customization: customization, portrait: nil)
+            .frame(width: 362, height: 502).padding(20)
+        try await capture(view, name: "card-front-no-placeholder", variant: variants[0],
+            defaults: fixture.defaults, delay: .milliseconds(600), attach: true)
+    }
+
     func testCardContentTabCapture() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
