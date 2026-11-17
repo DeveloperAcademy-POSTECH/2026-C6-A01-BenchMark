@@ -3351,6 +3351,57 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(store.ownStories.first?.status, "published")
     }
 
+    @MainActor func testRejectedStoryCardOpensExistingStoryEditorDirectly() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.autoStoryModeration = true; $0.rejectModeration = true }
+        await store.start()
+        let source = draft(title: "검토 반려 오이")
+        let receipt = await store.save(source)
+        let story = try XCTUnwrap(receipt)
+        let result = await store.submitStory(story, agreesToAIReview: true)
+        XCTAssertNil(result)
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        var actions: OiStoryListScreen.ReviewTestActions?
+        let controller = UIHostingController(rootView: NavigationStack {
+            OiStoryListScreen(remote: store, onReviewActionsForTest: { actions = $0 })
+        })
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
+
+        for _ in 0..<60 where actions?.visibleIDs().contains(story.id) != true {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let buttons = try XCTUnwrap(actions)
+        XCTAssertEqual(buttons.status(story.id), .rejected)
+        buttons.selectStory(story.id)
+
+        func textField(_ view: UIView, id: String) -> UITextView? {
+            if let field = view as? UITextView, field.accessibilityIdentifier == id { return field }
+            return view.subviews.lazy.compactMap { textField($0, id: id) }.first
+        }
+        for _ in 0..<60 where textField(controller.view, id: "oi.draft.body") == nil {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let body = try XCTUnwrap(textField(controller.view, id: "oi.draft.body"))
+        XCTAssertTrue(body.isEditable)
+        XCTAssertEqual(body.text, source.body)
+        XCTAssertEqual(textField(controller.view, id: "oi.draft.title")?.text, source.title)
+        XCTAssertEqual(backend.snapshot().moderationCount, 1)
+
+        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "rejected-cucumber-direct-editor"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     @MainActor func testStoryListShowsUpdatedLayoutWithLegacyReview() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }

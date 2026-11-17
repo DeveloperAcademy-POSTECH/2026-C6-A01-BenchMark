@@ -76,8 +76,7 @@ struct MYWorkshopContent: View {
         }
         .navigationDestination(item: $selectedDetail) { selection in
             if let storyID = selection.ownedStoryID, let remote {
-                OiStoryManagement(remote: remote, storyID: storyID)
-                    .toolbar(.visible, for: .navigationBar)
+                OiAuthoredStoryDestination(remote: remote, storyID: storyID)
             } else if let id = selection.card.storyID, let store = demo.campusStore,
                       let story = store.story(id) {
                 CampusCucumberStoryView(story: story, store: store)
