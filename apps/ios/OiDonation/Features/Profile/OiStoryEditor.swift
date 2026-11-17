@@ -347,7 +347,7 @@ struct OiStoryEditor: View {
                 OiConnectedDonationPicker(
                     stories: recentDonationStories,
                     onCancel: { showingDonorPicker = false },
-                    onDone: { customization.connectedStoryID = $0; showingDonorPicker = false })
+                    onDone: { customization.connectedStoryID = $0; customization.connectedStorySelectionEdited = true; showingDonorPicker = false })
             }
             .sheet(isPresented: $showingPreview, onDismiss: {
                 guard openingPhotosAfterReview else { return }
@@ -744,6 +744,9 @@ struct OiStoryEditor: View {
                 reviewedContentFingerprint = record.reviewedContentFingerprint
                 step = record.creationStep.flatMap(OiCreationStep.init(rawValue:)) ?? .story
                 customization = record.customization ?? OiDraftCustomization()
+                if customization.connectedStorySelectionEdited != true, customization.connectedStoryID == nil {
+                    customization.connectedStoryID = currentStory?.continuedFromStoryId?.uuidString
+                }
                 personalPlacement = record.personalPlacement
                 customizationReady = personalPlacement != nil && step == .card
                 cardPlacementReady = customizationReady
@@ -755,6 +758,9 @@ struct OiStoryEditor: View {
             if let server = remote.ownStories.first(where: { $0.id == draft.id }) {
                 if draft.heightMeters == nil { draft.heightMeters = server.heightMeters }
                 if draft.headingDegrees == nil { draft.headingDegrees = server.headingDegrees }
+                if customization.connectedStorySelectionEdited != true, customization.connectedStoryID == nil {
+                    customization.connectedStoryID = server.continuedFromStoryId?.uuidString
+                }
                 submitted = !OiCreationAccess.canEdit(status: server.status, submitted: submitted)
             }
             restored = true; localError = nil; saveLabel = "이 계정의 기기 초안 자동 저장"
@@ -964,7 +970,11 @@ struct OiStoryEditor: View {
                     latitude: draft.latitude, longitude: draft.longitude,
                     onPhotos: openPhotoEditor, onLocation: { endStoryEditing(); navigate(to: .location) },
                     connectedStory: connectedStory, onSelectDonor: selectDonor,
-                    onClearDonor: customization.connectedStoryID == nil ? nil : { customization.connectedStoryID = nil })
+                    // A restored cloud draft may hide a non-public parent's ID. Keep
+                    // an explicit clear action available without revealing that ID.
+                    onClearDonor: customization.connectedStoryID != nil || (remote.supportsStoryContinuations && currentStory != nil) ? {
+                        customization.connectedStoryID = nil; customization.connectedStorySelectionEdited = true
+                    } : nil)
             }
         case .cucumber:
             OiCucumberCustomizationStep(customization: $customization, cucumberName: $draft.cucumberName,
@@ -983,9 +993,9 @@ struct OiStoryEditor: View {
 
     private var recentDonationStories: [CampusStory] {
         guard let owner = remote.account?.id, let campusStore else { return [] }
-        // A blocked author's story is never offered as a target.
         return OiRecentStories.pickerStories(owner: owner) { id in
-            guard let story = campusStore.story(id), !isBlockedAuthor(story) else { return nil }
+            guard let story = campusStore.story(id),
+                  !(story.authorID.map { OiContentSafetyStore.shared.isBlocked($0) } ?? false) else { return nil }
             return story
         }
     }
@@ -993,16 +1003,11 @@ struct OiStoryEditor: View {
     /// The story this donation continues from, while it is still public.
     private var connectedStory: CampusStory? {
         guard let id = customization.connectedStoryID, let story = campusStore?.story(id),
-              !isBlockedAuthor(story) else { return nil }
+              !(story.authorID.map { OiContentSafetyStore.shared.isBlocked($0) } ?? false) else { return nil }
         return story
     }
 
-    private func isBlockedAuthor(_ story: CampusStory) -> Bool {
-        story.authorID.map { OiContentSafetyStore.shared.isBlocked($0) } ?? false
-    }
-
-    /// 기부자 선택하기 / 다시 선택하기: the earlier choice stays until a new one is confirmed; cancel keeps it.
-    /// `삭제하기` is the only way to clear it.
+    /// Keep the saved selection until a new choice is confirmed; cancel must preserve it.
     private func selectDonor() {
         endStoryEditing()
         showingDonorPicker = true
