@@ -52,6 +52,11 @@ struct OiStoryEditor: View {
     @State private var focusedStoryField: OiStoryWritingStep.Field?
     /// STEP 2 shows missing items under the buttons only after Next is tapped (#373).
     @State private var showingStoryMissing = false
+    @State private var completionFigure: UIImage?
+    /// STEP 4 완료 is saving the draft; the screen must not dim while it does (#386).
+    @State private var completingCard = false
+    /// The card portrait rendered in the background once STEP 3 is finished (#386).
+    @State private var portraitPrefetch: (look: OiWardrobeLook, seed: OiSeedCucumberSnapshot?, key: String, orientation: OiCardOrientation)?
     @State private var showingDonorPicker = false
     @State private var customization = OiDraftCustomization()
     @State private var personalPlacement: OiPersonalPlacement?
@@ -204,7 +209,7 @@ struct OiStoryEditor: View {
     private var cardCompletion: some View {
         OiStoryCompletionView(draft: draft, customization: customization,
             donorName: remote.profile?.publicName ?? "", location: completionLocation,
-            onDone: { finish() })
+            onDone: { finish() }, initialFigure: completionFigure)
     }
 
     private var placementPreview: some View {
@@ -223,8 +228,6 @@ struct OiStoryEditor: View {
                 restorationStatus
             } else if submitted {
                 completion
-            } else if showingCardCompletion {
-                cardCompletion
             } else if step == .location && !locationOverStory {
                 locationPicker
             } else if step == .card && cardPlacementReady {
@@ -306,7 +309,8 @@ struct OiStoryEditor: View {
         .toolbarBackground(Color(.systemBackground), for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar(usesNavigationBar ? .visible : .hidden, for: .navigationBar)
-        .disabled(remote.isBusy || preparingPhoto || publishing || saving || placing || replacingServerDraft || isDiscarding)
+        // Saving for STEP 4 완료 blocks other actions through `saving` but must not grey the whole screen out first.
+        .disabled(remote.isBusy || preparingPhoto || publishing || (saving && !completingCard) || placing || replacingServerDraft || isDiscarding)
         .navigationTitle(navigationTitle).navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden()
         .toolbar {
@@ -316,18 +320,25 @@ struct OiStoryEditor: View {
                 } else {
                     Button(action: goBack) { Image(systemName: "chevron.left") }
                         .accessibilityLabel("이전 단계")
-                        .disabled(remote.isBusy || preparingPhoto || publishing || saving || isDiscarding)
+                        .disabled(remote.isBusy || preparingPhoto || publishing || (saving && !completingCard) || isDiscarding)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 if !submitted && step != .location {
                     Button("나가기", action: requestExit)
-                        .disabled(remote.isBusy || preparingPhoto || publishing || saving || isDiscarding)
+                        .disabled(remote.isBusy || preparingPhoto || publishing || (saving && !completingCard) || isDiscarding)
                 }
             }
         }
         .interactiveDismissDisabled()
         // From the story form the picker is a native push: slides in from the right and swipes back (#430).
+        // 접수 완료 is a native push too, so it slides in and swipes back exactly like the location picker (#386).
+        .navigationDestination(isPresented: $showingCardCompletion) {
+            cardCompletion
+                .toolbar(.hidden, for: .navigationBar)
+                .navigationBarBackButtonHidden()
+                .oiSwipeBackEnabled()
+        }
         .navigationDestination(isPresented: Binding(
             get: { locationOverStory },
             set: { if !$0, step == .location { navigate(to: .story) } }
@@ -343,6 +354,10 @@ struct OiStoryEditor: View {
 
     private var presentedContent: some View {
         editorLayout
+            .background(alignment: .topLeading) { portraitPrefetchSurface }
+            .onChange(of: step) { _, _ in updatePortraitPrefetch() }
+            .onChange(of: customization.wardrobe) { _, _ in portraitPrefetch = nil }
+            .onChange(of: customization.seedSnapshot) { _, _ in portraitPrefetch = nil }
             .confirmationDialog("현재 입력을 어떻게 할까요?", isPresented: $choosingExit, titleVisibility: .visible) {
                 Button("임시저장 후 나가기") { Task { if await persist() { dismiss() } } }
                 Button(personalPlacement == nil ? "기기 초안 삭제" : "내 지도 배치와 기기 초안 삭제", role: .destructive) {
@@ -629,16 +644,38 @@ struct OiStoryEditor: View {
     /// Save the draft on this device before showing the completion summary; keep editing on failure.
     private func completeCard() async {
         guard restored, step == .card, !saving, !placing, !publishing, !isDiscarding else { return }
-        saving = true
-        defer { saving = false }
+        saving = true; completingCard = true
+        defer { saving = false; completingCard = false }
         await pendingSave?.value
         guard await persist() else { return }
-        withAnimation(reduceMotion ? nil : OiCreationMotion.screen) { showingCardCompletion = true }
+        // Prepare the trimmed cucumber first and fade the summary in, so it neither pops in nor cuts in (#386).
+        completionFigure = await OiStoryCompletionView.figureImage(draft: draft, customization: customization)
+        showingCardCompletion = true
     }
 
     private func toggleCustomizationReady() {
         withAnimation(reduceMotion ? nil : OiCreationMotion.screen) {
             customizationReady.toggle()
+        }
+        updatePortraitPrefetch()
+    }
+
+    /// Once STEP 3 is finished the card portrait is rendered behind the screen, so STEP 4 opens with it ready.
+    private func updatePortraitPrefetch() {
+        guard step == .cucumber, customizationReady, let look = customization.portraitLook else { portraitPrefetch = nil; return }
+        let orientation = (customization.card?.characterOrientation ?? OiCardOrientation()).normalized
+        let seed = customization.seedSnapshot
+        let key = (seed?.portraitKey ?? OiCardPortrait.key(for: look)) + "-angle-" + orientation.cacheIdentity
+        portraitPrefetch = customization.card?.portraitKey == key ? nil : (look, seed, key, orientation)
+    }
+
+    @ViewBuilder private var portraitPrefetchSurface: some View {
+        if step == .cucumber, let prefetch = portraitPrefetch {
+            // Same size as STEP 4's capture surface; invisible and never touchable.
+            OiCardPortraitCapture(look: prefetch.look, seed: prefetch.seed, cacheKey: prefetch.key, orientation: prefetch.orientation,
+                                  onCapture: { _, _ in portraitPrefetch = nil })
+                .id(prefetch.key).frame(width: 217, height: 308)
+                .opacity(0.001).allowsHitTesting(false).accessibilityHidden(true)
         }
     }
 
@@ -1078,7 +1115,7 @@ struct OiStoryEditor: View {
                 donorName: remote.profile?.publicName ?? "",
                 academicAuthor: OiPostcardAuthor.academic(department: remote.profile?.department, year: remote.profile?.admissionYear),
                 storyPhotos: editingPhotos, loadStoryPhoto: cardStoryPhoto,
-                isFinished: false, onContinue: { Task { await completeCard() } })
+                isFinished: false, isCompleting: completingCard, onContinue: { Task { await completeCard() } })
 
         }
     }

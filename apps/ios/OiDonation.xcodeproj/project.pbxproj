@@ -123,6 +123,26 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				Resources/Characters/doni.usdz,
+				Resources/Characters/neopjuk.usdz,
+				Resources/Characters/neopjukAnimated.usdz,
+				Resources/Characters/ponix.usdz,
+				Resources/Characters/ponixVsNeopjuk.usdz,
+				"Resources/Characters/seed-costume-astronaut-navy-proposal-2.usdz",
+				"Resources/Characters/seed-costume-astronaut-navy-proposal-3.usdz",
+				"Resources/Characters/seed-costume-astronaut-navy.usdz",
+				"Resources/Characters/seed-costume-astronaut-proposal-2.usdz",
+				"Resources/Characters/seed-costume-astronaut-proposal-3.usdz",
+				"Resources/Characters/seed-costume-astronaut.usdz",
+				"Resources/Characters/seed-costume-cat-bear-proposal-2.usdz",
+				"Resources/Characters/seed-costume-cat-bear-proposal-3.usdz",
+				"Resources/Characters/seed-costume-cat-bear.usdz",
+				"Resources/Characters/seed-costume-postech-selfie.usdz",
+				"Resources/Characters/seed-costume-raincoat.usdz",
+				"Resources/Characters/seed-costume-scientist-proposal-1.usdz",
+				"Resources/Characters/seed-costume-scientist-proposal-2.usdz",
+				"Resources/Characters/seed-costume-scientist-proposal-3.usdz",
+				"Resources/Characters/seed-costume-scientist.usdz",
 			);
 			target = 8736DA6830777C9800D0CFC9 /* OiDonation */;
 		};
