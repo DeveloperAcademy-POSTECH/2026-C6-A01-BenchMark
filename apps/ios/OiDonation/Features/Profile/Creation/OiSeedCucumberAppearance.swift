@@ -57,7 +57,7 @@ nonisolated enum OiSeedCucumberLayer: CaseIterable, Sendable {
     static let faceLayers: [Self] = [.leftEye, .rightEye, .mouth]
 }
 
-nonisolated struct OiSeedCucumberAppearance: Codable, Equatable, Sendable {
+nonisolated struct OiSeedCucumberAppearance: Codable, Hashable, Sendable {
     static let sourceSize = CGSize(width: 1058, height: 1658)
     // Ground line of the visible body artwork, excluding transparent padding.
     static let bodyPivot = CGPoint(x: sourceSize.width / 2, y: 1549)
@@ -73,7 +73,7 @@ nonisolated struct OiSeedCucumberAppearance: Codable, Equatable, Sendable {
     static let heightRange: ClosedRange<CGFloat> = 0.85...1.20
     static let widthRange: ClosedRange<CGFloat> = 0.90...1.30
 
-    nonisolated struct Face: Codable, Equatable, Sendable {
+    nonisolated struct Face: Codable, Hashable, Sendable {
         var x: CGFloat = 0
         var y: CGFloat = 0
         var size: CGFloat = 1
@@ -281,4 +281,9 @@ struct OiSeedCucumberViewport {
             $0.distance == $1.distance ? $0.part == selection && $1.part != selection : $0.distance < $1.distance
         }?.part
     }
+}
+
+nonisolated struct OiSeedCucumberSnapshot: Codable, Hashable, Sendable {
+    let appearance: OiSeedCucumberAppearance
+    let garments: [String]
 }

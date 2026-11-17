@@ -79,6 +79,7 @@ struct OiOperatorStoryDetailView: View {
     @State private var checkedAppearance: OiCucumberArtworkReference?
     @State private var appearanceImages: [OiCucumberArtworkReference.Part: UIImage] = [:]
     @State private var checkedCards: [String: UIImage] = [:]
+    @State private var checkedPhotoPaths: Set<String> = []
     @State private var appearanceError = false
     @State private var imageAttempt = 0
     @State private var selectedArtwork: ReviewArtwork?
@@ -93,8 +94,9 @@ struct OiOperatorStoryDetailView: View {
     private var artwork: OiCucumberArtworkReference? { model.detail?.story.cucumberArtwork }
     private var cardPaths: [String] { model.detail?.story.cardArtworkPaths ?? [] }
     private var artworkReady: Bool {
-        (model.detail?.story.hasSupportedCardArtwork ?? false) &&
-        (artwork == nil || checkedAppearance == artwork) && cardPaths.allSatisfy { checkedCards[$0] != nil }
+        guard let detail = model.detail, detail.story.hasSupportedCardArtwork else { return false }
+        return detail.media.allSatisfy { checkedPhotoPaths.contains($0.objectPath) } &&
+            (artwork == nil || checkedAppearance == artwork) && cardPaths.allSatisfy { checkedCards[$0] != nil }
     }
 
     var body: some View {
@@ -186,7 +188,7 @@ struct OiOperatorStoryDetailView: View {
                 Text("첨부된 사진이 없어요.").foregroundStyle(.secondary)
             } else {
                 ForEach(detail.media) { media in
-                    OiStoryMediaImage(path: media.objectPath) { path in
+                    OiStoryMediaImage(path: media.objectPath, onPhotoLoaded: { checkedPhotoPaths.insert(media.objectPath) }) { path in
                         try await remote.mediaURL(bucket: "oi-story-media", path: path)
                     }
                     .frame(minHeight: 120, maxHeight: 320)

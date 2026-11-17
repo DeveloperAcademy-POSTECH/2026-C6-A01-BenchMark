@@ -20,6 +20,7 @@ struct OiContinuationList: View {
     @State private var failure: String?
     @State private var unsupported = false
     @State private var requestID = UUID()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ScrollView {
@@ -54,10 +55,28 @@ struct OiContinuationList: View {
             }.padding(20)
         }
         .refreshable { await load(reset: true) }
-        .task(id: "\(parent?.uuidString ?? "mine")/\(remote?.continuationPrivacyKey ?? "public")/\(remote?.revision ?? 0)") {
+        .task(id: "\(parent?.uuidString ?? "mine")/\(remote?.continuationPrivacyKey ?? "public")") {
             await load(reset: true)
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active, rows.isEmpty { Task { await load(reset: true) } }
+        }
+        .onChange(of: catalogIDs) { previous, current in
+            guard let previous, let current else { return }
+            let removed = previous.subtracting(current)
+            if parent.map(removed.contains) == true {
+                requestID = UUID(); rows = []; cursor = nil; total = nil; isLoading = false
+            } else if rows.contains(where: { removed.contains($0.childStoryId) }) {
+                rows.removeAll { removed.contains($0.childStoryId) }
+                Task { await load(reset: true) }
+            }
+        }
         .accessibilityIdentifier("oi.continuations.list")
+    }
+
+    private var catalogIDs: Set<UUID>? {
+        guard let remote, remote.hasLoadedRemote else { return nil }
+        return Set(remote.stories.map(\.id))
     }
 
     private func load(reset: Bool) async {
@@ -66,7 +85,7 @@ struct OiContinuationList: View {
         if reset { requestID = UUID(); rows = []; cursor = nil; total = nil }
         let started = requestID
         failure = nil; unsupported = false; isLoading = true
-        defer { if !Task.isCancelled && requestID == started { isLoading = false } }
+        defer { if requestID == started { isLoading = false } }
         do {
             let result = try await remote.storyContinuations(parent: parent, mine: parent == nil,
                 cursor: reset ? nil : cursor)

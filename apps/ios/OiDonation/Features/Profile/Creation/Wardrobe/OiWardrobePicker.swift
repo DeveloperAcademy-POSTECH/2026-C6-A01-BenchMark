@@ -34,22 +34,6 @@ struct OiCucumberCustomizationStep: View {
     @State private var showsFaceEditor = false
     private var allowsWardrobeEditing: Bool { previewMode == .wardrobe }
     private var seedAppearance: OiSeedCucumberAppearance { customization.seedAppearance ?? .init() }
-    private var seedGarments: Set<OiSeedCucumberGarment> {
-        switch customization.selectedSeedSet {
-        case .costume(let costume):
-            if let proposal = customization.selectedSeedProposal {
-                return [.costumeProposal(costume, proposal)]
-            }
-            return [.costume(costume)]
-        case .postech: return [.postechJacket, .longPants, .sneakers]
-        case nil: break
-        }
-        var garments: Set<OiSeedCucumberGarment> = []
-        if let top = customization.selectedSeedTop { garments.insert(.init(top: top)) }
-        if let bottom = customization.selectedSeedBottom { garments.insert(.init(bottom: bottom)) }
-        if customization.seedSneakers == true { garments.insert(.sneakers) }
-        return garments
-    }
     private var look: OiWardrobeLook { customization.wardrobe ?? OiWardrobeLook() }
     /// Tabs, the name label and its field must stay above the keyboard while typing.
     private static let nameEditingClearance: CGFloat = 44 + 15 + 32 + 70 + 16
@@ -173,7 +157,7 @@ struct OiCucumberCustomizationStep: View {
             } else if allowsWardrobeEditing {
                 Color.clear.frame(height: height)
             } else {
-                OiStep3CucumberPreview(appearance: seedAppearance, garments: seedGarments,
+                OiStep3CucumberPreview(appearance: seedAppearance, garments: customization.seedGarments,
                                       isActive: !showsFaceEditor)
                     .frame(height: fullHeight)
                     .scaleEffect(fullHeight > 0 ? min(1, height / fullHeight) : 1)

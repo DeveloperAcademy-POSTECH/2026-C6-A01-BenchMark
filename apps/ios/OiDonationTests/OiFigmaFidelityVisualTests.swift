@@ -2293,6 +2293,21 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertNil(draft.selectedSeedProposal)
     }
 
+    func testStep3SnapshotRestoresSelectedFaceAndGarmentInPublishedModel() async throws {
+        var draft = OiDraftCustomization()
+        draft.seedAppearance = editedSeedCucumber3DAppearance()
+        draft.selectSeedProposal(.one, for: .raincoat)
+        let snapshot = try XCTUnwrap(draft.seedSnapshot)
+        let bytes = try JSONEncoder().encode(snapshot)
+        let published = try JSONDecoder().decode(OiSeedCucumberSnapshot.self, from: bytes)
+        XCTAssertEqual(published.appearance, draft.seedAppearance)
+        XCTAssertEqual(published.garments, ["seed-costume-raincoat-proposal-1"])
+        XCTAssertEqual(published.portraitKey, snapshot.portraitKey)
+        let model = try await OiSeedCucumberModel.make(snapshot: published)
+        XCTAssertNotNil(model.findEntity(named: "seed-costume-raincoat-proposal-1"))
+        XCTAssertNotNil(model.findEntity(named: "FaceBacking"))
+    }
+
     func testStep3SetsReplaceOutfitsAndRestoreModularItems() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
@@ -2941,6 +2956,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             defaults: fixture.defaults, includesSafeArea: false, attach: true)
         let failedImage = try await capture(failed, name: "campus-notifications-error", variant: reference,
             defaults: fixture.defaults, includesSafeArea: false, attach: true, validateRender: assertSpinnerOnlyRender)
+        let partial = CampusNotificationInboxView(requests: rows, isLoading: true, isInitialLoading: true,
+            unconfirmedRequestID: UUID(), onReload: {}, onOpenRequest: { _ in })
+            .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
+        _ = try await capture(partial, name: "campus-notifications-initial-partial", variant: reference,
+            defaults: fixture.defaults, includesSafeArea: false, validateRender: assertSpinnerOnlyRender)
         XCTAssertNotEqual(failedImage, emptyImage, "A failed load must render differently from an empty inbox")
     }
 

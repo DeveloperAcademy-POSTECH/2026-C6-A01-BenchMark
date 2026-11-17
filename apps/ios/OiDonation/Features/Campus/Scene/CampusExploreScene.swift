@@ -1278,11 +1278,14 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
 
     func distances() -> [String: Float] { positions.mapValues { simd_distance($0, target) } }
-    func visibleStoryIDs() -> Set<String> {
+    func visibleStoryIDs(bottomInset: CGFloat = 0) -> Set<String> {
         guard let view = canvas?.map else { return [] }
-        let projection = mapProjection(in: view.bounds)
+        let bounds = view.bounds
+        let visible = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width,
+                             height: max(0, bounds.height - bottomInset))
+        let projection = mapProjection(in: bounds)
         return Set(positions.compactMap { id, point in
-            guard let screen = projection.point(point), view.bounds.contains(screen) else { return nil }
+            guard let screen = projection.point(point), visible.contains(screen) else { return nil }
             return id
         })
     }
