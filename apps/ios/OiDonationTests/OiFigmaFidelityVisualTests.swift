@@ -2498,6 +2498,41 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     }
 
 
+    /// #411: opening the summary of a public story records it for the story form's recent list.
+    func testSummaryRecordsTheStoryForTheSignedInAccount() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let previousHandler = OiStoreURLProtocol.handle
+        let backend = OiTestBackend()
+        backend.install()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Recent411-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            withExtendedLifetime(backend) {}
+            session.invalidateAndCancel()
+            OiStoreURLProtocol.handle = previousHandler
+            try? FileManager.default.removeItem(at: directory)
+            UserDefaults.standard.removeObject(forKey: "oi.recentStories.v1.\(OiTestBackend.owner.uuidString.lowercased())")
+        }
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let remote = OiRemoteStore(api: api, drafts: OiDraftVault(directory: directory), vault: OiMemorySession())
+        await remote.start()
+        XCTAssertEqual(remote.account?.id, OiTestBackend.owner)
+        var story = CampusStory(id: UUID().uuidString, regionID: "pond", title: "다른작성자오이", image: "OiCats", tags: ["우정"],
+            donor: "농부", location: "연못", date: "2026년 11월 16일", order: 0, popularity: 0, palette: 0)
+        story.authorID = OiTestBackend.other
+        let store = CampusStoryStore(defaults: fixture.defaults)
+        store.synchronize(stories: [story], collected: [])
+        let view = NavigationStack { CampusSummaryView(story: story, store: store) }
+            .environment(remote).environment(store)
+        try await capture(view, name: "summary-records-recent", variant: variants[0], defaults: fixture.defaults, delay: .seconds(1))
+        let recorded = OiRecentStories.ids(owner: OiTestBackend.owner)
+        XCTAssertEqual(recorded.first, story.id, "Opening the summary must add the story to the recent list")
+        XCTAssertEqual(OiRecentStories.pickerStories(owner: OiTestBackend.owner) { store.story($0) }.map(\.id), [story.id])
+    }
+
     /// #411: the 이어질 기부 대상 picker (Figma `6183:2707`) and the story form section.
     func testConnectedDonationPickerAndSectionCaptures() async throws {
         let fixture = try isolatedDefaults()

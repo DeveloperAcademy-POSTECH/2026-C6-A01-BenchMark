@@ -27,7 +27,8 @@ struct CampusSummaryView: View {
             .toolbar(.visible, for: .navigationBar).toolbarBackground(.hidden, for: .navigationBar)
             .navigationBarTitleDisplayMode(.inline).toolbarRole(.editor)
             // The story form offers the five most recently opened stories as donations to continue from (#411).
-            .onAppear {
+            // Also runs when the account finishes loading, so a story opened right after launch is not missed.
+            .task(id: remote?.account?.id) {
                 if let owner = remote?.account?.id, !story.isExample {
                     OiRecentStories.record(story.id, owner: owner)
                 }
