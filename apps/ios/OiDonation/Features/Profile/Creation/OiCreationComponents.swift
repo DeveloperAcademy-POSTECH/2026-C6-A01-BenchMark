@@ -529,7 +529,7 @@ struct OiStoryAttachmentSections: View {
                 OiCreationSection(title: "이어질 기부 대상", hint: "(선택)") {
                     if let connectedStory {
                         OiCucumberCard(name: connectedStory.title, tags: connectedStory.tags, donor: connectedStory.donor,
-                                       title: connectedStory.storyTitle, outline: Color(oiRGB: 0xD3DBC4), shadowOpacity: 0) {
+                                       title: connectedStory.storyTitle, outline: Color(oiRGB: 0xD3DBC4), showsShadow: false) {
                             CampusCucumberPortrait(story: connectedStory)
                         }
                         .accessibilityIdentifier("oi.story.connectedCard")

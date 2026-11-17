@@ -65,8 +65,8 @@ struct OiConnectedDonationPicker: View {
     private func card(_ story: CampusStory) -> some View {
         let isSelected = selection == story.id
         return OiCucumberCard(name: story.title, tags: story.tags, donor: story.donor, title: story.storyTitle,
-                              outline: isSelected ? Color(oiRGB: 0x849644) : Color(oiRGB: 0xD3DBC4),
-                              outlineWidth: isSelected ? 2 : 1, shadowOpacity: 0) {
+                              outline: Color(oiRGB: 0xD3DBC4),
+                              selectionOutline: isSelected ? Color(oiRGB: 0x849644) : nil, showsShadow: false) {
             CampusCucumberPortrait(story: story)
         }
     }
