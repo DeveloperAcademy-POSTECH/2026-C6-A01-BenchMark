@@ -8,7 +8,7 @@
 import CryptoKit
 import Foundation
 
-struct OiLocalDraft: Codable, Identifiable, Equatable {
+nonisolated struct OiLocalDraft: Codable, Identifiable, Equatable, Sendable {
     var draft: OiStoryDraft
     var photos: [UUID] = []
     var uploadedPhotos: [UUID] = []
@@ -62,7 +62,7 @@ struct OiLocalDraft: Codable, Identifiable, Equatable {
 }
 
 /// The last confirmed position on this account's device map, separate from edits and public review.
-struct OiPersonalPlacement: Codable, Equatable {
+nonisolated struct OiPersonalPlacement: Codable, Equatable, Sendable {
     let regionID: String
     let name: String
     let latitude: Double
@@ -71,7 +71,7 @@ struct OiPersonalPlacement: Codable, Equatable {
     let headingDegrees: Double
 }
 
-struct OiDraftListing {
+nonisolated struct OiDraftListing: Sendable {
     let drafts: [OiLocalDraft]
     let unreadableFiles: [String]
     let pendingDiscardCount: Int
@@ -88,7 +88,7 @@ struct OiDraftDiscardCleanupError: LocalizedError {
     }
 }
 
-struct OiEvidenceOperation: Codable, Equatable {
+nonisolated struct OiEvidenceOperation: Codable, Equatable, Sendable {
     var requestID: UUID
     var uploadID: UUID
     var contentType: String
@@ -105,7 +105,7 @@ struct OiEvidenceOperation: Codable, Equatable {
     }
 }
 
-struct OiPendingCardDecision: Codable, Equatable {
+nonisolated struct OiPendingCardDecision: Codable, Equatable, Sendable {
     let id: UUID
     let accept: Bool
 }
@@ -357,8 +357,8 @@ actor OiDraftVault {
 }
 
 /// Local preview settings only. Not sent to the story API until the shared asset contract exists.
-struct OiDraftCustomization: Codable, Equatable {
-    enum Fill: String, Codable, CaseIterable { case solid, gradient }
+nonisolated struct OiDraftCustomization: Codable, Equatable, Sendable {
+    nonisolated enum Fill: String, Codable, CaseIterable, Sendable { case solid, gradient }
     var fill: Fill = .solid
     var firstColor: UInt32 = 0xD3DBC4
     var secondColor: UInt32 = 0xF1F4EC
@@ -448,7 +448,7 @@ struct OiDraftCustomization: Codable, Equatable {
     }
 }
 
-enum OiSeedCostumeProposal: Int {
+nonisolated enum OiSeedCostumeProposal: Int, Sendable {
     case one = 1
 
     static func options(for costume: OiWardrobeLook.Costume) -> [Self] {
@@ -459,7 +459,7 @@ enum OiSeedCostumeProposal: Int {
     }
 }
 
-enum OiSeedCucumberSet: Equatable, RawRepresentable, CaseIterable {
+nonisolated enum OiSeedCucumberSet: Equatable, RawRepresentable, CaseIterable, Sendable {
     case costume(OiWardrobeLook.Costume)
     case postech
 
@@ -486,7 +486,7 @@ enum OiSeedCucumberSet: Equatable, RawRepresentable, CaseIterable {
 
 /// Card-space coordinates shared by the small editor frame and the final card.
 /// Values are normalized, so changing device size cannot change the chosen crop.
-struct OiCardPlacement: Codable, Equatable {
+nonisolated struct OiCardPlacement: Codable, Equatable, Sendable {
     var x = 0.5
     var y = 0.5
     var scale = 1.0
@@ -498,7 +498,7 @@ struct OiCardPlacement: Codable, Equatable {
 }
 
 /// Radians around the portrait camera's target. This never changes the AR model.
-struct OiCardOrientation: Codable, Equatable {
+nonisolated struct OiCardOrientation: Codable, Equatable, Sendable {
     var yaw = 0.0
     var pitch = 0.0
     var normalized: Self {
@@ -519,14 +519,14 @@ struct OiCardOrientation: Codable, Equatable {
 }
 
 enum OiCardOpacity {
-    static func normalized(_ value: Double?) -> Double {
+    nonisolated static func normalized(_ value: Double?) -> Double {
         guard let value, value.isFinite else { return 1 }
         return max(0, min(1, value))
     }
 }
 
 /// Shared postcard style; optional custom colors preserve earlier single-color drafts.
-struct OiPostcardBackgroundStyle: Codable, Equatable {
+nonisolated struct OiPostcardBackgroundStyle: Codable, Equatable, Sendable {
     var color: UInt32 = 0xEECFDF
     var fill: OiDraftCustomization.Fill = .gradient
     /// Optional additions preserve the appearance of earlier one-color drafts.
@@ -555,7 +555,7 @@ struct OiPostcardBackgroundStyle: Codable, Equatable {
 }
 
 /// Kept in the protected local draft, never added implicitly to the public API payload.
-struct OiCardDesign: Codable, Equatable {
+nonisolated struct OiCardDesign: Codable, Equatable, Sendable {
     var borderFill: OiDraftCustomization.Fill = .gradient
     var borderFirst: UInt32 = 0xE8EECF
     var borderSecond: UInt32 = 0xD5DBC6
@@ -589,7 +589,7 @@ struct OiCardDesign: Codable, Equatable {
     var postcardAcademicAuthor: String? = nil
 }
 
-enum OiDenim: String, CaseIterable, Codable, Identifiable {
+nonisolated enum OiDenim: String, CaseIterable, Codable, Identifiable, Sendable {
     case lightBlue = "01-light-blue", classicBlue = "02-classic-blue", deepIndigo = "03-deep-indigo"
     case washedBlack = "04-washed-black", softGray = "05-soft-gray", ecru = "06-ecru"
     var id: String { rawValue }
@@ -603,18 +603,18 @@ enum OiDenim: String, CaseIterable, Codable, Identifiable {
 }
 
 /// Stable item IDs; the renderer resolves a tested, source-matched assembly from these choices.
-struct OiWardrobeLook: Codable, Equatable {
-    enum Top: String, Codable, CaseIterable {
+nonisolated struct OiWardrobeLook: Codable, Equatable, Sendable {
+    nonisolated enum Top: String, Codable, CaseIterable, Sendable {
         case tshirt, hoodie, cardigan, postech
         var title: String {
             switch self { case .tshirt: "흰 반팔 티"; case .hoodie: "흰 후드티"; case .cardigan: "흰 가디건"; case .postech: "포스텍 과잠" }
         }
     }
-    enum Bottom: String, Codable, CaseIterable {
+    nonisolated enum Bottom: String, Codable, CaseIterable, Sendable {
         case long, shorts
         var title: String { self == .long ? "흰 긴바지" : "흰 반바지" }
     }
-    enum Costume: String, Codable, CaseIterable, Identifiable {
+    nonisolated enum Costume: String, Codable, CaseIterable, Identifiable, Sendable {
         case dinosaur, raincoat, bee, cat
         case astronaut, scientist
         case catBear = "cat-bear", postechSelfie = "postech-selfie"
@@ -669,7 +669,7 @@ struct OiWardrobeLook: Codable, Equatable {
 
 
 /// Normalized front/back placement; Foundation-only so local-draft recovery can be tested off-device.
-enum OiPhotoSide: String, CaseIterable, Codable, Identifiable {
+nonisolated enum OiPhotoSide: String, CaseIterable, Codable, Identifiable, Sendable {
     case front, back
     var id: String { rawValue }
     var title: String { self == .front ? "앞면" : "뒷면" }
@@ -689,14 +689,14 @@ enum OiPhotoSlot: String, CaseIterable, Identifiable {
     func fabric(in look: OiWardrobeLook) -> OiDenim? { preservesOriginalMaterial(in: look) ? nil : look.fabrics[itemID(in: look)] }
     func resource(in look: OiWardrobeLook) -> String { "photo-" + look.modelName + "-" + rawValue }
 }
-struct OiPhotoPlacement: Codable, Equatable {
+nonisolated struct OiPhotoPlacement: Codable, Equatable, Sendable {
     var x = 0.5, y = 0.5, width = 0.55, rotation = 0.0
     var isValid: Bool {
         x.isFinite && y.isFinite && width.isFinite && rotation.isFinite &&
         (0...1).contains(x) && (0...1).contains(y) && (0.03...1.5).contains(width) && (-180...180).contains(rotation)
     }
 }
-struct OiPhotoLayer: Codable, Equatable, Identifiable {
+nonisolated struct OiPhotoLayer: Codable, Equatable, Identifiable, Sendable {
     var id = UUID().uuidString
     var source: String
     var side: OiPhotoSide = .front
@@ -711,7 +711,7 @@ enum OiPhotoEditingLimit {
     }
 }
 
-struct OiPhotoDesign: Codable, Equatable {
+nonisolated struct OiPhotoDesign: Codable, Equatable, Sendable {
     static let maximumLayers = 8
     var version = UUID().uuidString
     // Missing in older drafts; their photos use the original, lower print frame.
@@ -724,7 +724,7 @@ struct OiPhotoDesign: Codable, Equatable {
 }
 /// Self-contained, deduplicated compressed photos live inside the account's protected draft.
 /// No shared photo folder: deleting/adopting a draft cannot remove another user's artwork.
-struct OiWardrobeArtwork: Codable, Equatable {
+nonisolated struct OiWardrobeArtwork: Codable, Equatable, Sendable {
     static let maximumBytes = 8 * 1024 * 1024
     static let maximumSourceBytes = 1024 * 1024
     static let itemIDs: Set<String> = Set(["top-tshirt", "top-hoodie", "top-cardigan", "top-postech", "bottom-long", "bottom-shorts"])

@@ -45,11 +45,33 @@ struct OiSessionVault: OiSessionStorage {
     }
 }
 
+/// Retains the actual presentation window for one authentication attempt.
 @MainActor
-final class OiGoogleAuthentication: NSObject, OiAuthenticating, ASWebAuthenticationPresentationContextProviding {
+final class OiAuthenticationPresentationContext: NSObject, ASAuthorizationControllerPresentationContextProviding,
+    ASWebAuthenticationPresentationContextProviding {
+    private let window: UIWindow
+
+    static func foreground() -> OiAuthenticationPresentationContext? {
+        guard let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
+            .filter({ $0.activationState == .foregroundActive }).flatMap(\.windows).first(where: \.isKeyWindow) else {
+            return nil
+        }
+        return OiAuthenticationPresentationContext(window: window)
+    }
+
+    private init(window: UIWindow) {
+        self.window = window
+        super.init()
+    }
+
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor { window }
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor { window }
+}
+
+@MainActor
+final class OiGoogleAuthentication: NSObject, OiAuthenticating {
     static let callback = OiServiceAPI.authenticationCallback
     private var webSession: ASWebAuthenticationSession?
-    private var anchor: ASPresentationAnchor?
     private var attemptID: UUID?
     private var continuation: CheckedContinuation<URL, Error>?
 
@@ -60,15 +82,16 @@ final class OiGoogleAuthentication: NSObject, OiAuthenticating, ASWebAuthenticat
         guard SecRandomCopyBytes(kSecRandomDefault, random.count, &random) == errSecSuccess else { throw OiServiceError.unavailable }
         let verifier = Data(random).base64URLEncoded
         let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64URLEncoded
-        guard let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
-            .filter({ $0.activationState == .foregroundActive }).flatMap(\.windows).first(where: \.isKeyWindow) else { throw OiServiceError.unavailable }
+        guard let presentationContext = OiAuthenticationPresentationContext.foreground() else {
+            throw OiServiceError.unavailable
+        }
         let attempt = UUID()
         attemptID = attempt
-        anchor = window
         defer {
             if attemptID == attempt {
-                webSession = nil; anchor = nil; attemptID = nil; continuation = nil
+                webSession = nil; attemptID = nil; continuation = nil
             }
+            withExtendedLifetime(presentationContext) {}
         }
         guard var components = URLComponents(string: "https://\(OiServiceAPI.projectHost)/auth/v1/authorize") else {
             throw OiServiceError.unavailable
@@ -94,7 +117,7 @@ final class OiGoogleAuthentication: NSObject, OiAuthenticating, ASWebAuthenticat
                         }
                     }
                 }
-                authentication.presentationContextProvider = self
+                authentication.presentationContextProvider = presentationContext
                 webSession = authentication
                 if !authentication.start() { complete(attempt, result: .failure(OiServiceError.unavailable)) }
             }
@@ -125,12 +148,8 @@ final class OiGoogleAuthentication: NSObject, OiAuthenticating, ASWebAuthenticat
     private func complete(_ attempt: UUID, result: Result<URL, Error>) {
         guard attemptID == attempt, let continuation else { return }
         self.continuation = nil
-        webSession = nil; anchor = nil
+        webSession = nil
         continuation.resume(with: result)
-    }
-
-    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        anchor ?? ASPresentationAnchor()
     }
 }
 
