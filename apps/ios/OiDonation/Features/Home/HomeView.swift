@@ -24,6 +24,7 @@ struct HomeView: View {
     @State private var isSearchCoverActive = false
     @State private var searchMode: CampusSearchMode?
     @State private var pendingStoryID: String?
+    @State private var selectedSafetyStory: CampusStory?
     @State private var showingNotifications = false
     @State private var listIsAtTop = true
     @State private var listDrag = RegionListDrag.idle
@@ -196,6 +197,12 @@ struct HomeView: View {
                 scene.showOverview()
             }
         }
+        .sheet(item: $selectedSafetyStory) { story in
+            if let storyID = UUID(uuidString: story.id), let authorID = story.authorID {
+                OiStorySafetySheet(storyID: storyID, authorID: authorID, authorName: story.donor)
+            }
+        }
+        .onChange(of: remote?.account?.id) { _, _ in selectedSafetyStory = nil }
         .accessibilityHidden(showingSearchChoice || showingNotifications)
         .overlay {
             if showingSearchChoice {
@@ -516,6 +523,31 @@ struct HomeView: View {
         }.buttonStyle(.plain).accessibilityIdentifier("campus.searchArea")
     }
 
+    private func storyRow(_ story: CampusStory) -> some View {
+        // Same card as the story list (Figma `5441:17267`, #399).
+        Button {
+            if selectedSafetyStory == nil { openStory(story.id) }
+        } label: {
+            OiCucumberCard(name: story.title, tags: story.tags, donor: story.donor,
+                           title: story.storyTitle) { CampusCucumberPortrait(story: story) }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("campus.row.\(story.id)")
+        .accessibilityElement(children: .combine)
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 5).onEnded { completed in
+                guard completed, selectedSafetyStory == nil, canOpenStorySafety(for: story) else { return }
+                selectedSafetyStory = story
+            },
+            including: canOpenStorySafety(for: story) ? .all : .none
+        )
+    }
+
+    private func canOpenStorySafety(for story: CampusStory) -> Bool {
+        guard !story.isExample, UUID(uuidString: story.id) != nil, let author = story.authorID else { return false }
+        return remote?.account?.id != author
+    }
+
     private func regionPanel(_ region: CampusRegion, availableHeight: CGFloat, bottomInset: CGFloat) -> some View {
         let items = store.stories(in: searchResults == nil ? region.id : nil,
                                   matching: searchResults, sortedBy: sort, distances: distances)
@@ -558,13 +590,7 @@ struct HomeView: View {
                                 .font(CampusStyle.body(14)).foregroundStyle(.secondary).padding()
                         }
                         ForEach(items) { story in
-                            // Same card as the story list (Figma `5441:17267`, #399).
-                            Button { openStory(story.id) } label: {
-                                OiCucumberCard(name: story.title, tags: story.tags, donor: story.donor,
-                                               title: story.storyTitle) { CampusCucumberPortrait(story: story) }
-                            }
-                            .buttonStyle(.plain).accessibilityIdentifier("campus.row.\(story.id)")
-                            .accessibilityElement(children: .combine)
+                            storyRow(story)
                         }
                     }.padding(.bottom, 12)
                 }.scrollIndicators(.hidden)
