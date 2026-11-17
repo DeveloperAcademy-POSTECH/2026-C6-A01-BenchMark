@@ -9,8 +9,10 @@ import SwiftUI
 
 struct CampusNotificationSheet: View {
     let remote: OiRemoteStore
+    var onOpenContinuation: ((String) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(CampusStoryStore.self) private var storyStore: CampusStoryStore?
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     @State private var requests: [OiCardRequestInboxItem] = []
@@ -22,6 +24,11 @@ struct CampusNotificationSheet: View {
     @State private var loadError: String?
     @State private var actionError: String?
     @State private var unconfirmedDecision: (id: UUID, decision: OiCardRequestDecision)?
+    @State private var continuations: [OiContinuationNotice] = []
+    @State private var continuationCursor: OiContinuationCursor?
+    @State private var openingContinuation = false
+    @State private var continuationError: String?
+    @State private var loadID = UUID()
 
     var body: some View {
         let now = Date.now
@@ -40,9 +47,17 @@ struct CampusNotificationSheet: View {
                     guard hasSession else { return }
                     if unconfirmedDecision == nil { actionError = nil }
                     selectedRequestID = id
-                }
+                },
+                continuations: hasSession ? continuations : [],
+                onOpenContinuation: { id in Task { await openContinuation(id) } },
+                onMoreContinuations: continuationCursor == nil ? nil : { Task { await loadMoreContinuations() } }
             )
-            .task { await reload() }
+            .task(id: remote.continuationPrivacyKey) {
+                loadID = UUID(); isLoading = false; continuations = []; continuationCursor = nil
+                requests = []; hasLoadedRequests = false
+                await reload()
+            }
+            .disabled(openingContinuation)
             .toolbar(.hidden, for: .navigationBar)
             .accessibilityAction(.escape) { if pendingRequestID == nil { dismiss() } }
             .navigationDestination(item: $selectedRequestID) { id in
@@ -56,7 +71,11 @@ struct CampusNotificationSheet: View {
                 }
             }
         }
-        .interactiveDismissDisabled(pendingRequestID != nil)
+        .interactiveDismissDisabled(pendingRequestID != nil || openingContinuation)
+        .alert("이어진 이야기를 열지 못했어요", isPresented: Binding(
+            get: { continuationError != nil }, set: { if !$0 { continuationError = nil } })) {
+                Button("확인", role: .cancel) { continuationError = nil }
+            } message: { Text(continuationError ?? "") }
         .presentationDetents([.large])
         .presentationCornerRadius(35)
         .presentationDragIndicator(.hidden)
@@ -68,6 +87,7 @@ struct CampusNotificationSheet: View {
                 selectedRequestID = nil
                 showingOlderRequests = false
                 requests = []
+                continuations = []; continuationCursor = nil; loadID = UUID()
                 hasLoadedRequests = false
                 loadError = nil
                 actionError = nil
@@ -103,10 +123,11 @@ struct CampusNotificationSheet: View {
               let owner = remote.account?.id else { return }
         isLoading = true
         loadError = nil
-        defer { isLoading = false }
+        let started = loadID
+        defer { if loadID == started { isLoading = false } }
         do {
             let rows = try await remote.cardRequests()
-            guard !Task.isCancelled, remote.account?.id == owner, !remote.needsReauthentication else { return }
+            guard !Task.isCancelled, loadID == started, remote.account?.id == owner, !remote.needsReauthentication else { return }
             requests = rows.filter { $0.status == .pending }.sorted { $0.createdAt > $1.createdAt }.map {
                 OiCardRequestInboxItem(id: $0.id, requesterName: $0.requesterName,
                     storyTitle: $0.storyTitle, schoolName: $0.requesterSchoolName,
@@ -114,8 +135,68 @@ struct CampusNotificationSheet: View {
             }
             hasLoadedRequests = true
         } catch {
-            guard !Task.isCancelled, remote.account?.id == owner, !remote.needsReauthentication else { return }
+            guard !Task.isCancelled, loadID == started, remote.account?.id == owner, !remote.needsReauthentication else { return }
             loadError = "연결 상태를 확인한 뒤 다시 시도해 주세요."
+        }
+        guard remote.supportsContinuationNotifications, remote.account?.id == owner,
+              !remote.needsReauthentication, !Task.isCancelled, loadID == started else { return }
+        do {
+            let page = try await remote.storyContinuations(mine: true)
+            guard loadID == started, remote.account?.id == owner, !Task.isCancelled else { return }
+            continuations = Self.notices(page.items, remote: remote)
+            continuationCursor = continuations.count == page.items.count ? page.nextCursor : nil
+            hasLoadedRequests = true
+        } catch {
+            guard loadID == started, remote.account?.id == owner, !Task.isCancelled else { return }
+            loadError = "이어진 이야기 알림을 불러오지 못했어요. 다시 시도해 주세요."
+        }
+    }
+
+    static func notices(_ rows: [OiStoryContinuation], remote: OiRemoteStore, now: Date = .now) -> [OiContinuationNotice] {
+        rows.compactMap { row in
+            let date = ISO8601DateFormatter()
+            date.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let created = date.date(from: row.publishedAt) ?? ISO8601DateFormatter().date(from: row.publishedAt)
+            guard let created, isRecent(created, now: now) else { return nil }
+            let story = remote.campusStory(row.story)
+            return OiContinuationNotice(id: row.id, title: story.storyTitle, author: story.donor,
+                createdAt: created, isUnread: row.readAt == nil)
+        }
+    }
+
+    private func loadMoreContinuations() async {
+        guard !isLoading, pendingRequestID == nil, let continuationCursor else { return }
+        let started = loadID
+        isLoading = true
+        defer { if loadID == started { isLoading = false } }
+        do {
+            let page = try await remote.storyContinuations(mine: true, cursor: continuationCursor)
+            guard !Task.isCancelled, loadID == started else { return }
+            let notices = Self.notices(page.items, remote: remote), known = Set(continuations.map(\.id))
+            continuations += notices.filter { !known.contains($0.id) }
+            self.continuationCursor = notices.count == page.items.count ? page.nextCursor : nil
+        } catch {
+            if !Task.isCancelled, loadID == started { loadError = "이어진 이야기 알림을 불러오지 못했어요." }
+        }
+    }
+
+    private func openContinuation(_ child: UUID) async {
+        guard !openingContinuation, pendingRequestID == nil, unconfirmedDecision == nil,
+              let owner = remote.account?.id, !remote.needsReauthentication else { return }
+        openingContinuation = true
+        defer { openingContinuation = false }
+        do {
+            // Revalidate current visibility and ownership before marking read or navigating.
+            let story = try await remote.readStoryContinuation(child)
+            guard !Task.isCancelled, remote.account?.id == owner, !remote.needsReauthentication else { return }
+            if let storyStore {
+                storyStore.synchronize(stories: storyStore.stories.filter { $0.id != story.id } + [story], collected: storyStore.collected)
+            }
+            onOpenContinuation?(story.id)
+        } catch {
+            guard !Task.isCancelled, remote.account?.id == owner else { return }
+            continuationError = "비공개 또는 삭제된 이야기는 열 수 없어요. 연결 상태를 확인하고 다시 시도해 주세요."
+            await reload()
         }
     }
 

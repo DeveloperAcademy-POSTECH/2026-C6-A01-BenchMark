@@ -121,6 +121,8 @@ enum OiCreationAccess {
         serverDraft.revision = draft.revision
         if draft.heightMeters == nil { serverDraft.heightMeters = nil }
         if draft.headingDegrees == nil { serverDraft.headingDegrees = nil }
+        if draft.updatesContinuation != true { serverDraft.continuedFromStoryID = draft.continuedFromStoryID }
+        serverDraft.updatesContinuation = draft.updatesContinuation
         return serverDraft == draft
     }
 }

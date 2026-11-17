@@ -347,7 +347,7 @@ struct OiStoryEditor: View {
                 OiConnectedDonationPicker(
                     stories: recentDonationStories,
                     onCancel: { showingDonorPicker = false },
-                    onDone: { customization.connectedStoryID = $0; showingDonorPicker = false })
+                    onDone: { customization.connectedStoryID = $0; customization.connectedStorySelectionEdited = true; showingDonorPicker = false })
             }
             .sheet(isPresented: $showingPreview, onDismiss: {
                 guard openingPhotosAfterReview else { return }
@@ -744,6 +744,9 @@ struct OiStoryEditor: View {
                 reviewedContentFingerprint = record.reviewedContentFingerprint
                 step = record.creationStep.flatMap(OiCreationStep.init(rawValue:)) ?? .story
                 customization = record.customization ?? OiDraftCustomization()
+                if customization.connectedStorySelectionEdited != true, customization.connectedStoryID == nil {
+                    customization.connectedStoryID = currentStory?.continuedFromStoryId?.uuidString
+                }
                 personalPlacement = record.personalPlacement
                 customizationReady = personalPlacement != nil && step == .card
                 cardPlacementReady = customizationReady
@@ -755,6 +758,9 @@ struct OiStoryEditor: View {
             if let server = remote.ownStories.first(where: { $0.id == draft.id }) {
                 if draft.heightMeters == nil { draft.heightMeters = server.heightMeters }
                 if draft.headingDegrees == nil { draft.headingDegrees = server.headingDegrees }
+                if customization.connectedStorySelectionEdited != true, customization.connectedStoryID == nil {
+                    customization.connectedStoryID = server.continuedFromStoryId?.uuidString
+                }
                 submitted = !OiCreationAccess.canEdit(status: server.status, submitted: submitted)
             }
             restored = true; localError = nil; saveLabel = "이 계정의 기기 초안 자동 저장"
@@ -963,7 +969,10 @@ struct OiStoryEditor: View {
                 OiStoryAttachmentSections(photoCount: editingPhotos.count,
                     latitude: draft.latitude, longitude: draft.longitude,
                     onPhotos: openPhotoEditor, onLocation: { endStoryEditing(); navigate(to: .location) },
-                    connectedStory: connectedStory, onSelectDonor: selectDonor)
+                    connectedStory: connectedStory, onSelectDonor: selectDonor,
+                    onClearDonor: customization.connectedStoryID == nil ? nil : {
+                        customization.connectedStoryID = nil; customization.connectedStorySelectionEdited = true
+                    })
             }
         case .cucumber:
             OiCucumberCustomizationStep(customization: $customization, cucumberName: $draft.cucumberName,
@@ -990,10 +999,9 @@ struct OiStoryEditor: View {
         customization.connectedStoryID.flatMap { campusStore?.story($0) }
     }
 
-    /// 기부자 선택하기 / 다시 선택하기: any earlier choice is cleared before the list opens.
+    /// Keep the saved selection until a new choice is confirmed; cancel must preserve it.
     private func selectDonor() {
         endStoryEditing()
-        customization.connectedStoryID = nil
         showingDonorPicker = true
     }
 

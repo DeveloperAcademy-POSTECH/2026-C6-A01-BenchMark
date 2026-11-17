@@ -1,0 +1,34 @@
+# 이어진 이야기 연결 검증 — #418
+
+2026-11-17, 가상 계정·이야기만 사용했다. 운영 DB 쓰기·마이그레이션 적용·실제 사용자 알림 발송은 수행하지 않았다. PR #415의 선택 UI를 작업 브랜치에 통합했으며 해당 PR의 develop 병합은 수행하지 않았다.
+
+## 서버
+
+`python3 supabase/tests/run-account-merge-db-checks.py` 전체 통과. 저장소 이력·배포 호환 이력 각각에 새 마이그레이션과 `supabase/tests/oi-story-continuations.sql`을 실행했다. 작업 전용 PostgreSQL을 종료하고 PID·소켓 정리를 확인했다.
+
+- 정상 지정·구버전 필드 생략 보존·명시적 null 해제, 자기·숨김·미존재 대상 및 순환 거절.
+- 공개 원시 테이블의 부모 열 부재·비공개 테이블 권한·anon 수신 알림 거절.
+- 실제 service-only AI 검수 → 검수 중 부모에게 비노출 → 작성자 심기 후 공개 목록·부모 수신 목록·알림·개수 확인.
+- 부모 관계 변경 후 기존 AI snapshot으로 심기 거절. 연결이 없는 이야기의 snapshot은 기존 delegate와 동일함을 비교.
+- 부모·자식 숨김/작성자 제한/기기 차단 필터 제외, 타인·차단 알림 열기 거절, 읽음 멱등·공개 조회의 읽음 비노출.
+- 부모에 여러 자식, 동일 공개 시각의 UUID 커서 20+5 페이지, 목록과 전체 개수 일치.
+- canonical 계정 통합 후 본인 초안 대상·공개 연결 유지. 부모 논리 삭제·실제 계정 탈퇴에 따른 물리 삭제에서 자식 보존·연결 해제.
+- mutator·snapshot·capability 미지 변경 각각에서 스키마 생성 전 drift 실패·rollback.
+- 기존 계정 통합·탈퇴·PNG/JPEG 카드·Storage 읽기/검수·건물 쪽지·증빙 접수 종료·AI 자동검수 회귀 통과.
+
+운영 함수 해시를 직접 조회한 결과가 아니다. 운영 DB는 PR 리뷰 후 별도 drift 확인·적용이 필요하다. 심사 NFC `test-01`·지정 이야기 상태와 연결을 변경하지 않았다.
+
+## iOS
+
+Xcode `OiFlowChecks`, Debug, iPhone 18 Pro / iOS Simulator에서 선택한 19개 검사 통과(실패·skip 0). 결과 번들: `/private/tmp/oi-418-client-regression.xcresult`.
+
+- `OiStoryContinuationTests` 5개: payload 생략/지정/null·옛 Codable 호환, 공개/인증 RPC·차단·커서·원자적 읽음 DTO, capability별 저장 전송·본인 대상 복원, 최근 30일 표시·알림 캡처, 부모 목록·MY 캡처와 로그아웃 후 늦은 알림 응답 폐기.
+- `OiRecentStoriesTests` 4개: PR #415의 계정별 최근 기록·5개 대상·옛 초안 회귀.
+- 기존 알림/카드 요청 8개: 목록·오류·큰 글자·시트 캡처 4개, 요청 영수증·다른 이야기 영수증 거절·로그아웃 후 응답·404 충돌 4개.
+- 기존 AI 승인 후 명시적 심기, JPEG 5개 파일 업로드·검토·조회 2개.
+
+화면은 가상 공개 응답을 사용하는 실제 SwiftUI 뷰다. DB에서 공개 조건을 검증한 검사와 앱의 HTTP fixture 검사를 분리했으며, 실제 두 계정을 운영 서버에서 공개한 end-to-end 검사가 아니다. 실기기 빌드·사용자 공개 흐름·운영 RPC 배포·APNs 푸시는 확인하지 않았다. 검증용 창은 캡처 후 숨기고 scene에서 분리했다.
+
+![이어진 이야기 알림](notification.png)
+![부모 이야기의 실제 연결 목록](parent-list.png)
+![MY 수신 목록과 실제 연결 개수](my-incoming.png)

@@ -14,6 +14,7 @@ struct CampusCucumberStoryView: View {
     let story: CampusStory
     let store: CampusStoryStore
     @State private var tab = Tab.related
+    @Environment(OiRemoteStore.self) private var remote: OiRemoteStore?
     @Environment(\.dismiss) private var dismiss
 
     init(story: CampusStory, store: CampusStoryStore, initialTab: Tab = .related) {
@@ -41,6 +42,9 @@ struct CampusCucumberStoryView: View {
             }
         }
         .background(Color(oiRGB: 0xF0F0F0).ignoresSafeArea())
+        .task(id: "\(story.id)/\(remote?.continuationPrivacyKey ?? "public")/\(remote?.revision ?? 0)") {
+            if let remote, let id = UUID(uuidString: story.id) { try? await remote.refreshContinuationCounts(for: [id]) }
+        }
         .ignoresSafeArea(edges: [.top, .bottom])
         .toolbar(.visible, for: .navigationBar).toolbarBackground(.hidden, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline).toolbarRole(.editor)
@@ -185,34 +189,9 @@ private struct CampusCucumberRelatedTab: View {
     let story: CampusStory
     let store: CampusStoryStore
 
-    private var items: [CampusStory] {
-        Array(store.stories(in: story.regionID, sortedBy: .latest).filter { $0.id != story.id })
-    }
-
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("같은 구역의 공개 이야기").font(CampusStyle.semibold(16))
-                    Text("이어진 기부 관계는 DB 연동 후 제공해요.")
-                        .font(CampusStyle.body(12)).foregroundStyle(.secondary)
-                }.frame(maxWidth: .infinity, alignment: .leading)
-                ForEach(items) { item in
-                    NavigationLink(value: CampusDestination.summary(item.id)) {
-                        OiCucumberCard(name: item.title, tags: item.tags, donor: item.donor,
-                                       title: item.storyTitle) {
-                            CampusCucumberPortrait(story: item).padding(10)
-                                .frame(width: 66, height: 86)
-                                .background(Color(oiRGB: 0xEFEFEF), in: RoundedRectangle(cornerRadius: 16))
-                        }
-                    }.buttonStyle(.plain)
-                }
-                if items.isEmpty {
-                    Text("같은 구역에 다른 공개 이야기가 없어요.").font(CampusStyle.body(14))
-                        .foregroundStyle(.secondary).padding(.top, 40)
-                }
-            }.padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 40)
-        }.scrollIndicators(.hidden)
+        if let parent = UUID(uuidString: story.id) { OiContinuationList(parent: parent, store: store) }
+        else { ContentUnavailableView("아직 이어진 이야기가 없어요", systemImage: "link") }
     }
 }
 
@@ -263,6 +242,7 @@ private struct CampusCucumberLocationTab: View {
 
 private struct CampusCucumberDonorTab: View {
     let story: CampusStory
+    @Environment(OiRemoteStore.self) private var remote: OiRemoteStore?
 
     var body: some View {
         GeometryReader { geometry in
@@ -285,9 +265,9 @@ private struct CampusCucumberDonorTab: View {
                                 .fixedSize(horizontal: false, vertical: true)
                             VStack(alignment: .leading, spacing: 10) {
                                 chip("기부횟수")
-                                chip("이어진 기부 횟수")
+                                chip("이어진 기부 횟수", count: UUID(uuidString: story.id).flatMap { remote?.continuationCounts[$0] })
                             }.padding(.top, 17)
-                            Text("기부·연결 내역은 DB 연동 후 제공해요.")
+                            Text("이어진 횟수는 공개된 이야기 연결 수이며 실제 납입 내역이 아니에요.")
                                 .font(CampusStyle.body(12)).foregroundStyle(.secondary).padding(.top, 10)
                         }.padding(.horizontal, 30).padding(.top, 48)
                         Spacer(minLength: 24)
@@ -301,12 +281,12 @@ private struct CampusCucumberDonorTab: View {
         }
     }
 
-    private func chip(_ title: String) -> some View {
+    private func chip(_ title: String, count: Int? = nil) -> some View {
         HStack(spacing: 4) {
             Text(title).font(CampusStyle.medium(15)).foregroundStyle(Color(oiRGB: 0x5D5D5D))
-            Text("—").font(CampusStyle.semibold(15)).foregroundStyle(Color(oiRGB: 0x708C40))
+            Text(count.map { "\($0)" } ?? "—").font(CampusStyle.semibold(15)).foregroundStyle(Color(oiRGB: 0x708C40))
         }.tracking(0.3).padding(.horizontal, 20).padding(.vertical, 10)
             .background(Color(oiRGB: 0xEAEEE2), in: Capsule())
-            .accessibilityElement(children: .ignore).accessibilityLabel("\(title): DB 연동 전")
+            .accessibilityElement(children: .ignore).accessibilityLabel(count.map { "\(title): 공개된 이야기 \($0)개" } ?? "\(title): 집계 준비 중")
     }
 }
