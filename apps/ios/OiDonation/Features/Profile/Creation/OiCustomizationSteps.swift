@@ -360,7 +360,7 @@ struct OiCardCustomizationStep: View {
         .padding(2)
         .background(Color(white: 242 / 255), in: Capsule())
         .frame(height: 36)
-        .animation(.easeInOut(duration: 0.18), value: customBackground)
+        .animation(OiCreationMotion.screen, value: customBackground)
         .accessibilityIdentifier("oi.postcard.background.mode")
     }
     private var characterBackdropControls: some View {

@@ -17,7 +17,7 @@ nonisolated struct Bench: Identifiable, Sendable, Equatable {
 }
 
 /// Only confirmed public NFC positions belong here. Unknown coordinates remain nil.
-struct BenchCoordinate: Sendable, Equatable {
+nonisolated struct BenchCoordinate: Sendable, Equatable {
     let latitude: Double
     let longitude: Double
 

@@ -8,6 +8,8 @@ struct OiLocationPicker: View {
     var onFinish: (() -> Void)? = nil
     @State private var scene = CampusExploreScene()
     @State private var showingMap = false
+    /// The map stays hidden until the camera is placed, so it never jumps after appearing.
+    @State private var mapPrepared = false
     @State private var selectedPlaceID: String?
     @State private var isOnScreen = false
     @Environment(\.dismiss) private var dismiss
@@ -24,7 +26,11 @@ struct OiLocationPicker: View {
             .opacity(showingMap ? 0 : 1)
             .allowsHitTesting(!showingMap)
             .accessibilityHidden(showingMap)
-            if showingMap { mapContent }
+            if showingMap {
+                mapContent
+                    .background(Color.white)
+                    .transition(.opacity)
+            }
         }
         .onAppear {
             isOnScreen = true
@@ -67,7 +73,10 @@ struct OiLocationPicker: View {
         GeometryReader { safe in
             GeometryReader { viewport in
                 ZStack {
+                    // The map fades in once the scene is ready, so no blank frame shows between list and map.
                     CampusMapSurface(scene: scene)
+                        .opacity(mapPrepared ? 1 : 0)
+                        .animation(OiCreationMotion.screen, value: mapPrepared)
                     OiLocationPinShape()
                         .fill(scene.draftPoint == nil ? Color.gray : Color("OiGreen"))
                         .overlay(alignment: .top) {
@@ -142,13 +151,18 @@ struct OiLocationPicker: View {
 
     private func openMap(_ placeID: String?) {
         selectedPlaceID = placeID
-        showingMap = true
+        mapPrepared = false
+        withAnimation(OiCreationMotion.screen) { showingMap = true }
         scene.setVisible(scenePhase == .active)
     }
 
     private func backToSearch() {
-        showingMap = false
-        scene.suspendRendering()
+        // Keep rendering until the fade ends so the map does not blank out while leaving.
+        withAnimation(OiCreationMotion.screen, completionCriteria: .removed) {
+            showingMap = false
+        } completion: {
+            if !showingMap { scene.suspendRendering() }
+        }
     }
 
     private func confirmLocation() {
@@ -174,6 +188,7 @@ struct OiLocationPicker: View {
         guard !Task.isCancelled, showingMap, scene.ready else { return }
         scene.beginCenterLocation(latitude: latitude, longitude: longitude)
         if let selectedPlaceID { scene.focusPlaceForPlacement(selectedPlaceID) }
+        mapPrepared = true
     }
 }
 
@@ -341,4 +356,29 @@ private struct OiLocationPinShape: Shape {
         path.closeSubpath()
         return path
     }
+}
+
+/// Keeps the edge swipe-back gesture alive on a pushed screen whose navigation bar and back button are hidden.
+private struct OiSwipeBackEnabler: UIViewControllerRepresentable {
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        weak var navigation: UINavigationController?
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            (navigation?.viewControllers.count ?? 0) > 1
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeUIViewController(context: Context) -> UIViewController { UIViewController() }
+    func updateUIViewController(_ controller: UIViewController, context: Context) {
+        DispatchQueue.main.async {
+            guard let navigation = controller.navigationController else { return }
+            context.coordinator.navigation = navigation
+            navigation.interactivePopGestureRecognizer?.delegate = context.coordinator
+            navigation.interactivePopGestureRecognizer?.isEnabled = true
+        }
+    }
+}
+
+extension View {
+    func oiSwipeBackEnabled() -> some View { background(OiSwipeBackEnabler().frame(width: 0, height: 0)) }
 }

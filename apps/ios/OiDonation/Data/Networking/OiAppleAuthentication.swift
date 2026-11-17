@@ -13,14 +13,13 @@ import UIKit
 
 @MainActor
 final class OiAppleAuthentication: NSObject, OiAuthenticating,
-    ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+    ASAuthorizationControllerDelegate {
     private struct Credential {
         let identityToken: String
         let authorizationCode: String?
     }
 
     private var controller: ASAuthorizationController?
-    private var anchor: ASPresentationAnchor?
     private var continuation: CheckedContinuation<Credential, Error>?
     private var attempt: UUID?
 
@@ -48,15 +47,14 @@ final class OiAppleAuthentication: NSObject, OiAuthenticating,
             throw OiServiceError.unavailable
         }
         let nonce = Data(bytes).base64EncodedString()
-        guard let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
-            .filter({ $0.activationState == .foregroundActive }).flatMap(\.windows).first(where: \.isKeyWindow) else {
+        guard let presentationContext = OiAuthenticationPresentationContext.foreground() else {
             throw OiServiceError.unavailable
         }
         let id = UUID()
         attempt = id
-        anchor = window
         defer {
-            if attempt == id { attempt = nil; controller = nil; continuation = nil; anchor = nil }
+            if attempt == id { attempt = nil; controller = nil; continuation = nil }
+            withExtendedLifetime(presentationContext) {}
         }
         let credential = try await withTaskCancellationHandler {
             try Task.checkCancellation()
@@ -67,12 +65,12 @@ final class OiAppleAuthentication: NSObject, OiAuthenticating,
                 request.nonce = SHA256.hash(data: Data(nonce.utf8)).map { String(format: "%02x", $0) }.joined()
                 let authorization = ASAuthorizationController(authorizationRequests: [request])
                 authorization.delegate = self
-                authorization.presentationContextProvider = self
+                authorization.presentationContextProvider = presentationContext
                 controller = authorization
                 authorization.performRequests()
             }
-        } onCancel: { [weak self] in
-            Task { @MainActor in
+        } onCancel: {
+            Task { @MainActor [weak self] in
                 guard let self, self.attempt == id else { return }
                 self.controller?.cancel()
                 self.finish(.failure(CancellationError()))
@@ -102,15 +100,10 @@ final class OiAppleAuthentication: NSObject, OiAuthenticating,
         }
     }
 
-    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-        anchor ?? ASPresentationAnchor()
-    }
-
     private func finish(_ result: Result<Credential, Error>) {
         guard let pending = continuation else { return }
         continuation = nil
         controller = nil
-        anchor = nil
         pending.resume(with: result)
     }
 }
