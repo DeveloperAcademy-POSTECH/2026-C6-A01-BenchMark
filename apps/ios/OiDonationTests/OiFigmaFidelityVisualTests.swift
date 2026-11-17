@@ -2246,8 +2246,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     }
 
     func testStep3CostumeProposalsRestoreAndKeepAcceptedChoices() throws {
-        XCTAssertEqual(OiSeedCostumeProposal.options(for: .raincoat), [.one, .two, .three, .four, .five])
-        XCTAssertEqual(OiSeedCostumeProposal.options(for: .postechSelfie), [.one, .two, .three, .four, .five])
+        XCTAssertEqual(OiSeedCostumeProposal.options(for: .raincoat), [.one])
+        XCTAssertEqual(OiSeedCostumeProposal.options(for: .postechSelfie), [.one])
         for costume in [OiWardrobeLook.Costume.astronaut, .astronautNavy, .catBear] {
             XCTAssertEqual(OiSeedCostumeProposal.options(for: costume), [.one])
         }
@@ -2257,15 +2257,15 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let previousData = try JSONEncoder().encode(previousDraft)
         var draft = try JSONDecoder().decode(OiDraftCustomization.self, from: previousData)
         XCTAssertEqual(draft.selectedSeedProposal, .one)
-        draft.selectSeedProposal(.five, for: .raincoat)
+        draft.seedProposal = 5
         let saved = try JSONEncoder().encode(draft)
         draft = try JSONDecoder().decode(OiDraftCustomization.self, from: saved)
         XCTAssertEqual(draft.selectedSeedSet, .costume(.raincoat))
-        XCTAssertEqual(draft.selectedSeedProposal, .five)
-        draft.selectSeedProposal(.four, for: .postechSelfie)
+        XCTAssertEqual(draft.selectedSeedProposal, .one)
+        draft.selectSeedProposal(.one, for: .postechSelfie)
         XCTAssertEqual(draft.selectedSeedSet, .costume(.postechSelfie))
-        XCTAssertEqual(draft.selectedSeedProposal, .four)
-        draft.selectSeedProposal(.four, for: .postechSelfie)
+        XCTAssertEqual(draft.selectedSeedProposal, .one)
+        draft.selectSeedProposal(.one, for: .postechSelfie)
         XCTAssertNil(draft.selectedSeedSet)
         XCTAssertNil(draft.selectedSeedProposal)
 
@@ -2339,14 +2339,17 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             XCTAssertFalse(leftArm.isEnabled)
             XCTAssertFalse(leftLeg.isEnabled)
             let raincoat: Set<OiSeedCucumberGarment> = [.costumeProposal(.raincoat, .one)]
-            let raincoatFive: Set<OiSeedCucumberGarment> = [.costumeProposal(.raincoat, .five)]
+            let selfie: Set<OiSeedCucumberGarment> = [.costumeProposal(.postechSelfie, .one)]
             let astronaut: Set<OiSeedCucumberGarment> = [.costumeProposal(.astronaut, .one)]
             draft.value.selectSeedSet(.costume(.raincoat))
             try await waitForReplacement(from: customOutfit, to: raincoat)
-            draft.value.selectSeedProposal(.five, for: .raincoat)
-            try await waitForReplacement(from: raincoat, to: raincoatFive)
+            XCTAssertNotNil(model.findEntity(named: "FaceBacking"))
+            draft.value.selectSeedProposal(.one, for: .postechSelfie)
+            try await waitForReplacement(from: raincoat, to: selfie)
+            XCTAssertNotNil(model.findEntity(named: "SelfiePhoneBack"))
+            XCTAssertNotNil(model.findEntity(named: "SelfiePhoneScreen"))
             draft.value.selectSeedSet(.costume(.astronaut))
-            try await waitForReplacement(from: raincoatFive, to: astronaut)
+            try await waitForReplacement(from: selfie, to: astronaut)
             draft.value.selectSeedSet(.costume(.astronaut))
             try await waitForReplacement(from: astronaut, to: customOutfit)
             XCTAssertEqual(draft.value, original)

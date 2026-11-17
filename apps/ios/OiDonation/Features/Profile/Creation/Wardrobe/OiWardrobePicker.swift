@@ -500,11 +500,8 @@ struct OiCucumberCustomizationStep: View {
                 EmptyView()
             case .set:
                 ForEach(allowsWardrobeEditing ? OiWardrobeLook.Costume.allCases : OiSeedCucumberSet.availableCostumes) { costume in
-                    let proposals = OiSeedCostumeProposal.options(for: costume)
-                    if !allowsWardrobeEditing && !proposals.isEmpty {
-                        ForEach(proposals, id: \.self) { proposal in
-                            proposalItem(costume, proposal, showNumber: proposals.count > 1)
-                        }
+                    if !allowsWardrobeEditing, let proposal = OiSeedCostumeProposal.options(for: costume).first {
+                        proposalItem(costume, proposal)
                     } else {
                         let seedSelection = allowsWardrobeEditing ? nil : customization.selectedSeedSet == .costume(costume)
                         item(costume.title, image: costume.thumbnailName, selected: look.costume == costume,
@@ -535,13 +532,11 @@ struct OiCucumberCustomizationStep: View {
         }
     }
 
-    private func proposalItem(_ costume: OiWardrobeLook.Costume, _ proposal: OiSeedCostumeProposal,
-                              showNumber: Bool) -> some View {
+    private func proposalItem(_ costume: OiWardrobeLook.Costume, _ proposal: OiSeedCostumeProposal) -> some View {
         let isSelected = customization.selectedSeedSet == .costume(costume)
             && customization.selectedSeedProposal == proposal
         let garment = OiSeedCucumberGarment.costumeProposal(costume, proposal)
-        let title = showNumber ? "\(costume.title)\(proposal.rawValue)" : costume.title
-        return item(title, image: garment.rawValue, selected: isSelected,
+        return item(costume.title, image: garment.rawValue, selected: isSelected,
                     id: "set-\(costume.rawValue)-proposal-\(proposal.rawValue)", seedSelection: isSelected) {
             customization.selectSeedProposal(proposal, for: costume)
         }

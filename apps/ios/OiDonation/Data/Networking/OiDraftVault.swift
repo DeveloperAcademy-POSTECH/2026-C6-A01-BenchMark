@@ -390,13 +390,12 @@ struct OiDraftCustomization: Codable, Equatable {
     }
 }
 
-enum OiSeedCostumeProposal: Int, CaseIterable {
-    case one = 1, two, three, four, five
+enum OiSeedCostumeProposal: Int {
+    case one = 1
 
     static func options(for costume: OiWardrobeLook.Costume) -> [Self] {
         switch costume {
-        case .raincoat, .postechSelfie: allCases
-        case .astronaut, .catBear, .astronautNavy: [.one]
+        case .raincoat, .postechSelfie, .astronaut, .catBear, .astronautNavy: [.one]
         default: []
         }
     }

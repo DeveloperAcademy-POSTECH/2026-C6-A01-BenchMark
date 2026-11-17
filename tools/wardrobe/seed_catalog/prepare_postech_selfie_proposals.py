@@ -1,4 +1,4 @@
-"""Build the five POSTECH selfie fittings from the shipped pose and donor denim.
+"""Build POSTECH selfie proposal 1 from the shipped pose and donor denim.
 
 Run: python3 tools/wardrobe/seed_catalog/prepare_postech_selfie_proposals.py . /tmp/selfie-fits
 Requires NumPy, Pillow, and macOS USD tools. Output stays outside app resources.
@@ -18,7 +18,8 @@ from PIL import Image, ImageChops, ImageOps
 import seed_costume_geometry as geometry
 from seed_costume_coverage import compact_skin, overlay_material
 from seed_costume_extras import SELFIE_PARTS, selfie_fit, selfie_mask
-from seed_costume_original import FACE_ARRAY
+from seed_costume_original import FACE_ARRAY, filtered_mesh
+from seed_costume_school_science import material_surface
 from seed_costume_skin_volume import seal_skin_cuts
 
 
@@ -33,13 +34,7 @@ class Fit:
     depth: float
 
 
-FITS = (
-    Fit(0, 0, 0),          # Original straight
-    Fit(-.17, -.19, -.09), # Slim straight
-    Fit(.13, .13, .025),   # Relaxed straight
-    Fit(.11, -.15, -.04),  # Gentle taper
-    Fit(-.035, .24, .045), # Full hem
-)
+ORIGINAL_STRAIGHT = Fit(0, 0, 0)
 
 
 def donor_points(donor, original_albedo, shipped):
@@ -155,8 +150,62 @@ def write_package(stage, basename, output, textures):
                    cwd=output, check=True, timeout=25)
 
 
-def render_preview(mesh, accessory, skin, basename, output, albedo, master):
+def phone_faces(points, faces, uv, albedo):
+    """Identify the old handset around the existing grip without cutting the hand."""
+    x, y, z = points[faces].mean(axis=1).T
+    red, green, blue = geometry.sample(albedo, uv.mean(axis=1)).astype(float).T
+    case = (np.maximum.reduce((red, green, blue)) - np.minimum.reduce((red, green, blue)) < 34)
+    hand = (green > red + 4) & (green > blue + 5)
+    return case & ~hand & (x > .141) & (x < .285) & (y > .866) & (y < 1.155) & (z > .149)
+
+
+def phone_shell():
+    """Make a closed handset and retain the original camera layout and grip."""
+    def loop(center, half_size, radius):
+        angles = np.arange(4)[:, None] * (np.pi / 2) + np.linspace(0, np.pi / 2, 7)
+        centers = (np.asarray(half_size) - radius) * np.array(((1, 1), (-1, 1), (-1, -1), (1, -1)))
+        arc = radius * np.stack((np.cos(angles), np.sin(angles)), axis=-1)
+        return np.asarray(center) + (centers[:, None, :] + arc).reshape(-1, 2)
+
+    def layer(label, points, faces, color, roughness):
+        mesh = label, points, faces, np.full((len(faces), 3, 2), .5)
+        linear = [((value / 255 + .055) / 1.055) ** 2.4 for value in color]
+        material = material_surface(label + "Material", f"({linear[0]}, {linear[1]}, {linear[2]})", roughness)
+        return mesh, np.full((4, 4, 3), color, dtype=np.uint8), material
+
+    def panel(label, xy, z, color, roughness, reverse=False):
+        ring = np.column_stack((xy, np.full(len(xy), z)))
+        points = np.vstack((ring, ring.mean(axis=0)))
+        index = np.arange(len(xy))
+        faces = np.column_stack((np.full(len(xy), len(xy)), index, (index + 1) % len(xy)))
+        return layer(label, points, faces[:, ::-1] if reverse else faces, color, roughness)
+
+    xy = loop((.218, 1.003), (.064, .119), .014)
+    count = len(xy)
+    index = np.arange(count)
+    adjacent = (index + 1) % count
+    back, front = .181, .215
+    points = np.vstack([np.column_stack((xy, np.full(count, depth))) for depth in (back, front)])
+    walls = np.vstack((np.column_stack((index, adjacent, index + count)),
+                          np.column_stack((adjacent, adjacent + count, index + count))))
+    parts = [layer("SelfiePhoneEdge", points, walls, (66, 68, 71), .46),
+             panel("SelfiePhoneScreen", xy, back, (31, 33, 36), .34, reverse=True),
+             panel("SelfiePhoneBack", xy, front, (82, 84, 87), .58)]
+    island = loop((.234, 1.083), (.033, .030), .009)
+    parts.append(panel("SelfiePhoneCamera", island, front + .002, (153, 153, 153), .50))
+    angle = np.linspace(0, 2 * np.pi, 24, endpoint=False)
+    circle = np.column_stack((np.cos(angle), np.sin(angle)))
+    for number, center in enumerate(((.221, 1.096), (.221, 1.070), (.246, 1.083)), 1):
+        parts.append(panel(f"SelfiePhoneLens{number}", np.asarray(center) + .0098 * circle,
+                           front + .003, (27, 30, 35), .35))
+    parts.append(panel("SelfiePhoneFlash", np.asarray((.248, 1.101)) + .004 * circle,
+                       front + .003, (211, 208, 192), .54))
+    return parts
+
+
+def render_preview(mesh, accessory, skin, basename, output, albedo, master, phone=()):
     packages = [([mesh], albedo), (accessory, np.full((4, 4, 3), (45, 43, 39), dtype=np.uint8))]
+    packages.extend(([part], bitmap) for part, bitmap, _ in phone)
     with ZipFile(master) as archive:
         for part in (*geometry.seed_data, skin):
             name = part[0]
@@ -218,15 +267,21 @@ def main():
     if stage.count(marker) != 1:
         raise ValueError("Missing POSTECH selfie material scope")
 
-    render_preview(mesh, accessories, skin, "baseline", output, albedo, master)
-    for number, fit in enumerate(FITS, 1):
-        tailored = fit_denim(neutral, installed, waist_material, fit)
-        fitted = fit_mesh_block(mesh_block[0], installed, tailored, faces)
-        variant = stage[:mesh_block.start()] + fitted + stage[mesh_block.end():]
-        variant = variant.replace(marker, body + marker + material, 1)
-        basename = f"{BASE_NAME}-proposal-{number}"
-        write_package(variant, basename, output, [*wardrobe_maps, *body_maps])
-        render_preview((name, tailored, faces, uv), accessories, skin, basename, output, albedo, master)
+    tailored = fit_denim(neutral, installed, waist_material, ORIGINAL_STRAIGHT)
+    keep = ~phone_faces(neutral, faces, uv, albedo)
+    if np.all(keep):
+        raise ValueError("Missing the original handset")
+    fitted = filtered_mesh(fit_mesh_block(mesh_block[0], installed, tailored, faces), keep)
+    variant = stage[:mesh_block.start()] + fitted + stage[mesh_block.end():]
+    phone = phone_shell()
+    pieces = "".join(geometry.as_mesh(*part).replace("/mat0>", f"/{part[0]}Material>")
+                     for part, _, _ in phone)
+    materials = material + "".join(surface for _, _, surface in phone)
+    variant = variant.replace(marker, body + pieces + marker + materials, 1)
+    basename = f"{BASE_NAME}-proposal-1"
+    write_package(variant, basename, output, [*wardrobe_maps, *body_maps])
+    render_preview((name, tailored, faces[keep], uv[keep]), accessories, skin,
+                   basename, output, albedo, master, phone)
 
 
 if __name__ == "__main__":
