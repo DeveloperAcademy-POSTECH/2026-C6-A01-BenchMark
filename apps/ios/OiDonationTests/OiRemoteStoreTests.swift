@@ -2407,11 +2407,9 @@ final class OiRemoteStoreTests: XCTestCase {
         let server = serverID.uuidString, a = localA.uuidString, b = localB.uuidString
         let originalOrder = [server, a, b], reordered = [a, server, b]
 
-        // A legacy draft saved in the photo step opens the cover over the story form.
+        // A legacy draft saved in the photo step restores its photos on the story form.
         mountEditor()
-        try await waitFor("photo editor restored") { photoEditorIsPresented() && actions != nil }
-        var controls = try XCTUnwrap(actions)
-        XCTAssertEqual(controls.items().map(\.orderKey), originalOrder)
+        var controls = try await reopen(expectedOrder: originalOrder)
         controls.move(try XCTUnwrap(controls.items().first), 1)
         XCTAssertEqual(controls.items().map(\.orderKey), reordered)
         let beforeCancel = try await savedDraft()
