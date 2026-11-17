@@ -22,7 +22,6 @@ struct CampusNotificationInboxView: View {
     var loadFailed = false
     var unconfirmedRequestID: UUID? = nil
     var onOpenOlderRequests: (() -> Void)? = nil
-    let onReload: () async -> Void
     let onOpenRequest: (UUID) -> Void
     var continuations: [OiContinuationNotice] = []
     var onOpenContinuation: ((UUID) -> Void)? = nil
@@ -50,7 +49,7 @@ struct CampusNotificationInboxView: View {
                         .frame(maxWidth: .infinity, minHeight: viewport.size.height,
                             alignment: showsSpinner || isEmpty ? .center : .top)
                 }
-                .refreshable { await onReload() }
+                .scrollBounceBehavior(.basedOnSize)
             }
             if !showsSpinner, let onOpenOlderRequests {
                 Button("이전 카드 요청 보기", action: onOpenOlderRequests)
@@ -194,5 +193,5 @@ struct CampusNotificationRetentionNotice: View {
 
 #Preview("Empty notifications") {
     CampusNotificationInboxView(requests: [], isLoading: false,
-        onReload: {}, onOpenRequest: { _ in })
+        onOpenRequest: { _ in })
 }

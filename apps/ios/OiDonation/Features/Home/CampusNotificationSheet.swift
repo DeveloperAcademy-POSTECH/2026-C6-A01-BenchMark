@@ -56,7 +56,6 @@ struct CampusNotificationSheet: View {
                 loadFailed: hasSession && failedLoad != nil,
                 unconfirmedRequestID: hasSession ? unconfirmedDecision?.id : nil,
                 onOpenOlderRequests: hasSession && hasOlderRequests ? { showingOlderRequests = true } : nil,
-                onReload: reload,
                 onOpenRequest: { id in
                     guard hasSession else { return }
                     if unconfirmedDecision == nil { actionError = nil }
@@ -106,10 +105,12 @@ struct CampusNotificationSheet: View {
                 Button("확인", role: .cancel) { continuationError = nil }
             } message: { Text(continuationError ?? "") }
         .presentationDetents([.large])
-        .presentationCornerRadius(35)
+        .presentationCornerRadius(0)
         .presentationDragIndicator(.hidden)
+        .presentationContentInteraction(.resizes)
         .presentationBackground {
-            CampusStyle.mapSheet.opacity(reduceTransparency || contrast == .increased ? 1 : 0.7)
+            UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35)
+                .fill(CampusStyle.mapSheet.opacity(reduceTransparency || contrast == .increased ? 1 : 0.7))
         }
         .onChange(of: remote.needsReauthentication) { _, needsReauthentication in
             if needsReauthentication {

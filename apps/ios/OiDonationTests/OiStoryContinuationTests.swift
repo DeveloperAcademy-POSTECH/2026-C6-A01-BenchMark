@@ -145,7 +145,7 @@ final class OiStoryContinuationTests: XCTestCase {
         XCTAssertEqual(notices.count, 1); XCTAssertTrue(notices[0].isUnread)
         XCTAssertTrue(CampusNotificationSheet.notices([item], remote: remote, now: now.addingTimeInterval(31 * 86400)).isEmpty)
         let view = CampusNotificationInboxView(requests: [], isLoading: false,
-            onReload: {}, onOpenRequest: { _ in }, continuations: notices, onOpenContinuation: { _ in })
+            onOpenRequest: { _ in }, continuations: notices, onOpenContinuation: { _ in })
             .frame(width: 402, height: 650).background(CampusStyle.mapSheet)
         try await capture(view, name: "continuation-notification")
     }

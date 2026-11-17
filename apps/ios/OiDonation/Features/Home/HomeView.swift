@@ -199,13 +199,21 @@ struct HomeView: View {
         .accessibilityHidden(showingSearchChoice)
         .overlay {
             if showingSearchChoice {
+                Color.black.opacity(0.2).ignoresSafeArea()
+                    .onTapGesture { showingSearchChoice = false }
+                    .accessibilityHidden(true)
+                    .transition(.opacity)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if showingSearchChoice {
                 CampusSearchChoiceSheet(choose: { mode in
                     showingSearchChoice = false
                     isSearchCoverActive = true
                     scene.suspendRendering()
                     searchMode = mode
                 }, dismiss: { showingSearchChoice = false })
-                .transition(.opacity)
+                .transition(.move(edge: .bottom))
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: showingSearchChoice)

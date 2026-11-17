@@ -2939,7 +2939,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let large = try XCTUnwrap(variants.first { $0.name == "440x956" })
         let accessibility = Variant(name: "375x667-accessibility5", size: small.size, dynamicTypeSize: .accessibility5)
         let inbox = CampusNotificationInboxView(requests: rows, isLoading: false,
-            onReload: {}, onOpenRequest: { _ in })
+            onOpenRequest: { _ in })
             .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
         for variant in [reference, small, large, accessibility] {
             try await capture(inbox, name: "campus-notifications-inbox", variant: variant,
@@ -2947,17 +2947,17 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
 
         let empty = CampusNotificationInboxView(requests: [], isLoading: false,
-            onReload: {}, onOpenRequest: { _ in })
+            onOpenRequest: { _ in })
             .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
         let failed = CampusNotificationInboxView(requests: rows, isLoading: false,
-            loadFailed: true, onReload: {}, onOpenRequest: { _ in })
+            loadFailed: true, onOpenRequest: { _ in })
             .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
         let emptyImage = try await capture(empty, name: "campus-notifications-empty", variant: reference,
             defaults: fixture.defaults, includesSafeArea: false, attach: true)
         let failedImage = try await capture(failed, name: "campus-notifications-error", variant: reference,
             defaults: fixture.defaults, includesSafeArea: false, attach: true, validateRender: assertSpinnerOnlyRender)
         let partial = CampusNotificationInboxView(requests: rows, isLoading: true, isInitialLoading: true,
-            unconfirmedRequestID: UUID(), onReload: {}, onOpenRequest: { _ in })
+            unconfirmedRequestID: UUID(), onOpenRequest: { _ in })
             .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
         _ = try await capture(partial, name: "campus-notifications-initial-partial", variant: reference,
             defaults: fixture.defaults, includesSafeArea: false, validateRender: assertSpinnerOnlyRender)
@@ -3017,6 +3017,29 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 name: "campus-notifications-on-map", variant: variant, defaults: fixture.defaults,
                 delay: .seconds(1), attach: true, checksBottomSheet: true, waitsForStillMap: true, sheetDetent: .large)
         }
+    }
+
+    func testCampusNotificationSheetShowsItsBackdrop() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let reference = try XCTUnwrap(variants.first)
+        let remote = OiRemoteStore(vault: OiMemorySession())
+        let backdrop = HStack(spacing: 0) {
+            Color.red
+            Color.blue
+        }
+            .ignoresSafeArea()
+            .sheet(isPresented: .constant(true)) { CampusNotificationSheet(remote: remote) }
+        let png = try await capture(backdrop, name: "campus-notifications-translucency",
+            variant: reference, defaults: fixture.defaults, delay: .seconds(1), attach: true,
+            checksBottomSheet: true, sheetDetent: .large)
+        let bitmap = try renderedBitmap(png, size: reference.size)
+        let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: bitmap.width * bitmap.height * 4)
+        let y = bitmap.height * 2 / 3
+        let left = (y * bitmap.width + bitmap.width / 4) * 4
+        let right = (y * bitmap.width + bitmap.width * 3 / 4) * 4
+        XCTAssertGreaterThan(Int(pixels[left]) - Int(pixels[right]), 12)
+        XCTAssertGreaterThan(Int(pixels[right + 2]) - Int(pixels[left + 2]), 12)
     }
 
     func testMYScreenCapturesWithoutRemoteStore() async throws {
