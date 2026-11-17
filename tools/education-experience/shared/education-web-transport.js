@@ -20,6 +20,7 @@ export async function createWebTransport(onChange){
   catalog:fetchReferenceCatalog,
   async identity(){const {data:{session}}=await client.auth.getSession();if(!session)return {id:null,operator:false,canWrite:false};const caps=await check(client.rpc('oi_capabilities',{}));return {id:caps.account_id,operator:caps.operator===true,canWrite:caps.independent_story_creation===true&&caps.unapproved_drafts_enabled===true};},
   rpc:(name,payload)=>check(client.rpc(name,payload)),
+  moderate:(id,revision)=>check(client.functions.invoke('moderate-story',{body:{scope:'education',id,revision,ai_review_consent_version:1}})),
   async media(path){const data=await check(client.storage.from('oi-story-media').createSignedUrl(path,300));return data.signedUrl;},
   async upload(path,blob){
    const result=await client.storage.from('oi-story-media').upload(path,blob,{contentType:blob.type,upsert:false});

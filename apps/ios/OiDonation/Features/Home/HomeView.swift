@@ -24,17 +24,55 @@ struct HomeView: View {
     @State private var isSearchCoverActive = false
     @State private var searchMode: CampusSearchMode?
     @State private var pendingStoryID: String?
+    @State private var selectedSafetyStory: CampusStory?
     @State private var showingNotifications = false
     @State private var listIsAtTop = true
-    /// Live vertical drag of the region list: negative grows it, positive pulls it down (#395).
-    @State private var listDrag: CGFloat = 0
+    @State private var listDrag = RegionListDrag.idle
+    @GestureState private var isListDragActive = false
+    @State private var listBottomInset: CGFloat = 0
     @State private var showingEducationDistrict = false
+    @State private var selectedBuilding: CampusBuildingTarget?
     @State private var loadedAuthoredSource: AuthoredPlacementSource?
     @State private var selectedAuthoredDestination: AuthoredDestination?
 
     private enum AuthoredDestination: Hashable {
         case personal(UUID)
         case story(UUID)
+    }
+
+    private enum MapCoordinateSpace {
+        static let regionList = "campusRegionList"
+    }
+
+    enum RegionListDrag: Equatable {
+        case idle, ignored, panel(CGFloat)
+
+        var translation: CGFloat {
+            if case let .panel(translation) = self { return translation }
+            return 0
+        }
+
+        mutating func update(_ translation: CGSize, expanded: Bool, listIsAtTop: Bool) {
+            switch self {
+            case .idle:
+                let vertical = abs(translation.height) > abs(translation.width)
+                let canMovePanel = !expanded || (translation.height > 0 && listIsAtTop)
+                self = vertical && canMovePanel ? .panel(translation.height) : .ignored
+            case .panel:
+                self = .panel(translation.height)
+            case .ignored:
+                break
+            }
+        }
+
+        func layout(availableHeight: CGFloat, expanded: Bool) -> (height: CGFloat, offset: CGFloat) {
+            let compact = max(220, availableHeight * 0.416)
+            let tall = max(compact, availableHeight - 68)
+            if expanded {
+                return (max(compact, tall - max(0, translation)), 0)
+            }
+            return (min(tall, compact - min(0, translation)), max(0, translation))
+        }
     }
 
     private struct AuthoredPlacementSource: Equatable {
@@ -65,11 +103,15 @@ struct HomeView: View {
         let authoredSource = authoredPlacementSource
         GeometryReader { geometry in
             ZStack {
-                CampusMapSurface(scene: scene).ignoresSafeArea().accessibilityHidden(expanded)
+                CampusMapSurface(scene: scene)
+                    .frame(height: selectedBuilding == nil ? nil : max(120, geometry.size.height - buildingPanelHeight(geometry.size.height) + geometry.safeAreaInsets.top + 40))
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .ignoresSafeArea(edges: selectedBuilding == nil ? .all : .top)
+                    .accessibilityHidden(expanded)
                 VStack {
-                    mapHeader.padding(.horizontal, 20).padding(.top, region == nil ? 9 : 4)
+                    mapHeader.padding(.horizontal, 20).padding(.top, region == nil && selectedBuilding == nil ? 9 : 4)
                     Spacer()
-                    if region == nil {
+                    if region == nil && selectedBuilding == nil {
                         if let remote, remote.loadError != nil || remote.syncWarning != nil || remote.needsReauthentication {
                             OiConnectionStatus(remote: remote, showsInitialProgress: false)
                                 .padding(10).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 20)
@@ -77,6 +119,7 @@ struct HomeView: View {
                         homeActions.padding(.leading, 22).padding(.trailing, 20).padding(.bottom, 0)
                     }
                 }
+                .opacity(showingNotifications ? 0 : 1)
                 if let remote, let error = remote.error {
                     VStack(spacing: 8) {
                         Text(error).font(.footnote)
@@ -96,11 +139,18 @@ struct HomeView: View {
             }
             // Keep the RealityKit viewport fixed while the list changes height.
             .overlay(alignment: .bottom) {
-                if let region {
+                if let building = selectedBuilding, let remote {
+                    CampusBuildingNotesView(building: building, remote: remote).id(building.id)
+                        .frame(height: buildingPanelHeight(geometry.size.height))
+                        .background(alignment: .bottom) {
+                            Color.white.frame(height: 50).padding(.bottom, -geometry.safeAreaInsets.bottom)
+                        }
+                } else if let region {
                     regionPanel(region, availableHeight: geometry.size.height, bottomInset: geometry.safeAreaInsets.bottom)
                         .transition(.move(edge: .bottom))
                 }
             }
+            .coordinateSpace(.named(MapCoordinateSpace.regionList))
             // The list slides up when a bubble opens it and back down when it closes (#395).
             .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: region == nil)
             .onAppear { configureMapLabels(geometry) }
@@ -108,6 +158,10 @@ struct HomeView: View {
             .onChange(of: geometry.safeAreaInsets) { _, _ in configureMapLabels(geometry) }
             .onChange(of: region?.id) { _, _ in configureMapLabels(geometry) }
             .onChange(of: expanded) { _, _ in configureMapLabels(geometry) }
+            .onChange(of: selectedBuilding?.id) { _, _ in configureMapLabels(geometry) }
+            .onChange(of: isListDragActive) { _, active in
+                if !active, listDrag != .idle { resetListDrag() }
+            }
         }
         .toolbar(.hidden, for: .navigationBar)
         .background(CampusStyle.lightGreen)
@@ -133,7 +187,7 @@ struct HomeView: View {
             if let remote, remote.canPlaceOi {
                 switch destination {
                 case .personal(let id): OiStoryEditor(remote: remote, localID: id)
-                case .story(let id): OiStoryManagement(remote: remote, storyID: id)
+                case .story(let id): OiAuthoredStoryDestination(remote: remote, storyID: id)
                 }
             }
         }
@@ -143,8 +197,22 @@ struct HomeView: View {
                 scene.showOverview()
             }
         }
-        .accessibilityHidden(showingSearchChoice)
+        .sheet(item: $selectedSafetyStory) { story in
+            if let storyID = UUID(uuidString: story.id), let authorID = story.authorID {
+                OiStorySafetySheet(storyID: storyID, authorID: authorID, authorName: story.donor)
+            }
+        }
+        .onChange(of: remote?.account?.id) { _, _ in selectedSafetyStory = nil }
+        .accessibilityHidden(showingSearchChoice || showingNotifications)
         .overlay {
+            if showingSearchChoice {
+                Color.black.opacity(0.2).ignoresSafeArea()
+                    .onTapGesture { showingSearchChoice = false }
+                    .accessibilityHidden(true)
+                    .transition(.opacity)
+            }
+        }
+        .overlay(alignment: .bottom) {
             if showingSearchChoice {
                 CampusSearchChoiceSheet(choose: { mode in
                     showingSearchChoice = false
@@ -152,7 +220,7 @@ struct HomeView: View {
                     scene.suspendRendering()
                     searchMode = mode
                 }, dismiss: { showingSearchChoice = false })
-                .transition(.opacity)
+                .transition(.move(edge: .bottom))
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: showingSearchChoice)
@@ -166,11 +234,17 @@ struct HomeView: View {
                 pendingStoryID = $0.id; searchMode = nil
             }
         }
-        .sheet(isPresented: $showingNotifications) {
-            if canOpenNotifications, let remote {
-                CampusNotificationSheet(remote: remote).id(remote.account?.id)
+        .overlay {
+            if canOpenNotifications, showingNotifications, let remote {
+                CampusNotificationOverlay(remote: remote, dismiss: { showingNotifications = false }) { id in
+                    showingNotifications = false
+                    openStory(id)
+                }
+                .id(remote.account?.id)
+                .transition(.opacity)
             }
         }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: showingNotifications)
         .onChange(of: canOpenNotifications) { _, canOpen in
             if !canOpen { showingNotifications = false }
         }
@@ -217,7 +291,7 @@ struct HomeView: View {
             scene.setOverviewStories(stories)
             if let region {
                 scene.showStoriesInCurrentArea(region, stories: searchResults == nil ? store.stories(in: region.id, sortedBy: sort) : stories)
-                if searchResults != nil { searchResults = scene.visibleStoryIDs() }
+                if searchResults != nil { searchResults = scene.visibleStoryIDs(bottomInset: listBottomInset) }
             }
         }
     }
@@ -231,6 +305,9 @@ struct HomeView: View {
     }
 
     private func configureSceneCallbacks() {
+        if remote != nil {
+            scene.onBuilding = { building in selectedBuilding = building; expanded = false }
+        }
         scene.onEducationDistrict = { showingEducationDistrict = true }
         if let remote {
             scene.loadCucumberPortrait = { try await remote.cucumberImage($0) }
@@ -307,6 +384,7 @@ struct HomeView: View {
         guard let placement = item?.placement ?? story?.campusPlacement,
               let selectedRegion = CampusRegion.campus.first(where: { $0.id == (item?.regionID ?? story?.regionId) }) ?? scene.nearestRegion()
         else { return }
+        if selectedBuilding != nil { selectedBuilding = nil; scene.finishBuilding() }
         region = selectedRegion; expanded = false; sort = .latest; searchResults = nil
         scene.focus(selectedRegion, stories: store.stories(in: selectedRegion.id, sortedBy: .latest), placement: placement)
         distances = scene.distances()
@@ -314,7 +392,11 @@ struct HomeView: View {
     }
 
     private func configureMapLabels(_ geometry: GeometryProxy) {
-        let bottom = region == nil ? 8 : regionPanelHeight(geometry.size.height) + 58
+        if selectedBuilding != nil {
+            scene.setMapLabelPresentation(enabled: false, topInset: 0, bottomInset: 0)
+            return
+        }
+        let bottom = region == nil ? 8 : RegionListDrag.idle.layout(availableHeight: geometry.size.height, expanded: expanded).height + 58
         let bottomY = geometry.size.height + geometry.safeAreaInsets.top
         let controls = region == nil ? [
             CGRect(x: 22, y: bottomY - 108, width: 108, height: 112),
@@ -325,8 +407,8 @@ struct HomeView: View {
             bottomInset: geometry.safeAreaInsets.bottom + bottom, controls: controls)
     }
 
-    private func regionPanelHeight(_ availableHeight: CGFloat) -> CGFloat {
-        expanded ? max(200, availableHeight - 68) : max(220, availableHeight * 0.416)
+    private func buildingPanelHeight(_ availableHeight: CGFloat) -> CGFloat {
+        min(481, max(240, availableHeight * 0.618))
     }
 
     private var homeActions: some View {
@@ -384,7 +466,8 @@ struct HomeView: View {
         guard let closest = scene.nearestRegion() else { return }
         region = closest; expanded = false
         scene.showStoriesInCurrentArea(closest, stories: store.stories)
-        distances = scene.distances(); searchResults = scene.visibleStoryIDs()
+        distances = scene.distances()
+        searchResults = scene.visibleStoryIDs(bottomInset: listBottomInset)
     }
 
     private func openStory(_ id: String) {
@@ -396,7 +479,17 @@ struct HomeView: View {
 
     private var mapHeader: some View {
         HStack(alignment: .top) {
-            if region != nil {
+            if selectedBuilding != nil {
+                Button {
+                    selectedBuilding = nil
+                    scene.finishBuilding()
+                } label: {
+                    Image(systemName: "chevron.left").font(.system(size: 19, weight: .semibold))
+                        .frame(width: 50, height: 50).contentShape(Circle())
+                }.buttonStyle(.plain).glassEffect(.regular.interactive(), in: Circle())
+                    .accessibilityLabel("지도 탐색으로 돌아가기").accessibilityIdentifier("campus.notes.close")
+                Spacer()
+            } else if region != nil {
                 // No back button (#395): tap the map outside the list or swipe the list down to close it.
                 Spacer().frame(height: 50)
             } else {
@@ -412,7 +505,7 @@ struct HomeView: View {
             }
         }
         .overlay(alignment: .top) {
-            if region != nil && !expanded {
+            if selectedBuilding == nil && region != nil && !expanded {
                 searchAreaButton.alignmentGuide(.top) { ($0.height - 34) / 2 }.transition(.opacity)
             }
         }
@@ -430,14 +523,36 @@ struct HomeView: View {
         }.buttonStyle(.plain).accessibilityIdentifier("campus.searchArea")
     }
 
+    private func storyRow(_ story: CampusStory) -> some View {
+        // Same card as the story list (Figma `5441:17267`, #399).
+        Button {
+            if selectedSafetyStory == nil { openStory(story.id) }
+        } label: {
+            OiCucumberCard(name: story.title, tags: story.tags, donor: story.donor,
+                           title: story.storyTitle) { CampusCucumberPortrait(story: story) }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("campus.row.\(story.id)")
+        .accessibilityElement(children: .combine)
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 5).onEnded { completed in
+                guard completed, selectedSafetyStory == nil, canOpenStorySafety(for: story) else { return }
+                selectedSafetyStory = story
+            },
+            including: canOpenStorySafety(for: story) ? .all : .none
+        )
+    }
+
+    private func canOpenStorySafety(for story: CampusStory) -> Bool {
+        guard !story.isExample, UUID(uuidString: story.id) != nil, let author = story.authorID else { return false }
+        return remote?.account?.id != author
+    }
+
     private func regionPanel(_ region: CampusRegion, availableHeight: CGFloat, bottomInset: CGFloat) -> some View {
         let items = store.stories(in: searchResults == nil ? region.id : nil,
                                   matching: searchResults, sortedBy: sort, distances: distances)
         // Figma: sheet starts at y=516 (collapsed) or y=130 (expanded) in an 874pt screen.
-        let restingHeight = regionPanelHeight(availableHeight)
-        let tallest = max(200, availableHeight - 68)
-        // The list follows the finger: pulling up grows it toward the tall height, pulling down slides it.
-        let height = listDrag < 0 ? min(tallest, restingHeight - listDrag) : restingHeight
+        let layout = listDrag.layout(availableHeight: availableHeight, expanded: expanded)
         return VStack(spacing: 9.5) {
             VStack(spacing: 20) {
                 HStack(spacing: 7) {
@@ -475,13 +590,7 @@ struct HomeView: View {
                                 .font(CampusStyle.body(14)).foregroundStyle(.secondary).padding()
                         }
                         ForEach(items) { story in
-                            // Same card as the story list (Figma `5441:17267`, #399).
-                            Button { openStory(story.id) } label: {
-                                OiCucumberCard(name: story.title, tags: story.tags, donor: story.donor,
-                                               title: story.storyTitle) { CampusCucumberPortrait(story: story) }
-                            }
-                            .buttonStyle(.plain).accessibilityIdentifier("campus.row.\(story.id)")
-                            .accessibilityElement(children: .combine)
+                            storyRow(story)
                         }
                     }.padding(.bottom, 12)
                 }.scrollIndicators(.hidden)
@@ -491,51 +600,62 @@ struct HomeView: View {
                         geometry.contentOffset.y + geometry.contentInsets.top <= 1
                     } action: { _, isAtTop in listIsAtTop = isAtTop }
             }
-            .padding(.horizontal, 20).padding(.top, 20).frame(height: height)
+            .padding(.horizontal, 20).padding(.top, 20).frame(height: layout.height)
             .background {
                 UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35)
                     .fill(Color(white: 244/255).opacity(0.85))
                     .padding(.bottom, -bottomInset)
                     .shadow(color: .black.opacity(0.25), radius: 20)
             }
-            .offset(y: max(0, listDrag))
-            .simultaneousGesture(DragGesture(minimumDistance: 8)
+            .offset(y: layout.offset)
+            .onGeometryChange(for: CGFloat.self) { geometry in
+                geometry.size.height
+            } action: { listBottomInset = $0 + bottomInset }
+            .simultaneousGesture(DragGesture(minimumDistance: 8, coordinateSpace: .named(MapCoordinateSpace.regionList))
+                .updating($isListDragActive) { _, active, _ in active = true }
                 .onChanged { gesture in
-                    let dy = gesture.translation.height
-                    guard abs(dy) > abs(gesture.translation.width) else { return }
-                    // A tall list scrolls its rows upward; it only follows a downward pull from the top.
-                    if dy < 0 { listDrag = expanded ? 0 : dy }
-                    else { listDrag = listIsAtTop ? dy : 0 }
+                    // Keep the initial gesture owner even when the scroll view reaches its top.
+                    var drag = listDrag
+                    drag.update(gesture.translation, expanded: expanded, listIsAtTop: listIsAtTop)
+                    if drag != listDrag { listDrag = drag }
                 }
                 .onEnded { gesture in
-                    // Decide from where the flick would land so a quick swipe responds at once.
+                    guard case .panel = listDrag else {
+                        listDrag = .idle
+                        return
+                    }
                     let landing = gesture.predictedEndTranslation.height
-                    let pulled = listDrag
-                    if pulled < 0, landing < -60 {
+                    let pulled = gesture.translation.height
+                    if !expanded, pulled < 0, landing < -60 {
                         setListExpanded(true)
                     } else if pulled > 0, landing > 60 {
                         // Down steps back: a tall list first returns to its default height, then closes (#395).
-                        if expanded { setListExpanded(false) } else { closeRegionList(); return }
+                        if expanded { setListExpanded(false) } else { closeRegionList() }
+                    } else {
+                        resetListDrag()
                     }
-                    withAnimation(reduceMotion ? nil : .spring(duration: 0.25)) { listDrag = 0 }
                 })
             .accessibilityAction(named: "목록 닫기") { closeRegionList() }
             .accessibilityAction(named: expanded ? "목록 줄이기" : "목록 크게 보기") { setListExpanded(!expanded) }
         }
     }
 
+    private func resetListDrag() {
+        withAnimation(reduceMotion ? nil : .spring(duration: 0.25)) { listDrag = .idle }
+    }
+
     /// Closes the region list and keeps the map exactly where it was (#395).
     private func closeRegionList() {
         region = nil; expanded = false; searchResults = nil
         scene.showOverview(keepingCamera: true)
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) { listDrag = 0 }
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) { listDrag = .idle }
     }
 
     private func setListExpanded(_ value: Bool) {
         guard expanded != value else { return }
         withAnimation(reduceMotion ? nil : .spring(duration: 0.3)) {
             expanded = value
-            listDrag = 0
+            listDrag = .idle
         }
     }
 

@@ -59,7 +59,10 @@ struct RootTabView: View {
                 case .scratch(let id):
                     if let story = store.story(id) {
                         CampusScratchScreen(story: story, repository: container.storyRepository, remote: remote,
-                                            onDonate: { path.append(CampusDestination.storyList) },
+                                            onDonate: {
+                                                let continuation = OiStoryContinuationIntent(story: story, requestedBy: remote.account?.id)
+                                                path.append(CampusDestination.storyList(continuation: continuation))
+                                            },
                                             onSaved: {
                                                 // 앨범에 저장하기 → MY 수집한 기부.
                                                 var next = NavigationPath()
@@ -69,8 +72,8 @@ struct RootTabView: View {
                     } else {
                         ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc")
                     }
-                case .storyList:
-                    OiStoryListScreen(remote: remote)
+                case .storyList(let continuation):
+                    OiStoryListScreen(remote: remote, continuation: continuation)
                 }
             }
             .navigationDestination(for: PublicLinkParser.Destination.self) { publicDestination($0) }
@@ -91,11 +94,15 @@ struct RootTabView: View {
                OiContentSafetyStore.shared.isBlocked(author) { isARPresented = false }
         }
         .onChange(of: remote.revision) { _, _ in synchronizeRemote() }
+        // The App Clip may have collected cards since MY was last built; the records are read again on each screen change.
+        .onChange(of: path.count) { _, _ in synchronizeRemote() }
+        .onChange(of: myDemo.clipCollection.cards) { _, _ in synchronizeRemote() }
         .onChange(of: remote.account?.id) { _, _ in
             authoredPlacementToReveal = nil
             plantedSelectionCover = nil
             showingPlantConfirmation = false
             myDemo.resetFilters()
+            synchronizeRemote()
         }
         .onReceive(NotificationCenter.default.publisher(for: ASAuthorizationAppleIDProvider.credentialRevokedNotification)) { _ in
             guard remote.accountProviders.contains("apple") else { return }
@@ -110,7 +117,6 @@ struct RootTabView: View {
                     isARPresented = false
                 } else { path.append(CampusDestination.scratch(story.id)) }
             }
-            store.openStoryListAction = { path.append(CampusDestination.storyList) }
             store.createStoryAction = {
                 if isARPresented {
                     pendingStoryList = true
@@ -129,6 +135,8 @@ struct RootTabView: View {
                 Task { await remote.perform("favorite", payload: ["id": card.id, "enabled": !remote.favorites.contains(id)]) }
             }
             if remote.isConfigured { await remote.refresh() } else { await remote.start() }
+            // A Clip write does not change the remote revision. Always re-read it on foreground return.
+            synchronizeRemote()
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(30)) } catch { return }
                 await remote.refresh(reuseCatalog: true)
@@ -210,18 +218,7 @@ struct RootTabView: View {
             }
             if current == nil || current?.placement != photoSubject.placement { isARPresented = false }
         }
-        let cards = remote.collections.enumerated().compactMap { index, collection -> MYCard? in
-            guard let story = remote.stories.first(where: { $0.id == collection.storyId }) else { return nil }
-            guard let region = remote.regions.first(where: { $0.id == story.regionId }),
-                  let school = remote.schools.first(where: { $0.id == region.schoolId }) else { return nil }
-            return MYCard(id: story.id.uuidString, title: story.cucumberName, image: story.cucumberAsset,
-                school: MYSchool(id: school.id, name: school.name), order: index,
-                body: story.body, donor: remote.profiles.first(where: { $0.id == story.userId })?.nickname ?? "농부",
-                date: story.createdDateLabel, storyID: story.id.uuidString, appearance: story.cardAsset,
-                cucumberPortraitPath: story.cucumberArtwork?.path(.portrait), cardArtworkPath: story.cardArtworkPath)
-        }
-        myDemo.synchronize(nickname: remote.profile?.nickname ?? "농부", cards: cards,
-            favorites: Set(remote.favorites.map(\.uuidString)))
+        myDemo.synchronizeCollectedCards(from: remote)
     }
 
     /// The map's cucumber summary (Figma 5400:5071), also opened by NFC postcard tags (#324).

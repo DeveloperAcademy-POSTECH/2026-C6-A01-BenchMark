@@ -8,7 +8,7 @@ final class ARRecordingOrientation: NSObject, UIApplicationDelegate {
     }
 
     static func lock(to window: UIWindow) {
-        switch window.windowScene?.interfaceOrientation {
+        switch window.windowScene?.effectiveGeometry.interfaceOrientation {
         case .landscapeLeft: mask = .landscapeLeft
         case .landscapeRight: mask = .landscapeRight
         case .portraitUpsideDown: mask = .portraitUpsideDown

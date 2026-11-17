@@ -1,6 +1,6 @@
 export const THEMES=['가족','우정','사랑','성장','도전','꿈','배움','경쟁','협력','갈등','화해','일탈','나눔','응원','성취','기타'];
 export const EMOTIONS=['행복함','즐거움','뿌듯함','고마움','편안함','설렘','따뜻함','짜릿함','놀라움','신남','벅참','그리움','후련함','부끄러움','후회','긴장감','슬픔','화남','아쉬움','기타'];
-export const CONSENT_VERSION='education-v1-2026-11-16';
+export const CONSENT_VERSION='education-v2-2026-11-17';
 export const REFERENCE_ROOT='https://kfzfzarslqdqmrazohej.supabase.co/storage/v1/object/public/oi-education-reference/';
 export function referenceStory(row){
  if(!row||!/^postech-\d{1,9}$/.test(row.id)||row.origin!=='postech'||row.isSummary!==true)throw Error('공식 이야기 정보를 확인하지 못했어요.');
@@ -43,7 +43,7 @@ export function validateDraft(draft){
 }
 export function publicEducationStory(row){
  if(!row||row.origin!=='education'||row.status!=='published')return null;
- const {reports,...publicRow}=row;
+ const {reports,review_reason,review_source,review_ready,...publicRow}=row;
  return {id:row.id,origin:'education',kind:'교육지구 이야기',category:row.theme,title:row.title,author:row.display_name,message:row.body,
   fund:'빛으로 지은 이야기',photo:null,photoAlt:row.title+' 카드 앞면',publishedAt:row.created_at?.slice(0,10),remote:publicRow};
 }
@@ -121,16 +121,38 @@ export class EducationService{
   const paths=cardPaths(owner,story.id,snapshot);
   for(let i=0;i<4;i++){if(this.generation!==generation)throw Error('계정이 바뀌었어요.');await this.upload(paths[i],parts[i]);}
   try{
-   saved=await this.mutate('submit',{id:saved.id,revision:saved.revision,card_snapshot_id:snapshot,publication_consent:true,rights_consent:true,consent_version:CONSENT_VERSION});
+   saved=await this.mutate('submit',{id:saved.id,revision:saved.revision,card_snapshot_id:snapshot,publication_consent:true,rights_consent:true,ai_review_consent_version:1,consent_version:CONSENT_VERSION});
   }catch(error){
    const current=await this.story(saved.id).catch(()=>null);
-   if(current?.status==='pending'&&current.revision===saved.revision+1&&current.card_snapshot_id===snapshot)saved=current;else throw error;
+   if(current?.review_ready===true&&current.revision===saved.revision+1&&current.card_snapshot_id===snapshot)saved=current;else throw error;
   }
-  onReceipt(saved);return saved;
+  onReceipt(saved);
+  const reviewed=await this.moderate(saved);
+  onReceipt(reviewed);
+  return reviewed;
  }
- async review(story,status){
-  if(!this.account?.operator||!['published','hidden'].includes(status))throw Error('운영자 권한을 확인해 주세요.');
-  return this.mutate('review',{id:story.id,revision:story.revision,status,card_snapshot_id:story.card_snapshot_id});
+ async moderate(story){
+  if(!this.account?.id||story.status!=='pending'||story.review_ready!==true||!uuid.test(story.id))throw Error('내 이야기에서 최신 검토 상태를 확인해 주세요.');
+  const generation=this.generation;
+  const confirms=row=>row?.origin==='education'&&row.id===story.id&&row.revision===story.revision+1&&row.card_snapshot_id===story.card_snapshot_id&&
+   (row.status==='published'||(row.status==='pending'&&typeof row.review_reason==='string'&&row.review_ready===false));
+  try{
+   const result=await this.transport.moderate(story.id,story.revision);
+   if(generation!==this.generation)throw Error('계정이 바뀌었어요.');
+   if(result?.story_id===story.id&&result.revision===story.revision+1&&confirms(result.story)&&
+      result.status===(result.story.status==='published'?'approved':'rejected'))return result.story;
+   throw Error('자동검수 결과를 확인하지 못했어요.');
+  }catch(error){
+   if(generation!==this.generation)throw error;
+   const current=await this.story(story.id).catch(()=>null);
+   if(generation!==this.generation)throw Error('계정이 바뀌었어요.');
+   if(confirms(current))return current;
+   throw Error('자동검수를 완료하지 못했어요. 내 이야기에서 다시 시도해 주세요.');
+  }
+ }
+ async hide(story){
+  if(!this.account?.operator||story.status!=='published')throw Error('운영자 권한과 현재 공개 상태를 확인해 주세요.');
+  return this.mutate('review',{id:story.id,revision:story.revision,status:'hidden',card_snapshot_id:story.card_snapshot_id});
  }
  async report(id,reason,detail=''){if(!this.account?.id)throw Error('신고하려면 로그인해 주세요.');return this.rpc('oi_education_report',{p_story:id,p_reason:reason,p_detail:detail});}
 }

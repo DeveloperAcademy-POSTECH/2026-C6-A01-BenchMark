@@ -105,6 +105,7 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
     var cardSnapshotId: UUID? = nil
     var cardSnapshotFormat: Int? = nil
     var cardCoverType: String? = nil
+    var continuedFromStoryId: UUID? = nil
 
     var resolvedCardCoverType: StoryCard.CoverType? {
         cardSnapshotFormat == 3 ? StoryCard.CoverType.resolve(cardCoverType) : nil
@@ -161,12 +162,15 @@ struct OiCucumberAppearance: Codable, Hashable {
     let shoeColor: UInt32
     let topTexture: Bool
     let bottomTexture: Bool
+    var seed: OiSeedCucumberSnapshot? = nil
 
     var payload: [String: Any] {
         var result: [String: Any] = ["id": id.uuidString.lowercased(), "top": top, "bottom": bottom,
             "topColor": topColor, "bottomColor": bottomColor, "shoeColor": shoeColor,
             "topTexture": topTexture, "bottomTexture": bottomTexture]
         if let costume { result["costume"] = costume }
+        if let seed, let bytes = try? JSONEncoder().encode(seed),
+           let value = try? JSONSerialization.jsonObject(with: bytes) { result["seed"] = value }
         return result
     }
 }
@@ -307,6 +311,9 @@ struct OiCapabilities: Decodable {
     var storyCardCover: Bool? = nil
     var storyCardCoverJpeg: Bool? = nil
     var autoStoryModeration: Bool? = nil
+    var operatorManualStoryReview: Bool? = nil
+    var storyContinuations: Bool? = nil
+    var storyContinuationNotifications: Bool? = nil
 }
 
 struct OiStoryModerationResult: Decodable, Equatable {
@@ -345,7 +352,7 @@ struct OiStoryModerationResult: Decodable, Equatable {
     }
 }
 
-struct OiStoryDraft: Codable, Equatable {
+nonisolated struct OiStoryDraft: Codable, Equatable, Sendable {
     var id = UUID()
     var grantId: UUID?
     var revision = 0
@@ -361,17 +368,22 @@ struct OiStoryDraft: Codable, Equatable {
     var longitude: Double?
     var heightMeters: Double?
     var headingDegrees: Double?
+    var continuedFromStoryID: UUID?
+    var updatesContinuation: Bool? = nil
 
     init() {}
 
-    init(story: OiLiveStory) {
+    @MainActor init(story: OiLiveStory) {
         id = story.id; grantId = story.grantId; revision = story.revision
         regionId = story.regionId; title = story.title; body = story.body
         theme = story.theme; emotion = story.emotion; cucumberName = story.cucumberName
         cucumberAsset = story.cucumberAsset; cardAsset = story.cardAsset
         latitude = story.latitude; longitude = story.longitude
         heightMeters = story.heightMeters; headingDegrees = story.headingDegrees
+        continuedFromStoryID = story.continuedFromStoryId
     }
+
+    var postcardTags: [String] { [theme, emotion] }
 
     var valid: Bool {
         latitude != nil && longitude != nil &&
@@ -390,6 +402,7 @@ struct OiStoryDraft: Codable, Equatable {
                 "card_asset": cardAsset, "latitude": latitude, "longitude": longitude]
         if let heightMeters { fields["height_meters"] = heightMeters }
         if let headingDegrees { fields["heading_degrees"] = headingDegrees }
+        if updatesContinuation == true { fields["continued_from_story_id"] = continuedFromStoryID?.uuidString as Any? ?? NSNull() }
         return fields
     }
 }
@@ -448,16 +461,25 @@ nonisolated struct OiSavedSchoolEvidenceReview: Codable, Sendable {
     let outcome: OiSchoolEvidenceOutcome
     let reviewedAt: Date
 
-    private enum CodingKeys: String, CodingKey { case outcome, reviewedAt, summary }
+    struct Profile: Codable, Equatable, Sendable {
+        let schoolID: String?
+        let admissionYear: Int?
+        let department: String?
+    }
+    var profile: Profile?
 
-    init(outcome: OiSchoolEvidenceOutcome, reviewedAt: Date) {
+    private enum CodingKeys: String, CodingKey { case outcome, reviewedAt, summary, profile }
+
+    init(outcome: OiSchoolEvidenceOutcome, reviewedAt: Date, profile: Profile? = nil) {
         self.outcome = outcome
         self.reviewedAt = reviewedAt
+        self.profile = profile
     }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         reviewedAt = try values.decode(Date.self, forKey: .reviewedAt)
+        profile = try values.decodeIfPresent(Profile.self, forKey: .profile)
         if let outcome = try values.decodeIfPresent(OiSchoolEvidenceOutcome.self, forKey: .outcome) {
             self.outcome = outcome
         } else {
@@ -474,6 +496,7 @@ nonisolated struct OiSavedSchoolEvidenceReview: Codable, Sendable {
         var values = encoder.container(keyedBy: CodingKeys.self)
         try values.encode(outcome, forKey: .outcome)
         try values.encode(reviewedAt, forKey: .reviewedAt)
+        try values.encodeIfPresent(profile, forKey: .profile)
     }
 }
 
@@ -532,3 +555,8 @@ struct OiContentReport: Decodable, Identifiable, Sendable {
     let reviewNote: String?
 }
 struct OiContentReportReceipt: Decodable { let id: UUID; let status: String }
+
+enum CampusBuildingNoteError: LocalizedError {
+    case notDeployed
+    var errorDescription: String? { "건물 글 서비스를 아직 사용할 수 없어요. 잠시 후 다시 시도해 주세요." }
+}

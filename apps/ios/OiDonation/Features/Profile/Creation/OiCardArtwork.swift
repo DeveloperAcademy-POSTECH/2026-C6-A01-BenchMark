@@ -9,8 +9,13 @@ struct OiDraftCardPreview: View {
     var portrait: UIImage? = nil
     var showingBack = false
     private var design: OiCardDesign { customization.card ?? OiCardDesign() }
+    var fallbackDate: String? = nil
+    private var tags: [String] { draft.postcardTags }
+    private var date: String {
+        design.postcardDate.map { OiPostcardDate.string($0) } ?? fallbackDate ?? OiPostcardDate.string(.now)
+    }
     private var author: String {
-        OiPostcardAuthor.text(mode: design.postcardBackground?.authorMode, name: donorName,
+        OiPostcardAuthor.text(mode: design.postcardAuthorMode, name: donorName,
                               academic: design.postcardAcademicAuthor ?? "")
     }
     var body: some View {
@@ -18,7 +23,7 @@ struct OiDraftCardPreview: View {
             Group {
                 if showingBack {
                     OiPostcardBack(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond,
-                        backgroundStyle: design.postcardBackground, message: draft.body, author: author,
+                        backgroundStyle: design.postcardBackground, message: draft.body, author: author, tags: tags,
                         exportFontSize: try? OiCardImageExport.fittingFontSize(draft.body))
                 } else { composition }
             }.frame(width: 362, height: 502)
@@ -29,12 +34,12 @@ struct OiDraftCardPreview: View {
     }
 
     @MainActor func publication(colorScheme: ColorScheme, includeCover: Bool = false, coverType: StoryCard.CoverType = .png) throws -> OiStoryCardPublication {
-        guard !customization.showsCharacter || customization.wardrobe == nil || portrait != nil || design.portraitPNG != nil else {
+        guard !customization.showsCharacter || customization.portraitLook == nil || portrait != nil || design.portraitPNG != nil else {
             throw OiCardExportError.imageUnavailable
         }
         let size = try OiCardImageExport.fittingFontSize(draft.body)
         let back = OiPostcardBack(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond,
-            backgroundStyle: design.postcardBackground, message: draft.body, author: author, exportFontSize: size)
+            backgroundStyle: design.postcardBackground, message: draft.body, author: author, tags: tags, exportFontSize: size)
         let front = try OiCardImageExport.render(composition, colorScheme: colorScheme)
         let rear = try OiCardImageExport.render(back, colorScheme: colorScheme)
         let png = design.postcardBackground.flatMap { OiPostcardBackgroundMetadata.png(image: front, style: $0) } ?? front.pngData()
@@ -46,13 +51,15 @@ struct OiDraftCardPreview: View {
     private var composition: some View { frontComposition(decorations: true) }
     private func frontComposition(decorations: Bool) -> some View {
         OiPostcardFront(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond,
-                        backgroundStyle: design.postcardBackground, date: OiPostcardDate.string(design.postcardDate ?? Date()), design: design, decorationsVisible: decorations) {
+                        backgroundStyle: design.postcardBackground, date: date, design: design, decorationsVisible: decorations) {
             ZStack {
                 OiCardBackground(customization: customization, pattern: design.pattern)
                 if customization.showsCharacter {
                     if let image = portrait ?? design.portraitPNG.flatMap(UIImage.init(data:)) {
                         OiCardPlacedImage(image: image, placement: design.characterPlacement)
-                    } else {
+                    } else if customization.portraitLook == nil {
+                        // Only a draft without a custom look falls back to its preset. A styled cucumber
+                        // that is still being rendered shows nothing instead of the unrelated cat (#386).
                         OiCreationCharacterImage(asset: draft.cucumberAsset)
                     }
                 }
@@ -74,11 +81,11 @@ struct OiCardBackground: View {
             let photoTint = !customization.showsCharacter && paper.photoMonochrome == true && paper.backgroundPhoto != nil
             ZStack {
                 Group {
-                    if customization.showsCharacter, paper.usesCharacterBackdrop {
+                    if paper.postcardLayoutVersion == 2 {
+                        OiPostcardImageWindowBackground(design: paper)
+                    } else if customization.showsCharacter, paper.usesCharacterBackdrop {
                         Color(oiRGB: OiPostcardCharacterBackdrop.color(for: paper))
                             .opacity(OiCardOpacity.normalized(paper.characterBackdropOpacity))
-                    } else if paper.postcardLayoutVersion == 2 {
-                        Color.clear
                     } else if let style = paper.postcardBackground {
                         // Crop the very same full-paper background into the artwork window.
                         OiPostcardBackground(style: style)
@@ -98,13 +105,32 @@ struct OiCardBackground: View {
                         .saturation(design.photoMonochrome == true ? 0 : 1)
                         .blendMode(design.photoMonochrome == true ? .luminosity : .normal)
                 }
-                if let pattern, let image = OiCardPatternTexture.image(for: pattern) {
+                if paper.postcardLayoutVersion != 2, let pattern, let image = OiCardPatternTexture.image(for: pattern) {
                     Image(uiImage: image).resizable().scaledToFill()
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .blendMode(.luminosity).opacity(0.62)
                 }
             }.frame(width: geometry.size.width, height: geometry.size.height)
                 .clipped().compositingGroup()
+        }.allowsHitTesting(false)
+    }
+}
+
+/// Figma 6647:10696: the paper remains visible through 20% black in the
+/// 296 × 436 image window, inset 33 points from each edge of the 362 × 502 card.
+/// Shared by the actual front composition and its placement editor.
+struct OiPostcardImageWindowBackground: View {
+    let design: OiCardDesign
+    var body: some View {
+        GeometryReader { geometry in
+            Group {
+                if let style = design.postcardBackground { OiPostcardBackground(style: style) }
+                else { OiCardGradient(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond) }
+            }
+            .frame(width: geometry.size.width * 362 / 296, height: geometry.size.height * 502 / 436)
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .overlay { Color.black.opacity(0.2) }
+            .clipped()
         }.allowsHitTesting(false)
     }
 }
@@ -143,8 +169,10 @@ struct OiCardPlacementEditor: View {
     var minimalChrome = false
     var backdropColor: UInt32? = nil
     var backdropOpacity: Double = 1
+    var postcardPaper: OiCardDesign? = nil
     var emptyMessage = "오이 이미지를 준비하고 있어요"
     var look: OiWardrobeLook? = nil
+    var seed: OiSeedCucumberSnapshot? = nil
     var orientation: Binding<OiCardOrientation>? = nil
     var portraitKey = ""
     var onCapture: ((Data, String) -> Void)? = nil
@@ -176,13 +204,16 @@ struct OiCardPlacementEditor: View {
                     .accessibilityIdentifier("oi.card.placement.reset")
             }.frame(height: compact ? 32 : nil) }
             ZStack {
-                RoundedRectangle(cornerRadius: 5).fill(backdropColor.map {
-                    Color(oiRGB: $0).opacity(OiCardOpacity.normalized(backdropOpacity))
-                } ?? .white)
+                if let postcardPaper { OiPostcardImageWindowBackground(design: postcardPaper) }
+                else {
+                    RoundedRectangle(cornerRadius: 5).fill(backdropColor.map {
+                        Color(oiRGB: $0).opacity(OiCardOpacity.normalized(backdropOpacity))
+                    } ?? .white)
+                }
                 if let look, let orientation, let onCapture {
                     GeometryReader { proxy in
                         let p = placement.normalized
-                        OiCardPortraitCapture(look: look, cacheKey: portraitKey,
+                        OiCardPortraitCapture(look: look, seed: seed, cacheKey: portraitKey,
                             orientation: orientation.wrappedValue, interactivePreview: true, placeholder: image,
                             onCapture: { data, key in portraitFailed = false; onCapture(data, key) },
                             onFailure: { portraitFailed = true })

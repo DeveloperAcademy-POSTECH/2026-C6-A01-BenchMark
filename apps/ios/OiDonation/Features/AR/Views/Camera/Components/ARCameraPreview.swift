@@ -6,35 +6,19 @@ struct ARCameraPreview: View {
     var topInset: CGFloat = 0
     var body: some View {
         ZStack(alignment: .top) {
-            ARCameraView(controller: controller)
+            ARCameraView(controller: controller, isActive: controller.ready)
                 .saturation(controller.settings.photoFilter.saturation)
             VStack(spacing: 8) {
-                Text(controller.tracking)
-                    .font(.caption.weight(.medium))
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(.ultraThinMaterial, in: Capsule())
-                if controller.usesGeographicPlacement {
-                    Text(controller.locationNotice.isEmpty ? "저장 위치를 확인하고 있어요." : controller.locationNotice)
+                if controller.isPalmMode {
+                    Text(controller.locked ? "현재 위치 고정 · 잠금을 풀면 손을 다시 인식해요" : controller.message)
                         .font(.caption).multilineTextAlignment(.center)
                         .padding(10).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
-                        .accessibilityIdentifier("ar.camera.locationStatus")
-                    if !controller.geographicReady, let url = URL(string: UIApplication.openSettingsURLString) {
-                        Link("위치 권한 설정", destination: url).font(.caption)
-                            .buttonStyle(.bordered)
-                    }
+                        .accessibilityIdentifier("ar.camera.palmStatus")
                 }
-                if controller.recoveryIssue == nil && (!controller.placed || !controller.ready || (controller.usesGeographicPlacement && !controller.geographicReady)) {
+                if !controller.isPalmMode && !controller.usesGeographicPlacement && controller.recoveryIssue == nil && (!controller.placed || !controller.ready) {
                     Text(controller.message)
                         .font(.callout).multilineTextAlignment(.center)
                         .padding(12).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
-                }
-                if controller.settings.background == .stadium && !controller.backgroundMessage.isEmpty {
-                    Text(controller.backgroundMessage)
-                        .font(.caption).multilineTextAlignment(.center)
-                        .padding(10).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
-                    if !controller.selectingBench && !controller.backgroundReady {
-                        Text("사진 설정에서 벤치를 다시 선택해 주세요.").font(.caption)
-                    }
                 }
                 if controller.loading {
                     ProgressView().accessibilityLabel("캐릭터 불러오는 중…")

@@ -32,6 +32,8 @@ struct OiServiceAPI {
     static let projectHost = "kfzfzarslqdqmrazohej.supabase.co"
     static let authenticationCallback = "kr.ac.postech.benchmark://auth/callback"
     private static let boundedCollectionMetricsPath = "rest/v1/rpc/oi_collection_metrics_for_stories"
+    private enum CardRequestPageError: Error { case notDeployed }
+    private static let cardRequestPageRPC = "oi_card_request_page"
     private static let resolveCardRequestRPC = "oi_resolve_card_request"
     private let key: String
     private let transport: APIClient
@@ -87,9 +89,13 @@ struct OiServiceAPI {
             case 401: throw OiServiceError.signInRequired
             case 403: throw OiServiceError.server("현재 계정에서 이 요청을 처리할 수 없어요. 새로고침해 상태를 다시 확인해 주세요.")
             case 404 where path == "rest/v1/rpc/\(Self.resolveCardRequestRPC)": throw OiServiceError.conflict
+            case 404 where path == "rest/v1/rpc/\(Self.cardRequestPageRPC)": throw CardRequestPageError.notDeployed
             case 404 where path == Self.boundedCollectionMetricsPath: throw OiCollectionMetricsError.boundedQueryNotDeployed
             case 404 where path == "rest/v1/rpc/oi_operator_audit": throw OiAuditError.notDeployed
+            case 404 where path.hasPrefix("rest/v1/rpc/oi_story_continuation") || path == "rest/v1/rpc/oi_my_story_continuation_targets" || path == "rest/v1/rpc/oi_read_story_continuation":
+                throw OiContinuationError.notSupported
             case 404 where OiNFCTagError.rpcPaths.contains(path): throw OiNFCTagError.notDeployed
+            case 404 where path.contains("building_note"): throw CampusBuildingNoteError.notDeployed
             case 409: throw OiServiceError.conflict
             case 426: throw OiServiceError.server("앱을 업데이트한 뒤 다시 시도해 주세요.")
             case 400, 422: throw OiServiceError.invalidInput
@@ -156,13 +162,14 @@ struct OiServiceAPI {
         return outcome
     }
 
-    func rows<Value: Decodable & Identifiable>(_ table: String, query: String = "", token: String? = nil, as type: Value.Type) async throws -> [Value] {
+    func rows<Value: Decodable & Identifiable>(_ table: String, select: String = "*", query: String = "",
+                                                token: String? = nil, as type: Value.Type) async throws -> [Value] {
         var values: [Value] = []
         var seen: Set<Value.ID> = []
         var offset = 0
         while true {
             let suffix = query.isEmpty ? "" : "&\(query)"
-            let data = try await request("rest/v1/\(table)?select=*&limit=200&offset=\(offset)\(suffix)", token: token)
+            let data = try await request("rest/v1/\(table)?select=\(select)&limit=200&offset=\(offset)\(suffix)", token: token)
             let page = try decoder.decode([Value].self, from: data)
             values += page.filter { seen.insert($0.id).inserted }
             if page.count < 200 { return values }
@@ -237,6 +244,13 @@ struct OiServiceAPI {
         return try decoder.decode(OiStoryModerationResult.self, from: data)
     }
 
+    func moderateEducationStory(id: UUID, revision: Int, token: String) async throws -> Data {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "scope": "education", "id": id.uuidString.lowercased(), "revision": revision, "ai_review_consent_version": 1,
+        ])
+        return try await request("functions/v1/moderate-story", method: "POST", token: token, body: body, timeout: 65)
+    }
+
     func storyModerationResults(token: String) async throws -> [OiStoryModerationResult] {
         let data = try await request("rest/v1/rpc/oi_my_story_reviews", method: "POST", token: token, body: Data("{}".utf8))
         return try decoder.decode([OiStoryModerationResult].self, from: data)
@@ -249,7 +263,28 @@ struct OiServiceAPI {
     }
 
     func cardRequests(token: String) async throws -> [OiCardRequest] {
-        try await cardRequestRPC("oi_card_requests", payload: [:], token: token, as: [OiCardRequest].self)
+        struct Page: Decodable {
+            let items: [OiCardRequest]
+            let nextBefore: String?
+            let nextBeforeId: UUID?
+        }
+        var rows: [OiCardRequest] = []
+        var payload: [String: String] = [:]
+        var seen = Set<UUID>()
+        do {
+            repeat {
+                try Task.checkCancellation()
+                let page = try await cardRequestRPC(Self.cardRequestPageRPC, payload: payload, token: token, as: Page.self)
+                rows.append(contentsOf: page.items.filter { seen.insert($0.id).inserted })
+                guard let before = page.nextBefore, let beforeID = page.nextBeforeId else { return rows }
+                let next = ["p_before": before, "p_before_id": beforeID.uuidString]
+                guard next != payload else { throw OiServiceError.unavailable }
+                payload = next
+            } while !Task.isCancelled
+            throw CancellationError()
+        } catch CardRequestPageError.notDeployed where payload.isEmpty {
+            return try await cardRequestRPC("oi_card_requests", payload: [:], token: token, as: [OiCardRequest].self)
+        }
     }
 
     func sendCardRequest(storyID: UUID, requestID: UUID, token: String) async throws -> OiCardRequest.Status {

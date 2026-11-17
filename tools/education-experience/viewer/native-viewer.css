@@ -57,8 +57,7 @@ html,body{margin:0;overflow:hidden;overscroll-behavior:none;background:#d5ebf5}
 @media(prefers-reduced-motion:reduce){.native-viewer button{transition:none}.native-viewer button:active{transform:none}}
 /* Unfold in the SAME garden: one flat dim layer, no cosmic image or mascot. */
 .reference-live.native-viewer{isolation:isolate}
-.native-viewer .viewer-dimmer{position:absolute;inset:0;z-index:-1;pointer-events:none;background:#101914;opacity:0;transition:opacity .28s ease-out}
-.native-viewer.is-scattered .viewer-dimmer{opacity:.78}
+.native-viewer .viewer-dimmer{position:absolute;inset:0;z-index:-1;pointer-events:none;background:#101914;opacity:0}
 .reference-live.native-viewer.is-scattered :is(.viewer-header-controls,#viewerGestureHint,.bottom-dock,.garden-mascot,.space-mascot,.night-backdrop){display:none!important}
 .reference-live.native-viewer.is-scattered .brand{color:#c4c9b7}
 .reference-live.native-viewer.is-scattered .app-logo{filter:brightness(.66) saturate(.8)}

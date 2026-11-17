@@ -202,3 +202,74 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project app
 1. 운영 서버에 `20261109004000_oi_apple_token_revocation.sql`을 적용한다.
 2. Apple Developer에서 본 앱의 Sign in with Apple 키를 준비한다. Supabase Edge Function 비밀 설정에 `APPLE_SIGN_IN_TEAM_ID`, `APPLE_SIGN_IN_KEY_ID`, `APPLE_SIGN_IN_PRIVATE_KEY`(PKCS#8 `.p8`), `APPLE_TOKEN_ENCRYPTION_KEY`(난수 32바이트를 Base64로 인코딩)를 넣는다. 동일한 암호화 키를 두 함수에서 사용하며 기존 암호문이 남아 있는 동안 해당 키를 유지한다.
 3. `apple-sign-in-token`과 `delete-account`를 JWT 검증을 유지한 채 배포한다. 시험 Apple 계정으로 로그인, 탈퇴, Apple 설정에서 앱 연결 해제를 확인하고 다시 가입한다. Apple·Google 통합 시험 계정은 Google로 재인증해도 이미 저장된 Apple 연결이 해제되는지 확인한다. [Apple의 토큰 철회 절차](https://developer.apple.com/documentation/technotes/tn3194-handling-account-deletions-and-revoking-tokens-for-sign-in-with-apple)
+
+
+## 이어진 이야기와 앱 내 알림 — #418
+
+2026-11-17 사용자 합의, 작업 브랜치 `feat/#418-story-continuations`. PR #415의 선택 UI를 통합한 서버·앱 후속이다. **PR #425를 develop에 병합하고 2026-11-17 운영 52gibu에 적용했다.** 원래 mutator delegate 해시·적용 SQL SHA256 일치와 가상 자료 롤백 검증을 확인했다.
+
+### 저장·검수·개인정보 계약
+
+- 새 마이그레이션 `20261117010000_oi_story_continuations.sql` 하나를 추가한다. 기존 마이그레이션은 수정하지 않는다. public 원시 `oi_stories`에는 부모 열을 추가하지 않는다.
+- 비공개 테이블 `benchmark_private.oi_story_continuations`: 자식 PK/FK, nullable 부모 FK, `published_at`, `read_at`. 자식 삭제는 관계 행 삭제, 부모 물리 삭제는 FK SET NULL, 논리 삭제는 트리거로 부모·공개·읽음 시각 해제다. 자식 이야기는 보존한다. 직접 읽기·쓰기 권한은 없다.
+- `save_story.continued_from_story_id`: 필드 없음=기존 연결 유지, null=해제, UUID=공개된 다른 작성자의 이야기로 설정. 잘못된 UUID·미존재·비공개·자기 이야기·제한 작성자·순환 관계를 거절한다. topology 변경은 트랜잭션 advisory lock으로 직렬화하고 기존 인증·canonical 계정·리비전 검사를 delegate에서 그대로 실행한다.
+- 제출·공개 승인에서 대상을 재확인한다. AI 검수 snapshot에는 부모를 포함하고 부모 변경 후 기존 승인을 재사용할 수 없다. null 부모의 기존 snapshot은 바꾸지 않는다. 실제 심기의 기존 승인 검사·위치 검사를 유지한다. 검수 통과만으로 알림이나 공개 관계를 생성하지 않는다.
+- 관계의 `published_at`은 자식의 최초 실제 공개 시점이다. 재시도·숨김 후 재공개는 새 알림이나 읽음 초기화를 만들지 않는다. 부모 변경은 새 연결이므로 공개·읽음 시각을 초기화한다.
+- 공개 목록·개수·알림은 부모/자식 모두 published, 서로 다른 현재 canonical 소유자, 양쪽 작성자 제한·탈퇴 진행 상태 없음일 때만 제공한다. 앱의 기기 작성자 차단은 서버 계정 설정이 아니므로 각 조회의 `p_blocked` UUID 배열로 동일하게 좁힌다. 클라이언트 필터로 서버 공개 권한을 넓힐 수 없다.
+- 원시 공개 행에 부모 ID·읽음 시각을 노출하지 않는다. 본인 초안 복원 RPC와 mutation 영수증도 숨겨진 부모 ID를 null로 표시한다. 추가 개인정보를 공개하지 않으며 기존 공개 이야기 DTO만 반환한다.
+
+### RPC와 capability
+
+| RPC | 호출·응답 |
+| --- | --- |
+| `oi_story_continuations(p_parent uuid=null,p_mine bool=false,p_before timestamptz=null,p_before_id uuid=null,p_blocked uuid[]='{}')` | 공개 부모별 목록은 anon 가능. p_mine=true는 인증한 부모 소유자의 전체 수신 목록. items/total/next_cursor를 같은 공개 조건·DB snapshot으로 반환한다. items는 child_story_id/parent_story_id/published_at/story/read_at이고 공개 조회의 read_at은 null. 최초 공개 시각·자식 UUID 내림차순 20개 keyset이다. |
+| `oi_story_continuation_counts(p_stories uuid[],p_blocked uuid[]='{}')` | 공개 부모 최대 200개를 한 번에 집계. 보이는 부모의 0개는 0, 숨겨진 부모는 결과에서 제외. |
+| `oi_my_story_continuation_targets()` | 인증한 canonical 작성자의 삭제되지 않은 자식별 초안 메타데이터. 숨겨진 부모는 null. 공개 행과 별도다. |
+| `oi_read_story_continuation(p_child uuid,p_blocked uuid[]='{}')` | 인증한 부모 소유자만 현재 보이는 자식을 조회·읽음 처리하고 같은 응답에서 story DTO를 받는다. 숨김·삭제·다른 계정·차단은 거절한다. 읽음 재시도는 멱등이다. |
+
+차단 필터는 최대 500명, 커서는 두 값 모두 있거나 모두 없어야 한다. 기본 공개 권한은 기존 스토리 정책과 동일하다. 내부 함수·비공개 delegate는 앱/service_role에 직접 실행 권한을 주지 않는다. capability `story_continuations`는 쓰기·목록, `story_continuation_notifications`는 앱 내 수신 알림을 뜻하며 APNs 지원을 뜻하지 않는다.
+
+iOS는 capability 지원 시에만 새 저장 필드를 전송한다. 기존 draft Codable 필드는 optional이어서 옛 초안도 복원한다. 필드 생략과 명시적 해제를 구분하는 `connectedStorySelectionEdited`를 기기 초안에 저장한다. 서버에서 복원한 본인 연결도 선택 UI에 채운다. 관계 조회는 계정·차단 변경/취소 뒤 늦은 응답을 폐기하며 새 필드가 없는 구버전 앱은 기존 저장·읽기를 계속한다.
+
+### 지도 알림함
+
+PR #407의 `CampusNotificationSheet`·`CampusNotificationInboxView`와 기존 카드 요청 RPC를 재사용한다. 카드 요청과 이어진 이야기 행은 별개이며 카드 수락·거절 RPC를 관계 알림에 사용하지 않는다. 부모 소유자 수신 목록에서 최근 30일만 지도 알림함에 표시하고 더 보기로 20개씩 읽는다. MY·부모 이야기의 전체 목록/개수는 30일로 제한하지 않는다. 단일 관계·읽음 시각이 내구성 있는 앱 내 알림 원천이며 별도 공개 이벤트 테이블은 없다.
+
+알림을 누르면 서버에서 현재 부모 소유권·양쪽 공개·제한·차단을 다시 확인하고 읽음을 기록한다. 받은 공개 DTO를 공용 스토리 저장소에 넣고 시트를 닫은 뒤 해당 이야기 요약을 연다. 계정 전환·인증 만료 이후 응답으로 이동하지 않는다. 앱이 닫혀 있을 때 알림을 전송하는 APNs 서버/기기 토큰 구성을 추가하지 않았다.
+
+### 검증과 적용·복구
+
+- `python3 supabase/tests/run-account-merge-db-checks.py`: 저장소 이력·배포 호환 이력 모두에 새 마이그레이션/회귀를 실행한다. mutator·snapshot·capability 각각에 미지 변경을 넣었을 때 스키마 생성 전 거절·롤백되는지도 검사한다.
+- 새 `supabase/tests/oi-story-continuations.sql`: 저장/변경/null/옛 payload, 미공개 비노출, 자기/잘못된/숨김 대상·순환 거절, AI 승인 후 관계 변경 검출, 실제 심기 후 목록·알림·개수, 비공개/제한/차단/타인 읽음 거절, 재공개 멱등, 20+5 페이지, canonical 계정 통합, 부모 논리 삭제·탈퇴 삭제와 자식 보존을 가상 자료로 검증한다. 기존 카드 PNG/JPEG·공개·탈퇴·건물 쪽지·자동검수 회귀도 함께 실행한다.
+- iOS 선택 회귀 20개와 시뮬레이터 캡처가 통과했다. [검증 기록과 한계](../apps/ios/docs/verification/continuations-418/README.md)에 결과를 남긴다. 실기기·실제 두 사용자 공개 흐름·운영 RPC 배포 검증을 로컬 통과로 간주하지 않는다.
+- 적용 순서: PR 리뷰 → 운영 사전 drift 검사 → DB 적용/기능 표시 확인 → 새 앱. 심사 NFC 태그·지정 이야기는 건드리지 않는다. 운영 검증은 별도 가상 계정/이야기를 사용한다.
+- 알 수 없는 drift는 중단하고 운영 함수를 덮어쓰지 않는다. 적용 전 오류는 전체 transaction rollback이다. 적용 후 문제는 우선 두 capability를 false로 내리는 후속 마이그레이션으로 새 앱 기능을 중단하고 관계 데이터는 보존한다. 클라이언트만 되돌려도 필드 생략=유지여서 기존 연결을 삭제하지 않는다. 구 정의로의 delegate 복구는 새 snapshot을 가진 검수 중 이야기의 재검수 계획을 검토한 뒤 별도 리뷰에서 결정하며 이미 적용한 마이그레이션을 편집/삭제하지 않는다.
+
+
+### 탈퇴 진행 중 공개 경계 보완 — 2026-11-17 / #418
+
+PR #425 적용 후 추가 점검에서 기존 `oi_hide_deleting_stories` RLS와 새 security-definer 관계 조회의 차이를 발견했다. 회원 탈퇴 완료뿐 아니라 `oi_account_deletions`에 들어간 준비 단계에서도 부모·자식 이야기를 숨겨야 한다. 새 `20261117020000_oi_continuation_deletion_visibility.sql`에서 알려진 다섯 함수의 소스 해시를 먼저 확인하고 유일한 앵커만 치환한다. 이미 적용한 마이그레이션은 수정하지 않는다.
+
+대상 검증·변경 영수증, 공개 관계 helper, 부모 일괄 집계, 본인 초안 메타데이터에 기존 `oi_account_is_deleting`를 반영한다. 목록과 알림 읽기는 같은 helper를 사용한다. 부모가 탈퇴 준비 중이면 부모 존재를 추론할 0개 행도 반환하지 않고 집계 결과에서 제외하며, 자식만 탈퇴 준비 중이면 공개 부모의 개수는 0이다. 기존 비공개 관계는 최종 삭제 전까지 보존한다.
+
+새 회귀 검사는 기존 구현에서 `deleting parent relation leaked`로 실패하는 것을 먼저 재현했다. 부모·자식 각각에 대해 원시 공개 RLS, 관계 목록·개수·알림·초안 부모 UUID·새 대상 지정의 공개 조건을 검사한다. 다섯 함수 각각의 미지 변경에서 전체 정의 치환이 거절·롤백되는지도 두 DB 이력에서 검증한다. iOS 코드와 capability 이름은 바꾸지 않는다.
+
+
+2026-11-17 앱 후속: 비공개 부모 ID가 null로 가려진 서버 초안도 `선택 없이 진행하기`로 명시적으로 연결을 해제할 수 있다. 선택을 자동 삭제하지 않고 사용자가 누른 경우에만 edited 상태와 null payload를 전송한다. 실제 대상 카드가 있으면 기존 `연결 해제` 문구를 쓴다.
+
+### 운영자 수동 공개 검토와 AI 병행 (2026-11-17, #388 후속)
+
+후속 작업 이슈: #435. 이 절은 이전 적용 기록이다. #445에서 캠퍼스·교육지구의 수동 공개를 차단한다.
+
+- 새 마이그레이션 `20261117060000_oi_operator_manual_story_review.sql`은 알려진 canonical/운영 함수 해시와 유일한 앵커를 확인한 뒤 AI 모드의 운영자 공개 금지 조건만 제거한다. 알 수 없는 drift는 전체 롤백한다. #426 적용 전후의 알려진 본문을 각각 허용하며 해당 변경 유무는 보존한다.
+- `oi_capabilities().operator_manual_story_review=true`. 기존 `review_story` 계약과 권한, 행 잠금, 리비전, 현재 외형·카드 ID/형식·JPEG 타입 및 파일 검증, 이어진 이야기 검사와 감사 기록은 유지한다. 테이블·권한·AI 설정은 바꾸지 않는다.
+- AI 모드에서도 지정 운영자는 pending/hidden 제출본을 published로 바꿀 수 있다. draft는 거절한다. 기존 공개 숨기기도 유지한다. 구버전 제출은 계속 PT426으로 차단하며 AI 승인 초안의 심기는 작성자만 수행한다. 동시 결정은 리비전 충돌로 거절한다.
+- 새 앱은 승인 직전 capability와 운영자 권한을 재확인한다. 새 기능 없는 AI 서버에는 수동 승인 요청을 보내지 않는다. PNG/JPEG 계약은 그대로이며 구버전 운영자의 JPEG 타입 확인 누락은 계속 거절한다.
+- 적용: 격리 DB 두 이력과 iOS 검사 → 운영 drift 검사 → 이 마이그레이션만 원자적으로 적용 → AI/수동 capability 및 가상 자료 롤백 검증 → 앱 설치. 원격 적용 여부와 실기기 확인 결과는 작업 보고에 구분한다.
+- 되돌리기: 운영자 승인 UI를 숨기는 호환 앱으로 되돌리거나, 적용 후 함수 해시를 확인한 별도 역마이그레이션에서 제거한 금지 조건을 복원하고 새 capability를 제거한다. AI 설정을 끄거나 기존 공개 데이터를 되돌리지 않는다.
+
+## STEP 3 외형과 카드 요청 페이지 — #440
+
+- STEP 3에서 편집한 얼굴·몸체와 의상 선택은 기존 공개 오이 외형의 선택적 `seed` 필드로 전달한다. 동일한 3D 모델을 카드용 이미지와 공개 지도·촬영에 사용한다. 얼굴 수치와 앱 번들 의상 이름을 서버에서 검증하고, 등록되는 이미지는 기존 승인 스냅샷 경로를 사용한다. 기존 외형 레코드와 앱의 읽기 계약을 유지한다.
+- 지도 알림은 받은 대기 요청을 `oi_card_request_page`에서 100개 단위로 읽는다. 날짜 정밀도를 보존한 서버 커서와 UUID를 함께 쓰며, 새 RPC가 아직 없는 환경은 기존 조회를 사용한다. 기존 요청의 수락·거절과 보관 정책을 유지한다.
+- 적용은 격리 DB 검증 후 마이그레이션 두 개를 먼저 적용하고 새 앱을 배포하는 순서다. 운영 DB와 배포 환경 변경은 이번 PR에 포함되지 않는다.

@@ -165,7 +165,7 @@ struct CampusRegionClustering {
         return clamped * clamped * (3 - 2 * clamped)
     }
 
-    private static func distance(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
+    private nonisolated static func distance(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
         simd_distance(SIMD2(a.x, a.z), SIMD2(b.x, b.z))
     }
 }

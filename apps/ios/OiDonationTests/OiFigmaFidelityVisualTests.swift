@@ -6,6 +6,7 @@
 //
 
 import CoreText
+import Observation
 import RealityKit
 import SwiftUI
 import UIKit
@@ -126,12 +127,15 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(metadata.preset, "lime")
         XCTAssertEqual(metadata.authorMode, "anonymous")
         XCTAssertFalse(String(decoding: try JSONEncoder().encode(metadata), as: UTF8.self).contains("비공개 이름"))
-        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "다른 계정 이름")
+        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "다른 계정 이름", tags: [Self.draft.emotion, Self.draft.theme])
         XCTAssertEqual(anonymous.parts[.back], restored.parts[.back], "Reopening a remote card must retain anonymous attribution")
         XCTAssertEqual(OiPostcardAuthor.text(mode: "academic", name: "비공개 이름", academic: ""), "익명")
         XCTAssertEqual(OiPostcardAuthor.text(mode: "academic", name: "이름", academic: "컴퓨터공학과 23학번"), "컴퓨터공학과 23학번")
         XCTAssertEqual(OiPostcardAuthor.text(mode: "name", name: "공개 이름", academic: ""), "공개 이름")
         XCTAssertEqual(OiPostcardAuthor.text(mode: "unknown", name: "비공개 이름", academic: ""), "익명")
+        // #386: no registered public name never leaves the author blank.
+        XCTAssertEqual(OiPostcardAuthor.text(mode: nil, name: "", academic: ""), "익명")
+        XCTAssertEqual(OiPostcardAuthor.text(mode: "name", name: "  ", academic: ""), "익명")
         value.card?.postcardBackground = .init(color: 0xFF0000, fill: .gradient, middleColor: 0x00FF00, endColor: 0x0000FF)
         let gradient = try OiDraftCardPreview(draft: Self.draft, customization: value).publication(colorScheme: .light)
         let gradientImage = try XCTUnwrap(UIImage(data: gradient.png))
@@ -152,6 +156,50 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         for color in ["white", "black"] {
             for number in 1...6 { XCTAssertNotNil(UIImage(named: "OiPostcardStamp-\(color)\(number)")) }
             XCTAssertNotNil(UIImage(named: "OiPostcardLogo-" + color))
+        }
+    }
+
+    func testPostcardV4DefaultLogoDateAndLegacyTexture() throws {
+        var value = Self.customization
+        value.showsCharacter = false
+        value.card = OiCardDesign()
+        value.card?.postcardLayoutVersion = 2
+        value.card?.postcardBackground = .init(color: 0x777777, fill: .solid)
+        let date = Date(timeIntervalSince1970: 1_799_779_200)
+        value.card?.postcardDate = date
+
+        func front() throws -> Data {
+            try OiDraftCardPreview(draft: Self.draft, customization: value).publication(colorScheme: .light).png
+        }
+
+        let baseline = try front()
+        value.card?.pattern = 5
+        XCTAssertEqual(try front(), baseline, "The current postcard must omit old paper textures")
+
+        value.card?.postcardLogo = "white"
+        XCTAssertEqual(try front(), baseline, "An unset color must render the same white mark")
+        value.card?.postcardLogo = "black"
+        XCTAssertNotEqual(try front(), baseline, "The selected black mark must render")
+
+        value.card?.postcardLogo = "white"
+        value.card?.postcardDate = date.addingTimeInterval(86_400)
+        XCTAssertNotEqual(try front(), baseline, "The printed date must be part of the current postcard")
+
+        let glyphAssets = (0...9).map { "OiPostcardDate-\($0)" } + ["OiPostcardDate-dot", "OiPostcardFrom"]
+        for name in glyphAssets {
+            XCTAssertNotNil(UIImage(named: name), "Missing postcard vector asset: \(name)")
+        }
+        for (name, printedDate) in [
+            ("date-figma-reference", "26.10.24"),
+            ("date-other-digits", "38.05.29"),
+            ("date-wide-digits", "99.09.27"),
+        ] {
+            let image = try OiCardImageExport.render(OiPostcardFront(date: printedDate) {
+                Color(white: 0.3)
+            })
+            let png = try XCTUnwrap(image.pngData())
+            let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
         }
     }
 
@@ -313,7 +361,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let front = try XCTUnwrap(UIImage(data: publication.png))
         OiPostcardBackgroundMetadata.remember(png: publication.png, image: front)
         XCTAssertEqual(OiPostcardBackgroundMetadata.style(for: front)?.backLogoColor, 0x246BA0)
-        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "가상 작성자")
+        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "가상 작성자", tags: [Self.draft.emotion, Self.draft.theme])
         XCTAssertEqual(publication.parts[.back], restored.parts[.back], "A reused server front must retain the selected back logo color")
         XCTAssertEqual(publication.parts.count, 4)
         var invalid = style; invalid.backLogoColor = 0x1000000
@@ -411,6 +459,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         value.card?.postcardBackground = .init(color: 0xE8EECF, preset: "lime")
         value.card?.backgroundPhoto = photo.pngData()
         value.card?.postcardStamp = 1
+        value.card?.postcardDate = Date(timeIntervalSince1970: 1_799_779_200)
         func render(_ style: OiDraftCustomization) throws -> Data {
             let renderer = ImageRenderer(content: OiDraftCardPreview(draft: Self.draft,
                 customization: style, portrait: portrait).frame(width: 362, height: 502))
@@ -419,9 +468,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
         for character in [false, true] {
             value.showsCharacter = character
-            value.card?.postcardLogo = nil
+            // An unset logo color means white. Use transparent ink for the unmarked reference.
+            value.card?.postcardLogoOpacity = 0
             let original = try renderedBitmap(render(value), size: CGSize(width: 362, height: 502))
             let before = try XCTUnwrap(original.data).bindMemory(to: UInt8.self, capacity: 362 * 502 * 4)
+            value.card?.postcardLogoOpacity = 1
             for logo in ["white", "black"] {
                 value.card?.postcardLogo = logo
                 let png = try render(value)
@@ -668,7 +719,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         for variant in variants.prefix(2) {
             for bottom in [false, true] {
                 let page = CreationCapturePage(step: 3, anchor: bottom ? .bottom : .top) {
-                    OiCucumberCustomizationStep(customization: .constant(customization), canContinue: true, onContinue: {})
+                    OiCucumberCustomizationStep(customization: .constant(customization), previewMode: .wardrobe,
+                                                canContinue: true, onContinue: {})
                         .environment(\.scenePhase, .active)
                 }
                 try await capture(page, name: bottom ? "costume-set-bottom" : "costume-set-top",
@@ -908,6 +960,39 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                              "A missing custom portrait must never export an unrelated fallback character")
     }
 
+    func testPostcardCompletionDateAnonymousAuthorAndTagsAreInExport() throws {
+        var draft = Self.draft
+        var customization = Self.customization
+        customization.showsCharacter = false
+        customization.card = OiCardDesign()
+        customization.card?.postcardDate = Date(timeIntervalSince1970: 1_799_779_200)
+        customization.card?.postcardBackground = .init(color: 0xEECFDF, authorMode: "anonymous")
+
+        func publish(_ name: String, fallbackDate: String) throws -> OiStoryCardPublication {
+            try OiDraftCardPreview(draft: draft, customization: customization,
+                donorName: name, fallbackDate: fallbackDate).publication(colorScheme: .light)
+        }
+
+        let completed = try publish("첫 번째 이름", fallbackDate: "26.11.16")
+        let reopened = try publish("다른 이름", fallbackDate: "26.11.17")
+        XCTAssertEqual(completed.id, reopened.id, "A completed card must retain its date and never reveal the profile name")
+        let firstBack = try XCTUnwrap(completed.parts[.back])
+        let front = try XCTUnwrap(UIImage(data: completed.png))
+        OiPostcardBackgroundMetadata.remember(png: completed.png, image: front)
+        let republished = try OiCardImageExport.publication(front: front, message: draft.body,
+            author: "다른 이름", tags: draft.postcardTags)
+        XCTAssertEqual(firstBack, republished.parts[.back], "Server re-review must retain the rendered anonymous signature and tags")
+
+        draft.theme = "추억"
+        let retagged = try publish("다른 이름", fallbackDate: "26.11.17")
+        XCTAssertEqual(completed.png, retagged.png)
+        XCTAssertNotEqual(firstBack, retagged.parts[.back], "A changed tag must be rendered on the back itself")
+        for (name, png) in [("postcard-completion-date", completed.png), ("postcard-anonymous-tags", firstBack)] {
+            let capture = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            capture.name = name; capture.lifetime = .keepAlways; add(capture)
+        }
+    }
+
     func testDuplexCardExportAndAppClipCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
@@ -1011,10 +1096,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         value.card?.postcardBackground?.startOpacity = 0
         value.card?.postcardBackground?.middleOpacity = 0
         value.card?.postcardBackground?.endOpacity = 0
-        XCTAssertEqual(try sample(render(value)), 0xFFFFFF, "Zero background ink reveals opaque white paper")
+        XCTAssertEqual(try sample(render(value)), 0xCCCCCC, "The automatic 20% shade sits above otherwise white paper")
         value.card?.postcardBackground?.middleOpacity = 0.5
         let half = try sample(render(value))
-        for shift in [16, 8, 0] { XCTAssertEqual(Double((half >> shift) & 255), 128, accuracy: 2) }
+        for shift in [16, 8, 0] { XCTAssertEqual(Double((half >> shift) & 255), 102, accuracy: 2) }
+        value.card?.postcardLogoOpacity = 0
         let plain = try render(value).pngData()
         value.card?.postcardLogo = "black"
         value.card?.postcardLogoOpacity = 0
@@ -1033,7 +1119,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         value.card?.characterBackdropOpacity = 0
         XCTAssertEqual(try render(value).pngData(), frontBefore)
         value.card?.characterBackdropOpacity = 0.5
-        XCTAssertNotEqual(try render(value).pngData(), frontBefore)
+        XCTAssertEqual(try render(value).pngData(), frontBefore, "Legacy backdrop opacity no longer affects layout 2")
         let encoded = try JSONEncoder().encode(value)
         XCTAssertEqual(try JSONDecoder().decode(OiDraftCustomization.self, from: encoded), value)
         let publication = try OiDraftCardPreview(draft: Self.draft, customization: value,
@@ -1041,7 +1127,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let front = try XCTUnwrap(UIImage(data: publication.png))
         OiPostcardBackgroundMetadata.remember(png: publication.png, image: front)
         XCTAssertEqual(OiPostcardBackgroundMetadata.style(for: front), value.card?.postcardBackground)
-        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "")
+        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "", tags: Self.draft.postcardTags)
         XCTAssertEqual(restored.parts[.back], publication.parts[.back])
         var invalid = try XCTUnwrap(value.card?.postcardBackground)
         invalid.startOpacity = -0.1
@@ -1054,12 +1140,12 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(OiCardOpacity.normalized(2), 1)
     }
 
-    func testPostcardCustomCharacterBackdropPersistsAndExports() throws {
+    func testLegacyPostcardCustomCharacterBackdropPersistsAndExports() throws {
         let portrait = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { _ in }
         var value = Self.customization
         value.showsCharacter = true
         value.card = OiCardDesign()
-        value.card?.postcardLayoutVersion = 2
+        value.card?.postcardLayoutVersion = nil
         value.card?.postcardBackground = .init(color: 0xEECFDF, fill: .solid)
         value.card?.characterBackdropEnabled = true
         func render(_ customization: OiDraftCustomization, back: Bool = false) throws -> UIImage {
@@ -1100,100 +1186,23 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertNil(legacy.characterBackdropColor)
     }
 
-    func testPostcardCharacterBackdropPickerUpdatesLivePreview() async throws {
+    func testPostcardAutomaticShadeBackgroundEditorCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         var value = Self.customization
         value.showsCharacter = true
         value.card = OiCardDesign()
         value.card?.postcardLayoutVersion = 2
-        value.card?.postcardBackground = .init(color: 0xEECFDF, fill: .solid)
-        value.card?.characterBackdropEnabled = true
+        value.card?.portraitPNG = try XCTUnwrap(UIImage(named: "OiCatsPortrait")?.pngData())
+        value.card?.postcardBackground = .init(color: 0xD9E6CA, fill: .gradient, preset: "sage")
+        // Retained settings must not bring removed controls or an old flat tint back.
+        value.card?.characterBackdropEnabled = false
+        value.card?.characterBackdropColor = 0x246BA0
+        value.card?.characterBackdropOpacity = 0.4
         for variant in variants.prefix(2) {
-            value.card?.characterBackdropColor = 0x246BA0
             try await capture(PostcardBackdropLiveFixture(draft: Self.draft, customization: value, changed: { _ in }),
-                name: "postcard-backdrop-color-editor", variant: variant, defaults: fixture.defaults, attach: true)
+                name: "postcard-automatic-shade-background", variant: variant, defaults: fixture.defaults, attach: true)
         }
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let previous = scene.windows.first(where: \.isKeyWindow)
-        let window = UIWindow(windowScene: scene)
-        var selected: OiDraftCustomization?
-        value.card?.characterBackdropColor = nil
-        let host = UIHostingController(rootView: PostcardBackdropLiveFixture(draft: Self.draft,
-            customization: value, changed: { selected = $0 }))
-        window.rootViewController = host; window.makeKeyAndVisible()
-        defer {
-            host.dismiss(animated: false); window.isHidden = true
-            window.rootViewController = nil; window.windowScene = nil; previous?.makeKey()
-        }
-        try await Task.sleep(for: .milliseconds(300))
-        func button(in view: UIView) -> UIButton? {
-            if let button = view as? UIButton, button.accessibilityIdentifier == "oi.postcard.color-ring.control" { return button }
-            for child in view.subviews { if let found = button(in: child) { return found } }
-            return nil
-        }
-        let control = try XCTUnwrap(button(in: host.view))
-        XCTAssertTrue(control.isEnabled)
-        control.sendActions(for: .primaryActionTriggered)
-        try await Task.sleep(for: .milliseconds(650))
-        func colorPicker(in controller: UIViewController) -> UIColorPickerViewController? {
-            if let picker = controller as? UIColorPickerViewController { return picker }
-            if let presented = controller.presentedViewController, let found = colorPicker(in: presented) { return found }
-            for child in controller.children { if let found = colorPicker(in: child) { return found } }
-            return nil
-        }
-        let picker = try XCTUnwrap(colorPicker(in: host))
-        XCTAssertEqual(Color(picker.selectedColor).oiRGB, 0x835C6E)
-        XCTAssertTrue(picker.supportsAlpha)
-        for rgb in [0x246BA0, 0x9B8050] as [UInt32] {
-            picker.delegate?.colorPickerViewController?(picker,
-                didSelect: UIColor(Color(oiRGB: rgb)).withAlphaComponent(0.4), continuously: true)
-            try await Task.sleep(for: .milliseconds(150))
-            let updated = try XCTUnwrap(selected)
-            XCTAssertEqual(updated.card?.characterBackdropColor, rgb)
-            XCTAssertEqual(try XCTUnwrap(updated.card?.characterBackdropOpacity), 0.4, accuracy: 0.001)
-            XCTAssertEqual(OiPostcardCharacterBackdrop.color(for: try XCTUnwrap(updated.card)), rgb)
-        }
-        let sheet = try XCTUnwrap(host.presentedViewController)
-        let reset = try XCTUnwrap(picker.navigationItem.leftBarButtonItem)
-        XCTAssertEqual(reset.accessibilityIdentifier, "oi.postcard.color.reset")
-        XCTAssertNil(reset.customView, "The toolbar uses a system item without an extra glass button")
-        XCTAssertTrue(UIApplication.shared.sendAction(try XCTUnwrap(reset.action), to: reset.target, from: reset, for: nil))
-        try await Task.sleep(for: .milliseconds(200))
-        let restored = try XCTUnwrap(selected)
-        XCTAssertNil(restored.card?.characterBackdropColor, "Reset returns to automatic, rather than saving a manual copy")
-        XCTAssertNil(restored.card?.characterBackdropOpacity)
-        XCTAssertTrue(try XCTUnwrap(restored.card).usesCharacterBackdrop, "Reset must not turn off the background")
-        XCTAssertEqual(OiPostcardCharacterBackdrop.color(for: try XCTUnwrap(restored.card)), 0x835C6E)
-        XCTAssertEqual(Color(picker.selectedColor).oiRGB, 0x835C6E, "The open picker must follow the restored recommendation")
-        XCTAssertEqual(Double(picker.selectedColor.cgColor.alpha), 1, accuracy: 0.001)
-        XCTAssertNotNil(picker.viewIfLoaded?.window, "Reset keeps the live preview picker open")
-        if ProcessInfo.processInfo.environment["OI_HOLD_BACKDROP_PICKER_CAPTURE"] == "1" {
-            FileHandle.standardOutput.write(Data("POSTCARD_BACKDROP_PICKER_READY\n".utf8))
-            try await Task.sleep(for: .seconds(8))
-            sheet.sheetPresentationController?.animateChanges {
-                sheet.sheetPresentationController?.selectedDetentIdentifier = .large
-            }
-            try await Task.sleep(for: .seconds(1))
-            FileHandle.standardOutput.write(Data("POSTCARD_EXPANDED_PICKER_READY\n".utf8))
-            try await Task.sleep(for: .seconds(8))
-        }
-        let apply = try XCTUnwrap(picker.navigationItem.rightBarButtonItem)
-        XCTAssertEqual(apply.accessibilityIdentifier, "oi.postcard.color.apply")
-        XCTAssertEqual(apply.style, .prominent)
-        XCTAssertNil(apply.customView, "The native confirmation item must not contain nested glass")
-        XCTAssertNotNil(picker.navigationController, "Reset sheets retain their upper toolbar")
-        XCTAssertTrue(picker.supportsEyedropper)
-        picker.delegate?.colorPickerViewController?(picker,
-            didSelect: UIColor(Color(oiRGB: 0x246BA0)).withAlphaComponent(0.35), continuously: true)
-        try await Task.sleep(for: .milliseconds(100))
-        XCTAssertTrue(UIApplication.shared.sendAction(try XCTUnwrap(apply.action), to: apply.target, from: apply, for: nil))
-        for _ in 0..<20 where host.presentedViewController != nil {
-            try await Task.sleep(for: .milliseconds(100))
-        }
-        XCTAssertNil(host.presentedViewController, "Apply dismisses the sheet")
-        XCTAssertEqual(selected?.card?.characterBackdropColor, 0x246BA0)
-        XCTAssertEqual(try XCTUnwrap(selected?.card?.characterBackdropOpacity), 0.35, accuracy: 0.001)
     }
 
     func testPostcardAttachmentOnlyAppearsWhenSelected() throws {
@@ -1243,68 +1252,124 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
-    func testPostcardOptionalCharacterBackdrop() async throws {
+    func testPostcardAutomaticShadeIgnoresSavedToggleAndPreservesDraftData() throws {
         let clear = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { _ in }
         var value = Self.customization
         value.card = OiCardDesign()
         value.card?.postcardLayoutVersion = 2
         value.card?.postcardBackground = .init(color: 0xEECFDF, fill: .solid)
         value.showsCharacter = true
-        func render(_ customization: OiDraftCustomization, back: Bool = false) throws -> UIImage {
+        func render(_ value: OiDraftCustomization, back: Bool = false) throws -> Data {
             let renderer = ImageRenderer(content: OiDraftCardPreview(draft: Self.draft,
-                customization: customization, portrait: clear, showingBack: back).frame(width: 362, height: 502))
+                customization: value, portrait: clear, showingBack: back).frame(width: 362, height: 502))
             renderer.scale = 1
-            return try XCTUnwrap(renderer.uiImage)
+            return try XCTUnwrap(renderer.uiImage?.pngData())
         }
-        XCTAssertFalse(try XCTUnwrap(value.card).usesCharacterBackdrop)
-        let original = try render(value).pngData()
-        let back = try render(value, back: true).pngData()
-        value.card?.characterBackdropEnabled = true
-        XCTAssertEqual(OiPostcardSnapshot.color(try render(value), x: 50.0 / 362, y: 180.0 / 502), 0x835C6E)
-        XCTAssertEqual(try render(value, back: true).pngData(), back, "A front-only option must preserve the story side")
-        XCTAssertEqual(try JSONDecoder().decode(OiDraftCustomization.self, from: JSONEncoder().encode(value)), value)
-        value.card?.characterBackdropEnabled = false
-        XCTAssertEqual(try render(value).pngData(), original, "Turning off the option must restore the exact original composition")
-        value.showsCharacter = false
-        let photo = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { context in
-            UIColor.systemBlue.setFill(); context.fill(CGRect(x: 0, y: 0, width: 20, height: 20))
-        }
-        value.card?.backgroundPhoto = photo.pngData()
-        let photoOnly = try render(value).pngData()
-        value.card?.characterBackdropEnabled = true
-        XCTAssertEqual(try render(value).pngData(), photoOnly, "A saved option must never obscure photo-only cards")
-        XCTAssertFalse(OiCardDesign().usesCharacterBackdrop, "Pre-unified drafts retain their own inner gradient")
-        var legacy = OiCardDesign()
-        legacy.postcardBackground = .init(color: 0xEECFDF, fill: .solid)
-        XCTAssertTrue(legacy.usesCharacterBackdrop, "Unified legacy cards retain the previous automatic field")
-        var legacyValue = value
-        legacy.backgroundPhoto = photo.pngData()
-        legacyValue.card = legacy
-        legacyValue.showsCharacter = true
-        let legacyImage = try render(legacyValue)
-        XCTAssertEqual(OiPostcardSnapshot.color(legacyImage, x: 50.0 / 362, y: 180.0 / 502),
-                       0x835C6E, "Legacy drafts must also honor the active character source")
-        XCTAssertEqual(legacyValue.card?.backgroundPhoto, photo.pngData(), "The hidden photo stays saved")
-        value.showsCharacter = true
-        XCTAssertEqual(OiPostcardSnapshot.color(try render(value), x: 50.0 / 362, y: 180.0 / 502), 0x835C6E,
-                       "The automatic field must remain visible even when an older card photo is retained")
-        let fixture = try isolatedDefaults()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
-        value.card?.backgroundPhoto = nil
-        value.card?.portraitPNG = try XCTUnwrap(UIImage(named: "OiCatsPortrait")?.pngData())
-        for enabled in [false, true] {
+        let original = try render(value)
+        let back = try render(value, back: true)
+        for enabled in [nil, false, true] as [Bool?] {
             value.card?.characterBackdropEnabled = enabled
-            let page = VStack(spacing: 0) {
-                OiCreationProgressHeader(step: 4, onPrevious: {}).padding(.horizontal, 20).padding(.bottom, 8)
-                OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(value),
-                    donorName: "가상 작성자", onContinue: {}).tabForTest("배경")
-            }.background(.white)
-            try await capture(page, name: "optional-character-backdrop-\(enabled ? "on" : "off")",
-                variant: variants[0], defaults: fixture.defaults, attach: true)
+            value.card?.characterBackdropColor = 0x246BA0
+            value.card?.characterBackdropOpacity = 0.5
+            let bytes = try JSONEncoder().encode(value)
+            let reopened = try JSONDecoder().decode(OiDraftCustomization.self, from: bytes)
+            XCTAssertEqual(reopened, value, "Older optional controls remain losslessly decodable")
+            XCTAssertEqual(try render(reopened), original, "Layout 2 always uses the same automatic shade")
+            XCTAssertEqual(try render(reopened, back: true), back, "The story side is unchanged")
+        }
+        value.showsCharacter = false
+        XCTAssertEqual(try render(value), original, "An empty photo window has the same automatic shading")
+    }
+
+    func testPostcardAutomaticShadeMatchesFigmaPaperAndExports() throws {
+        let clear = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { _ in }
+        let points = [CGPoint(x: 50, y: 180), CGPoint(x: 310, y: 60), CGPoint(x: 60, y: 440)]
+        let custom = OiPostcardBackgroundStyle(color: 0xEEAD56, fill: .gradient,
+            middleColor: 0xA1C8DB, endColor: 0xDA85A8)
+        let styles = OiPostcardPreset.allCases.map {
+            OiPostcardBackgroundStyle(color: $0.color, fill: .gradient, preset: $0.rawValue)
+        } + [custom, .init(color: 0xB5CCAD, fill: .solid)]
+        for preset in OiPostcardPreset.allCases {
+            let asset = try XCTUnwrap(UIImage(named: preset.asset), preset.rawValue)
+            XCTAssertEqual(asset.cgImage?.width, 1086, preset.rawValue)
+            XCTAssertEqual(asset.cgImage?.height, 1506, preset.rawValue)
+            XCTAssertNotNil(UIImage(named: preset.swatch), preset.rawValue)
+        }
+        for style in styles {
+            var value = Self.customization
+            value.showsCharacter = true
+            value.card = OiCardDesign()
+            value.card?.postcardLayoutVersion = 2
+            value.card?.postcardBackground = style
+            let paperRenderer = ImageRenderer(content: OiPostcardBackground(style: style).frame(width: 362, height: 502))
+            paperRenderer.scale = 1
+            let paper = try XCTUnwrap(paperRenderer.uiImage)
+            let publication = try OiDraftCardPreview(draft: Self.draft, customization: value,
+                portrait: clear).publication(colorScheme: .light)
+            let front = try XCTUnwrap(UIImage(data: publication.png))
+            let preview = try XCTUnwrap(publication.parts[.frontPreview].flatMap(UIImage.init(data:)))
+            XCTAssertTrue(OiPostcardSnapshot.isPostcard(front))
+            for point in points {
+                let base = try XCTUnwrap(OiPostcardSnapshot.color(paper, x: point.x / 362, y: point.y / 502))
+                for image in [front, preview] {
+                    let shaded = try XCTUnwrap(OiPostcardSnapshot.color(image, x: point.x / 362, y: point.y / 502))
+                    for shift in [16, 8, 0] {
+                        XCTAssertEqual(Double((shaded >> shift) & 255), Double((base >> shift) & 255) * 0.8, accuracy: 2,
+                            "Figma 6647:10696 uses black at 20%, preserving the actual paper gradient")
+                    }
+                }
+            }
+            for point in [CGPoint(x: 18, y: 180), CGPoint(x: 180, y: 18)] {
+                XCTAssertEqual(OiPostcardSnapshot.color(front, x: point.x / 362, y: point.y / 502),
+                    OiPostcardSnapshot.color(paper, x: point.x / 362, y: point.y / 502), "The paper border stays unshaded")
+            }
+            let a = XCTAttachment(data: publication.png, uniformTypeIdentifier: "public.png")
+            a.name = "postcard-automatic-shade-" + (style.preset ?? "custom")
+            a.lifetime = .keepAlways
+            add(a)
         }
     }
 
-    func testPostcardFigmaCompanionPalette() async throws {
+    func testPostcardAutomaticShadeStaysBehindPhotoAndCharacter() async throws {
+        let red = UIGraphicsImageRenderer(size: CGSize(width: 296, height: 436)).image { context in
+            UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 296, height: 436))
+        }
+        var value = Self.customization
+        value.card = OiCardDesign()
+        value.card?.postcardLayoutVersion = 2
+        value.card?.postcardBackground = .init(color: 0xB5CCAD, fill: .solid)
+        value.card?.backgroundPhoto = try XCTUnwrap(red.pngData())
+        for character in [false, true] {
+            value.showsCharacter = character
+            let publication = try OiDraftCardPreview(draft: Self.draft, customization: value,
+                portrait: red).publication(colorScheme: .light)
+            let front = try XCTUnwrap(UIImage(data: publication.png))
+            XCTAssertEqual(OiPostcardSnapshot.color(front, x: 0.5, y: 0.5), 0xFF0000,
+                "The shade must never dim the photo or the character")
+        }
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let clear = UIGraphicsImageRenderer(size: CGSize(width: 296, height: 436)).image { _ in }
+        for (name, input, expected) in [("portrait", red, UInt32(0xFF0000)), ("background", clear, UInt32(0x91A38A))] {
+            // ImageRenderer cannot render the editor's UIKit gesture surface;
+            // capture the hosted production view instead of its red placeholder.
+            try await capture(OiCardPlacementEditor(image: input, placement: .constant(.init()),
+                frameHeight: 436, compact: true, minimalChrome: true, postcardPaper: value.card)
+                .frame(width: 336, height: 452), name: "automatic-shade-placement-" + name,
+                variant: Variant(name: "336x452", size: CGSize(width: 336, height: 452), dynamicTypeSize: .medium),
+                defaults: fixture.defaults, includesSafeArea: false, attach: true,
+                validateRender: { data, size in
+                    _ = try self.renderedBitmap(data, size: size)
+                    // A deliberately uniform portrait/background is valid here;
+                    // check its expected pixel instead of the generic color-count heuristic.
+                    let image = try XCTUnwrap(UIImage(data: data))
+                    let pixel = try XCTUnwrap(OiPostcardSnapshot.color(image, x: 0.5, y: 0.5))
+                    for shift in [16, 8, 0] { XCTAssertEqual(Double((pixel >> shift) & 255), Double((expected >> shift) & 255), accuracy: 2) }
+                })
+        }
+    }
+
+    func testLegacyPostcardFigmaCompanionPalette() async throws {
         let references: [(paper: UInt32, backdrop: UInt32)] = [
             (0xEECFDF, 0x835C6E), (0xEEE7CF, 0x83785C),
             (0xE8EECF, 0x77835C), (0xCFE1EE, 0x5C7183)
@@ -1314,7 +1379,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             var value = Self.customization
             value.showsCharacter = true
             value.card = OiCardDesign()
-            value.card?.postcardLayoutVersion = 2
+            value.card?.postcardLayoutVersion = nil
             value.card?.characterBackdropEnabled = true
             value.card?.postcardBackground = .init(color: reference.paper, fill: .solid)
             let publication = try OiDraftCardPreview(draft: Self.draft, customization: value,
@@ -1342,7 +1407,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                         var value = Self.customization
                         value.showsCharacter = true
                         value.card = OiCardDesign()
-                        value.card?.postcardLayoutVersion = 2
+                        value.card?.postcardLayoutVersion = nil
                         value.card?.characterBackdropEnabled = true
                         value.card?.postcardBackground = .init(color: preset.color, fill: .gradient, preset: preset.rawValue)
                         return value
@@ -1358,7 +1423,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             defaults: fixture.defaults, includesSafeArea: false, attach: true)
     }
 
-    func testPostcardAutomaticCharacterBackdrop() throws {
+    func testLegacyPostcardAutomaticCharacterBackdrop() throws {
         let clearPortrait = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { _ in }
         var customization = Self.customization
         customization.showsCharacter = true
@@ -1435,8 +1500,6 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let handwriting = try XCTUnwrap(UIFont(name: OiPostcardTypography.handwritingName, size: 17),
                                         "The postcard must load the bundled Figma font rather than silently fall back")
         XCTAssertEqual(handwriting.fontName, "NanumEongGeongKwiCe")
-        let from = try XCTUnwrap(UIFont(name: OiPostcardTypography.fromName, size: 6))
-        XCTAssertEqual(from.fontName, "EduAUVICWANTPre-Regular")
         let characters = Array("함께한 순간을 오래 기억하며, 고마워요. 26.11.12".utf16)
         var glyphs = [CGGlyph](repeating: 0, count: characters.count)
         XCTAssertTrue(CTFontGetGlyphsForCharacters(handwriting as CTFont, characters, &glyphs, characters.count),
@@ -1603,6 +1666,9 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     }
 
     func testPostcardHorizontalFlipAndDate() {
+        XCTAssertEqual(OiPostcardFlip.closingAngle(for: CGSize(width: -100, height: 5)), -90)
+        XCTAssertEqual(OiPostcardFlip.closingAngle(for: CGSize(width: 100, height: 5)), 90)
+        XCTAssertNil(OiPostcardFlip.closingAngle(for: CGSize(width: 10, height: 100)))
         XCTAssertTrue(OiPostcardFlip.accepts(CGSize(width: -100, height: 5)))
         XCTAssertTrue(OiPostcardFlip.accepts(CGSize(width: 100, height: 5)))
         XCTAssertFalse(OiPostcardFlip.accepts(CGSize(width: 10, height: 100)))
@@ -1707,13 +1773,26 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         let page = CreationCapturePage(step: 3) {
             OiCucumberCustomizationStep(customization: .constant(Self.customization), cucumberName: .constant("힌트펩오이"),
-                canContinue: true, onContinue: {}, initialTabTitle: title)
+                previewMode: .wardrobe, canContinue: true, onContinue: {}, initialTabTitle: title)
                 .environment(\.scenePhase, .active)
         }
         try await capture(page, name: "cucumber-\(title)", variant: variants[0], defaults: fixture.defaults, delay: .seconds(1), attach: true)
     }
 
     /// STEP 4 card 내용 tab (Figma `5919:12077`, #377).
+    /// #386: while a styled cucumber is still being rendered, the card front must not show the preset cat.
+    func testCardFrontHasNoPlaceholderWhileStyledCucumberRenders() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        var customization = Self.customization
+        customization.wardrobe = OiWardrobeLook()
+        customization.showsCharacter = true
+        let view = OiDraftCardPreview(draft: Self.draft, customization: customization, portrait: nil)
+            .frame(width: 362, height: 502).padding(20)
+        try await capture(view, name: "card-front-no-placeholder", variant: variants[0],
+            defaults: fixture.defaults, delay: .milliseconds(600), attach: true)
+    }
+
     func testCardContentTabCapture() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
@@ -1889,6 +1968,710 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertGreaterThan(try partBounds("Mouth", pose: 1).center.x, try partBounds("Mouth", pose: 0).center.x)
         XCTAssertLessThan(try partBounds("Mouth", pose: 1).center.y, try partBounds("Mouth", pose: 0).center.y)
         XCTAssertLessThan(try partBounds("Stem", pose: 1).min.x, try partBounds("Stem", pose: 0).min.x)
+    }
+
+    func testStep3ShowsFrontWhilePreparingAndRotatesFromOneRequest() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let variant = try XCTUnwrap(variants.first { $0.name == "402x874" })
+        var draft = OiDraftCustomization()
+        var existingLook = OiWardrobeLook()
+        existingLook.costume = .baseball
+        draft.wardrobe = existingLook
+        let original = draft
+        let customization = Binding(get: { draft }, set: { draft = $0 })
+
+        func step() -> some View {
+            CreationCapturePage(step: 3) {
+                OiCucumberCustomizationStep(customization: customization, onContinue: {})
+            }
+            .environment(\.scenePhase, .active)
+        }
+
+        try await capture(step(), name: "step3-seed-front", variant: variant, defaults: fixture.defaults,
+                          delay: .zero, attach: true, prepareRealityCapture: { host in
+            let surface = try await self.step3Surface(in: host)
+            try await self.waitForStep3 {
+                surface.scene.findEntity(named: "SeedCucumber") != nil
+            }
+            XCTAssertEqual(surface.accessibilityValue, "정면 이미지",
+                           "Loading the model must leave the original front image visible")
+            return nil
+        })
+        XCTAssertEqual(draft, original, "Browsing must preserve the existing wardrobe")
+
+        draft.seedAppearance = editedSeedCucumber3DAppearance()
+        try await capture(step(), name: "step3-seed-rotated", variant: variant, defaults: fixture.defaults,
+                          delay: .zero, attach: true, prepareRealityCapture: { host in
+            let surface = try await self.step3Surface(in: host)
+            XCTAssertEqual(surface.accessibilityValue, "정면 이미지")
+            let rotation = try XCTUnwrap(surface.accessibilityCustomActions?.first)
+            let rotate = try XCTUnwrap(rotation.actionHandler)
+            XCTAssertTrue(rotate(rotation))
+            try await self.waitForStep3 { surface.accessibilityValue == "3D 미리보기" }
+            let model = try XCTUnwrap(surface.scene.findEntity(named: "SeedCucumber"))
+            let body = try XCTUnwrap(model.findEntity(named: "Body"))
+            XCTAssertGreaterThan(body.visualBounds(relativeTo: model).extents.x, 0.52,
+                                 "The displayed model must reflect the wider edited body")
+            return surface
+        })
+        XCTAssertEqual(draft.wardrobe, original.wardrobe)
+
+        let editor = NavigationStack {
+            OiSeedCucumberCustomizationView(appearance: draft.seedAppearance ?? .init(), onApply: { _ in })
+        }
+        try await capture(editor, name: "step3-seed-face-editor", variant: variant,
+                          defaults: fixture.defaults, attach: true)
+    }
+
+    @Observable fileprivate final class Step3DraftFixture {
+        var value: OiDraftCustomization
+        init(_ value: OiDraftCustomization) { self.value = value }
+    }
+
+    func testStep3PinchRevealsPreviewAndClampsZoom() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let variant = try XCTUnwrap(variants.first { $0.name == "402x874" })
+        let screen = CreationCapturePage(step: 3) {
+            OiCucumberCustomizationStep(customization: .constant(.init()), onContinue: {})
+        }
+        .environment(\.scenePhase, .active)
+
+        try await capture(screen, name: "step3-pinched", variant: variant, defaults: fixture.defaults,
+                          delay: .zero, prepareRealityCapture: { host in
+            let surface = try await self.step3Surface(in: host)
+            XCTAssertEqual(surface.accessibilityValue, "정면 이미지")
+            let pinch = try self.step3Pinch(in: surface)
+            try self.applyStep3Pinch(pinch, state: .began, scale: 1)
+            try await self.waitForStep3 { surface.accessibilityValue == "3D 미리보기" }
+
+            let camera = try self.step3Camera(in: surface)
+            let normal = camera.position(relativeTo: nil)
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 10)
+            let closest = camera.position(relativeTo: nil).z
+            XCTAssertLessThan(closest, normal.z)
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 10)
+            XCTAssertEqual(camera.position(relativeTo: nil).z, closest, accuracy: 0.001)
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 0.9)
+            XCTAssertGreaterThan(camera.position(relativeTo: nil).z, closest)
+
+            try self.applyStep3Pinch(pinch, state: .ended, scale: 1)
+            let centered = camera.position(relativeTo: nil)
+            let forward = camera.orientation(relativeTo: nil).act(SIMD3<Float>(0, 0, -1))
+            let pan = Step3TestPan()
+            pan.dragVelocity = CGPoint(x: 0, y: 200)
+            try self.applyStep3Pan(pan, in: surface, state: .began, delta: CGPoint(x: 0, y: 20))
+            XCTAssertGreaterThan(camera.position(relativeTo: nil).y, centered.y)
+
+            try self.applyStep3Pan(pan, in: surface, state: .changed, delta: CGPoint(x: 4000, y: 1000))
+            let top = camera.position(relativeTo: nil)
+            try self.applyStep3Pan(pan, in: surface, state: .changed, delta: CGPoint(x: 0, y: 1000))
+            XCTAssertEqual(camera.position(relativeTo: nil).y, top.y, accuracy: 0.001)
+            try self.applyStep3Pan(pan, in: surface, state: .changed, delta: CGPoint(x: 0, y: -2000))
+            let bottom = camera.position(relativeTo: nil)
+            XCTAssertLessThan(bottom.y, centered.y)
+            XCTAssertEqual(bottom.x, centered.x, accuracy: 0.001)
+            XCTAssertEqual(bottom.z, centered.z, accuracy: 0.001)
+            XCTAssertEqual(simd_distance(camera.orientation(relativeTo: nil).act(SIMD3<Float>(0, 0, -1)), forward),
+                           0, accuracy: 0.001)
+            try self.applyStep3Pan(pan, in: surface, state: .ended, delta: .zero)
+
+            try self.applyStep3Pinch(pinch, state: .began, scale: 1)
+            XCTAssertEqual(camera.position(relativeTo: nil).y, bottom.y, accuracy: 0.001)
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 0.1)
+            let farthest = camera.position(relativeTo: nil).z
+            XCTAssertGreaterThan(farthest, normal.z)
+            XCTAssertEqual(camera.position(relativeTo: nil).y, normal.y, accuracy: 0.001)
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 0.1)
+            XCTAssertEqual(camera.position(relativeTo: nil).z, farthest, accuracy: 0.001)
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 1.1)
+            XCTAssertLessThan(camera.position(relativeTo: nil).z, farthest)
+            try self.applyStep3Pinch(pinch, state: .ended, scale: 1)
+            try self.applyStep3Pan(pan, in: surface, state: .began, delta: CGPoint(x: 0, y: 60))
+            XCTAssertEqual(camera.position(relativeTo: nil).y, normal.y, accuracy: 0.001)
+            try self.applyStep3Pan(pan, in: surface, state: .ended, delta: .zero)
+            return surface
+        })
+    }
+
+    func testStep3OutfitKeepsFaceAndCameraWhileChangingLayers() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let variant = try XCTUnwrap(variants.first { $0.name == "402x874" })
+        let appearance = editedSeedCucumber3DAppearance()
+        var original = OiDraftCustomization()
+        original.seedAppearance = appearance
+        var existingLook = OiWardrobeLook()
+        existingLook.costume = .baseball
+        original.wardrobe = existingLook
+        let draft = Step3DraftFixture(original)
+        let customization = Binding(get: { draft.value }, set: { draft.value = $0 })
+        let screen = CreationCapturePage(step: 3) {
+            OiCucumberCustomizationStep(customization: customization, onContinue: {})
+        }
+        .environment(\.scenePhase, .active)
+
+        try await capture(screen, name: "step3-pants-outfit-zoomed", variant: variant, defaults: fixture.defaults,
+                          delay: .zero, attach: true, prepareRealityCapture: { host in
+            let surface = try await self.step3Surface(in: host)
+            try await self.waitForStep3 { surface.scene.findEntity(named: "SeedCucumber") != nil }
+            let model = try XCTUnwrap(surface.scene.findEntity(named: "SeedCucumber"))
+            let eye = try XCTUnwrap(model.findEntity(named: "LeftEye"))
+            let faceTransform = eye.transformMatrix(relativeTo: model)
+            let shirtName = OiSeedCucumberGarment.whiteTshirt.rawValue
+            let pantsName = OiSeedCucumberGarment.longPants.rawValue
+            XCTAssertNil(model.findEntity(named: shirtName))
+            XCTAssertNil(model.findEntity(named: pantsName))
+
+            draft.value.seedLongPants = true
+            try await self.waitForStep3 {
+                model.findEntity(named: pantsName) != nil && surface.accessibilityValue == "3D 미리보기"
+            }
+            let pants = try XCTUnwrap(model.findEntity(named: pantsName))
+            XCTAssertNil(model.findEntity(named: shirtName))
+
+            draft.value.seedWhiteTshirt = true
+            try await self.waitForStep3 { model.findEntity(named: shirtName) != nil }
+            let shirt = try XCTUnwrap(model.findEntity(named: shirtName))
+            let camera = try self.step3Camera(in: surface)
+            let front = camera.position(relativeTo: nil)
+            let rotation = try XCTUnwrap(surface.accessibilityCustomActions?.first)
+            let rotate = try XCTUnwrap(rotation.actionHandler)
+            XCTAssertTrue(rotate(rotation))
+            let turned = camera.position(relativeTo: nil)
+            XCTAssertGreaterThan(simd_distance(front, turned), 0.2)
+            let pinch = try self.step3Pinch(in: surface)
+            try self.applyStep3Pinch(pinch, state: .began, scale: 1)
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 1.24)
+            let zoomed = camera.position(relativeTo: nil)
+            XCTAssertGreaterThan(simd_distance(turned, zoomed), 0.2)
+            try self.applyStep3Pinch(pinch, state: .ended, scale: 1)
+            let pan = Step3TestPan()
+            pan.dragVelocity = CGPoint(x: 0, y: -200)
+            try self.applyStep3Pan(pan, in: surface, state: .began, delta: CGPoint(x: 0, y: -15))
+            try self.applyStep3Pan(pan, in: surface, state: .ended, delta: .zero)
+            let reframed = camera.position(relativeTo: nil)
+            XCTAssertLessThan(reframed.y, zoomed.y)
+
+            draft.value.seedWhiteTshirt = nil
+            try await self.waitForStep3 { model.findEntity(named: shirtName) == nil }
+            XCTAssertTrue(model.findEntity(named: pantsName) === pants)
+            draft.value.seedWhiteTshirt = true
+            try await self.waitForStep3 { model.findEntity(named: shirtName) === shirt }
+
+            draft.value.seedLongPants = nil
+            try await self.waitForStep3 { model.findEntity(named: pantsName) == nil }
+            XCTAssertTrue(model.findEntity(named: shirtName) === shirt)
+            draft.value.seedLongPants = true
+            try await self.waitForStep3 { model.findEntity(named: pantsName) === pants }
+
+            XCTAssertTrue(surface.scene.findEntity(named: "SeedCucumber") === model)
+            XCTAssertTrue(model.findEntity(named: "LeftEye") === eye)
+            XCTAssertEqual(eye.transformMatrix(relativeTo: model).columns.3, faceTransform.columns.3)
+            XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), reframed), 0, accuracy: 0.001)
+            return surface
+        })
+        XCTAssertEqual(draft.value.seedAppearance, appearance)
+        XCTAssertEqual(draft.value.wardrobe, original.wardrobe)
+    }
+
+    func testStep3GarmentsShareBodyTransformAtEverySizeCorner() async throws {
+        let shirt = try await OiSeedCucumberModel.loadGarment(.whiteTshirt)
+        let pants = try await OiSeedCucumberModel.loadGarment(.longPants)
+        let costume = OiSeedCucumberGarment.costume(.cat)
+        let cat = try await OiSeedCucumberModel.loadGarment(costume)
+        for width in [OiSeedCucumberAppearance.widthRange.lowerBound, OiSeedCucumberAppearance.widthRange.upperBound] {
+            for height in [OiSeedCucumberAppearance.heightRange.lowerBound, OiSeedCucumberAppearance.heightRange.upperBound] {
+                var appearance = editedSeedCucumber3DAppearance()
+                appearance.bodyWidth = width
+                appearance.bodyHeight = height
+                appearance[.mouth] = .init(x: 80, y: 140, size: 2)
+                let model = try await OiSeedCucumberModel.make(appearance: appearance)
+                let body = try XCTUnwrap(model.findEntity(named: "Body"))
+                let mouth = try XCTUnwrap(model.findEntity(named: "Mouth"))
+                let bodyTransform = body.transformMatrix(relativeTo: model)
+                let mouthTransform = mouth.transformMatrix(relativeTo: model)
+                try OiSeedCucumberModel.setGarment(.whiteTshirt, asset: shirt, on: model)
+                try OiSeedCucumberModel.setGarment(.longPants, asset: pants, on: model)
+                let parent = try XCTUnwrap(shirt.parent)
+                XCTAssertTrue(pants.parent === parent)
+                XCTAssertEqual(parent.scale, SIMD3(Float(width), Float(height), Float(width)))
+                var ancestor = body.parent
+                while let current = ancestor, current !== parent { ancestor = current.parent }
+                XCTAssertTrue(ancestor === parent, "The garment must inherit the same affine transform as the skin")
+                XCTAssertEqual(body.transformMatrix(relativeTo: model).columns.3, bodyTransform.columns.3)
+                XCTAssertEqual(mouth.transformMatrix(relativeTo: model).columns.3, mouthTransform.columns.3)
+                try OiSeedCucumberModel.setGarment(.whiteTshirt, asset: nil, on: model)
+                try OiSeedCucumberModel.setGarment(.longPants, asset: nil, on: model)
+                XCTAssertNil(shirt.parent)
+                XCTAssertNil(pants.parent)
+
+                try OiSeedCucumberModel.setGarment(costume, asset: cat, on: model)
+                OiSeedCucumberModel.updateCoverage(for: [costume], on: model)
+                XCTAssertTrue(cat.parent === parent)
+                XCTAssertFalse(body.isEnabled)
+                XCTAssertTrue(mouth.isEnabled)
+                let adjustment = try XCTUnwrap(costume.hoodAttachments)
+                let dressedMouth = mouth.transformMatrix(relativeTo: model).columns.3
+                XCTAssertEqual(dressedMouth.x, mouthTransform.columns.3.x, accuracy: 0.001)
+                XCTAssertEqual(dressedMouth.y, mouthTransform.columns.3.y, accuracy: 0.001)
+                XCTAssertEqual(dressedMouth.z, mouthTransform.columns.3.z + adjustment.faceDepth * Float(width),
+                               accuracy: 0.001)
+                try OiSeedCucumberModel.setGarment(costume, asset: nil, on: model)
+                OiSeedCucumberModel.updateCoverage(for: [], on: model)
+                XCTAssertTrue(body.isEnabled)
+            }
+        }
+    }
+
+    func testStep3NewGarmentsReplaceOnlyTheirSlot() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let variant = try XCTUnwrap(variants.first { $0.name == "402x874" })
+        var original = OiDraftCustomization()
+        original.seedAppearance = editedSeedCucumber3DAppearance()
+        original.seedWhiteTshirt = true
+        original.seedLongPants = true
+        let draft = Step3DraftFixture(original)
+        let screen = CreationCapturePage(step: 3) {
+            OiCucumberCustomizationStep(customization: Binding(get: { draft.value }, set: { draft.value = $0 }))
+        }
+        .environment(\.scenePhase, .active)
+
+        try await capture(screen, name: "step3-new-wardrobe-outfit", variant: variant, defaults: fixture.defaults,
+                          delay: .zero, attach: true, prepareRealityCapture: { host in
+            let surface = try await self.step3Surface(in: host)
+            try await self.waitForStep3 { surface.accessibilityValue == "3D 미리보기" }
+            let model = try XCTUnwrap(surface.scene.findEntity(named: "SeedCucumber"))
+            let pants = try XCTUnwrap(model.findEntity(named: OiSeedCucumberGarment.longPants.rawValue))
+            let face = try XCTUnwrap(model.findEntity(named: "LeftEye"))
+            let camera = try self.step3Camera(in: surface)
+            let rotate = try XCTUnwrap(surface.accessibilityCustomActions?.first)
+            XCTAssertTrue(try XCTUnwrap(rotate.actionHandler)(rotate))
+            let viewpoint = camera.position(relativeTo: nil)
+
+            for top in [OiWardrobeLook.Top.hoodie, .cardigan, .postech] {
+                draft.value.selectedSeedTop = top
+                let garment = OiSeedCucumberGarment(top: top)
+                try await self.waitForStep3 { model.findEntity(named: garment.rawValue) != nil }
+                let activeTops = OiWardrobeLook.Top.allCases.filter {
+                    model.findEntity(named: OiSeedCucumberGarment(top: $0).rawValue) != nil
+                }
+                XCTAssertEqual(activeTops, [top])
+                XCTAssertTrue(model.findEntity(named: OiSeedCucumberGarment.longPants.rawValue) === pants)
+                XCTAssertTrue(model.findEntity(named: garment.rawValue)?.parent === pants.parent)
+            }
+
+            let jacket = try XCTUnwrap(model.findEntity(named: OiSeedCucumberGarment.postechJacket.rawValue))
+            draft.value.selectedSeedBottom = .shorts
+            try await self.waitForStep3 { model.findEntity(named: OiSeedCucumberGarment.shorts.rawValue) != nil }
+            XCTAssertNil(model.findEntity(named: OiSeedCucumberGarment.longPants.rawValue))
+            XCTAssertTrue(model.findEntity(named: OiSeedCucumberGarment.shorts.rawValue)?.parent === jacket.parent)
+            XCTAssertTrue(model.findEntity(named: OiSeedCucumberGarment.postechJacket.rawValue) === jacket)
+            XCTAssertTrue(model.findEntity(named: "LeftEye") === face)
+            XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), viewpoint), 0, accuracy: 0.001)
+            XCTAssertEqual(draft.value.seedAppearance, original.seedAppearance)
+            return surface
+        })
+    }
+
+    func testStep3DraftColorsUpdateOnlyGarmentMaterials() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let tab = ProcessInfo.processInfo.environment["OI_CAPTURE_TAB"] ?? "상의"
+        let colors: [String: UInt32] = ["상의": 0xEDCBD1, "하의": 0xC5DBEC, "신발": 0xC7D8C1]
+        var original = OiDraftCustomization()
+        original.selectedSeedTop = .hoodie
+        original.selectedSeedBottom = .long
+        original.toggleSeedSneakers()
+        let draft = Step3DraftFixture(original)
+        original.garmentColors = colors
+        let saved = try JSONEncoder().encode(original)
+        let restored = try JSONDecoder().decode(OiDraftCustomization.self, from: saved)
+        XCTAssertEqual(restored.garmentColors, colors)
+        var whiteOutfit = restored
+        whiteOutfit.garmentColors = ["상의": 0xFFFFFF, "하의": 0xFFFFFF, "신발": 0xFFFFFF]
+        let restoredWhite = try JSONDecoder().decode(OiDraftCustomization.self, from: JSONEncoder().encode(whiteOutfit))
+        XCTAssertEqual(restoredWhite.garmentColors, whiteOutfit.garmentColors)
+
+        let screen = CreationCapturePage(step: 3) {
+            OiCucumberCustomizationStep(customization: Binding(get: { draft.value }, set: { draft.value = $0 }),
+                                        initialTabTitle: tab)
+        }
+        .environment(\.scenePhase, .active)
+
+        try await capture(screen, name: "step3-wardrobe-colors-\(tab)", variant: variants[0],
+                          defaults: fixture.defaults, delay: .zero, attach: true, prepareRealityCapture: { host in
+            let surface = try await self.step3Surface(in: host)
+            try await self.waitForStep3 { surface.accessibilityValue == "3D 미리보기" }
+            let model = try XCTUnwrap(surface.scene.findEntity(named: "SeedCucumber"))
+            let hoodie = try XCTUnwrap(model.findEntity(named: OiSeedCucumberGarment.hoodie.rawValue))
+            let pants = try XCTUnwrap(model.findEntity(named: OiSeedCucumberGarment.longPants.rawValue))
+            let shoes = try XCTUnwrap(model.findEntity(named: OiSeedCucumberGarment.sneakers.rawValue))
+            let topMesh = try XCTUnwrap(hoodie.findEntity(named: "Hoodie"))
+            let bottomMesh = try XCTUnwrap(pants.findEntity(named: "LongPants"))
+            let shoeMesh = try XCTUnwrap(shoes.findEntity(named: "Shoes"))
+            let torsoSkin = try XCTUnwrap(hoodie.findEntity(named: "VisibleBodyUpper"))
+            let legSkin = try XCTUnwrap(shoes.findEntity(named: "ShinLeftLeg"))
+            let camera = try self.step3Camera(in: surface)
+            let rotate = try XCTUnwrap(surface.accessibilityCustomActions?.first)
+            XCTAssertTrue(try XCTUnwrap(rotate.actionHandler)(rotate))
+            let viewpoint = camera.position(relativeTo: nil)
+
+            @MainActor func material(_ node: Entity) -> PhysicallyBasedMaterial? {
+                node.components[ModelComponent.self]?.materials.first as? PhysicallyBasedMaterial
+            }
+            @MainActor func rgb(_ node: Entity) -> UInt32? {
+                guard let material = material(node) else { return nil }
+                var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+                guard material.baseColor.tint.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else { return nil }
+                func channel(_ value: CGFloat) -> UInt32 { UInt32((min(1, max(0, value)) * 255).rounded()) }
+                return channel(red) << 16 | channel(green) << 8 | channel(blue)
+            }
+            let defaultTop = try XCTUnwrap(rgb(topMesh))
+            let defaultBottom = try XCTUnwrap(rgb(bottomMesh))
+            let defaultShoes = try XCTUnwrap(rgb(shoeMesh))
+            let defaultTorsoSkin = try XCTUnwrap(rgb(torsoSkin))
+            let defaultLegSkin = try XCTUnwrap(rgb(legSkin))
+
+            @MainActor func matchesRestoredColors() -> Bool {
+                rgb(topMesh) == colors["상의"] && rgb(bottomMesh) == colors["하의"] && rgb(shoeMesh) == colors["신발"]
+            }
+
+            draft.value = restored
+            try await self.waitForStep3 { matchesRestoredColors() }
+            XCTAssertTrue(model.findEntity(named: OiSeedCucumberGarment.hoodie.rawValue) === hoodie)
+            XCTAssertTrue(model.findEntity(named: OiSeedCucumberGarment.longPants.rawValue) === pants)
+            XCTAssertTrue(model.findEntity(named: OiSeedCucumberGarment.sneakers.rawValue) === shoes)
+            XCTAssertEqual(rgb(torsoSkin), defaultTorsoSkin)
+            XCTAssertEqual(rgb(legSkin), defaultLegSkin)
+
+            draft.value.garmentColors = [:]
+            try await self.waitForStep3 {
+                rgb(topMesh) == defaultTop && rgb(bottomMesh) == defaultBottom && rgb(shoeMesh) == defaultShoes
+            }
+            draft.value = restored
+            try await self.waitForStep3 { matchesRestoredColors() }
+
+            draft.value.selectSeedSet(.postech)
+            try await self.waitForStep3 {
+                model.findEntity(named: OiSeedCucumberGarment.postechJacket.rawValue) != nil
+                    && rgb(bottomMesh) == defaultBottom && rgb(shoeMesh) == defaultShoes
+            }
+            XCTAssertEqual(draft.value.garmentColors, colors)
+            draft.value.selectSeedSet(.postech)
+            try await self.waitForStep3 {
+                model.findEntity(named: OiSeedCucumberGarment.hoodie.rawValue) === hoodie && matchesRestoredColors()
+            }
+            draft.value = restoredWhite
+            try await self.waitForStep3 {
+                [topMesh, bottomMesh, shoeMesh].allSatisfy { node in
+                    rgb(node) == 0xFFFFFF && material(node)?.baseColor.texture == nil
+                }
+            }
+            XCTAssertEqual(rgb(torsoSkin), defaultTorsoSkin)
+            XCTAssertEqual(rgb(legSkin), defaultLegSkin)
+            XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), viewpoint), 0, accuracy: 0.001)
+            return surface
+        })
+    }
+
+    func testStep3CatalogGarmentsLoadFromAppBundle() async throws {
+        @MainActor func verifyGarment(_ garment: OiSeedCucumberGarment) async throws {
+            let asset = try await OiSeedCucumberModel.loadGarment(garment)
+            XCTAssertEqual(asset.name, garment.rawValue)
+            XCTAssertTrue(hasModel(in: asset), "\(garment.title) must contain a renderable mesh")
+            if garment.coveredSeedParts.contains("Body") {
+                let bodyParts = garment.slot == .top ? ["VisibleBodyUpper", "VisibleBodyLower"] : ["VisibleBody"]
+                for part in bodyParts {
+                    let visible = try XCTUnwrap(asset.findEntity(named: part))
+                    XCTAssertTrue(hasModel(in: visible))
+                    if garment.rendersHoodInterior && part != "VisibleBodyLower" {
+                        let model = try XCTUnwrap(visible.components[ModelComponent.self])
+                        XCTAssertFalse(model.materials.isEmpty)
+                        for material in model.materials {
+                            let surface = try XCTUnwrap(material as? PhysicallyBasedMaterial)
+                            guard case .opaque = surface.blending else {
+                                return XCTFail("Hood skin must be opaque")
+                            }
+                            guard case .none = surface.faceCulling else {
+                                return XCTFail("Both faces of the head must be visible")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        @MainActor func hasModel(in entity: Entity) -> Bool {
+            entity.components[ModelComponent.self] != nil || entity.children.contains(where: hasModel)
+        }
+
+        for garment in OiSeedCucumberGarment.allCases where garment.slot != .costume {
+            try await verifyGarment(garment)
+        }
+        for costume in OiSeedCucumberSet.availableCostumes {
+            let proposals = OiSeedCostumeProposal.options(for: costume)
+            if proposals.isEmpty {
+                try await verifyGarment(.costume(costume))
+            }
+            for proposal in proposals {
+                let garment = OiSeedCucumberGarment.costumeProposal(costume, proposal)
+                let thumbnail = try XCTUnwrap(Bundle.main.url(forResource: garment.rawValue, withExtension: "png"))
+                let data = try Data(contentsOf: thumbnail)
+                let image = try XCTUnwrap(UIImage(data: data)?.cgImage)
+                let bitmap = try renderedBitmap(data, size: CGSize(width: image.width, height: image.height))
+                let count = bitmap.width * bitmap.height
+                let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: count * 4)
+                let corners = [0, bitmap.width - 1, count - bitmap.width, count - 1]
+                for corner in corners {
+                    XCTAssertEqual(pixels[corner * 4 + 3], 0, "\(garment.title) must not have an opaque image backdrop")
+                }
+                let foreground = (0..<count).filter { pixels[$0 * 4 + 3] == 255 }.count
+                XCTAssertGreaterThan(foreground, count / 20, "\(garment.title) must retain the illustration")
+                try await verifyGarment(garment)
+            }
+        }
+    }
+
+    func testStep3CostumeProposalsRestoreAndKeepAcceptedChoices() throws {
+        XCTAssertEqual(OiSeedCostumeProposal.options(for: .raincoat), [.one])
+        XCTAssertEqual(OiSeedCostumeProposal.options(for: .postechSelfie), [.one])
+        for costume in [OiWardrobeLook.Costume.astronaut, .astronautNavy, .catBear] {
+            XCTAssertEqual(OiSeedCostumeProposal.options(for: costume), [.one])
+        }
+        XCTAssertFalse(OiSeedCucumberSet.availableCostumes.contains(.scientist))
+
+        let previousDraft = OiDraftCustomization(seedSet: "raincoat")
+        let previousData = try JSONEncoder().encode(previousDraft)
+        var draft = try JSONDecoder().decode(OiDraftCustomization.self, from: previousData)
+        XCTAssertEqual(draft.selectedSeedProposal, .one)
+        draft.seedProposal = 5
+        let saved = try JSONEncoder().encode(draft)
+        draft = try JSONDecoder().decode(OiDraftCustomization.self, from: saved)
+        XCTAssertEqual(draft.selectedSeedSet, .costume(.raincoat))
+        XCTAssertEqual(draft.selectedSeedProposal, .one)
+        draft.selectSeedProposal(.one, for: .postechSelfie)
+        XCTAssertEqual(draft.selectedSeedSet, .costume(.postechSelfie))
+        XCTAssertEqual(draft.selectedSeedProposal, .one)
+        draft.selectSeedProposal(.one, for: .postechSelfie)
+        XCTAssertNil(draft.selectedSeedSet)
+        XCTAssertNil(draft.selectedSeedProposal)
+
+        draft.seedSet = "astronaut"
+        draft.seedProposal = 3
+        XCTAssertEqual(draft.selectedSeedProposal, .one)
+        draft.seedSet = "scientist"
+        XCTAssertNil(draft.selectedSeedSet)
+        XCTAssertNil(draft.selectedSeedProposal)
+    }
+
+    func testStep3SnapshotRestoresSelectedFaceAndGarmentInPublishedModel() async throws {
+        var draft = OiDraftCustomization()
+        draft.seedAppearance = editedSeedCucumber3DAppearance()
+        draft.selectSeedProposal(.one, for: .raincoat)
+        let snapshot = try XCTUnwrap(draft.seedSnapshot)
+        let bytes = try JSONEncoder().encode(snapshot)
+        let published = try JSONDecoder().decode(OiSeedCucumberSnapshot.self, from: bytes)
+        XCTAssertEqual(published.appearance, draft.seedAppearance)
+        XCTAssertEqual(published.garments, ["seed-costume-raincoat-proposal-1"])
+        XCTAssertEqual(published.portraitKey, snapshot.portraitKey)
+        let model = try await OiSeedCucumberModel.make(snapshot: published)
+        XCTAssertNotNil(model.findEntity(named: "seed-costume-raincoat-proposal-1"))
+        XCTAssertNotNil(model.findEntity(named: "FaceBacking"))
+    }
+
+    func testStep3SetsReplaceOutfitsAndRestoreModularItems() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let variant = try XCTUnwrap(variants.first { $0.name == "402x874" })
+        var original = OiDraftCustomization()
+        original.seedAppearance = editedSeedCucumber3DAppearance()
+        original.selectedSeedTop = .hoodie
+        original.selectedSeedBottom = .shorts
+        original.toggleSeedSneakers()
+        let draft = Step3DraftFixture(original)
+        let screen = CreationCapturePage(step: 3) {
+            OiCucumberCustomizationStep(customization: Binding(get: { draft.value }, set: { draft.value = $0 }))
+        }
+        .environment(\.scenePhase, .active)
+
+        try await capture(screen, name: "step3-wardrobe-set", variant: variant, defaults: fixture.defaults,
+                          delay: .zero, attach: true, prepareRealityCapture: { host in
+            let surface = try await self.step3Surface(in: host)
+            try await self.waitForStep3 { surface.accessibilityValue == "3D 미리보기" }
+            let model = try XCTUnwrap(surface.scene.findEntity(named: "SeedCucumber"))
+            let eye = try XCTUnwrap(model.findEntity(named: "LeftEye"))
+            let faceAttachment = try XCTUnwrap(eye.parent)
+            let eyeTransform = eye.transformMatrix(relativeTo: faceAttachment)
+            let master = try XCTUnwrap(model.findEntity(named: "SeedCucumberMaster"))
+            let skin = try XCTUnwrap(master.findEntity(named: "Body"))
+            let leftArm = try XCTUnwrap(master.findEntity(named: "LeftArm"))
+            let leftLeg = try XCTUnwrap(master.findEntity(named: "LeftLeg"))
+            let camera = try self.step3Camera(in: surface)
+            let rotate = try XCTUnwrap(surface.accessibilityCustomActions?.first)
+            XCTAssertTrue(try XCTUnwrap(rotate.actionHandler)(rotate))
+            let viewpoint = camera.position(relativeTo: nil)
+            let customOutfit: Set<OiSeedCucumberGarment> = [.hoodie, .shorts, .sneakers]
+            let postechOutfit: Set<OiSeedCucumberGarment> = [.postechJacket, .longPants, .sneakers]
+            let proposalGarments = OiSeedCucumberSet.availableCostumes.flatMap { costume in
+                OiSeedCostumeProposal.options(for: costume).map { OiSeedCucumberGarment.costumeProposal(costume, $0) }
+            }
+            let availableGarments = OiSeedCucumberGarment.allCases + proposalGarments
+
+            @MainActor func mounted() -> Set<OiSeedCucumberGarment> {
+                Set(availableGarments.filter { model.findEntity(named: $0.rawValue) != nil })
+            }
+            @MainActor func waitForReplacement(from previous: Set<OiSeedCucumberGarment>,
+                                               to next: Set<OiSeedCucumberGarment>) async throws {
+                try await self.waitForStep3 {
+                    let current = mounted()
+                    XCTAssertTrue(current == previous || current == next, "A set change must replace all affected slots together")
+                    return current == next
+                }
+                XCTAssertEqual(mounted(), next)
+                XCTAssertTrue(surface.scene.findEntity(named: "SeedCucumber") === model)
+                XCTAssertTrue(model.findEntity(named: "LeftEye") === eye)
+                XCTAssertEqual(eye.transformMatrix(relativeTo: faceAttachment).columns.3, eyeTransform.columns.3)
+                let attachment = next.compactMap(\.hoodAttachments).first
+                XCTAssertEqual(faceAttachment.position.z, attachment?.faceDepth ?? 0, accuracy: 0.001)
+                XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), viewpoint), 0, accuracy: 0.001)
+            }
+
+            XCTAssertEqual(mounted(), customOutfit)
+            XCTAssertFalse(skin.isEnabled)
+            XCTAssertFalse(leftArm.isEnabled)
+            XCTAssertFalse(leftLeg.isEnabled)
+            let raincoat: Set<OiSeedCucumberGarment> = [.costumeProposal(.raincoat, .one)]
+            let selfie: Set<OiSeedCucumberGarment> = [.costumeProposal(.postechSelfie, .one)]
+            let astronaut: Set<OiSeedCucumberGarment> = [.costumeProposal(.astronaut, .one)]
+            draft.value.selectSeedSet(.costume(.raincoat))
+            try await waitForReplacement(from: customOutfit, to: raincoat)
+            XCTAssertNotNil(model.findEntity(named: "FaceBacking"))
+            draft.value.selectSeedProposal(.one, for: .postechSelfie)
+            try await waitForReplacement(from: raincoat, to: selfie)
+            XCTAssertNotNil(model.findEntity(named: "SelfiePhoneBack"))
+            XCTAssertNotNil(model.findEntity(named: "SelfiePhoneScreen"))
+            draft.value.selectSeedSet(.costume(.astronaut))
+            try await waitForReplacement(from: selfie, to: astronaut)
+            draft.value.selectSeedSet(.costume(.astronaut))
+            try await waitForReplacement(from: astronaut, to: customOutfit)
+            XCTAssertEqual(draft.value, original)
+
+            let dinosaur: Set<OiSeedCucumberGarment> = [.costume(.dinosaur)]
+            draft.value.selectSeedSet(.costume(.dinosaur))
+            try await waitForReplacement(from: customOutfit, to: dinosaur)
+
+            let baseball: Set<OiSeedCucumberGarment> = [.costume(.baseball)]
+            draft.value.selectSeedSet(.costume(.baseball))
+            try await waitForReplacement(from: dinosaur, to: baseball)
+
+            draft.value.selectSeedSet(.postech)
+            try await waitForReplacement(from: baseball, to: postechOutfit)
+            draft.value.selectSeedSet(.postech)
+            try await waitForReplacement(from: postechOutfit, to: customOutfit)
+
+            draft.value.selectSeedSet(.costume(.dinosaur))
+            try await waitForReplacement(from: customOutfit, to: dinosaur)
+            draft.value.toggleSeedSneakers()
+            try await waitForReplacement(from: dinosaur, to: customOutfit)
+            XCTAssertEqual(draft.value, original)
+
+            let cat: Set<OiSeedCucumberGarment> = [.costume(.cat)]
+            draft.value.selectSeedSet(.costume(.cat))
+            try await waitForReplacement(from: customOutfit, to: cat)
+            XCTAssertFalse(skin.isEnabled)
+            XCTAssertFalse(leftArm.isEnabled)
+            XCTAssertFalse(leftLeg.isEnabled)
+            XCTAssertTrue(eye.isEnabled)
+            XCTAssertNotNil(model.findEntity(named: OiSeedCucumberGarment.costume(.cat).rawValue)?
+                .findEntity(named: "VisibleBody"))
+            draft.value.selectSeedSet(.costume(.cat))
+            try await waitForReplacement(from: cat, to: customOutfit)
+            XCTAssertFalse(skin.isEnabled)
+            XCTAssertFalse(leftArm.isEnabled)
+            XCTAssertFalse(leftLeg.isEnabled)
+            draft.value.toggleSeedSneakers()
+            let withoutShoes: Set<OiSeedCucumberGarment> = [.hoodie, .shorts]
+            try await waitForReplacement(from: customOutfit, to: withoutShoes)
+            XCTAssertTrue(leftLeg.isEnabled)
+            draft.value.selectSeedTop(.hoodie)
+            let withoutTop: Set<OiSeedCucumberGarment> = [.shorts]
+            try await waitForReplacement(from: withoutShoes, to: withoutTop)
+            XCTAssertTrue(skin.isEnabled)
+            XCTAssertTrue(leftArm.isEnabled)
+            draft.value.selectSeedSet(.costume(.cat))
+            try await waitForReplacement(from: withoutTop, to: cat)
+            return surface
+        })
+    }
+
+    private func step3Camera(in surface: RealityKit.ARView) throws -> PerspectiveCamera {
+        let cameras = surface.scene.anchors.flatMap { anchor in
+            anchor.children.compactMap { $0 as? PerspectiveCamera }
+        }
+        return try XCTUnwrap(cameras.first)
+    }
+
+    private func step3Pinch(in surface: RealityKit.ARView) throws -> UIPinchGestureRecognizer {
+        try XCTUnwrap(surface.gestureRecognizers?.compactMap { $0 as? UIPinchGestureRecognizer }.first)
+    }
+
+    private func applyStep3Pinch(_ pinch: UIPinchGestureRecognizer, state: UIGestureRecognizer.State,
+                                 scale: CGFloat) throws {
+        let target = try XCTUnwrap(pinch.delegate)
+        // Send the recognizer callback without changing UIKit's active touch state.
+        let gesture = Step3TestPinch()
+        gesture.state = state
+        gesture.scale = scale
+        XCTAssertTrue(UIApplication.shared.sendAction(NSSelectorFromString("didPinch:"), to: target, from: gesture, for: nil))
+    }
+
+    private final class Step3TestPinch: UIPinchGestureRecognizer {
+        private var simulatedState: State = .possible
+
+        override var state: State {
+            get { simulatedState }
+            set { simulatedState = newValue }
+        }
+    }
+
+    private final class Step3TestPan: UIPanGestureRecognizer {
+        private var simulatedState: State = .possible
+        var dragVelocity = CGPoint.zero
+        var delta = CGPoint.zero
+
+        override var state: State {
+            get { simulatedState }
+            set { simulatedState = newValue }
+        }
+
+        override func velocity(in view: UIView?) -> CGPoint { dragVelocity }
+        override func translation(in view: UIView?) -> CGPoint { delta }
+        override func setTranslation(_ translation: CGPoint, in view: UIView?) { delta = translation }
+    }
+
+    private func applyStep3Pan(_ pan: Step3TestPan, in surface: RealityKit.ARView,
+                               state: UIGestureRecognizer.State, delta: CGPoint) throws {
+        let installedPan = surface.gestureRecognizers?.compactMap { $0 as? UIPanGestureRecognizer }.first
+        let target = try XCTUnwrap(installedPan?.delegate)
+        pan.state = state
+        pan.delta = delta
+        XCTAssertTrue(UIApplication.shared.sendAction(NSSelectorFromString("didPan:"), to: target, from: pan, for: nil))
+    }
+
+    private func step3Surface(in host: UIView) async throws -> RealityKit.ARView {
+        let identifier = "oi.step3.cucumber.surface"
+        try await waitForStep3 { self.cucumberSurface(in: host, identifier: identifier) != nil }
+        return try XCTUnwrap(cucumberSurface(in: host, identifier: identifier))
+    }
+
+    private func waitForStep3(_ condition: () -> Bool) async throws {
+        for _ in 0..<50 {
+            if condition() { return }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTFail("The STEP 3 preview did not finish preparing")
     }
 
     func testSeedCucumber3DPreviewCapturesRealModel() async throws {
@@ -2328,32 +3111,47 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let small = try XCTUnwrap(variants.first { $0.name == "375x667" })
         let large = try XCTUnwrap(variants.first { $0.name == "440x956" })
         let accessibility = Variant(name: "375x667-accessibility5", size: small.size, dynamicTypeSize: .accessibility5)
-        let inbox = CampusNotificationInboxView(requests: rows, isLoading: false, loadError: nil,
-            onReload: {}, onOpenRequest: { _ in })
+        let inbox = CampusNotificationInboxView(requests: rows, isLoading: false,
+            onOpenRequest: { _ in })
             .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
         for variant in [reference, small, large, accessibility] {
             try await capture(inbox, name: "campus-notifications-inbox", variant: variant,
                 defaults: fixture.defaults, includesSafeArea: false, attach: true)
         }
 
-        let empty = CampusNotificationInboxView(requests: [], isLoading: false, loadError: nil,
-            onReload: {}, onOpenRequest: { _ in })
+        let empty = CampusNotificationInboxView(requests: [], isLoading: false,
+            onOpenRequest: { _ in })
             .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
-        let failed = CampusNotificationInboxView(requests: [], isLoading: false,
-            loadError: "연결 상태를 확인한 뒤 다시 시도해 주세요.", onReload: {}, onOpenRequest: { _ in })
+        let failed = CampusNotificationInboxView(requests: rows, isLoading: false,
+            loadFailed: true, onRetry: {}, onOpenRequest: { _ in })
+            .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
         let emptyImage = try await capture(empty, name: "campus-notifications-empty", variant: reference,
             defaults: fixture.defaults, includesSafeArea: false, attach: true)
         let failedImage = try await capture(failed, name: "campus-notifications-error", variant: reference,
             defaults: fixture.defaults, includesSafeArea: false, attach: true)
+        let failedWithoutRows = CampusNotificationInboxView(requests: [], isLoading: false,
+            loadFailed: true, onRetry: {}, onOpenRequest: { _ in })
+            .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
+        let failedWithoutRowsImage = try await capture(failedWithoutRows, name: "campus-notifications-error-empty",
+            variant: reference, defaults: fixture.defaults, includesSafeArea: false, attach: true)
+        XCTAssertGreaterThan(try myV4ChangedPixels(failedImage, failedWithoutRowsImage, size: reference.size,
+            rect: CGRect(x: 20, y: 150, width: 362, height: 350)), 1000,
+            "A partial failure must keep the successfully loaded card rows visible under the retry banner")
+        XCTAssertNotEqual(emptyImage, failedWithoutRowsImage, "An error must never be mistaken for zero notifications")
+        let partial = CampusNotificationInboxView(requests: rows, isLoading: true, isInitialLoading: true,
+            unconfirmedRequestID: UUID(), onOpenRequest: { _ in })
+            .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
+        _ = try await capture(partial, name: "campus-notifications-initial-partial", variant: reference,
+            defaults: fixture.defaults, includesSafeArea: false, validateRender: assertSpinnerOnlyRender)
         XCTAssertNotEqual(failedImage, emptyImage, "A failed load must render differently from an empty inbox")
     }
 
     func testCampusNotificationsExpireAtThirtyDays() {
         let time = Date(timeIntervalSince1970: 1_800_000_000)
         let cutoff = time.addingTimeInterval(-30 * 24 * 60 * 60)
-        XCTAssertTrue(CampusNotificationSheet.isRecent(cutoff.addingTimeInterval(1), now: time))
-        XCTAssertFalse(CampusNotificationSheet.isRecent(cutoff, now: time))
-        XCTAssertFalse(CampusNotificationSheet.isRecent(cutoff.addingTimeInterval(-1), now: time))
+        XCTAssertTrue(CampusNotificationOverlay.isRecent(cutoff.addingTimeInterval(1), now: time))
+        XCTAssertFalse(CampusNotificationOverlay.isRecent(cutoff, now: time))
+        XCTAssertFalse(CampusNotificationOverlay.isRecent(cutoff.addingTimeInterval(-1), now: time))
     }
 
     func testCardRequestInboxCaptures() async throws {
@@ -2372,7 +3170,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 try await capture(inbox, name: state.name, variant: variant, defaults: fixture.defaults, attach: true)
             }
         }
-        // Content-only capture; the system-sheet test below verifies its native backdrop.
+        // Content-only capture; the overlay test below verifies the actual backdrop.
         let sheetVariant = Variant(name: "402x803-sheet", size: CGSize(width: 402, height: 803), dynamicTypeSize: .large)
         let emptySheet = OiCardRequestInboxView(requests: [], isLoading: false, loadError: nil,
             pendingRequestID: nil, actionError: nil, onReload: {}, onDecision: { _, _ in })
@@ -2397,9 +3195,40 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             let view = NavigationStack { home.environment(\.scenePhase, .active) }
             try await capture(view, name: "campus-notifications-signed-out-map",
                 variant: variant, defaults: fixture.defaults, attach: true, waitsForStillMap: true)
-            try await capture(view.sheet(isPresented: .constant(true)) { CampusNotificationSheet(remote: remote) },
+            let scene = CampusExploreScene(stillFrameDelay: .seconds(2))
+            let map = ZStack { CampusMapSurface(scene: scene).ignoresSafeArea() }
+                .task { scene.setVisible(true); await scene.load() }
+                .overlay { CampusNotificationOverlay(remote: remote, dismiss: {}) }
+            try await capture(map,
                 name: "campus-notifications-on-map", variant: variant, defaults: fixture.defaults,
-                delay: .seconds(1), attach: true, checksBottomSheet: true, waitsForStillMap: true, sheetDetent: .large)
+                delay: .seconds(1), attach: true, waitsForStillMap: true)
+        }
+    }
+
+    func testCampusNotificationSheetShowsItsBackdrop() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let reference = try XCTUnwrap(variants.first)
+        let remote = OiRemoteStore(vault: OiMemorySession())
+        let backdrop = HStack(spacing: 0) {
+            Color.red
+            Color.blue
+        }
+            .ignoresSafeArea()
+            .overlay { CampusNotificationOverlay(remote: remote, dismiss: {}) }
+        let png = try await capture(backdrop, name: "campus-notifications-translucency",
+            variant: reference, defaults: fixture.defaults, delay: .seconds(1), attach: true)
+        let bitmap = try renderedBitmap(png, size: reference.size)
+        let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: bitmap.width * bitmap.height * 4)
+        for y in [bitmap.height * 2 / 3, bitmap.height - 3] {
+            let left = (y * bitmap.width + 3) * 4
+            let interior = (y * bitmap.width + bitmap.width / 4) * 4
+            let right = (y * bitmap.width + bitmap.width - 4) * 4
+            XCTAssertGreaterThan(Int(pixels[left]) - Int(pixels[right]), 12)
+            XCTAssertGreaterThan(Int(pixels[right + 2]) - Int(pixels[left + 2]), 12)
+            XCTAssertLessThanOrEqual(abs(Int(pixels[left + 1]) - Int(pixels[interior + 1])), 3,
+                "The panel tint must extend to the bottom-side edge")
+            XCTAssertGreaterThan(Int(pixels[interior + 1]), 80, "The underlying color should show through a visible tint")
         }
     }
 
@@ -2494,6 +3323,68 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 try await capture(gallery, name: "farmer-\(character)-\(slot.rawValue)", variant: variant,
                     defaults: fixture.defaults, includesSafeArea: false, attach: true)
             }
+        }
+    }
+
+
+    /// #411: opening the summary of a public story records it for the story form's recent list.
+    func testSummaryRecordsTheStoryForTheSignedInAccount() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let previousHandler = OiStoreURLProtocol.handle
+        let backend = OiTestBackend()
+        backend.install()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Recent411-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            withExtendedLifetime(backend) {}
+            session.invalidateAndCancel()
+            OiStoreURLProtocol.handle = previousHandler
+            try? FileManager.default.removeItem(at: directory)
+            UserDefaults.standard.removeObject(forKey: "oi.recentStories.v1.\(OiTestBackend.owner.uuidString.lowercased())")
+        }
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let remote = OiRemoteStore(api: api, drafts: OiDraftVault(directory: directory), vault: OiMemorySession())
+        await remote.start()
+        XCTAssertEqual(remote.account?.id, OiTestBackend.owner)
+        var story = CampusStory(id: UUID().uuidString, regionID: "pond", title: "다른작성자오이", image: "OiCats", tags: ["우정"],
+            donor: "농부", location: "연못", date: "2026년 11월 16일", order: 0, popularity: 0, palette: 0)
+        story.authorID = OiTestBackend.other
+        let store = CampusStoryStore(defaults: fixture.defaults)
+        store.synchronize(stories: [story], collected: [])
+        let view = NavigationStack { CampusSummaryView(story: story, store: store) }
+            .environment(remote).environment(store)
+        try await capture(view, name: "summary-records-recent", variant: variants[0], defaults: fixture.defaults, delay: .seconds(1))
+        let recorded = OiRecentStories.ids(owner: OiTestBackend.owner)
+        XCTAssertEqual(recorded.first, story.id, "Opening the summary must add the story to the recent list")
+        XCTAssertEqual(OiRecentStories.pickerStories(owner: OiTestBackend.owner) { store.story($0) }.map(\.id), [story.id])
+    }
+
+    /// #411: the 이어질 기부 대상 picker (Figma `6183:2707`) and the story form section.
+    func testConnectedDonationPickerAndSectionCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let stories = [("기계이일구오이", "이일구 모임의 폭짜했던 추억", "19학번 기계공학과 신수리"),
+                       ("HINT펩오이", "반도체 HINT 연구실의 추억", "24학번 반도체공학과 서수리"),
+                       ("칠팔꽈당오이", "78계단에서 잊지 못할 추억", "22학번 디벨로퍼학과 정수리"),
+                       ("브래맨오이", "포스텍 밴드부 브래맨의 추억", "25학번 컴퓨터공학과 마수리"),
+                       ("피에스아이오이", "PSI 항공우주 연구회의 설립을 기념", "23학번 항공우주학과 박수리")].enumerated().map { index, item -> CampusStory in
+            var story = CampusStory(id: "s\(index)", regionID: "pond", title: item.0, image: "OiCats", tags: ["고마움", "우정"],
+                donor: item.2, location: "", date: "", order: index, popularity: 0, palette: 0)
+            story.storyTitle = item.1
+            return story
+        }
+        try await capture(OiConnectedDonationPicker(stories: stories, onCancel: {}, onDone: { _ in }),
+            name: "connected-picker", variant: variants[0], defaults: fixture.defaults, delay: .seconds(1), attach: true)
+        try await capture(OiConnectedDonationPicker(stories: [], onCancel: {}, onDone: { _ in }),
+            name: "connected-picker-empty", variant: variants[0], defaults: fixture.defaults, delay: .milliseconds(500), attach: true)
+        for (name, story) in [("connected-section-empty", CampusStory?.none), ("connected-section-selected", stories[0])] {
+            let section = OiStoryAttachmentSections(photoCount: 0, latitude: 36.0139, longitude: 129.3232, onPhotos: {}, onLocation: {},
+                connectedStory: story, onSelectDonor: {}, onClearDonor: story == nil ? nil : {})
+                .padding(20).offset(y: -520).frame(maxHeight: .infinity, alignment: .top).clipped()
+            try await capture(section, name: name, variant: variants[0], defaults: fixture.defaults, delay: .seconds(2), attach: true)
         }
     }
 
@@ -2617,6 +3508,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             $0.admissionYear = "2019"
             $0.schoolID = "postech"
             $0.schoolProfileEnabled = true
+            $0.storyContinuations = true
         }
         let schoolData = try JSONSerialization.data(withJSONObject: [["id": "postech", "name": "포항공과대학교"]])
         func installMYBackend() {
@@ -2625,6 +3517,10 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             OiStoreURLProtocol.handle = { request, client in
                 if request.url?.path.hasSuffix("/oi_schools") == true {
                     client.respond(200, schoolData)
+                } else if request.url?.lastPathComponent == "oi_story_continuations" {
+                    client.respond(200, Data(#"{"items":[],"total":0,"next_cursor":null}"#.utf8))
+                } else if request.url?.lastPathComponent == "oi_my_story_continuation_targets" {
+                    client.respond(200, Data("[]".utf8))
                 } else {
                     handler?(request, client)
                 }
@@ -2662,6 +3558,23 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertTrue(remote.ownStories.isEmpty)
         let empty = try await capture(NavigationStack { MYWorkshopView(demo: library, remote: remote) },
             name: "my-v4-empty", variant: reference, defaults: fixture.defaults, attach: true)
+
+        let connectedEmpty = try await capture(NavigationStack {
+            MYWorkshopView(demo: library, remote: remote, initialTab: .connected)
+        }, name: "my-v4-connected-empty", variant: reference, defaults: fixture.defaults, attach: true)
+        XCTAssertEqual(remote.incomingContinuationCount, 0)
+        let collectedEmpty = try await capture(NavigationStack {
+            MYWorkshopView(demo: library, remote: remote, initialTab: .collected)
+        }, name: "my-v4-collected-empty", variant: reference, defaults: fixture.defaults, attach: true)
+        XCTAssertNotEqual(empty, connectedEmpty)
+        XCTAssertNotEqual(connectedEmpty, collectedEmpty)
+        for variant in variants where variant.name == "375x667" || variant.name == "440x956" {
+            for tab in MYWorkshopTab.allCases {
+                try await capture(NavigationStack {
+                    MYWorkshopView(demo: library, remote: remote, initialTab: tab)
+                }, name: "my-v4-\(tab)-empty", variant: variant, defaults: fixture.defaults, attach: true)
+            }
+        }
 
         // The grid uses virtual service records, never the design's example donation counts.
         var records: [[String: Any]] = []
@@ -3007,6 +3920,89 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testCucumberStoryHeaderRaisesSelectedTabAtOverlap() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let store = CampusStoryStore(defaults: fixture.defaults, isExample: true)
+        let story = try XCTUnwrap(CampusStoryExamples.stories.first)
+        let reference = try XCTUnwrap(variants.first)
+        typealias Tab = CampusCucumberStoryView.Tab
+        let expectations: [(tab: Tab, leading: Tab, trailing: Tab)] = [
+            (.related, .related, .location),
+            (.location, .location, .location),
+            (.donor, .related, .donor)
+        ]
+
+        for expectation in expectations {
+            let detail = NavigationStack {
+                CampusCucumberStoryView(story: story, store: store, initialTab: expectation.tab)
+            }
+            let png = try await capture(detail, name: "story-header-\(expectation.tab.rawValue)", variant: reference,
+                defaults: fixture.defaults, attach: true)
+            let bitmap = try renderedBitmap(png, size: reference.size)
+            let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: bitmap.bytesPerRow * bitmap.height)
+            func color(x: Int, y: Int) -> UInt32 {
+                let start = y * bitmap.bytesPerRow + x * 4
+                return UInt32(pixels[start]) << 16 | UInt32(pixels[start + 1]) << 8 | UInt32(pixels[start + 2])
+            }
+            // Find a solid row near the bottom of the tab, inside the two curved overlaps.
+            let middle = bitmap.height / 2
+            let locationFill = color(x: 198, y: middle)
+            let bottom = try XCTUnwrap((middle...middle + 35).first { color(x: 198, y: $0) != locationFill })
+            let overlapY = bottom - 2
+            let fills = [90, 198, 310].map { color(x: $0, y: overlapY) }
+            XCTAssertEqual(Set(fills).count, 3, "All three tab fills should be visible")
+            XCTAssertEqual(color(x: 112, y: overlapY), fills[expectation.leading.rawValue], "Overlap between related and location tabs")
+            XCTAssertEqual(color(x: 222, y: overlapY), fills[expectation.trailing.rawValue], "Overlap between location and donor tabs")
+        }
+    }
+
+    func testCucumberStoryHidesContinuationTabAfterConfirmedZero() async throws {
+        let fixture = try isolatedDefaults()
+        let previousHandler = OiStoreURLProtocol.handle
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer {
+            session.invalidateAndCancel()
+            OiStoreURLProtocol.handle = previousHandler
+            fixture.defaults.removePersistentDomain(forName: fixture.name)
+        }
+
+        let id = UUID()
+        let counts = try JSONSerialization.data(withJSONObject: [["story_id": id.uuidString, "count": 0]])
+        OiStoreURLProtocol.handle = { request, client in
+            switch request.url?.lastPathComponent {
+            case "oi_story_continuation_counts":
+                client.respond(200, counts)
+            case "oi_story_continuations":
+                client.respond(200, Data(#"{"items":[],"total":0,"next_cursor":null}"#.utf8))
+            default:
+                XCTFail("Unexpected RPC for the story detail")
+                client.respond(404, Data("{}".utf8))
+            }
+        }
+        let remote = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+                                   vault: OiMemorySession())
+        let story = CampusStory(id: id.uuidString, regionID: "pond", title: "테스트 오이", image: "OiCats",
+            tags: ["우정"], donor: "테스트", location: "캠퍼스", date: "2026년 11월 17일", order: 0, popularity: 0, palette: 0)
+        let store = CampusStoryStore(defaults: fixture.defaults)
+        let reference = try XCTUnwrap(variants.first)
+        let png = try await capture(NavigationStack {
+            CampusCucumberStoryView(story: story, store: store).environment(remote)
+        }, name: "story-no-continuations", variant: reference, defaults: fixture.defaults, attach: true)
+        XCTAssertEqual(remote.continuationCounts[id], 0)
+        let bitmap = try renderedBitmap(png, size: reference.size)
+        let bytes = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: bitmap.bytesPerRow * bitmap.height)
+        func rgb(_ x: Int, _ y: Int) -> UInt32 {
+            let offset = y * bitmap.bytesPerRow + x * 4
+            return UInt32(bytes[offset]) << 16 | UInt32(bytes[offset + 1]) << 8 | UInt32(bytes[offset + 2])
+        }
+        XCTAssertEqual(rgb(90, 437), 0xEAEEE2, "Location should replace the zero-count tab in the first slot")
+        XCTAssertEqual(rgb(198, 437), 0xF1F4EC, "Donor should move into the second slot")
+        XCTAssertEqual(rgb(310, 437), rgb(390, 437), "There should be no third tab")
+    }
+
     func testCampusDetailAndSummaryCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
@@ -3159,6 +4155,18 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             defaults: fixture.defaults, delay: .seconds(1), attach: true)
     }
 
+    func testV4ScratchFaceRetryCapture() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        var postcard = scratchPostcardFixture()
+        postcard.frontFailed = true
+        let view = ScratchPostcardView(postcard: postcard, validateCollection: { true },
+            fullApp: ScratchPostcardFullApp(startsRevealed: true, isSaved: false,
+                onBack: {}, onDonate: {}, onSave: { nil }))
+        try await capture(view, name: "v4-scratch-face-retry", variant: variants[0],
+            defaults: fixture.defaults, delay: .seconds(1), attach: true)
+    }
+
     func testScratchPostcardFullAppRevealedSaved() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
@@ -3198,9 +4206,9 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             defaults: fixture.defaults, delay: .seconds(1), attach: true)
         let store = CampusStoryStore(defaults: fixture.defaults)
         store.synchronize(stories: [story], collected: [])
-        store.openStoryListAction = {}
+        let remote = OiRemoteStore(vault: OiMemorySession())
         let summary = NavigationStack { CampusSummaryView(story: story, store: store) }
-            .environment(store).environment(\.scenePhase, .active)
+            .environment(store).environment(remote).environment(\.scenePhase, .active)
         try await capture(summary, name: "summary-view", variant: variants[0],
             defaults: fixture.defaults, delay: .seconds(2), attach: true)
     }
@@ -3212,44 +4220,42 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             tags: ["고마움", "우정"], donor: "24학번 컴퓨터공학과 John Doe", location: "지곡연못 산책로",
             date: "2026년 11월 16일", order: 0, popularity: 0, palette: 0)
         story.storyTitle = "공개 프로필 이름과 작은 화면 확인"
+        story.authorID = UUID()
+        story.donorFarmerAsset = "OiFarmer"
         let store = CampusStoryStore(defaults: fixture.defaults)
         store.synchronize(stories: [story], collected: [])
-        store.openStoryListAction = {}
+        let remote = OiRemoteStore(vault: OiMemorySession())
         for variant in variants where variant.name != "440x956" {
             for tab in CampusCucumberStoryView.Tab.allCases {
                 let content = NavigationStack { CampusCucumberStoryView(story: story, store: store, initialTab: tab) }
+                    .environment(remote)
                 try await capture(content, name: "cucumber-story-tab-\(tab.rawValue)", variant: variant,
                                   defaults: fixture.defaults, delay: .milliseconds(500), attach: true)
             }
         }
     }
 
-    func testAppClipCardsRemainReadableWithoutAnAccount() async throws {
-        struct Repository: StoryRepository {
-            let story: Story
-            let card: StoryCard
-            func fetchPublicStory(storyID: String) async throws -> Story? { storyID == story.id ? story : nil }
-            func fetchPublicStoryCard(storyID: String) async throws -> StoryCard? { storyID == story.id ? card : nil }
-        }
+    func testAppClipCardsRequireLoginAndRemainOnDevice() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         let id = UUID().uuidString
-        let story = Story(storyID: id, donorID: UUID(), donorDisplayName: "공개 작성자", title: "Clip에서 모은 이야기",
-            content: "기기에 보관한 엽서는 로그인 전에도 확인할 수 있어요.", publishedAt: .now,
-            location: StoryLocation(locationID: "pond", displayName: "지곡연못"), tags: [],
-            cucumberID: "OiCats", cucumberName: "Clip에서 모은 오이")
-        let card = StoryCard(cardID: UUID().uuidString, storyID: id, imageURL: nil)
         let records = StoryCollectionStore(defaults: fixture.defaults)
-        XCTAssertTrue(records.collect(card))
-        let repository = Repository(story: story, card: card)
-        let library = CollectedStoryLibrary(repository: repository, collectionStore: records)
-        await library.load()
-        XCTAssertEqual(library.items.map(\.id), [id])
-        let view = MYAppClipCollectionSection(remote: nil, repository: repository, collectionStore: records)
-        try await capture(view.padding(20).environment(\.scenePhase, .active), name: "my-appclip-without-account", variant: variants[0],
-                          defaults: fixture.defaults, delay: .seconds(1), attach: true)
-        XCTAssertEqual(StoryCollectionStore(defaults: fixture.defaults).cards.map(\.storyID), [id],
-                       "Viewing a device card must never silently import or remove it")
+        XCTAssertTrue(records.collect(StoryCard(cardID: "clip-card", storyID: id, imageURL: nil)))
+        let library = MYLibraryStore(clipCollection: records)
+        // Even a stale, already-renderable card cannot escape the login gate.
+        let card = MYCard(id: id, title: "Clip에서 모은 오이", image: "OiCats", school: .postech, order: 0,
+            body: "공개 이야기", donor: "가상 작성자", date: "2026.11.17")
+        library.synchronize(nickname: "농부", cards: [card], favorites: [])
+        let signedOut = try await capture(NavigationStack {
+            MYWorkshopView(demo: library, initialTab: .collected)
+        }, name: "my-appclip-login-required", variant: variants[0], defaults: fixture.defaults, attach: true)
+        let empty = try await capture(NavigationStack {
+            MYWorkshopView(demo: MYLibraryStore(clipCollection: records), initialTab: .collected)
+        }, name: "my-appclip-login-empty", variant: variants[0], defaults: fixture.defaults)
+        XCTAssertEqual(try myV4ChangedPixels(signedOut, empty, size: variants[0].size,
+            rect: CGRect(x: 0, y: 325, width: 402, height: 400)), 0,
+            "Clip records and previously loaded cards must not appear outside the login gate")
+        XCTAssertEqual(StoryCollectionStore(defaults: fixture.defaults).cards.map(\.storyID), [id])
     }
 
     func testFarmCapturesWithOfflineOwnedStory() async throws {
@@ -3321,7 +4327,9 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                                  delay: Duration = .milliseconds(180), attach: Bool = false,
                                  checksBottomSheet: Bool = false, cucumberCameraYaw: Float? = nil,
                                  includesRealityKit: Bool = false, waitsForStillMap: Bool = false,
-                                 sheetDetent: UISheetPresentationController.Detent.Identifier? = nil) async throws -> Data {
+                                 sheetDetent: UISheetPresentationController.Detent.Identifier? = nil,
+                                 validateRender: ((Data, CGSize) throws -> Void)? = nil,
+                                 prepareRealityCapture: ((UIView) async throws -> RealityKit.ARView?)? = nil) async throws -> Data {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first, "The isolated simulator test host must have a window scene")
@@ -3418,7 +4426,9 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             }
         }
         let realitySnapshot: (image: UIImage, frame: CGRect)?
-        if let cucumberCameraYaw {
+        if let prepareRealityCapture, let renderer = try await prepareRealityCapture(renderView) {
+            realitySnapshot = try await snapshotCucumberSurface(renderer, in: renderView)
+        } else if let cucumberCameraYaw {
             realitySnapshot = try await captureCucumberSurface(in: renderView, yaw: cucumberCameraYaw)
         } else {
             realitySnapshot = nil
@@ -3436,7 +4446,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             }
         }
         XCTAssertTrue(rendered, "The attached production view must draw its hierarchy")
-        try assertNonemptyRender(png, size: variant.size)
+        if let validateRender { try validateRender(png, variant.size) }
+        else { try assertNonemptyRender(png, size: variant.size) }
         if attach {
             let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
             attachment.name = "\(name)-\(variant.name)"
@@ -3474,6 +4485,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             camera.look(at: bounds.center, from: position, relativeTo: nil)
             try await Task.sleep(for: .milliseconds(100))
         }
+        return try await snapshotCucumberSurface(renderer, in: view)
+    }
+
+    private func snapshotCucumberSurface(_ renderer: RealityKit.ARView, in view: UIView) async throws
+        -> (image: UIImage, frame: CGRect) {
         // UIKit's view snapshot omits the Metal surface.
         let snapshot: UIImage? = await withCheckedContinuation { continuation in
             renderer.snapshot(saveToHDR: false) { continuation.resume(returning: $0) }
@@ -3485,11 +4501,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         return (image, renderer.convert(renderer.bounds, to: view))
     }
 
-    private func cucumberSurface(in view: UIView) -> RealityKit.ARView? {
-        if let surface = view as? RealityKit.ARView, surface.accessibilityIdentifier == "seedCucumber.3D.canvas" {
+    private func cucumberSurface(in view: UIView, identifier: String = "seedCucumber.3D.canvas") -> RealityKit.ARView? {
+        if let surface = view as? RealityKit.ARView, surface.accessibilityIdentifier == identifier {
             return surface
         }
-        return view.subviews.lazy.compactMap { self.cucumberSurface(in: $0) }.first
+        return view.subviews.lazy.compactMap { self.cucumberSurface(in: $0, identifier: identifier) }.first
     }
 
     private func releaseCampusRenderers(in view: UIView) {
@@ -3498,6 +4514,26 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             XCTAssertNil(canvas.map, "The owned summary renderer must be released before the next capture")
         }
         for child in view.subviews { releaseCampusRenderers(in: child) }
+    }
+
+    private func assertSpinnerOnlyRender(_ data: Data, _ size: CGSize) throws {
+        let bitmap = try renderedBitmap(data, size: size)
+        let count = bitmap.width * bitmap.height * 4
+        let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: count)
+        let center = CGRect(x: size.width / 2 - 32, y: size.height / 2 - 32, width: 64, height: 64)
+        var foregroundPixels = 0
+        var outsidePixels = 0
+        for y in 0..<bitmap.height {
+            for x in 0..<bitmap.width {
+                let start = (y * bitmap.width + x) * 4
+                guard (0..<4).contains(where: { pixels[start + $0] != pixels[$0] }) else { continue }
+                foregroundPixels += 1
+                if !center.contains(CGPoint(x: x, y: y)) { outsidePixels += 1 }
+            }
+        }
+        XCTAssertGreaterThan(foregroundPixels, 20, "The loading spinner must be visible")
+        XCTAssertLessThan(foregroundPixels, 32 * 32, "The loading screen must contain only a small indicator")
+        XCTAssertEqual(outsidePixels, 0, "Text or controls outside the spinner would change the uniform background")
     }
 
     private func assertNonemptyRender(_ data: Data, size: CGSize) throws {

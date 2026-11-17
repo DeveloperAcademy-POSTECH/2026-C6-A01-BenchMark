@@ -60,7 +60,7 @@ struct OiStoryPlantSelection: Equatable {
 }
 
 enum OiStoryListReviewState: Equatable {
-    case unreviewed, reviewing, approved, rejected
+    case unreviewed, reviewing, approved, rejected, lookupFailed
 
     var title: String {
         switch self {
@@ -68,6 +68,7 @@ enum OiStoryListReviewState: Equatable {
         case .reviewing: "검토중"
         case .approved: "게시 가능"
         case .rejected: "수정 필요"
+        case .lookupFailed: "검토 결과 확인 실패"
         }
     }
 
@@ -76,7 +77,7 @@ enum OiStoryListReviewState: Equatable {
         case .unreviewed: 0xf3f3f3
         case .reviewing: 0xfdf0df
         case .approved: 0xeaeee2
-        case .rejected: 0xffe7e7
+        case .rejected, .lookupFailed: 0xffe7e7
         }
     }
 }

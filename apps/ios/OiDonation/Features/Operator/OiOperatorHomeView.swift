@@ -38,6 +38,7 @@ struct OiOperatorHomeView: View {
             .navigationDestination(for: OiOperatorSection.self) { section in
                 if canAccess {
                     if section == .stories { OiOperatorStoriesView(remote: remote) }
+                    else if section == .buildingNotes { OiOperatorBuildingNotesView(remote: remote) }
                     else if section == .content { OiOperatorContentView(remote: remote) }
                     else if section == .nfcTags { OiOperatorNFCTagsView(remote: remote) }
                     else { OiOperatorAuditView(remote: remote) }
@@ -70,6 +71,7 @@ struct OiOperatorHomeView: View {
             }
             Section("검토 업무") {
                 menuLink(.content)
+                menuLink(.buildingNotes)
                 menuLink(.stories)
             }
             Section("NFC 엽서") { menuLink(.nfcTags) }
@@ -120,14 +122,16 @@ struct OiOperatorHomeView: View {
 }
 
 enum OiOperatorSection: String, Hashable {
-    case stories, audit, content, nfcTags
+    case stories, audit, content, nfcTags, buildingNotes
     var title: String {
         switch self {
-        case .content: "콘텐츠 신고"; case .stories: "이야기 검토"; case .audit: "운영 감사 기록"; case .nfcTags: "NFC 태그"
+        case .buildingNotes: "건물 글 신고"
+        case .content: "콘텐츠 신고"; case .stories: "이야기 관리"; case .audit: "운영 감사 기록"; case .nfcTags: "NFC 태그"
         }
     }
     var detail: String {
         switch self {
+        case .buildingNotes: "건물별 짧은 글 신고 검토·삭제"
         case .content: "신고 검토·게시물 비공개·작성자 제한"
         case .stories: "이야기 내용 확인 및 공개·비공개 관리"
         case .audit: "운영 처리 내역 확인"
@@ -136,6 +140,7 @@ enum OiOperatorSection: String, Hashable {
     }
     var symbol: String {
         switch self {
+        case .buildingNotes: "text.bubble"
         case .content: "flag"; case .stories: "text.book.closed"; case .audit: "clock.arrow.circlepath"
         case .nfcTags: "wave.3.right.circle"
         }

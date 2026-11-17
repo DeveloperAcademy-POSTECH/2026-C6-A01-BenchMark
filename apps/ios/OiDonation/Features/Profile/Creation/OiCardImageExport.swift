@@ -20,13 +20,13 @@ enum OiCardExportError: LocalizedError {
 }
 
 @MainActor enum OiCardImageExport {
-    static func publication(front: UIImage, message: String, author: String, academicAuthor: String = "", cover: Data? = nil, coverType: StoryCard.CoverType = .png) throws -> OiStoryCardPublication {
+    static func publication(front: UIImage, message: String, author: String, academicAuthor: String = "", tags: [String] = [], cover: Data? = nil, coverType: StoryCard.CoverType = .png) throws -> OiStoryCardPublication {
         let style = OiPostcardBackgroundMetadata.style(for: front)
         let first = OiPostcardSnapshot.color(front, x: 0.05, y: 0.10) ?? 0xE8EECF
         let second = OiPostcardSnapshot.color(front, x: 0.95, y: 0.90) ?? 0xD5DBC6
         let back = try render(OiPostcardBack(first: first, second: second, backgroundStyle: style,
             message: message, author: OiPostcardAuthor.text(mode: style?.authorMode, name: author, academic: academicAuthor),
-            exportFontSize: fittingFontSize(message)))
+            tags: tags, exportFontSize: fittingFontSize(message)))
         let frontPNG = style.flatMap { OiPostcardBackgroundMetadata.png(image: front, style: $0) } ?? front.pngData()
         guard let frontPNG, let backPNG = back.pngData() else { throw OiCardExportError.imageUnavailable }
         return try OiStoryCardPublication(front: frontPNG, back: backPNG,
@@ -144,14 +144,18 @@ struct OiCardExportSheet: View {
                             }
                         }.frame(maxHeight: 350).accessibilityLabel("저장할 카드 미리보기")
                         if images.back == nil { Text("이전 버전 카드는 저장된 앞면만 제공해요.").font(.footnote) }
-                        Button("사진첩에 저장", systemImage: "square.and.arrow.down") {
-                            Task { await save() }
-                        }.buttonStyle(.borderedProminent).disabled(working || selected.isEmpty)
-                            .accessibilityIdentifier("oi.card.export.save")
-                        Button("공유하기", systemImage: "square.and.arrow.up") {
-                            share = Share(images: selected)
-                        }.buttonStyle(.bordered).disabled(working || selected.isEmpty)
-                            .accessibilityIdentifier("oi.card.export.share")
+                        HStack(spacing: 10) {
+                            Button("사진첩에 저장", systemImage: "square.and.arrow.down") {
+                                Task { await save() }
+                            }.buttonStyle(.glassProminent).controlSize(.regular).buttonBorderShape(.capsule)
+                                .frame(maxWidth: .infinity).disabled(working || selected.isEmpty)
+                                .accessibilityIdentifier("oi.card.export.save")
+                            Button("공유하기", systemImage: "square.and.arrow.up") {
+                                share = Share(images: selected)
+                            }.buttonStyle(.glass).controlSize(.regular).buttonBorderShape(.capsule)
+                                .frame(maxWidth: .infinity).disabled(working || selected.isEmpty)
+                                .accessibilityIdentifier("oi.card.export.share")
+                        }
                     } else if error == nil { ProgressView("앞·뒷면을 준비하는 중") }
                     if working { ProgressView("사진첩에 저장하는 중") }
                     if let notice { Text(notice).foregroundStyle(.green).accessibilityIdentifier("oi.card.export.saved") }
@@ -187,7 +191,7 @@ struct OiCardExportSheet: View {
     }
 }
 
-private struct OiCardShareSheet: UIViewControllerRepresentable {
+struct OiCardShareSheet: UIViewControllerRepresentable {
     let images: [UIImage]
     func makeUIViewController(context: Context) -> UIActivityViewController {
         UIActivityViewController(activityItems: images, applicationActivities: nil)

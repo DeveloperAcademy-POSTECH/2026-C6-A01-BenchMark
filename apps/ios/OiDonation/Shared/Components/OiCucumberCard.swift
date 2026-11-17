@@ -28,6 +28,8 @@ struct OiCucumberCard<Portrait: View>: View {
     let donor: String
     let title: String
     var metrics = OiCucumberCardMetrics.standard
+    /// A thin border for screens that use an outlined card instead of a shadow (#411).
+    var outline: Color?
     var selectionOutline: Color?
     var showsShadow = true
     @ViewBuilder let portrait: () -> Portrait
@@ -55,6 +57,9 @@ struct OiCucumberCard<Portrait: View>: View {
         .overlay {
             if let selectionOutline {
                 RoundedRectangle(cornerRadius: 28).strokeBorder(selectionOutline, lineWidth: 2)
+                    .allowsHitTesting(false)
+            } else if let outline {
+                RoundedRectangle(cornerRadius: 28).strokeBorder(outline, lineWidth: 1)
                     .allowsHitTesting(false)
             }
         }

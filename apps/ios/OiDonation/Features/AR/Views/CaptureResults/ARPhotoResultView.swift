@@ -23,12 +23,12 @@ struct ARPhotoResultView: View {
             VStack(spacing: 20) {
                 Image(uiImage: image).resizable().scaledToFit().clipShape(RoundedRectangle(cornerRadius: 20))
                 if experiment != nil {
-                    Text("사진과 실험 설정이 앱에 저장되었습니다.").font(.callout)
+                    Text("사진이 앱에 저장되었습니다.").font(.callout)
                 }
                 Button(saved ? "사진 앱에 저장됨" : "사진 앱에 저장") { Task { await savePhoto() } }
                     .buttonStyle(.borderedProminent).disabled(saving || saved)
                 if let experiment {
-                    ShareLink("사진 · 설정 JSON 공유", items: [experiment.imageURL, experiment.metadataURL])
+                    ShareLink("사진 공유", item: experiment.imageURL)
                     Text("화면 스냅샷 · 고해상도 카메라 원본이 아닙니다.").font(.caption).foregroundStyle(.secondary)
                 }
                 if let notice { Text(notice).font(.callout).accessibilityAddTraits(.updatesFrequently) }

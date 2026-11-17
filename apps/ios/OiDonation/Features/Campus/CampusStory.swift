@@ -15,6 +15,7 @@ struct CampusStory: Identifiable, Hashable {
     let popularity: Int
     let palette: Int
     var authorID: UUID? = nil
+    var donorFarmerAsset: String? = nil
     /// The story's own title, shown under the cucumber name on list cards (Figma `5441:17267`).
     var storyTitle: String = ""
     var remoteBody: String? = nil
@@ -59,8 +60,6 @@ final class CampusStoryStore {
     private(set) var stories: [CampusStory]
     var collectAction: ((CampusStory) -> Void)?
     var createStoryAction: (() -> Void)?
-    /// Opens the story list from the summary and the scratch screen (`이어서 기부하기`, #399).
-    var openStoryListAction: (() -> Void)?
     var showAuthoredPlacementAction: ((UUID) -> Void)?
     var mediaURL: ((String) async throws -> URL)?
     private(set) var collected: Set<String>
@@ -103,5 +102,27 @@ enum CampusDestination: Hashable {
     case story(String)
     /// The scratch postcard behind `수집하기` (#399).
     case scratch(String)
-    case storyList
+    case storyList(continuation: OiStoryContinuationIntent?)
+}
+
+/// Carries a public story into creation without editing the account's existing drafts.
+struct OiStoryContinuationIntent: Hashable {
+    let parent: UUID
+    let author: UUID
+    let requestedBy: UUID?
+
+    init?(story: CampusStory, requestedBy: UUID?) {
+        guard !story.isExample, let parent = UUID(uuidString: story.id), let author = story.authorID,
+              author != requestedBy else { return nil }
+        self.parent = parent
+        self.author = author
+        self.requestedBy = requestedBy
+    }
+
+    @MainActor func availableParent(in store: CampusStoryStore?, for owner: UUID) -> String? {
+        guard requestedBy == nil || requestedBy == owner, author != owner,
+              !OiContentSafetyStore.shared.isBlocked(author),
+              let story = store?.story(parent.uuidString), !story.isExample, story.authorID == author else { return nil }
+        return story.id
+    }
 }

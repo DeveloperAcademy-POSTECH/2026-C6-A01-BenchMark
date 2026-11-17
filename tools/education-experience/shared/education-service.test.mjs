@@ -7,9 +7,13 @@ function fixture(){
  const calls=[];let row;
  const transport={identity:async()=>({id:owner,operator:false,canWrite:true}),catalog:async()=>[],
   async rpc(name,payload){calls.push({name,payload});
-   if(name==='oi_education_mutate'){const p=payload.p_payload;row={...row,...p,origin:'education',storage_owner_id:owner,revision:p.revision+1,status:payload.p_action==='submit'?'pending':'draft'};return row;}
+   if(name==='oi_education_mutate'){const p=payload.p_payload;row={...row,...p,origin:'education',storage_owner_id:owner,revision:p.revision+1,review_ready:payload.p_action==='submit',status:payload.p_action==='submit'?'pending':'draft'};return row;}
    if(name==='oi_education_story')return row;
    if(name==='oi_education_stories')return [];
+  },async moderate(id,revision){
+   calls.push({moderate:{id,revision}});
+   row={...row,revision:revision+1,status:'published',review_ready:false};
+   return {status:'approved',story_id:id,revision:row.revision,story:row};
   },async upload(path){calls.push({upload:path});},async media(path){calls.push({media:path});return 'https://kfzfzarslqdqmrazohej.supabase.co/storage/v1/object/sign/oi-story-media/'+path+'?token=synthetic';}};
  const s=new EducationService(transport);return {s,transport,calls};
 }
@@ -35,11 +39,13 @@ test('submission requires user consent, uploads all four immutable parts, then r
  const parts=Array.from({length:4},()=>new Blob(['synthetic png'],{type:'image/png'})),photo=new Blob(['synthetic jpeg'],{type:'image/jpeg'});
  await assert.rejects(()=>s.submit(row,{photo,parts,snapshot,consented:false}),/공개 약관/);assert.equal(calls.filter(c=>c.upload).length,0);
  const receipts=[];row=await s.submit(row,{photo,parts,snapshot,consented:true,onReceipt:r=>receipts.push(r)});
- assert.equal(row.status,'pending');assert.equal(row.revision,3);assert.deepEqual(receipts.map(r=>r.revision),[2,3]);
+ assert.equal(row.status,'published');assert.equal(row.revision,4);assert.deepEqual(receipts.map(r=>r.revision),[2,3,4]);
  assert.equal(calls.filter(c=>c.upload).length,5);
  const submit=calls.findIndex(c=>c.payload?.p_action==='submit');assert.ok(calls.slice(0,submit).filter(c=>c.upload).length===5);
  assert.ok(calls.filter(c=>c.name).every(c=>c.name.startsWith('oi_education_')));
  assert.equal(calls[submit].payload.p_payload.publication_consent,true);
+ assert.equal(calls[submit].payload.p_payload.ai_review_consent_version,1);
+ assert.deepEqual(calls.at(-1),{moderate:{id,revision:3}});
 });
 test('failed card upload preserves attached photo receipt and never submits a partial card',async()=>{
  const {s,transport,calls}=fixture();await s.identity();const row=await s.save(draft);let uploads=0,last;
@@ -67,7 +73,7 @@ test('public queries and mutation receipts fail closed',async()=>{
  await assert.rejects(()=>s.save(draft),/로그인/);
  transport.rpc=async()=>[{origin:'education',status:'draft'}];await assert.rejects(()=>s.list(),/공개된/);
  await s.identity();transport.rpc=async()=>({...draft,origin:'education',status:'draft',revision:12});await assert.rejects(()=>s.mutate('save',draft),/저장 결과/);
- await assert.rejects(()=>s.review({...draft,card_snapshot_id:snapshot},'published'),/운영자/);
+ await assert.rejects(()=>s.hide({...draft,card_snapshot_id:snapshot,status:'published'}),/운영자/);
 });
 
 test('draft photo decoding uses bytes rather than a CSP-blocked data URL request',async()=>{
@@ -104,4 +110,16 @@ test('shared feed reads all public pages without silently dropping older cards',
  const stories=Array.from({length:51},(_,i)=>({...draft,id:crypto.randomUUID(),origin:'education',status:'published',created_at:'2026-11-16T00:00:00Z'}));
  transport.catalog=async()=>[reference];transport.rpc=async(name,payload)=>{calls.push({name,payload});return stories.slice(payload.p_offset,payload.p_offset+payload.p_limit);};
  const rows=await s.feed();assert.equal(rows.length,52);assert.deepEqual(calls.map(c=>c.payload.p_offset),[0,50]);assert.equal(rows.at(-1).id,stories.at(-1).id);
+});
+
+test('an interrupted review preserves the pending revision, then recovers a committed result',async()=>{
+ const {s,transport}=fixture();await s.identity();const saved=await s.save(draft);
+ const realModerate=transport.moderate;transport.moderate=async()=>{throw Error('timeout');};
+ const receipts=[];
+ await assert.rejects(()=>s.submit(saved,{photo:new Blob(['photo'],{type:'image/jpeg'}),
+  parts:Array.from({length:4},()=>new Blob(['png'],{type:'image/png'})),snapshot,consented:true,
+  onReceipt:r=>receipts.push({...r})}),/완료하지 못했어요/);
+ assert.equal(receipts.at(-1).status,'pending');
+ transport.moderate=async(...args)=>{await realModerate(...args);throw Error('lost response');};
+ assert.equal((await s.moderate(receipts.at(-1))).status,'published');
 });
