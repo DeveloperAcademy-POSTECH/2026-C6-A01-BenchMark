@@ -3878,32 +3878,27 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
-    func testAppClipCardsRemainReadableWithoutAnAccount() async throws {
-        struct Repository: StoryRepository {
-            let story: Story
-            let card: StoryCard
-            func fetchPublicStory(storyID: String) async throws -> Story? { storyID == story.id ? story : nil }
-            func fetchPublicStoryCard(storyID: String) async throws -> StoryCard? { storyID == story.id ? card : nil }
-        }
+    func testAppClipCardsRequireLoginAndRemainOnDevice() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         let id = UUID().uuidString
-        let story = Story(storyID: id, donorID: UUID(), donorDisplayName: "공개 작성자", title: "Clip에서 모은 이야기",
-            content: "기기에 보관한 엽서는 로그인 전에도 확인할 수 있어요.", publishedAt: .now,
-            location: StoryLocation(locationID: "pond", displayName: "지곡연못"), tags: [],
-            cucumberID: "OiCats", cucumberName: "Clip에서 모은 오이")
-        let card = StoryCard(cardID: UUID().uuidString, storyID: id, imageURL: nil)
         let records = StoryCollectionStore(defaults: fixture.defaults)
-        XCTAssertTrue(records.collect(card))
-        let repository = Repository(story: story, card: card)
-        let library = CollectedStoryLibrary(repository: repository, collectionStore: records)
-        await library.load()
-        XCTAssertEqual(library.items.map(\.id), [id])
-        let view = MYAppClipCollectionSection(remote: nil, repository: repository, collectionStore: records)
-        try await capture(view.padding(20).environment(\.scenePhase, .active), name: "my-appclip-without-account", variant: variants[0],
-                          defaults: fixture.defaults, delay: .seconds(1), attach: true)
-        XCTAssertEqual(StoryCollectionStore(defaults: fixture.defaults).cards.map(\.storyID), [id],
-                       "Viewing a device card must never silently import or remove it")
+        XCTAssertTrue(records.collect(StoryCard(cardID: "clip-card", storyID: id, imageURL: nil)))
+        let library = MYLibraryStore(clipCollection: records)
+        // Even a stale, already-renderable card cannot escape the login gate.
+        let card = MYCard(id: id, title: "Clip에서 모은 오이", image: "OiCats", school: .postech, order: 0,
+            body: "공개 이야기", donor: "가상 작성자", date: "2026.11.17")
+        library.synchronize(nickname: "농부", cards: [card], favorites: [])
+        let signedOut = try await capture(NavigationStack {
+            MYWorkshopView(demo: library, initialTab: .collected)
+        }, name: "my-appclip-login-required", variant: variants[0], defaults: fixture.defaults, attach: true)
+        let empty = try await capture(NavigationStack {
+            MYWorkshopView(demo: MYLibraryStore(clipCollection: records), initialTab: .collected)
+        }, name: "my-appclip-login-empty", variant: variants[0], defaults: fixture.defaults)
+        XCTAssertEqual(try myV4ChangedPixels(signedOut, empty, size: variants[0].size,
+            rect: CGRect(x: 0, y: 325, width: 402, height: 400)), 0,
+            "Clip records and previously loaded cards must not appear outside the login gate")
+        XCTAssertEqual(StoryCollectionStore(defaults: fixture.defaults).cards.map(\.storyID), [id])
     }
 
     func testFarmCapturesWithOfflineOwnedStory() async throws {
