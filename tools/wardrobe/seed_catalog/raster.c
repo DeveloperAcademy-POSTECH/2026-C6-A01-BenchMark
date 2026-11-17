@@ -5,7 +5,7 @@
 
 typedef struct { float x,y,z,u,v; } Point;
 int main(int argc,char** argv){
-    if(argc < 8 || argc > 10) return 1;
+    if(argc < 8 || argc > 11) return 1;
     float pitch = argc >= 9 ? atof(argv[8]) : 0;
     int front_only = argc >= 10 && atoi(argv[9]);
     FILE *file=fopen(argv[1],"rb");
@@ -58,5 +58,15 @@ int main(int argc,char** argv){
     fprintf(file,"P6\n%d %d\n255\n",w,h);
     fwrite(color,1,w*h*3,file);
     fclose(file);
+    // The depth buffer gives the silhouette without comparing material colors.
+    if (argc == 11) {
+        file = fopen(argv[10], "wb");
+        if (!file) return 5;
+        fprintf(file, "P5\n%d %d\n255\n", w, h);
+        for (int i = 0; i < w * h; i++) {
+            fputc(depth[i] > -1e9f ? 255 : 0, file);
+        }
+        if (fclose(file) != 0) return 6;
+    }
     return 0;
 }

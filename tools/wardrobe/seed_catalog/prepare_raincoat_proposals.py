@@ -131,11 +131,10 @@ def preview(text, bitmaps, master, key, directory):
         if name == 'FaceBacking':
             bitmap = np.full((4, 4, 3), (103, 137, 38), dtype=np.uint8)
         render.append(([(name, points, faces, uv)], bitmap))
-    geometry.raster(None, render, key)
-    with Image.open(geometry.root / f'{key}-0.ppm') as frame:
-        thumbnail = frame.crop((36, 14, 354, 532))
-        thumbnail.thumbnail((150, 210))
-        thumbnail.save(directory / f'{key}.jpg', quality=91)
+    frame = geometry.raster(None, render, key, transparent_front=True)
+    thumbnail = frame.crop((36, 14, 354, 532))
+    thumbnail.thumbnail((150, 210))
+    thumbnail.save(directory / f'{key}.png')
 
 
 def main():

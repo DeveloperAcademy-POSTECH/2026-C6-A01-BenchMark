@@ -2239,7 +2239,18 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             try await verifyGarment(.costume(costume))
             for proposal in OiSeedCostumeProposal.options(for: costume) {
                 let garment = OiSeedCucumberGarment.costumeProposal(costume, proposal)
-                XCTAssertNotNil(Bundle.main.url(forResource: garment.rawValue, withExtension: "jpg"))
+                let thumbnail = try XCTUnwrap(Bundle.main.url(forResource: garment.rawValue, withExtension: "png"))
+                let data = try Data(contentsOf: thumbnail)
+                let image = try XCTUnwrap(UIImage(data: data)?.cgImage)
+                let bitmap = try renderedBitmap(data, size: CGSize(width: image.width, height: image.height))
+                let count = bitmap.width * bitmap.height
+                let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: count * 4)
+                let corners = [0, bitmap.width - 1, count - bitmap.width, count - 1]
+                for corner in corners {
+                    XCTAssertEqual(pixels[corner * 4 + 3], 0, "\(garment.title) must not have an opaque image backdrop")
+                }
+                let foreground = (0..<count).filter { pixels[$0 * 4 + 3] == 255 }.count
+                XCTAssertGreaterThan(foreground, count / 20, "\(garment.title) must retain the illustration")
                 try await verifyGarment(garment)
             }
         }
