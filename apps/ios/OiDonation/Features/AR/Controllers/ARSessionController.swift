@@ -265,6 +265,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     }
 
     func update(from previous: ARCaptureSettings) {
+        if previous.palmResponse != settings.palmResponse { invalidatePalm() }
         // Only a selected campus cucumber has a saved geographic target.
         if placementMode == .location && !canUseLocationMode { settings.placementMode = .palm }
         // Stadium mode is retired; old photo settings must use the live camera.
@@ -337,6 +338,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         guard !capturing, !loading else { return }
         if case .notAvailable = frame.camera.trackingState { invalidatePalm(); return }
         if locked { return }
+        palmState.response = settings.palmResponse ?? .stable
         if palm == nil {
             palm = ARPalmTrackingService(onFailure: { [weak self] in
                 guard let self, self.ready, self.isPalmMode, !self.locked else { return }

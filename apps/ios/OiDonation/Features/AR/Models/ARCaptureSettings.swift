@@ -12,6 +12,8 @@ struct ARCaptureSettings: Codable, Equatable {
     var placementMode: ARManualPlacementMode? = .palm
     var palmHeight: Float? = nil
     var palmRotation: Float? = nil
+    // Optional so older capture records remain readable.
+    var palmResponse: ARPalmResponse? = nil
     /// Present only for a selected public cucumber; legacy mascot records still decode.
     var cucumberStoryID: UUID? = nil
     var cucumberName: String? = nil
@@ -27,6 +29,11 @@ struct ARCaptureSettings: Codable, Equatable {
     var azimuth: Float = 45
     var elevation: Float = 45
     var intensity: Float = 850
+}
+
+enum ARPalmResponse: String, Codable, CaseIterable {
+    case responsive, stable
+    var title: String { self == .responsive ? "빠른 추적" : "안정 추적" }
 }
 
 enum ARManualPlacementMode: String, Codable, CaseIterable {

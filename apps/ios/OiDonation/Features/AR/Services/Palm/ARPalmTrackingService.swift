@@ -62,7 +62,8 @@ nonisolated final class ARPalmTrackingService: @unchecked Sendable {
                           timestamp: frame.timestamp, turns: turns, exif: exif)
         worker.async { [self] in
             autoreleasepool {
-                defer { synchronized { gate.finish(token) } }
+                // Keep the reusable image storage owned until Vision and its
+                // handler leave this autoreleasepool. The callback carries values only.
                 guard synchronized({ gate.accepts(token) }), let image = analysisImage(input.buffer) else { return }
                 do {
                     try VNImageRequestHandler(cgImage: image, orientation: input.exif).perform([request])
@@ -79,17 +80,18 @@ nonisolated final class ARPalmTrackingService: @unchecked Sendable {
                         inverseProjection: input.projection, timestamp: input.timestamp)
                     let timestamp = input.timestamp
                     Task { @MainActor [weak self] in
-                        guard let self, synchronized({ gate.accepts(token) }),
+                        guard let self, self.synchronized({ self.gate.accepts(token) }),
                               ARPalmGeometry.isFresh(sample: timestamp, now: CACurrentMediaTime()) else { return }
                         onUpdate(observation)
                     }
                 } catch {
                     Task { @MainActor [weak self] in
-                        guard let self, synchronized({ gate.accepts(token) }) else { return }
+                        guard let self, self.synchronized({ self.gate.accepts(token) }) else { return }
                         onFailure()
                     }
                 }
             }
+            synchronized { gate.finish(token) }
         }
     }
 

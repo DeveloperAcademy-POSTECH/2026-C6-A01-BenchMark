@@ -22,7 +22,7 @@ final class ARLightingController {
         else { view.environment.sceneUnderstanding.options.remove(.receivesLighting) }
         sun.isEnabled = settings.directLight
         sun.light.intensity = settings.intensity
-        sun.shadow = DirectionalLightComponent.Shadow()
+        sun.shadow = settings.groundingShadow ? DirectionalLightComponent.Shadow() : nil
         let az = settings.azimuth * .pi / 180
         let el = settings.elevation * .pi / 180
         let direction = SIMD3<Float>(cos(el) * sin(az), sin(el), cos(el) * cos(az))

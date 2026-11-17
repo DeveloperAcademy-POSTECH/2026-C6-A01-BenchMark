@@ -10,6 +10,7 @@ import simd
 
 /// Only new observations are unprojected; camera motion never reprojects old hand pixels.
 nonisolated struct ARPalmPlacementState {
+    var response: ARPalmResponse = .stable
     private(set) var position: SIMD3<Float>?
     private var target: SIMD3<Float>?
     private var timestamp: TimeInterval?
@@ -26,18 +27,23 @@ nonisolated struct ARPalmPlacementState {
             return ARPalmGeometry.depth(indexDirection: first, littleDirection: second, forward: forward, physicalSpan: span)
         }
         let predicted = target.map { simd_dot($0 - origin, forward) }
-        guard let measured = ARPalmGeometry.resolvedDepth(width: depth(sample.index, sample.little, span: 0.07),
-            length: depth(sample.wrist, sample.knuckles, span: 0.075), previous: predicted),
+        let width = depth(sample.index, sample.little, span: 0.07)
+        let measured = response == .responsive ? width ?? depth(sample.wrist, sample.knuckles, span: 0.075)
+            : ARPalmGeometry.resolvedDepth(width: width,
+            length: depth(sample.wrist, sample.knuckles, span: 0.075), previous: predicted)
+        guard let measured,
             let direction = observation.ray(sample.center),
             let point = ARPalmGeometry.contact(origin: origin, direction: direction, forward: forward,
-                depth: ARPalmGeometry.stabilizedDepth(measured: measured, previousWorld: target, origin: origin, forward: forward)) else { return false }
+                depth: response == .responsive ? measured : ARPalmGeometry.stabilizedDepth(measured: measured,
+                    previousWorld: target, origin: origin, forward: forward)) else { return false }
         target = point
         timestamp = observation.timestamp
         return true
     }
 
     mutating func update(at now: TimeInterval, deltaTime: TimeInterval) -> SIMD3<Float>? {
-        guard ARPalmGeometry.canRecover(sample: timestamp, now: now), let target else { reset(); return nil }
+        let visible = response == .responsive ? isFresh(at: now) : ARPalmGeometry.canRecover(sample: timestamp, now: now)
+        guard visible, let target else { reset(); return nil }
         if let previous = position {
             position = previous + (target - previous) * Float(1 - exp(-22 * min(0.1, max(0, deltaTime))))
         } else { position = target }

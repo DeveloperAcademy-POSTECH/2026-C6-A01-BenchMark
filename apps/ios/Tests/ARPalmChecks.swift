@@ -58,6 +58,7 @@ import simd
             return ARPalmObservation(hand: sample, cameraToWorld: camera, inverseProjection: matrix_identity_float4x4, timestamp: timestamp)
         }
         var state = ARPalmPlacementState()
+        state.response = .stable
         try expect(state.observe(observation(10)), "Resolve an image-time hand position")
         let initial = state.update(at: 10.1, deltaTime: 1.0 / 30)!
         try expect(state.isFresh(at: 10.1), "Fresh hand permits capture")
@@ -68,6 +69,27 @@ import simd
         try expect(state.observe(observation(12, x: 1)), "Reacquire after camera movement")
         let reacquired = state.update(at: 12.01, deltaTime: 1.0 / 30)!
         try expect(abs(reacquired.x - 1) < 0.00001, "Reacquisition does not interpolate from an expired world position")
+
+        // A depth step has one position filter in the Unity-derived mode,
+        // rather than depth smoothing followed by position smoothing.
+        func depthObservation(_ time: Double, halfSpan: Float) -> ARPalmObservation {
+            let hand = ARPalmSample(center: [0.5,0.5], index: [0.5-halfSpan,0.5],
+                little: [0.5+halfSpan,0.5], wrist: [0.5,0.65], knuckles: [0.5,0.45])
+            return ARPalmObservation(hand: hand, cameraToWorld: matrix_identity_float4x4,
+                inverseProjection: matrix_identity_float4x4, timestamp: time)
+        }
+        var fast = ARPalmPlacementState(), stable = ARPalmPlacementState()
+        fast.response = .responsive
+        stable.response = .stable
+        for first in [true, false] {
+            let sample = depthObservation(first ? 20 : 20.1, halfSpan: first ? 0.1 : 0.05)
+            try expect(fast.observe(sample) && stable.observe(sample), "Both modes accept a valid depth observation")
+            _ = fast.update(at: sample.timestamp, deltaTime: 1.0/30)
+            _ = stable.update(at: sample.timestamp, deltaTime: 1.0/30)
+        }
+        try expect(abs(fast.position!.z) > abs(stable.position!.z), "Fast response follows a depth change sooner")
+        try expect(fast.update(at: 20.46, deltaTime: 0.03) == nil, "Fast mode hides stale hands after 350ms")
+        try expect(stable.update(at: 20.46, deltaTime: 0.03) != nil, "Stable mode retains its recovery window")
 
         let original = ARCaptureSettings()
         try expect(original.character == .ponix, "New cameras default to Ponix")

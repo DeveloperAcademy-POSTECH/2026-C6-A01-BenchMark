@@ -21,6 +21,15 @@ struct ARSettingsView: View {
                 }
                 .listRowBackground(Color.black.opacity(0.22))
                 Section("캐릭터 조절") {
+                    if controller.isPalmMode {
+                        Picker("손 추적 반응", selection: Binding(get: { controller.settings.palmResponse ?? .stable },
+                            set: { controller.settings.palmResponse = $0 })) {
+                            ForEach(ARPalmResponse.allCases, id: \.self) { Text($0.title).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                        Text("빠른 추적은 손의 움직임을 바로 따르고, 안정 추적은 거리 흔들림을 줄입니다.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     Text(controller.usesGeographicPlacement
                         ? "핀치로 화면에 보이는 크기를 조절할 수 있습니다. 위치는 지도에 저장된 좌표와 인식된 바닥을 따릅니다."
                         : controller.isPalmMode
