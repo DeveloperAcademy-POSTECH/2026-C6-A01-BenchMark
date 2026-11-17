@@ -371,6 +371,117 @@ struct OiDraftCustomization: Codable, Equatable {
     var connectedStoryID: String?
     /// Distinguishes an explicit clear from an older draft without this selection field.
     var connectedStorySelectionEdited: Bool? = nil
+
+    /// Local STEP 3 appearance. Older drafts use the default bare cucumber.
+    var seedAppearance: OiSeedCucumberAppearance?
+    var seedWhiteTshirt: Bool?
+    var seedLongPants: Bool?
+    var seedTop: String?
+    var seedBottom: String?
+    var seedSneakers: Bool?
+    var seedSet: String?
+    var seedProposal: Int?
+
+    var selectedSeedTop: OiWardrobeLook.Top? {
+        get { seedTop.flatMap(OiWardrobeLook.Top.init(rawValue:)) ?? (seedWhiteTshirt == true ? .tshirt : nil) }
+        set {
+            seedTop = newValue?.rawValue
+            seedWhiteTshirt = nil
+        }
+    }
+
+    var selectedSeedBottom: OiWardrobeLook.Bottom? {
+        get { seedBottom.flatMap(OiWardrobeLook.Bottom.init(rawValue:)) ?? (seedLongPants == true ? .long : nil) }
+        set {
+            seedBottom = newValue?.rawValue
+            seedLongPants = nil
+        }
+    }
+
+    var selectedSeedSet: OiSeedCucumberSet? {
+        get {
+            let set = seedSet.flatMap(OiSeedCucumberSet.init(rawValue:))
+            return set == .costume(.scientist) ? nil : set
+        }
+        set {
+            if seedSet != newValue?.rawValue { seedProposal = nil }
+            seedSet = newValue?.rawValue
+        }
+    }
+
+    var selectedSeedProposal: OiSeedCostumeProposal? {
+        guard case .costume(let costume) = selectedSeedSet else { return nil }
+        let options = OiSeedCostumeProposal.options(for: costume)
+        if let seedProposal, let proposal = OiSeedCostumeProposal(rawValue: seedProposal),
+           options.contains(proposal) { return proposal }
+        return options.first
+    }
+
+    mutating func selectSeedTop(_ top: OiWardrobeLook.Top) {
+        selectedSeedTop = selectedSeedSet == nil && selectedSeedTop == top ? nil : top
+        selectedSeedSet = nil
+    }
+
+    mutating func selectSeedBottom(_ bottom: OiWardrobeLook.Bottom) {
+        selectedSeedBottom = selectedSeedSet == nil && selectedSeedBottom == bottom ? nil : bottom
+        selectedSeedSet = nil
+    }
+
+    mutating func toggleSeedSneakers() {
+        seedSneakers = selectedSeedSet != nil || seedSneakers != true ? true : nil
+        selectedSeedSet = nil
+    }
+
+    mutating func selectSeedSet(_ set: OiSeedCucumberSet) {
+        selectedSeedSet = selectedSeedSet == set ? nil : set
+    }
+
+    mutating func selectSeedProposal(_ proposal: OiSeedCostumeProposal, for costume: OiWardrobeLook.Costume) {
+        guard OiSeedCostumeProposal.options(for: costume).contains(proposal) else { return }
+        let set = OiSeedCucumberSet.costume(costume)
+        if selectedSeedSet == set, selectedSeedProposal == proposal {
+            selectedSeedSet = nil
+        } else {
+            selectedSeedSet = set
+            seedProposal = proposal.rawValue
+        }
+    }
+}
+
+enum OiSeedCostumeProposal: Int {
+    case one = 1
+
+    static func options(for costume: OiWardrobeLook.Costume) -> [Self] {
+        switch costume {
+        case .raincoat, .postechSelfie, .astronaut, .catBear, .astronautNavy: [.one]
+        default: []
+        }
+    }
+}
+
+enum OiSeedCucumberSet: Equatable, RawRepresentable, CaseIterable {
+    case costume(OiWardrobeLook.Costume)
+    case postech
+
+    static let availableCostumes = OiWardrobeLook.Costume.allCases.filter { $0 != .scientist }
+    static var allCases: [Self] { availableCostumes.map(Self.costume) + [.postech] }
+
+    init?(rawValue: String) {
+        if rawValue == "postech" {
+            self = .postech
+        } else if let costume = OiWardrobeLook.Costume(rawValue: rawValue) {
+            self = .costume(costume)
+        } else {
+            return nil
+        }
+    }
+
+    var rawValue: String {
+        switch self {
+        case .costume(let costume): costume.rawValue
+        case .postech: "postech"
+        }
+    }
 }
 
 /// Card-space coordinates shared by the small editor frame and the final card.
