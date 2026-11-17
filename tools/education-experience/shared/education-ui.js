@@ -6,8 +6,8 @@ const button=(text,fn,className='education-button')=>{const e=el('button',text,c
 const dialog=el('dialog',null,'education-dialog');dialog.id='educationDialog';
 const close=button('×',()=>dialog.close(),'close-button');close.setAttribute('aria-label','닫기');close.dataset.close='';
 const content=el('div',null,'education-content');dialog.append(close,content);document.body.append(dialog);
-let viewGeneration=0,busy=false,writeTimer,persistCurrent=()=>{};
-function shell(title,copy){persistCurrent();persistCurrent=()=>{};viewGeneration++;content.replaceChildren(el('p','빛으로 지은 이야기','education-kicker'),el('h2',title));if(copy)content.append(el('p',copy,'education-copy'));if(!dialog.open)dialog.showModal();return viewGeneration;}
+let viewGeneration=0,busy=false,writeTimer,persistCurrent=()=>{},activeListMode=null;
+function shell(title,copy){persistCurrent();persistCurrent=()=>{};activeListMode=null;viewGeneration++;content.replaceChildren(el('p','빛으로 지은 이야기','education-kicker'),el('h2',title));if(copy)content.append(el('p',copy,'education-copy'));if(!dialog.open)dialog.showModal();return viewGeneration;}
 dialog.addEventListener('close',()=>persistCurrent());
 function status(text,error=false){let e=content.querySelector('.education-status');if(!e){e=el('p',null,'education-status');e.setAttribute('role','status');content.append(e);}e.textContent=text;e.classList.toggle('is-error',error);}
 function fail(error){status(error?.message??'요청을 처리하지 못했어요. 다시 시도해 주세요.',true);}
@@ -97,6 +97,7 @@ export async function openEducationWriter(existing=null){
 
 export async function openEducationList(mode='public'){
  const generation=shell(mode==='mine'?'내 이야기':mode==='review'?'교육지구 게시물 관리':'교육지구의 이야기','승인된 이야기는 앱과 웹의 같은 구슬 카드로 공유됩니다.');
+ activeListMode=mode;
  try{
   const s=mode==='public'?await educationReady():await requireIdentity(mode==='mine'?'내 이야기':'게시물 관리');if(!s||generation!==viewGeneration)return;
   const nav=el('div',null,'education-actions');for(const [key,label] of [['public','공유 이야기'],['mine','내 이야기']])nav.append(button(label,()=>openEducationList(key),'education-text-button'));
@@ -188,5 +189,10 @@ function showReport(s,row){
 for(const id of ['writeButton','storiesButton'])document.querySelector('#'+id).addEventListener('click',event=>{event.preventDefault();event.stopImmediatePropagation();if(id==='writeButton')openEducationWriter();else openEducationList();},{capture:true});
 window.addEventListener('education-open-story',event=>openEducationDetail(event.detail.id));
 window.addEventListener('education-open-reference',event=>openEducationReference(event.detail.id));
-window.addEventListener('education-identity-updated',()=>{if(dialog.open){busy=false;openEducationList('mine');}});
+window.addEventListener('education-identity-updated',()=>{
+ if(!dialog.open)return;
+ busy=false;
+ // An account refresh can complete just after the public list opens.
+ openEducationList(activeListMode==='public'?'public':'mine');
+});
 educationReady().catch(()=>{});

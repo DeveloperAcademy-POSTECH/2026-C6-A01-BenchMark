@@ -1575,13 +1575,15 @@ final class CampusEducationDistrictTests: XCTestCase {
         }
         for _ in 0..<150 { if !model.loading { break }; try await Task.sleep(for: .milliseconds(100)) }
         XCTAssertNil(model.failure)
-        _ = try await model.webView.evaluateJavaScript("document.querySelector('#storiesButton').click()")
+        _ = try await model.webView.evaluateJavaScript("""
+        (()=>{document.querySelector('#storiesButton').click();window.dispatchEvent(new Event('education-identity-updated'));})()
+        """)
         var sharedReferenceVisible = false
         for _ in 0..<50 {
             if (try await model.webView.evaluateJavaScript("document.querySelector('#educationDialog').textContent.includes('Synthetic shared title')") as? Bool) == true { sharedReferenceVisible = true; break }
             try await Task.sleep(for: .milliseconds(100))
         }
-        XCTAssertTrue(sharedReferenceVisible, "Native WebKit must display the same server reference title, not a bundled fictional story")
+        XCTAssertTrue(sharedReferenceVisible, "Native WebKit must keep the shared story list open when the account refresh completes")
         _ = try await model.webView.evaluateJavaScript("document.querySelector('#educationDialog').close()")
         _ = try await model.webView.evaluateJavaScript("document.querySelector('#scatterButton').click()")
         var photoVisible = false
