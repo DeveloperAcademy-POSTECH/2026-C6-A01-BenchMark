@@ -1127,7 +1127,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let front = try XCTUnwrap(UIImage(data: publication.png))
         OiPostcardBackgroundMetadata.remember(png: publication.png, image: front)
         XCTAssertEqual(OiPostcardBackgroundMetadata.style(for: front), value.card?.postcardBackground)
-        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "", tags: [Self.draft.emotion, Self.draft.theme])
+        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "", tags: Self.draft.postcardTags)
         XCTAssertEqual(restored.parts[.back], publication.parts[.back])
         var invalid = try XCTUnwrap(value.card?.postcardBackground)
         invalid.startOpacity = -0.1
