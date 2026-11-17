@@ -878,6 +878,7 @@ struct OiStoryEditor: View {
 
     private var publicationAvailabilityMessage: String? {
         if !canWrite { return OiWritingGuidance.unavailable }
+        if !remote.autoStoryModeration { return "지금은 자동검수를 사용할 수 없어요. 초안은 보존돼 있어요." }
         if !remote.canPublishDuplexCard {
             return "서버의 카드 양면 저장 업데이트가 필요해요. 내 카드와 초안은 보존돼 있어요."
         }

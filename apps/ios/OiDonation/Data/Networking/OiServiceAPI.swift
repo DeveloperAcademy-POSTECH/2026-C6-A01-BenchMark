@@ -240,6 +240,13 @@ struct OiServiceAPI {
         return try decoder.decode(OiStoryModerationResult.self, from: data)
     }
 
+    func moderateEducationStory(id: UUID, revision: Int, token: String) async throws -> Data {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "scope": "education", "id": id.uuidString.lowercased(), "revision": revision, "ai_review_consent_version": 1,
+        ])
+        return try await request("functions/v1/moderate-story", method: "POST", token: token, body: body, timeout: 65)
+    }
+
     func storyModerationResults(token: String) async throws -> [OiStoryModerationResult] {
         let data = try await request("rest/v1/rpc/oi_my_story_reviews", method: "POST", token: token, body: Data("{}".utf8))
         return try decoder.decode([OiStoryModerationResult].self, from: data)
