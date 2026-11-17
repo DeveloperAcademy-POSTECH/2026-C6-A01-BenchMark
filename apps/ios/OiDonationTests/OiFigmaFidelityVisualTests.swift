@@ -2925,6 +2925,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             defaults: fixture.defaults, includesSafeArea: false, attach: true)
         let failedImage = try await capture(failed, name: "campus-notifications-error", variant: reference,
             defaults: fixture.defaults, includesSafeArea: false, attach: true, validateRender: assertSpinnerOnlyRender)
+        let partial = CampusNotificationInboxView(requests: rows, isLoading: true, isInitialLoading: true,
+            unconfirmedRequestID: UUID(), onReload: {}, onOpenRequest: { _ in })
+            .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
+        _ = try await capture(partial, name: "campus-notifications-initial-partial", variant: reference,
+            defaults: fixture.defaults, includesSafeArea: false, validateRender: assertSpinnerOnlyRender)
         XCTAssertNotEqual(failedImage, emptyImage, "A failed load must render differently from an empty inbox")
     }
 

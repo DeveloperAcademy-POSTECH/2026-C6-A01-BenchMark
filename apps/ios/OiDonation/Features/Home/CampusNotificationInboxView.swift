@@ -18,6 +18,7 @@ struct OiContinuationNotice: Identifiable, Equatable {
 struct CampusNotificationInboxView: View {
     let requests: [OiCardRequestInboxItem]
     let isLoading: Bool
+    var isInitialLoading = false
     var loadFailed = false
     var unconfirmedRequestID: UUID? = nil
     var onOpenOlderRequests: (() -> Void)? = nil
@@ -37,7 +38,7 @@ struct CampusNotificationInboxView: View {
     }
 
     private var showsSpinner: Bool {
-        loadFailed || (isLoading && isEmpty)
+        loadFailed || isInitialLoading || (isLoading && isEmpty)
     }
 
     var body: some View {

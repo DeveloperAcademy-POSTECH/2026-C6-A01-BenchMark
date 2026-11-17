@@ -14,8 +14,6 @@ import ImageIO
 struct CampusPostcard: View {
     let story: CampusStory
     let store: CampusStoryStore
-    /// 카드 이미지 저장·공유 button under the postcard; hidden for now (#399).
-    var showsExport = false
     @State private var showingBack = false
     @State private var snapshot: UIImage?
     @State private var backSnapshot: UIImage?
@@ -25,7 +23,9 @@ struct CampusPostcard: View {
     @State private var localRecord: (owner: UUID, value: OiLocalDraft)?
     @State private var colors: (UInt32, UInt32) = (0xE8EECF, 0xD5DBC6)
     @Environment(\.campusCucumberPortraitLoader) private var loadImage
-    @State private var failed = false
+    @State private var frontFailed = false
+    @State private var backFailed = false
+    private var failed: Bool { frontFailed || backFailed }
     @State private var retry = 0
     private func loadPostcardImage(_ path: String) async throws -> UIImage {
         if let remote { return try await remote.postcardImage(path) }
@@ -79,7 +79,7 @@ struct CampusPostcard: View {
             } back: {
                 if story.cardBackArtworkPath != nil {
                     if let backSnapshot { Image(uiImage: backSnapshot).resizable().frame(width: 362, height: 502) }
-                    else if failed { ContentUnavailableView("카드 뒷면을 불러오지 못했어요", systemImage: "photo") }
+                    else if backFailed { ContentUnavailableView("카드 뒷면을 불러오지 못했어요", systemImage: "photo") }
                     else { ProgressView("뒷면 불러오는 중") }
                 } else {
                     OiPostcardBack(first: colors.0, second: colors.1,
@@ -93,7 +93,12 @@ struct CampusPostcard: View {
             if failed {
                 Button("저장된 엽서 다시 불러오기") { retry += 1 }.font(.caption)
             }
-            if showsExport, let remote, remote.account?.id == story.authorID, !remote.needsReauthentication {
+        }
+        .contextMenu {
+            if let id = UUID(uuidString: story.id), !story.isExample {
+                Button("이야기 ID 복사") { UIPasteboard.general.string = id.uuidString }
+            }
+            if let remote, remote.account?.id == story.authorID, !remote.needsReauthentication {
                 Button("카드 이미지 저장·공유", systemImage: "square.and.arrow.up") { showingExport = true }
                     .accessibilityIdentifier("oi.card.export.owner")
             }
@@ -117,8 +122,9 @@ struct CampusPostcard: View {
             }
         }
         .id(story.id)
-        .task(id: "\(story.id)/\(story.cardArtworkPath ?? "")/\(story.cardBackArtworkPath ?? "")/\(localOwner?.uuidString ?? "")/\(retry)") {
-            snapshot = nil; backSnapshot = nil; localRecord = nil; backgroundStyle = nil; failed = false; colors = (0xE8EECF, 0xD5DBC6)
+        .onChange(of: story.cardBackArtworkPath) { _, _ in backSnapshot = nil; backFailed = false }
+        .task(id: "\(story.id)/\(story.cardArtworkPath ?? "")/\(localOwner?.uuidString ?? "")") {
+            snapshot = nil; localRecord = nil; backgroundStyle = nil; frontFailed = false; colors = (0xE8EECF, 0xD5DBC6)
             artworkResolved = false
             guard let path = story.cardArtworkPath, loadImage != nil || remote != nil else {
                 if let remote, let owner = localOwner, let id = UUID(uuidString: story.id),
@@ -127,27 +133,37 @@ struct CampusPostcard: View {
                 }
                 return
             }
-            do {
-                let image = try await loadPostcardImage(path)
-                try Task.checkCancellation()
-                if OiPostcardSnapshot.isPostcard(image) {
-                    colors = (OiPostcardSnapshot.color(image, x: 0.05, y: 0.10) ?? 0xE8EECF,
-                              OiPostcardSnapshot.color(image, x: 0.95, y: 0.90) ?? 0xD5DBC6)
-                    backgroundStyle = OiPostcardBackgroundMetadata.style(for: image)
-                    snapshot = image
-                }
-                artworkResolved = true
-
-            } catch { if !Task.isCancelled { failed = true } }
+            await loadFront(path)
+        }
+        .task(id: retry) {
+            guard retry > 0, frontFailed, let path = story.cardArtworkPath else { return }
+            await loadFront(path)
         }
         .task(id: "\(story.id)/\(story.cardBackArtworkPath ?? "")/\(showingBack)/\(retry)") {
-            guard showingBack, backSnapshot == nil, let path = story.cardBackArtworkPath else { return }
+            guard (showingBack || (retry > 0 && backFailed)), backSnapshot == nil, let path = story.cardBackArtworkPath else { return }
+            backFailed = false
             do {
                 let back = try await loadPostcardImage(path)
                 try Task.checkCancellation()
                 backSnapshot = back
-            } catch { if !Task.isCancelled { failed = true } }
+            } catch { if !Task.isCancelled { backFailed = true } }
         }
+    }
+
+    private func loadFront(_ path: String) async {
+        frontFailed = false
+        do {
+            let image = try await loadPostcardImage(path)
+            try Task.checkCancellation()
+            guard path == story.cardArtworkPath else { return }
+            if OiPostcardSnapshot.isPostcard(image) {
+                colors = (OiPostcardSnapshot.color(image, x: 0.05, y: 0.10) ?? 0xE8EECF,
+                          OiPostcardSnapshot.color(image, x: 0.95, y: 0.90) ?? 0xD5DBC6)
+                backgroundStyle = OiPostcardBackgroundMetadata.style(for: image)
+                snapshot = image
+            }
+            artworkResolved = true
+        } catch { if !Task.isCancelled { frontFailed = true } }
     }
 }
 

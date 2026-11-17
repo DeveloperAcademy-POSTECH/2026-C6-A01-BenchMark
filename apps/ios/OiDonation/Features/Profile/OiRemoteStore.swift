@@ -1652,11 +1652,21 @@ extension OiRemoteStore: CampusBuildingNoteServing {
         // Public-role reads never reveal deleted/restricted content, even to operators.
         return try await api.buildingNotes(building: building, before: before)
     }
+    func prepareBuildingNote(id: UUID, building: String, body: String, owner: UUID) async throws -> UUID {
+        guard account?.id == owner, canWriteBuildingNote else { throw OiServiceError.accountChanged }
+        return try await drafts.prepareBuildingNote(id: id, building: building, body: body, owner: owner)
+    }
+
     func postBuildingNote(id: UUID, building: String, body: String) async throws -> CampusBuildingNote {
-        guard canWriteBuildingNote else { throw OiServiceError.signInRequired }
-        return try await withCardRequestSession { api, token in
+        guard let owner = account?.id, canWriteBuildingNote else { throw OiServiceError.signInRequired }
+        let receipt = try await withCardRequestSession { api, token in
             try await api.postBuildingNote(id: id, building: building, body: body, token: token)
         }
+        guard !Task.isCancelled, account?.id == owner else { throw OiServiceError.accountChanged }
+        if receipt.id == id, receipt.authorId == owner, receipt.buildingId == building, receipt.body == body {
+            try await drafts.clearBuildingNote(id: id, building: building, owner: owner)
+        }
+        return receipt
     }
     func deleteBuildingNote(id: UUID) async throws {
         try await withCardRequestSession { api, token in try await api.deleteBuildingNote(id: id, token: token) }

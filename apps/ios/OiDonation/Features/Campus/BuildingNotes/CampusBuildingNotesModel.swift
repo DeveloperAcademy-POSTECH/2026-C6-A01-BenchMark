@@ -43,8 +43,13 @@ struct CampusBuildingNoteReport: Decodable, Identifiable {
     var buildingNoteAccountID: UUID? { get }
     var canWriteBuildingNote: Bool { get }
     func buildingNotes(building: String, before: CampusBuildingNote?) async throws -> [CampusBuildingNote]
+    func prepareBuildingNote(id: UUID, building: String, body: String, owner: UUID) async throws -> UUID
     func postBuildingNote(id: UUID, building: String, body: String) async throws -> CampusBuildingNote
     func deleteBuildingNote(id: UUID) async throws
+}
+
+extension CampusBuildingNoteServing {
+    func prepareBuildingNote(id: UUID, building: String, body: String, owner: UUID) async throws -> UUID { id }
 }
 
 @MainActor @Observable final class CampusBuildingNotesModel {
@@ -58,6 +63,7 @@ struct CampusBuildingNoteReport: Decodable, Identifiable {
     private(set) var hasMore = false
     private(set) var hasLoadedOlderNotes = false
     private(set) var error: String?
+    private(set) var failedSend = false
     private(set) var sentID: UUID?
     var text = ""
     private var generation = UUID()
@@ -84,6 +90,7 @@ struct CampusBuildingNoteReport: Decodable, Identifiable {
         if owner != service.buildingNoteAccountID {
             text = ""; pending = nil; sentID = nil; notes = []; cursor = nil; hasLoaded = false; hasMore = false
             hasLoadedOlderNotes = false
+            failedSend = false; error = nil
         }
         owner = service.buildingNoteAccountID
     }
@@ -91,7 +98,8 @@ struct CampusBuildingNoteReport: Decodable, Identifiable {
     func load(older: Bool = false) async {
         guard !loading, !older || hasMore else { return }
         let request = generation, account = service.buildingNoteAccountID, revision = contentRevision
-        loading = true; error = nil
+        loading = true
+        if !failedSend { error = nil }
         defer { if request == generation { loading = false } }
         do {
             let page = try await service.buildingNotes(building: buildingID, before: older ? cursor : nil)
@@ -115,22 +123,26 @@ struct CampusBuildingNoteReport: Decodable, Identifiable {
         let request = generation, body = cleanedText
         // An uncertain network result reuses the same UUID; it cannot create two notes.
         if pending?.body != body { pending = (UUID(), body) }
-        guard let submission = pending else { return }
-        sending = true; error = nil
+        guard let pending else { return }
+        sending = true; error = nil; failedSend = false
         defer { if request == generation { sending = false } }
         do {
-            let receipt = try await service.postBuildingNote(id: submission.id, building: buildingID, body: body)
+            let id = try await service.prepareBuildingNote(id: pending.id, building: buildingID, body: body, owner: account)
+            guard request == generation, account == service.buildingNoteAccountID, !Task.isCancelled else { return }
+            self.pending = (id, body)
+            let receipt = try await service.postBuildingNote(id: id, building: buildingID, body: body)
             guard request == generation, account == service.buildingNoteAccountID,
-                  pending?.id == submission.id, !Task.isCancelled else { return }
-            guard receipt.id == submission.id, receipt.authorId == account,
+                  self.pending?.id == id, !Task.isCancelled else { return }
+            guard receipt.id == id, receipt.authorId == account,
                   receipt.buildingId == buildingID, receipt.body == body else { throw OiServiceError.conflict }
             contentRevision += 1
             notes.removeAll { $0.id == receipt.id }; notes.append(receipt)
             if cleanedText == body { text = "" }
-            pending = nil; sentID = receipt.id
+            self.pending = nil; sentID = receipt.id
         } catch {
             guard request == generation, account == service.buildingNoteAccountID,
-                  pending?.id == submission.id, !OiServiceFailure.isCancellation(error) else { return }
+                  !OiServiceFailure.isCancellation(error) else { return }
+            failedSend = true
             self.error = error.localizedDescription
         }
     }

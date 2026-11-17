@@ -29,6 +29,7 @@ struct HomeView: View {
     @State private var listIsAtTop = true
     /// Live vertical drag of the region list: negative grows it, positive pulls it down (#395).
     @State private var listDrag: CGFloat = 0
+    @State private var listBottomInset: CGFloat = 0
     @State private var showingEducationDistrict = false
     @State private var selectedBuilding: CampusBuildingTarget?
     @State private var loadedAuthoredSource: AuthoredPlacementSource?
@@ -234,7 +235,7 @@ struct HomeView: View {
             scene.setOverviewStories(stories)
             if let region {
                 scene.showStoriesInCurrentArea(region, stories: searchResults == nil ? store.stories(in: region.id, sortedBy: sort) : stories)
-                if searchResults != nil { searchResults = scene.visibleStoryIDs() }
+                if searchResults != nil { searchResults = scene.visibleStoryIDs(bottomInset: listBottomInset) }
             }
         }
     }
@@ -413,7 +414,8 @@ struct HomeView: View {
         guard let closest = scene.nearestRegion() else { return }
         region = closest; expanded = false
         scene.showStoriesInCurrentArea(closest, stories: store.stories)
-        distances = scene.distances(); searchResults = scene.visibleStoryIDs()
+        distances = scene.distances()
+        searchResults = scene.visibleStoryIDs(bottomInset: listBottomInset)
     }
 
     private func openStory(_ id: String) {
@@ -538,6 +540,9 @@ struct HomeView: View {
                     .shadow(color: .black.opacity(0.25), radius: 20)
             }
             .offset(y: max(0, listDrag))
+            .onGeometryChange(for: CGFloat.self) { geometry in
+                geometry.size.height
+            } action: { listBottomInset = $0 + bottomInset }
             .simultaneousGesture(DragGesture(minimumDistance: 8)
                 .onChanged { gesture in
                     let dy = gesture.translation.height

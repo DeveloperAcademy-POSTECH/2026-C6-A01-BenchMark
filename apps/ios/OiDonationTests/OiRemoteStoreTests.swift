@@ -215,7 +215,8 @@ final class OiTestBackend {
             state.cardRequestListAttempts += 1
             status = state.cardRequestListAttempts <= failures ? 503 : 200
         }
-        else if path.hasSuffix("/rpc/oi_resolve_card_request") || path.hasSuffix("/rpc/oi_card_requests") { status = 404 }
+        else if path.hasSuffix("/rpc/oi_resolve_card_request") || path.hasSuffix("/rpc/oi_card_requests") ||
+            path.hasSuffix("/rpc/oi_card_request_page") { status = 404 }
         else if path == "/functions/v1/account-merge", body["action"] as? String == "confirm" {
             state.mergeConfirmCount += 1
             state.canonicalAccountID = rawOwner
@@ -2412,7 +2413,9 @@ final class OiRemoteStoreTests: XCTestCase {
         var controls = try XCTUnwrap(actions)
         XCTAssertEqual(controls.items().map(\.orderKey), originalOrder)
         controls.move(try XCTUnwrap(controls.items().first), 1)
-        try await waitFor("reorder saved") { try await savedDraft().photoOrder == reordered }
+        XCTAssertEqual(controls.items().map(\.orderKey), reordered)
+        let beforeCancel = try await savedDraft()
+        XCTAssertNil(beforeCancel.photoOrder)
         controls.cancel()
         try await waitFor("cancel restores order") {
             let draft = try await savedDraft()
@@ -2428,7 +2431,17 @@ final class OiRemoteStoreTests: XCTestCase {
         mountEditor()
         controls = try await reopen(expectedOrder: reordered)
         controls.move(.local(localB), -1)
-        try await waitFor("restored order moved") { try await savedDraft().photoOrder == [a, b, server] }
+        XCTAssertEqual(controls.items().map(\.orderKey), [a, b, server])
+        let beforeRelaunch = try await savedDraft()
+        XCTAssertEqual(beforeRelaunch.photoOrder, reordered)
+        mountEditor()
+        try await waitFor("unconfirmed edit rolled back on relaunch") {
+            guard let actions else { return false }
+            return actions.items().map(\.orderKey) == reordered
+        }
+        controls = try XCTUnwrap(actions)
+        controls.open()
+        try await waitFor("reopened cover") { photoEditorIsPresented() }
         controls.cancel()
         try await waitFor("cancel returns to saved order") {
             try await savedDraft().photoOrder == reordered && !photoEditorIsPresented()
@@ -2438,19 +2451,16 @@ final class OiRemoteStoreTests: XCTestCase {
         controls = try await reopen(expectedOrder: reordered)
         let didRotate = await controls.edit(localA, .rotateLeft)
         XCTAssertTrue(didRotate)
-        var rotated: UUID?
-        try await waitFor("rotation keeps position") {
-            let draft = try await savedDraft()
-            guard let id = draft.photos.first, id != localA, draft.photos == [id, localB] else { return false }
-            rotated = id
-            return draft.photoOrder == [id.uuidString, server, b]
+        guard case .local(let rotatedID) = try XCTUnwrap(controls.items().first) else {
+            return XCTFail("Expected the rotated device photo")
         }
-        let rotatedID = try XCTUnwrap(rotated)
+        XCTAssertNotEqual(rotatedID, localA)
+        XCTAssertEqual(controls.items().map(\.orderKey), [rotatedID.uuidString, server, b])
         controls.remove(.local(rotatedID))
-        try await waitFor("delete updates order") {
-            let draft = try await savedDraft()
-            return draft.photos == [localB] && draft.photoOrder == [server, b]
-        }
+        XCTAssertEqual(controls.items().map(\.orderKey), [server, b])
+        let unconfirmed = try await savedDraft()
+        XCTAssertEqual(unconfirmed.photos, [localA, localB])
+        XCTAssertEqual(unconfirmed.photoOrder, reordered)
         controls.done()
         try await waitFor("delete saved") { !photoEditorIsPresented() }
         let final = try await savedDraft()
