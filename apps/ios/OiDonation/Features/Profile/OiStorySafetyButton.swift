@@ -18,12 +18,26 @@ struct OiStorySafetyButton: View {
         if remote?.account?.id != authorID {
             Button("신고 및 차단") { showing = true }.frame(minHeight: 44)
                 .sheet(isPresented: $showing) {
-                    OiContentSafetyView(storyID: storyID, authorID: authorID, authorName: authorName,
-                        submit: reportAction, onBlock: onBlock)
+                    OiStorySafetySheet(storyID: storyID, authorID: authorID, authorName: authorName,
+                        onBlock: onBlock)
                 }
                 .onChange(of: remote?.account?.id) { _, _ in showing = false }
         }
     }
+}
+
+struct OiStorySafetySheet: View {
+    let storyID: UUID
+    let authorID: UUID
+    let authorName: String
+    var onBlock: () -> Void = {}
+    @Environment(OiRemoteStore.self) private var remote: OiRemoteStore?
+
+    var body: some View {
+        OiContentSafetyView(storyID: storyID, authorID: authorID, authorName: authorName,
+            submit: reportAction, onBlock: onBlock)
+    }
+
     private var reportAction: ((String, String) async throws -> String)? {
         guard let remote, let owner = remote.account?.id, !remote.needsReauthentication else { return nil }
         return { reason, detail in

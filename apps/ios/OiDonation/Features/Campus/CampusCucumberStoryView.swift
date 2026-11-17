@@ -15,7 +15,6 @@ struct CampusCucumberStoryView: View {
     let store: CampusStoryStore
     @State private var tab = Tab.related
     @Environment(OiRemoteStore.self) private var remote: OiRemoteStore?
-    @Environment(\.dismiss) private var dismiss
 
     init(story: CampusStory, store: CampusStoryStore, initialTab: Tab = .related) {
         self.story = story
@@ -55,13 +54,6 @@ struct CampusCucumberStoryView: View {
         .ignoresSafeArea(edges: [.top, .bottom])
         .toolbar(.visible, for: .navigationBar).toolbarBackground(.hidden, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline).toolbarRole(.editor)
-        .toolbar {
-            if let author = story.authorID, let id = UUID(uuidString: story.id) {
-                ToolbarItem(placement: .topBarTrailing) {
-                    OiStorySafetyButton(storyID: id, authorID: author, authorName: story.donor, onBlock: { dismiss() })
-                }
-            }
-        }
     }
 
     /// Cucumber on the left (`5441:16814`, 158×315 at 22,72) and the white information card (`5441:16812`).
