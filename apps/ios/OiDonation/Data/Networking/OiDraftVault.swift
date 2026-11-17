@@ -34,6 +34,7 @@ nonisolated struct OiLocalDraft: Codable, Identifiable, Equatable, Sendable {
         let coverType: StoryCard.CoverType?
     }
 
+    @MainActor
     func matchesCompletedReview(_ story: OiLiveStory) -> Bool {
         guard let reviewSubmission, contentFingerprint == reviewSubmission.fingerprint,
               draft.id == story.id, story.revision == draft.revision + 1,
