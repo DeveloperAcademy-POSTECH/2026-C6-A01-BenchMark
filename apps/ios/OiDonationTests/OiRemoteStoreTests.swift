@@ -2607,7 +2607,7 @@ final class OiRemoteStoreTests: XCTestCase {
 
     @MainActor func testInteractiveStoryListSwipeDeletion() async throws {
         guard ProcessInfo.processInfo.environment["OI_STORY_LIST_INTERACTION_CHECK"] == "1" else {
-            throw XCTSkip("Opt in: swipe left → Delete → Cancel → swipe left → Delete → confirm")
+            throw XCTSkip("Opt in: swipe left → 삭제 → 취소하기 → swipe left → 삭제 → 삭제하기")
         }
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
