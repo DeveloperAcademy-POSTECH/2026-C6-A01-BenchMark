@@ -97,8 +97,20 @@ import UIKit
         }
     }
 
-    func testPalmRejectsStadiumBackgroundAfterModeHasAlreadyChanged() async {
+    func testRetiredStadiumBackgroundCannotReactivateInPalmOrFloorMode() async throws {
         let camera = ARSessionController()
+        // Existing photo JSON still decodes, but cannot reinstall a compositor.
+        var legacy = ARCaptureSettings()
+        legacy.background = .stadium
+        legacy.directLight = false
+        legacy.intensity = 1400
+        camera.settings = try JSONDecoder().decode(ARCaptureSettings.self, from: JSONEncoder().encode(legacy))
+        camera.applySettings()
+        XCTAssertEqual(camera.settings.background, .original)
+        XCTAssertFalse(camera.settings.directLight, "Preserve explicitly saved lighting")
+        XCTAssertEqual(camera.settings.intensity, 1400)
+        XCTAssertNil(camera.view.renderCallbacks.prepareWithDevice)
+        XCTAssertNil(camera.view.renderCallbacks.postProcess)
         camera.settings.placementMode = .palm
         let previous = camera.settings
         camera.settings.background = .stadium
@@ -108,7 +120,7 @@ import UIKit
         let floor = camera.settings
         camera.settings.background = .stadium
         camera.update(from: floor)
-        XCTAssertEqual(camera.settings.background, .stadium)
+        XCTAssertEqual(camera.settings.background, .original)
         camera.stop()
     }
 

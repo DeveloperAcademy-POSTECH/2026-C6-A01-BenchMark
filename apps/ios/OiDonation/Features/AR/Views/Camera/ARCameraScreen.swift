@@ -94,11 +94,6 @@ struct ARCameraScreen: View {
                                 .frame(minWidth: 44, minHeight: 44)
                                 .contentShape(Rectangle())
                         }.accessibilityLabel("사진 비율 설정")
-                        Button { showPhotoSettings.toggle(); showAdjustments = false } label: {
-                            Image(systemName: "camera.filters")
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }.accessibilityLabel("필터 설정")
                     }
                     .disabled(video.busy || controller.capturing || model.countdown != nil || controller.recoveryIssue != nil)
                     if controller.usesGeographicPlacement {
@@ -142,10 +137,7 @@ struct ARCameraScreen: View {
             .overlay(alignment: .bottom) {
                 if showPhotoSettings {
                     ScrollView {
-                        ARPhotoSettingsPanel(settings: $controller.settings, allowsStadiumBackground: !controller.isPalmMode, reselectBench: {
-                            controller.selectBenchAgain()
-                            showPhotoSettings = false
-                        }) { showPhotoSettings = false }
+                        ARPhotoSettingsPanel(settings: $controller.settings) { showPhotoSettings = false }
                     }
                         .scrollIndicators(.hidden)
                         .defaultScrollAnchor(.bottom, for: .alignment)
@@ -193,12 +185,6 @@ struct ARCameraScreen: View {
         .tint(.mint)
         .task { if !closeAfterResult { model.appear(in: scenePhase) } }
         .onChange(of: controller.settings) { old, _ in controller.update(from: old) }
-        .onChange(of: controller.settings.background) { _, background in
-            if background == .stadium { model.videoMode = false; showPhotoSettings = false }
-        }
-        .onChange(of: model.videoMode) { _, videoMode in
-            if videoMode { controller.settings.background = .original }
-        }
         .onChange(of: controller.settings.cameraExposure) { _, bias in
             guard let device = ARWorldTrackingConfiguration.configurableCaptureDeviceForPrimaryCamera else {
                 controller.errorMessage = "이 기기에서는 카메라 노출 조절을 지원하지 않습니다."

@@ -23,10 +23,10 @@ struct ARCaptureSettings: Codable, Equatable {
     var groundingShadow = true
     var peopleOcclusion = true
     var sceneOcclusion = false
-    var directLight = false
+    var directLight = true
     var azimuth: Float = 45
     var elevation: Float = 45
-    var intensity: Float = 1500
+    var intensity: Float = 850
 }
 
 enum ARManualPlacementMode: String, Codable, CaseIterable {
@@ -53,7 +53,7 @@ enum ARPhotoFilter: String, Codable, CaseIterable {
     }
 }
 
-// Static background; no camera images leave the device.
+// Retain the retired stadium value so existing photo metadata remains decodable.
 enum ARCameraBackground: String, Codable, CaseIterable {
     case original = "원본", stadium = "경기장"
 }

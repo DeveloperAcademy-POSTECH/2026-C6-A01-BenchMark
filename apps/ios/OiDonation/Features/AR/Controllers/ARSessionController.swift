@@ -1,6 +1,5 @@
 import ARKit
 import AVFoundation
-import Metal
 import Observation
 import QuartzCore
 import RealityKit
@@ -8,15 +7,6 @@ import SwiftUI
 
 @MainActor @Observable
 final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognizerDelegate {
-    var backgroundMessage = ""
-    var backgroundReady = false
-    var selectingBench = false
-    @ObservationIgnored private lazy var background = ARStadiumBackgroundService(
-        background: UIImage(named: "StadiumBackground")?.cgImage) { [weak self] message, ready in
-            self?.backgroundMessage = message
-            self?.backgroundReady = ready
-            if ready { self?.selectingBench = false }
-        }
     var photoViewport = CGRect.zero
     let view = RealityKit.ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
     let animation = ARAnimationController()
@@ -75,8 +65,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     private var characterRoot: Entity?
     private var loadedCharacter: ARCharacter?
     var canCapture: Bool {
-        (placed || settings.background == .stadium)
-            && (settings.background == .original || backgroundReady)
+        placed
             && ready && !loading && !capturing && !videoRecording
             && loadedCharacter == settings.character
             && (!usesGeographicPlacement || geographicReady)
@@ -113,10 +102,6 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         view.addGestureRecognizer(pan)
         view.addGestureRecognizer(pinch)
         view.addGestureRecognizer(tap)
-        let compositor = background
-        view.renderCallbacks.prepareWithDevice = { compositor.prepare(device: $0) }
-        view.renderCallbacks.postProcess = { compositor.render($0) }
-        if let device = MTLCreateSystemDefaultDevice() { compositor.prepare(device: device) }
         lighting.install(in: view)
         applySettings()
     }
@@ -173,7 +158,6 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         animation.setSceneActive(true)
         if usesGeographicPlacement { locationProvider?.start() }
         configureSession(resetTracking: attempt.requiresTrackingReset || usesGeographicPlacement)
-        updateBackground()
         if subject != nil || loadedCharacter != settings.character { loadCharacter() }
     }
 
@@ -210,8 +194,6 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         loadTask = nil
         loading = false
         view.session.pause()
-        background.setEnabled(false)
-        backgroundReady = false
         ready = false
     }
 
@@ -285,8 +267,8 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     func update(from previous: ARCaptureSettings) {
         // Only a selected campus cucumber has a saved geographic target.
         if placementMode == .location && !canUseLocationMode { settings.placementMode = .palm }
-        // A stadium compositor has no live palm image to track or capture.
-        if isPalmMode { settings.background = .original }
+        // Stadium mode is retired; old photo settings must use the live camera.
+        settings.background = .original
         if previous.placementMode != settings.placementMode {
             locationProvider?.stop()
             resetPlacement()
@@ -301,7 +283,6 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         }
         if previous.character != settings.character { loadCharacter() }
         if previous.peopleOcclusion != settings.peopleOcclusion || previous.sceneOcclusion != settings.sceneOcclusion { configureSession() }
-        if previous.background != settings.background { updateBackground() }
         applySettings()
     }
 
@@ -315,11 +296,12 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     }
 
     func applySettings() {
+        settings.background = .original
         let optionalEffects: RealityKit.ARView.RenderOptions = [.disableMotionBlur, .disableDepthOfField, .disableCameraGrain]
         if !usesGeographicPlacement { view.renderOptions.formUnion(optionalEffects) }
         else { view.renderOptions.subtract(optionalEffects) }
         var lightingSettings = settings
-        if isPalmMode || settings.background == .stadium {
+        if isPalmMode {
             // Depth must identify virtual geometry, not reconstructed ground.
             lightingSettings.groundingShadow = false
             lightingSettings.sceneOcclusion = false
@@ -328,19 +310,6 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         characterRoot?.scale = SIMD3(repeating: isPalmMode ? (settings.palmHeight ?? 0.065) : settings.height)
         characterRoot?.orientation = simd_quatf(angle: (isPalmMode ? (settings.palmRotation ?? 0) : settings.rotation) * .pi / 180, axis: [0, 1, 0])
         characterRoot?.position.y = isPalmMode ? 0 : settings.floorOffset
-    }
-
-    private func updateBackground() {
-        backgroundReady = false
-        selectingBench = settings.background == .stadium
-        background.setEnabled(ready && !isPalmMode && settings.background == .stadium)
-    }
-
-    func selectBenchAgain() {
-        guard ready, !capturing, !videoRecording else { return }
-        selectingBench = true
-        backgroundReady = false
-        background.reselectBench()
     }
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
@@ -353,9 +322,6 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
             lastGeographicCheck = frame.timestamp
             updateGeographicPlacement(frame)
         }
-        guard ready, settings.background == .stadium else { return }
-        background.submit(frame, viewport: view.bounds.size,
-                          orientation: view.window?.windowScene?.effectiveGeometry.interfaceOrientation ?? .portrait)
     }
 
     private func invalidatePalm() {
@@ -582,12 +548,6 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     }
 
     @objc private func tapped(_ gesture: UITapGestureRecognizer) {
-        if settings.background == .stadium && selectingBench {
-            guard ready, !capturing, !videoRecording, view.bounds.width > 0, view.bounds.height > 0 else { return }
-            let point = gesture.location(in: view)
-            background.selectBench(at: CGPoint(x: point.x / view.bounds.width, y: point.y / view.bounds.height))
-            return
-        }
         guard !usesGeographicPlacement, !isPalmMode, ready, !loading, !locked, !capturing, !videoRecording, let root = characterRoot else { return }
         guard let hit = view.raycast(from: gesture.location(in: view), allowing: .existingPlaneGeometry, alignment: .horizontal).first else {
             message = "아직 바닥을 찾지 못했습니다. 바닥을 여러 각도에서 비춰 주세요."
@@ -726,8 +686,6 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         loadTask?.cancel()
         loadTask = nil
         loading = false
-        background.setEnabled(false)
-        backgroundReady = false
         ready = false
         showRecovery(.interrupted)
     }
@@ -739,7 +697,6 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         animation.setSceneActive(true)
         if usesGeographicPlacement { locationProvider?.start() }
         configureSession(resetTracking: usesGeographicPlacement)
-        updateBackground()
         if subject != nil || loadedCharacter != settings.character { loadCharacter() }
     }
 
@@ -754,25 +711,14 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         loadTask = nil
         loading = false
         view.session.pause()
-        background.setEnabled(false)
-        backgroundReady = false
         showRecovery(.sessionFailure(error.localizedDescription))
     }
 
     func capture() {
         guard canCapture, let frame = view.session.currentFrame else { return }
-        if settings.background == .stadium && !background.hasFreshMask {
-            errorMessage = "벤치를 다시 인식한 후 촬영해 주세요."
-            return
-        }
         capturing = true
         photoCapture.capture(view: view, viewport: photoViewport, frame: frame, anchor: anchor, settings: settings,
-                             peopleSupported: peopleSupported, meshSupported: meshSupported,
-                             snapshot: settings.background == .stadium ? { [background] completion in
-                                 background.captureNextFrame { image in
-                                     Task { @MainActor in completion(image.map { UIImage(cgImage: $0) }) }
-                                 }
-                             } : nil) { [weak self] outcome in
+                             peopleSupported: peopleSupported, meshSupported: meshSupported) { [weak self] outcome in
             guard let self else { return }
             self.capturing = false
             switch outcome {
