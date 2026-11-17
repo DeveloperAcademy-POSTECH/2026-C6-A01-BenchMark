@@ -223,9 +223,10 @@ struct OiCardCustomizationStep: View {
         OiCardPlacementEditor(image: customization.showsCharacter ? portrait : design.backgroundPhoto.flatMap(UIImage.init(data:)),
             placement: customization.showsCharacter ? designBinding(\.characterPlacement) : designBinding(\.backgroundPlacement),
             frameHeight: height, compact: true, minimalChrome: true,
-            backdropColor: customization.showsCharacter && design.usesCharacterBackdrop
+            backdropColor: design.postcardLayoutVersion != 2 && customization.showsCharacter && design.usesCharacterBackdrop
                 ? OiPostcardCharacterBackdrop.color(for: design) : nil,
             backdropOpacity: OiCardOpacity.normalized(design.characterBackdropOpacity),
+            postcardPaper: design.postcardLayoutVersion == 2 ? design : nil,
             look: customization.showsCharacter ? customization.portraitLook : nil,
             seed: customization.seedSnapshot,
             orientation: customization.showsCharacter && customization.portraitLook != nil ? $orientation : nil,
@@ -338,7 +339,6 @@ struct OiCardCustomizationStep: View {
     }
     var backgroundEditor: some View {
         VStack(alignment: .leading, spacing: 16) {
-            characterBackdropControls
             if customBackground { customColors }
             else {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 16) {
@@ -382,40 +382,6 @@ struct OiCardCustomizationStep: View {
         .frame(height: 36)
         .animation(OiCreationMotion.screen, value: customBackground)
         .accessibilityIdentifier("oi.postcard.background.mode")
-    }
-    private var characterBackdropControls: some View {
-        let color = OiPostcardCharacterBackdrop.color(for: design)
-        let available = customization.showsCharacter && !showingBack
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                Toggle(isOn: Binding(get: { design.usesCharacterBackdrop }, set: { enabled in
-                    change { $0.characterBackdropEnabled = enabled }
-                })) {
-                    Text("오이 뒤 배경 넣기").font(CampusStyle.medium(14))
-                }.disabled(!available)
-                    .accessibilityIdentifier("oi.card.character.backdrop.toggle")
-                OiPostcardColorRing(title: "오이 뒤 배경", color: Binding(
-                    get: { OiPostcardCharacterBackdrop.color(for: design) },
-                    set: { color in change { $0.characterBackdropColor = color } }), pickerHeight: 300,
-                    onReset: { change { $0.characterBackdropColor = nil; $0.characterBackdropOpacity = nil } },
-                    opacity: opacityBinding(\.characterBackdropOpacity))
-                    .overlay { Circle().fill(Color(oiRGB: color)).opacity(OiCardOpacity.normalized(design.characterBackdropOpacity))
-                        .frame(width: 18, height: 18).allowsHitTesting(false) }
-                    .disabled(!available || !design.usesCharacterBackdrop)
-                    .opacity(available && design.usesCharacterBackdrop ? 1 : 0.4)
-                    .accessibilityIdentifier("oi.card.character.backdrop.color")
-            }
-            HStack(spacing: 8) {
-                Text(String(format: "#%06X · %d%%", color, Int((OiCardOpacity.normalized(design.characterBackdropOpacity) * 100).rounded()))).monospacedDigit()
-                Spacer(minLength: 0)
-                if design.characterBackdropColor != nil || design.characterBackdropOpacity != nil {
-                    Button("자동 색상") { change { $0.characterBackdropColor = nil; $0.characterBackdropOpacity = nil } }
-                        .underline().frame(minHeight: 32)
-                        .disabled(!available || !design.usesCharacterBackdrop)
-                        .accessibilityIdentifier("oi.card.character.backdrop.automatic")
-                }
-            }.font(CampusStyle.body(11)).foregroundStyle(.secondary)
-        }
     }
     private var customColors: some View {
         GeometryReader { proxy in

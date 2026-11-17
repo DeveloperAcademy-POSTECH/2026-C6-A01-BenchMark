@@ -622,7 +622,8 @@ nonisolated struct OiCardDesign: Codable, Equatable, Sendable {
     var postcardStamp: Int? = nil
     var postcardLogo: String? = nil
     var effectivePostcardLogo: String { postcardLogo == "black" ? "black" : "white" }
-    /// Nil keeps legacy automatic backdrops and leaves new layouts transparent.
+    /// Legacy backdrop settings remain decodable. Layout 2 now always shades the
+    /// image window over its paper and does not consult these saved overrides.
     var characterBackdropEnabled: Bool? = nil
     /// Nil follows the paper's automatic companion color; an explicit RGB is kept when hidden.
     var characterBackdropColor: UInt32? = nil
