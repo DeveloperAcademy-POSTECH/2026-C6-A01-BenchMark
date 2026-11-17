@@ -293,7 +293,7 @@ struct MYWorkshopContent: View {
     }
 }
 
-private struct MYWorkshopCardArtwork: View {
+struct MYWorkshopCardArtwork: View {
     let card: MYCard
     let remote: OiRemoteStore?
 

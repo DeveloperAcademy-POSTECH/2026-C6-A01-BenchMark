@@ -13,6 +13,7 @@ extension EnvironmentValues {
 
 struct OiStoryListScreen: View {
     let remote: OiRemoteStore
+    var continuation: OiStoryContinuationIntent? = nil
 
     @State private var localDrafts: [OiLocalDraft] = []
     @State private var unchangedReviewedDraftIDs: Set<UUID> = []
@@ -190,7 +191,7 @@ struct OiStoryListScreen: View {
             OiStoryManagement(remote: remote, storyID: storyID)
         }
         .navigationDestination(isPresented: $showingConsent) {
-            OiStoryCreationConsentFlow(remote: remote, onFinish: { showingConsent = false })
+            OiStoryCreationConsentFlow(remote: remote, continuation: continuation, onFinish: { showingConsent = false })
         }
 
     }

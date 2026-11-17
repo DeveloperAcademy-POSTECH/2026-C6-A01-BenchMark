@@ -30,6 +30,24 @@ struct MYFarmerArtwork: View {
     }
 }
 
+/// A public profile can reference a bundled farmer. Wardrobe choices are account-private.
+struct MYPublicFarmerArtwork: View {
+    let asset: String?
+
+    var body: some View {
+        Group {
+            if let asset, let image = UIImage(named: asset) {
+                Image(uiImage: image).resizable().scaledToFit()
+            } else {
+                Image(systemName: "person.crop.circle").resizable().scaledToFit()
+                    .foregroundStyle(CampusStyle.green)
+                    .padding(24)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 struct MYFarmerPresetArtwork: View {
     let appearance: MYFarmerAppearance
 
