@@ -273,11 +273,18 @@ struct OiCardCustomizationStep: View {
                     HStack(spacing: 12) { authorChoices }
                 }
             }
-            if style.authorMode == "academic", academicAuthor.isEmpty {
-                Text("계정에 공개할 학과와 학번을 등록하면 선택할 수 있어요.")
-                    .font(.caption).foregroundStyle(.secondary)
+            if donorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || academicAuthor.isEmpty {
+                Text("MY → 설정 → 기부자 검색 정보에서 이름과 학과·학번을 등록하면 ‘실명’과 ‘학과, 학번만’을 선택할 수 있어요.")
+                    .font(Self.hintFont).foregroundStyle(Self.hintColor).fixedSize(horizontal: false, vertical: true)
             }
         }.foregroundStyle(.black)
+    }
+    /// The mode the card really shows: 실명 and 학과·학번 fall back to 익명 until the account registers that information.
+    private var effectiveAuthorMode: String {
+        let mode = style.authorMode ?? "name"
+        if mode == "name" && donorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "anonymous" }
+        if mode == "academic" && academicAuthor.isEmpty { return "anonymous" }
+        return mode
     }
     @ViewBuilder private var authorChoices: some View {
         authorChoice("익명", mode: "anonymous")
@@ -299,10 +306,11 @@ struct OiCardCustomizationStep: View {
         }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
     }
     private func authorChoice(_ title: String, mode: String) -> some View {
-        choice(title, selected: (style.authorMode ?? "name") == mode) {
+        choice(title, selected: effectiveAuthorMode == mode) {
             updateBackground { $0.authorMode = mode }
             change { $0.postcardAcademicAuthor = mode == "academic" ? academicAuthor : nil }
-        }.disabled(mode == "academic" && academicAuthor.isEmpty || mode == "name" && donorName.isEmpty)
+        }.disabled(mode == "academic" && academicAuthor.isEmpty
+                || mode == "name" && donorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .accessibilityIdentifier("oi.card.author.\(mode)")
     }
     private func prepareBackground() {
@@ -565,8 +573,16 @@ struct OiCardCustomizationStep: View {
         portraitRestoreTask?.cancel(); portraitAcceptTask?.cancel()
         portrait = nil
         guard let key = portraitKey, design.portraitKey == key, let data = design.portraitPNG else {
-            restoringPortrait = false
             portrait = customization.wardrobe == nil ? UIImage(named: draft.cucumberAsset) : nil
+            guard let key = portraitKey else { restoringPortrait = false; return }
+            // STEP 3 may already have rendered this exact portrait in the background.
+            restoringPortrait = true
+            portraitRestoreTask = Task { @MainActor in
+                defer { if !Task.isCancelled { restoringPortrait = false } }
+                guard let data = await OiPortraitImages.shared.cachedData(key: key),
+                      !Task.isCancelled, portraitKey == key else { return }
+                acceptPortrait(data, key)
+            }
             return
         }
         // Wait for validation before mounting a renderer; a saved valid PNG needs no 3D scene.

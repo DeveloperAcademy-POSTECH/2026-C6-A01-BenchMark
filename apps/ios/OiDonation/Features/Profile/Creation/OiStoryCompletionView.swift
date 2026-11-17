@@ -15,6 +15,8 @@ struct OiStoryCompletionView: View {
     let donorName: String
     let location: String
     let onDone: () -> Void
+    /// The trimmed cucumber prepared before this screen appears, so it never pops in afterwards.
+    var initialFigure: UIImage? = nil
     @State private var showingBack = false
     /// The card portrait keeps transparent margins; trim them so the figure fills Figma's 269pt height.
     @State private var figure: UIImage?
@@ -86,11 +88,9 @@ struct OiStoryCompletionView: View {
         }
         .frame(width: 333, height: 277, alignment: .topLeading)
         .task(id: figureSourceKey) {
-            let data = customization.showsCharacter ? design.portraitPNG : nil
-            let asset = draft.cucumberAsset == "OiCats" ? "OiCatsPortrait" : draft.cucumberAsset
-            let source = data.flatMap(UIImage.init(data:)) ?? UIImage(named: asset)
-            guard let source else { figure = nil; return }
-            figure = await Task.detached(priority: .userInitiated) { OiOpaqueImageTrim.trimmed(source) }.value
+            // The editor already prepared the first figure; only a changed source needs trimming again.
+            if figure == nil, initialFigure != nil { return }
+            figure = await Self.figureImage(draft: draft, customization: customization)
         }
     }
 
@@ -98,8 +98,17 @@ struct OiStoryCompletionView: View {
         "\(customization.showsCharacter)/\(design.portraitKey ?? "")/\(design.portraitPNG?.count ?? 0)/\(draft.cucumberAsset)"
     }
 
+    /// The card portrait with its transparent margins trimmed, ready to draw at Figma's 269pt height.
+    static func figureImage(draft: OiStoryDraft, customization: OiDraftCustomization) async -> UIImage? {
+        let design = customization.card ?? OiCardDesign()
+        let data = customization.showsCharacter ? design.portraitPNG : nil
+        let asset = draft.cucumberAsset == "OiCats" ? "OiCatsPortrait" : draft.cucumberAsset
+        guard let source = data.flatMap(UIImage.init(data:)) ?? UIImage(named: asset) else { return nil }
+        return await Task.detached(priority: .userInitiated) { OiOpaqueImageTrim.trimmed(source) }.value
+    }
+
     @ViewBuilder private var cucumber: some View {
-        if let figure {
+        if let figure = figure ?? initialFigure {
             Image(uiImage: figure).resizable().scaledToFit().accessibilityLabel("내가 꾸민 오이")
         } else {
             Color.clear

@@ -45,6 +45,9 @@ struct OiStoryEditor: View {
     @State private var focusedStoryField: OiStoryWritingStep.Field?
     /// STEP 2 shows missing items under the buttons only after Next is tapped (#373).
     @State private var showingStoryMissing = false
+    @State private var completionFigure: UIImage?
+    /// The card portrait rendered in the background once STEP 3 is finished (#386).
+    @State private var portraitPrefetch: (look: OiWardrobeLook, key: String, orientation: OiCardOrientation)?
     @State private var customization = OiDraftCustomization()
     @State private var personalPlacement: OiPersonalPlacement?
     @State private var removedMediaPaths: [String] = []
@@ -190,7 +193,7 @@ struct OiStoryEditor: View {
     private var cardCompletion: some View {
         OiStoryCompletionView(draft: draft, customization: customization,
             donorName: remote.profile?.publicName ?? "", location: completionLocation,
-            onDone: { finish() })
+            onDone: { finish() }, initialFigure: completionFigure)
     }
 
     private var placementPreview: some View {
@@ -315,6 +318,9 @@ struct OiStoryEditor: View {
 
     private var presentedContent: some View {
         editorLayout
+            .background(alignment: .topLeading) { portraitPrefetchSurface }
+            .onChange(of: step) { _, _ in updatePortraitPrefetch() }
+            .onChange(of: customization.wardrobe) { _, _ in portraitPrefetch = nil }
             .confirmationDialog("현재 입력을 어떻게 할까요?", isPresented: $choosingExit, titleVisibility: .visible) {
                 Button("임시저장 후 나가기") { Task { if await persist() { dismiss() } } }
                 Button(personalPlacement == nil ? "기기 초안 삭제" : "내 지도 배치와 기기 초안 삭제", role: .destructive) {
@@ -565,12 +571,33 @@ struct OiStoryEditor: View {
         defer { saving = false }
         await pendingSave?.value
         guard await persist() else { return }
-        Self.withoutAnimation { showingCardCompletion = true }
+        // Prepare the trimmed cucumber first and fade the summary in, so it neither pops in nor cuts in (#386).
+        completionFigure = await OiStoryCompletionView.figureImage(draft: draft, customization: customization)
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.28)) { showingCardCompletion = true }
     }
 
     private func toggleCustomizationReady() {
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
             customizationReady.toggle()
+        }
+        updatePortraitPrefetch()
+    }
+
+    /// Once STEP 3 is finished the card portrait is rendered behind the screen, so STEP 4 opens with it ready.
+    private func updatePortraitPrefetch() {
+        guard step == .cucumber, customizationReady, let look = customization.wardrobe else { portraitPrefetch = nil; return }
+        let orientation = (customization.card?.characterOrientation ?? OiCardOrientation()).normalized
+        let key = OiCardPortrait.key(for: look) + "-angle-" + orientation.cacheIdentity
+        portraitPrefetch = customization.card?.portraitKey == key ? nil : (look, key, orientation)
+    }
+
+    @ViewBuilder private var portraitPrefetchSurface: some View {
+        if step == .cucumber, let prefetch = portraitPrefetch {
+            // Same size as STEP 4's capture surface; invisible and never touchable.
+            OiCardPortraitCapture(look: prefetch.look, cacheKey: prefetch.key, orientation: prefetch.orientation,
+                                  onCapture: { _, _ in portraitPrefetch = nil })
+                .id(prefetch.key).frame(width: 217, height: 308)
+                .opacity(0.001).allowsHitTesting(false).accessibilityHidden(true)
         }
     }
 

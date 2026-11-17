@@ -5403,3 +5403,26 @@ extension OiRemoteStoreTests {
         XCTAssertEqual(images.first?.cgImage?.height, images.last?.cgImage?.height)
     }
 }
+
+
+/// #386: the portrait rendered while STEP 3 was open is handed to STEP 4 through the shared cache.
+final class OiPortraitHandoffTests: XCTestCase {
+    func testCachedDataIsReturnedOnlyForTheRenderedKey() async throws {
+        let format = UIGraphicsImageRendererFormat(); format.opaque = false; format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 40), format: format).image { context in
+            UIColor.green.setFill(); context.cgContext.fillEllipse(in: CGRect(x: 10, y: 10, width: 20, height: 20))
+        }
+        let data = try XCTUnwrap(image.pngData())
+        let cache = OiPortraitImages()
+        let encoded = await cache.encode(image, key: "rendered-key")
+        XCTAssertNotNil(encoded)
+        let hit = await cache.cachedData(key: "rendered-key")
+        let miss = await cache.cachedData(key: "another-key")
+        XCTAssertNotNil(hit)
+        XCTAssertNil(miss)
+        let restored = await cache.restore(data, key: "restored-key")
+        XCTAssertNotNil(restored)
+        let afterRestore = await cache.cachedData(key: "restored-key")
+        XCTAssertEqual(afterRestore, data)
+    }
+}
