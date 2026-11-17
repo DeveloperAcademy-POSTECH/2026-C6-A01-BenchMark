@@ -52,7 +52,9 @@ struct OiDraftCardPreview: View {
                 if customization.showsCharacter {
                     if let image = portrait ?? design.portraitPNG.flatMap(UIImage.init(data:)) {
                         OiCardPlacedImage(image: image, placement: design.characterPlacement)
-                    } else {
+                    } else if customization.wardrobe == nil {
+                        // Only a draft without a custom look falls back to its preset. A styled cucumber
+                        // that is still being rendered shows nothing instead of the unrelated cat (#386).
                         OiCreationCharacterImage(asset: draft.cucumberAsset)
                     }
                 }

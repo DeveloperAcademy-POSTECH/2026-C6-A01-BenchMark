@@ -133,6 +133,9 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(OiPostcardAuthor.text(mode: "academic", name: "이름", academic: "컴퓨터공학과 23학번"), "컴퓨터공학과 23학번")
         XCTAssertEqual(OiPostcardAuthor.text(mode: "name", name: "공개 이름", academic: ""), "공개 이름")
         XCTAssertEqual(OiPostcardAuthor.text(mode: "unknown", name: "비공개 이름", academic: ""), "익명")
+        // #386: no registered public name never leaves the author blank.
+        XCTAssertEqual(OiPostcardAuthor.text(mode: nil, name: "", academic: ""), "익명")
+        XCTAssertEqual(OiPostcardAuthor.text(mode: "name", name: "  ", academic: ""), "익명")
         value.card?.postcardBackground = .init(color: 0xFF0000, fill: .gradient, middleColor: 0x00FF00, endColor: 0x0000FF)
         let gradient = try OiDraftCardPreview(draft: Self.draft, customization: value).publication(colorScheme: .light)
         let gradientImage = try XCTUnwrap(UIImage(data: gradient.png))
@@ -1716,6 +1719,19 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
     }
 
     /// STEP 4 card 내용 tab (Figma `5919:12077`, #377).
+    /// #386: while a styled cucumber is still being rendered, the card front must not show the preset cat.
+    func testCardFrontHasNoPlaceholderWhileStyledCucumberRenders() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        var customization = Self.customization
+        customization.wardrobe = OiWardrobeLook()
+        customization.showsCharacter = true
+        let view = OiDraftCardPreview(draft: Self.draft, customization: customization, portrait: nil)
+            .frame(width: 362, height: 502).padding(20)
+        try await capture(view, name: "card-front-no-placeholder", variant: variants[0],
+            defaults: fixture.defaults, delay: .milliseconds(600), attach: true)
+    }
+
     func testCardContentTabCapture() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }

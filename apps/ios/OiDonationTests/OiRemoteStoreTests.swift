@@ -2146,7 +2146,12 @@ final class OiRemoteStoreTests: XCTestCase {
         let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
         window.rootViewController = controller; window.isHidden = false
         defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
-        try await Task.sleep(for: .seconds(2))
+        try await Task.sleep(for: .seconds(4))
+        let card = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let cardAttachment = XCTAttachment(image: card); cardAttachment.name = "card-step-content"
+        cardAttachment.lifetime = .keepAlways; add(cardAttachment)
         XCTAssertFalse(try XCTUnwrap(actions).isCompletion())
         try XCTUnwrap(actions).finish()
         try await Task.sleep(for: .seconds(1))
@@ -5665,6 +5670,28 @@ extension OiRemoteStoreTests {
         for image in images { XCTAssertTrue(OiPortraitMatte.hasTransparentBackground(image)) }
         XCTAssertEqual(images.first?.cgImage?.width, images.last?.cgImage?.width)
         XCTAssertEqual(images.first?.cgImage?.height, images.last?.cgImage?.height)
+    }
+}
+
+/// #386: the portrait rendered while STEP 3 was open is handed to STEP 4 through the shared cache.
+final class OiPortraitHandoffTests: XCTestCase {
+    func testCachedDataIsReturnedOnlyForTheRenderedKey() async throws {
+        let format = UIGraphicsImageRendererFormat(); format.opaque = false; format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 40), format: format).image { context in
+            UIColor.green.setFill(); context.cgContext.fillEllipse(in: CGRect(x: 10, y: 10, width: 20, height: 20))
+        }
+        let data = try XCTUnwrap(image.pngData())
+        let cache = OiPortraitImages()
+        let encoded = await cache.encode(image, key: "rendered-key")
+        XCTAssertNotNil(encoded)
+        let hit = await cache.cachedData(key: "rendered-key")
+        let miss = await cache.cachedData(key: "another-key")
+        XCTAssertNotNil(hit)
+        XCTAssertNil(miss)
+        let restored = await cache.restore(data, key: "restored-key")
+        XCTAssertNotNil(restored)
+        let afterRestore = await cache.cachedData(key: "restored-key")
+        XCTAssertEqual(afterRestore, data)
     }
 }
 

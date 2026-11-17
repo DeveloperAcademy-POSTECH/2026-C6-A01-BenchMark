@@ -86,7 +86,8 @@ enum OiPostcardAuthor {
         switch mode {
         case "anonymous": "익명"
         case "academic": academic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "익명" : academic
-        case nil, "name": name
+        // A cucumber whose author has not registered a public name shows as anonymous, never as a blank (#386).
+        case nil, "name": name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "익명" : name
         default: "익명"
         }
     }
