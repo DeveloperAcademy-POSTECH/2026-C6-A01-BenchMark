@@ -4,7 +4,15 @@ import Foundation
 @MainActor
 final class ARCharacterController {
     func load(_ character: ARCharacter) async throws -> (root: Entity, model: Entity) {
-        let model = try await Entity(named: character.modelFilename)
+        // Static capture presets use separate optimized copies. Published outfits
+        // still use their original, user-authored model via ARCameraSubject.
+        let name = (character.modelFilename as NSString).deletingPathExtension
+        guard let url = Bundle.main.url(forResource: name, withExtension: "usdz", subdirectory: "ARModels")
+            ?? Bundle.main.url(forResource: name, withExtension: "usdz") else { throw CocoaError(.fileNoSuchFile) }
+        // Presets are static. Flatten their authored node transforms once at load
+        // time instead of maintaining an imported hierarchy during every frame.
+        // User-authored/animated subjects keep the Entity loader below.
+        let model = try await ModelEntity(contentsOf: url)
         return try normalize(model)
     }
 
@@ -32,7 +40,14 @@ final class ARCharacterController {
         let root = Entity()
         root.addChild(normalized)
         Self.enableGroundingShadows(on: model)
+        Self.disableSynchronization(on: root)
         return (root, model)
+    }
+
+    private static func disableSynchronization(on entity: Entity) {
+        // This capture scene never participates in a shared RealityKit session.
+        entity.synchronization = nil
+        for child in entity.children { disableSynchronization(on: child) }
     }
 
     private static func enableGroundingShadows(on entity: Entity) {

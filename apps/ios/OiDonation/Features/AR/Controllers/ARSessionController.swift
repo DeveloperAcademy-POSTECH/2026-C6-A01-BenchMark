@@ -1,6 +1,5 @@
 import ARKit
 import AVFoundation
-import Metal
 import Observation
 import QuartzCore
 import RealityKit
@@ -8,15 +7,6 @@ import SwiftUI
 
 @MainActor @Observable
 final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognizerDelegate {
-    var backgroundMessage = ""
-    var backgroundReady = false
-    var selectingBench = false
-    @ObservationIgnored private lazy var background = ARStadiumBackgroundService(
-        background: UIImage(named: "StadiumBackground")?.cgImage) { [weak self] message, ready in
-            self?.backgroundMessage = message
-            self?.backgroundReady = ready
-            if ready { self?.selectingBench = false }
-        }
     var photoViewport = CGRect.zero
     let view = RealityKit.ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
     let animation = ARAnimationController()
@@ -27,20 +17,41 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     var selectedMotion: Int? { animation.selectedMotion }
     var motionPlaying: Bool { animation.motionPlaying }
     var settings = ARCaptureSettings()
-    let subject: ARCameraSubject?
-    var usesGeographicPlacement: Bool { subject?.placement != nil }
+    private(set) var subject: ARCameraSubject?
+    let originalSubject: ARCameraSubject?
+    private var originalSettings: ARCaptureSettings?
+    private var mascotSettings = ARCaptureSettings()
+    var placementMode: ARManualPlacementMode { settings.placementMode ?? .floor }
+    var isPalmMode: Bool { placementMode == .palm }
+    var canUseLocationMode: Bool { subject?.placement != nil }
+    private(set) var palmTracking = false
+    @ObservationIgnored private var palmState = ARPalmPlacementState()
+    @ObservationIgnored private var palmOffset = SIMD3<Float>.zero
+    @ObservationIgnored private var lastPalmFrame: TimeInterval?
+    @ObservationIgnored private var palmFailed = false
+    @ObservationIgnored private var palm: ARPalmTrackingService?
+    var usesGeographicPlacement: Bool { canUseLocationMode && placementMode == .location }
     private(set) var geographicReady = false
     private(set) var locationNotice = ""
+    private(set) var locationSummary = "위치 확인 중"
+    var needsLocationPermission: Bool { usesGeographicPlacement && locationProvider?.hasPreciseLocationPermission != true }
     @ObservationIgnored private let locationProvider: (any ARCameraLocationProviding)?
     @ObservationIgnored private var geoPlacement: ARCameraGeoPlacement?
     @ObservationIgnored private var lastGeographicCheck = 0.0
     @ObservationIgnored private var headingAligned = false
     @ObservationIgnored private var cameraPoses = ARCameraPoseHistory()
-    var message = "바닥이 보이도록 카메라를 천천히 움직여 주세요."
+    var message = "손바닥 전체를 펼쳐 보여 주세요."
     var tracking = "준비 중"
     var loading = false
     var placed = false
-    var locked = false
+    var locked = false {
+        didSet {
+            if oldValue != locked && isPalmMode {
+                palm?.invalidate()
+                if !locked { palmState.reset(); palmTracking = false }
+            }
+        }
+    }
     var ready = false
     var capturing = false
     var videoRecording = false
@@ -54,20 +65,36 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     private var characterRoot: Entity?
     private var loadedCharacter: ARCharacter?
     var canCapture: Bool {
-        (placed || settings.background == .stadium)
-            && (settings.background == .original || backgroundReady)
+        placed
             && ready && !loading && !capturing && !videoRecording
             && loadedCharacter == settings.character
             && (!usesGeographicPlacement || geographicReady)
+            && (!isPalmMode || locked || palmTracking)
+    }
+    var characterRotation: Float { isPalmMode ? (settings.palmRotation ?? 0) : settings.rotation }
+
+    func rotateCharacter(to degrees: Float) {
+        guard ready, !loading, !capturing, !videoRecording, recoveryIssue == nil, degrees.isFinite else { return }
+        let angle = degrees.truncatingRemainder(dividingBy: 360)
+        if isPalmMode { settings.palmRotation = angle < 0 ? angle + 360 : angle }
+        else { settings.rotation = angle < 0 ? angle + 360 : angle }
+        applyCharacterRotation()
+    }
+
+    private func applyCharacterRotation() {
+        guard let characterRoot else { return }
+        let orientation = simd_quatf(angle: characterRotation * .pi / 180, axis: [0, 1, 0])
+        if characterRoot.orientation.vector != orientation.vector { characterRoot.orientation = orientation }
     }
     private var loadTask: Task<Void, Never>?
     private var lifecycle = ARSessionLifecycle()
     @ObservationIgnored private var cameraAuthorizationTask: Task<Bool, Never>?
     private var pinchStartHeight: Float?
-    private var dragStart: (rotation: Float, floorOffset: Float)?
+    private var dragStart: (point: SIMD3<Float>, anchor: SIMD3<Float>, offset: SIMD3<Float>, normal: SIMD3<Float>)?
 
     init(subject: ARCameraSubject? = nil, locationProvider: (any ARCameraLocationProviding)? = nil) {
         self.subject = subject
+        self.originalSubject = subject
         if let target = subject?.placement {
             self.locationProvider = locationProvider ?? CampusGeoLocation()
             geoPlacement = ARCameraGeoPlacement(target: target)
@@ -76,6 +103,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         NotificationCenter.default.addObserver(self, selector: #selector(featureUsageChanged),
             name: OiFeatureUsage.didChange, object: nil)
         settings = subject?.defaultSettings ?? ARCaptureSettings()
+        message = placementInstruction
         view.session.delegate = self
         view.session.delegateQueue = .main
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:)))
@@ -89,10 +117,6 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         view.addGestureRecognizer(pan)
         view.addGestureRecognizer(pinch)
         view.addGestureRecognizer(tap)
-        let compositor = background
-        view.renderCallbacks.prepareWithDevice = { compositor.prepare(device: $0) }
-        view.renderCallbacks.postProcess = { compositor.render($0) }
-        if let device = MTLCreateSystemDefaultDevice() { compositor.prepare(device: device) }
         lighting.install(in: view)
         applySettings()
     }
@@ -146,9 +170,9 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         guard lifecycle.completeStart(attempt) else { return }
         recoveryIssue = nil
         ready = true
-        locationProvider?.start()
+        animation.setSceneActive(true)
+        if usesGeographicPlacement { locationProvider?.start() }
         configureSession(resetTracking: attempt.requiresTrackingReset || usesGeographicPlacement)
-        updateBackground()
         if subject != nil || loadedCharacter != settings.character { loadCharacter() }
     }
 
@@ -176,6 +200,8 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     }
 
     func pause() {
+        animation.setSceneActive(false)
+        invalidatePalm()
         locationProvider?.stop()
         invalidateGeographicPlacement()
         lifecycle.pause()
@@ -183,8 +209,6 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         loadTask = nil
         loading = false
         view.session.pause()
-        background.setEnabled(false)
-        backgroundReady = false
         ready = false
     }
 
@@ -194,13 +218,22 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         // Location Services is authorized. The live frame path switches once after a grant.
         let authorized = usesGeographicPlacement && locationProvider?.hasPreciseLocationPermission == true
         config.worldAlignment = authorized ? .gravityAndHeading : .gravity
-        config.planeDetection = [.horizontal]
+        config.planeDetection = isPalmMode ? [] : [.horizontal]
         config.isLightEstimationEnabled = true
-        config.environmentTexturing = .automatic
-        if settings.peopleOcclusion && peopleSupported {
+        config.environmentTexturing = isPalmMode ? .none : .automatic
+        do {
+            let formats = ARWorldTrackingConfiguration.supportedVideoFormats
+            if !formats.isEmpty {
+                let defaultSize = config.videoFormat.imageResolution
+                if let format = formats.first(where: {
+                    $0.framesPerSecond == 30 && $0.imageResolution.width * $0.imageResolution.height <= defaultSize.width * defaultSize.height
+                }) { config.videoFormat = format }
+            }
+        }
+        if !isPalmMode && settings.peopleOcclusion && peopleSupported {
             config.frameSemantics.insert(.personSegmentationWithDepth)
         }
-        if meshSupported { config.sceneReconstruction = .mesh }
+        if meshSupported && !isPalmMode && settings.sceneOcclusion { config.sceneReconstruction = .mesh }
         return config
     }
 
@@ -217,11 +250,69 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         }
     }
 
+    func selectMascot(_ character: ARCharacter) {
+        if subject != nil { originalSettings = settings }
+        else { mascotSettings = settings }
+        pause()
+        subject = nil
+        settings = mascotSettings
+        settings.character = character
+        discardCharacterPlacement()
+        message = placementInstruction
+    }
+
+    func restoreOriginalSubject() {
+        guard let originalSubject, subject?.id != originalSubject.id else { return }
+        mascotSettings = settings
+        pause()
+        subject = originalSubject
+        settings = originalSettings ?? originalSubject.defaultSettings
+        discardCharacterPlacement()
+        message = placementInstruction
+    }
+
+    private func discardCharacterPlacement() {
+        resetPlacement()
+        animation.stop()
+        characterRoot?.removeFromParent()
+        characterRoot = nil
+        loadedCharacter = nil
+    }
+
     func update(from previous: ARCaptureSettings) {
+        // Rotation gestures need only a transform update, never recreate lighting/shadows.
+        var withoutRotation = settings
+        withoutRotation.rotation = previous.rotation
+        withoutRotation.palmRotation = previous.palmRotation
+        if withoutRotation == previous {
+            applyCharacterRotation()
+            return
+        }
+        if previous.palmResponse != settings.palmResponse { invalidatePalm() }
+        // Only a selected campus cucumber has a saved geographic target.
+        if placementMode == .location && !canUseLocationMode { settings.placementMode = .palm }
+        // Stadium mode is retired; old photo settings must use the live camera.
+        settings.background = .original
+        if previous.placementMode != settings.placementMode {
+            locationProvider?.stop()
+            resetPlacement()
+            locationNotice = ""
+            cameraPoses.reset()
+            if ready && usesGeographicPlacement {
+                guard OiFeatureUsage.shared.isEnabled(.location) else { featureUsageChanged(); return }
+                locationProvider?.start()
+            }
+            configureSession(resetTracking: previous.placementMode == .location || usesGeographicPlacement)
+            message = placementInstruction
+        }
         if previous.character != settings.character { loadCharacter() }
-        if previous.peopleOcclusion != settings.peopleOcclusion { configureSession() }
-        if previous.background != settings.background { updateBackground() }
+        if previous.peopleOcclusion != settings.peopleOcclusion || previous.sceneOcclusion != settings.sceneOcclusion { configureSession() }
         applySettings()
+    }
+
+    private var placementInstruction: String {
+        if usesGeographicPlacement { return "저장 위치의 바닥을 비추면 오이가 자동으로 나타나요." }
+        return isPalmMode ? "손바닥 전체를 펼쳐 보여 주세요." : "바닥을 비춘 뒤 터치해 캐릭터를 놓으세요."
     }
 
     func resetSettings() {
@@ -229,32 +320,25 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     }
 
     func applySettings() {
+        settings.background = .original
+        let optionalEffects: RealityKit.ARView.RenderOptions = [.disableMotionBlur, .disableDepthOfField, .disableCameraGrain]
+        view.renderOptions.formUnion(optionalEffects)
         var lightingSettings = settings
-        if settings.background == .stadium {
+        if isPalmMode {
             // Depth must identify virtual geometry, not reconstructed ground.
             lightingSettings.groundingShadow = false
             lightingSettings.sceneOcclusion = false
         }
         lighting.apply(lightingSettings, to: view, meshSupported: meshSupported)
-        characterRoot?.scale = SIMD3(repeating: settings.height)
-        characterRoot?.orientation = simd_quatf(angle: settings.rotation * .pi / 180, axis: [0, 1, 0])
-        characterRoot?.position.y = settings.floorOffset
-    }
-
-    private func updateBackground() {
-        backgroundReady = false
-        selectingBench = settings.background == .stadium
-        background.setEnabled(ready && settings.background == .stadium)
-    }
-
-    func selectBenchAgain() {
-        guard ready, !capturing, !videoRecording else { return }
-        selectingBench = true
-        backgroundReady = false
-        background.reselectBench()
+        let scale = SIMD3(repeating: isPalmMode ? (settings.palmHeight ?? 0.065) : settings.height)
+        if let characterRoot, characterRoot.scale != scale { characterRoot.scale = scale }
+        applyCharacterRotation()
+        let floorOffset: Float = isPalmMode ? 0 : settings.floorOffset
+        if let characterRoot, characterRoot.position.y != floorOffset { characterRoot.position.y = floorOffset }
     }
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
+        if ready && isPalmMode { updatePalm(frame) }
         if ready && usesGeographicPlacement && headingAligned, case .normal = frame.camera.trackingState {
             let point = frame.camera.transform.columns.3
             cameraPoses.record(position: SIMD3(point.x, point.y, point.z), timestamp: frame.timestamp)
@@ -263,9 +347,65 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
             lastGeographicCheck = frame.timestamp
             updateGeographicPlacement(frame)
         }
-        guard ready, settings.background == .stadium else { return }
-        background.submit(frame, viewport: view.bounds.size,
-                          orientation: view.window?.windowScene?.effectiveGeometry.interfaceOrientation ?? .portrait)
+    }
+
+    private func invalidatePalm() {
+        palm?.invalidate()
+        palmState.reset()
+        palmTracking = false
+        palmFailed = false
+        lastPalmFrame = nil
+        if isPalmMode && !locked { anchor?.isEnabled = false; placed = false }
+    }
+
+    private func updatePalm(_ frame: ARFrame) {
+        guard !capturing, !loading else { return }
+        if case .notAvailable = frame.camera.trackingState { invalidatePalm(); return }
+        if locked { return }
+        palmState.response = settings.palmResponse ?? .stable
+        if palm == nil {
+            palm = ARPalmTrackingService(onFailure: { [weak self] in
+                guard let self, self.ready, self.isPalmMode, !self.locked else { return }
+                self.palmFailed = true
+            }) { [weak self] observation in
+                guard let self, self.ready, self.isPalmMode, !self.locked, !self.loading, !self.capturing else { return }
+                self.palmFailed = false
+                self.palmState.observe(observation)
+            }
+        }
+        let delta = lastPalmFrame.map { frame.timestamp - $0 } ?? 1.0 / 30
+        lastPalmFrame = frame.timestamp
+        let fresh = palmState.isFresh(at: frame.timestamp)
+        if palmTracking != fresh { palmTracking = fresh }
+        if let point = palmState.update(at: frame.timestamp, deltaTime: delta), let root = characterRoot {
+            if anchor == nil {
+                let newAnchor = AnchorEntity(world: SIMD3<Float>.zero)
+                let towardCamera = frame.camera.transform.columns.3
+                newAnchor.orientation = simd_quatf(angle: atan2(towardCamera.x - point.x, towardCamera.z - point.z), axis: [0, 1, 0])
+                newAnchor.addChild(root)
+                view.scene.addAnchor(newAnchor)
+                anchor = newAnchor
+            }
+            let position = point + palmOffset + SIMD3(0, 0.004, 0)
+            // Exact equality only: never drop a small genuine hand movement.
+            if let anchor, anchor.position != position { anchor.position = position }
+            if anchor?.isEnabled == false { anchor?.isEnabled = true }
+            if !placed { placed = true }
+            let notice = fresh ? "손바닥 추적 중 · 핀치로 크기, 드래그로 위치 조절" : "손을 다시 인식하고 있어요. 잠시 위치를 유지합니다."
+            if message != notice { message = notice }
+        } else {
+            if anchor?.isEnabled == true { anchor?.isEnabled = false }
+            if placed { placed = false }
+            let notice = palmFailed ? "손 인식을 다시 준비하고 있어요. 계속되면 바닥 모드로 전환해 주세요." : "밝은 곳에서 손바닥 전체를 후면 카메라에 펼쳐 보여 주세요."
+            if message != notice { message = notice }
+        }
+        let interval: TimeInterval
+        if ProcessInfo.processInfo.thermalState == .critical { interval = 0.5 }
+        else if ProcessInfo.processInfo.thermalState == .serious { interval = 0.25 }
+        else if ProcessInfo.processInfo.isLowPowerModeEnabled { interval = 1.0 / 6 }
+        else { interval = 1.0 / 12 }
+        palm?.submit(frame, viewport: view.bounds.size,
+            orientation: view.window?.windowScene?.effectiveGeometry.interfaceOrientation ?? .portrait, interval: interval)
     }
 
     func loadCharacter() {
@@ -289,7 +429,11 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
                 let (root, model) = loaded
                 try Task.checkCancellation()
                 guard self.lifecycle.running, self.settings.character == selection else { return }
-                model.generateCollisionShapes(recursive: true)
+                // A single bounds shape is sufficient for capture gestures; do not
+                // construct a convex collision mesh for every detailed model part.
+                let hitBounds = root.visualBounds(relativeTo: root)
+                let hitSize = SIMD3(max(0.01, hitBounds.extents.x), max(0.01, hitBounds.extents.y), max(0.01, hitBounds.extents.z))
+                root.components.set(CollisionComponent(shapes: [ShapeResource.generateBox(size: hitSize).offsetBy(translation: hitBounds.center)]))
                 self.animation.load(from: model)
                 self.characterRoot?.removeFromParent()
                 self.characterRoot = root
@@ -299,8 +443,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
                 self.loadTask = nil
                 self.applySettings()
                 self.lastGeographicCheck = 0
-                self.message = self.usesGeographicPlacement ? "저장 위치의 바닥을 찾으면 오이가 자동으로 나타나요." :
-                    self.placed ? "캐릭터를 바꿨습니다." : "캐릭터 준비 완료 · 인식된 바닥을 터치하세요."
+                self.message = self.placed ? "캐릭터를 바꿨습니다." : self.placementInstruction
             } catch is CancellationError {
                 return
             } catch {
@@ -323,7 +466,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     }
 
     @objc private func dragged(_ gesture: UIPanGestureRecognizer) {
-        guard ready, placed, !loading, !capturing, !videoRecording, gesture.numberOfTouches == 1 else {
+        guard !usesGeographicPlacement, !locked, ready, placed, !loading, !capturing, !videoRecording, gesture.numberOfTouches == 1 else {
             dragStart = nil
             return
         }
@@ -337,21 +480,38 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
                 dragStart = nil
                 return
             }
-            dragStart = (settings.rotation, settings.floorOffset)
+            guard let anchor, let frame = view.session.currentFrame else { return }
+            let normal = -SIMD3(frame.camera.transform.columns.2.x, frame.camera.transform.columns.2.y, frame.camera.transform.columns.2.z)
+            let anchorPoint = anchor.position
+            guard let point = dragPoint(at: origin, plane: anchorPoint, normal: normal) else { return }
+            dragStart = (point, anchorPoint, palmOffset, normal)
         case .changed:
             guard let initial = dragStart else { return }
-            let translation = gesture.translation(in: view)
-            settings.rotation = (initial.rotation + Float(translation.x) * 0.5 + 180)
-                .truncatingRemainder(dividingBy: 360)
-            if settings.rotation < 0 { settings.rotation += 360 }
-            settings.rotation -= 180
-            // Moving upward on screen lifts the character above the detected floor.
-            settings.floorOffset = min(0.3, max(-0.3, initial.floorOffset - Float(translation.y) * 0.002))
-            applySettings()
+            guard let point = dragPoint(at: gesture.location(in: view), plane: initial.anchor, normal: initial.normal) else { return }
+            let delta = point - initial.point
+            if isPalmMode {
+                let offset = initial.offset + delta
+                let length = simd_length(offset)
+                palmOffset = length > 0.15 ? offset * (0.15 / length) : offset
+            } else { anchor?.position = initial.anchor + delta }
         case .ended, .cancelled, .failed:
             dragStart = nil
         default: break
         }
+    }
+
+    private func dragPoint(at point: CGPoint, plane: SIMD3<Float>, normal: SIMD3<Float>) -> SIMD3<Float>? {
+        if !isPalmMode {
+            guard let hit = view.raycast(from: point, allowing: .existingPlaneGeometry, alignment: .horizontal).first else { return nil }
+            let p = hit.worldTransform.columns.3
+            return SIMD3(p.x, p.y, p.z)
+        }
+        guard let ray = view.ray(through: point) else { return nil }
+        let denominator = simd_dot(ray.direction, normal)
+        guard abs(denominator) > 0.0001 else { return nil }
+        let distance = simd_dot(plane - ray.origin, normal) / denominator
+        guard distance.isFinite, distance > 0 else { return nil }
+        return ray.origin + ray.direction * distance
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
@@ -401,12 +561,13 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         }
         switch gesture.state {
         case .began:
-            pinchStartHeight = settings.height
+            pinchStartHeight = isPalmMode ? (settings.palmHeight ?? 0.065) : settings.height
         case .changed:
             guard let initial = pinchStartHeight else { return }
             let height = initial * Float(gesture.scale)
             guard height.isFinite else { return }
-            settings.height = min(2.5, max(0.2, height))
+            if isPalmMode { settings.palmHeight = min(0.2, max(0.025, height)) }
+            else { settings.height = min(2.5, max(0.2, height)) }
             applySettings()
         case .ended, .cancelled, .failed:
             pinchStartHeight = nil
@@ -415,19 +576,14 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     }
 
     @objc private func tapped(_ gesture: UITapGestureRecognizer) {
-        if settings.background == .stadium && selectingBench {
-            guard ready, !capturing, !videoRecording, view.bounds.width > 0, view.bounds.height > 0 else { return }
-            let point = gesture.location(in: view)
-            background.selectBench(at: CGPoint(x: point.x / view.bounds.width, y: point.y / view.bounds.height))
-            return
-        }
-        guard !usesGeographicPlacement, ready, !loading, !locked, !capturing, !videoRecording, let root = characterRoot else { return }
+        guard !usesGeographicPlacement, !isPalmMode, ready, !loading, !locked, !capturing, !videoRecording, let root = characterRoot else { return }
         guard let hit = view.raycast(from: gesture.location(in: view), allowing: .existingPlaneGeometry, alignment: .horizontal).first else {
             message = "아직 바닥을 찾지 못했습니다. 바닥을 여러 각도에서 비춰 주세요."
             return
         }
         anchor?.removeFromParent()
-        let newAnchor = AnchorEntity(world: hit.worldTransform)
+        let newAnchor = AnchorEntity(world: SIMD3<Float>.zero)
+        newAnchor.transform = Transform(matrix: hit.worldTransform)
         newAnchor.addChild(root)
         view.scene.addAnchor(newAnchor)
         anchor = newAnchor
@@ -439,6 +595,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     private func invalidateGeographicPlacement() {
         guard usesGeographicPlacement else { return }
         geographicReady = false
+        locationSummary = "위치 확인 중"
         anchor?.isEnabled = false
     }
 
@@ -476,18 +633,23 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         if case .ready = status { } else { invalidateGeographicPlacement() }
         switch status {
         case .waitingForLocation:
+            locationSummary = needsLocationPermission ? "위치 권한 필요" : "GPS 확인 중"
             locationNotice = locationMessage ?? "정확한 위치 권한과 최신 GPS 위치를 확인하고 있어요."
             message = "GPS 오차가 15m 이하인 위치를 기다리고 있어요."
         case .outsideRange(let distance):
+            locationSummary = String(format: "약 %.0fm 남음", distance)
             locationNotice = String(format: "저장 위치까지 약 %.0fm · 25m 안으로 이동해 주세요.", distance)
             message = "저장한 오이가 있는 장소에 가까워지면 자동으로 나타나요."
         case .waitingForSynchronizedLocation:
+            locationSummary = "GPS 갱신 중"
             locationNotice = "새 GPS 위치를 확인하고 있어요."
             message = "저장 지점 주변을 천천히 비추며 잠시 기다려 주세요."
         case .waitingForTracking:
+            locationSummary = "공간 인식 중"
             locationNotice = "카메라 추적을 확인하고 있어요."
             message = "주변을 천천히 비춰 공간을 인식해 주세요."
         case .waitingForGround:
+            locationSummary = "바닥을 비춰 주세요"
             locationNotice = "저장 위치 주변의 바닥을 비춰 주세요."
             message = loading ? "선택한 오이를 불러오고 있어요." : "바닥을 인식하면 터치 없이 자동으로 배치돼요."
         case .ready(let point):
@@ -503,20 +665,25 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
             }
             anchor?.isEnabled = true
             geographicReady = true
+            locationSummary = "위치 배치 완료"
             locationNotice = "저장 위치 자동 배치 · GPS 기반 근사 위치"
             message = "저장 위치에 오이가 나타났어요. 사진이나 비디오로 남겨 보세요."
         }
     }
 
     func resetPlacement() {
+        invalidatePalm()
+        palmOffset = .zero
         geoPlacement?.reset()
         lastGeographicCheck = 0
         geographicReady = false
+        locationSummary = "위치 확인 중"
+        locationNotice = ""
         anchor?.removeFromParent()
         anchor = nil
         placed = false
         locked = false
-        message = usesGeographicPlacement ? "저장 위치의 바닥을 다시 확인하고 있어요." : "새 위치의 바닥을 터치하세요."
+        message = placementInstruction
     }
 
     func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {
@@ -539,14 +706,14 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
 
     func sessionWasInterrupted(_ session: ARSession) {
         guard lifecycle.interrupt() else { return }
+        animation.setSceneActive(false)
         locationProvider?.stop()
+        invalidatePalm()
         invalidateGeographicPlacement()
         tracking = "카메라 일시 중단"
         loadTask?.cancel()
         loadTask = nil
         loading = false
-        background.setEnabled(false)
-        backgroundReady = false
         ready = false
         showRecovery(.interrupted)
     }
@@ -555,40 +722,31 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         guard lifecycle.endInterruption() else { return }
         if case .interrupted = recoveryIssue { recoveryIssue = nil }
         ready = true
-        locationProvider?.start()
+        animation.setSceneActive(true)
+        if usesGeographicPlacement { locationProvider?.start() }
         configureSession(resetTracking: usesGeographicPlacement)
-        updateBackground()
         if subject != nil || loadedCharacter != settings.character { loadCharacter() }
     }
 
     func session(_ session: ARSession, didFailWithError error: Error) {
         guard lifecycle.fail() else { return }
+        animation.setSceneActive(false)
         locationProvider?.stop()
+        invalidatePalm()
         invalidateGeographicPlacement()
         ready = false
         loadTask?.cancel()
         loadTask = nil
         loading = false
         view.session.pause()
-        background.setEnabled(false)
-        backgroundReady = false
         showRecovery(.sessionFailure(error.localizedDescription))
     }
 
     func capture() {
         guard canCapture, let frame = view.session.currentFrame else { return }
-        if settings.background == .stadium && !background.hasFreshMask {
-            errorMessage = "벤치를 다시 인식한 후 촬영해 주세요."
-            return
-        }
         capturing = true
         photoCapture.capture(view: view, viewport: photoViewport, frame: frame, anchor: anchor, settings: settings,
-                             peopleSupported: peopleSupported, meshSupported: meshSupported,
-                             snapshot: settings.background == .stadium ? { [background] completion in
-                                 background.captureNextFrame { image in
-                                     Task { @MainActor in completion(image.map { UIImage(cgImage: $0) }) }
-                                 }
-                             } : nil) { [weak self] outcome in
+                             peopleSupported: peopleSupported, meshSupported: meshSupported) { [weak self] outcome in
             guard let self else { return }
             self.capturing = false
             switch outcome {

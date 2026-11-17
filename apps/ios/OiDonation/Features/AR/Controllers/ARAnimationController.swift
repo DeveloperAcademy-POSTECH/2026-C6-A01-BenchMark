@@ -13,6 +13,12 @@ final class ARAnimationController {
     var selectedMotion: Int?
     var motionPlaying = false
     private var playback: AnimationPlaybackController?
+    private var sceneActive = true
+    func setSceneActive(_ active: Bool) {
+        sceneActive = active
+        if active && motionPlaying { playback?.resume() }
+        else { playback?.pause() }
+    }
     func stop() { playback?.stop(); playback = nil; motionPlaying = false }
 
     func load(from model: Entity) {
@@ -44,12 +50,13 @@ final class ARAnimationController {
         playback = motion.entity.playAnimation(motion.resource.repeat(duration: .infinity), transitionDuration: 0.2)
         selectedMotion = id
         motionPlaying = true
+        if !sceneActive { playback?.pause() }
     }
 
     func toggleMotion() {
         guard let playback else { return }
-        if motionPlaying { playback.pause() } else { playback.resume() }
         motionPlaying.toggle()
+        if sceneActive && motionPlaying { playback.resume() } else { playback.pause() }
     }
 
 }

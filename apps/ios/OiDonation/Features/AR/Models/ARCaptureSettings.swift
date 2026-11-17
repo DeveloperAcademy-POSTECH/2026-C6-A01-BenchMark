@@ -7,7 +7,13 @@ struct ARCaptureSettings: Codable, Equatable {
     var opaquePhotoMargins = false
     var cameraExposure: Float = 0
     var photoFilter: ARPhotoFilter = .original
-    var character: ARCharacter = .neopjuk
+    var character: ARCharacter = .ponix
+    // Optional fields preserve decoding of photo records made before palm placement.
+    var placementMode: ARManualPlacementMode? = .palm
+    var palmHeight: Float? = nil
+    var palmRotation: Float? = nil
+    // Optional so older capture records remain readable.
+    var palmResponse: ARPalmResponse? = nil
     /// Present only for a selected public cucumber; legacy mascot records still decode.
     var cucumberStoryID: UUID? = nil
     var cucumberName: String? = nil
@@ -19,10 +25,25 @@ struct ARCaptureSettings: Codable, Equatable {
     var groundingShadow = true
     var peopleOcclusion = true
     var sceneOcclusion = false
-    var directLight = false
+    var directLight = true
     var azimuth: Float = 45
     var elevation: Float = 45
-    var intensity: Float = 1500
+    var intensity: Float = 850
+}
+
+enum ARPalmResponse: String, Codable, CaseIterable {
+    case responsive, stable
+    var title: String { self == .responsive ? "빠른 추적" : "안정 추적" }
+}
+
+enum ARManualPlacementMode: String, Codable, CaseIterable {
+    case floor, palm, location
+    var title: String {
+        switch self { case .floor: "바닥 인식"; case .palm: "손바닥 인식"; case .location: "위치 인식" }
+    }
+    var symbol: String {
+        switch self { case .floor: "square.dashed"; case .palm: "hand.raised.fill"; case .location: "mappin.and.ellipse" }
+    }
 }
 
 enum ARPhotoRatio: String, Codable, CaseIterable {
@@ -39,7 +60,7 @@ enum ARPhotoFilter: String, Codable, CaseIterable {
     }
 }
 
-// Static background; no camera images leave the device.
+// Retain the retired stadium value so existing photo metadata remains decodable.
 enum ARCameraBackground: String, Codable, CaseIterable {
     case original = "원본", stadium = "경기장"
 }

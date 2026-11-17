@@ -1562,6 +1562,72 @@ private final class TestTilt: UIPanGestureRecognizer {
 
 @MainActor
 final class CampusEducationDistrictTests: XCTestCase {
+    private struct LifecyclePresentation: View {
+        let model: EducationLightWebModel
+        let visible: Bool
+        let phase: ScenePhase
+        var body: some View {
+            Group {
+                if visible { EducationLightExperience(model: model) }
+                else { Color.clear }
+            }.environment(\.scenePhase, phase)
+        }
+    }
+
+    func testHiddenEducationRendererStaysPausedAfterLateReadyAndResumesOnReturn() async throws {
+        let model = EducationLightWebModel()
+        installReferenceCatalogFixture(model)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive })
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: LifecyclePresentation(model: model, visible: true, phase: .active))
+        window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            model.setActive(false)
+            window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+            previous?.makeKeyAndVisible()
+        }
+        for _ in 0..<300 where model.loading { try await Task.sleep(for: .milliseconds(100)) }
+        XCTAssertFalse(model.loading)
+        XCTAssertNil(model.failure)
+        _ = try await model.webView.evaluateJavaScript("document.querySelector('#scatterButton').click();true")
+        host.rootView = LifecyclePresentation(model: model, visible: false, phase: .active)
+        host.view.layoutIfNeeded()
+        for _ in 0..<100 {
+            if try await model.webView.evaluateJavaScript("window.__nativePaused===true") as? Bool == true { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let pausedAfterHide = try await model.webView.evaluateJavaScript("window.__nativePaused===true")
+        XCTAssertEqual(pausedAfterHide as? Bool, true)
+        let frozenValue = try await model.webView.evaluateJavaScript("window.building3DDiagnostics().scatter")
+        let frozen = try XCTUnwrap(frozenValue as? Double)
+        _ = try await model.webView.evaluateJavaScript("window.webkit.messageHandlers.building.postMessage({kind:'ready',webgl:true});true")
+        try await Task.sleep(for: .milliseconds(300))
+        let pausedAfterReady = try await model.webView.evaluateJavaScript("window.__nativePaused===true")
+        XCTAssertEqual(pausedAfterReady as? Bool, true,
+                       "A late ready callback must not reactivate the hidden renderer")
+        let hiddenValue = try await model.webView.evaluateJavaScript("window.building3DDiagnostics().scatter")
+        let hiddenProgress = try XCTUnwrap(hiddenValue as? Double)
+        XCTAssertEqual(hiddenProgress, frozen, accuracy: 0.000001, "Hidden WebGL animation must stop advancing")
+        host.rootView = LifecyclePresentation(model: model, visible: true, phase: .background)
+        host.view.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(100))
+        let pausedInBackground = try await model.webView.evaluateJavaScript("window.__nativePaused===true")
+        XCTAssertEqual(pausedInBackground as? Bool, true)
+        host.rootView = LifecyclePresentation(model: model, visible: true, phase: .active)
+        host.view.layoutIfNeeded()
+        for _ in 0..<100 {
+            if try await model.webView.evaluateJavaScript("window.building3DDiagnostics().scatter===1&&!window.__nativePaused") as? Bool == true { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let resumed = try await model.webView.evaluateJavaScript("window.building3DDiagnostics().scatter===1&&!window.__nativePaused")
+        XCTAssertEqual(resumed as? Bool, true,
+                       "Reopening an active screen must resume the retained animation")
+    }
+
     private func installReferenceCatalogFixture(_ model: EducationLightWebModel) {
         model.webView.stopLoading()
         let script = """
@@ -1869,10 +1935,22 @@ final class CampusEducationDistrictTests: XCTestCase {
         })()
         """)
         XCTAssertEqual(gathering as? Bool, true, "A tap returns while repeated taps cannot restart scattering")
-        for _ in 0..<50 {
-            if try await model.webView.evaluateJavaScript("window.building3DDiagnostics().scatter===0") as? Bool == true { break }
-            try await Task.sleep(for: .milliseconds(100))
+        var backgroundFadedDuringReturn = false
+        for _ in 0..<80 {
+            let sample = try await model.webView.evaluateJavaScript("""
+            ({progress:window.building3DDiagnostics().scatter,
+              darkness:Number(getComputedStyle(document.querySelector('.viewer-dimmer')).opacity)})
+            """)
+            let state = try XCTUnwrap(sample as? [String: Any])
+            let progress = try XCTUnwrap(state["progress"] as? Double)
+            let darkness = try XCTUnwrap(state["darkness"] as? Double)
+            XCTAssertEqual(darkness, 0.78 * progress, accuracy: 0.01,
+                           "Background must follow the pearls, without waiting for the scattered class to clear")
+            if progress > 0 && progress < 0.95 { backgroundFadedDuringReturn = true }
+            if progress == 0 { break }
+            try await Task.sleep(for: .milliseconds(25))
         }
+        XCTAssertTrue(backgroundFadedDuringReturn, "Verify the background during the return, not just its endpoints")
         XCTAssertFalse(model.scattered)
         let returned = try await model.webView.evaluateJavaScript("document.querySelector('#building').getAttribute('role')==='button'&&document.querySelectorAll('#viewerReturn').length===0")
         XCTAssertEqual(returned as? Bool, true)
@@ -1895,7 +1973,7 @@ final class CampusEducationDistrictTests: XCTestCase {
         let previous = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first { $0.isKeyWindow }
         let window = UIWindow(windowScene: try XCTUnwrap(previous?.windowScene))
         window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
-        window.rootViewController = UIHostingController(rootView: EducationLightExperience(model: model))
+        window.rootViewController = UIHostingController(rootView: EducationLightExperience(model: model).environment(\.scenePhase, .active))
         window.makeKeyAndVisible()
         defer { model.setActive(false); window.isHidden = true; previous?.makeKeyAndVisible() }
         for _ in 0..<300 {
