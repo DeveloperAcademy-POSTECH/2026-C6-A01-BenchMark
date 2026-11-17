@@ -240,8 +240,8 @@ struct OiOperatorStoryDetailView: View {
                 }
             }
         }
-        if !remote.autoStoryModeration || story.status == "published" {
-            Section(remote.autoStoryModeration ? "공개 상태" : "공개 검토") {
+        if !remote.autoStoryModeration || remote.supportsManualStoryReview || story.status == "published" {
+            Section(story.status == "published" ? "공개 상태" : "운영자 공개 검토") {
                 if model.isProcessing { ProgressView("공개 상태를 처리하는 중") }
                 Button {
                     confirmation = story; showingConfirmation = true
@@ -254,10 +254,10 @@ struct OiOperatorStoryDetailView: View {
                 .disabled(!model.canReview || remote.isBusy || !remote.isOperator || remote.needsReauthentication
                           || (story.status != "published" && !artworkReady))
                 .accessibilityIdentifier("operator.story.review")
-                if !remote.autoStoryModeration {
-                    Text("이야기와 사진, 꾸민 오이와 카드를 검토해 공개 여부를 결정합니다.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
+                Text(remote.autoStoryModeration
+                     ? "AI 자동검수는 유지됩니다. 운영자가 직접 검토해 공개할 수도 있어요."
+                     : "이야기와 사진, 꾸민 오이와 카드를 검토해 공개 여부를 결정합니다.")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
         }
     }

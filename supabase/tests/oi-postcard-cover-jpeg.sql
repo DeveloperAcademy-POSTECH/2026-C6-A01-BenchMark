@@ -122,6 +122,9 @@ select pg_temp.check_result(not exists(select 1 from storage.objects where name 
 set local role authenticated;
 select set_config('request.jwt.claim.sub','c3480000-0000-4000-8000-000000000003',true);
 select pg_temp.check_result(exists(select 1 from storage.objects where name=(pg_temp.paths())[5]),'operator can inspect JPEG');
+reset role;
+update benchmark_private.oi_story_creation_settings set auto_moderation_enabled=true where singleton;
+set local role authenticated;
 select pg_temp.reject_review('{}','1.2.0 operator approved JPEG without type acknowledgement');
 select pg_temp.reject_review('{"card_cover_type":null}','null acknowledgement approved JPEG');
 select pg_temp.reject_review('{"card_cover_type":"png"}','PNG acknowledgement approved JPEG');
@@ -156,6 +159,9 @@ select pg_temp.check_result(not exists(select 1 from storage.objects where name 
 set local role authenticated;
 select set_config('request.jwt.claim.sub','c3480000-0000-4000-8000-000000000001',true);
 select pg_temp.action('reopen_story',4);
+reset role;
+update benchmark_private.oi_story_creation_settings set auto_moderation_enabled=false where singleton;
+set local role authenticated;
 select pg_temp.reject_submission('{"card_cover_type":"png"}','type changed without a new snapshot',5);
 select pg_temp.reject_submission('{"card_snapshot_id":"c3480000-0000-4000-8000-000000000031","card_snapshot_format":3,"card_cover_type":"png"}', 'same snapshot changed encoding',5);
 select pg_temp.action('submit_story',5);

@@ -43,6 +43,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         continuationMetricsPrivacy == continuationPrivacyKey ? cachedContinuationCounts : [:]
     }
     private(set) var autoStoryModeration = false
+    private(set) var supportsManualStoryReview = false
     private(set) var reviewingStoryID: UUID?
     private(set) var storyReviewLookupFailed = false
     private var storyModerationResults: [UUID: OiStoryModerationResult] = [:]
@@ -358,7 +359,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         canPublishDuplexCard = false
         canPublishStoryCardCover = false
         canPublishStoryCardCoverJPEG = false
-        autoStoryModeration = false
+        autoStoryModeration = false; supportsManualStoryReview = false
         reviewingStoryID = nil; storyModerationResults = [:]; storyReviewLookupFailed = false; isBusy = false
         localSignOutWarning = nil; loadError = nil; syncWarning = nil; error = nil; revision += 1
     }
@@ -380,6 +381,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             try Task.checkCancellation()
             guard started == generation else { throw OiServiceError.accountChanged }
             isOperator = capabilities.operator
+            autoStoryModeration = capabilities.autoStoryModeration == true
+            supportsManualStoryReview = capabilities.operatorManualStoryReview == true
             if !isOperator { reviewStories = [] }
             return isOperator
         } catch {
@@ -449,6 +452,9 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         defer { isBusy = false }
         do {
             guard try await verifyOperatorAccess() else { throw OiOperatorStoryError.accessDenied }
+            if publish && autoStoryModeration && !supportsManualStoryReview {
+                throw OiOperatorStoryError.manualReviewUnavailable
+            }
             guard let api else { throw OiServiceError.configuration }
             let accessToken = try await token()
             try Task.checkCancellation()
@@ -727,6 +733,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         supportsStoryContinuations = capabilities?.storyContinuations == true
         supportsContinuationNotifications = capabilities?.storyContinuationNotifications == true
         autoStoryModeration = capabilities?.autoStoryModeration == true
+        supportsManualStoryReview = capabilities?.operatorManualStoryReview == true
         isAccountMergeAvailable = capabilities?.accountMergeEnabled == true; accountMemberIDs = members
         isSchoolProfileAvailable = capabilities?.schoolProfileEnabled == true
         isFarmerOutfitAvailable = capabilities?.farmerOutfitEnabled == true; farmerOutfit = fetchedFarmerOutfit

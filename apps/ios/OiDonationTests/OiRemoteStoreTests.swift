@@ -50,6 +50,7 @@ final class OiTestBackend {
         var storyContinuations = false
         var storyContinuationNotifications = false
         var autoStoryModeration = false
+        var operatorManualStoryReview = false
         var rejectModeration = false
         var moderationCount = 0
         var storyReview: [String: Any]?
@@ -441,6 +442,7 @@ final class OiTestBackend {
             if state.storyContinuations { capabilities["story_continuations"] = true }
             if state.storyContinuationNotifications { capabilities["story_continuation_notifications"] = true }
             if state.autoStoryModeration { capabilities["auto_story_moderation"] = true }
+            if state.operatorManualStoryReview { capabilities["operator_manual_story_review"] = true }
             if let canonical = state.canonicalAccountID {
                 capabilities["account_id"] = canonical.uuidString
                 capabilities["account_merge_enabled"] = true
@@ -995,9 +997,11 @@ final class OiRemoteStoreTests: XCTestCase {
         let pendingResult = await store.submitStory(saved)
         let pending = try XCTUnwrap(pendingResult)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        for name in ["list", "detail", "list-empty", "list-failed", "detail-accessibility"] {
+        for name in ["list", "detail", "list-empty", "list-failed", "detail-accessibility", "detail-ai", "detail-ai-unsupported"] {
             backend.configure {
                 $0.failReads = name == "list-failed"
+                $0.autoStoryModeration = name.hasPrefix("detail-ai")
+                $0.operatorManualStoryReview = name == "detail-ai"
                 $0.story?["status"] = name == "list-empty" ? "published" : "pending"
             }
             let view: AnyView
@@ -1015,6 +1019,17 @@ final class OiRemoteStoreTests: XCTestCase {
             window.makeKeyAndVisible()
             try await Task.sleep(for: .milliseconds(500))
             controller.view.layoutIfNeeded()
+            if name.hasPrefix("detail-ai") {
+                func scrollView(in view: UIView) -> UIScrollView? {
+                    if let scroll = view as? UIScrollView { return scroll }
+                    return view.subviews.lazy.compactMap { scrollView(in: $0) }.first
+                }
+                let scroll = try XCTUnwrap(scrollView(in: controller.view))
+                scroll.setContentOffset(CGPoint(x: 0, y: max(-scroll.adjustedContentInset.top,
+                    scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)), animated: false)
+                try await Task.sleep(for: .milliseconds(200))
+                controller.view.layoutIfNeeded()
+            }
             let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
                 XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
             }
@@ -1062,6 +1077,36 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(list.filtered.map(\.id), [pending.id])
         XCTAssertFalse(store.stories.contains { $0.id == pending.id })
         XCTAssertEqual(backend.snapshot().reviewCount, 2)
+    }
+
+    @MainActor func testOperatorManualReviewCoexistsWithAI() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let savedResult = await store.save(draft(title: "수동 검토 이야기"))
+        let saved = try XCTUnwrap(savedResult)
+        let pendingResult = await store.submitStory(saved)
+        let pending = try XCTUnwrap(pendingResult)
+        backend.configure { $0.autoStoryModeration = true }
+        let model = OiOperatorStoryModel()
+        await model.load(pending.id, using: store)
+        let unavailable = await model.review(pending, publish: true, using: store)
+        XCTAssertNil(unavailable)
+        XCTAssertTrue(model.requiresReload)
+        XCTAssertEqual(backend.snapshot().reviewCount, 0)
+        XCTAssertTrue(store.autoStoryModeration)
+        XCTAssertFalse(store.supportsManualStoryReview)
+
+        backend.configure { $0.operatorManualStoryReview = true }
+        await model.load(pending.id, using: store)
+        let approved = await model.review(pending, publish: true, using: store)
+        XCTAssertEqual(approved?.status, "published")
+        XCTAssertEqual(backend.snapshot().reviewCount, 1)
+        XCTAssertTrue(store.autoStoryModeration)
+        XCTAssertTrue(store.supportsManualStoryReview)
+        await store.signOut()
+        XCTAssertFalse(store.supportsManualStoryReview)
     }
 
     @MainActor func testOperatorStoryConflictRequiresFreshConfirmation() async throws {
