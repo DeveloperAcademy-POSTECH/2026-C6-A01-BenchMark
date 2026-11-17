@@ -903,6 +903,39 @@ final class CampusMapInteractionTests: XCTestCase {
         XCTAssertEqual(emptyTaps, 1, "A tap on the ground must close the list")
     }
 
+    func testRegionListDragKeepsPanelOwnershipDuringReversal() {
+        var drag = HomeView.RegionListDrag.idle
+        drag.update(CGSize(width: 0, height: 40), expanded: true, listIsAtTop: true)
+        XCTAssertEqual(drag.layout(availableHeight: 800, expanded: true).height, 692)
+        drag.update(CGSize(width: 75, height: 22), expanded: true, listIsAtTop: false)
+        XCTAssertEqual(drag.layout(availableHeight: 800, expanded: true).height, 710)
+        drag.update(CGSize(width: 75, height: -10), expanded: true, listIsAtTop: false)
+        XCTAssertEqual(drag.layout(availableHeight: 800, expanded: true).height, 732)
+    }
+
+    func testRegionListDragScrollingToTopDoesNotMovePanelMidGesture() {
+        var drag = HomeView.RegionListDrag.idle
+        drag.update(CGSize(width: 0, height: 12), expanded: true, listIsAtTop: false)
+        drag.update(CGSize(width: 0, height: 120), expanded: true, listIsAtTop: true)
+        XCTAssertEqual(drag.layout(availableHeight: 800, expanded: true).height, 732)
+        XCTAssertEqual(drag.translation, 0)
+    }
+
+    func testRegionListDragConnectsExpandedAndCompactHeights() {
+        let availableHeight: CGFloat = 800
+        let compact = HomeView.RegionListDrag.idle.layout(availableHeight: availableHeight, expanded: false)
+        let expanded = HomeView.RegionListDrag.idle.layout(availableHeight: availableHeight, expanded: true)
+        let pullingUp = HomeView.RegionListDrag.panel(-500).layout(availableHeight: availableHeight, expanded: false)
+        let pullingDown = HomeView.RegionListDrag.panel(500).layout(availableHeight: availableHeight, expanded: true)
+        XCTAssertEqual(pullingUp.height, expanded.height)
+        XCTAssertEqual(pullingDown.height, compact.height)
+        XCTAssertEqual(pullingDown.offset, 0, "An expanded panel stops at the compact position before dismissal")
+
+        let dismissing = HomeView.RegionListDrag.panel(40).layout(availableHeight: availableHeight, expanded: false)
+        XCTAssertEqual(dismissing.height, compact.height)
+        XCTAssertEqual(dismissing.offset, 40)
+    }
+
     func testOverviewPinchReversalAndTilt() async throws {
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: windowScene)
