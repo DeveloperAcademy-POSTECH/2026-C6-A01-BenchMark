@@ -3,6 +3,7 @@ import ARKit
 
 struct ARPhotoSettingsPanel: View {
     @Binding var settings: ARCaptureSettings
+    var allowsStadiumBackground = true
     let reselectBench: () -> Void
     let close: () -> Void
 
@@ -18,7 +19,11 @@ struct ARPhotoSettingsPanel: View {
                 Label("배경", systemImage: "soccerball")
                 Picker("배경", selection: $settings.background) {
                     ForEach(ARCameraBackground.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }.pickerStyle(.segmented)
+                }.pickerStyle(.segmented).disabled(!allowsStadiumBackground)
+                if !allowsStadiumBackground {
+                    Text("손바닥 모드에서는 실제 카메라 배경을 사용합니다.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if settings.background == .stadium {
                     Button("남길 벤치 다시 선택", systemImage: "hand.tap", action: reselectBench)
                     Text("벤치는 터치로 선택하고 사람은 자동으로 남깁니다. 사진 촬영 전용입니다.")

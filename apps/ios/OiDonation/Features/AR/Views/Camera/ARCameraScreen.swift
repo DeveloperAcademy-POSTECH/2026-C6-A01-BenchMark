@@ -127,7 +127,7 @@ struct ARCameraScreen: View {
             .overlay(alignment: .bottom) {
                 if showPhotoSettings {
                     ScrollView {
-                        ARPhotoSettingsPanel(settings: $controller.settings, reselectBench: {
+                        ARPhotoSettingsPanel(settings: $controller.settings, allowsStadiumBackground: !controller.isPalmMode, reselectBench: {
                             controller.selectBenchAgain()
                             showPhotoSettings = false
                         }) { showPhotoSettings = false }

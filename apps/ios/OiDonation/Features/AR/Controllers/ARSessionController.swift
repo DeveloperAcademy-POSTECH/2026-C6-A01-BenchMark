@@ -260,7 +260,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     }
 
     func restoreOriginalSubject() {
-        guard let originalSubject else { return }
+        guard let originalSubject, subject?.id != originalSubject.id else { return }
         mascotSettings = settings
         pause()
         subject = originalSubject
@@ -278,8 +278,9 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     }
 
     func update(from previous: ARCaptureSettings) {
+        // A stadium compositor has no live palm image to track or capture.
+        if isPalmMode { settings.background = .original }
         if previous.placementMode != settings.placementMode, subject == nil {
-            if isPalmMode { settings.background = .original }
             resetPlacement()
             configureSession()
             message = isPalmMode ? "손바닥 전체를 펼쳐 보여 주세요." : "바닥을 터치해 캐릭터를 놓으세요."

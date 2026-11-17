@@ -12,6 +12,37 @@ import UIKit
 @testable import OiDonation
 
 @MainActor final class ARCameraMascotTests: XCTestCase {
+    func testPalmRejectsStadiumBackgroundAfterModeHasAlreadyChanged() async {
+        let camera = ARSessionController()
+        camera.settings.placementMode = .palm
+        let previous = camera.settings
+        camera.settings.background = .stadium
+        camera.update(from: previous)
+        XCTAssertEqual(camera.settings.background, .original)
+        camera.settings.placementMode = .floor
+        let floor = camera.settings
+        camera.settings.background = .stadium
+        camera.update(from: floor)
+        XCTAssertEqual(camera.settings.background, .stadium)
+        camera.stop()
+    }
+
+    func testRepeatedOriginalSelectionPreservesMascotSettingsAndIdentity() async {
+        let subject = ARCameraSubject(id: UUID(), title: "지도 오이", heightMeters: 1.5) { Entity() }
+        let camera = ARSessionController(subject: subject)
+        camera.selectMascot(.ponix)
+        camera.settings.placementMode = .palm
+        camera.settings.palmHeight = 0.08
+        camera.restoreOriginalSubject()
+        camera.restoreOriginalSubject()
+        camera.selectMascot(.oiCat)
+        XCTAssertTrue(camera.isPalmMode)
+        XCTAssertEqual(camera.settings.palmHeight, 0.08)
+        XCTAssertNil(camera.settings.cucumberStoryID)
+        XCTAssertNil(camera.settings.cucumberName)
+        camera.stop()
+    }
+
     func testWardrobeMascotsLoadBundledModelsAndThumbnails() async throws {
         let loader = ARCharacterController()
         for character in ARCharacter.selectableCases where character.wardrobeCostumeID != nil {
