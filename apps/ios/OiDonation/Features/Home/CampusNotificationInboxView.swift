@@ -18,7 +18,7 @@ struct OiContinuationNotice: Identifiable, Equatable {
 struct CampusNotificationInboxView: View {
     let requests: [OiCardRequestInboxItem]
     let isLoading: Bool
-    let loadError: String?
+    var loadFailed = false
     var unconfirmedRequestID: UUID? = nil
     var onOpenOlderRequests: (() -> Void)? = nil
     let onReload: () async -> Void
@@ -32,18 +32,26 @@ struct CampusNotificationInboxView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var emptyLineHeight = 31.5
 
+    private var isEmpty: Bool {
+        requests.isEmpty && continuations.isEmpty && unconfirmedRequestID == nil
+    }
+
+    private var showsSpinner: Bool {
+        loadFailed || (isLoading && isEmpty)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            CampusNotificationRetentionNotice()
+            if !showsSpinner { CampusNotificationRetentionNotice() }
             GeometryReader { viewport in
                 ScrollView {
                     content
                         .frame(maxWidth: .infinity, minHeight: viewport.size.height,
-                            alignment: requests.isEmpty && continuations.isEmpty && unconfirmedRequestID == nil ? .center : .top)
+                            alignment: showsSpinner || isEmpty ? .center : .top)
                 }
                 .refreshable { await onReload() }
             }
-            if let onOpenOlderRequests {
+            if !showsSpinner, let onOpenOlderRequests {
                 Button("이전 카드 요청 보기", action: onOpenOlderRequests)
                     .font(CampusStyle.medium(16))
                     .disabled(unconfirmedRequestID != nil)
@@ -57,30 +65,20 @@ struct CampusNotificationInboxView: View {
 
     private var content: some View {
         Group {
-            if let loadError, requests.isEmpty && continuations.isEmpty && unconfirmedRequestID == nil {
-                ContentUnavailableView {
-                    Label("알림을 불러오지 못했어요", systemImage: "exclamationmark.circle")
-                } description: {
-                    Text(loadError)
-                } actions: {
-                    Button("다시 시도") { Task { await onReload() } }
-                        .buttonStyle(.bordered)
-                }
-                .accessibilityIdentifier("campus.notifications.loadError")
-            } else if requests.isEmpty && continuations.isEmpty && unconfirmedRequestID == nil {
-                if isLoading {
-                    ProgressView("알림을 불러오는 중이에요")
-                } else {
-                    Text("알림 없음")
-                        .font(CampusStyle.medium(21))
-                        .tracking(0.42)
-                        .lineHeight(.exact(points: emptyLineHeight))
-                        .foregroundStyle(colorScheme == .light && contrast == .standard
-                            ? Color("OiGreen") : .primary)
-                        .multilineTextAlignment(.center)
-                        .padding(20)
-                        .accessibilityIdentifier("campus.notifications.empty")
-                }
+            if showsSpinner {
+                ProgressView()
+                    .accessibilityLabel("알림을 불러오는 중이에요")
+                    .accessibilityIdentifier("campus.notifications.loading")
+            } else if isEmpty {
+                Text("알림 없음")
+                    .font(CampusStyle.medium(21))
+                    .tracking(0.42)
+                    .lineHeight(.exact(points: emptyLineHeight))
+                    .foregroundStyle(colorScheme == .light && contrast == .standard
+                        ? Color("OiGreen") : .primary)
+                    .multilineTextAlignment(.center)
+                    .padding(20)
+                    .accessibilityIdentifier("campus.notifications.empty")
             } else {
                 requestList
             }
@@ -89,16 +87,6 @@ struct CampusNotificationInboxView: View {
 
     private var requestList: some View {
         LazyVStack(spacing: 25) {
-            if let loadError {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label(loadError, systemImage: "exclamationmark.circle")
-                    Button("다시 시도") { Task { await onReload() } }
-                        .buttonStyle(.bordered)
-                }
-                .font(.footnote)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("campus.notifications.loadError")
-            }
             if let unconfirmedRequestID, !requests.contains(where: { $0.id == unconfirmedRequestID }) {
                 Button("카드 요청 처리 결과 확인") { onOpenRequest(unconfirmedRequestID) }
                     .buttonStyle(.bordered)
@@ -204,6 +192,6 @@ struct CampusNotificationRetentionNotice: View {
 }
 
 #Preview("Empty notifications") {
-    CampusNotificationInboxView(requests: [], isLoading: false, loadError: nil,
+    CampusNotificationInboxView(requests: [], isLoading: false,
         onReload: {}, onOpenRequest: { _ in })
 }

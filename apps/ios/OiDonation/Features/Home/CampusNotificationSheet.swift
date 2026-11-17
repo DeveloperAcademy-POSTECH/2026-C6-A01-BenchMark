@@ -12,6 +12,7 @@ struct CampusNotificationSheet: View {
     var onOpenContinuation: ((String) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(CampusStoryStore.self) private var storyStore: CampusStoryStore?
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
@@ -21,14 +22,24 @@ struct CampusNotificationSheet: View {
     @State private var selectedRequestID: UUID?
     @State private var showingOlderRequests = false
     @State private var pendingRequestID: UUID?
-    @State private var loadError: String?
+    @State private var failedLoad: FailedLoad?
     @State private var actionError: String?
-    @State private var unconfirmedDecision: (id: UUID, decision: OiCardRequestDecision)?
+    @State private var unconfirmedDecision: OiPendingCardDecision?
     @State private var continuations: [OiContinuationNotice] = []
     @State private var continuationCursor: OiContinuationCursor?
     @State private var openingContinuation = false
     @State private var continuationError: String?
     @State private var loadID = UUID()
+
+    private enum FailedLoad: Equatable {
+        case inbox
+        case continuationPage
+    }
+
+    private var retryTarget: FailedLoad? {
+        guard scenePhase == .active, remote.account != nil, !remote.needsReauthentication else { return nil }
+        return failedLoad
+    }
 
     var body: some View {
         let now = Date.now
@@ -38,8 +49,8 @@ struct CampusNotificationSheet: View {
         NavigationStack {
             CampusNotificationInboxView(
                 requests: hasSession ? recentRequests : [],
-                isLoading: hasSession && (isLoading || (!hasLoadedRequests && loadError == nil)),
-                loadError: hasSession ? loadError : nil,
+                isLoading: hasSession && (isLoading || !hasLoadedRequests),
+                loadFailed: hasSession && failedLoad != nil,
                 unconfirmedRequestID: hasSession ? unconfirmedDecision?.id : nil,
                 onOpenOlderRequests: hasSession && hasOlderRequests ? { showingOlderRequests = true } : nil,
                 onReload: reload,
@@ -54,7 +65,7 @@ struct CampusNotificationSheet: View {
             )
             .task(id: remote.continuationPrivacyKey) {
                 loadID = UUID(); isLoading = false; continuations = []; continuationCursor = nil
-                requests = []; hasLoadedRequests = false
+                requests = []; hasLoadedRequests = false; failedLoad = nil
                 await reload()
             }
             .disabled(openingContinuation)
@@ -70,6 +81,10 @@ struct CampusNotificationSheet: View {
                     requestDetail(requests.filter { !Self.isRecent($0.createdAt, now: now) }, title: "이전 카드 요청")
                 }
             }
+        }
+        .task(id: retryTarget) {
+            guard let target = retryTarget else { return }
+            await retryLoads(target)
         }
         .interactiveDismissDisabled(pendingRequestID != nil || openingContinuation)
         .alert("이어진 이야기를 열지 못했어요", isPresented: Binding(
@@ -89,7 +104,7 @@ struct CampusNotificationSheet: View {
                 requests = []
                 continuations = []; continuationCursor = nil; loadID = UUID()
                 hasLoadedRequests = false
-                loadError = nil
+                failedLoad = nil
                 actionError = nil
                 unconfirmedDecision = nil
             }
@@ -101,17 +116,24 @@ struct CampusNotificationSheet: View {
     }
 
     private func requestDetail(_ rows: [OiCardRequestInboxItem], title: String) -> some View {
-        OiCardRequestInboxView(
-            requests: rows,
-            isLoading: isLoading,
-            loadError: loadError,
-            pendingRequestID: pendingRequestID,
-            actionError: actionError,
-            onReload: reload,
-            onDecision: resolve,
-            onRetryDecision: retryAction,
-            showsHeader: false
-        )
+        Group {
+            if failedLoad != nil {
+                ProgressView().accessibilityLabel("알림을 불러오는 중이에요")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                OiCardRequestInboxView(
+                    requests: rows,
+                    isLoading: isLoading,
+                    loadError: nil,
+                    pendingRequestID: pendingRequestID,
+                    actionError: actionError,
+                    onReload: reload,
+                    onDecision: resolve,
+                    onRetryDecision: retryAction,
+                    showsHeader: false
+                )
+            }
+        }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
@@ -122,10 +144,14 @@ struct CampusNotificationSheet: View {
         guard !isLoading, pendingRequestID == nil, !remote.needsReauthentication,
               let owner = remote.account?.id else { return }
         isLoading = true
-        loadError = nil
+        var loadFailed = false
         let started = loadID
         defer { if loadID == started { isLoading = false } }
         do {
+            let saved = try await remote.pendingCardDecision(owner: owner)
+            guard loadID == started, !Task.isCancelled, remote.account?.id == owner, !remote.needsReauthentication else { return }
+            unconfirmedDecision = saved
+            if saved != nil { actionError = "처리 결과를 확인하지 못했어요. 같은 응답을 다시 확인해 주세요." }
             let rows = try await remote.cardRequests()
             guard !Task.isCancelled, loadID == started, remote.account?.id == owner, !remote.needsReauthentication else { return }
             requests = rows.filter { $0.status == .pending }.sorted { $0.createdAt > $1.createdAt }.map {
@@ -133,22 +159,37 @@ struct CampusNotificationSheet: View {
                     storyTitle: $0.storyTitle, schoolName: $0.requesterSchoolName,
                     portraitURL: nil, createdAt: $0.createdAt)
             }
-            hasLoadedRequests = true
         } catch {
             guard !Task.isCancelled, loadID == started, remote.account?.id == owner, !remote.needsReauthentication else { return }
-            loadError = "연결 상태를 확인한 뒤 다시 시도해 주세요."
+            loadFailed = true
         }
-        guard remote.supportsContinuationNotifications, remote.account?.id == owner,
-              !remote.needsReauthentication, !Task.isCancelled, loadID == started else { return }
-        do {
-            let page = try await remote.storyContinuations(mine: true)
-            guard loadID == started, remote.account?.id == owner, !Task.isCancelled else { return }
-            continuations = Self.notices(page.items, remote: remote)
-            continuationCursor = continuations.count == page.items.count ? page.nextCursor : nil
-            hasLoadedRequests = true
-        } catch {
-            guard loadID == started, remote.account?.id == owner, !Task.isCancelled else { return }
-            loadError = "이어진 이야기 알림을 불러오지 못했어요. 다시 시도해 주세요."
+        if remote.supportsContinuationNotifications {
+            do {
+                let page = try await remote.storyContinuations(mine: true)
+                guard loadID == started, remote.account?.id == owner, !Task.isCancelled else { return }
+                continuations = Self.notices(page.items, remote: remote)
+                continuationCursor = continuations.count == page.items.count ? page.nextCursor : nil
+            } catch {
+                guard loadID == started, remote.account?.id == owner, !Task.isCancelled else { return }
+                loadFailed = true
+            }
+        }
+        guard loadID == started, remote.account?.id == owner, !remote.needsReauthentication, !Task.isCancelled else { return }
+        hasLoadedRequests = !loadFailed
+        failedLoad = loadFailed ? .inbox : nil
+    }
+
+    private func retryLoads(_ target: FailedLoad) async {
+        var delay = 2
+        while !Task.isCancelled && retryTarget == target {
+            do { try await Task.sleep(for: .seconds(delay)) }
+            catch { return }
+            guard !Task.isCancelled, retryTarget == target else { return }
+            switch target {
+            case .inbox: await reload()
+            case .continuationPage: await loadMoreContinuations()
+            }
+            delay = min(delay * 2, 15)
         }
     }
 
@@ -175,8 +216,9 @@ struct CampusNotificationSheet: View {
             let notices = Self.notices(page.items, remote: remote), known = Set(continuations.map(\.id))
             continuations += notices.filter { !known.contains($0.id) }
             self.continuationCursor = notices.count == page.items.count ? page.nextCursor : nil
+            failedLoad = nil
         } catch {
-            if !Task.isCancelled, loadID == started { loadError = "이어진 이야기 알림을 불러오지 못했어요." }
+            if !Task.isCancelled, loadID == started { failedLoad = .continuationPage }
         }
     }
 
@@ -203,8 +245,9 @@ struct CampusNotificationSheet: View {
     private func resolve(_ id: UUID, _ decision: OiCardRequestDecision) async {
         guard !isLoading, pendingRequestID == nil, !remote.needsReauthentication,
               let owner = remote.account?.id else { return }
+        let submitted = OiPendingCardDecision(id: id, accept: decision == .accept)
         if let unconfirmedDecision {
-            guard unconfirmedDecision.id == id, unconfirmedDecision.decision == decision else { return }
+            guard unconfirmedDecision == submitted else { return }
         } else {
             guard requests.contains(where: { $0.id == id }) else { return }
         }
@@ -212,7 +255,7 @@ struct CampusNotificationSheet: View {
         pendingRequestID = id
         actionError = nil
         do {
-            try await remote.resolveCardRequest(id, accept: decision == .accept)
+            try await remote.resolveRecoverableCardDecision(submitted, owner: owner)
             if remote.account?.id == owner, !remote.needsReauthentication {
                 requests.removeAll { $0.id == id }
                 selectedRequestID = nil
@@ -222,7 +265,7 @@ struct CampusNotificationSheet: View {
                 if case OiServiceError.conflict = error {
                     actionError = "이미 처리됐거나 더 이상 응답할 수 없는 요청이에요."
                 } else {
-                    unconfirmedDecision = (id, decision)
+                    unconfirmedDecision = submitted
                     actionError = "처리 결과를 확인하지 못했어요. 같은 응답을 다시 확인해 주세요."
                 }
             }
@@ -237,7 +280,7 @@ struct CampusNotificationSheet: View {
         guard let unconfirmedDecision else { return }
         // The server accepts a replay of the same decision, including after the
         // request stops appearing in the pending inbox.
-        await resolve(unconfirmedDecision.id, unconfirmedDecision.decision)
+        await resolve(unconfirmedDecision.id, unconfirmedDecision.accept ? .accept : .reject)
     }
 
     private var retryAction: (() async -> Void)? {

@@ -68,6 +68,8 @@ final class OiTestBackend {
         var submitCount = 0
         var deleteCount = 0
         var failDelete = false
+        var loseDeleteReceipt = false
+        var failStoryReviewLookup = false
         var failReadsAfterDelete = false
         var artworkUploadAttempts = 0
         var hasWritingGrant = true
@@ -122,6 +124,8 @@ final class OiTestBackend {
         var failRefreshToken = false
         var failLogout = false
         var logoutScopes: [String?] = []
+        var cardRequestListFailures: Int?
+        var cardRequestListAttempts = 0
         var cardSendResponse: [String: String] = [:]
         var cardSendPayloads: [[String: String]] = []
         var holdCardSend = false
@@ -206,6 +210,10 @@ final class OiTestBackend {
             status = request.httpMethod == "POST" && request.value(forHTTPHeaderField: "Authorization") != nil ? 200 : 401
             result = state.cardSendResponse
         }
+        else if path.hasSuffix("/rpc/oi_card_requests"), let failures = state.cardRequestListFailures {
+            state.cardRequestListAttempts += 1
+            status = state.cardRequestListAttempts <= failures ? 503 : 200
+        }
         else if path.hasSuffix("/rpc/oi_resolve_card_request") || path.hasSuffix("/rpc/oi_card_requests") { status = 404 }
         else if path == "/functions/v1/account-merge", body["action"] as? String == "confirm" {
             state.mergeConfirmCount += 1
@@ -245,7 +253,8 @@ final class OiTestBackend {
                 lock.unlock(); client.timeOut(); return
             }
         } else if path.hasSuffix("/rpc/oi_my_story_reviews") {
-            result = state.storyReview.map { [$0] } ?? []
+            if state.failStoryReviewLookup { status = 503 }
+            else { result = state.storyReview.map { [$0] } ?? [] }
         } else if path.hasSuffix("/rpc/oi_plant_story") {
             if let review = state.storyReview, review["status"] as? String == "approved",
                let revision = state.story?["revision"] as? Int,
@@ -336,6 +345,9 @@ final class OiTestBackend {
                     state.story?["revision"] = nextRevision
                     result = state.story ?? [:]
                     if state.failReadsAfterDelete { state.failReads = true }
+                    if state.loseDeleteReceipt {
+                        lock.unlock(); client.timeOut(); return
+                    }
                 }
             } else if action == "reopen_story" {
                 state.story?["status"] = "draft"
@@ -2186,6 +2198,7 @@ final class OiRemoteStoreTests: XCTestCase {
         }
     }
 
+    #if DEBUG
     /// Opt-in sheet/save regression, with only synthetic local photos (no library interaction).
     @MainActor func testInteractiveWardrobePhotoSheet() async throws {
         guard ProcessInfo.processInfo.environment["OI_WARDROBE_SHEET_CHECK"] == "1" else {
@@ -2208,7 +2221,11 @@ final class OiRemoteStoreTests: XCTestCase {
         let previousKey = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
         window.rootViewController = UIHostingController(rootView: Color.white.fullScreenCover(isPresented: .constant(true)) {
-            NavigationStack { OiStoryEditor(remote: store, localID: local.id).environment(\.scenePhase, .active) }
+            NavigationStack {
+                OiStoryEditor(remote: store, localID: local.id)
+                    .useWardrobeEditorForTest()
+                    .environment(\.scenePhase, .active)
+            }
         })
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
@@ -2226,6 +2243,7 @@ final class OiRemoteStoreTests: XCTestCase {
         }
         XCTFail("Wardrobe sheet interaction route did not finish")
     }
+    #endif
 
     /// Exercises the production editor with local photos and no network writes.
     @MainActor func testInteractivePhotoCancelAndLocation() async throws {
@@ -2700,6 +2718,70 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertNil(store.error)
     }
 
+    @MainActor func testV4DeletionRecoversCommittedRequestAfterRestart() async throws {
+        let (store, backend, sessionVault, session, directory) = try context()
+        defer { clean(session, directory: directory) }
+        await store.start()
+        let owner = OiTestBackend.owner
+        let savedResult = await store.save(draft())
+        let saved = try XCTUnwrap(savedResult)
+        let photo = UUID()
+        let record = OiLocalDraft(draft: OiStoryDraft(story: saved), photos: [photo], version: 1,
+            personalPlacement: .init(regionID: saved.regionId, name: saved.cucumberName,
+                                     latitude: 36, longitude: 129, heightMeters: 0, headingDegrees: 0))
+        try await store.saveLocalPhoto(Data([1]), id: photo, owner: owner)
+        try await store.saveLocalDraft(record, owner: owner)
+        backend.configure { $0.loseDeleteReceipt = true; $0.failReadsAfterDelete = true }
+
+        let deleted = await store.deleteStory(saved)
+        XCTAssertFalse(deleted, "The offline client cannot confirm the deletion yet")
+        XCTAssertEqual(backend.snapshot().story?["status"] as? String, "deleted")
+        let retained = try await store.localDraft(id: saved.id, owner: owner)
+        XCTAssertNotNil(retained)
+
+        backend.configure { $0.failReads = false }
+        let restarted = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+                                      drafts: OiDraftVault(directory: directory), vault: sessionVault)
+        await restarted.start()
+        let recovered = try await restarted.localDraft(id: saved.id, owner: owner)
+        XCTAssertNil(recovered)
+        XCTAssertTrue(restarted.ownStories.isEmpty)
+        XCTAssertEqual(backend.snapshot().deleteCount, 1, "A confirmed deletion must never be replayed")
+        do {
+            _ = try await restarted.localPhoto(id: photo, owner: owner)
+            XCTFail("The recovered deletion must remove its attached file")
+        } catch { XCTAssertTrue(error is CocoaError) }
+    }
+
+    @MainActor func testV4DeletionDoesNotReplayAgainstEditedVersionAfterRestart() async throws {
+        let (store, backend, sessionVault, session, directory) = try context()
+        defer { clean(session, directory: directory) }
+        await store.start()
+        let savedResult = await store.save(draft())
+        let saved = try XCTUnwrap(savedResult)
+        let owner = OiTestBackend.owner
+        try await store.saveLocalDraft(OiLocalDraft(draft: OiStoryDraft(story: saved), version: 1), owner: owner)
+        backend.configure { $0.failDelete = true }
+        let deleted = await store.deleteStory(saved)
+        XCTAssertFalse(deleted)
+        backend.configure {
+            $0.failDelete = false
+            $0.story?["revision"] = saved.revision + 1
+            $0.story?["title"] = "다른 기기에서 수정한 버전"
+        }
+
+        let disk = OiDraftVault(directory: directory)
+        let restarted = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+                                      drafts: disk, vault: sessionVault)
+        await restarted.start()
+        XCTAssertEqual(restarted.ownStories.first?.revision, saved.revision + 1)
+        XCTAssertEqual(backend.snapshot().deleteCount, 1)
+        let pending = try await disk.pendingStoryDeletions(owner: owner)
+        let local = try await restarted.localDraft(id: saved.id, owner: owner)
+        XCTAssertTrue(pending.isEmpty)
+        XCTAssertNotNil(local)
+    }
+
     @MainActor func testStoryListDeletionRejectsStaleRevisionAndSignedOutAccount() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { clean(session, directory: directory) }
@@ -2996,6 +3078,59 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertTrue(planted)
         XCTAssertEqual(store.stories.first?.id, saved.id)
         XCTAssertNil(store.moderationResult(for: approved))
+    }
+
+    @MainActor func testV4LegacyReviewInterruptionKeepsPendingAndLostApprovalSurvivesRestart() async throws {
+        let (store, backend, sessionVault, session, directory) = try context()
+        defer { clean(session, directory: directory) }
+        await store.start()
+        let initial = await store.save(draft())
+        let legacy = await store.submitStory(try XCTUnwrap(initial))
+        let pending = try XCTUnwrap(legacy)
+        XCTAssertEqual(pending.status, "pending")
+        backend.configure { $0.autoStoryModeration = true; $0.timeOutSubmitBeforeCommit = true }
+        await store.refresh()
+        let interrupted = await store.submitStory(pending, agreesToAIReview: true)
+        XCTAssertNil(interrupted)
+        XCTAssertEqual(backend.snapshot().story?["status"] as? String, "pending")
+        XCTAssertEqual(store.ownStories.first?.revision, pending.revision)
+
+        backend.configure { $0.timeOutSubmitAfterCommit = true; $0.failStoryReviewLookup = true }
+        let lostApproval = await store.submitStory(pending, agreesToAIReview: true)
+        XCTAssertNil(lostApproval, "The first client has no definitive result")
+        let restarted = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+                                      drafts: OiDraftVault(directory: directory), vault: sessionVault)
+        await restarted.start()
+        let current = try XCTUnwrap(restarted.ownStories.first)
+        XCTAssertEqual(current.status, "draft")
+        XCTAssertTrue(restarted.storyReviewLookupFailed)
+        XCTAssertNil(restarted.moderationResult(for: current))
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        var actions: OiStoryListScreen.ReviewTestActions?
+        window.rootViewController = UIHostingController(rootView: NavigationStack {
+            OiStoryListScreen(remote: restarted, onReviewActionsForTest: { actions = $0 })
+        })
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
+        for _ in 0..<40 where actions == nil { try await Task.sleep(for: .milliseconds(25)) }
+        let controls = try XCTUnwrap(actions)
+        XCTAssertEqual(controls.status(current.id), .lookupFailed)
+        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "v4-review-result-retry"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        backend.configure { $0.failStoryReviewLookup = false }
+        await restarted.refresh()
+        XCTAssertFalse(restarted.storyReviewLookupFailed)
+        XCTAssertEqual(restarted.moderationResult(for: current)?.status, .approved)
+        XCTAssertTrue(restarted.stories.isEmpty)
     }
 
     @MainActor func testStoryListRequestsReviewAndShowsResultInPlace() async throws {
@@ -4234,11 +4369,97 @@ extension OiRemoteStoreTests {
         XCTAssertEqual(CampusScratchScreen.initialRevealState(storyID: UUID(), remote: store), false)
     }
 
-    @MainActor func testCancelledScratchSaveKeepsReceiptWithoutNavigating() async throws {
-        let (store,backend,_,session,directory) = try context()
+    @MainActor func testV4ScratchSaveRechecksLostReceiptAndResumesOnceAfterRestart() async throws {
+        let (store, backend, sessionVault, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
         await store.start()
-        let storyID = UUID(), owner = store.account?.id
+        let storyID = UUID(), owner = OiTestBackend.owner
+        let collection = try JSONSerialization.data(withJSONObject: [["story_id": storyID.uuidString]])
+        let fallback = OiStoreURLProtocol.handle
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.lastPathComponent == "oi_mutate" { client.timeOut() }
+            else if request.url?.lastPathComponent == "oi_collections" { client.respond(200, collection) }
+            else { fallback?(request, client) }
+        }
+
+        try await store.saveScratchCollection(id: storyID, owner: owner)
+        XCTAssertTrue(store.collections.contains(where: { $0.storyId == storyID }))
+        XCTAssertNil(store.error, "A confirmed lookup clears the uncertain write error")
+        let restarted = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+                                      drafts: OiDraftVault(directory: directory), vault: sessionVault)
+        await restarted.start()
+        var navigations = 0
+        try await restarted.finishScratchCollection(id: storyID, owner: owner) { navigations += 1 }
+        try await restarted.finishScratchCollection(id: storyID, owner: owner) { navigations += 1 }
+        XCTAssertEqual(navigations, 1)
+    }
+
+    @MainActor func testCampusNotificationSheetAutomaticallyRecoversFromFailedLoad() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.cardRequestListFailures = 1 }
+        await store.start()
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(
+            rootView: CampusNotificationSheet(remote: store).environment(\.scenePhase, .active)
+        )
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
+        for _ in 0..<100 where backend.snapshot().cardRequestListAttempts < 2 {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(backend.snapshot().cardRequestListAttempts, 2, "The visible sheet retries without a button press")
+    }
+
+    @MainActor func testV4CardDecisionSurvivesLostResponseAndIsScopedToAccount() async throws {
+        let (store, backend, sessionVault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let owner = OiTestBackend.owner
+        let decision = OiPendingCardDecision(id: UUID(), accept: false)
+        let receipt = try JSONSerialization.data(withJSONObject: [
+            "id": decision.id.uuidString, "story_title": "이야기", "requester_name": "농부",
+            "created_at": "2026-11-17T03:30:00Z", "status": "rejected",
+        ])
+        let fallback = OiStoreURLProtocol.handle
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.lastPathComponent == "oi_resolve_card_request" { client.timeOut() }
+            else { fallback?(request, client) }
+        }
+        do {
+            try await store.resolveRecoverableCardDecision(decision, owner: owner)
+            XCTFail("The first decision receipt is lost")
+        } catch { XCTAssertEqual((error as? URLError)?.code, .timedOut) }
+
+        let disk = OiDraftVault(directory: directory)
+        let foreignDecision = try await disk.pendingCardDecision(owner: OiTestBackend.other)
+        XCTAssertNil(foreignDecision)
+        let restarted = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+                                      drafts: disk, vault: sessionVault)
+        await restarted.start()
+        let restored = try await restarted.pendingCardDecision(owner: owner)
+        XCTAssertEqual(restored, decision)
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.lastPathComponent == "oi_resolve_card_request" {
+                let payload = try? JSONSerialization.jsonObject(with: OiTestBackend.body(request)) as? [String: String]
+                XCTAssertEqual(payload?["p_request_id"], decision.id.uuidString)
+                XCTAssertEqual(payload?["p_decision"], "reject")
+                client.respond(200, receipt)
+            } else { fallback?(request, client) }
+        }
+        try await restarted.resolveRecoverableCardDecision(try XCTUnwrap(restored), owner: owner)
+        let cleared = try await restarted.pendingCardDecision(owner: owner)
+        XCTAssertNil(cleared)
+    }
+
+    @MainActor func testCancelledScratchSaveKeepsReceiptWithoutNavigating() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let storyID = UUID(), owner = OiTestBackend.owner
         let receipt = try JSONSerialization.data(withJSONObject: ["id": storyID.uuidString])
         let collection = try JSONSerialization.data(withJSONObject: [["story_id": storyID.uuidString]])
         let fallback = OiStoreURLProtocol.handle
@@ -4249,18 +4470,17 @@ extension OiRemoteStoreTests {
         }
         var navigated = false
         let save = Task { @MainActor in
-            await store.perform("collect", payload: ["id": storyID.uuidString])
+            try await store.saveScratchCollection(id: storyID, owner: owner)
             // The server response has completed; cancel before the visible-screen continuation runs.
             withUnsafeCurrentTask { $0?.cancel() }
-            return CampusScratchScreen.finishSaving(storyID: storyID, owner: owner, remote: store) { navigated = true }
+            try await store.finishScratchCollection(id: storyID, owner: owner) { navigated = true }
         }
-        let message = await save.value
+        try await save.value
         XCTAssertTrue(store.collections.contains { $0.storyId == storyID }, "Committed collections survive UI cancellation")
         XCTAssertFalse(navigated, "Leaving the scratch screen must suppress its late MY navigation")
-        XCTAssertNil(message)
 
-        XCTAssertNil(CampusScratchScreen.finishSaving(storyID: storyID, owner: owner, remote: store) { navigated = true })
-        XCTAssertTrue(navigated, "A visible, uncancelled save still opens MY")
+        try await store.finishScratchCollection(id: storyID, owner: owner) { navigated = true }
+        XCTAssertTrue(navigated, "Re-entry still opens MY")
     }
 
     @MainActor func testRepeatedLoginDoesNotBecomeConfigurationError() async throws {

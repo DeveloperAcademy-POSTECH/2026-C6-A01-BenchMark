@@ -105,6 +105,11 @@ struct OiEvidenceOperation: Codable, Equatable {
     }
 }
 
+struct OiPendingCardDecision: Codable, Equatable {
+    let id: UUID
+    let accept: Bool
+}
+
 actor OiDraftVault {
     private let directory: URL
 
@@ -280,6 +285,54 @@ actor OiDraftVault {
         folder.appending(path: "discarded-draft-\(id.uuidString).json")
     }
 
+    func pendingStoryDeletions(owner: UUID) throws -> [UUID: Int] {
+        let url = try ownerDirectory(owner).appending(path: "pending-story-deletions.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
+        return try JSONDecoder().decode([UUID: Int].self, from: Data(contentsOf: url))
+    }
+
+    func setPendingStoryDeletion(id: UUID, revision: Int?, owner: UUID) throws {
+        var pending = try pendingStoryDeletions(owner: owner)
+        pending[id] = revision
+        let url = try ownerDirectory(owner).appending(path: "pending-story-deletions.json")
+        try write(JSONEncoder().encode(pending), to: url)
+    }
+
+    func markScratchCollection(id: UUID, owner: UUID) throws {
+        try write(Data(), to: scratchCollectionMarker(id: id, owner: owner))
+    }
+
+    private func scratchCollectionMarker(id: UUID, owner: UUID) throws -> URL {
+        try ownerDirectory(owner).appending(path: "pending-scratch-\(id.uuidString)")
+    }
+
+    func hasPendingScratchCollection(id: UUID, owner: UUID) throws -> Bool {
+        try FileManager.default.fileExists(atPath: scratchCollectionMarker(id: id, owner: owner).path)
+    }
+
+    func clearScratchCollection(id: UUID, owner: UUID) throws {
+        let marker = try scratchCollectionMarker(id: id, owner: owner)
+        if FileManager.default.fileExists(atPath: marker.path) { try FileManager.default.removeItem(at: marker) }
+    }
+
+    func pendingCardDecision(owner: UUID) throws -> OiPendingCardDecision? {
+        let url = try ownerDirectory(owner).appending(path: "pending-card-decision.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try JSONDecoder().decode(OiPendingCardDecision.self, from: Data(contentsOf: url))
+    }
+
+    func saveCardDecision(_ decision: OiPendingCardDecision, owner: UUID) throws {
+        if let pending = try pendingCardDecision(owner: owner), pending != decision { throw OiServiceError.conflict }
+        let url = try ownerDirectory(owner).appending(path: "pending-card-decision.json")
+        try write(JSONEncoder().encode(decision), to: url)
+    }
+
+    func clearCardDecision(_ decision: OiPendingCardDecision, owner: UUID) throws {
+        guard try pendingCardDecision(owner: owner) == decision else { return }
+        let url = try ownerDirectory(owner).appending(path: "pending-card-decision.json")
+        try FileManager.default.removeItem(at: url)
+    }
+
     func schoolEvidenceReview(owner: UUID) throws -> OiSavedSchoolEvidenceReview? {
         let url = try ownerDirectory(owner).appending(path: "school-evidence-review.json")
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
@@ -318,6 +371,117 @@ struct OiDraftCustomization: Codable, Equatable {
     var connectedStoryID: String?
     /// Distinguishes an explicit clear from an older draft without this selection field.
     var connectedStorySelectionEdited: Bool? = nil
+
+    /// Local STEP 3 appearance. Older drafts use the default bare cucumber.
+    var seedAppearance: OiSeedCucumberAppearance?
+    var seedWhiteTshirt: Bool?
+    var seedLongPants: Bool?
+    var seedTop: String?
+    var seedBottom: String?
+    var seedSneakers: Bool?
+    var seedSet: String?
+    var seedProposal: Int?
+
+    var selectedSeedTop: OiWardrobeLook.Top? {
+        get { seedTop.flatMap(OiWardrobeLook.Top.init(rawValue:)) ?? (seedWhiteTshirt == true ? .tshirt : nil) }
+        set {
+            seedTop = newValue?.rawValue
+            seedWhiteTshirt = nil
+        }
+    }
+
+    var selectedSeedBottom: OiWardrobeLook.Bottom? {
+        get { seedBottom.flatMap(OiWardrobeLook.Bottom.init(rawValue:)) ?? (seedLongPants == true ? .long : nil) }
+        set {
+            seedBottom = newValue?.rawValue
+            seedLongPants = nil
+        }
+    }
+
+    var selectedSeedSet: OiSeedCucumberSet? {
+        get {
+            let set = seedSet.flatMap(OiSeedCucumberSet.init(rawValue:))
+            return set == .costume(.scientist) ? nil : set
+        }
+        set {
+            if seedSet != newValue?.rawValue { seedProposal = nil }
+            seedSet = newValue?.rawValue
+        }
+    }
+
+    var selectedSeedProposal: OiSeedCostumeProposal? {
+        guard case .costume(let costume) = selectedSeedSet else { return nil }
+        let options = OiSeedCostumeProposal.options(for: costume)
+        if let seedProposal, let proposal = OiSeedCostumeProposal(rawValue: seedProposal),
+           options.contains(proposal) { return proposal }
+        return options.first
+    }
+
+    mutating func selectSeedTop(_ top: OiWardrobeLook.Top) {
+        selectedSeedTop = selectedSeedSet == nil && selectedSeedTop == top ? nil : top
+        selectedSeedSet = nil
+    }
+
+    mutating func selectSeedBottom(_ bottom: OiWardrobeLook.Bottom) {
+        selectedSeedBottom = selectedSeedSet == nil && selectedSeedBottom == bottom ? nil : bottom
+        selectedSeedSet = nil
+    }
+
+    mutating func toggleSeedSneakers() {
+        seedSneakers = selectedSeedSet != nil || seedSneakers != true ? true : nil
+        selectedSeedSet = nil
+    }
+
+    mutating func selectSeedSet(_ set: OiSeedCucumberSet) {
+        selectedSeedSet = selectedSeedSet == set ? nil : set
+    }
+
+    mutating func selectSeedProposal(_ proposal: OiSeedCostumeProposal, for costume: OiWardrobeLook.Costume) {
+        guard OiSeedCostumeProposal.options(for: costume).contains(proposal) else { return }
+        let set = OiSeedCucumberSet.costume(costume)
+        if selectedSeedSet == set, selectedSeedProposal == proposal {
+            selectedSeedSet = nil
+        } else {
+            selectedSeedSet = set
+            seedProposal = proposal.rawValue
+        }
+    }
+}
+
+enum OiSeedCostumeProposal: Int {
+    case one = 1
+
+    static func options(for costume: OiWardrobeLook.Costume) -> [Self] {
+        switch costume {
+        case .raincoat, .postechSelfie, .astronaut, .catBear, .astronautNavy: [.one]
+        default: []
+        }
+    }
+}
+
+enum OiSeedCucumberSet: Equatable, RawRepresentable, CaseIterable {
+    case costume(OiWardrobeLook.Costume)
+    case postech
+
+    static let availableCostumes = OiWardrobeLook.Costume.allCases.filter { $0 != .scientist }
+    static var allCases: [Self] { availableCostumes.map(Self.costume) + [.postech] }
+
+    init?(rawValue: String) {
+        if rawValue == "postech" {
+            self = .postech
+        } else if let costume = OiWardrobeLook.Costume(rawValue: rawValue) {
+            self = .costume(costume)
+        } else {
+            return nil
+        }
+    }
+
+    var rawValue: String {
+        switch self {
+        case .costume(let costume): costume.rawValue
+        case .postech: "postech"
+        }
+    }
 }
 
 /// Card-space coordinates shared by the small editor frame and the final card.

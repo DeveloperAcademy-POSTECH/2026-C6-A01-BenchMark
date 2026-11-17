@@ -274,24 +274,22 @@ struct OiStoryListScreen: View {
             ? try await reviewCard(for: OiStoryDraft(story: story), customization: OiDraftCustomization(), portrait: nil, story: nil)
             : nil
         try Task.checkCancellation()
-        let reopened = try await remote.reopenPendingStoryForAIReview(story)
+        guard reviewWork?.id == work.id, remote.account?.id == owner else { return }
+        let receipt = await remote.submitStory(story, card: card, agreesToAIReview: work.authorizesAIReview)
         try Task.checkCancellation()
         guard reviewWork?.id == work.id, remote.account?.id == owner else { return }
-        let receipt = await remote.submitStory(reopened, card: card, agreesToAIReview: work.authorizesAIReview)
-        try Task.checkCancellation()
-        guard reviewWork?.id == work.id, remote.account?.id == owner else { return }
-        let rejected = remote.moderationResult(for: reopened)?.status == .rejected
+        let current = receipt ?? remote.ownStories.first(where: { $0.id == story.id })
+        guard let current, remote.moderationResult(for: current) != nil else {
+            throw OiServiceError.server(remote.error ?? "검토 요청을 확인하지 못했어요. 다시 시도해 주세요.")
+        }
         if var local = try await remote.localDraft(id: story.id, owner: owner),
            local.version == originalLocal?.version, local.contentFingerprint == originalLocal?.contentFingerprint,
-           OiCreationAccess.canRebase(local.draft, to: reopened) {
-            local.draft = OiStoryDraft(story: receipt ?? reopened)
+           OiCreationAccess.canRebase(local.draft, to: current) {
+            local.draft = OiStoryDraft(story: current)
             local.submitted = false
-            local.reviewedContentFingerprint = receipt != nil || rejected ? local.contentFingerprint : nil
+            local.reviewedContentFingerprint = local.contentFingerprint
             local.version += 1
             try await remote.saveLocalDraft(local, owner: owner)
-        }
-        guard receipt != nil || rejected else {
-            throw OiServiceError.server(remote.error ?? "검토 요청을 확인하지 못했어요. 다시 시도해 주세요.")
         }
         await loadLocalDrafts()
         if reviewWork?.id == work.id { reviewWork = nil }
@@ -409,13 +407,24 @@ struct OiStoryListScreen: View {
         if reviewWork?.storyID == id || remote.reviewingStoryID == id { return .reviewing }
         guard let story = remote.ownStories.first(where: { $0.id == id }) else { return .unreviewed }
         if story.status == "pending" { return remote.autoStoryModeration ? .unreviewed : .reviewing }
-        guard let review = remote.moderationResult(for: story) else { return .unreviewed }
+        guard let review = remote.moderationResult(for: story) else {
+            return remote.storyReviewLookupFailed ? .lookupFailed : .unreviewed
+        }
         if loadedDraftOwner == remote.account?.id,
            let local = localDrafts.first(where: { $0.id == id }),
-           local.draft.revision != story.revision || !unchangedReviewedDraftIDs.contains(id) {
+           !(local.draft.revision == story.revision
+             ? unchangedReviewedDraftIDs.contains(id)
+             : matchesLegacyReview(local, story: story)) {
             return .unreviewed
         }
         return review.status == .approved ? .approved : .rejected
+    }
+
+    private func matchesLegacyReview(_ local: OiLocalDraft, story: OiLiveStory) -> Bool {
+        // An older submitted draft is read-only on this device. The transaction
+        // can finalize it while the app is suspended, before the local receipt is saved.
+        return local.submitted && story.revision == local.draft.revision + 1
+            && OiCreationAccess.canRebase(local.draft, to: story)
     }
 
     private func canPlant(in state: OiStoryListState) -> Bool {
@@ -476,7 +485,9 @@ struct OiStoryListScreen: View {
         do {
             let current = try await remote.localDraft(id: story.id, owner: owner)
             guard owner == remote.account?.id else { return }
-            if let current, current.draft.revision != story.revision || !current.matchesReviewedContent {
+            if let current, !(current.draft.revision == story.revision
+                             ? current.matchesReviewedContent
+                             : matchesLegacyReview(current, story: story)) {
                 publicationMessage = "내용이 바뀌었어요. 다시 검토해 주세요."
                 await loadLocalDrafts()
                 return
@@ -568,14 +579,6 @@ struct OiStoryListScreen: View {
             guard remote.account?.id == target.owner else { return }
             if !deleted {
                 deletionError = remote.error ?? "이야기를 삭제하지 못했어요. 최신 상태를 확인한 후 다시 시도해 주세요."
-            } else {
-                do {
-                    try await remote.discardLocalDraft(id: target.id, owner: target.owner)
-                } catch {
-                    if remote.account?.id == target.owner {
-                        deletionError = "이야기는 삭제했지만 기기 초안 정리를 마치지 못했어요. \(error.localizedDescription)"
-                    }
-                }
             }
         } else {
             do {

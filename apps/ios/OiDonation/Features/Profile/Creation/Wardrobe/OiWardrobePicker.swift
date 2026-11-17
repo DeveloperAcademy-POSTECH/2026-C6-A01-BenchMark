@@ -8,9 +8,15 @@ private enum OiWardrobeTab: String, CaseIterable {
 }
 
 struct OiCucumberCustomizationStep: View {
+    enum PreviewMode {
+        case seed
+        case wardrobe
+    }
+
     @Binding var customization: OiDraftCustomization
     /// The draft's cucumber name, edited in the 내용 tab. Nil hides the tab's name field.
     var cucumberName: Binding<String>?
+    var previewMode: PreviewMode = .seed
     var canContinue = true
     var isFinished = false
     var onContinue: (() -> Void)?
@@ -19,12 +25,31 @@ struct OiCucumberCustomizationStep: View {
     var initialTabTitle: String?
     @Environment(\.oiCustomizationBottomInset) private var bottomInset
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var photoScene = OiWardrobeScene()
+    @State private var photoScene: OiWardrobeScene?
     @State private var tab: OiWardrobeTab = .content
     @State private var wardrobeScrollPosition = ScrollPosition()
     @State private var photoSlot: OiPhotoSlot?
     /// Top of the keyboard in global coordinates, animated with the keyboard itself (#377).
     @State private var keyboardTop: CGFloat?
+    @State private var showsFaceEditor = false
+    private var allowsWardrobeEditing: Bool { previewMode == .wardrobe }
+    private var seedAppearance: OiSeedCucumberAppearance { customization.seedAppearance ?? .init() }
+    private var seedGarments: Set<OiSeedCucumberGarment> {
+        switch customization.selectedSeedSet {
+        case .costume(let costume):
+            if let proposal = customization.selectedSeedProposal {
+                return [.costumeProposal(costume, proposal)]
+            }
+            return [.costume(costume)]
+        case .postech: return [.postechJacket, .longPants, .sneakers]
+        case nil: break
+        }
+        var garments: Set<OiSeedCucumberGarment> = []
+        if let top = customization.selectedSeedTop { garments.insert(.init(top: top)) }
+        if let bottom = customization.selectedSeedBottom { garments.insert(.init(bottom: bottom)) }
+        if customization.seedSneakers == true { garments.insert(.sneakers) }
+        return garments
+    }
     private var look: OiWardrobeLook { customization.wardrobe ?? OiWardrobeLook() }
     /// Tabs, the name label and its field must stay above the keyboard while typing.
     private static let nameEditingClearance: CGFloat = 44 + 15 + 32 + 70 + 16
@@ -51,7 +76,7 @@ struct OiCucumberCustomizationStep: View {
                     // While the image sheet is open, a tap above it closes the sheet without saving (#377).
                     .contentShape(Rectangle())
                     .simultaneousGesture(TapGesture().onEnded { if photoSlot != nil { closePhotoEditor() } })
-                if let slot = photoSlot {
+                if allowsWardrobeEditing, let slot = photoSlot, let photoScene {
                     OiWardrobePhotoEditor(slot: slot, look: look, scene: photoScene,
                         onClose: closePhotoEditor) { artwork in
                             change { $0.artwork = artwork }
@@ -107,8 +132,18 @@ struct OiCucumberCustomizationStep: View {
             keyboardChanged(note, hiding: true)
         }
         .onAppear {
-            if customization.wardrobe == nil { customization.wardrobe = OiWardrobeLook() }
+            if allowsWardrobeEditing {
+                if photoScene == nil { photoScene = OiWardrobeScene() }
+                if customization.wardrobe == nil { customization.wardrobe = OiWardrobeLook() }
+            }
             if let title = initialTabTitle, let initial = OiWardrobeTab(rawValue: title) { tab = initial }
+        }
+        .sheet(isPresented: $showsFaceEditor) {
+            NavigationStack {
+                OiSeedCucumberCustomizationView(appearance: seedAppearance) { appearance in
+                    customization.seedAppearance = appearance == OiSeedCucumberAppearance() ? nil : appearance
+                }
+            }
         }
     }
 
@@ -123,37 +158,58 @@ struct OiCucumberCustomizationStep: View {
 
     private func preview(height: CGFloat, fullHeight: CGFloat) -> some View {
         ZStack(alignment: .bottomTrailing) {
-            // The 3D surface keeps its full size and is scaled, so it shrinks smoothly without re-rendering at each step.
-            OiWardrobePreview(look: look, controls: false, scene: photoScene,
-                backgroundColor: .white, portraitKey: customization.card?.portraitKey,
-                portraitPNG: customization.card?.portraitPNG)
-                .frame(height: fullHeight)
-                .scaleEffect(fullHeight > 0 ? min(1, height / fullHeight) : 1, anchor: .center)
-                .frame(height: height)
-                // Only the cucumber shrinks; the 360° hint keeps its size (#377).
-                .overlay(alignment: .bottomLeading) {
-                    if photoSlot == nil {
+            if allowsWardrobeEditing, let photoScene {
+                OiWardrobePreview(look: look, controls: false, scene: photoScene,
+                                  backgroundColor: .white, portraitKey: customization.card?.portraitKey,
+                                  portraitPNG: customization.card?.portraitPNG)
+                    .frame(height: fullHeight)
+                    .scaleEffect(fullHeight > 0 ? min(1, height / fullHeight) : 1)
+                    .frame(height: height)
+                    .overlay(alignment: .topTrailing) {
+                        if photoSlot != nil {
+                            Text("실시간 미리보기").font(.caption2).foregroundStyle(Color("OiGreen")).padding(8)
+                        }
+                    }
+            } else if allowsWardrobeEditing {
+                Color.clear.frame(height: height)
+            } else {
+                OiStep3CucumberPreview(appearance: seedAppearance, garments: seedGarments,
+                                      isActive: !showsFaceEditor)
+                    .frame(height: fullHeight)
+                    .scaleEffect(fullHeight > 0 ? min(1, height / fullHeight) : 1)
+                    .frame(height: height)
+            }
+            if photoSlot == nil {
+                Group {
+                    if allowsWardrobeEditing, let photoScene {
                         OiWardrobeRotationHint()
-                            .padding(.bottom, 8)
                             .accessibilityAction(named: "오른쪽으로 돌리기") { photoScene.orbit(-157) }
                             .accessibilityAction(named: "왼쪽으로 돌리기") { photoScene.orbit(157) }
+                    } else {
+                        OiWardrobeRotationHint().accessibilityHidden(true)
                     }
                 }
-                .overlay(alignment: .topTrailing) {
-                    if photoSlot != nil {
-                        Text("실시간 미리보기").font(.caption2).foregroundStyle(Color("OiGreen")).padding(8)
+                .padding(.bottom, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .allowsHitTesting(false)
+                VStack(alignment: .trailing, spacing: 8) {
+                    if !allowsWardrobeEditing && !isFinished {
+                        OiCreationDoneButton(title: "얼굴") { showsFaceEditor = true }
+                            .accessibilityIdentifier("oi.customization.face")
+                            .accessibilityHint("오이 얼굴과 몸체를 편집해요")
+                    }
+                    if let onContinue {
+                        OiCreationDoneButton(enabled: canContinue, title: isFinished ? "다시 꾸미기" : "완료", action: onContinue)
+                            .accessibilityIdentifier("oi.customization.done")
+                            .accessibilityHint(isFinished ? "꾸미기를 다시 열어요" : "카드 꾸미기로 이동해요")
                     }
                 }
-            if photoSlot == nil, let onContinue {
-                OiCreationDoneButton(enabled: canContinue, title: isFinished ? "다시 꾸미기" : "완료", action: onContinue)
-                    .accessibilityIdentifier("oi.customization.done")
-                    .accessibilityHint(isFinished ? "의상 선택을 다시 열어요" : "코디를 확인하고 이전·다음 버튼을 표시해요")
             }
         }
     }
 
     private func closePhotoEditor() {
-        photoScene.editPhotos(in: nil, look: look)
+        photoScene?.editPhotos(in: nil, look: look)
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { photoSlot = nil }
         onPhotoEditingChanged(false)
     }
@@ -210,7 +266,7 @@ struct OiCucumberCustomizationStep: View {
             // Same #D9D9D9 tray as 상의·하의 (#377).
             items.id(tab).padding(12).frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color(white: 217 / 255), in: RoundedRectangle(cornerRadius: 10))
-            if let slot = selectedPhotoSlot { photoControls(slot) }
+            if allowsWardrobeEditing, let slot = selectedPhotoSlot { photoControls(slot) }
         } else {
             // Figma `5719:9981` 상의 (also 하의·신발): the fixed item tray above, then custom color/image, colors and denim.
             VStack(alignment: .leading, spacing: 20) {
@@ -232,31 +288,53 @@ struct OiCucumberCustomizationStep: View {
     private var showsItemTray: Bool { [.top, .bottom, .shoes].contains(tab) }
 
     /// The postech jacket and one-piece sets keep their own colors.
-    private var showsColors: Bool { look.costume == nil && !(tab == .top && look.top == .postech) }
+    private var showsColors: Bool { allowsWardrobeEditing && look.costume == nil && !(tab == .top && look.top == .postech) }
 
     /// Figma `5719:10056`: up to four 76×112 white cards centered on a #D9D9D9 tray, without scrolling.
     private var itemStrip: some View {
         HStack(spacing: 12) {
-                switch tab {
-                case .top:
-                    ForEach(OiWardrobeLook.Top.allCases, id: \.self) { top in
-                        card(top.title, image: "oi-thumb-\(top.rawValue)", selected: look.costume == nil && look.top == top, id: top.rawValue) {
+            switch tab {
+            case .top:
+                ForEach(OiWardrobeLook.Top.allCases, id: \.self) { top in
+                    let selected = allowsWardrobeEditing
+                        ? look.costume == nil && look.top == top
+                        : customization.selectedSeedSet == nil && customization.selectedSeedTop == top
+                    card(top.title, image: "oi-thumb-\(top.rawValue)", selected: selected, id: top.rawValue) {
+                        if allowsWardrobeEditing {
                             change { $0.top = top; $0.costume = nil }
+                        } else {
+                            customization.selectSeedTop(top)
                         }
                     }
-                case .bottom:
-                    ForEach(OiWardrobeLook.Bottom.allCases, id: \.self) { bottom in
-                        card(bottom.title, image: "oi-thumb-\(bottom == .long ? "long-pants" : "shorts")", selected: look.costume == nil && look.bottom == bottom, id: bottom.rawValue) {
-                            change { $0.bottom = bottom; $0.costume = nil }
-                        }
-                    }
-                case .shoes:
-                    card("흰 운동화", image: "oi-thumb-sneakers", selected: look.costume == nil, id: "sneakers") {
-                        change { $0.shoeColor = 0xFFFFFF; $0.costume = nil }
-                    }
-                default:
-                    EmptyView()
                 }
+            case .bottom:
+                ForEach(OiWardrobeLook.Bottom.allCases, id: \.self) { bottom in
+                    let selected = allowsWardrobeEditing
+                        ? look.costume == nil && look.bottom == bottom
+                        : customization.selectedSeedSet == nil && customization.selectedSeedBottom == bottom
+                    card(bottom.title, image: "oi-thumb-\(bottom == .long ? "long-pants" : "shorts")",
+                         selected: selected, id: bottom.rawValue) {
+                        if allowsWardrobeEditing {
+                            change { $0.bottom = bottom; $0.costume = nil }
+                        } else {
+                            customization.selectSeedBottom(bottom)
+                        }
+                    }
+                }
+            case .shoes:
+                let selected = allowsWardrobeEditing
+                    ? look.costume == nil
+                    : customization.selectedSeedSet == nil && customization.seedSneakers == true
+                card("흰 운동화", image: "oi-thumb-sneakers", selected: selected, id: "sneakers") {
+                    if allowsWardrobeEditing {
+                        change { $0.shoeColor = 0xFFFFFF; $0.costume = nil }
+                    } else {
+                        customization.toggleSeedSneakers()
+                    }
+                }
+            default:
+                EmptyView()
+            }
         }
         .frame(maxWidth: .infinity, minHeight: 131)
         .background(Color(white: 217 / 255), in: RoundedRectangle(cornerRadius: 10))
@@ -305,6 +383,7 @@ struct OiCucumberCustomizationStep: View {
     private func addImageButton(_ slot: OiPhotoSlot) -> some View {
         let design = look.artwork.designs[slot.itemID(in: look)]
         return Button {
+            guard let photoScene else { return }
             photoScene.editPhotos(in: slot, look: look)
             onPhotoEditingChanged(true)
             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { photoSlot = slot }
@@ -386,6 +465,7 @@ struct OiCucumberCustomizationStep: View {
         return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Button {
+                    guard let photoScene else { return }
                     photoScene.editPhotos(in: slot, look: look)
                     onPhotoEditingChanged(true)
                     withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { photoSlot = slot }
@@ -416,55 +496,80 @@ struct OiCucumberCustomizationStep: View {
             switch tab {
             case .content, .pose, .hat, .accessory, .special:
                 EmptyView()
-            case .top:
-                ForEach(OiWardrobeLook.Top.allCases, id: \.self) { top in
-                    item(top.title, image: "oi-thumb-\(top.rawValue)", selected: look.costume == nil && look.top == top, id: top.rawValue) {
-                        change { $0.top = top; $0.costume = nil }
-                    }
-                }
-            case .bottom:
-                ForEach(OiWardrobeLook.Bottom.allCases, id: \.self) { bottom in
-                    item(bottom.title, image: "oi-thumb-\(bottom == .long ? "long-pants" : "shorts")", selected: look.costume == nil && look.bottom == bottom, id: bottom.rawValue) {
-                        change { $0.bottom = bottom; $0.costume = nil }
-                    }
-                }
-            case .shoes:
-                item("흰 운동화", image: "oi-thumb-sneakers", selected: look.costume == nil, id: "sneakers") {
-                    change { $0.shoeColor = 0xFFFFFF; $0.costume = nil }
-                }
+            case .top, .bottom, .shoes:
+                EmptyView()
             case .set:
-                ForEach(OiWardrobeLook.Costume.allCases) { costume in
-                    item(costume.title, image: costume.thumbnailName, selected: look.costume == costume, id: "set-" + costume.rawValue) {
-                        change { $0.costume = costume }
+                ForEach(allowsWardrobeEditing ? OiWardrobeLook.Costume.allCases : OiSeedCucumberSet.availableCostumes) { costume in
+                    if !allowsWardrobeEditing, let proposal = OiSeedCostumeProposal.options(for: costume).first {
+                        proposalItem(costume, proposal)
+                    } else {
+                        let seedSelection = allowsWardrobeEditing ? nil : customization.selectedSeedSet == .costume(costume)
+                        item(costume.title, image: costume.thumbnailName, selected: look.costume == costume,
+                             id: "set-" + costume.rawValue, seedSelection: seedSelection) {
+                            if seedSelection != nil {
+                                customization.selectSeedSet(.costume(costume))
+                            } else {
+                                change { $0.costume = costume }
+                            }
+                        }
                     }
                 }
-                item("포스텍 과잠 세트", image: "oi-look-postech", selected: look.costume == nil && look.top == .postech && look.bottom == .long, id: "set-postech") {
-                    var replacement = OiWardrobeLook()
-                    replacement.top = .postech
-                    replacement.artwork = look.artwork; replacement.fabrics = look.fabrics
-                    customization.wardrobe = replacement
+                let seedSelection = allowsWardrobeEditing ? nil : customization.selectedSeedSet == .postech
+                item("포스텍 과잠 세트", image: "oi-look-postech",
+                     selected: look.costume == nil && look.top == .postech && look.bottom == .long,
+                     id: "set-postech", seedSelection: seedSelection) {
+                    if seedSelection != nil {
+                        customization.selectSeedSet(.postech)
+                    } else {
+                        var replacement = OiWardrobeLook()
+                        replacement.top = .postech
+                        replacement.artwork = look.artwork; replacement.fabrics = look.fabrics
+                        customization.wardrobe = replacement
+                    }
                 }
             }
         }
         }
     }
 
-    private func item(_ title: String, image: String, selected: Bool, id: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 5) {
-                if let url = Bundle.main.url(forResource: image, withExtension: "png") ?? Bundle.main.url(forResource: image, withExtension: "jpg"), let thumbnail = UIImage(contentsOfFile: url.path) {
-                    Image(uiImage: thumbnail).resizable().scaledToFit().frame(height: 68)
-                } else {
-                    Image(systemName: "tshirt").font(.system(size: 30)).frame(height: 68)
-                }
-                Text(title).font(CampusStyle.body(10)).lineLimit(2).frame(minHeight: 26)
-            }.padding(5).frame(maxWidth: .infinity)
-                .background(.white, in: RoundedRectangle(cornerRadius: 10))
-                .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(selected ? Color("OiGreen") : .clear, lineWidth: 2) }
-                .overlay(alignment: .topTrailing) { if selected { OiWardrobeSelectedBadge().padding(.top, 6).padding(.trailing, 6) } }
-        }.buttonStyle(.plain).foregroundStyle(Color("OiDark"))
-            .accessibilityIdentifier("oi.wardrobe.item.\(id)")
-            .accessibilityLabel(title).accessibilityAddTraits(selected ? .isSelected : [])
+    private func proposalItem(_ costume: OiWardrobeLook.Costume, _ proposal: OiSeedCostumeProposal) -> some View {
+        let isSelected = customization.selectedSeedSet == .costume(costume)
+            && customization.selectedSeedProposal == proposal
+        let garment = OiSeedCucumberGarment.costumeProposal(costume, proposal)
+        return item(costume.title, image: garment.rawValue, selected: isSelected,
+                    id: "set-\(costume.rawValue)-proposal-\(proposal.rawValue)", seedSelection: isSelected) {
+            customization.selectSeedProposal(proposal, for: costume)
+        }
+    }
+
+    @ViewBuilder private func item(_ title: String, image: String, selected: Bool, id: String,
+                                   seedSelection: Bool? = nil, action: @escaping () -> Void) -> some View {
+        let isSelected = seedSelection ?? (allowsWardrobeEditing && selected)
+        let tile = VStack(spacing: 5) {
+            if let url = Bundle.main.url(forResource: image, withExtension: "png") ?? Bundle.main.url(forResource: image, withExtension: "jpg"), let thumbnail = UIImage(contentsOfFile: url.path) {
+                Image(uiImage: thumbnail).resizable().scaledToFit().frame(height: 68)
+            } else {
+                Image(systemName: "tshirt").font(.system(size: 30)).frame(height: 68)
+            }
+            Text(title).font(CampusStyle.body(10)).lineLimit(2).frame(minHeight: 26)
+        }.padding(5).frame(maxWidth: .infinity)
+            .background(.white, in: RoundedRectangle(cornerRadius: 10))
+            .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(isSelected ? Color("OiGreen") : .clear, lineWidth: 2) }
+            .overlay(alignment: .topTrailing) {
+                if isSelected { OiWardrobeSelectedBadge().padding(.top, 6).padding(.trailing, 6) }
+            }
+        if allowsWardrobeEditing || seedSelection != nil {
+            Button(action: action) { tile }
+                .buttonStyle(.plain).foregroundStyle(Color("OiDark"))
+                .accessibilityIdentifier("oi.wardrobe.item.\(id)")
+                .accessibilityLabel(title).accessibilityAddTraits(isSelected ? .isSelected : [])
+                .accessibilityHint(seedSelection.map { $0 ? "선택하면 벗어요" : "선택하면 착용해요" } ?? "")
+        } else {
+            tile.foregroundStyle(Color("OiDark"))
+                .accessibilityElement(children: .ignore)
+                .accessibilityIdentifier("oi.wardrobe.item.\(id)")
+                .accessibilityLabel(title)
+        }
     }
 
     private static let neutral: [(String, UInt32)] = [("화이트", 0xFFFFFF), ("아이보리", 0xF2EBDD), ("오트밀", 0xD7CBB8), ("토프", 0xB2A398), ("스톤", 0xB9BFBA), ("차콜", 0x555957)]
