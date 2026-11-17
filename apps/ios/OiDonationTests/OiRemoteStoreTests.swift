@@ -47,7 +47,10 @@ final class OiTestBackend {
         var duplexStoryCard = false
         var storyCardCover = false
         var storyCardCoverJpeg = false
+        var storyContinuations = false
+        var storyContinuationNotifications = false
         var autoStoryModeration = false
+        var operatorManualStoryReview = false
         var rejectModeration = false
         var moderationCount = 0
         var storyReview: [String: Any]?
@@ -66,6 +69,8 @@ final class OiTestBackend {
         var submitCount = 0
         var deleteCount = 0
         var failDelete = false
+        var loseDeleteReceipt = false
+        var failStoryReviewLookup = false
         var failReadsAfterDelete = false
         var artworkUploadAttempts = 0
         var hasWritingGrant = true
@@ -120,6 +125,8 @@ final class OiTestBackend {
         var failRefreshToken = false
         var failLogout = false
         var logoutScopes: [String?] = []
+        var cardRequestListFailures: Int?
+        var cardRequestListAttempts = 0
         var cardSendResponse: [String: String] = [:]
         var cardSendPayloads: [[String: String]] = []
         var holdCardSend = false
@@ -204,6 +211,10 @@ final class OiTestBackend {
             status = request.httpMethod == "POST" && request.value(forHTTPHeaderField: "Authorization") != nil ? 200 : 401
             result = state.cardSendResponse
         }
+        else if path.hasSuffix("/rpc/oi_card_requests"), let failures = state.cardRequestListFailures {
+            state.cardRequestListAttempts += 1
+            status = state.cardRequestListAttempts <= failures ? 503 : 200
+        }
         else if path.hasSuffix("/rpc/oi_resolve_card_request") || path.hasSuffix("/rpc/oi_card_requests") { status = 404 }
         else if path == "/functions/v1/account-merge", body["action"] as? String == "confirm" {
             state.mergeConfirmCount += 1
@@ -243,7 +254,8 @@ final class OiTestBackend {
                 lock.unlock(); client.timeOut(); return
             }
         } else if path.hasSuffix("/rpc/oi_my_story_reviews") {
-            result = state.storyReview.map { [$0] } ?? []
+            if state.failStoryReviewLookup { status = 503 }
+            else { result = state.storyReview.map { [$0] } ?? [] }
         } else if path.hasSuffix("/rpc/oi_plant_story") {
             if let review = state.storyReview, review["status"] as? String == "approved",
                let revision = state.story?["revision"] as? Int,
@@ -334,6 +346,9 @@ final class OiTestBackend {
                     state.story?["revision"] = nextRevision
                     result = state.story ?? [:]
                     if state.failReadsAfterDelete { state.failReads = true }
+                    if state.loseDeleteReceipt {
+                        lock.unlock(); client.timeOut(); return
+                    }
                 }
             } else if action == "reopen_story" {
                 state.story?["status"] = "draft"
@@ -424,7 +439,10 @@ final class OiTestBackend {
             if state.duplexStoryCard { capabilities["duplex_story_card"] = true }
             if state.storyCardCover { capabilities["story_card_cover"] = true }
             if state.storyCardCoverJpeg { capabilities["story_card_cover_jpeg"] = true }
+            if state.storyContinuations { capabilities["story_continuations"] = true }
+            if state.storyContinuationNotifications { capabilities["story_continuation_notifications"] = true }
             if state.autoStoryModeration { capabilities["auto_story_moderation"] = true }
+            if state.operatorManualStoryReview { capabilities["operator_manual_story_review"] = true }
             if let canonical = state.canonicalAccountID {
                 capabilities["account_id"] = canonical.uuidString
                 capabilities["account_merge_enabled"] = true
@@ -979,9 +997,11 @@ final class OiRemoteStoreTests: XCTestCase {
         let pendingResult = await store.submitStory(saved)
         let pending = try XCTUnwrap(pendingResult)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        for name in ["list", "detail", "list-empty", "list-failed", "detail-accessibility"] {
+        for name in ["list", "detail", "list-empty", "list-failed", "detail-accessibility", "detail-ai", "detail-ai-unsupported"] {
             backend.configure {
                 $0.failReads = name == "list-failed"
+                $0.autoStoryModeration = name.hasPrefix("detail-ai")
+                $0.operatorManualStoryReview = name == "detail-ai"
                 $0.story?["status"] = name == "list-empty" ? "published" : "pending"
             }
             let view: AnyView
@@ -999,6 +1019,17 @@ final class OiRemoteStoreTests: XCTestCase {
             window.makeKeyAndVisible()
             try await Task.sleep(for: .milliseconds(500))
             controller.view.layoutIfNeeded()
+            if name.hasPrefix("detail-ai") {
+                func scrollView(in view: UIView) -> UIScrollView? {
+                    if let scroll = view as? UIScrollView { return scroll }
+                    return view.subviews.lazy.compactMap { scrollView(in: $0) }.first
+                }
+                let scroll = try XCTUnwrap(scrollView(in: controller.view))
+                scroll.setContentOffset(CGPoint(x: 0, y: max(-scroll.adjustedContentInset.top,
+                    scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)), animated: false)
+                try await Task.sleep(for: .milliseconds(200))
+                controller.view.layoutIfNeeded()
+            }
             let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
                 XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
             }
@@ -1046,6 +1077,36 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(list.filtered.map(\.id), [pending.id])
         XCTAssertFalse(store.stories.contains { $0.id == pending.id })
         XCTAssertEqual(backend.snapshot().reviewCount, 2)
+    }
+
+    @MainActor func testOperatorManualReviewCoexistsWithAI() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.isOperator = true }
+        await store.start()
+        let savedResult = await store.save(draft(title: "수동 검토 이야기"))
+        let saved = try XCTUnwrap(savedResult)
+        let pendingResult = await store.submitStory(saved)
+        let pending = try XCTUnwrap(pendingResult)
+        backend.configure { $0.autoStoryModeration = true }
+        let model = OiOperatorStoryModel()
+        await model.load(pending.id, using: store)
+        let unavailable = await model.review(pending, publish: true, using: store)
+        XCTAssertNil(unavailable)
+        XCTAssertTrue(model.requiresReload)
+        XCTAssertEqual(backend.snapshot().reviewCount, 0)
+        XCTAssertTrue(store.autoStoryModeration)
+        XCTAssertFalse(store.supportsManualStoryReview)
+
+        backend.configure { $0.operatorManualStoryReview = true }
+        await model.load(pending.id, using: store)
+        let approved = await model.review(pending, publish: true, using: store)
+        XCTAssertEqual(approved?.status, "published")
+        XCTAssertEqual(backend.snapshot().reviewCount, 1)
+        XCTAssertTrue(store.autoStoryModeration)
+        XCTAssertTrue(store.supportsManualStoryReview)
+        await store.signOut()
+        XCTAssertFalse(store.supportsManualStoryReview)
     }
 
     @MainActor func testOperatorStoryConflictRequiresFreshConfirmation() async throws {
@@ -2182,6 +2243,7 @@ final class OiRemoteStoreTests: XCTestCase {
         }
     }
 
+    #if DEBUG
     /// Opt-in sheet/save regression, with only synthetic local photos (no library interaction).
     @MainActor func testInteractiveWardrobePhotoSheet() async throws {
         guard ProcessInfo.processInfo.environment["OI_WARDROBE_SHEET_CHECK"] == "1" else {
@@ -2204,7 +2266,11 @@ final class OiRemoteStoreTests: XCTestCase {
         let previousKey = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
         window.rootViewController = UIHostingController(rootView: Color.white.fullScreenCover(isPresented: .constant(true)) {
-            NavigationStack { OiStoryEditor(remote: store, localID: local.id).environment(\.scenePhase, .active) }
+            NavigationStack {
+                OiStoryEditor(remote: store, localID: local.id)
+                    .useWardrobeEditorForTest()
+                    .environment(\.scenePhase, .active)
+            }
         })
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
@@ -2222,6 +2288,7 @@ final class OiRemoteStoreTests: XCTestCase {
         }
         XCTFail("Wardrobe sheet interaction route did not finish")
     }
+    #endif
 
     /// Exercises the production editor with local photos and no network writes.
     @MainActor func testInteractivePhotoCancelAndLocation() async throws {
@@ -2607,7 +2674,7 @@ final class OiRemoteStoreTests: XCTestCase {
 
     @MainActor func testInteractiveStoryListSwipeDeletion() async throws {
         guard ProcessInfo.processInfo.environment["OI_STORY_LIST_INTERACTION_CHECK"] == "1" else {
-            throw XCTSkip("Opt in: swipe left → Delete → Cancel → swipe left → Delete → confirm")
+            throw XCTSkip("Opt in: swipe left → 삭제 → 취소하기 → swipe left → 삭제 → 삭제하기")
         }
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
@@ -2694,6 +2761,70 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(backend.snapshot().story?["status"] as? String, "deleted")
         XCTAssertNotNil(store.syncWarning)
         XCTAssertNil(store.error)
+    }
+
+    @MainActor func testV4DeletionRecoversCommittedRequestAfterRestart() async throws {
+        let (store, backend, sessionVault, session, directory) = try context()
+        defer { clean(session, directory: directory) }
+        await store.start()
+        let owner = OiTestBackend.owner
+        let savedResult = await store.save(draft())
+        let saved = try XCTUnwrap(savedResult)
+        let photo = UUID()
+        let record = OiLocalDraft(draft: OiStoryDraft(story: saved), photos: [photo], version: 1,
+            personalPlacement: .init(regionID: saved.regionId, name: saved.cucumberName,
+                                     latitude: 36, longitude: 129, heightMeters: 0, headingDegrees: 0))
+        try await store.saveLocalPhoto(Data([1]), id: photo, owner: owner)
+        try await store.saveLocalDraft(record, owner: owner)
+        backend.configure { $0.loseDeleteReceipt = true; $0.failReadsAfterDelete = true }
+
+        let deleted = await store.deleteStory(saved)
+        XCTAssertFalse(deleted, "The offline client cannot confirm the deletion yet")
+        XCTAssertEqual(backend.snapshot().story?["status"] as? String, "deleted")
+        let retained = try await store.localDraft(id: saved.id, owner: owner)
+        XCTAssertNotNil(retained)
+
+        backend.configure { $0.failReads = false }
+        let restarted = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+                                      drafts: OiDraftVault(directory: directory), vault: sessionVault)
+        await restarted.start()
+        let recovered = try await restarted.localDraft(id: saved.id, owner: owner)
+        XCTAssertNil(recovered)
+        XCTAssertTrue(restarted.ownStories.isEmpty)
+        XCTAssertEqual(backend.snapshot().deleteCount, 1, "A confirmed deletion must never be replayed")
+        do {
+            _ = try await restarted.localPhoto(id: photo, owner: owner)
+            XCTFail("The recovered deletion must remove its attached file")
+        } catch { XCTAssertTrue(error is CocoaError) }
+    }
+
+    @MainActor func testV4DeletionDoesNotReplayAgainstEditedVersionAfterRestart() async throws {
+        let (store, backend, sessionVault, session, directory) = try context()
+        defer { clean(session, directory: directory) }
+        await store.start()
+        let savedResult = await store.save(draft())
+        let saved = try XCTUnwrap(savedResult)
+        let owner = OiTestBackend.owner
+        try await store.saveLocalDraft(OiLocalDraft(draft: OiStoryDraft(story: saved), version: 1), owner: owner)
+        backend.configure { $0.failDelete = true }
+        let deleted = await store.deleteStory(saved)
+        XCTAssertFalse(deleted)
+        backend.configure {
+            $0.failDelete = false
+            $0.story?["revision"] = saved.revision + 1
+            $0.story?["title"] = "다른 기기에서 수정한 버전"
+        }
+
+        let disk = OiDraftVault(directory: directory)
+        let restarted = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+                                      drafts: disk, vault: sessionVault)
+        await restarted.start()
+        XCTAssertEqual(restarted.ownStories.first?.revision, saved.revision + 1)
+        XCTAssertEqual(backend.snapshot().deleteCount, 1)
+        let pending = try await disk.pendingStoryDeletions(owner: owner)
+        let local = try await restarted.localDraft(id: saved.id, owner: owner)
+        XCTAssertTrue(pending.isEmpty)
+        XCTAssertNotNil(local)
     }
 
     @MainActor func testStoryListDeletionRejectsStaleRevisionAndSignedOutAccount() async throws {
@@ -2992,6 +3123,59 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertTrue(planted)
         XCTAssertEqual(store.stories.first?.id, saved.id)
         XCTAssertNil(store.moderationResult(for: approved))
+    }
+
+    @MainActor func testV4LegacyReviewInterruptionKeepsPendingAndLostApprovalSurvivesRestart() async throws {
+        let (store, backend, sessionVault, session, directory) = try context()
+        defer { clean(session, directory: directory) }
+        await store.start()
+        let initial = await store.save(draft())
+        let legacy = await store.submitStory(try XCTUnwrap(initial))
+        let pending = try XCTUnwrap(legacy)
+        XCTAssertEqual(pending.status, "pending")
+        backend.configure { $0.autoStoryModeration = true; $0.timeOutSubmitBeforeCommit = true }
+        await store.refresh()
+        let interrupted = await store.submitStory(pending, agreesToAIReview: true)
+        XCTAssertNil(interrupted)
+        XCTAssertEqual(backend.snapshot().story?["status"] as? String, "pending")
+        XCTAssertEqual(store.ownStories.first?.revision, pending.revision)
+
+        backend.configure { $0.timeOutSubmitAfterCommit = true; $0.failStoryReviewLookup = true }
+        let lostApproval = await store.submitStory(pending, agreesToAIReview: true)
+        XCTAssertNil(lostApproval, "The first client has no definitive result")
+        let restarted = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+                                      drafts: OiDraftVault(directory: directory), vault: sessionVault)
+        await restarted.start()
+        let current = try XCTUnwrap(restarted.ownStories.first)
+        XCTAssertEqual(current.status, "draft")
+        XCTAssertTrue(restarted.storyReviewLookupFailed)
+        XCTAssertNil(restarted.moderationResult(for: current))
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        var actions: OiStoryListScreen.ReviewTestActions?
+        window.rootViewController = UIHostingController(rootView: NavigationStack {
+            OiStoryListScreen(remote: restarted, onReviewActionsForTest: { actions = $0 })
+        })
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
+        for _ in 0..<40 where actions == nil { try await Task.sleep(for: .milliseconds(25)) }
+        let controls = try XCTUnwrap(actions)
+        XCTAssertEqual(controls.status(current.id), .lookupFailed)
+        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "v4-review-result-retry"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        backend.configure { $0.failStoryReviewLookup = false }
+        await restarted.refresh()
+        XCTAssertFalse(restarted.storyReviewLookupFailed)
+        XCTAssertEqual(restarted.moderationResult(for: current)?.status, .approved)
+        XCTAssertTrue(restarted.stories.isEmpty)
     }
 
     @MainActor func testStoryListRequestsReviewAndShowsResultInPlace() async throws {
@@ -4265,11 +4449,97 @@ extension OiRemoteStoreTests {
         XCTAssertEqual(CampusScratchScreen.initialRevealState(storyID: UUID(), remote: store), false)
     }
 
-    @MainActor func testCancelledScratchSaveKeepsReceiptWithoutNavigating() async throws {
-        let (store,backend,_,session,directory) = try context()
+    @MainActor func testV4ScratchSaveRechecksLostReceiptAndResumesOnceAfterRestart() async throws {
+        let (store, backend, sessionVault, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
         await store.start()
-        let storyID = UUID(), owner = store.account?.id
+        let storyID = UUID(), owner = OiTestBackend.owner
+        let collection = try JSONSerialization.data(withJSONObject: [["story_id": storyID.uuidString]])
+        let fallback = OiStoreURLProtocol.handle
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.lastPathComponent == "oi_mutate" { client.timeOut() }
+            else if request.url?.lastPathComponent == "oi_collections" { client.respond(200, collection) }
+            else { fallback?(request, client) }
+        }
+
+        try await store.saveScratchCollection(id: storyID, owner: owner)
+        XCTAssertTrue(store.collections.contains(where: { $0.storyId == storyID }))
+        XCTAssertNil(store.error, "A confirmed lookup clears the uncertain write error")
+        let restarted = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+                                      drafts: OiDraftVault(directory: directory), vault: sessionVault)
+        await restarted.start()
+        var navigations = 0
+        try await restarted.finishScratchCollection(id: storyID, owner: owner) { navigations += 1 }
+        try await restarted.finishScratchCollection(id: storyID, owner: owner) { navigations += 1 }
+        XCTAssertEqual(navigations, 1)
+    }
+
+    @MainActor func testCampusNotificationSheetAutomaticallyRecoversFromFailedLoad() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.cardRequestListFailures = 1 }
+        await store.start()
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(
+            rootView: CampusNotificationSheet(remote: store).environment(\.scenePhase, .active)
+        )
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
+        for _ in 0..<100 where backend.snapshot().cardRequestListAttempts < 2 {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(backend.snapshot().cardRequestListAttempts, 2, "The visible sheet retries without a button press")
+    }
+
+    @MainActor func testV4CardDecisionSurvivesLostResponseAndIsScopedToAccount() async throws {
+        let (store, backend, sessionVault, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let owner = OiTestBackend.owner
+        let decision = OiPendingCardDecision(id: UUID(), accept: false)
+        let receipt = try JSONSerialization.data(withJSONObject: [
+            "id": decision.id.uuidString, "story_title": "이야기", "requester_name": "농부",
+            "created_at": "2026-11-17T03:30:00Z", "status": "rejected",
+        ])
+        let fallback = OiStoreURLProtocol.handle
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.lastPathComponent == "oi_resolve_card_request" { client.timeOut() }
+            else { fallback?(request, client) }
+        }
+        do {
+            try await store.resolveRecoverableCardDecision(decision, owner: owner)
+            XCTFail("The first decision receipt is lost")
+        } catch { XCTAssertEqual((error as? URLError)?.code, .timedOut) }
+
+        let disk = OiDraftVault(directory: directory)
+        let foreignDecision = try await disk.pendingCardDecision(owner: OiTestBackend.other)
+        XCTAssertNil(foreignDecision)
+        let restarted = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+                                      drafts: disk, vault: sessionVault)
+        await restarted.start()
+        let restored = try await restarted.pendingCardDecision(owner: owner)
+        XCTAssertEqual(restored, decision)
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.lastPathComponent == "oi_resolve_card_request" {
+                let payload = try? JSONSerialization.jsonObject(with: OiTestBackend.body(request)) as? [String: String]
+                XCTAssertEqual(payload?["p_request_id"], decision.id.uuidString)
+                XCTAssertEqual(payload?["p_decision"], "reject")
+                client.respond(200, receipt)
+            } else { fallback?(request, client) }
+        }
+        try await restarted.resolveRecoverableCardDecision(try XCTUnwrap(restored), owner: owner)
+        let cleared = try await restarted.pendingCardDecision(owner: owner)
+        XCTAssertNil(cleared)
+    }
+
+    @MainActor func testCancelledScratchSaveKeepsReceiptWithoutNavigating() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let storyID = UUID(), owner = OiTestBackend.owner
         let receipt = try JSONSerialization.data(withJSONObject: ["id": storyID.uuidString])
         let collection = try JSONSerialization.data(withJSONObject: [["story_id": storyID.uuidString]])
         let fallback = OiStoreURLProtocol.handle
@@ -4280,18 +4550,17 @@ extension OiRemoteStoreTests {
         }
         var navigated = false
         let save = Task { @MainActor in
-            await store.perform("collect", payload: ["id": storyID.uuidString])
+            try await store.saveScratchCollection(id: storyID, owner: owner)
             // The server response has completed; cancel before the visible-screen continuation runs.
             withUnsafeCurrentTask { $0?.cancel() }
-            return CampusScratchScreen.finishSaving(storyID: storyID, owner: owner, remote: store) { navigated = true }
+            try await store.finishScratchCollection(id: storyID, owner: owner) { navigated = true }
         }
-        let message = await save.value
+        try await save.value
         XCTAssertTrue(store.collections.contains { $0.storyId == storyID }, "Committed collections survive UI cancellation")
         XCTAssertFalse(navigated, "Leaving the scratch screen must suppress its late MY navigation")
-        XCTAssertNil(message)
 
-        XCTAssertNil(CampusScratchScreen.finishSaving(storyID: storyID, owner: owner, remote: store) { navigated = true })
-        XCTAssertTrue(navigated, "A visible, uncancelled save still opens MY")
+        try await store.finishScratchCollection(id: storyID, owner: owner) { navigated = true }
+        XCTAssertTrue(navigated, "Re-entry still opens MY")
     }
 
     @MainActor func testRepeatedLoginDoesNotBecomeConfigurationError() async throws {
@@ -5431,5 +5700,283 @@ extension OiRemoteStoreTests {
         for image in images { XCTAssertTrue(OiPortraitMatte.hasTransparentBackground(image)) }
         XCTAssertEqual(images.first?.cgImage?.width, images.last?.cgImage?.width)
         XCTAssertEqual(images.first?.cgImage?.height, images.last?.cgImage?.height)
+    }
+}
+
+/// #409: MY `수집한 기부` merges account cards and App Clip cards.
+final class MYCollectedCardsTests: XCTestCase {
+    private func card(_ id: String) -> MYCard {
+        MYCard(id: id, title: id, image: "OiCats", school: .postech, order: 0, body: "", donor: "농부", date: "")
+    }
+    private func entry(_ id: String, _ time: TimeInterval?) -> MYCollectedCardEntry {
+        MYCollectedCardEntry(card: card(id), collectedAt: time.map { Date(timeIntervalSince1970: $0) })
+    }
+
+    func testMergesBySharedTimeNewestFirstAndRenumbers() {
+        let merged = MYCollectedCards.merged(
+            account: [entry("a", 300), entry("b", 100)], clip: [entry("c", 200), entry("d", 400)])
+        XCTAssertEqual(merged.map(\.id), ["d", "a", "c", "b"])
+        XCTAssertEqual(merged.map(\.order), [0, 1, 2, 3])
+    }
+
+    func testStoryInBothListsAppearsOnceAsTheAccountCard() {
+        let merged = MYCollectedCards.merged(account: [entry("a", 100)], clip: [entry("a", 900), entry("b", 500)])
+        XCTAssertEqual(merged.map(\.id), ["b", "a"])
+    }
+
+    func testUndatedAccountCardCountsAsNewest() {
+        let merged = MYCollectedCards.merged(account: [entry("a", nil)], clip: [entry("b", 900)])
+        XCTAssertEqual(merged.map(\.id), ["a", "b"])
+    }
+
+    func testParsesServerDatesWithAndWithoutFractionalSeconds() {
+        XCTAssertNotNil(MYCollectedCards.date(from: "2026-11-16T10:00:00.123456+00:00"))
+        XCTAssertNotNil(MYCollectedCards.date(from: "2026-11-16T10:00:00Z"))
+        XCTAssertNil(MYCollectedCards.date(from: nil))
+        XCTAssertNil(MYCollectedCards.date(from: "not a date"))
+    }
+
+    @MainActor func testReloadObservesAnotherStoreAndPreservesUnreadableRecords() throws {
+        let name = "MYCollectedCardsTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let reader = StoryCollectionStore(defaults: defaults)
+        let writer = StoryCollectionStore(defaults: defaults)
+        let card = StoryCard(cardID: "card", storyID: UUID().uuidString, imageURL: nil)
+        XCTAssertTrue(writer.collect(card))
+        XCTAssertTrue(reader.cards.isEmpty)
+        reader.reload()
+        XCTAssertEqual(reader.cards.map(\.storyID), [card.storyID])
+        let broken = Data("unreadable".utf8)
+        defaults.set(broken, forKey: "collectedStoryCards.v1")
+        reader.reload()
+        XCTAssertNotNil(reader.persistenceError)
+        XCTAssertEqual(reader.cards.map(\.storyID), [card.storyID])
+        XCTAssertEqual(defaults.data(forKey: "collectedStoryCards.v1"), broken)
+    }
+}
+
+/// #411: the stories an account opened most recently, offered as donations to continue from.
+@MainActor
+final class OiRecentStoriesTests: XCTestCase {
+    private func defaults() throws -> (name: String, value: UserDefaults) {
+        let name = "OiRecentStoriesTests.\(UUID().uuidString)"
+        return (name, try XCTUnwrap(UserDefaults(suiteName: name)))
+    }
+
+    private func story(_ id: String, author: UUID? = nil, example: Bool = false) -> CampusStory {
+        var story = CampusStory(id: id, regionID: "pond", title: "오이\(id)", image: "OiCats", tags: [], donor: "농부",
+                                location: "", date: "", order: 0, popularity: 0, palette: 0)
+        story.authorID = author
+        return story
+    }
+
+    func testNewestFirstWithoutDuplicatesAndPerAccount() throws {
+        let fixture = try defaults(); defer { fixture.value.removePersistentDomain(forName: fixture.name) }
+        let owner = UUID(), other = UUID()
+        for id in ["a", "b", "c", "a"] { OiRecentStories.record(id, owner: owner, defaults: fixture.value) }
+        OiRecentStories.record("z", owner: other, defaults: fixture.value)
+        XCTAssertEqual(OiRecentStories.ids(owner: owner, defaults: fixture.value), ["a", "c", "b"])
+        XCTAssertEqual(OiRecentStories.ids(owner: other, defaults: fixture.value), ["z"])
+    }
+
+    func testStoredHistoryIsCapped() throws {
+        let fixture = try defaults(); defer { fixture.value.removePersistentDomain(forName: fixture.name) }
+        let owner = UUID()
+        for index in 0..<(OiRecentStories.storedLimit + 5) { OiRecentStories.record("s\(index)", owner: owner, defaults: fixture.value) }
+        let ids = OiRecentStories.ids(owner: owner, defaults: fixture.value)
+        XCTAssertEqual(ids.count, OiRecentStories.storedLimit)
+        XCTAssertEqual(ids.first, "s\(OiRecentStories.storedLimit + 4)")
+    }
+
+    func testPickerShowsFivePublicStoriesWithoutTheOwnOnes() throws {
+        let fixture = try defaults(); defer { fixture.value.removePersistentDomain(forName: fixture.name) }
+        let owner = UUID(), author = UUID()
+        var stories = (0..<8).map { story("s\($0)", author: author) }
+        stories.append(story("mine", author: owner))
+        let byID = Dictionary(uniqueKeysWithValues: stories.map { ($0.id, $0) })
+        // s7 is the newest; "mine" and a story that is no longer public must not appear.
+        for id in ["s0", "s1", "s2", "gone", "s3", "mine", "s4", "s5", "s6", "s7"] {
+            OiRecentStories.record(id, owner: owner, defaults: fixture.value)
+        }
+        let shown = OiRecentStories.pickerStories(owner: owner, defaults: fixture.value) { byID[$0] }
+        XCTAssertEqual(shown.map(\.id), ["s7", "s6", "s5", "s4", "s3"])
+    }
+
+    func testDraftCustomizationKeepsTheConnectionAndReadsOlderDrafts() throws {
+        var customization = OiDraftCustomization()
+        XCTAssertNil(customization.connectedStoryID)
+        customization.connectedStoryID = "story"
+        let decoded = try JSONDecoder().decode(OiDraftCustomization.self, from: JSONEncoder().encode(customization))
+        XCTAssertEqual(decoded.connectedStoryID, "story")
+        let old = try JSONEncoder().encode(OiDraftCustomization())
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: old) as? [String: Any])
+        json.removeValue(forKey: "connectedStoryID")
+        XCTAssertNil(try JSONDecoder().decode(OiDraftCustomization.self, from: JSONSerialization.data(withJSONObject: json)).connectedStoryID)
+    }
+}
+
+extension OiRemoteStoreTests {
+    @MainActor func testMYCollectionMergesClipCardsOnlyAfterLoginUsingApprovedArtwork() async throws {
+        let (remote, backend, _, session, directory) = try context()
+        let suite = "MYClipMerge.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite); withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        let library = MYLibraryStore(clipCollection: StoryCollectionStore(defaults: defaults))
+        let writer = StoryCollectionStore(defaults: defaults)
+        let ids = (0..<3).map { _ in UUID() }
+        let snapshot = UUID()
+        let rows = try ids.map { id -> [String: Any] in
+            var row = try draft().payload()
+            row["id"] = id.uuidString
+            row["user_id"] = OiTestBackend.owner.uuidString
+            row["status"] = "published"
+            row["created_at"] = "2026-11-16T00:00:00Z"
+            row["card_snapshot_id"] = snapshot.uuidString
+            return row
+        }
+        let stories = try JSONSerialization.data(withJSONObject: rows)
+        let collections = try JSONSerialization.data(withJSONObject: [
+            ["story_id": ids[0].uuidString, "created_at": "2026-11-16T10:00:00Z"],
+            ["story_id": ids[1].uuidString, "created_at": "2026-11-16T08:00:00Z"]
+        ])
+        let original = OiStoreURLProtocol.handle
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.lastPathComponent == "oi_stories" { client.respond(200, stories) }
+            else if request.url?.lastPathComponent == "oi_collections" { client.respond(200, collections) }
+            else { original?(request, client) }
+        }
+        for id in [ids[0], ids[2]] {
+            XCTAssertTrue(writer.collect(StoryCard(cardID: id.uuidString, storyID: id.uuidString.lowercased(), imageURL: nil),
+                at: try XCTUnwrap(MYCollectedCards.date(from: "2026-11-16T09:00:00Z"))))
+        }
+        library.synchronizeCollectedCards(from: remote)
+        XCTAssertTrue(library.cards.isEmpty, "Saved Clip IDs alone cannot show cards before login and initial load")
+        await remote.start()
+        library.synchronizeCollectedCards(from: remote)
+        XCTAssertEqual(library.cards.map(\.id), [ids[0], ids[2], ids[1]].map(\.uuidString))
+        XCTAssertEqual(library.cards.map(\.order), [0, 1, 2])
+        XCTAssertEqual(library.collectionCards(school: nil, sort: .oldest, pinnedOnly: false).map(\.id),
+                       [ids[1], ids[2], ids[0]].map(\.uuidString))
+        XCTAssertEqual(library.cards.first { $0.id == ids[2].uuidString }?.cardArtworkPath,
+            StoryCard.artworkPath(owner: OiTestBackend.owner, story: ids[2], snapshot: snapshot),
+            "The Clip card uses the same approved front image as an account card")
+        XCTAssertEqual(writer.cards.count, 2, "Displaying the union must not silently import the Clip records")
+        await remote.signOut()
+        library.synchronizeCollectedCards(from: remote)
+        XCTAssertTrue(library.cards.isEmpty)
+        XCTAssertEqual(StoryCollectionStore(defaults: defaults).cards.count, 2)
+    }
+
+    @MainActor func testMYClipRefreshHidesUnavailableStoriesWithoutDeletingRecords() async throws {
+        let (remote, backend, _, session, directory) = try context()
+        let suite = "MYClipVisibility.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let author = UUID()
+        defer {
+            OiContentSafetyStore.shared.setBlocked(author, name: "", blocked: false)
+            defaults.removePersistentDomain(forName: suite); withExtendedLifetime(backend) {}; clean(session, directory: directory)
+        }
+        await remote.start()
+        let result = await remote.save(draft())
+        let saved = try XCTUnwrap(result)
+        backend.configure { $0.story?["status"] = "published" }
+        await remote.refresh()
+        let library = MYLibraryStore(clipCollection: StoryCollectionStore(defaults: defaults))
+        let writer = StoryCollectionStore(defaults: defaults)
+        XCTAssertTrue(writer.collect(StoryCard(cardID: "public", storyID: saved.id.uuidString, imageURL: nil)))
+        XCTAssertTrue(writer.collect(StoryCard(cardID: "missing", storyID: UUID().uuidString, imageURL: nil)))
+        let revision = remote.revision
+        await remote.refresh(reuseCatalog: true)
+        XCTAssertEqual(remote.revision, revision)
+        library.synchronizeCollectedCards(from: remote)
+        XCTAssertEqual(library.cards.map(\.id), [saved.id.uuidString], "New Clip records appear even without a remote revision")
+        for status in ["hidden", "deleted", "draft"] {
+            backend.configure { $0.story?["status"] = status }
+            await remote.refresh()
+            library.synchronizeCollectedCards(from: remote)
+            XCTAssertTrue(library.cards.isEmpty)
+            XCTAssertEqual(library.clipCollection.cards.count, 2)
+        }
+        backend.configure { $0.story?["status"] = "published"; $0.story?["user_id"] = author.uuidString; $0.isOperator = true }
+        await remote.refresh()
+        XCTAssertTrue(OiContentSafetyStore.shared.setBlocked(author, name: "가상 차단 작성자", blocked: true))
+        library.synchronizeCollectedCards(from: remote)
+        XCTAssertTrue(library.cards.isEmpty)
+        XCTAssertEqual(library.clipCollection.cards.count, 2)
+        XCTAssertTrue(OiContentSafetyStore.shared.setBlocked(author, name: "", blocked: false))
+        library.synchronizeCollectedCards(from: remote)
+        XCTAssertEqual(library.cards.map(\.id), [saved.id.uuidString])
+    }
+
+    @MainActor func testMYClipImportRetainsDeviceRecordUntilAccountSaveConfirmed() async throws {
+        let (remote, backend, _, session, directory) = try context()
+        let suite = "MYClipImport.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite); withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await remote.start()
+        let result = await remote.save(draft())
+        let saved = try XCTUnwrap(result)
+        backend.configure { $0.story?["status"] = "published" }
+        await remote.refresh()
+        let records = StoryCollectionStore(defaults: defaults)
+        XCTAssertTrue(records.collect(StoryCard(cardID: "card", storyID: saved.id.uuidString.lowercased(), imageURL: nil)))
+        let library = MYLibraryStore(clipCollection: records)
+        library.synchronizeCollectedCards(from: remote)
+        let card = try XCTUnwrap(library.cards.first)
+        let original = OiStoreURLProtocol.handle
+        var acceptsSave = false
+        let receipt = try JSONSerialization.data(withJSONObject: ["id": saved.id.uuidString])
+        let collection = try JSONSerialization.data(withJSONObject: [["story_id": saved.id.uuidString]])
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.lastPathComponent == "oi_mutate" {
+                client.respond(acceptsSave ? 200 : 503, acceptsSave ? receipt : Data())
+            } else if request.url?.lastPathComponent == "oi_collections", acceptsSave { client.respond(200, collection) }
+            else { original?(request, client) }
+        }
+        let failed = await library.importClipCard(card, into: remote)
+        XCTAssertFalse(failed)
+        XCTAssertEqual(records.cards.count, 1)
+        acceptsSave = true
+        let imported = await library.importClipCard(card, into: remote)
+        XCTAssertTrue(imported)
+        XCTAssertTrue(records.cards.isEmpty)
+        XCTAssertEqual(library.cards.map(\.id), [saved.id.uuidString])
+    }
+
+    @MainActor func testMYClipCancelledImportPreservesRecordAfterSignOut() async throws {
+        let (remote, backend, _, session, directory) = try context()
+        let suite = "MYClipAccountChange.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite); withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await remote.start()
+        let result = await remote.save(draft())
+        let saved = try XCTUnwrap(result)
+        backend.configure { $0.story?["status"] = "published" }
+        await remote.refresh()
+        let records = StoryCollectionStore(defaults: defaults)
+        XCTAssertTrue(records.collect(StoryCard(cardID: "card", storyID: saved.id.uuidString, imageURL: nil)))
+        let library = MYLibraryStore(clipCollection: records)
+        library.synchronizeCollectedCards(from: remote)
+        let card = try XCTUnwrap(library.cards.first)
+        let original = OiStoreURLProtocol.handle
+        let requested = expectation(description: "Clip import awaiting account receipt")
+        var held: OiStoreURLProtocol?
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.lastPathComponent == "oi_mutate" { held = client; requested.fulfill() }
+            else { original?(request, client) }
+        }
+        let importing = Task { await library.importClipCard(card, into: remote) }
+        await fulfillment(of: [requested], timeout: 3)
+        importing.cancel()
+        held?.respond(200, try JSONSerialization.data(withJSONObject: ["id": saved.id.uuidString]))
+        let imported = await importing.value
+        XCTAssertFalse(imported)
+        XCTAssertEqual(records.cards.count, 1)
+        // The production store blocks logout while a write is in flight; sign out after cancellation completes.
+        await remote.signOut()
+        XCTAssertNil(remote.account)
+        library.synchronizeCollectedCards(from: remote)
+        XCTAssertTrue(library.cards.isEmpty)
     }
 }

@@ -43,7 +43,7 @@ struct OiStoryManagement: View {
                     Button("이야기 삭제", role: .destructive) { confirmingDelete = true }
                 }
                 .confirmationDialog("이야기를 비공개·삭제 상태로 바꿀까요?", isPresented: $confirmingDelete, titleVisibility: .visible) {
-                    Button("삭제", role: .destructive) { Task { await remote.perform("delete_story", payload: ["id":story.id.uuidString,"revision":story.revision]) } }
+                    Button("삭제", role: .destructive) { Task { _ = await remote.deleteStory(story) } }
                 }
             } else { ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc") }
         }.navigationTitle("내 이야기").navigationBarTitleDisplayMode(.inline).disabled(remote.isBusy)

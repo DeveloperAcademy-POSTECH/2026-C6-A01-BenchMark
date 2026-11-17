@@ -197,6 +197,10 @@ struct OiStoryListView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("storyList.review.\(id.uuidString)")
+                } else if state == .lookupFailed {
+                    Button("결과 다시 불러오기", action: onRetry)
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("storyList.reviewResult.retry")
                 } else {
                     Text("요청 완료").underline().foregroundStyle(Color(oiRGB: 0x737373))
                 }

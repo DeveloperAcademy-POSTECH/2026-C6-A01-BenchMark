@@ -1,12 +1,12 @@
 import Foundation
 
-struct OiStoryReviewIssue: Identifiable {
+nonisolated struct OiStoryReviewIssue: Identifiable, Sendable {
     let step: OiCreationStep
     let message: String
     var id: String { message }
 }
 
-enum OiCreationStep: String, CaseIterable {
+nonisolated enum OiCreationStep: String, CaseIterable, Sendable {
     case consent, story, photos, location, cucumber, card
 
     /// Figma `5400:7726`: title up to 90 byte and story up to 870 byte including spaces (#373).
@@ -115,12 +115,17 @@ enum OiCreationAccess {
         return !submitted
     }
 
-    static func canRebase(_ draft: OiStoryDraft, to story: OiLiveStory) -> Bool {
+    @MainActor static func canRebase(_ draft: OiStoryDraft, to story: OiLiveStory) -> Bool {
         guard story.status == "draft" else { return false }
+        // A hidden parent's ID is redacted to nil. Explicit clear must still reach
+        // the server, even when the visible fields already appear identical.
+        if draft.updatesContinuation == true && draft.continuedFromStoryID == nil { return false }
         var serverDraft = OiStoryDraft(story: story)
         serverDraft.revision = draft.revision
         if draft.heightMeters == nil { serverDraft.heightMeters = nil }
         if draft.headingDegrees == nil { serverDraft.headingDegrees = nil }
+        if draft.updatesContinuation != true { serverDraft.continuedFromStoryID = draft.continuedFromStoryID }
+        serverDraft.updatesContinuation = draft.updatesContinuation
         return serverDraft == draft
     }
 }

@@ -19,6 +19,7 @@
 		C37911160000000000000001 /* OiDonationTests/Fixtures/MYV4Figma in Resources */ = {isa = PBXBuildFile; fileRef = C37911160000000000000002 /* OiDonationTests/Fixtures/MYV4Figma */; };
 		C59111160000000000000001 /* CampusBuildingNotesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59111160000000000000002; };
 		C43811170000000000000001 /* ARCameraMascotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C43811170000000000000002; };
+		C41811170000000000000001 /* OiStoryContinuationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41811170000000000000002; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -68,6 +69,7 @@
 		C37911160000000000000002 /* OiDonationTests/Fixtures/MYV4Figma */ = {isa = PBXFileReference; lastKnownFileType = folder; path = OiDonationTests/Fixtures/MYV4Figma; sourceTree = SOURCE_ROOT; };
 		C59111160000000000000002 /* CampusBuildingNotesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/CampusBuildingNotesTests.swift; sourceTree = SOURCE_ROOT; };
 		C43811170000000000000002 /* ARCameraMascotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/ARCameraMascotTests.swift; sourceTree = SOURCE_ROOT; };
+		C41811170000000000000002 /* OiStoryContinuationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiStoryContinuationTests.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -202,6 +204,7 @@
 		8736DA6030777C9800D0CFC9 = {
 			isa = PBXGroup;
 			children = (
+				C41811170000000000000002 /* OiStoryContinuationTests.swift */,
 				C59111160000000000000002 /* CampusBuildingNotesTests.swift */,
 				B10000000000000000000008 /* OiDonationTests/OiRemoteStoreTests.swift */,
 				C43811170000000000000002 /* ARCameraMascotTests.swift */,
@@ -315,7 +318,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2700;
-				LastUpgradeCheck = 2630;
+				LastUpgradeCheck = 2710;
 				TargetAttributes = {
 					87169564307CB1CF0090D456 = {
 						CreatedOnToolsVersion = 27.0;
@@ -433,6 +436,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C41811170000000000000001 /* OiStoryContinuationTests.swift in Sources */,
 				C59111160000000000000001 /* CampusBuildingNotesTests.swift in Sources */,
 				B10000000000000000000009 /* OiDonationTests/OiRemoteStoreTests.swift in Sources */,
 				C43811170000000000000001 /* ARCameraMascotTests.swift in Sources */,
@@ -593,6 +597,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -650,6 +655,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};

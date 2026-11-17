@@ -10,7 +10,113 @@ import Foundation
 import RealityKit
 import simd
 
+enum OiSeedCucumberGarment: Hashable, CaseIterable {
+    case whiteTshirt, hoodie, cardigan, postechJacket, longPants, shorts, sneakers
+    case costume(OiWardrobeLook.Costume)
+    case costumeProposal(OiWardrobeLook.Costume, OiSeedCostumeProposal)
+
+    static var allCases: [Self] {
+        [.whiteTshirt, .hoodie, .cardigan, .postechJacket, .longPants, .shorts, .sneakers]
+            + OiWardrobeLook.Costume.allCases.map(Self.costume)
+    }
+
+    var rawValue: String {
+        switch self {
+        case .whiteTshirt: "SeedCucumberWhiteTshirt"
+        case .hoodie: "SeedCucumberHoodie"
+        case .cardigan: "SeedCucumberCardigan"
+        case .postechJacket: "SeedCucumberPostechJacket"
+        case .longPants: "SeedCucumberLongPants"
+        case .shorts: "SeedCucumberShorts"
+        case .sneakers: "SeedCucumberSneakers"
+        case .costume(let costume): "seed-costume-" + costume.rawValue
+        case .costumeProposal(let costume, let proposal):
+            "seed-costume-\(costume.rawValue)-proposal-\(proposal.rawValue)"
+        }
+    }
+
+    enum Slot: CaseIterable {
+        case top, bottom, shoes, costume
+    }
+
+    init(top: OiWardrobeLook.Top) {
+        self = switch top {
+        case .tshirt: .whiteTshirt
+        case .hoodie: .hoodie
+        case .cardigan: .cardigan
+        case .postech: .postechJacket
+        }
+    }
+
+    init(bottom: OiWardrobeLook.Bottom) {
+        self = switch bottom {
+        case .long: .longPants
+        case .shorts: .shorts
+        }
+    }
+
+    var slot: Slot {
+        switch self {
+        case .whiteTshirt, .hoodie, .cardigan, .postechJacket: .top
+        case .longPants, .shorts: .bottom
+        case .sneakers: .shoes
+        case .costume, .costumeProposal: .costume
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .whiteTshirt: OiWardrobeLook.Top.tshirt.title
+        case .hoodie: OiWardrobeLook.Top.hoodie.title
+        case .cardigan: OiWardrobeLook.Top.cardigan.title
+        case .postechJacket: OiWardrobeLook.Top.postech.title
+        case .longPants: OiWardrobeLook.Bottom.long.title
+        case .shorts: OiWardrobeLook.Bottom.shorts.title
+        case .sneakers: "흰 운동화"
+        case .costume(let costume), .costumeProposal(let costume, _): costume.title
+        }
+    }
+
+    var coveredSeedParts: Set<String> {
+        switch self {
+        case .costumeProposal:
+            ["Body", "LeftArm", "RightArm", "LeftLeg", "RightLeg"]
+        case .costume(.dinosaur), .costume(.raincoat), .costume(.bee), .costume(.cat), .costume(.catBear),
+             .costume(.astronaut), .costume(.astronautNavy), .costume(.scientist):
+            ["Body", "LeftArm", "RightArm", "LeftLeg", "RightLeg"]
+        case .hoodie, .postechJacket:
+            ["Body", "LeftArm", "RightArm"]
+        case .costume(.baseball), .costume(.postechSelfie):
+            ["LeftArm", "RightArm", "LeftLeg", "RightLeg"]
+        case .costume(.schoolUniform), .costume(.schoolUniformTrousers), .costume(.scientistGoggles), .sneakers:
+            ["LeftLeg", "RightLeg"]
+        default: []
+        }
+    }
+
+    var rendersHoodInterior: Bool { self == .hoodie || hoodAttachments != nil }
+
+    // Positions are in the unscaled seed model's authored coordinates.
+    var hoodAttachments: (faceDepth: Float, stem: SIMD3<Float>)? {
+        switch self {
+        case .costumeProposal(let costume, _):
+            Self.costume(costume).hoodAttachments.map { (0, $0.stem) }
+        case .costume(.bee): (0, SIMD3(-0.028, -0.084, -0.010))
+        case .costume(.cat): (0.034, SIMD3(-0.024, -0.061, 0.022))
+        case .costume(.catBear): (0.023, SIMD3(-0.036, -0.064, -0.066))
+        case .costume(.raincoat): (0.019, SIMD3(-0.018, -0.052, 0.012))
+        case .costume(.dinosaur): (0.088, SIMD3(0.010, -0.018, 0.068))
+        case .costume(.astronaut): (0.040, SIMD3(-0.008, -0.010, -0.050))
+        case .costume(.astronautNavy): (0.062, SIMD3(0.008, -0.002, -0.058))
+        default: nil
+        }
+    }
+}
+
 @MainActor enum OiSeedCucumberModel {
+    private static let bodyTransformName = "SeedCucumberBodyTransform"
+    private static let faceAttachmentName = "SeedCucumberFaceAttachment"
+    private static let stemAttachmentName = "SeedCucumberStemAttachment"
     private static let metresPerPixel: Float = 0.001
     private static let pivot = OiSeedCucumberAppearance.bodyPivot
     private static let faceParts: [(String, OiSeedCucumberLayer)] = [
@@ -26,10 +132,12 @@ import simd
     static func make(appearance: OiSeedCucumberAppearance) async throws -> Entity {
         let asset = try await Entity(contentsOf: resource("SeedCucumberMaster", suffix: "usdz"))
         try Task.checkCancellation()
+        asset.name = "SeedCucumberMaster"
 
         let root = Entity()
         root.name = "SeedCucumber"
         let sized = Entity()
+        sized.name = bodyTransformName
         root.addChild(sized)
         sized.addChild(asset)
 
@@ -79,12 +187,80 @@ import simd
             }
         }
 
+        try attachParts(faceParts.map { $0.0 }, named: faceAttachmentName, from: asset, to: sized)
+        try attachParts(["Stem"], named: stemAttachmentName, from: asset, to: sized)
         sized.scale = scale
         let floor = sized.visualBounds(relativeTo: root).min.y
         guard floor.isFinite else { throw AssetError.invalidMesh(asset.name) }
         sized.position.y = -floor
         try Task.checkCancellation()
         return root
+    }
+
+    static func loadGarment(_ garment: OiSeedCucumberGarment) async throws -> Entity {
+        let asset = try await Entity(contentsOf: resource(garment.rawValue, suffix: "usdz"))
+        try Task.checkCancellation()
+        let bounds = asset.visualBounds(relativeTo: nil)
+        guard bounds.extents.x.isFinite, bounds.extents.y.isFinite, bounds.extents.z.isFinite,
+              bounds.extents.x > 0, bounds.extents.y > 0, bounds.extents.z > 0 else {
+            throw AssetError.invalidMesh(garment.rawValue)
+        }
+        asset.name = garment.rawValue
+        if garment.rendersHoodInterior {
+            configureHoodSurfaces(in: asset)
+        }
+        return asset
+    }
+
+    private static func configureHoodSurfaces(in entity: Entity) {
+        if var model = entity.components[ModelComponent.self] {
+            let isHead = entity.name == "VisibleBody" || entity.name == "VisibleBodyUpper"
+            model.materials = model.materials.map { material in
+                guard var surface = material as? PhysicallyBasedMaterial else { return material }
+                if isHead { surface.blending = .opaque }
+                // Keeping both sides renders the fabric when viewed through the opening.
+                if case .opaque = surface.blending { surface.faceCulling = .none }
+                return surface
+            }
+            entity.components.set(model)
+        }
+        for child in entity.children { configureHoodSurfaces(in: child) }
+    }
+
+    static func setGarment(_ garment: OiSeedCucumberGarment, asset: Entity?, on model: Entity) throws {
+        guard let body = model.findEntity(named: bodyTransformName) else {
+            throw AssetError.missingPart(bodyTransformName)
+        }
+        let mounted = body.children.first { $0.name == garment.rawValue }
+        guard mounted !== asset else { return }
+        mounted?.removeFromParent()
+        // The garment is authored in the neutral body's coordinates and inherits its size and ground offset.
+        if let asset { body.addChild(asset) }
+    }
+
+    static func updateCoverage(for garments: Set<OiSeedCucumberGarment>, on model: Entity) {
+        guard let master = model.findEntity(named: "SeedCucumberMaster") else { return }
+        let covered: Set<String> = garments.reduce(into: []) { parts, garment in
+            parts.formUnion(garment.coveredSeedParts)
+        }
+        // Some garments include the original visible part with its covered section removed.
+        // Hide the untrimmed part only while that garment is mounted.
+        for part in ["Body", "LeftArm", "RightArm", "LeftLeg", "RightLeg"] {
+            master.findEntity(named: part)?.isEnabled = !covered.contains(part)
+        }
+        let attachment = garments.compactMap(\.hoodAttachments).first
+        model.findEntity(named: faceAttachmentName)?.position.z = attachment?.faceDepth ?? 0
+        model.findEntity(named: stemAttachmentName)?.position = attachment?.stem ?? .zero
+    }
+
+    private static func attachParts(_ names: [String], named groupName: String, from asset: Entity, to parent: Entity) throws {
+        let attachment = Entity()
+        attachment.name = groupName
+        parent.addChild(attachment)
+        for name in names {
+            guard let part = asset.findEntity(named: name) else { throw AssetError.missingPart(name) }
+            attachment.addChild(part, preservingWorldTransform: true)
+        }
     }
 
     private static func resource(_ name: String, suffix: String) throws -> URL {

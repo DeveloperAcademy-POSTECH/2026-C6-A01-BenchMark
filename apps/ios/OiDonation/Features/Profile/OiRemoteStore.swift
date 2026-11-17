@@ -31,8 +31,21 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     private(set) var canPublishDuplexCard = false
     private(set) var canPublishStoryCardCover = false
     private(set) var canPublishStoryCardCoverJPEG = false
+    private(set) var supportsStoryContinuations = false
+    private(set) var supportsContinuationNotifications = false
+    private var cachedIncomingContinuationCount: Int?
+    private var cachedContinuationCounts: [UUID: Int] = [:]
+    private var continuationMetricsPrivacy: String?
+    var incomingContinuationCount: Int? {
+        continuationMetricsPrivacy == continuationPrivacyKey ? cachedIncomingContinuationCount : nil
+    }
+    var continuationCounts: [UUID: Int] {
+        continuationMetricsPrivacy == continuationPrivacyKey ? cachedContinuationCounts : [:]
+    }
     private(set) var autoStoryModeration = false
+    private(set) var supportsManualStoryReview = false
     private(set) var reviewingStoryID: UUID?
+    private(set) var storyReviewLookupFailed = false
     private var storyModerationResults: [UUID: OiStoryModerationResult] = [:]
 
     var canPlaceOi: Bool { account != nil && !needsReauthentication && !isAccountDeletionPending }
@@ -331,6 +344,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     }
 
     private func resetAccountState() {
+        supportsStoryContinuations = false; supportsContinuationNotifications = false
+        cachedIncomingContinuationCount = nil; cachedContinuationCounts = [:]; continuationMetricsPrivacy = nil
         postcardImages.clear()
         generation = UUID(); loadSequence += 1; refreshTask?.cancel(); refreshTask = nil
         profile = nil; ownStories = []; reviewStories = []; profiles = []; media = []
@@ -344,8 +359,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         canPublishDuplexCard = false
         canPublishStoryCardCover = false
         canPublishStoryCardCoverJPEG = false
-        autoStoryModeration = false
-        reviewingStoryID = nil; storyModerationResults = [:]; isBusy = false
+        autoStoryModeration = false; supportsManualStoryReview = false
+        reviewingStoryID = nil; storyModerationResults = [:]; storyReviewLookupFailed = false; isBusy = false
         localSignOutWarning = nil; loadError = nil; syncWarning = nil; error = nil; revision += 1
     }
 
@@ -366,6 +381,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             try Task.checkCancellation()
             guard started == generation else { throw OiServiceError.accountChanged }
             isOperator = capabilities.operator
+            autoStoryModeration = capabilities.autoStoryModeration == true
+            supportsManualStoryReview = capabilities.operatorManualStoryReview == true
             if !isOperator { reviewStories = [] }
             return isOperator
         } catch {
@@ -435,6 +452,9 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         defer { isBusy = false }
         do {
             guard try await verifyOperatorAccess() else { throw OiOperatorStoryError.accessDenied }
+            if publish && autoStoryModeration && !supportsManualStoryReview {
+                throw OiOperatorStoryError.manualReviewUnavailable
+            }
             guard let api else { throw OiServiceError.configuration }
             let accessToken = try await token()
             try Task.checkCancellation()
@@ -491,6 +511,28 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         _ = try await withCardRequestSession { api, token in
             try await api.resolveCardRequest(id, accept: accept, token: token)
         }
+    }
+
+    func pendingCardDecision(owner: UUID) async throws -> OiPendingCardDecision? {
+        guard account?.id == owner, !needsReauthentication else { throw OiServiceError.accountChanged }
+        let decision = try await drafts.pendingCardDecision(owner: owner)
+        guard account?.id == owner, !needsReauthentication else { throw OiServiceError.accountChanged }
+        return decision
+    }
+
+    func resolveRecoverableCardDecision(_ decision: OiPendingCardDecision, owner: UUID) async throws {
+        guard account?.id == owner, !needsReauthentication else { throw OiServiceError.accountChanged }
+        let started = generation
+        try await drafts.saveCardDecision(decision, owner: owner)
+        try Task.checkCancellation()
+        guard generation == started else { throw OiServiceError.accountChanged }
+        do {
+            try await resolveCardRequest(decision.id, accept: decision.accept)
+        } catch OiServiceError.conflict {
+            try await drafts.clearCardDecision(decision, owner: owner)
+            throw OiServiceError.conflict
+        }
+        try await drafts.clearCardDecision(decision, owner: owner)
     }
 
     private func withCardRequestSession<Value>(
@@ -601,8 +643,20 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         let fetchedRegions = catalogIsFresh ? regions : try await api.rows("oi_regions", query: "order=id.asc", as: OiRegion.self)
         let fetchedAssets = catalogIsFresh ? assets : try await api.rows("oi_assets", query: "order=id.asc", as: OiAsset.self)
         let publicFilter = accessToken == nil ? "&status=eq.published" : ""
-        let fetched = try await api.rows("oi_stories", query: "order=created_at.desc,id.asc" + publicFilter,
+        var fetched = try await api.rows("oi_stories", query: "order=created_at.desc,id.asc" + publicFilter,
                                          token: accessToken, as: OiLiveStory.self)
+        var deletionWarning: String?
+        if let owner = resolvedOwner, owner == account?.id, let accessToken, !isBusy {
+            deletionWarning = await recoverStoryDeletions(in: &fetched, owner: owner, api: api, token: accessToken,
+                                                          generation: started, sequence: sequence)
+        }
+        if capabilities?.storyContinuations == true, let accessToken {
+            let targets = try await api.continuationTargets(token: accessToken)
+            let byID = Dictionary(uniqueKeysWithValues: targets.map { ($0.storyId, $0) })
+            for index in fetched.indices where fetched[index].userId == resolvedOwner {
+                fetched[index].continuedFromStoryId = byID[fetched[index].id]?.continuedFromStoryId
+            }
+        }
         let published = fetched.filter { $0.status == "published" }
         let fetchedProfiles = try await api.rows("oi_profiles", query: "order=id.asc", token: accessToken, as: OiProfile.self)
         var ownProfile = fetchedProfiles.first { $0.id == resolvedOwner }
@@ -658,11 +712,13 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             || loadedStories != published || ownStories != owned || profile != ownProfile || profiles != fetchedProfiles
             || media != fetchedMedia || collections != collected || favorites != starredIDs || collectionCounts != counts
             || !committedMediaPaths.isEmpty || members != accountMemberIDs || recoveryWarning != localRecoveryWarning
+            || (fetchedReviews.map { $0 != storyModerationResults } ?? false)
         if !catalogIsFresh { catalogLoadedAt = .now }
         schools = fetchedSchools; regions = fetchedRegions; assets = fetchedAssets
         if loadedStories != published { postcardImages.clear() }
         loadedStories = published
         ownStories = owned
+        storyReviewLookupFailed = capabilities?.autoStoryModeration == true && fetchedReviews == nil
         if let fetchedReviews { storyModerationResults = fetchedReviews }
         reviewStories = capabilities?.operator == true ? fetched.filter { ["pending","published","hidden"].contains($0.status) } : []
         profile = ownProfile
@@ -674,14 +730,18 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         canPublishDuplexCard = capabilities?.duplexStoryCard == true
         canPublishStoryCardCover = capabilities?.storyCardCover == true
         canPublishStoryCardCoverJPEG = canPublishStoryCardCover && capabilities?.storyCardCoverJpeg == true
+        supportsStoryContinuations = capabilities?.storyContinuations == true
+        supportsContinuationNotifications = capabilities?.storyContinuationNotifications == true
         autoStoryModeration = capabilities?.autoStoryModeration == true
+        supportsManualStoryReview = capabilities?.operatorManualStoryReview == true
         isAccountMergeAvailable = capabilities?.accountMergeEnabled == true; accountMemberIDs = members
         isSchoolProfileAvailable = capabilities?.schoolProfileEnabled == true
         isFarmerOutfitAvailable = capabilities?.farmerOutfitEnabled == true; farmerOutfit = fetchedFarmerOutfit
         accountProviders = capabilities?.accountProviders ?? []
         localRecoveryWarning = recoveryWarning
         collectionCounts = counts
-        hasLoadedRemote = true; needsReauthentication = false; loadError = nil; syncWarning = localSignOutWarning ?? metricsWarning
+        hasLoadedRemote = true; needsReauthentication = false; loadError = nil; syncWarning = localSignOutWarning ?? deletionWarning ?? metricsWarning
+        prepareContinuationMetrics()
         if contentChanged { revision += 1 }
     }
 
@@ -756,29 +816,140 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         } else { _ = await change(action, payload: payload, as: OiMutationID.self, refreshesInBackground: refreshesInBackground) }
     }
 
-    func deleteStory(_ story: OiLiveStory) async -> Bool {
-        guard account?.id == story.userId, !isBusy else { return false }
-        return await change("delete_story", payload: ["id": story.id.uuidString, "revision": story.revision],
-                            as: OiLiveStory.self) != nil
+    func saveScratchCollection(id: UUID, owner: UUID) async throws {
+        guard account?.id == owner, !needsReauthentication else { throw OiServiceError.signInRequired }
+        guard !isBusy, !isRefreshing else { throw OiServiceError.server("잠시 뒤에 다시 시도해 주세요.") }
+        let started = generation
+        try await drafts.markScratchCollection(id: id, owner: owner)
+        try Task.checkCancellation()
+        guard started == generation else { throw OiServiceError.accountChanged }
+        await perform("collect", payload: ["id": id.uuidString], refreshesInBackground: true)
+        guard started == generation else { throw OiServiceError.accountChanged }
+        if collections.contains(where: { $0.storyId == id }) { return }
+
+        let unconfirmedErrorRevision = errorRevision
+        let confirmed: Bool = try await withCardRequestSession { api, token in
+            let rows = try await api.rows("oi_collections", query: "story_id=eq.\(id.uuidString)&limit=1",
+                                          token: token, as: OiOwnedStory.self)
+            return rows.contains { $0.storyId == id }
+        }
+        guard started == generation else { throw OiServiceError.accountChanged }
+        guard confirmed else {
+            throw OiServiceError.server(error ?? "수집 저장을 확인하지 못했어요. 다시 시도해 주세요.")
+        }
+        applyReceipt(OiMutationID(id: id), action: "collect", payload: [:])
+        if errorRevision == unconfirmedErrorRevision { error = nil }
     }
 
-    func reopenPendingStoryForAIReview(_ story: OiLiveStory) async throws -> OiLiveStory {
-        guard autoStoryModeration, story.status == "pending", story.userId == account?.id else {
-            throw OiServiceError.conflict
+    func finishScratchCollection(id: UUID, owner: UUID, onConfirmed: () -> Void) async throws {
+        guard !Task.isCancelled, account?.id == owner, !needsReauthentication,
+              collections.contains(where: { $0.storyId == id }) else { return }
+        let started = generation
+        guard try await drafts.hasPendingScratchCollection(id: id, owner: owner),
+              !Task.isCancelled, started == generation, !needsReauthentication,
+              collections.contains(where: { $0.storyId == id }) else { return }
+        onConfirmed()
+        // Dismissing the scratch view cancels its task. Once delivered, clear
+        // the marker even if the view has already disappeared.
+        try await drafts.clearScratchCollection(id: id, owner: owner)
+    }
+
+    func deleteStory(_ story: OiLiveStory) async -> Bool {
+        guard let owner = account?.id, owner == story.userId, !isBusy, let api else { return false }
+        let started = generation
+        isBusy = true; error = nil
+        defer { if started == generation { isBusy = false } }
+        do {
+            try await drafts.setPendingStoryDeletion(id: story.id, revision: story.revision, owner: owner)
+            let accessToken = try await token()
+            try Task.checkCancellation()
+            guard started == generation else { return false }
+            let deleted: OiLiveStory
+            do {
+                deleted = try await requestStoryDeletion(story, api: api, token: accessToken)
+            } catch {
+                let rows = try await api.rows("oi_stories", query: "id=eq.\(story.id.uuidString)",
+                                              token: accessToken, as: OiLiveStory.self)
+                guard let current = rows.first, current.id == story.id, current.userId == owner else { throw error }
+                if current.status != "deleted" {
+                    if current.revision != story.revision {
+                        try await drafts.setPendingStoryDeletion(id: story.id, revision: nil, owner: owner)
+                    }
+                    throw error
+                }
+                deleted = current
+            }
+            guard started == generation else { return false }
+            applyReceipt(deleted, action: "delete_story", payload: [:])
+            do {
+                try await finishStoryDeletion(id: story.id, owner: owner)
+            } catch {
+                if started == generation {
+                    syncWarning = "이야기는 삭제됐어요. 기기 초안 정리는 새로고침하면 다시 시도해요."
+                }
+                return started == generation
+            }
+            await refreshAfterCommit()
+            return started == generation
+        } catch {
+            if started == generation {
+                noteAuthenticationFailure(error)
+                self.error = "삭제 결과를 확인하지 못했어요. 새로고침하면 다시 확인해요."
+            }
+            return false
         }
-        let payload: [String: Any] = ["id": story.id.uuidString, "revision": story.revision]
-        guard let reopened = await change("reopen_story", payload: payload, as: OiLiveStory.self) else {
-            throw error.map(OiServiceError.server) ?? .unavailable
+    }
+
+    private func requestStoryDeletion(_ story: OiLiveStory, api: OiServiceAPI, token: String) async throws -> OiLiveStory {
+        let receipt = try await api.mutate("delete_story", payload: ["id": story.id.uuidString, "revision": story.revision],
+                                           token: token, as: OiLiveStory.self)
+        guard receipt.id == story.id, receipt.userId == story.userId,
+              receipt.status == "deleted", receipt.revision == story.revision + 1 else { throw OiServiceError.unavailable }
+        return receipt
+    }
+
+    private func finishStoryDeletion(id: UUID, owner: UUID) async throws {
+        try await discardLocalDraft(id: id, owner: owner)
+        try await drafts.setPendingStoryDeletion(id: id, revision: nil, owner: owner)
+    }
+
+    private func recoverStoryDeletions(in stories: inout [OiLiveStory], owner: UUID, api: OiServiceAPI,
+                                       token: String, generation started: UUID, sequence: Int) async -> String? {
+        do {
+            let pending = try await drafts.pendingStoryDeletions(owner: owner)
+            guard !pending.isEmpty, started == generation, sequence == loadSequence, !isBusy else { return nil }
+            isBusy = true
+            defer { if started == generation { isBusy = false } }
+            var warning: String?
+            for (id, revision) in pending {
+                guard started == generation, sequence == loadSequence, !Task.isCancelled else { return nil }
+                guard let index = stories.firstIndex(where: { $0.id == id && $0.userId == owner }) else {
+                    warning = "이야기 삭제 결과를 확인하지 못했어요. 새로고침하면 다시 확인해요."
+                    continue
+                }
+                let story = stories[index]
+                if story.status != "deleted" {
+                    guard story.revision == revision else {
+                        try await drafts.setPendingStoryDeletion(id: id, revision: nil, owner: owner)
+                        warning = "이야기가 변경돼 삭제를 중단했어요. 내용을 확인한 뒤 다시 삭제해 주세요."
+                        continue
+                    }
+                    stories[index] = try await requestStoryDeletion(story, api: api, token: token)
+                    guard started == generation, sequence == loadSequence, !Task.isCancelled else { return nil }
+                }
+                try await finishStoryDeletion(id: id, owner: owner)
+            }
+            return warning
+        } catch {
+            if Task.isCancelled || OiServiceFailure.isCancellation(error) { return nil }
+            return "이야기 삭제 또는 기기 초안 정리를 확인하지 못했어요. 새로고침하면 다시 확인해요."
         }
-        guard reopened.id == story.id, reopened.userId == story.userId,
-              reopened.status == "draft", reopened.revision == story.revision + 1 else {
-            throw OiServiceError.conflict
-        }
-        return reopened
     }
 
     func save(_ draft: OiStoryDraft) async -> OiLiveStory? {
         guard canStartStory else { error = OiServiceError.storyCreationUnavailable.localizedDescription; return nil }
+        var draft = draft
+        if !supportsStoryContinuations { draft.updatesContinuation = false }
         do { return await change("save_story", payload: try draft.payload(), as: OiLiveStory.self) }
         catch { self.error = error.localizedDescription; return nil }
     }
@@ -802,6 +973,18 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
 
         try checkOwner()
         let existing = ownStories.first { $0.id == record.id }
+        if supportsStoryContinuations {
+            let selection = record.customization?.connectedStoryID
+            let editsSelection = record.customization?.connectedStorySelectionEdited == true || selection != nil
+            if editsSelection {
+                guard selection == nil || UUID(uuidString: selection!) != nil else { throw OiServiceError.invalidInput }
+                record.draft.continuedFromStoryID = selection.flatMap(UUID.init(uuidString:))
+                record.draft.updatesContinuation = true
+            } else {
+                record.draft.continuedFromStoryID = existing?.continuedFromStoryId
+                record.draft.updatesContinuation = nil
+            }
+        } else { record.draft.updatesContinuation = nil }
         guard OiCreationAccess.canEdit(status: existing?.status, submitted: record.submitted) else {
             throw OiServiceError.conflict
         }
@@ -893,6 +1076,20 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             result.cardSnapshotId == expectedCard && (result.cardSnapshotFormat ?? 1) == expectedFormat &&
             result.resolvedCardCoverType == expectedCoverType
         }
+        func applyRejection(_ result: OiStoryModerationResult, current: OiLiveStory?) throws {
+            guard result.status == .rejected else { return }
+            guard let message = result.rejectionMessage else { throw OiServiceError.unavailable }
+            if story.status == "pending" {
+                guard let current, current.id == story.id, current.userId == story.userId,
+                      current.status == "draft", current.revision == story.revision + 1,
+                      result.revision == current.revision else { throw OiServiceError.unavailable }
+                applyReceipt(current, action: "submit_story", payload: [:])
+            } else {
+                guard result.revision == story.revision else { throw OiServiceError.unavailable }
+            }
+            storyModerationResults[story.id] = result
+            throw OiServiceError.server(message)
+        }
         func isUnavailable(_ error: Error) -> Bool {
             if case OiServiceError.unavailable = error { return true }
             return false
@@ -938,13 +1135,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
                 if usesAIReview {
                     let result = try await api.moderateStory(payload, token: accessToken)
                     guard started == generation, result.storyId == story.id else { throw OiServiceError.accountChanged }
-                    if result.status == .rejected {
-                        guard result.revision == story.revision, let message = result.rejectionMessage else {
-                            throw OiServiceError.unavailable
-                        }
-                        storyModerationResults[story.id] = result
-                        throw OiServiceError.server(message)
-                    }
+                    try applyRejection(result, current: result.story)
                     guard let reviewed = result.story, result.revision == reviewed.revision,
                           confirmsSubmission(reviewed) else { throw OiServiceError.unavailable }
                     storyModerationResults[story.id] = result
@@ -962,10 +1153,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
                     let results = try? await api.storyModerationResults(token: accessToken)
                     guard started == generation else { throw OiServiceError.accountChanged }
                     if let result = results?.first(where: { $0.storyId == story.id }) {
-                        if result.status == .rejected, result.revision == story.revision, let message = result.rejectionMessage {
-                            storyModerationResults[story.id] = result
-                            throw OiServiceError.server(message)
-                        }
+                        try applyRejection(result, current: rows?.first)
                         if let confirmed = rows?.first, confirmsSubmission(confirmed),
                            result.status == .approved, result.revision == confirmed.revision {
                             storyModerationResults[story.id] = result
@@ -1392,6 +1580,65 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         try Task.checkCancellation()
         guard generation == started else { throw OiServiceError.accountChanged }
         return image
+    }
+
+    var continuationPrivacyKey: String {
+        (account?.id.uuidString ?? "public") + "/\(supportsStoryContinuations)/\(supportsContinuationNotifications)/\(needsReauthentication)/"
+            + OiContentSafetyStore.shared.authors.keys.sorted().joined(separator: ",")
+    }
+
+    func storyContinuations(parent: UUID? = nil, mine: Bool = false,
+                            cursor: OiContinuationCursor? = nil) async throws -> OiContinuationPage {
+        guard let api else { throw OiServiceError.configuration }
+        if account != nil && !supportsStoryContinuations { throw OiContinuationError.notSupported }
+        prepareContinuationMetrics()
+        if mine { cachedIncomingContinuationCount = nil }
+        let started = generation, privacy = continuationPrivacyKey
+        let blocked = OiContentSafetyStore.shared.authors.keys.compactMap(UUID.init(uuidString:))
+        let accessToken = mine ? try await token() : nil
+        let page = try await api.continuations(parent: parent, mine: mine, cursor: cursor, blocked: blocked, token: accessToken)
+        try Task.checkCancellation()
+        guard generation == started, privacy == continuationPrivacyKey else { throw OiServiceError.accountChanged }
+        guard page.items.allSatisfy({ $0.childStoryId == $0.story.id && $0.story.status == "published" && (parent == nil || $0.parentStoryId == parent) }) else {
+            throw OiServiceError.unavailable
+        }
+        prepareContinuationMetrics()
+        if mine { cachedIncomingContinuationCount = page.total }
+        if let parent { cachedContinuationCounts[parent] = page.total }
+        return page
+    }
+
+    private func prepareContinuationMetrics() {
+        if continuationMetricsPrivacy != continuationPrivacyKey {
+            cachedIncomingContinuationCount = nil; cachedContinuationCounts = [:]
+            continuationMetricsPrivacy = continuationPrivacyKey
+        }
+    }
+
+    func refreshContinuationCounts(for stories: [UUID]) async throws {
+        prepareContinuationMetrics()
+        for story in stories { cachedContinuationCounts[story] = nil }
+        if account != nil && !supportsStoryContinuations { throw OiContinuationError.notSupported }
+        guard let api else { throw OiServiceError.configuration }
+        let started = generation, privacy = continuationPrivacyKey
+        let blocked = OiContentSafetyStore.shared.authors.keys.compactMap(UUID.init(uuidString:))
+        for start in stride(from: 0, to: stories.count, by: 200) {
+            let rows = try await api.continuationCounts(Array(stories[start..<min(start + 200, stories.count)]), blocked: blocked)
+            try Task.checkCancellation()
+            guard started == generation, privacy == continuationPrivacyKey else { throw OiServiceError.accountChanged }
+            for row in rows where stories.contains(row.storyId) { cachedContinuationCounts[row.storyId] = row.count }
+        }
+    }
+
+    func readStoryContinuation(_ child: UUID) async throws -> CampusStory {
+        guard let api, account != nil, supportsContinuationNotifications else { throw OiContinuationError.notSupported }
+        let started = generation, privacy = continuationPrivacyKey
+        let row = try await api.readContinuation(child,
+            blocked: OiContentSafetyStore.shared.authors.keys.compactMap(UUID.init(uuidString:)), token: token())
+        try Task.checkCancellation()
+        guard started == generation, privacy == continuationPrivacyKey else { throw OiServiceError.accountChanged }
+        guard row.childStoryId == child, row.story.id == child, row.story.status == "published" else { throw OiServiceError.unavailable }
+        return campusStory(row.story)
     }
 }
 

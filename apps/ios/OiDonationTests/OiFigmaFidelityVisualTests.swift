@@ -6,6 +6,7 @@
 //
 
 import CoreText
+import Observation
 import RealityKit
 import SwiftUI
 import UIKit
@@ -668,7 +669,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         for variant in variants.prefix(2) {
             for bottom in [false, true] {
                 let page = CreationCapturePage(step: 3, anchor: bottom ? .bottom : .top) {
-                    OiCucumberCustomizationStep(customization: .constant(customization), canContinue: true, onContinue: {})
+                    OiCucumberCustomizationStep(customization: .constant(customization), previewMode: .wardrobe,
+                                                canContinue: true, onContinue: {})
                         .environment(\.scenePhase, .active)
                 }
                 try await capture(page, name: bottom ? "costume-set-bottom" : "costume-set-top",
@@ -1707,7 +1709,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         let page = CreationCapturePage(step: 3) {
             OiCucumberCustomizationStep(customization: .constant(Self.customization), cucumberName: .constant("힌트펩오이"),
-                canContinue: true, onContinue: {}, initialTabTitle: title)
+                previewMode: .wardrobe, canContinue: true, onContinue: {}, initialTabTitle: title)
                 .environment(\.scenePhase, .active)
         }
         try await capture(page, name: "cucumber-\(title)", variant: variants[0], defaults: fixture.defaults, delay: .seconds(1), attach: true)
@@ -1889,6 +1891,583 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertGreaterThan(try partBounds("Mouth", pose: 1).center.x, try partBounds("Mouth", pose: 0).center.x)
         XCTAssertLessThan(try partBounds("Mouth", pose: 1).center.y, try partBounds("Mouth", pose: 0).center.y)
         XCTAssertLessThan(try partBounds("Stem", pose: 1).min.x, try partBounds("Stem", pose: 0).min.x)
+    }
+
+    func testStep3ShowsFrontWhilePreparingAndRotatesFromOneRequest() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let variant = try XCTUnwrap(variants.first { $0.name == "402x874" })
+        var draft = OiDraftCustomization()
+        var existingLook = OiWardrobeLook()
+        existingLook.costume = .baseball
+        draft.wardrobe = existingLook
+        let original = draft
+        let customization = Binding(get: { draft }, set: { draft = $0 })
+
+        func step() -> some View {
+            CreationCapturePage(step: 3) {
+                OiCucumberCustomizationStep(customization: customization, onContinue: {})
+            }
+            .environment(\.scenePhase, .active)
+        }
+
+        try await capture(step(), name: "step3-seed-front", variant: variant, defaults: fixture.defaults,
+                          delay: .zero, attach: true, prepareRealityCapture: { host in
+            let surface = try await self.step3Surface(in: host)
+            try await self.waitForStep3 {
+                surface.scene.findEntity(named: "SeedCucumber") != nil
+            }
+            XCTAssertEqual(surface.accessibilityValue, "정면 이미지",
+                           "Loading the model must leave the original front image visible")
+            return nil
+        })
+        XCTAssertEqual(draft, original, "Browsing must preserve the existing wardrobe")
+
+        draft.seedAppearance = editedSeedCucumber3DAppearance()
+        try await capture(step(), name: "step3-seed-rotated", variant: variant, defaults: fixture.defaults,
+                          delay: .zero, attach: true, prepareRealityCapture: { host in
+            let surface = try await self.step3Surface(in: host)
+            XCTAssertEqual(surface.accessibilityValue, "정면 이미지")
+            let rotation = try XCTUnwrap(surface.accessibilityCustomActions?.first)
+            let rotate = try XCTUnwrap(rotation.actionHandler)
+            XCTAssertTrue(rotate(rotation))
+            try await self.waitForStep3 { surface.accessibilityValue == "3D 미리보기" }
+            let model = try XCTUnwrap(surface.scene.findEntity(named: "SeedCucumber"))
+            let body = try XCTUnwrap(model.findEntity(named: "Body"))
+            XCTAssertGreaterThan(body.visualBounds(relativeTo: model).extents.x, 0.52,
+                                 "The displayed model must reflect the wider edited body")
+            return surface
+        })
+        XCTAssertEqual(draft.wardrobe, original.wardrobe)
+
+        let editor = NavigationStack {
+            OiSeedCucumberCustomizationView(appearance: draft.seedAppearance ?? .init(), onApply: { _ in })
+        }
+        try await capture(editor, name: "step3-seed-face-editor", variant: variant,
+                          defaults: fixture.defaults, attach: true)
+    }
+
+    @Observable fileprivate final class Step3DraftFixture {
+        var value: OiDraftCustomization
+        init(_ value: OiDraftCustomization) { self.value = value }
+    }
+
+    func testStep3PinchRevealsPreviewAndClampsZoom() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let variant = try XCTUnwrap(variants.first { $0.name == "402x874" })
+        let screen = CreationCapturePage(step: 3) {
+            OiCucumberCustomizationStep(customization: .constant(.init()), onContinue: {})
+        }
+        .environment(\.scenePhase, .active)
+
+        try await capture(screen, name: "step3-pinched", variant: variant, defaults: fixture.defaults,
+                          delay: .zero, prepareRealityCapture: { host in
+            let surface = try await self.step3Surface(in: host)
+            XCTAssertEqual(surface.accessibilityValue, "정면 이미지")
+            let pinch = try self.step3Pinch(in: surface)
+            try self.applyStep3Pinch(pinch, state: .began, scale: 1)
+            try await self.waitForStep3 { surface.accessibilityValue == "3D 미리보기" }
+
+            let camera = try self.step3Camera(in: surface)
+            let normal = camera.position(relativeTo: nil)
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 10)
+            let closest = camera.position(relativeTo: nil).z
+            XCTAssertLessThan(closest, normal.z)
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 10)
+            XCTAssertEqual(camera.position(relativeTo: nil).z, closest, accuracy: 0.001)
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 0.9)
+            XCTAssertGreaterThan(camera.position(relativeTo: nil).z, closest)
+
+            try self.applyStep3Pinch(pinch, state: .ended, scale: 1)
+            let centered = camera.position(relativeTo: nil)
+            let forward = camera.orientation(relativeTo: nil).act(SIMD3<Float>(0, 0, -1))
+            let pan = Step3TestPan()
+            pan.dragVelocity = CGPoint(x: 0, y: 200)
+            try self.applyStep3Pan(pan, in: surface, state: .began, delta: CGPoint(x: 0, y: 20))
+            XCTAssertGreaterThan(camera.position(relativeTo: nil).y, centered.y)
+
+            try self.applyStep3Pan(pan, in: surface, state: .changed, delta: CGPoint(x: 4000, y: 1000))
+            let top = camera.position(relativeTo: nil)
+            try self.applyStep3Pan(pan, in: surface, state: .changed, delta: CGPoint(x: 0, y: 1000))
+            XCTAssertEqual(camera.position(relativeTo: nil).y, top.y, accuracy: 0.001)
+            try self.applyStep3Pan(pan, in: surface, state: .changed, delta: CGPoint(x: 0, y: -2000))
+            let bottom = camera.position(relativeTo: nil)
+            XCTAssertLessThan(bottom.y, centered.y)
+            XCTAssertEqual(bottom.x, centered.x, accuracy: 0.001)
+            XCTAssertEqual(bottom.z, centered.z, accuracy: 0.001)
+            XCTAssertEqual(simd_distance(camera.orientation(relativeTo: nil).act(SIMD3<Float>(0, 0, -1)), forward),
+                           0, accuracy: 0.001)
+            try self.applyStep3Pan(pan, in: surface, state: .ended, delta: .zero)
+
+            try self.applyStep3Pinch(pinch, state: .began, scale: 1)
+            XCTAssertEqual(camera.position(relativeTo: nil).y, bottom.y, accuracy: 0.001)
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 0.1)
+            let farthest = camera.position(relativeTo: nil).z
+            XCTAssertGreaterThan(farthest, normal.z)
+            XCTAssertEqual(camera.position(relativeTo: nil).y, normal.y, accuracy: 0.001)
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 0.1)
+            XCTAssertEqual(camera.position(relativeTo: nil).z, farthest, accuracy: 0.001)
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 1.1)
+            XCTAssertLessThan(camera.position(relativeTo: nil).z, farthest)
+            try self.applyStep3Pinch(pinch, state: .ended, scale: 1)
+            try self.applyStep3Pan(pan, in: surface, state: .began, delta: CGPoint(x: 0, y: 60))
+            XCTAssertEqual(camera.position(relativeTo: nil).y, normal.y, accuracy: 0.001)
+            try self.applyStep3Pan(pan, in: surface, state: .ended, delta: .zero)
+            return surface
+        })
+    }
+
+    func testStep3OutfitKeepsFaceAndCameraWhileChangingLayers() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let variant = try XCTUnwrap(variants.first { $0.name == "402x874" })
+        let appearance = editedSeedCucumber3DAppearance()
+        var original = OiDraftCustomization()
+        original.seedAppearance = appearance
+        var existingLook = OiWardrobeLook()
+        existingLook.costume = .baseball
+        original.wardrobe = existingLook
+        let draft = Step3DraftFixture(original)
+        let customization = Binding(get: { draft.value }, set: { draft.value = $0 })
+        let screen = CreationCapturePage(step: 3) {
+            OiCucumberCustomizationStep(customization: customization, onContinue: {})
+        }
+        .environment(\.scenePhase, .active)
+
+        try await capture(screen, name: "step3-pants-outfit-zoomed", variant: variant, defaults: fixture.defaults,
+                          delay: .zero, attach: true, prepareRealityCapture: { host in
+            let surface = try await self.step3Surface(in: host)
+            try await self.waitForStep3 { surface.scene.findEntity(named: "SeedCucumber") != nil }
+            let model = try XCTUnwrap(surface.scene.findEntity(named: "SeedCucumber"))
+            let eye = try XCTUnwrap(model.findEntity(named: "LeftEye"))
+            let faceTransform = eye.transformMatrix(relativeTo: model)
+            let shirtName = OiSeedCucumberGarment.whiteTshirt.rawValue
+            let pantsName = OiSeedCucumberGarment.longPants.rawValue
+            XCTAssertNil(model.findEntity(named: shirtName))
+            XCTAssertNil(model.findEntity(named: pantsName))
+
+            draft.value.seedLongPants = true
+            try await self.waitForStep3 {
+                model.findEntity(named: pantsName) != nil && surface.accessibilityValue == "3D 미리보기"
+            }
+            let pants = try XCTUnwrap(model.findEntity(named: pantsName))
+            XCTAssertNil(model.findEntity(named: shirtName))
+
+            draft.value.seedWhiteTshirt = true
+            try await self.waitForStep3 { model.findEntity(named: shirtName) != nil }
+            let shirt = try XCTUnwrap(model.findEntity(named: shirtName))
+            let camera = try self.step3Camera(in: surface)
+            let front = camera.position(relativeTo: nil)
+            let rotation = try XCTUnwrap(surface.accessibilityCustomActions?.first)
+            let rotate = try XCTUnwrap(rotation.actionHandler)
+            XCTAssertTrue(rotate(rotation))
+            let turned = camera.position(relativeTo: nil)
+            XCTAssertGreaterThan(simd_distance(front, turned), 0.2)
+            let pinch = try self.step3Pinch(in: surface)
+            try self.applyStep3Pinch(pinch, state: .began, scale: 1)
+            try self.applyStep3Pinch(pinch, state: .changed, scale: 1.24)
+            let zoomed = camera.position(relativeTo: nil)
+            XCTAssertGreaterThan(simd_distance(turned, zoomed), 0.2)
+            try self.applyStep3Pinch(pinch, state: .ended, scale: 1)
+            let pan = Step3TestPan()
+            pan.dragVelocity = CGPoint(x: 0, y: -200)
+            try self.applyStep3Pan(pan, in: surface, state: .began, delta: CGPoint(x: 0, y: -15))
+            try self.applyStep3Pan(pan, in: surface, state: .ended, delta: .zero)
+            let reframed = camera.position(relativeTo: nil)
+            XCTAssertLessThan(reframed.y, zoomed.y)
+
+            draft.value.seedWhiteTshirt = nil
+            try await self.waitForStep3 { model.findEntity(named: shirtName) == nil }
+            XCTAssertTrue(model.findEntity(named: pantsName) === pants)
+            draft.value.seedWhiteTshirt = true
+            try await self.waitForStep3 { model.findEntity(named: shirtName) === shirt }
+
+            draft.value.seedLongPants = nil
+            try await self.waitForStep3 { model.findEntity(named: pantsName) == nil }
+            XCTAssertTrue(model.findEntity(named: shirtName) === shirt)
+            draft.value.seedLongPants = true
+            try await self.waitForStep3 { model.findEntity(named: pantsName) === pants }
+
+            XCTAssertTrue(surface.scene.findEntity(named: "SeedCucumber") === model)
+            XCTAssertTrue(model.findEntity(named: "LeftEye") === eye)
+            XCTAssertEqual(eye.transformMatrix(relativeTo: model).columns.3, faceTransform.columns.3)
+            XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), reframed), 0, accuracy: 0.001)
+            return surface
+        })
+        XCTAssertEqual(draft.value.seedAppearance, appearance)
+        XCTAssertEqual(draft.value.wardrobe, original.wardrobe)
+    }
+
+    func testStep3GarmentsShareBodyTransformAtEverySizeCorner() async throws {
+        let shirt = try await OiSeedCucumberModel.loadGarment(.whiteTshirt)
+        let pants = try await OiSeedCucumberModel.loadGarment(.longPants)
+        let costume = OiSeedCucumberGarment.costume(.cat)
+        let cat = try await OiSeedCucumberModel.loadGarment(costume)
+        for width in [OiSeedCucumberAppearance.widthRange.lowerBound, OiSeedCucumberAppearance.widthRange.upperBound] {
+            for height in [OiSeedCucumberAppearance.heightRange.lowerBound, OiSeedCucumberAppearance.heightRange.upperBound] {
+                var appearance = editedSeedCucumber3DAppearance()
+                appearance.bodyWidth = width
+                appearance.bodyHeight = height
+                appearance[.mouth] = .init(x: 80, y: 140, size: 2)
+                let model = try await OiSeedCucumberModel.make(appearance: appearance)
+                let body = try XCTUnwrap(model.findEntity(named: "Body"))
+                let mouth = try XCTUnwrap(model.findEntity(named: "Mouth"))
+                let bodyTransform = body.transformMatrix(relativeTo: model)
+                let mouthTransform = mouth.transformMatrix(relativeTo: model)
+                try OiSeedCucumberModel.setGarment(.whiteTshirt, asset: shirt, on: model)
+                try OiSeedCucumberModel.setGarment(.longPants, asset: pants, on: model)
+                let parent = try XCTUnwrap(shirt.parent)
+                XCTAssertTrue(pants.parent === parent)
+                XCTAssertEqual(parent.scale, SIMD3(Float(width), Float(height), Float(width)))
+                var ancestor = body.parent
+                while let current = ancestor, current !== parent { ancestor = current.parent }
+                XCTAssertTrue(ancestor === parent, "The garment must inherit the same affine transform as the skin")
+                XCTAssertEqual(body.transformMatrix(relativeTo: model).columns.3, bodyTransform.columns.3)
+                XCTAssertEqual(mouth.transformMatrix(relativeTo: model).columns.3, mouthTransform.columns.3)
+                try OiSeedCucumberModel.setGarment(.whiteTshirt, asset: nil, on: model)
+                try OiSeedCucumberModel.setGarment(.longPants, asset: nil, on: model)
+                XCTAssertNil(shirt.parent)
+                XCTAssertNil(pants.parent)
+
+                try OiSeedCucumberModel.setGarment(costume, asset: cat, on: model)
+                OiSeedCucumberModel.updateCoverage(for: [costume], on: model)
+                XCTAssertTrue(cat.parent === parent)
+                XCTAssertFalse(body.isEnabled)
+                XCTAssertTrue(mouth.isEnabled)
+                let adjustment = try XCTUnwrap(costume.hoodAttachments)
+                let dressedMouth = mouth.transformMatrix(relativeTo: model).columns.3
+                XCTAssertEqual(dressedMouth.x, mouthTransform.columns.3.x, accuracy: 0.001)
+                XCTAssertEqual(dressedMouth.y, mouthTransform.columns.3.y, accuracy: 0.001)
+                XCTAssertEqual(dressedMouth.z, mouthTransform.columns.3.z + adjustment.faceDepth * Float(width),
+                               accuracy: 0.001)
+                try OiSeedCucumberModel.setGarment(costume, asset: nil, on: model)
+                OiSeedCucumberModel.updateCoverage(for: [], on: model)
+                XCTAssertTrue(body.isEnabled)
+            }
+        }
+    }
+
+    func testStep3NewGarmentsReplaceOnlyTheirSlot() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let variant = try XCTUnwrap(variants.first { $0.name == "402x874" })
+        var original = OiDraftCustomization()
+        original.seedAppearance = editedSeedCucumber3DAppearance()
+        original.seedWhiteTshirt = true
+        original.seedLongPants = true
+        let draft = Step3DraftFixture(original)
+        let screen = CreationCapturePage(step: 3) {
+            OiCucumberCustomizationStep(customization: Binding(get: { draft.value }, set: { draft.value = $0 }))
+        }
+        .environment(\.scenePhase, .active)
+
+        try await capture(screen, name: "step3-new-wardrobe-outfit", variant: variant, defaults: fixture.defaults,
+                          delay: .zero, attach: true, prepareRealityCapture: { host in
+            let surface = try await self.step3Surface(in: host)
+            try await self.waitForStep3 { surface.accessibilityValue == "3D 미리보기" }
+            let model = try XCTUnwrap(surface.scene.findEntity(named: "SeedCucumber"))
+            let pants = try XCTUnwrap(model.findEntity(named: OiSeedCucumberGarment.longPants.rawValue))
+            let face = try XCTUnwrap(model.findEntity(named: "LeftEye"))
+            let camera = try self.step3Camera(in: surface)
+            let rotate = try XCTUnwrap(surface.accessibilityCustomActions?.first)
+            XCTAssertTrue(try XCTUnwrap(rotate.actionHandler)(rotate))
+            let viewpoint = camera.position(relativeTo: nil)
+
+            for top in [OiWardrobeLook.Top.hoodie, .cardigan, .postech] {
+                draft.value.selectedSeedTop = top
+                let garment = OiSeedCucumberGarment(top: top)
+                try await self.waitForStep3 { model.findEntity(named: garment.rawValue) != nil }
+                let activeTops = OiWardrobeLook.Top.allCases.filter {
+                    model.findEntity(named: OiSeedCucumberGarment(top: $0).rawValue) != nil
+                }
+                XCTAssertEqual(activeTops, [top])
+                XCTAssertTrue(model.findEntity(named: OiSeedCucumberGarment.longPants.rawValue) === pants)
+                XCTAssertTrue(model.findEntity(named: garment.rawValue)?.parent === pants.parent)
+            }
+
+            let jacket = try XCTUnwrap(model.findEntity(named: OiSeedCucumberGarment.postechJacket.rawValue))
+            draft.value.selectedSeedBottom = .shorts
+            try await self.waitForStep3 { model.findEntity(named: OiSeedCucumberGarment.shorts.rawValue) != nil }
+            XCTAssertNil(model.findEntity(named: OiSeedCucumberGarment.longPants.rawValue))
+            XCTAssertTrue(model.findEntity(named: OiSeedCucumberGarment.shorts.rawValue)?.parent === jacket.parent)
+            XCTAssertTrue(model.findEntity(named: OiSeedCucumberGarment.postechJacket.rawValue) === jacket)
+            XCTAssertTrue(model.findEntity(named: "LeftEye") === face)
+            XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), viewpoint), 0, accuracy: 0.001)
+            XCTAssertEqual(draft.value.seedAppearance, original.seedAppearance)
+            return surface
+        })
+    }
+
+    func testStep3CatalogGarmentsLoadFromAppBundle() async throws {
+        @MainActor func verifyGarment(_ garment: OiSeedCucumberGarment) async throws {
+            let asset = try await OiSeedCucumberModel.loadGarment(garment)
+            XCTAssertEqual(asset.name, garment.rawValue)
+            XCTAssertTrue(hasModel(in: asset), "\(garment.title) must contain a renderable mesh")
+            if garment.coveredSeedParts.contains("Body") {
+                let bodyParts = garment.slot == .top ? ["VisibleBodyUpper", "VisibleBodyLower"] : ["VisibleBody"]
+                for part in bodyParts {
+                    let visible = try XCTUnwrap(asset.findEntity(named: part))
+                    XCTAssertTrue(hasModel(in: visible))
+                    if garment.rendersHoodInterior && part != "VisibleBodyLower" {
+                        let model = try XCTUnwrap(visible.components[ModelComponent.self])
+                        XCTAssertFalse(model.materials.isEmpty)
+                        for material in model.materials {
+                            let surface = try XCTUnwrap(material as? PhysicallyBasedMaterial)
+                            guard case .opaque = surface.blending else {
+                                return XCTFail("Hood skin must be opaque")
+                            }
+                            guard case .none = surface.faceCulling else {
+                                return XCTFail("Both faces of the head must be visible")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        @MainActor func hasModel(in entity: Entity) -> Bool {
+            entity.components[ModelComponent.self] != nil || entity.children.contains(where: hasModel)
+        }
+
+        let costumes = OiWardrobeLook.Costume.allCases
+        XCTAssertEqual(Set(OiSeedCucumberGarment.allCases.filter { $0.slot == .costume }),
+                       Set(costumes.map { .costume($0) }))
+        try await verifyGarment(.sneakers)
+        try await verifyGarment(.hoodie)
+        try await verifyGarment(.postechJacket)
+        for costume in costumes {
+            try await verifyGarment(.costume(costume))
+            for proposal in OiSeedCostumeProposal.options(for: costume) {
+                let garment = OiSeedCucumberGarment.costumeProposal(costume, proposal)
+                XCTAssertNotNil(Bundle.main.url(forResource: garment.rawValue, withExtension: "jpg"))
+                try await verifyGarment(garment)
+            }
+        }
+    }
+
+    func testStep3CostumeProposalsRestoreAndKeepAcceptedChoices() throws {
+        XCTAssertEqual(OiSeedCostumeProposal.options(for: .raincoat), [.one])
+        XCTAssertEqual(OiSeedCostumeProposal.options(for: .postechSelfie), [.one])
+        for costume in [OiWardrobeLook.Costume.astronaut, .astronautNavy, .catBear] {
+            XCTAssertEqual(OiSeedCostumeProposal.options(for: costume), [.one])
+        }
+        XCTAssertFalse(OiSeedCucumberSet.availableCostumes.contains(.scientist))
+
+        let previousDraft = OiDraftCustomization(seedSet: "raincoat")
+        let previousData = try JSONEncoder().encode(previousDraft)
+        var draft = try JSONDecoder().decode(OiDraftCustomization.self, from: previousData)
+        XCTAssertEqual(draft.selectedSeedProposal, .one)
+        draft.seedProposal = 5
+        let saved = try JSONEncoder().encode(draft)
+        draft = try JSONDecoder().decode(OiDraftCustomization.self, from: saved)
+        XCTAssertEqual(draft.selectedSeedSet, .costume(.raincoat))
+        XCTAssertEqual(draft.selectedSeedProposal, .one)
+        draft.selectSeedProposal(.one, for: .postechSelfie)
+        XCTAssertEqual(draft.selectedSeedSet, .costume(.postechSelfie))
+        XCTAssertEqual(draft.selectedSeedProposal, .one)
+        draft.selectSeedProposal(.one, for: .postechSelfie)
+        XCTAssertNil(draft.selectedSeedSet)
+        XCTAssertNil(draft.selectedSeedProposal)
+
+        draft.seedSet = "astronaut"
+        draft.seedProposal = 3
+        XCTAssertEqual(draft.selectedSeedProposal, .one)
+        draft.seedSet = "scientist"
+        XCTAssertNil(draft.selectedSeedSet)
+        XCTAssertNil(draft.selectedSeedProposal)
+    }
+
+    func testStep3SetsReplaceOutfitsAndRestoreModularItems() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let variant = try XCTUnwrap(variants.first { $0.name == "402x874" })
+        var original = OiDraftCustomization()
+        original.seedAppearance = editedSeedCucumber3DAppearance()
+        original.selectedSeedTop = .hoodie
+        original.selectedSeedBottom = .shorts
+        original.toggleSeedSneakers()
+        let draft = Step3DraftFixture(original)
+        let screen = CreationCapturePage(step: 3) {
+            OiCucumberCustomizationStep(customization: Binding(get: { draft.value }, set: { draft.value = $0 }))
+        }
+        .environment(\.scenePhase, .active)
+
+        try await capture(screen, name: "step3-wardrobe-set", variant: variant, defaults: fixture.defaults,
+                          delay: .zero, attach: true, prepareRealityCapture: { host in
+            let surface = try await self.step3Surface(in: host)
+            try await self.waitForStep3 { surface.accessibilityValue == "3D 미리보기" }
+            let model = try XCTUnwrap(surface.scene.findEntity(named: "SeedCucumber"))
+            let eye = try XCTUnwrap(model.findEntity(named: "LeftEye"))
+            let faceAttachment = try XCTUnwrap(eye.parent)
+            let eyeTransform = eye.transformMatrix(relativeTo: faceAttachment)
+            let master = try XCTUnwrap(model.findEntity(named: "SeedCucumberMaster"))
+            let skin = try XCTUnwrap(master.findEntity(named: "Body"))
+            let leftArm = try XCTUnwrap(master.findEntity(named: "LeftArm"))
+            let leftLeg = try XCTUnwrap(master.findEntity(named: "LeftLeg"))
+            let camera = try self.step3Camera(in: surface)
+            let rotate = try XCTUnwrap(surface.accessibilityCustomActions?.first)
+            XCTAssertTrue(try XCTUnwrap(rotate.actionHandler)(rotate))
+            let viewpoint = camera.position(relativeTo: nil)
+            let customOutfit: Set<OiSeedCucumberGarment> = [.hoodie, .shorts, .sneakers]
+            let postechOutfit: Set<OiSeedCucumberGarment> = [.postechJacket, .longPants, .sneakers]
+            let proposalGarments = OiSeedCucumberSet.availableCostumes.flatMap { costume in
+                OiSeedCostumeProposal.options(for: costume).map { OiSeedCucumberGarment.costumeProposal(costume, $0) }
+            }
+            let availableGarments = OiSeedCucumberGarment.allCases + proposalGarments
+
+            @MainActor func mounted() -> Set<OiSeedCucumberGarment> {
+                Set(availableGarments.filter { model.findEntity(named: $0.rawValue) != nil })
+            }
+            @MainActor func waitForReplacement(from previous: Set<OiSeedCucumberGarment>,
+                                               to next: Set<OiSeedCucumberGarment>) async throws {
+                try await self.waitForStep3 {
+                    let current = mounted()
+                    XCTAssertTrue(current == previous || current == next, "A set change must replace all affected slots together")
+                    return current == next
+                }
+                XCTAssertEqual(mounted(), next)
+                XCTAssertTrue(surface.scene.findEntity(named: "SeedCucumber") === model)
+                XCTAssertTrue(model.findEntity(named: "LeftEye") === eye)
+                XCTAssertEqual(eye.transformMatrix(relativeTo: faceAttachment).columns.3, eyeTransform.columns.3)
+                let attachment = next.compactMap(\.hoodAttachments).first
+                XCTAssertEqual(faceAttachment.position.z, attachment?.faceDepth ?? 0, accuracy: 0.001)
+                XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), viewpoint), 0, accuracy: 0.001)
+            }
+
+            XCTAssertEqual(mounted(), customOutfit)
+            XCTAssertFalse(skin.isEnabled)
+            XCTAssertFalse(leftArm.isEnabled)
+            XCTAssertFalse(leftLeg.isEnabled)
+            let raincoat: Set<OiSeedCucumberGarment> = [.costumeProposal(.raincoat, .one)]
+            let selfie: Set<OiSeedCucumberGarment> = [.costumeProposal(.postechSelfie, .one)]
+            let astronaut: Set<OiSeedCucumberGarment> = [.costumeProposal(.astronaut, .one)]
+            draft.value.selectSeedSet(.costume(.raincoat))
+            try await waitForReplacement(from: customOutfit, to: raincoat)
+            XCTAssertNotNil(model.findEntity(named: "FaceBacking"))
+            draft.value.selectSeedProposal(.one, for: .postechSelfie)
+            try await waitForReplacement(from: raincoat, to: selfie)
+            XCTAssertNotNil(model.findEntity(named: "SelfiePhoneBack"))
+            XCTAssertNotNil(model.findEntity(named: "SelfiePhoneScreen"))
+            draft.value.selectSeedSet(.costume(.astronaut))
+            try await waitForReplacement(from: selfie, to: astronaut)
+            draft.value.selectSeedSet(.costume(.astronaut))
+            try await waitForReplacement(from: astronaut, to: customOutfit)
+            XCTAssertEqual(draft.value, original)
+
+            let dinosaur: Set<OiSeedCucumberGarment> = [.costume(.dinosaur)]
+            draft.value.selectSeedSet(.costume(.dinosaur))
+            try await waitForReplacement(from: customOutfit, to: dinosaur)
+
+            let baseball: Set<OiSeedCucumberGarment> = [.costume(.baseball)]
+            draft.value.selectSeedSet(.costume(.baseball))
+            try await waitForReplacement(from: dinosaur, to: baseball)
+
+            draft.value.selectSeedSet(.postech)
+            try await waitForReplacement(from: baseball, to: postechOutfit)
+            draft.value.selectSeedSet(.postech)
+            try await waitForReplacement(from: postechOutfit, to: customOutfit)
+
+            draft.value.selectSeedSet(.costume(.dinosaur))
+            try await waitForReplacement(from: customOutfit, to: dinosaur)
+            draft.value.toggleSeedSneakers()
+            try await waitForReplacement(from: dinosaur, to: customOutfit)
+            XCTAssertEqual(draft.value, original)
+
+            let cat: Set<OiSeedCucumberGarment> = [.costume(.cat)]
+            draft.value.selectSeedSet(.costume(.cat))
+            try await waitForReplacement(from: customOutfit, to: cat)
+            XCTAssertFalse(skin.isEnabled)
+            XCTAssertFalse(leftArm.isEnabled)
+            XCTAssertFalse(leftLeg.isEnabled)
+            XCTAssertTrue(eye.isEnabled)
+            XCTAssertNotNil(model.findEntity(named: OiSeedCucumberGarment.costume(.cat).rawValue)?
+                .findEntity(named: "VisibleBody"))
+            draft.value.selectSeedSet(.costume(.cat))
+            try await waitForReplacement(from: cat, to: customOutfit)
+            XCTAssertFalse(skin.isEnabled)
+            XCTAssertFalse(leftArm.isEnabled)
+            XCTAssertFalse(leftLeg.isEnabled)
+            draft.value.toggleSeedSneakers()
+            let withoutShoes: Set<OiSeedCucumberGarment> = [.hoodie, .shorts]
+            try await waitForReplacement(from: customOutfit, to: withoutShoes)
+            XCTAssertTrue(leftLeg.isEnabled)
+            draft.value.selectSeedTop(.hoodie)
+            let withoutTop: Set<OiSeedCucumberGarment> = [.shorts]
+            try await waitForReplacement(from: withoutShoes, to: withoutTop)
+            XCTAssertTrue(skin.isEnabled)
+            XCTAssertTrue(leftArm.isEnabled)
+            draft.value.selectSeedSet(.costume(.cat))
+            try await waitForReplacement(from: withoutTop, to: cat)
+            return surface
+        })
+    }
+
+    private func step3Camera(in surface: RealityKit.ARView) throws -> PerspectiveCamera {
+        let cameras = surface.scene.anchors.flatMap { anchor in
+            anchor.children.compactMap { $0 as? PerspectiveCamera }
+        }
+        return try XCTUnwrap(cameras.first)
+    }
+
+    private func step3Pinch(in surface: RealityKit.ARView) throws -> UIPinchGestureRecognizer {
+        try XCTUnwrap(surface.gestureRecognizers?.compactMap { $0 as? UIPinchGestureRecognizer }.first)
+    }
+
+    private func applyStep3Pinch(_ pinch: UIPinchGestureRecognizer, state: UIGestureRecognizer.State,
+                                 scale: CGFloat) throws {
+        let target = try XCTUnwrap(pinch.delegate)
+        // Send the recognizer callback without changing UIKit's active touch state.
+        let gesture = Step3TestPinch()
+        gesture.state = state
+        gesture.scale = scale
+        XCTAssertTrue(UIApplication.shared.sendAction(NSSelectorFromString("didPinch:"), to: target, from: gesture, for: nil))
+    }
+
+    private final class Step3TestPinch: UIPinchGestureRecognizer {
+        private var simulatedState: State = .possible
+
+        override var state: State {
+            get { simulatedState }
+            set { simulatedState = newValue }
+        }
+    }
+
+    private final class Step3TestPan: UIPanGestureRecognizer {
+        private var simulatedState: State = .possible
+        var dragVelocity = CGPoint.zero
+        var delta = CGPoint.zero
+
+        override var state: State {
+            get { simulatedState }
+            set { simulatedState = newValue }
+        }
+
+        override func velocity(in view: UIView?) -> CGPoint { dragVelocity }
+        override func translation(in view: UIView?) -> CGPoint { delta }
+        override func setTranslation(_ translation: CGPoint, in view: UIView?) { delta = translation }
+    }
+
+    private func applyStep3Pan(_ pan: Step3TestPan, in surface: RealityKit.ARView,
+                               state: UIGestureRecognizer.State, delta: CGPoint) throws {
+        let installedPan = surface.gestureRecognizers?.compactMap { $0 as? UIPanGestureRecognizer }.first
+        let target = try XCTUnwrap(installedPan?.delegate)
+        pan.state = state
+        pan.delta = delta
+        XCTAssertTrue(UIApplication.shared.sendAction(NSSelectorFromString("didPan:"), to: target, from: pan, for: nil))
+    }
+
+    private func step3Surface(in host: UIView) async throws -> RealityKit.ARView {
+        let identifier = "oi.step3.cucumber.surface"
+        try await waitForStep3 { self.cucumberSurface(in: host, identifier: identifier) != nil }
+        return try XCTUnwrap(cucumberSurface(in: host, identifier: identifier))
+    }
+
+    private func waitForStep3(_ condition: () -> Bool) async throws {
+        for _ in 0..<50 {
+            if condition() { return }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTFail("The STEP 3 preview did not finish preparing")
     }
 
     func testSeedCucumber3DPreviewCapturesRealModel() async throws {
@@ -2328,7 +2907,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let small = try XCTUnwrap(variants.first { $0.name == "375x667" })
         let large = try XCTUnwrap(variants.first { $0.name == "440x956" })
         let accessibility = Variant(name: "375x667-accessibility5", size: small.size, dynamicTypeSize: .accessibility5)
-        let inbox = CampusNotificationInboxView(requests: rows, isLoading: false, loadError: nil,
+        let inbox = CampusNotificationInboxView(requests: rows, isLoading: false,
             onReload: {}, onOpenRequest: { _ in })
             .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
         for variant in [reference, small, large, accessibility] {
@@ -2336,15 +2915,16 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 defaults: fixture.defaults, includesSafeArea: false, attach: true)
         }
 
-        let empty = CampusNotificationInboxView(requests: [], isLoading: false, loadError: nil,
+        let empty = CampusNotificationInboxView(requests: [], isLoading: false,
             onReload: {}, onOpenRequest: { _ in })
             .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
-        let failed = CampusNotificationInboxView(requests: [], isLoading: false,
-            loadError: "연결 상태를 확인한 뒤 다시 시도해 주세요.", onReload: {}, onOpenRequest: { _ in })
+        let failed = CampusNotificationInboxView(requests: rows, isLoading: false,
+            loadFailed: true, onReload: {}, onOpenRequest: { _ in })
+            .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
         let emptyImage = try await capture(empty, name: "campus-notifications-empty", variant: reference,
             defaults: fixture.defaults, includesSafeArea: false, attach: true)
         let failedImage = try await capture(failed, name: "campus-notifications-error", variant: reference,
-            defaults: fixture.defaults, includesSafeArea: false, attach: true)
+            defaults: fixture.defaults, includesSafeArea: false, attach: true, validateRender: assertSpinnerOnlyRender)
         XCTAssertNotEqual(failedImage, emptyImage, "A failed load must render differently from an empty inbox")
     }
 
@@ -2494,6 +3074,68 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 try await capture(gallery, name: "farmer-\(character)-\(slot.rawValue)", variant: variant,
                     defaults: fixture.defaults, includesSafeArea: false, attach: true)
             }
+        }
+    }
+
+
+    /// #411: opening the summary of a public story records it for the story form's recent list.
+    func testSummaryRecordsTheStoryForTheSignedInAccount() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let previousHandler = OiStoreURLProtocol.handle
+        let backend = OiTestBackend()
+        backend.install()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Recent411-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            withExtendedLifetime(backend) {}
+            session.invalidateAndCancel()
+            OiStoreURLProtocol.handle = previousHandler
+            try? FileManager.default.removeItem(at: directory)
+            UserDefaults.standard.removeObject(forKey: "oi.recentStories.v1.\(OiTestBackend.owner.uuidString.lowercased())")
+        }
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let remote = OiRemoteStore(api: api, drafts: OiDraftVault(directory: directory), vault: OiMemorySession())
+        await remote.start()
+        XCTAssertEqual(remote.account?.id, OiTestBackend.owner)
+        var story = CampusStory(id: UUID().uuidString, regionID: "pond", title: "다른작성자오이", image: "OiCats", tags: ["우정"],
+            donor: "농부", location: "연못", date: "2026년 11월 16일", order: 0, popularity: 0, palette: 0)
+        story.authorID = OiTestBackend.other
+        let store = CampusStoryStore(defaults: fixture.defaults)
+        store.synchronize(stories: [story], collected: [])
+        let view = NavigationStack { CampusSummaryView(story: story, store: store) }
+            .environment(remote).environment(store)
+        try await capture(view, name: "summary-records-recent", variant: variants[0], defaults: fixture.defaults, delay: .seconds(1))
+        let recorded = OiRecentStories.ids(owner: OiTestBackend.owner)
+        XCTAssertEqual(recorded.first, story.id, "Opening the summary must add the story to the recent list")
+        XCTAssertEqual(OiRecentStories.pickerStories(owner: OiTestBackend.owner) { store.story($0) }.map(\.id), [story.id])
+    }
+
+    /// #411: the 이어질 기부 대상 picker (Figma `6183:2707`) and the story form section.
+    func testConnectedDonationPickerAndSectionCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let stories = [("기계이일구오이", "이일구 모임의 폭짜했던 추억", "19학번 기계공학과 신수리"),
+                       ("HINT펩오이", "반도체 HINT 연구실의 추억", "24학번 반도체공학과 서수리"),
+                       ("칠팔꽈당오이", "78계단에서 잊지 못할 추억", "22학번 디벨로퍼학과 정수리"),
+                       ("브래맨오이", "포스텍 밴드부 브래맨의 추억", "25학번 컴퓨터공학과 마수리"),
+                       ("피에스아이오이", "PSI 항공우주 연구회의 설립을 기념", "23학번 항공우주학과 박수리")].enumerated().map { index, item -> CampusStory in
+            var story = CampusStory(id: "s\(index)", regionID: "pond", title: item.0, image: "OiCats", tags: ["고마움", "우정"],
+                donor: item.2, location: "", date: "", order: index, popularity: 0, palette: 0)
+            story.storyTitle = item.1
+            return story
+        }
+        try await capture(OiConnectedDonationPicker(stories: stories, onCancel: {}, onDone: { _ in }),
+            name: "connected-picker", variant: variants[0], defaults: fixture.defaults, delay: .seconds(1), attach: true)
+        try await capture(OiConnectedDonationPicker(stories: [], onCancel: {}, onDone: { _ in }),
+            name: "connected-picker-empty", variant: variants[0], defaults: fixture.defaults, delay: .milliseconds(500), attach: true)
+        for (name, story) in [("connected-section-empty", CampusStory?.none), ("connected-section-selected", stories[0])] {
+            let section = OiStoryAttachmentSections(photoCount: 0, latitude: 36.0139, longitude: 129.3232, onPhotos: {}, onLocation: {},
+                connectedStory: story, onSelectDonor: {}, onClearDonor: story == nil ? nil : {})
+                .padding(20).offset(y: -520).frame(maxHeight: .infinity, alignment: .top).clipped()
+            try await capture(section, name: name, variant: variants[0], defaults: fixture.defaults, delay: .seconds(2), attach: true)
         }
     }
 
@@ -3159,6 +3801,18 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             defaults: fixture.defaults, delay: .seconds(1), attach: true)
     }
 
+    func testV4ScratchFaceRetryCapture() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        var postcard = scratchPostcardFixture()
+        postcard.frontFailed = true
+        let view = ScratchPostcardView(postcard: postcard, validateCollection: { true },
+            fullApp: ScratchPostcardFullApp(startsRevealed: true, isSaved: false,
+                onBack: {}, onDonate: {}, onSave: { nil }))
+        try await capture(view, name: "v4-scratch-face-retry", variant: variants[0],
+            defaults: fixture.defaults, delay: .seconds(1), attach: true)
+    }
+
     func testScratchPostcardFullAppRevealedSaved() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
@@ -3224,32 +3878,27 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
-    func testAppClipCardsRemainReadableWithoutAnAccount() async throws {
-        struct Repository: StoryRepository {
-            let story: Story
-            let card: StoryCard
-            func fetchPublicStory(storyID: String) async throws -> Story? { storyID == story.id ? story : nil }
-            func fetchPublicStoryCard(storyID: String) async throws -> StoryCard? { storyID == story.id ? card : nil }
-        }
+    func testAppClipCardsRequireLoginAndRemainOnDevice() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         let id = UUID().uuidString
-        let story = Story(storyID: id, donorID: UUID(), donorDisplayName: "공개 작성자", title: "Clip에서 모은 이야기",
-            content: "기기에 보관한 엽서는 로그인 전에도 확인할 수 있어요.", publishedAt: .now,
-            location: StoryLocation(locationID: "pond", displayName: "지곡연못"), tags: [],
-            cucumberID: "OiCats", cucumberName: "Clip에서 모은 오이")
-        let card = StoryCard(cardID: UUID().uuidString, storyID: id, imageURL: nil)
         let records = StoryCollectionStore(defaults: fixture.defaults)
-        XCTAssertTrue(records.collect(card))
-        let repository = Repository(story: story, card: card)
-        let library = CollectedStoryLibrary(repository: repository, collectionStore: records)
-        await library.load()
-        XCTAssertEqual(library.items.map(\.id), [id])
-        let view = MYAppClipCollectionSection(remote: nil, repository: repository, collectionStore: records)
-        try await capture(view.padding(20).environment(\.scenePhase, .active), name: "my-appclip-without-account", variant: variants[0],
-                          defaults: fixture.defaults, delay: .seconds(1), attach: true)
-        XCTAssertEqual(StoryCollectionStore(defaults: fixture.defaults).cards.map(\.storyID), [id],
-                       "Viewing a device card must never silently import or remove it")
+        XCTAssertTrue(records.collect(StoryCard(cardID: "clip-card", storyID: id, imageURL: nil)))
+        let library = MYLibraryStore(clipCollection: records)
+        // Even a stale, already-renderable card cannot escape the login gate.
+        let card = MYCard(id: id, title: "Clip에서 모은 오이", image: "OiCats", school: .postech, order: 0,
+            body: "공개 이야기", donor: "가상 작성자", date: "2026.11.17")
+        library.synchronize(nickname: "농부", cards: [card], favorites: [])
+        let signedOut = try await capture(NavigationStack {
+            MYWorkshopView(demo: library, initialTab: .collected)
+        }, name: "my-appclip-login-required", variant: variants[0], defaults: fixture.defaults, attach: true)
+        let empty = try await capture(NavigationStack {
+            MYWorkshopView(demo: MYLibraryStore(clipCollection: records), initialTab: .collected)
+        }, name: "my-appclip-login-empty", variant: variants[0], defaults: fixture.defaults)
+        XCTAssertEqual(try myV4ChangedPixels(signedOut, empty, size: variants[0].size,
+            rect: CGRect(x: 0, y: 325, width: 402, height: 400)), 0,
+            "Clip records and previously loaded cards must not appear outside the login gate")
+        XCTAssertEqual(StoryCollectionStore(defaults: fixture.defaults).cards.map(\.storyID), [id])
     }
 
     func testFarmCapturesWithOfflineOwnedStory() async throws {
@@ -3321,7 +3970,9 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                                  delay: Duration = .milliseconds(180), attach: Bool = false,
                                  checksBottomSheet: Bool = false, cucumberCameraYaw: Float? = nil,
                                  includesRealityKit: Bool = false, waitsForStillMap: Bool = false,
-                                 sheetDetent: UISheetPresentationController.Detent.Identifier? = nil) async throws -> Data {
+                                 sheetDetent: UISheetPresentationController.Detent.Identifier? = nil,
+                                 validateRender: ((Data, CGSize) throws -> Void)? = nil,
+                                 prepareRealityCapture: ((UIView) async throws -> RealityKit.ARView?)? = nil) async throws -> Data {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first, "The isolated simulator test host must have a window scene")
@@ -3418,7 +4069,9 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             }
         }
         let realitySnapshot: (image: UIImage, frame: CGRect)?
-        if let cucumberCameraYaw {
+        if let prepareRealityCapture, let renderer = try await prepareRealityCapture(renderView) {
+            realitySnapshot = try await snapshotCucumberSurface(renderer, in: renderView)
+        } else if let cucumberCameraYaw {
             realitySnapshot = try await captureCucumberSurface(in: renderView, yaw: cucumberCameraYaw)
         } else {
             realitySnapshot = nil
@@ -3436,7 +4089,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             }
         }
         XCTAssertTrue(rendered, "The attached production view must draw its hierarchy")
-        try assertNonemptyRender(png, size: variant.size)
+        if let validateRender { try validateRender(png, variant.size) }
+        else { try assertNonemptyRender(png, size: variant.size) }
         if attach {
             let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
             attachment.name = "\(name)-\(variant.name)"
@@ -3474,6 +4128,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             camera.look(at: bounds.center, from: position, relativeTo: nil)
             try await Task.sleep(for: .milliseconds(100))
         }
+        return try await snapshotCucumberSurface(renderer, in: view)
+    }
+
+    private func snapshotCucumberSurface(_ renderer: RealityKit.ARView, in view: UIView) async throws
+        -> (image: UIImage, frame: CGRect) {
         // UIKit's view snapshot omits the Metal surface.
         let snapshot: UIImage? = await withCheckedContinuation { continuation in
             renderer.snapshot(saveToHDR: false) { continuation.resume(returning: $0) }
@@ -3485,11 +4144,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         return (image, renderer.convert(renderer.bounds, to: view))
     }
 
-    private func cucumberSurface(in view: UIView) -> RealityKit.ARView? {
-        if let surface = view as? RealityKit.ARView, surface.accessibilityIdentifier == "seedCucumber.3D.canvas" {
+    private func cucumberSurface(in view: UIView, identifier: String = "seedCucumber.3D.canvas") -> RealityKit.ARView? {
+        if let surface = view as? RealityKit.ARView, surface.accessibilityIdentifier == identifier {
             return surface
         }
-        return view.subviews.lazy.compactMap { self.cucumberSurface(in: $0) }.first
+        return view.subviews.lazy.compactMap { self.cucumberSurface(in: $0, identifier: identifier) }.first
     }
 
     private func releaseCampusRenderers(in view: UIView) {
@@ -3498,6 +4157,26 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             XCTAssertNil(canvas.map, "The owned summary renderer must be released before the next capture")
         }
         for child in view.subviews { releaseCampusRenderers(in: child) }
+    }
+
+    private func assertSpinnerOnlyRender(_ data: Data, _ size: CGSize) throws {
+        let bitmap = try renderedBitmap(data, size: size)
+        let count = bitmap.width * bitmap.height * 4
+        let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: count)
+        let center = CGRect(x: size.width / 2 - 32, y: size.height / 2 - 32, width: 64, height: 64)
+        var foregroundPixels = 0
+        var outsidePixels = 0
+        for y in 0..<bitmap.height {
+            for x in 0..<bitmap.width {
+                let start = (y * bitmap.width + x) * 4
+                guard (0..<4).contains(where: { pixels[start + $0] != pixels[$0] }) else { continue }
+                foregroundPixels += 1
+                if !center.contains(CGPoint(x: x, y: y)) { outsidePixels += 1 }
+            }
+        }
+        XCTAssertGreaterThan(foregroundPixels, 20, "The loading spinner must be visible")
+        XCTAssertLessThan(foregroundPixels, 32 * 32, "The loading screen must contain only a small indicator")
+        XCTAssertEqual(outsidePixels, 0, "Text or controls outside the spinner would change the uniform background")
     }
 
     private func assertNonemptyRender(_ data: Data, size: CGSize) throws {
