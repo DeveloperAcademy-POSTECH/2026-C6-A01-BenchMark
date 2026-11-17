@@ -11,6 +11,7 @@ import SwiftUI
 struct OiContinuationList: View {
     var parent: UUID? = nil
     var store: CampusStoryStore? = nil
+    var emptyContent: (() -> AnyView)? = nil
     @Environment(OiRemoteStore.self) private var remote: OiRemoteStore?
     @Environment(CampusStoryStore.self) private var sharedStore: CampusStoryStore?
     @State private var rows: [OiStoryContinuation] = []
@@ -23,6 +24,33 @@ struct OiContinuationList: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
+        Group {
+            if total == 0, !isLoading, failure == nil, !unsupported, let emptyContent {
+                emptyContent()
+            } else {
+                list.frame(minHeight: emptyContent == nil ? nil : 400)
+            }
+        }
+        .task(id: "\(parent?.uuidString ?? "mine")/\(remote?.continuationPrivacyKey ?? "public")") {
+            await load(reset: true)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active, rows.isEmpty { Task { await load(reset: true) } }
+        }
+        .onChange(of: catalogIDs) { previous, current in
+            guard let previous, let current else { return }
+            let removed = previous.subtracting(current)
+            if parent.map(removed.contains) == true {
+                requestID = UUID(); rows = []; cursor = nil; total = nil; isLoading = false
+            } else if rows.contains(where: { removed.contains($0.childStoryId) }) {
+                rows.removeAll { removed.contains($0.childStoryId) }
+                Task { await load(reset: true) }
+            }
+        }
+        .accessibilityIdentifier("oi.continuations.list")
+    }
+
+    private var list: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 16) {
                 Text(parent == nil ? "내 이야기에 이어진 이야기" : "이 이야기에서 이어진 이야기")
@@ -55,23 +83,6 @@ struct OiContinuationList: View {
             }.padding(20)
         }
         .refreshable { await load(reset: true) }
-        .task(id: "\(parent?.uuidString ?? "mine")/\(remote?.continuationPrivacyKey ?? "public")") {
-            await load(reset: true)
-        }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active, rows.isEmpty { Task { await load(reset: true) } }
-        }
-        .onChange(of: catalogIDs) { previous, current in
-            guard let previous, let current else { return }
-            let removed = previous.subtracting(current)
-            if parent.map(removed.contains) == true {
-                requestID = UUID(); rows = []; cursor = nil; total = nil; isLoading = false
-            } else if rows.contains(where: { removed.contains($0.childStoryId) }) {
-                rows.removeAll { removed.contains($0.childStoryId) }
-                Task { await load(reset: true) }
-            }
-        }
-        .accessibilityIdentifier("oi.continuations.list")
     }
 
     private var catalogIDs: Set<UUID>? {
