@@ -46,6 +46,8 @@ struct OiStoryEditor: View {
     /// STEP 2 shows missing items under the buttons only after Next is tapped (#373).
     @State private var showingStoryMissing = false
     @State private var completionFigure: UIImage?
+    /// STEP 4 완료 is saving the draft; the screen must not dim while it does (#386).
+    @State private var completingCard = false
     /// The card portrait rendered in the background once STEP 3 is finished (#386).
     @State private var portraitPrefetch: (look: OiWardrobeLook, key: String, orientation: OiCardOrientation)?
     @State private var customization = OiDraftCustomization()
@@ -293,7 +295,8 @@ struct OiStoryEditor: View {
         .toolbarBackground(Color(.systemBackground), for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar(usesNavigationBar ? .visible : .hidden, for: .navigationBar)
-        .disabled(remote.isBusy || preparingPhoto || publishing || saving || placing || replacingServerDraft || isDiscarding)
+        // Saving for STEP 4 완료 blocks other actions through `saving` but must not grey the whole screen out first.
+        .disabled(remote.isBusy || preparingPhoto || publishing || (saving && !completingCard) || placing || replacingServerDraft || isDiscarding)
         .navigationTitle(navigationTitle).navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden()
         .toolbar {
@@ -303,13 +306,13 @@ struct OiStoryEditor: View {
                 } else {
                     Button(action: goBack) { Image(systemName: "chevron.left") }
                         .accessibilityLabel("이전 단계")
-                        .disabled(remote.isBusy || preparingPhoto || publishing || saving || isDiscarding)
+                        .disabled(remote.isBusy || preparingPhoto || publishing || (saving && !completingCard) || isDiscarding)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 if !submitted && step != .location {
                     Button("나가기", action: requestExit)
-                        .disabled(remote.isBusy || preparingPhoto || publishing || saving || isDiscarding)
+                        .disabled(remote.isBusy || preparingPhoto || publishing || (saving && !completingCard) || isDiscarding)
                 }
             }
         }
@@ -567,8 +570,8 @@ struct OiStoryEditor: View {
     /// Save the draft on this device before showing the completion summary; keep editing on failure.
     private func completeCard() async {
         guard restored, step == .card, !saving, !placing, !publishing, !isDiscarding else { return }
-        saving = true
-        defer { saving = false }
+        saving = true; completingCard = true
+        defer { saving = false; completingCard = false }
         await pendingSave?.value
         guard await persist() else { return }
         // Prepare the trimmed cucumber first and fade the summary in, so it neither pops in nor cuts in (#386).
