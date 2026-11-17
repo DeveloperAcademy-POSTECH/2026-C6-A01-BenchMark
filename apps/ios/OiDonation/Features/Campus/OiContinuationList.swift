@@ -61,7 +61,22 @@ struct OiContinuationList: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active, rows.isEmpty { Task { await load(reset: true) } }
         }
+        .onChange(of: catalogIDs) { previous, current in
+            guard let previous, let current else { return }
+            let removed = previous.subtracting(current)
+            if parent.map(removed.contains) == true {
+                requestID = UUID(); rows = []; cursor = nil; total = nil; isLoading = false
+            } else if rows.contains(where: { removed.contains($0.childStoryId) }) {
+                rows.removeAll { removed.contains($0.childStoryId) }
+                Task { await load(reset: true) }
+            }
+        }
         .accessibilityIdentifier("oi.continuations.list")
+    }
+
+    private var catalogIDs: Set<UUID>? {
+        guard let remote, remote.hasLoadedRemote else { return nil }
+        return Set(remote.stories.map(\.id))
     }
 
     private func load(reset: Bool) async {
