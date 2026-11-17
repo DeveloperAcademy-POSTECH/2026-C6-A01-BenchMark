@@ -289,7 +289,8 @@ struct OiStoryReview<StoryPhoto: View>: View {
     }
 
     private var draftCard: OiDraftCardPreview {
-        OiDraftCardPreview(draft: draft, customization: customization, donorName: donorName, portrait: portrait)
+        OiDraftCardPreview(draft: draft, customization: customization, donorName: donorName, portrait: portrait,
+            fallbackDate: savedStory.map { OiPostcardDate.string(from: $0.createdDateLabel) })
     }
 
     private var artworkReady: Bool {
@@ -354,7 +355,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
         if let savedCard {
             return try OiCardImageExport.publication(front: savedCard, message: draft.body, author: donorName,
                 academicAuthor: OiPostcardAuthor.academic(department: remote.profile?.department, year: remote.profile?.admissionYear),
-                tags: [draft.emotion, draft.theme],
+                tags: draft.postcardTags,
                 cover: remote.canPublishStoryCardCover ? savedCoverData : nil,
                 coverType: savedStory?.resolvedCardCoverType ?? .png)
         }

@@ -46,13 +46,16 @@ struct OiPostcardFront<Artwork: View>: View {
                             .accessibilityHidden(true)
                     }
                     Text("OiD").font(OiPostcardTypography.mark).tracking(1.12)
-                        .foregroundStyle(.white).fixedSize().rotationEffect(.degrees(-90))
+                        .foregroundStyle(.white).textRenderer(OiPostcardLetteringStroke()).fixedSize()
+                        .scaleEffect(x: 2.2, y: 1).rotationEffect(.degrees(-90))
                         .frame(width: 21, height: 58).offset(x: 43, y: 396)
                         .accessibilityHidden(true)
                 }
                 if !date.isEmpty {
                     Text(date).font(OiPostcardTypography.date)
-                        .foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6)
+                        .foregroundStyle(.white).lineLimit(1).fixedSize()
+                        .scaleEffect(x: 2.45, y: 1, anchor: .trailing)
+                        .shadow(color: .black.opacity(0.6), radius: 1)
                         .frame(width: 144, height: 21, alignment: .trailing).offset(x: 173, y: 42)
                         .accessibilityLabel("작성 날짜 \(date)")
                 }
@@ -78,7 +81,13 @@ struct OiPostcardBack: View {
     var tags: [String] = []
     var scrollable = false
     var exportFontSize: CGFloat? = nil
-    private var ink: Color { Color(oiRGB: OiPostcardInk.color(backgroundStyle?.visiblePaperColor ?? first)) }
+    private var paperColor: UInt32 { backgroundStyle?.visiblePaperColor ?? first }
+    private var ink: Color { Color(oiRGB: OiPostcardInk.color(paperColor)) }
+    private var textInk: Color { OiPostcardInk.color(paperColor) == 0xFFFFFF ? .white : Color(oiRGB: 0x343434) }
+    private var tagInk: Color {
+        if [0xEECFDF, 0xEFD6E2].contains(paperColor) { return Color(oiRGB: 0x5D1132) }
+        return ink
+    }
     var body: some View {
         ZStack(alignment: .topLeading) {
             if let backgroundStyle { OiPostcardBackground(style: backgroundStyle) }
@@ -101,14 +110,14 @@ struct OiPostcardBack: View {
                 .frame(height: 10)
                 .offset(x: 35, y: 443)
             HStack(spacing: 8) {
-                Text(author).font(OiPostcardTypography.author).tracking(0.72)
+                Text(author).font(OiPostcardTypography.author).tracking(0.24)
                     .layoutPriority(1)
                 Spacer(minLength: 0)
-                Text(tagLine).font(CampusStyle.body(10)).tracking(0.2)
+                Text(tagLine).font(OiPostcardTypography.author).tracking(0.24).foregroundStyle(tagInk)
             }
             .opacity(0.98).lineLimit(1).minimumScaleFactor(0.6)
             .frame(width: 292, height: 15, alignment: .leading).offset(x: 35, y: 457)
-        }.foregroundStyle(ink).frame(width: 362, height: 502)
+        }.foregroundStyle(textInk).frame(width: 362, height: 502)
             .mask(OiPostcardPaper()).dynamicTypeSize(.medium)
     }
     private var tagLine: String {
@@ -120,7 +129,7 @@ struct OiPostcardBack: View {
         Text(message.isEmpty ? "아직 남긴 이야기가 없어요." : message)
             .font(exportFontSize.map { .custom(OiPostcardTypography.handwritingName, fixedSize: $0) } ?? OiPostcardTypography.handwriting)
             .tracking(0.17).lineSpacing(OiPostcardTypography.lineSpacing * (exportFontSize ?? 17) / 17)
-            .textRenderer(OiPostcardHandwritingStroke())
+            .textRenderer(OiPostcardLetteringStroke())
             .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }

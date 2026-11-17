@@ -9,9 +9,13 @@ struct OiDraftCardPreview: View {
     var portrait: UIImage? = nil
     var showingBack = false
     private var design: OiCardDesign { customization.card ?? OiCardDesign() }
-    private var tags: [String] { [draft.emotion, draft.theme] }
+    var fallbackDate: String? = nil
+    private var tags: [String] { draft.postcardTags }
+    private var date: String {
+        design.postcardDate.map { OiPostcardDate.string($0) } ?? fallbackDate ?? OiPostcardDate.string(.now)
+    }
     private var author: String {
-        OiPostcardAuthor.text(mode: design.postcardBackground?.authorMode, name: donorName,
+        OiPostcardAuthor.text(mode: design.postcardAuthorMode, name: donorName,
                               academic: design.postcardAcademicAuthor ?? "")
     }
     var body: some View {
@@ -47,7 +51,7 @@ struct OiDraftCardPreview: View {
     private var composition: some View { frontComposition(decorations: true) }
     private func frontComposition(decorations: Bool) -> some View {
         OiPostcardFront(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond,
-                        backgroundStyle: design.postcardBackground, date: OiPostcardDate.string(design.postcardDate ?? Date()), design: design, decorationsVisible: decorations) {
+                        backgroundStyle: design.postcardBackground, date: date, design: design, decorationsVisible: decorations) {
             ZStack {
                 OiCardBackground(customization: customization, pattern: design.pattern)
                 if customization.showsCharacter {

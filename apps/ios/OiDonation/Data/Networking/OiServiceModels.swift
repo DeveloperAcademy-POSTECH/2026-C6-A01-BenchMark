@@ -383,6 +383,8 @@ nonisolated struct OiStoryDraft: Codable, Equatable, Sendable {
         continuedFromStoryID = story.continuedFromStoryId
     }
 
+    var postcardTags: [String] { [theme, emotion] }
+
     var valid: Bool {
         latitude != nil && longitude != nil &&
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&

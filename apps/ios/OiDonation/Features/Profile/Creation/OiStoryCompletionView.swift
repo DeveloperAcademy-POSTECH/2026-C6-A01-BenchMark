@@ -29,7 +29,7 @@ struct OiStoryCompletionView: View {
     private var design: OiCardDesign { customization.card ?? OiCardDesign() }
     private var tags: [String] { [draft.emotion, draft.theme].filter { !$0.isEmpty } }
     private var author: String {
-        OiPostcardAuthor.text(mode: design.postcardBackground?.authorMode, name: donorName,
+        OiPostcardAuthor.text(mode: design.postcardAuthorMode, name: donorName,
                               academic: design.postcardAcademicAuthor ?? "")
     }
     private var dateLabel: String {

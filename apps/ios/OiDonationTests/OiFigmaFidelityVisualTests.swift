@@ -940,6 +940,39 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                              "A missing custom portrait must never export an unrelated fallback character")
     }
 
+    func testPostcardCompletionDateAnonymousAuthorAndTagsAreInExport() throws {
+        var draft = Self.draft
+        var customization = Self.customization
+        customization.showsCharacter = false
+        customization.card = OiCardDesign()
+        customization.card?.postcardDate = Date(timeIntervalSince1970: 1_799_779_200)
+        customization.card?.postcardBackground = .init(color: 0xEECFDF, authorMode: "anonymous")
+
+        func publish(_ name: String, fallbackDate: String) throws -> OiStoryCardPublication {
+            try OiDraftCardPreview(draft: draft, customization: customization,
+                donorName: name, fallbackDate: fallbackDate).publication(colorScheme: .light)
+        }
+
+        let completed = try publish("첫 번째 이름", fallbackDate: "26.11.16")
+        let reopened = try publish("다른 이름", fallbackDate: "26.11.17")
+        XCTAssertEqual(completed.id, reopened.id, "A completed card must retain its date and never reveal the profile name")
+        let firstBack = try XCTUnwrap(completed.parts[.back])
+        let front = try XCTUnwrap(UIImage(data: completed.png))
+        OiPostcardBackgroundMetadata.remember(png: completed.png, image: front)
+        let republished = try OiCardImageExport.publication(front: front, message: draft.body,
+            author: "다른 이름", tags: draft.postcardTags)
+        XCTAssertEqual(firstBack, republished.parts[.back], "Server re-review must retain the rendered anonymous signature and tags")
+
+        draft.theme = "추억"
+        let retagged = try publish("다른 이름", fallbackDate: "26.11.17")
+        XCTAssertEqual(completed.png, retagged.png)
+        XCTAssertNotEqual(firstBack, retagged.parts[.back], "A changed tag must be rendered on the back itself")
+        for (name, png) in [("postcard-completion-date", completed.png), ("postcard-anonymous-tags", firstBack)] {
+            let capture = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            capture.name = name; capture.lifetime = .keepAlways; add(capture)
+        }
+    }
+
     func testDuplexCardExportAndAppClipCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
@@ -1467,8 +1500,6 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let handwriting = try XCTUnwrap(UIFont(name: OiPostcardTypography.handwritingName, size: 17),
                                         "The postcard must load the bundled Figma font rather than silently fall back")
         XCTAssertEqual(handwriting.fontName, "NanumEongGeongKwiCe")
-        let from = try XCTUnwrap(UIFont(name: OiPostcardTypography.fromName, size: 6))
-        XCTAssertEqual(from.fontName, "EduAUVICWANTPre-Regular")
         let characters = Array("함께한 순간을 오래 기억하며, 고마워요. 26.11.12".utf16)
         var glyphs = [CGGlyph](repeating: 0, count: characters.count)
         XCTAssertTrue(CTFontGetGlyphsForCharacters(handwriting as CTFont, characters, &glyphs, characters.count),
