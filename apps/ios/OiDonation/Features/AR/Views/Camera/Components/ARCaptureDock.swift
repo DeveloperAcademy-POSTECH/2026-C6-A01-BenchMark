@@ -5,6 +5,7 @@ struct ARCaptureDock: View {
     @Binding var showAdjustments: Bool
     @Binding var showSettings: Bool
     @State private var showCharacters = false
+    private let selectionButtonSize: CGFloat = 50
     private var controller: ARSessionController { model.controller }
     private var video: ARVideoRecorder { model.video }
     private var videoMode: Bool { model.videoMode }
@@ -111,9 +112,9 @@ struct ARCaptureDock: View {
             }
         } label: {
             Image(systemName: controller.placementMode.symbol)
-                .font(.system(size: 20))
-                .frame(width: 44, height: 44)
-                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+                .font(.system(size: 21))
+                .frame(width: selectionButtonSize, height: selectionButtonSize)
+                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 15))
         }
         .accessibilityLabel("배치 방식 선택")
         .accessibilityValue(controller.placementMode.title)
@@ -123,13 +124,10 @@ struct ARCaptureDock: View {
 
     private var characterButton: some View {
     Button { showCharacters = true } label: {
-        ARSelectedCharacterThumbnail(character: controller.settings.character, subject: controller.subject)
-        .frame(width: 56)
-        .padding(.horizontal, 4)
-        .padding(.vertical, 4)
-        .frame(minHeight: 44)
-        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        ARSelectedCharacterThumbnail(character: controller.settings.character, subject: controller.subject, size: 38)
+        .frame(width: selectionButtonSize, height: selectionButtonSize)
+        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
     }
     .popover(isPresented: $showCharacters, arrowEdge: .bottom) {
         ARCharacterSelectionView(selection: Binding(get: { controller.settings.character }, set: { model.selectMascot($0) }),

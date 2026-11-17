@@ -14,6 +14,8 @@
 
 2026-11-17 목록 후속 변경: 오이 5종은 기존 `Wardrobe` USDZ를 재사용한다. 선택한 의상만 기존 `OiWardrobeAsset.loadForPlacement`로 조립하고 AR의 1m 기준으로 정규화한다. AR용 `ARThumbnails` PNG는 기존 `OiWardrobeScene.cardPortrait()`의 흑/백 배경 렌더로 생성해 흰 옷을 보존하고 배경만 투명하게 한다. 기존 옷장 썸네일은 보존한다. 버튼은 캐시된 2D 썸네일을 사용하며 별도 3D 렌더러를 만들지 않는다. 썸네일 내부 배경을 제거하고 버튼 외곽 박스만 사용한다. 지도 오이 버튼은 공개 상태·배치를 재확인한 승인 초상 이미지를 사용하고, 이미지가 없으면 잎 아이콘을 표시한다.
 
+2026-11-17 로드·버튼·안내 보완: 본 앱 target의 리소스 제외 목록에 있던 `ponix.usdz`, `neopjuk.usdz`, `ponixVsNeopjuk.usdz`를 복원했다. 원본 세 모델 약 87MB가 앱 번들에 추가되며, 실행 중 선택 모델만 기존 로더로 읽는다. 목록에 없는 레거시 모델과 App Clip의 리소스 포함 범위는 유지한다. 캐릭터 버튼은 64×48pt에서 50×50pt로, 배치 모드 버튼은 44×44pt에서 50×50pt로 맞췄다. 위치 안내는 상단 상태 버튼 한 줄로 통합하고 상세 설명·추적 상태·권한 설정은 탭한 팝오버에 표시한다. 위치 확인 중 카메라 중앙의 중복 배너는 표시하지 않는다.
+
 ## Unity 구현 재사용과 범위
 
 로컬 독립 프로젝트 `OiUnityARTest/Assets/Plugins/iOS/OiPalmVision.mm`과 `Assets/Scripts/OiPalmTracker.cs`, `OiPalmGeometry.cs`를 확인했다. iOS 손 인식은 Unity 엔진이 아니라 Apple의 `VNDetectHumanHandPoseRequest`였다. 기존 Swift 실험 `oi-ar-palm-lighting`의 이미지 시각 투영·손 소실 처리도 참고했다. Unity 런타임·두 번째 카메라·새 ML 모델·손 영상 외부 전송을 추가하지 않는다.
@@ -30,6 +32,8 @@
 공식 API 근거: [Vision 손 관절 인식](https://developer.apple.com/documentation/vision/vndetecthumanhandposerequest), [ARKit 지원 카메라 형식](https://developer.apple.com/documentation/arkit/arconfiguration/supportedvideoformats), [비디오 형식의 프레임 속도](https://developer.apple.com/documentation/arkit/arconfiguration/videoformat-swift.class/framespersecond).
 
 ## 검증
+
+- 로드 오류 보완: iOS 27.2 Simulator의 `AR438ModelFix.xcresult` **5개 검사 통과**. 본 앱 번들에서 포닉스·넙죽이·대결 모델을 실제 로드하고 높이 1m·바닥 원점 정규화 및 6.5cm 손바닥 축소를 확인했다. 의상 5종의 로드·투명 썸네일, 위치 모드 명시 전환, 좌표 없는 마스코트의 위치 모드 거절, 원래 오이 복원도 포함한다. 손바닥 순수 Swift 검사와 카메라 수명 주기 검사도 통과했다. iPhoneOS Release 빌드·서명 검증 후 원본 세 모델의 SHA-256과 번들 파일이 일치함을 확인하고 Jun iPhone에 업데이트 설치했다. 이번 검사는 실제 손 추적·캠퍼스 GPS 사용성 재측정을 대신하지 않는다.
 
 - 손바닥 기본/위치 모드 분리 후 iOS 27.2 Simulator **14개 테스트 통과**(`Oi438RecognitionModes.xcresult`): 캠퍼스 오이의 손바닥 기본값, 명시적 위치 인식/바닥 전환과 안내 정리, 좌표 없는 캐릭터의 위치 모드 거절, 원래 오이/설정 복원, GPS 권한/배치, 수명 주기, 5종 투명 썸네일 알파·모델 정규화 및 흑/백 렌더를 검사했다. 순수 Swift 손바닥/이전 촬영 JSON 호환과 카메라 수명 주기 검사도 통과했다. 실제 캠퍼스 좌표 현장 배치와 새 의상 손 추적 사용성을 모두 측정한 결과는 아니다.
 - `ARThumbnails/ar-costume-*.png` 5개는 `ARCameraMascotTests/testTransparentMascotPortraitsRenderFromOriginalModels`의 PNG attachment를 내보내고 200×256으로 축소했다. 총 약 200KB이며 기존 모델/옷장 이미지는 변경하지 않았다. 각 PNG의 배경 알파 0과 캐릭터 불투명 픽셀을 검사했다.

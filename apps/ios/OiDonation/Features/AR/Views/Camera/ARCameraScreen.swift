@@ -101,12 +101,21 @@ struct ARCameraScreen: View {
                         }.accessibilityLabel("필터 설정")
                     }
                     .disabled(video.busy || controller.capturing || model.countdown != nil || controller.recoveryIssue != nil)
-                    Text(controller.tracking)
-                        .font(.caption2.weight(.medium)).lineLimit(1).minimumScaleFactor(0.75)
-                        .padding(.horizontal, 8).padding(.vertical, 6)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .frame(maxWidth: 92)
-                        .accessibilityIdentifier("ar.camera.trackingStatus")
+                    if controller.usesGeographicPlacement {
+                        ARLocationStatusButton(summary: controller.locationSummary,
+                            notice: controller.locationNotice, instruction: controller.message,
+                            tracking: controller.tracking, needsPermission: controller.needsLocationPermission)
+                            .frame(maxWidth: 132)
+                            .disabled(video.busy || controller.recoveryIssue != nil)
+                            .opacity(video.busy ? 0 : 1)
+                    } else {
+                        Text(controller.tracking)
+                            .font(.caption2.weight(.medium)).lineLimit(1).minimumScaleFactor(0.75)
+                            .padding(.horizontal, 8).padding(.vertical, 6)
+                            .background(.ultraThinMaterial, in: Capsule())
+                            .frame(maxWidth: 92)
+                            .accessibilityIdentifier("ar.camera.trackingStatus")
+                    }
                     Spacer(minLength: 0)
                     Button(action: closeCamera) {
                         Image(systemName: "xmark")

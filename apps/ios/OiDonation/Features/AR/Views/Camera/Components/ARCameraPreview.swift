@@ -9,23 +9,13 @@ struct ARCameraPreview: View {
             ARCameraView(controller: controller, isActive: controller.ready)
                 .saturation(controller.settings.photoFilter.saturation)
             VStack(spacing: 8) {
-                if controller.usesGeographicPlacement {
-                    Text(controller.locationNotice.isEmpty ? "저장 위치를 확인하고 있어요." : controller.locationNotice)
-                        .font(.caption).multilineTextAlignment(.center)
-                        .padding(10).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
-                        .accessibilityIdentifier("ar.camera.locationStatus")
-                    if !controller.geographicReady, let url = URL(string: UIApplication.openSettingsURLString) {
-                        Link("위치 권한 설정", destination: url).font(.caption)
-                            .buttonStyle(.bordered)
-                    }
-                }
                 if controller.isPalmMode {
                     Text(controller.locked ? "현재 위치 고정 · 잠금을 풀면 손을 다시 인식해요" : controller.message)
                         .font(.caption).multilineTextAlignment(.center)
                         .padding(10).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
                         .accessibilityIdentifier("ar.camera.palmStatus")
                 }
-                if !controller.isPalmMode && controller.recoveryIssue == nil && (!controller.placed || !controller.ready || (controller.usesGeographicPlacement && !controller.geographicReady)) {
+                if !controller.isPalmMode && !controller.usesGeographicPlacement && controller.recoveryIssue == nil && (!controller.placed || !controller.ready) {
                     Text(controller.message)
                         .font(.callout).multilineTextAlignment(.center)
                         .padding(12).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))

@@ -12,6 +12,20 @@ import UIKit
 @testable import OiDonation
 
 @MainActor final class ARCameraMascotTests: XCTestCase {
+    func testSelectableCampusMascotsAreBundledAndLoadWithPalmNormalization() async throws {
+        let loader = ARCharacterController()
+        for character in ARCharacter.selectableCases where character.wardrobeCostumeID == nil {
+            XCTAssertNotNil(Bundle.main.url(forResource: character.rawValue, withExtension: "usdz"),
+                "Selectable mascots must be included in the app target: " + character.title)
+            let loaded = try await loader.load(character)
+            let bounds = loaded.root.visualBounds(relativeTo: nil)
+            XCTAssertEqual(bounds.extents.y, 1, accuracy: 0.005, character.title)
+            XCTAssertEqual(bounds.min.y, 0, accuracy: 0.005, character.title)
+            loaded.root.scale = SIMD3(repeating: 0.065)
+            XCTAssertEqual(loaded.root.visualBounds(relativeTo: nil).extents.y, 0.065, accuracy: 0.001, character.title)
+        }
+    }
+
     func testCampusCucumberDefaultsToPalmAndRequiresExplicitLocationMode() async throws {
         let placement = try XCTUnwrap(CampusPlacement.story(id: UUID(), latitude: 36.0125, longitude: 129.325,
             heightMeters: 1.5, headingDegrees: 30))

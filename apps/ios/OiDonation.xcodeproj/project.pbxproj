@@ -126,10 +126,7 @@
 			membershipExceptions = (
 				Info.plist,
 				Resources/Characters/doni.usdz,
-				Resources/Characters/neopjuk.usdz,
 				Resources/Characters/neopjukAnimated.usdz,
-				Resources/Characters/ponix.usdz,
-				Resources/Characters/ponixVsNeopjuk.usdz,
 				"Resources/Characters/seed-costume-astronaut-navy-proposal-2.usdz",
 				"Resources/Characters/seed-costume-astronaut-navy-proposal-3.usdz",
 				"Resources/Characters/seed-costume-astronaut-navy.usdz",

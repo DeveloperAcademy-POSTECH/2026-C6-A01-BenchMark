@@ -43,6 +43,8 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     var usesGeographicPlacement: Bool { canUseLocationMode && placementMode == .location }
     private(set) var geographicReady = false
     private(set) var locationNotice = ""
+    private(set) var locationSummary = "위치 확인 중"
+    var needsLocationPermission: Bool { usesGeographicPlacement && locationProvider?.hasPreciseLocationPermission != true }
     @ObservationIgnored private let locationProvider: (any ARCameraLocationProviding)?
     @ObservationIgnored private var geoPlacement: ARCameraGeoPlacement?
     @ObservationIgnored private var lastGeographicCheck = 0.0
@@ -605,6 +607,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     private func invalidateGeographicPlacement() {
         guard usesGeographicPlacement else { return }
         geographicReady = false
+        locationSummary = "위치 확인 중"
         anchor?.isEnabled = false
     }
 
@@ -642,18 +645,23 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         if case .ready = status { } else { invalidateGeographicPlacement() }
         switch status {
         case .waitingForLocation:
+            locationSummary = needsLocationPermission ? "위치 권한 필요" : "GPS 확인 중"
             locationNotice = locationMessage ?? "정확한 위치 권한과 최신 GPS 위치를 확인하고 있어요."
             message = "GPS 오차가 15m 이하인 위치를 기다리고 있어요."
         case .outsideRange(let distance):
+            locationSummary = String(format: "약 %.0fm 남음", distance)
             locationNotice = String(format: "저장 위치까지 약 %.0fm · 25m 안으로 이동해 주세요.", distance)
             message = "저장한 오이가 있는 장소에 가까워지면 자동으로 나타나요."
         case .waitingForSynchronizedLocation:
+            locationSummary = "GPS 갱신 중"
             locationNotice = "새 GPS 위치를 확인하고 있어요."
             message = "저장 지점 주변을 천천히 비추며 잠시 기다려 주세요."
         case .waitingForTracking:
+            locationSummary = "공간 인식 중"
             locationNotice = "카메라 추적을 확인하고 있어요."
             message = "주변을 천천히 비춰 공간을 인식해 주세요."
         case .waitingForGround:
+            locationSummary = "바닥을 비춰 주세요"
             locationNotice = "저장 위치 주변의 바닥을 비춰 주세요."
             message = loading ? "선택한 오이를 불러오고 있어요." : "바닥을 인식하면 터치 없이 자동으로 배치돼요."
         case .ready(let point):
@@ -669,6 +677,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
             }
             anchor?.isEnabled = true
             geographicReady = true
+            locationSummary = "위치 배치 완료"
             locationNotice = "저장 위치 자동 배치 · GPS 기반 근사 위치"
             message = "저장 위치에 오이가 나타났어요. 사진이나 비디오로 남겨 보세요."
         }
@@ -680,6 +689,8 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         geoPlacement?.reset()
         lastGeographicCheck = 0
         geographicReady = false
+        locationSummary = "위치 확인 중"
+        locationNotice = ""
         anchor?.removeFromParent()
         anchor = nil
         placed = false
