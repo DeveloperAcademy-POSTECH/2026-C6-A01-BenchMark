@@ -25,6 +25,7 @@ struct HomeView: View {
     @State private var searchMode: CampusSearchMode?
     @State private var pendingStoryID: String?
     @State private var showingNotifications = false
+    @State private var pendingNotificationStoryID: String?
     @State private var listIsAtTop = true
     /// Live vertical drag of the region list: negative grows it, positive pulls it down (#395).
     @State private var listDrag: CGFloat = 0
@@ -178,13 +179,17 @@ struct HomeView: View {
                 pendingStoryID = $0.id; searchMode = nil
             }
         }
-        .sheet(isPresented: $showingNotifications) {
+        .sheet(isPresented: $showingNotifications, onDismiss: {
+            if let id = pendingNotificationStoryID { pendingNotificationStoryID = nil; openStory(id) }
+        }) {
             if canOpenNotifications, let remote {
-                CampusNotificationSheet(remote: remote).id(remote.account?.id)
+                CampusNotificationSheet(remote: remote) { id in
+                    pendingNotificationStoryID = id; showingNotifications = false
+                }.id(remote.account?.id)
             }
         }
         .onChange(of: canOpenNotifications) { _, canOpen in
-            if !canOpen { showingNotifications = false }
+            if !canOpen { pendingNotificationStoryID = nil; showingNotifications = false }
         }
         .task {
             configureSceneCallbacks()

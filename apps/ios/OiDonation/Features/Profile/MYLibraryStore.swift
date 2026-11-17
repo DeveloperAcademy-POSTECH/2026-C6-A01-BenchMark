@@ -31,7 +31,7 @@ struct MYCard: Identifiable, Hashable {
     let title: String
     let image: String
     let school: MYSchool
-    let order: Int
+    var order: Int
     let body: String
     let donor: String
     let date: String
@@ -43,6 +43,7 @@ struct MYCard: Identifiable, Hashable {
 
 @MainActor @Observable
 final class MYLibraryStore {
+    let clipCollection: StoryCollectionStore
     private(set) var nickname = "농부"
     private(set) var cards: [MYCard] = []
     var favoriteAction: ((MYCard) -> Void)?
@@ -52,7 +53,9 @@ final class MYLibraryStore {
     var collectionSort = MYCardSort.latest
     var pinnedOnly = false
 
-    init() {}
+    init(clipCollection: StoryCollectionStore? = nil) {
+        self.clipCollection = clipCollection ?? StoryCollectionStore()
+    }
 
     func collectionCards(school: MYSchool?, sort: MYCardSort, pinnedOnly: Bool) -> [MYCard] {
         cards.filter { (school == nil || $0.school == school) && (!pinnedOnly || favorites.contains($0.id)) }

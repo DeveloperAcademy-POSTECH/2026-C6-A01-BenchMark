@@ -17,6 +17,7 @@ struct OiStoryEditor: View {
 
     let remote: OiRemoteStore
     var onFinish: (() -> Void)?
+    private var cucumberPreviewMode: OiCucumberCustomizationStep.PreviewMode = .seed
     @State private var draft: OiStoryDraft
     @State private var owner: UUID?
     @State private var photos: [UUID] = []
@@ -50,6 +51,7 @@ struct OiStoryEditor: View {
     @State private var completingCard = false
     /// The card portrait rendered in the background once STEP 3 is finished (#386).
     @State private var portraitPrefetch: (look: OiWardrobeLook, key: String, orientation: OiCardOrientation)?
+    @State private var showingDonorPicker = false
     @State private var customization = OiDraftCustomization()
     @State private var personalPlacement: OiPersonalPlacement?
     @State private var removedMediaPaths: [String] = []
@@ -94,6 +96,12 @@ struct OiStoryEditor: View {
     }
 
     #if DEBUG
+    func useWardrobeEditorForTest() -> Self {
+        var view = self
+        view.cucumberPreviewMode = .wardrobe
+        return view
+    }
+
     // Hosted tests can drive the mounted editor without depending on SwiftUI's UIKit accessibility tree.
     struct PhotoEditingTestActions {
         let items: @MainActor () -> [OiEditingPhoto]
@@ -351,6 +359,12 @@ struct OiStoryEditor: View {
                 Text("제목, 본문, 위치를 서버 버전으로 바꿉니다. 추가한 사진과 기기에서 꾸민 오이·카드는 보관합니다.")
             }
             .fullScreenCover(item: $photoCheckpoint) { _ in photoEditorContent }
+            .fullScreenCover(isPresented: $showingDonorPicker) {
+                OiConnectedDonationPicker(
+                    stories: recentDonationStories,
+                    onCancel: { showingDonorPicker = false },
+                    onDone: { customization.connectedStoryID = $0; customization.connectedStorySelectionEdited = true; showingDonorPicker = false })
+            }
             .sheet(isPresented: $showingPreview, onDismiss: {
                 guard openingPhotosAfterReview else { return }
                 openingPhotosAfterReview = false
@@ -772,6 +786,9 @@ struct OiStoryEditor: View {
                 reviewedContentFingerprint = record.reviewedContentFingerprint
                 step = record.creationStep.flatMap(OiCreationStep.init(rawValue:)) ?? .story
                 customization = record.customization ?? OiDraftCustomization()
+                if customization.connectedStorySelectionEdited != true, customization.connectedStoryID == nil {
+                    customization.connectedStoryID = currentStory?.continuedFromStoryId?.uuidString
+                }
                 personalPlacement = record.personalPlacement
                 customizationReady = personalPlacement != nil && step == .card
                 cardPlacementReady = customizationReady
@@ -783,6 +800,9 @@ struct OiStoryEditor: View {
             if let server = remote.ownStories.first(where: { $0.id == draft.id }) {
                 if draft.heightMeters == nil { draft.heightMeters = server.heightMeters }
                 if draft.headingDegrees == nil { draft.headingDegrees = server.headingDegrees }
+                if customization.connectedStorySelectionEdited != true, customization.connectedStoryID == nil {
+                    customization.connectedStoryID = server.continuedFromStoryId?.uuidString
+                }
                 submitted = !OiCreationAccess.canEdit(status: server.status, submitted: submitted)
             }
             restored = true; localError = nil; saveLabel = "이 계정의 기기 초안 자동 저장"
@@ -926,8 +946,16 @@ struct OiStoryEditor: View {
         return OiEditingPhoto.applyingOrder(photoOrder, to: items, key: \.orderKey)
     }
     private var currentStory: OiLiveStory? { remote.ownStories.first { $0.id == draft.id } }
-    // On a second device, preserve the last reviewed design until the author customizes it here.
-    private var reusedCardPath: String? { customization == OiDraftCustomization() ? currentStory?.cardArtworkPath : nil }
+    // Preserve the last reviewed card until the author edits its artwork.
+    private var reusedCardPath: String? {
+        var cardCustomization = customization
+        cardCustomization.seedAppearance = nil
+        cardCustomization.selectedSeedTop = nil
+        cardCustomization.selectedSeedBottom = nil
+        cardCustomization.seedSneakers = nil
+        cardCustomization.selectedSeedSet = nil
+        return cardCustomization == OiDraftCustomization() ? currentStory?.cardArtworkPath : nil
+    }
 
     @ViewBuilder private var editorStatus: some View {
         OiConnectionStatus(remote: remote)
@@ -990,10 +1018,17 @@ struct OiStoryEditor: View {
                 OiStoryWritingStep(draft: $draft, focusedField: $focusedStoryField)
                 OiStoryAttachmentSections(photoCount: editingPhotos.count,
                     latitude: draft.latitude, longitude: draft.longitude,
-                    onPhotos: openPhotoEditor, onLocation: { endStoryEditing(); navigate(to: .location) })
+                    onPhotos: openPhotoEditor, onLocation: { endStoryEditing(); navigate(to: .location) },
+                    connectedStory: connectedStory, onSelectDonor: selectDonor,
+                    // A restored cloud draft may hide a non-public parent's ID. Keep
+                    // an explicit clear action available without revealing that ID.
+                    onClearDonor: customization.connectedStoryID != nil || (remote.supportsStoryContinuations && currentStory != nil) ? {
+                        customization.connectedStoryID = nil; customization.connectedStorySelectionEdited = true
+                    } : nil)
             }
         case .cucumber:
             OiCucumberCustomizationStep(customization: $customization, cucumberName: $draft.cucumberName,
+                previewMode: cucumberPreviewMode,
                 // Figma: 완료 goes straight to STEP 4 card customization (`5919:12077`, #377).
                 canContinue: true, isFinished: false, onContinue: advance,
                 onPhotoEditingChanged: { wardrobePhotoEditing = $0 })
@@ -1005,6 +1040,28 @@ struct OiStoryEditor: View {
                 isFinished: false, onContinue: { Task { await completeCard() } })
 
         }
+    }
+
+    private var recentDonationStories: [CampusStory] {
+        guard let owner = remote.account?.id, let campusStore else { return [] }
+        return OiRecentStories.pickerStories(owner: owner) { id in
+            guard let story = campusStore.story(id),
+                  !(story.authorID.map { OiContentSafetyStore.shared.isBlocked($0) } ?? false) else { return nil }
+            return story
+        }
+    }
+
+    /// The story this donation continues from, while it is still public.
+    private var connectedStory: CampusStory? {
+        guard let id = customization.connectedStoryID, let story = campusStore?.story(id),
+              !(story.authorID.map { OiContentSafetyStore.shared.isBlocked($0) } ?? false) else { return nil }
+        return story
+    }
+
+    /// Keep the saved selection until a new choice is confirmed; cancel must preserve it.
+    private func selectDonor() {
+        endStoryEditing()
+        showingDonorPicker = true
     }
 
     private func cardStoryPhoto(_ photo: OiEditingPhoto) async throws -> Data {

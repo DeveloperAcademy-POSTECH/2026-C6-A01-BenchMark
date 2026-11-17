@@ -57,8 +57,8 @@ select set_config('request.jwt.claim.sub','a3880000-0000-4000-8000-000000000002'
 do $$
 begin
   perform public.oi_mutate('review_story',pg_temp.submission()||'{"status":"published"}');
-  raise exception 'operator can bypass automatic review';
-exception when insufficient_privilege then null;
+  raise exception 'operator can publish an unplanted draft';
+exception when invalid_parameter_value then null;
 end;
 $$;
 
@@ -144,4 +144,34 @@ set local role authenticated;
 select set_config('request.jwt.claim.sub','a3880000-0000-4000-8000-000000000002',true);
 select pg_temp.check_result(public.oi_mutate('review_story',pg_temp.submission()||'{"revision":3,"status":"hidden"}')
   @> '{"status":"hidden"}','operators can still remove a published story');
+-- A prepared but abandoned legacy review must leave the original submission in the queue.
+reset role;
+update public.oi_stories set status='pending', revision=5 where id=(pg_temp.submission()->>'id')::uuid;
+delete from benchmark_private.oi_story_moderation_quota;
+create function pg_temp.moderate_pending(revision integer, snapshot text default null, reason text default null, source text default null)
+returns jsonb language sql as $$
+  select public.oi_moderate_story('a3880000-0000-4000-8000-000000000001',
+    'a3880000-0000-4000-8000-000000000021',pg_temp.submission()||jsonb_build_object('revision',revision),
+    snapshot,reason,source);
+$$;
+set local role service_role;
+select pg_temp.moderate_pending(5) as legacy_prepared \gset
+reset role;
+select pg_temp.check_result((select status='pending' and revision=5 from public.oi_stories
+  where id=(pg_temp.submission()->>'id')::uuid),'abandoned AI request preserves original pending submission');
+set local role service_role;
+select pg_temp.check_result(pg_temp.moderate_pending(5,:'legacy_prepared'::jsonb->>'snapshot','profanity','story')
+  @> '{"status":"rejected","revision":6,"story":{"status":"draft","revision":6}}',
+  'legacy rejection atomically moves the story to an editable draft');
+reset role;
+update public.oi_stories set status='pending', revision=7 where id=(pg_temp.submission()->>'id')::uuid;
+set local role service_role;
+select pg_temp.moderate_pending(7) as legacy_prepared \gset
+select pg_temp.check_result(pg_temp.moderate_pending(7,:'legacy_prepared'::jsonb->>'snapshot')
+  @> '{"status":"approved","revision":8,"story":{"status":"draft","revision":8}}',
+  'legacy approval commits an approved draft without publishing');
+set local role authenticated;
+select set_config('request.jwt.claim.sub','a3880000-0000-4000-8000-000000000001',true);
+select pg_temp.check_result(public.oi_my_story_reviews()
+  @> '[{"revision":8,"status":"approved"}]','a fresh client can recover the completed legacy verdict');
 rollback;
