@@ -21,6 +21,7 @@ final class OiWardrobeScene {
     @ObservationIgnored private var model: Entity?
     @ObservationIgnored private var loadedName: String?
     @ObservationIgnored private var request: OiWardrobeLook?
+    @ObservationIgnored private var seedRequest: OiSeedCucumberSnapshot?
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var yaw: Float = 0
@@ -54,9 +55,9 @@ final class OiWardrobeScene {
 
     func isInstalled(_ view: RealityKit.ARView) -> Bool { canvas === view }
 
-    func update(_ look: OiWardrobeLook, retry: Bool = false) {
-        guard retry || look != request else { return }
-        request = look
+    func update(_ look: OiWardrobeLook, retry: Bool = false, seed: OiSeedCucumberSnapshot? = nil) {
+        guard retry || look != request || seed != seedRequest else { return }
+        request = look; seedRequest = seed
         generation += 1
         let token = generation
         task?.cancel()
@@ -65,6 +66,17 @@ final class OiWardrobeScene {
             guard let self else { return }
             defer { if generation == token { loading = false } }
             do {
+                if let seed {
+                    let prepared = try await OiSeedCucumberModel.make(snapshot: seed)
+                    try Task.checkCancellation()
+                    guard generation == token, seedRequest == seed else { return }
+                    model?.removeFromParent()
+                    anchor.addChild(prepared)
+                    model = prepared; loadedName = nil; photoNodes = [:]
+                    height = prepared.visualBounds(relativeTo: prepared).extents.y
+                    updateCamera()
+                    return
+                }
                 let (prepared, overlays) = try await OiWardrobeAsset.prepare(look,
                     existing: loadedName == look.modelName ? model : nil, reuseSource: true,
                     editingSlot: editingSlot, previewTexture: previewTexture, previewImage: previewImage)
@@ -206,15 +218,19 @@ final class OiWardrobeScene {
     func angle(_ angle: Float) { yaw = angle; updateCamera() }
     func zoom(_ scale: Float) { distance = min(4, max(1.85, distance / scale)); updateCamera() }
     private func updateCamera() {
-        let target = SIMD3<Float>(0, 0.75, 0)
-        camera.look(at: target, from: target + SIMD3(sin(yaw) * cos(cardPitch) * distance,
-                                              0.07 + sin(cardPitch) * distance,
-                                              cos(yaw) * cos(cardPitch) * distance), relativeTo: nil)
+        let bounds = seedRequest == nil ? nil : model?.visualBounds(relativeTo: nil)
+        let target = bounds?.center ?? SIMD3<Float>(0, 0.75, 0)
+        let cameraDistance = bounds.map {
+            OiSeedCucumber3DCamera.fitDistance(radius: simd_length($0.extents) / 2, viewport: canvas?.bounds.size ?? .zero)
+        } ?? distance
+        camera.look(at: target, from: target + SIMD3(sin(yaw) * cos(cardPitch) * cameraDistance,
+                                              (bounds == nil ? 0.07 : cameraDistance * 0.025) + sin(cardPitch) * cameraDistance,
+                                              cos(yaw) * cos(cardPitch) * cameraDistance), relativeTo: nil)
     }
     func uninstall(_ view: RealityKit.ARView) {
         guard isInstalled(view) else { return }
         generation += 1; task?.cancel(); task = nil
-        model = nil; loadedName = nil; request = nil
+        model = nil; loadedName = nil; request = nil; seedRequest = nil
         // Keep the editor's latest image so a new view can recreate its texture.
         photoNodes.removeAll(); previewTexture = nil; previewVersion += 1
         view.scene.removeAnchor(anchor)

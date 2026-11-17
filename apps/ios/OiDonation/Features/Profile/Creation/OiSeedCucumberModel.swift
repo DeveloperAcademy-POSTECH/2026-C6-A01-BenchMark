@@ -414,3 +414,48 @@ enum OiSeedCucumberGarment: Hashable, CaseIterable {
         }
     }
 }
+
+
+extension OiDraftCustomization {
+    var seedGarments: Set<OiSeedCucumberGarment> {
+        switch selectedSeedSet {
+        case .costume(let costume):
+            if let proposal = selectedSeedProposal {
+                return [.costumeProposal(costume, proposal)]
+            }
+            return [.costume(costume)]
+        case .postech: return [.postechJacket, .longPants, .sneakers]
+        case nil: break
+        }
+        var garments: Set<OiSeedCucumberGarment> = []
+        if let top = selectedSeedTop { garments.insert(.init(top: top)) }
+        if let bottom = selectedSeedBottom { garments.insert(.init(bottom: bottom)) }
+        if seedSneakers == true { garments.insert(.sneakers) }
+        return garments
+    }
+
+    var seedSnapshot: OiSeedCucumberSnapshot? {
+        let garments = seedGarments
+        guard seedAppearance != nil || !garments.isEmpty else { return nil }
+        return OiSeedCucumberSnapshot(appearance: seedAppearance ?? .init(), garments: garments.map(\.rawValue).sorted())
+    }
+
+    var portraitLook: OiWardrobeLook? { seedSnapshot != nil ? OiWardrobeLook() : wardrobe }
+}
+
+extension OiSeedCucumberModel {
+    static func make(snapshot: OiSeedCucumberSnapshot) async throws -> Entity {
+        let supported = OiSeedCucumberGarment.allCases + OiWardrobeLook.Costume.allCases.flatMap { costume in
+            OiSeedCostumeProposal.options(for: costume).map { OiSeedCucumberGarment.costumeProposal(costume, $0) }
+        }
+        let model = try await make(appearance: snapshot.appearance)
+        var selected: Set<OiSeedCucumberGarment> = []
+        for name in snapshot.garments {
+            guard let garment = supported.first(where: { $0.rawValue == name }) else { throw AssetError.invalidMesh(name) }
+            try await setGarment(garment, asset: loadGarment(garment), on: model)
+            selected.insert(garment)
+        }
+        updateCoverage(for: selected, on: model)
+        return model
+    }
+}

@@ -17,7 +17,7 @@ struct OiCucumberPublication {
     let appearance: OiCucumberAppearance
     let images: [Part: Data]
 
-    @MainActor init(look: OiWardrobeLook, portrait: Data) throws {
+    @MainActor init(look: OiWardrobeLook, portrait: Data, seed: OiSeedCucumberSnapshot? = nil) throws {
         guard look.artwork.isValid else { throw OiPhotoDataError.unreadable }
         _ = try OiPublishedCucumberImage.decode(portrait, part: .portrait)
         var images: [Part: Data] = [.portrait: portrait]
@@ -32,7 +32,7 @@ struct OiCucumberPublication {
         func appearance(id: UUID) -> OiCucumberAppearance {
             .init(id: id, top: look.top.rawValue, bottom: look.bottom.rawValue, costume: look.costume?.rawValue,
                   topColor: look.topColor, bottomColor: look.bottomColor, shoeColor: look.shoeColor,
-                  topTexture: images[.top] != nil, bottomTexture: images[.bottom] != nil)
+                  topTexture: images[.top] != nil, bottomTexture: images[.bottom] != nil, seed: seed)
         }
         // A failed upload can be retried with the same paths. A changed look always gets new paths.
         let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
@@ -138,6 +138,7 @@ extension OiRemoteStore {
     /// The public AR never reads wardrobe data from the current device's draft vault.
     func cucumberModel(_ reference: OiCucumberArtworkReference) async throws -> Entity {
         let appearance = reference.appearance
+        if let seed = appearance.seed { return try await OiSeedCucumberModel.make(snapshot: seed) }
         guard let top = OiWardrobeLook.Top(rawValue: appearance.top),
               let bottom = OiWardrobeLook.Bottom(rawValue: appearance.bottom) else { throw OiServiceError.invalidInput }
         var look = OiWardrobeLook()

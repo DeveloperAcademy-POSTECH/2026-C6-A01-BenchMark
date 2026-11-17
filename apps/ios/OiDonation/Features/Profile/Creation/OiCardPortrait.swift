@@ -30,8 +30,17 @@ enum OiCardPortrait {
 
 /// While the size tab is open, one live scene stays mounted. Snapshots are taken
 /// after movement settles; stale/cancelled captures cannot replace the latest pose.
+extension OiSeedCucumberSnapshot {
+    var portraitKey: String? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return (try? encoder.encode(self)).map { "seed-v1-" + SHA256.hash(data: $0).description }
+    }
+}
+
 struct OiCardPortraitCapture: View {
     let look: OiWardrobeLook
+    var seed: OiSeedCucumberSnapshot? = nil
     let cacheKey: String
     var orientation = OiCardOrientation()
     var interactivePreview = false
@@ -50,18 +59,18 @@ struct OiCardPortraitCapture: View {
                 if liveScene.loading, let placeholder {
                     Image(uiImage: placeholder).resizable().scaledToFit().allowsHitTesting(false)
                 }
-                OiCardPortraitSurface(scene: liveScene, look: look, orientation: orientation)
+                OiCardPortraitSurface(scene: liveScene, look: look, seed: seed, orientation: orientation)
                     .allowsHitTesting(false)
             }
             // Keep the capture surface mounted but visually hidden. Its black/white
             // passes must never flash in the interactive card placement preview.
             if !interactivePreview || completedCapture != captureID {
-                OiCardPortraitSurface(scene: scene, look: look, orientation: orientation)
+                OiCardPortraitSurface(scene: scene, look: look, seed: seed, orientation: orientation)
                     .opacity(interactivePreview ? 0.001 : 1).allowsHitTesting(false).accessibilityHidden(true)
             }
             if failure && !interactivePreview {
                 Button("오이 이미지 다시 만들기") {
-                    scene.update(look, retry: true); attempt += 1
+                    scene.update(look, retry: true, seed: seed); attempt += 1
                 }.font(.caption).padding(10).background(.regularMaterial, in: Capsule())
             } else if !interactivePreview || scene.loading {
                 ProgressView("꾸민 오이를 카드에 담는 중").font(.caption)
@@ -70,7 +79,7 @@ struct OiCardPortraitCapture: View {
         .task(id: captureID) {
             failure = false
             // Keep the loaded model/materials while rotating; only the camera changes.
-            scene.update(look)
+            scene.update(look, seed: seed)
             do {
                 try await Task.sleep(for: .milliseconds(180))
                 for _ in 0..<200 {
@@ -99,19 +108,20 @@ struct OiCardPortraitCapture: View {
 private struct OiCardPortraitSurface: UIViewRepresentable {
     let scene: OiWardrobeScene
     let look: OiWardrobeLook
+    let seed: OiSeedCucumberSnapshot?
     let orientation: OiCardOrientation
     func makeCoordinator() -> OiWardrobeScene { scene }
     func makeUIView(context: Context) -> RealityKit.ARView {
         let view = scene.install()
         scene.transparentCardBackground()
         scene.cardOrientation(orientation)
-        scene.update(look)
+        scene.update(look, seed: seed)
         return view
     }
     func updateUIView(_ view: RealityKit.ARView, context: Context) {
         guard scene.isInstalled(view) else { return }
         scene.cardOrientation(orientation)
-        scene.update(look)
+        scene.update(look, seed: seed)
     }
     static func dismantleUIView(_ view: RealityKit.ARView, coordinator: OiWardrobeScene) {
         coordinator.uninstall(view)

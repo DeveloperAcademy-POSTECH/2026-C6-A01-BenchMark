@@ -107,7 +107,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
             }
             .background(Color("OiLight").ignoresSafeArea())
             .safeAreaInset(edge: .bottom, spacing: 0) { submitBar }
-            .navigationTitle(remote.autoStoryModeration ? "내용 검토" : "공개 검토 전 확인")
+            .navigationTitle("내용 검토")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color("OiLight"), for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
@@ -282,10 +282,6 @@ struct OiStoryReview<StoryPhoto: View>: View {
                 }
             }
             .frame(maxWidth: 240).frame(maxWidth: .infinity)
-            if !remote.autoStoryModeration {
-                Text("승인 전에는 작성자와 검토 담당자만 이 카드를 볼 수 있어요. 승인되면 이 모습 그대로 공개돼요.")
-                    .font(CampusStyle.body(12)).foregroundStyle(.secondary)
-            }
             Button("카드 이미지 저장·공유", systemImage: "square.and.arrow.up") { showingExport = true }
                 .disabled(!artworkReady || artworkLoadFailed || isSubmitting)
                 .sheet(isPresented: $showingExport) { OiCardExportSheet { try OiCardExportImages(cardPublication()) } }
@@ -320,8 +316,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
     }
 
     private var submitTitle: String {
-        if offersAIReview { return isSubmitting ? "검토중" : OiStoryReviewRequest.title }
-        return isSubmitting ? "공개 검토 요청 중…" : "공개 검토 요청하기"
+        isSubmitting ? "검토중" : OiStoryReviewRequest.title
     }
 
     private var submitBar: some View {
@@ -335,7 +330,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             OiCreationNextButton(title: submitTitle,
-                                 enabled: canSubmit && !isSubmitting && artworkReady) {
+                                 enabled: offersAIReview && canSubmit && !isSubmitting && artworkReady) {
                 renderError = nil
                 do {
                     let card = try cardPublication()

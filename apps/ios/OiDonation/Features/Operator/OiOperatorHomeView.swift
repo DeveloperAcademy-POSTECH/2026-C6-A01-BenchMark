@@ -126,7 +126,7 @@ enum OiOperatorSection: String, Hashable {
     var title: String {
         switch self {
         case .buildingNotes: "건물 글 신고"
-        case .content: "콘텐츠 신고"; case .stories: "이야기 검토"; case .audit: "운영 감사 기록"; case .nfcTags: "NFC 태그"
+        case .content: "콘텐츠 신고"; case .stories: "이야기 관리"; case .audit: "운영 감사 기록"; case .nfcTags: "NFC 태그"
         }
     }
     var detail: String {

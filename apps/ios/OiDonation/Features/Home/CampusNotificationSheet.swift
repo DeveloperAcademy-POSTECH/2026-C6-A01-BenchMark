@@ -30,6 +30,8 @@ struct CampusNotificationSheet: View {
     @State private var openingContinuation = false
     @State private var continuationError: String?
     @State private var loadID = UUID()
+    @State private var timestamp = Date.now
+    @State private var hasLoadedContinuationPages = false
 
     private enum FailedLoad: Equatable {
         case inbox
@@ -42,7 +44,7 @@ struct CampusNotificationSheet: View {
     }
 
     var body: some View {
-        let now = Date.now
+        let now = timestamp
         let recentRequests = requests.filter { Self.isRecent($0.createdAt, now: now) }
         let hasOlderRequests = recentRequests.count != requests.count
         let hasSession = remote.account != nil && !remote.needsReauthentication
@@ -50,6 +52,7 @@ struct CampusNotificationSheet: View {
             CampusNotificationInboxView(
                 requests: hasSession ? recentRequests : [],
                 isLoading: hasSession && (isLoading || !hasLoadedRequests),
+                isInitialLoading: hasSession && !hasLoadedRequests,
                 loadFailed: hasSession && failedLoad != nil,
                 unconfirmedRequestID: hasSession ? unconfirmedDecision?.id : nil,
                 onOpenOlderRequests: hasSession && hasOlderRequests ? { showingOlderRequests = true } : nil,
@@ -59,13 +62,14 @@ struct CampusNotificationSheet: View {
                     if unconfirmedDecision == nil { actionError = nil }
                     selectedRequestID = id
                 },
-                continuations: hasSession ? continuations : [],
+                continuations: hasSession ? continuations.filter { Self.isRecent($0.createdAt, now: now) } : [],
                 onOpenContinuation: { id in Task { await openContinuation(id) } },
                 onMoreContinuations: continuationCursor == nil ? nil : { Task { await loadMoreContinuations() } }
             )
             .task(id: remote.continuationPrivacyKey) {
                 loadID = UUID(); isLoading = false; continuations = []; continuationCursor = nil
                 requests = []; hasLoadedRequests = false; failedLoad = nil
+                hasLoadedContinuationPages = false
                 await reload()
             }
             .disabled(openingContinuation)
@@ -80,6 +84,16 @@ struct CampusNotificationSheet: View {
                 if remote.account != nil && !remote.needsReauthentication {
                     requestDetail(requests.filter { !Self.isRecent($0.createdAt, now: now) }, title: "이전 카드 요청")
                 }
+            }
+        }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                timestamp = .now
+                if hasLoadedRequests, failedLoad == nil, !hasLoadedContinuationPages {
+                    await reload()
+                }
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
             }
         }
         .task(id: retryTarget) {
@@ -144,6 +158,7 @@ struct CampusNotificationSheet: View {
         guard !isLoading, pendingRequestID == nil, !remote.needsReauthentication,
               let owner = remote.account?.id else { return }
         isLoading = true
+        timestamp = .now
         var loadFailed = false
         let started = loadID
         defer { if loadID == started { isLoading = false } }
@@ -169,6 +184,7 @@ struct CampusNotificationSheet: View {
                 guard loadID == started, remote.account?.id == owner, !Task.isCancelled else { return }
                 continuations = Self.notices(page.items, remote: remote)
                 continuationCursor = continuations.count == page.items.count ? page.nextCursor : nil
+                hasLoadedContinuationPages = false
             } catch {
                 guard loadID == started, remote.account?.id == owner, !Task.isCancelled else { return }
                 loadFailed = true
@@ -215,6 +231,7 @@ struct CampusNotificationSheet: View {
             guard !Task.isCancelled, loadID == started else { return }
             let notices = Self.notices(page.items, remote: remote), known = Set(continuations.map(\.id))
             continuations += notices.filter { !known.contains($0.id) }
+            hasLoadedContinuationPages = true
             self.continuationCursor = notices.count == page.items.count ? page.nextCursor : nil
             failedLoad = nil
         } catch {

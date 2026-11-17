@@ -1,13 +1,13 @@
 import {educationReady,refreshEducation,mountEducationPreview} from './education-library.js';
-import {THEMES,EMOTIONS,validateDraft,photoFromDataURL,CONSENT_VERSION} from './education-service.js';
+import {THEMES,EMOTIONS,validateDraft,photoFromDataURL} from './education-service.js';
 import {renderEducationCard} from './education-card.js';
 const el=(tag,text,className)=>{const e=document.createElement(tag);if(text)e.textContent=text;if(className)e.className=className;return e;};
 const button=(text,fn,className='education-button')=>{const e=el('button',text,className);e.type='button';e.addEventListener('click',fn);return e;};
 const dialog=el('dialog',null,'education-dialog');dialog.id='educationDialog';
 const close=button('×',()=>dialog.close(),'close-button');close.setAttribute('aria-label','닫기');close.dataset.close='';
 const content=el('div',null,'education-content');dialog.append(close,content);document.body.append(dialog);
-let viewGeneration=0,busy=false,writeTimer,persistCurrent=()=>{};
-function shell(title,copy){persistCurrent();persistCurrent=()=>{};viewGeneration++;content.replaceChildren(el('p','빛으로 지은 이야기','education-kicker'),el('h2',title));if(copy)content.append(el('p',copy,'education-copy'));if(!dialog.open)dialog.showModal();return viewGeneration;}
+let viewGeneration=0,busy=false,writeTimer,persistCurrent=()=>{},activeListMode=null;
+function shell(title,copy){persistCurrent();persistCurrent=()=>{};activeListMode=null;viewGeneration++;content.replaceChildren(el('p','빛으로 지은 이야기','education-kicker'),el('h2',title));if(copy)content.append(el('p',copy,'education-copy'));if(!dialog.open)dialog.showModal();return viewGeneration;}
 dialog.addEventListener('close',()=>persistCurrent());
 function status(text,error=false){let e=content.querySelector('.education-status');if(!e){e=el('p',null,'education-status');e.setAttribute('role','status');content.append(e);}e.textContent=text;e.classList.toggle('is-error',error);}
 function fail(error){status(error?.message??'요청을 처리하지 못했어요. 다시 시도해 주세요.',true);}
@@ -51,13 +51,13 @@ export async function openEducationWriter(existing=null){
   persistCurrent=persist;
   form.addEventListener('input',()=>{clearTimeout(writeTimer);writeTimer=setTimeout(persist,250);});
   picker.addEventListener('change',async()=>{const file=picker.files[0];if(!file)return;const revision=++photoRevision;photoLoading=true;photoLabel.setAttribute('aria-busy','true');try{const data=await normalizePhoto(file);if(generation!==viewGeneration||revision!==photoRevision)return;photoData=data;photoBlob=asBlob(data);preview.src=data;preview.hidden=false;persist();}catch(error){if(generation===viewGeneration&&revision===photoRevision)fail(error);}finally{if(revision===photoRevision){photoLoading=false;photoLabel.setAttribute('aria-busy','false');}}});
-  const consent=el('details'),summary=el('summary','공개 약관과 사진·글 사용 안내');consent.append(summary,el('p','실제 경험을 바탕으로 서로를 존중하는 이야기를 작성해 주세요. 연락처·주소·계좌번호 등 개인정보나 동의받지 않은 다른 사람의 사연은 넣지 말아 주세요. 본인이 작성했거나 사용 허락을 받은 사진과 글만 올려 주세요.'),el('p','등록한 이야기·사진·카드 양면은 운영자 검토를 거쳐 앱과 웹의 교육지구 구슬에 공개됩니다. 운영정책 위반이나 개인정보 노출이 있으면 공개가 제한될 수 있습니다. 기부 자료를 접수하거나 기부를 인증하는 절차가 아닙니다.'));
+  const consent=el('details'),summary=el('summary','공개 약관과 사진·글 사용 안내');consent.append(summary,el('p','실제 경험을 바탕으로 서로를 존중하는 이야기를 작성해 주세요. 연락처·주소·계좌번호 등 개인정보나 동의받지 않은 다른 사람의 사연은 넣지 말아 주세요. 본인이 작성했거나 사용 허락을 받은 사진과 글만 올려 주세요.'),el('p','공개를 요청하면 작성한 내용·사진·카드 양면을 OpenAI에 보내 운영정책 위반 여부를 자동으로 확인합니다. 검토를 통과하면 앱과 웹의 교육지구 구슬에 공개됩니다. 운영정책 위반이나 개인정보 노출이 있으면 공개가 제한될 수 있습니다. 기부 자료를 접수하거나 기부를 인증하는 절차가 아닙니다.'));
   const publication=el('input');publication.type='checkbox';const rights=el('input');rights.type='checkbox';
-  const consentLabel=el('label',null,'education-check');consentLabel.append(publication,el('span','이야기·사진·카드의 앱·웹 공개와 운영자 검토에 동의합니다.'));
+  const consentLabel=el('label',null,'education-check');consentLabel.append(publication,el('span','OpenAI 자동검수를 위한 내용·이미지 전송과 검토 통과 후 앱·웹 공개에 동의합니다.'));
   const rightsLabel=el('label',null,'education-check');rightsLabel.append(rights,el('span','사진과 글의 사용 권한 및 포함된 인물의 동의를 확인했습니다.'));
   form.append(consent,consentLabel,rightsLabel,el('p','이 기기에 입력 내용을 자동 저장합니다. 서버 저장은 아래 버튼으로 진행해 주세요.','education-copy'));
   const actions=el('div',null,'education-actions');
-  const save=button('서버에 초안 저장',()=>run(false)),submit=button('공개 검토 요청',()=>run(true),'education-button is-primary');actions.append(save,submit);form.append(actions);
+  const save=button('서버에 초안 저장',()=>run(false)),submit=button('자동검수 요청',()=>run(true),'education-button is-primary');actions.append(save,submit);form.append(actions);
   if(!s.account.canWrite){save.disabled=submit.disabled=true;status('지금은 이야기 접수를 잠시 쉬고 있어요. 저장한 초안은 그대로 남아 있어요.');}
   content.append(form,button('내 이야기 목록',()=>openEducationList('mine'),'education-text-button'));
   const legacy=(()=>{try{return JSON.parse(localStorage.getItem('postech-light-prototype-v1')??'null');}catch{return null;}})();
@@ -77,23 +77,31 @@ export async function openEducationWriter(existing=null){
     if(publish){
      status('사진과 카드 양면을 준비하고 있어요.');photoBlob??=await asBlob(photoData);
      const bundle=await renderEducationCard(draft,photoBlob);
-     draft=await s.submit(draft,{photo:photoBlob,...bundle,consented:true,onReceipt:row=>{draft=row;storeDraft(account,row,photoData);}});
+     draft=await s.submit(draft,{photo:photoBlob,...bundle,consented:true,onReceipt:row=>{
+      draft=row;storeDraft(account,row,photoData);
+      if(generation===viewGeneration&&row.review_ready)status('AI가 이야기와 카드를 검토하고 있어요.');
+     }});
+     if(draft.status==='published')refreshEducation().catch(()=>{});
     }
     if(generation!==viewGeneration)return;
-    status(publish?'공개 검토를 요청했어요. 승인 후 앱과 웹의 교육지구 구슬에서 볼 수 있어요.':'서버에 초안을 저장했어요. 아직 다른 사람에게 공개되지 않았어요.');
-    if(publish){form.querySelectorAll('input,textarea,select,button').forEach(e=>e.disabled=true);content.append(button('접수된 이야기 보기',()=>openEducationDetail(draft.id,true)));}
-   }catch(error){if(generation===viewGeneration)fail(error);}
-   finally{busy=false;if(generation===viewGeneration&&draft.status!=='pending'){form.querySelectorAll('input,textarea,select,button').forEach(e=>e.disabled=false);save.disabled=submit.disabled=!s.account?.canWrite;}}
+    if(publish){await openEducationDetail(draft.id,true);return;}
+    status('서버에 초안을 저장했어요. 아직 다른 사람에게 공개되지 않았어요.');
+   }catch(error){if(generation===viewGeneration){
+    fail(error);
+    if(draft.status==='pending')content.append(button('검토 상태 보기',()=>openEducationDetail(draft.id,true)));
+   }}
+   finally{busy=false;if(generation===viewGeneration&&draft.status==='draft'){form.querySelectorAll('input,textarea,select,button').forEach(e=>e.disabled=false);save.disabled=submit.disabled=!s.account?.canWrite;}}
   }
  }catch(error){fail(error);content.append(button('다시 연결',()=>openEducationWriter(existing)));}
 }
 
 export async function openEducationList(mode='public'){
- const generation=shell(mode==='mine'?'내 이야기':mode==='review'?'교육지구 공개 검토':'교육지구의 이야기','승인된 이야기는 앱과 웹의 같은 구슬 카드로 공유됩니다.');
+ const generation=shell(mode==='mine'?'내 이야기':mode==='review'?'교육지구 게시물 관리':'교육지구의 이야기','승인된 이야기는 앱과 웹의 같은 구슬 카드로 공유됩니다.');
+ activeListMode=mode;
  try{
-  const s=mode==='public'?await educationReady():await requireIdentity(mode==='mine'?'내 이야기':'공개 검토');if(!s||generation!==viewGeneration)return;
+  const s=mode==='public'?await educationReady():await requireIdentity(mode==='mine'?'내 이야기':'게시물 관리');if(!s||generation!==viewGeneration)return;
   const nav=el('div',null,'education-actions');for(const [key,label] of [['public','공유 이야기'],['mine','내 이야기']])nav.append(button(label,()=>openEducationList(key),'education-text-button'));
-  if(s.account?.operator)nav.append(button('공개 검토',()=>openEducationList('review'),'education-text-button'));
+  if(s.account?.operator)nav.append(button('게시물 관리',()=>openEducationList('review'),'education-text-button'));
   nav.append(button('새로고침',()=>refreshEducation().then(()=>openEducationList(mode)).catch(fail),'education-text-button'));content.append(nav);
   const list=el('div',null,'education-story-list');content.append(list);let offset=0,loading=false;
   if(mode==='public'){
@@ -105,11 +113,23 @@ export async function openEducationList(mode='public'){
   const more=button('더 보기',load);content.append(more);
   async function load(){if(loading)return;loading=true;more.disabled=true;try{const rows=await s.list({offset,mine:mode==='mine',review:mode==='review'});if(generation!==viewGeneration)return;
    if(!offset&&!rows.length)list.append(el('p',mode==='public'?'아직 이용자가 공개한 이야기가 없어요. 첫 이야기를 남겨 주세요.':'아직 이야기가 없어요.','education-copy'));
-   for(const row of rows){const b=button('',()=>openEducationDetail(row.id,mode!=='public',mode==='review'),'education-list-item');b.append(el('small',`${row.display_name} · ${({draft:'초안',pending:'검토 중',published:'공개 중',hidden:'비공개'})[row.status]}`),el('strong',row.title),el('span',row.body.slice(0,100)));list.append(b);}offset+=rows.length;more.hidden=rows.length<24;
+   for(const row of rows){const b=button('',()=>openEducationDetail(row.id,mode!=='public',mode==='review'),'education-list-item');b.append(el('small',`${row.display_name} · ${reviewLabel(row)}`),el('strong',row.title),el('span',row.body.slice(0,100)));list.append(b);}offset+=rows.length;more.hidden=rows.length<24;
   }catch(error){if(generation===viewGeneration)fail(error);}finally{loading=false;more.disabled=false;}}
   await load();
   if(s.account?.id){content.append(button('새 이야기 남기기',()=>openEducationWriter()));content.append(button('로그아웃',()=>s.transport.logout().catch(fail),'education-text-button'));}else content.append(button('로그인하고 이야기 남기기',()=>openEducationWriter()));
  }catch(error){fail(error);content.append(button('다시 연결',()=>openEducationList(mode)));}
+}
+
+function reviewLabel(row){
+ if(row.status==='pending')return row.review_reason?'수정 필요':row.review_ready?'자동검수 결과 대기':'자동검수 동의 필요';
+ return ({draft:'비공개 초안',published:'공개 중',hidden:'비공개'})[row.status]??'';
+}
+function reviewReason(row){
+ const source=({story:'이야기',photo:'첨부 사진',card:'카드'})[row.review_source]??'제출 내용';
+ const policy=({privacy:'개인정보 노출',rights:'사진이나 글의 사용 권한',unintelligible:'내용을 이해하기 어려운 표현',
+  profanity:'욕설',harassment:'비방·혐오',sexual:'부적절한 성적 표현',violence:'폭력적 표현',
+  spam:'광고·스팸',fraud:'허위 기부 표현'})[row.review_reason];
+ return policy?`${source}에서 ${policy}에 해당하는 부분을 확인하고 수정해 주세요.`:'제출 내용을 확인하고 수정해 주세요.';
 }
 
 export async function openEducationDetail(id,privateStory=false,review=false){
@@ -119,15 +139,31 @@ export async function openEducationDetail(id,privateStory=false,review=false){
   content.replaceChildren(el('p',row.theme+' · '+row.emotion,'education-kicker'),el('h2',row.title),el('p',row.display_name,'education-copy'));
   const figure=el('figure',null,'pearl-note-photo education-detail-photo');figure.append(el('img'),el('span','카드를 확인하고 있어요','pearl-note-photo-placeholder'));content.append(figure);
   if(row.card_snapshot_id)mountEducationPreview(figure,{...row,remote:row},{privateStory});else{figure.hidden=true;}
-  content.append(el('p',row.body,'education-detail-body'),el('p',({draft:'서버에 저장된 초안입니다.',pending:'운영자 공개 검토를 기다리고 있어요.',published:'앱과 웹에 공개된 이야기입니다.',hidden:'현재 공개되지 않은 이야기입니다.'})[row.status],'education-copy'));
-  if(privateStory&&!review)content.append(button(row.status==='published'?'공개를 중단하고 수정':'이야기 수정',async()=>{try{const draft=row.status==='draft'?row:await s.mutate('reopen',{id:row.id,revision:row.revision});await openEducationWriter(draft);}catch(error){fail(error);}}));
-  if(privateStory&&!review)content.append(button('이야기 삭제',async()=>{try{await s.mutate('delete',{id:row.id,revision:row.revision});await openEducationList('mine');}catch(error){fail(error);}},'education-text-button'));
+  content.append(el('p',row.body,'education-detail-body'),el('p',reviewLabel(row),'education-copy'));
+  if(privateStory&&!review){
+   if(row.review_reason)content.append(el('p',reviewReason(row),'education-copy'));
+   if(row.review_ready&&s.account?.canWrite)content.append(button('자동검수 다시 요청',async()=>{
+    if(busy)return;busy=true;
+    try{
+     status('AI가 이야기와 카드를 검토하고 있어요.');
+     const result=await s.moderate(row);
+     if(result.status==='published')refreshEducation().catch(()=>{});
+     if(generation===viewGeneration)await openEducationDetail(row.id,true);
+    }catch(error){if(generation===viewGeneration)fail(error);}
+    finally{busy=false;}
+   }));
+   content.append(button(row.status==='published'?'공개를 중단하고 수정':row.review_reason?'수정 후 다시 검토':'이야기 수정',async()=>{
+    try{const draft=row.status==='draft'?row:await s.mutate('reopen',{id:row.id,revision:row.revision});await openEducationWriter(draft);}catch(error){fail(error);}
+   }));
+   content.append(button('이야기 삭제',async()=>{try{await s.mutate('delete',{id:row.id,revision:row.revision});await openEducationList('mine');}catch(error){fail(error);}},'education-text-button'));
+  }
   if(review&&s.account?.operator){
-   const area=el('div',null,'education-review-images'),approve=button('공개 승인',()=>decide('published'),'education-button is-primary');approve.disabled=true;
-   const hide=button('비공개로 전환',()=>decide('hidden'));content.append(area,approve,hide);
-   for(const report of row.reports??[])area.append(el('p',`신고: ${report.reason}\n${report.detail}`,'education-report-note'));
-   try{for(let i=0;i<row.card_paths.length;i++){const image=el('img');image.alt=['앞면 원본','뒷면 원본','앞면 미리보기','뒷면 미리보기'][i];image.src=await s.media(row.card_paths[i]);area.append(image);await image.decode();}if(generation===viewGeneration)approve.disabled=false;}catch{status('필수 카드 이미지를 모두 불러오지 못해 공개 승인할 수 없어요.',true);}
-   async function decide(value){if(busy)return;busy=true;approve.disabled=hide.disabled=true;try{await s.review(row,value);await refreshEducation();await openEducationList('review');}catch(error){fail(error);}finally{busy=false;hide.disabled=false;}}
+   for(const report of row.reports??[])content.append(el('p',`신고: ${report.reason}\n${report.detail}`,'education-report-note'));
+   if(row.status==='published')content.append(button('비공개로 전환',async()=>{
+    if(busy)return;busy=true;
+    try{await s.hide(row);await refreshEducation();await openEducationList('review');}
+    catch(error){fail(error);}finally{busy=false;}
+   }));
   }
   if(row.status==='published'&&!review)content.append(button('이야기 신고',()=>showReport(s,row),'education-text-button'));
   content.append(button('목록으로',()=>openEducationList(review?'review':privateStory?'mine':'public'),'education-text-button'));
@@ -153,5 +189,10 @@ function showReport(s,row){
 for(const id of ['writeButton','storiesButton'])document.querySelector('#'+id).addEventListener('click',event=>{event.preventDefault();event.stopImmediatePropagation();if(id==='writeButton')openEducationWriter();else openEducationList();},{capture:true});
 window.addEventListener('education-open-story',event=>openEducationDetail(event.detail.id));
 window.addEventListener('education-open-reference',event=>openEducationReference(event.detail.id));
-window.addEventListener('education-identity-updated',()=>{if(dialog.open){busy=false;openEducationList('mine');}});
+window.addEventListener('education-identity-updated',()=>{
+ if(!dialog.open)return;
+ busy=false;
+ // An account refresh can complete just after the public list opens.
+ openEducationList(activeListMode==='public'?'public':'mine');
+});
 educationReady().catch(()=>{});

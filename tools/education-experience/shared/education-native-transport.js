@@ -10,6 +10,7 @@ export function nativeRequest(action,payload={}){
 }
 export function createNativeTransport(){return {
  catalog:fetchReferenceCatalog,
+ moderate:(storyID,revision)=>nativeRequest('moderate',{storyID,revision}),
  identity:()=>nativeRequest('identity'),rpc:(name,payload)=>nativeRequest('rpc',{name,payload}),media:path=>nativeRequest('media',{path}),
  async upload(path,blob){const buffer=new Uint8Array(await blob.arrayBuffer());let text='';for(let i=0;i<buffer.length;i+=16384)text+=String.fromCharCode(...buffer.subarray(i,i+16384));await nativeRequest('upload',{path,mime:blob.type,base64:btoa(text)});},
  login:()=>nativeRequest('login'),logout:()=>nativeRequest('logout')

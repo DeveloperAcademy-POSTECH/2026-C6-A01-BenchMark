@@ -16,6 +16,8 @@ struct OiCardCustomizationStep: View {
     var loadStoryPhoto: ((OiEditingPhoto) async throws -> Data)? = nil
     var canContinue = true
     var isFinished = false
+    /// The 완료 tap is saving the draft; the pill shows progress instead of looking unresponsive (#386).
+    var isCompleting = false
     var onContinue: (() -> Void)?
     var onSizeEditingChanged: ((Bool) -> Void)? = nil
     @State private var showingBack = false
@@ -41,7 +43,8 @@ struct OiCardCustomizationStep: View {
     }
     private var portraitKey: String? { wardrobeKey.map { $0 + "-angle-" + orientation.cacheIdentity } }
     private var needsPortrait: Bool {
-        customization.showsCharacter && portraitKey != nil && (design.portraitKey != portraitKey || portrait == nil)
+        (customization.showsCharacter || customization.seedSnapshot != nil) &&
+            portraitKey != nil && (design.portraitKey != portraitKey || portrait == nil)
     }
     private var isSizeEditing: Bool { tab == .size && !isFinished }
 
@@ -49,7 +52,8 @@ struct OiCardCustomizationStep: View {
         GeometryReader { geometry in
             let previewHeight = min(308.0, max(180.0, geometry.size.height * 0.47))
             VStack(spacing: 0) {
-                preview(height: previewHeight).padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 20)
+                // Figma `5919:12077`: 34pt from the card's bottom edge to the tab row (#386).
+                preview(height: previewHeight).padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 30)
                 VStack(spacing: 0) {
                     if isFinished {
                         ScrollView {
@@ -84,7 +88,7 @@ struct OiCardCustomizationStep: View {
                                 // Card save/share stays available elsewhere; this step no longer shows it (#377).
                                 VStack(alignment: .leading, spacing: 24) {
                                     controls
-                                }.padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 24 + bottomInset)
+                                }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 24 + bottomInset)
                             }
                             .modifier(OiCustomizationScrollEdge())
                             .accessibilityIdentifier("oi.card.settingsScroll")
@@ -98,7 +102,9 @@ struct OiCardCustomizationStep: View {
         }
         .sheet(isPresented: $showingAttachments) { attachmentPicker }
         .sheet(isPresented: $showingPhotoEditor) {
-            OiCardBackgroundPhotoEditor(design: cardBinding)
+            OiCardBackgroundPhotoEditor(design: cardBinding) {
+                customization.showsCharacter = false
+            }
                 .presentationDetents([.height(410)]).presentationDragIndicator(.hidden)
                 .presentationCornerRadius(35).presentationBackground(Color("OiLight"))
         }
@@ -115,6 +121,7 @@ struct OiCardCustomizationStep: View {
             refreshPortrait(); onSizeEditingChanged?(isSizeEditing)
         }
         .onChange(of: customization.wardrobe) { _, _ in refreshPortrait() }
+        .onChange(of: customization.seedSnapshot) { _, _ in refreshPortrait() }
         .onChange(of: tab) { _, _ in saveOrientation(); editingCaption = false }
         .onChange(of: isSizeEditing) { _, editing in onSizeEditingChanged?(editing) }
         .onDisappear {
@@ -130,8 +137,8 @@ struct OiCardCustomizationStep: View {
                                portrait: portrait, showingBack: showingBack)
                 .frame(width: height * 362 / 502, height: height)
                 .overlay {
-                    if needsPortrait, !restoringPortrait, (tab != .size || isFinished), let look = customization.wardrobe {
-                        OiCardPortraitCapture(look: look, cacheKey: portraitKey ?? "", orientation: orientation,
+                    if needsPortrait, !restoringPortrait, (tab != .size || isFinished || !customization.showsCharacter), let look = customization.portraitLook {
+                        OiCardPortraitCapture(look: look, seed: customization.seedSnapshot, cacheKey: portraitKey ?? "", orientation: orientation,
                             onCapture: acceptPortrait, onFailure: { portraitFailed = true })
                             .id(captureAttempt).aspectRatio(332 / 472, contentMode: .fit)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -157,11 +164,17 @@ struct OiCardCustomizationStep: View {
                 Spacer()
                 if let onContinue {
                     Button { editingCaption = false; onContinue() } label: {
+                        // Figma `5919:12077`: 61×32 pill whose bottom lines up with the card's bottom edge;
+                        // the 44pt hit area extends past it without moving the pill.
                         Text(isFinished ? "다시 꾸미기" : "완료").font(CampusStyle.body(16)).tracking(0.32)
+                            .opacity(isCompleting ? 0 : 1)
+                            .overlay { if isCompleting { ProgressView().controlSize(.small).tint(.black) } }
+                            .frame(height: 20)
                             .padding(.horizontal, 16).padding(.vertical, 6).background(Color("OiBorder"), in: Capsule())
                             .frame(minHeight: 44).contentShape(Rectangle())
                     }.buttonStyle(OiCreationPressStyle()).foregroundStyle(.black)
-                        .disabled(!canContinue || needsPortrait).accessibilityIdentifier("oi.customization.done")
+                        .padding(.vertical, -6)
+                        .disabled(!canContinue || needsPortrait || isCompleting).accessibilityIdentifier("oi.customization.done")
                 }
             }
         }.frame(maxWidth: .infinity).frame(height: height)
@@ -213,8 +226,9 @@ struct OiCardCustomizationStep: View {
             backdropColor: customization.showsCharacter && design.usesCharacterBackdrop
                 ? OiPostcardCharacterBackdrop.color(for: design) : nil,
             backdropOpacity: OiCardOpacity.normalized(design.characterBackdropOpacity),
-            look: customization.showsCharacter ? customization.wardrobe : nil,
-            orientation: customization.showsCharacter && customization.wardrobe != nil ? $orientation : nil,
+            look: customization.showsCharacter ? customization.portraitLook : nil,
+            seed: customization.seedSnapshot,
+            orientation: customization.showsCharacter && customization.portraitLook != nil ? $orientation : nil,
             portraitKey: portraitKey ?? "", onCapture: acceptPortrait, onInteractionEnded: saveOrientation)
     }
     private var contentEditor: some View {
@@ -224,7 +238,6 @@ struct OiCardCustomizationStep: View {
                     Text("이미지").font(CampusStyle.medium(16))
                     HStack(spacing: 20) {
                         choice("첨부한 이미지", selected: !customization.showsCharacter) {
-                            customization.showsCharacter = false
                             if !storyPhotos.isEmpty && loadStoryPhoto != nil { showingAttachments = true }
                             else { showingPhotoEditor = true }
                         }.accessibilityIdentifier("oi.postcard.source.photo")
@@ -236,21 +249,24 @@ struct OiCardCustomizationStep: View {
                     .font(Self.hintFont).foregroundStyle(Self.hintColor).fixedSize(horizontal: false, vertical: true)
             }.frame(height: dynamicTypeSize.isAccessibilitySize ? nil : 20, alignment: .top)
             VStack(alignment: .leading, spacing: 6) {
-                Text("내용").font(CampusStyle.medium(16))
+                Text("내용").font(CampusStyle.medium(16)).frame(height: 16, alignment: .bottom)
                 // Figma `5919:12095`: the same story text as STEP 2 (`draft.body`), so editing here updates the story.
                 VStack(alignment: .leading, spacing: 4) {
                     TextField("엽서에 남길 이야기", text: OiStoryWritingStep.limitedStoryText($draft.body), axis: .vertical)
                         .lineLimit(3...5).font(CampusStyle.body(16)).tracking(0.32).lineSpacing(5)
+                        // Figma: three 24pt lines (16pt at 1.5) even when the text is shorter.
+                        .frame(minHeight: 72, alignment: .topLeading)
                         .foregroundStyle(Color(white: 65 / 255))
                         .focused($editingCaption)
                         .accessibilityIdentifier("oi.card.caption")
                     HStack(alignment: .lastTextBaseline) {
-                        Text(verbatim: "\(OiCreationStep.storyBytes(draft.body)) / \(OiCreationStep.storyBodyByteLimit)byte")
+                        Text(verbatim: "\(OiCreationStep.storyBytes(draft.body)) / \(OiCreationStep.storyBodyByteLimit) byte")
                             .foregroundStyle(Color(white: 177 / 255))
                         Spacer()
                         Button(editingCaption ? "완료" : "수정") { editingCaption.toggle() }
                             .underline().foregroundStyle(Color("OiGreen"))
-                            .frame(minWidth: 44, minHeight: 30, alignment: .trailing)
+                            // 15pt line as in Figma; the 30pt touch area extends past it.
+                            .frame(minWidth: 44, minHeight: 30, alignment: .trailing).padding(.vertical, -7.5)
                     }.font(CampusStyle.body(10)).tracking(0.2)
                 }.padding(.horizontal, 20).padding(.vertical, 16)
                     .background(Color(white: 247 / 255), in: RoundedRectangle(cornerRadius: 30))
@@ -265,11 +281,18 @@ struct OiCardCustomizationStep: View {
                     HStack(spacing: 12) { authorChoices }
                 }
             }
-            if style.authorMode == "academic", academicAuthor.isEmpty {
-                Text("계정에 공개할 학과와 학번을 등록하면 선택할 수 있어요.")
-                    .font(.caption).foregroundStyle(.secondary)
+            if donorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || academicAuthor.isEmpty {
+                Text("MY → 설정 → 기부자 검색 정보에서 이름과 학과·학번을 등록하면 ‘실명’과 ‘학과, 학번만’을 선택할 수 있어요.")
+                    .font(Self.hintFont).foregroundStyle(Self.hintColor).fixedSize(horizontal: false, vertical: true)
             }
         }.foregroundStyle(.black)
+    }
+    /// The mode the card really shows: 실명 and 학과·학번 fall back to 익명 until the account registers that information.
+    private var effectiveAuthorMode: String {
+        let mode = style.authorMode ?? "name"
+        if mode == "name" && donorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "anonymous" }
+        if mode == "academic" && academicAuthor.isEmpty { return "anonymous" }
+        return mode
     }
     @ViewBuilder private var authorChoices: some View {
         authorChoice("익명", mode: "anonymous")
@@ -287,14 +310,15 @@ struct OiCardCustomizationStep: View {
                     if selected { Image(systemName: "checkmark").font(.system(size: 12, weight: .semibold)) }
                 }
                 Text(title).font(CampusStyle.body(17)).fixedSize()
-            }.frame(minHeight: 30)
+            }.frame(minHeight: 30).padding(.vertical, -5) // Figma 20pt row; the touch area stays 30pt.
         }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
     }
     private func authorChoice(_ title: String, mode: String) -> some View {
-        choice(title, selected: (style.authorMode ?? "name") == mode) {
+        choice(title, selected: effectiveAuthorMode == mode) {
             updateBackground { $0.authorMode = mode }
             change { $0.postcardAcademicAuthor = mode == "academic" ? academicAuthor : nil }
-        }.disabled(mode == "academic" && academicAuthor.isEmpty || mode == "name" && donorName.isEmpty)
+        }.disabled(mode == "academic" && academicAuthor.isEmpty
+                || mode == "name" && donorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .accessibilityIdentifier("oi.card.author.\(mode)")
     }
     private func prepareBackground() {
@@ -356,7 +380,7 @@ struct OiCardCustomizationStep: View {
         .padding(2)
         .background(Color(white: 242 / 255), in: Capsule())
         .frame(height: 36)
-        .animation(.easeInOut(duration: 0.18), value: customBackground)
+        .animation(OiCreationMotion.screen, value: customBackground)
         .accessibilityIdentifier("oi.postcard.background.mode")
     }
     private var characterBackdropControls: some View {
@@ -515,6 +539,7 @@ struct OiCardCustomizationStep: View {
                 ForEach(Array(storyPhotos.enumerated()), id: \.element.id) { index, photo in
                     OiCardAttachmentOption(number: index + 1, load: { try await loadStoryPhoto?(photo) }) { bytes in
                         change { $0.backgroundPhoto = bytes; $0.backgroundPlacement = OiCardPlacement() }
+                        customization.showsCharacter = false
                         showingAttachments = false
                     }
                 }
@@ -543,12 +568,11 @@ struct OiCardCustomizationStep: View {
         _ = OiWardrobeModelCache.shared // Installs shared memory/thermal-pressure eviction.
         portraitFailed = false
         // Hash photo bytes only when the wardrobe changes, not on every drag frame.
-        if let look = customization.wardrobe { wardrobeKey = OiCardPortrait.key(for: look) }
-        else { wardrobeKey = nil }
+        wardrobeKey = customization.seedSnapshot?.portraitKey ?? customization.wardrobe.map { OiCardPortrait.key(for: $0) }
         orientation = (design.characterOrientation ?? OiCardOrientation()).normalized
         // Old snapshots can contain an opaque black background. Remove only the
         // derived cache; keep the wardrobe, photos, orientation and card settings.
-        if customization.wardrobe != nil, design.portraitKey != portraitKey {
+        if customization.portraitLook != nil, design.portraitKey != portraitKey {
             change { $0.portraitPNG = nil; $0.portraitKey = nil }
         }
         restorePortrait()
@@ -557,8 +581,16 @@ struct OiCardCustomizationStep: View {
         portraitRestoreTask?.cancel(); portraitAcceptTask?.cancel()
         portrait = nil
         guard let key = portraitKey, design.portraitKey == key, let data = design.portraitPNG else {
-            restoringPortrait = false
-            portrait = customization.wardrobe == nil ? UIImage(named: draft.cucumberAsset) : nil
+            portrait = customization.portraitLook == nil ? UIImage(named: draft.cucumberAsset) : nil
+            guard let key = portraitKey else { restoringPortrait = false; return }
+            // STEP 3 may already have rendered this exact portrait in the background.
+            restoringPortrait = true
+            portraitRestoreTask = Task { @MainActor in
+                defer { if !Task.isCancelled { restoringPortrait = false } }
+                guard let data = await OiPortraitImages.shared.cachedData(key: key),
+                      !Task.isCancelled, portraitKey == key else { return }
+                acceptPortrait(data, key)
+            }
             return
         }
         // Wait for validation before mounting a renderer; a saved valid PNG needs no 3D scene.
@@ -572,7 +604,7 @@ struct OiCardCustomizationStep: View {
         }
     }
     private func saveOrientation() {
-        guard customization.wardrobe != nil,
+        guard customization.portraitLook != nil,
               design.characterOrientation != orientation.normalized else { return }
         change { $0.characterOrientation = orientation.normalized }
     }
@@ -609,6 +641,7 @@ struct OiCardCustomizationStep: View {
 
 private struct OiCardBackgroundPhotoEditor: View {
     @Binding var design: OiCardDesign
+    let onPhotoSelected: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var selection: [PHPickerResult] = []
     @State private var showingLibrary = false
@@ -651,6 +684,7 @@ private struct OiCardBackgroundPhotoEditor: View {
                     let photo = try OiPhotoProcessor.prepare(bytes)
                     try Task.checkCancellation()
                     design.backgroundPhoto = photo; design.backgroundPlacement = OiCardPlacement(); error = nil
+                    onPhotoSelected()
                 } catch is CancellationError { }
                 catch { self.error = "사진을 불러오지 못했어요. 다시 선택해 주세요." }
             }

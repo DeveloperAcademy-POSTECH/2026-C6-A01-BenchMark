@@ -29,7 +29,7 @@ struct OiDraftCardPreview: View {
     }
 
     @MainActor func publication(colorScheme: ColorScheme, includeCover: Bool = false, coverType: StoryCard.CoverType = .png) throws -> OiStoryCardPublication {
-        guard !customization.showsCharacter || customization.wardrobe == nil || portrait != nil || design.portraitPNG != nil else {
+        guard !customization.showsCharacter || customization.portraitLook == nil || portrait != nil || design.portraitPNG != nil else {
             throw OiCardExportError.imageUnavailable
         }
         let size = try OiCardImageExport.fittingFontSize(draft.body)
@@ -52,7 +52,9 @@ struct OiDraftCardPreview: View {
                 if customization.showsCharacter {
                     if let image = portrait ?? design.portraitPNG.flatMap(UIImage.init(data:)) {
                         OiCardPlacedImage(image: image, placement: design.characterPlacement)
-                    } else {
+                    } else if customization.portraitLook == nil {
+                        // Only a draft without a custom look falls back to its preset. A styled cucumber
+                        // that is still being rendered shows nothing instead of the unrelated cat (#386).
                         OiCreationCharacterImage(asset: draft.cucumberAsset)
                     }
                 }
@@ -145,6 +147,7 @@ struct OiCardPlacementEditor: View {
     var backdropOpacity: Double = 1
     var emptyMessage = "오이 이미지를 준비하고 있어요"
     var look: OiWardrobeLook? = nil
+    var seed: OiSeedCucumberSnapshot? = nil
     var orientation: Binding<OiCardOrientation>? = nil
     var portraitKey = ""
     var onCapture: ((Data, String) -> Void)? = nil
@@ -182,7 +185,7 @@ struct OiCardPlacementEditor: View {
                 if let look, let orientation, let onCapture {
                     GeometryReader { proxy in
                         let p = placement.normalized
-                        OiCardPortraitCapture(look: look, cacheKey: portraitKey,
+                        OiCardPortraitCapture(look: look, seed: seed, cacheKey: portraitKey,
                             orientation: orientation.wrappedValue, interactivePreview: true, placeholder: image,
                             onCapture: { data, key in portraitFailed = false; onCapture(data, key) },
                             onFailure: { portraitFailed = true })

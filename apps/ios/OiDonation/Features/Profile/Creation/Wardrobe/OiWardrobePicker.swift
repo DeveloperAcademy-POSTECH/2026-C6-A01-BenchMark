@@ -44,22 +44,6 @@ struct OiCucumberCustomizationStep: View {
     @State private var showsFaceEditor = false
     private var allowsWardrobeEditing: Bool { previewMode == .wardrobe }
     private var seedAppearance: OiSeedCucumberAppearance { customization.seedAppearance ?? .init() }
-    private var seedGarments: Set<OiSeedCucumberGarment> {
-        switch customization.selectedSeedSet {
-        case .costume(let costume):
-            if let proposal = customization.selectedSeedProposal {
-                return [.costumeProposal(costume, proposal)]
-            }
-            return [.costume(costume)]
-        case .postech: return [.postechJacket, .longPants, .sneakers]
-        case nil: break
-        }
-        var garments: Set<OiSeedCucumberGarment> = []
-        if let top = customization.selectedSeedTop { garments.insert(.init(top: top)) }
-        if let bottom = customization.selectedSeedBottom { garments.insert(.init(bottom: bottom)) }
-        if customization.seedSneakers == true { garments.insert(.sneakers) }
-        return garments
-    }
     private var look: OiWardrobeLook { customization.wardrobe ?? OiWardrobeLook() }
     private var seedGarmentColors: [OiSeedCucumberGarment.Slot: UInt32] {
         guard customization.selectedSeedSet == nil else { return [:] }
@@ -197,7 +181,7 @@ struct OiCucumberCustomizationStep: View {
             } else if allowsWardrobeEditing {
                 Color.clear.frame(height: height)
             } else {
-                OiStep3CucumberPreview(appearance: seedAppearance, garments: seedGarments,
+                OiStep3CucumberPreview(appearance: seedAppearance, garments: customization.seedGarments,
                                        garmentColors: seedGarmentColors,
                                       isActive: !showsFaceEditor)
                     .frame(height: fullHeight)
