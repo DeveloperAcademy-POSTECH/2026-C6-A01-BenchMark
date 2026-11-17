@@ -84,6 +84,8 @@ struct OiStoryEditor: View {
     @State private var cardPlacementReady = false
     /// Figma `5887:10243`: STEP 4 `완료` saves on this device and shows this summary (#377).
     @State private var showingCardCompletion = false
+    /// The navigation controller holding the pushed completion screen, used to leave in a single animation.
+    @State private var completionNavigation = OiNavigationHolder()
     @State private var serverRevisionToReplace: Int?
     @State private var replacingServerDraft = false
     @State private var pendingSave: Task<Void, Never>?
@@ -346,6 +348,7 @@ struct OiStoryEditor: View {
                 .toolbar(.hidden, for: .navigationBar)
                 .navigationBarBackButtonHidden()
                 .oiSwipeBackEnabled()
+                .oiCaptureNavigation(into: completionNavigation)
         }
         .navigationDestination(isPresented: Binding(
             get: { locationOverStory },
@@ -1282,7 +1285,30 @@ struct OiStoryEditor: View {
     }
 
     private func finish() {
-        if let onFinish { onFinish() } else { dismiss() }
+        let close = { if let onFinish { onFinish() } else { dismiss() } }
+        guard showingCardCompletion else { close(); return }
+        // The completion screen sits on top of this editor. Pop both in one animation back to the screen that
+        // opened the editor, then let that screen update its own state (#473).
+        if let navigation = completionNavigation.navigation, navigation.viewControllers.count >= 3 {
+            let target = navigation.viewControllers[navigation.viewControllers.count - 3]
+            // The system pop takes about 0.35s; run it a little slower (about 0.47s) for this long leave.
+            let slowed = !reduceMotion
+            if slowed { navigation.view.layer.speed = 0.75 }
+            navigation.popToViewController(target, animated: !reduceMotion)
+            if slowed {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.65) { [weak navigation] in navigation?.view.layer.speed = 1 }
+            }
+            if let onFinish {
+                if let coordinator = navigation.transitionCoordinator {
+                    coordinator.animate(alongsideTransition: nil) { _ in onFinish() }
+                } else { onFinish() }
+            }
+            return
+        }
+        // Fallback: drop the completion screen first, then close the editor.
+        var transaction = Transaction(); transaction.disablesAnimations = true
+        withTransaction(transaction) { showingCardCompletion = false }
+        DispatchQueue.main.async(execute: close)
     }
 
     private func removePhoto(_ item: OiEditingPhoto) {
