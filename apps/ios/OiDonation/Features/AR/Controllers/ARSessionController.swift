@@ -219,7 +219,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         config.planeDetection = isPalmMode ? [] : [.horizontal]
         config.isLightEstimationEnabled = true
         config.environmentTexturing = isPalmMode ? .none : .automatic
-        if !usesGeographicPlacement {
+        do {
             let formats = ARWorldTrackingConfiguration.supportedVideoFormats
             if !formats.isEmpty {
                 let defaultSize = config.videoFormat.imageResolution
@@ -320,8 +320,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     func applySettings() {
         settings.background = .original
         let optionalEffects: RealityKit.ARView.RenderOptions = [.disableMotionBlur, .disableDepthOfField, .disableCameraGrain]
-        if !usesGeographicPlacement { view.renderOptions.formUnion(optionalEffects) }
-        else { view.renderOptions.subtract(optionalEffects) }
+        view.renderOptions.formUnion(optionalEffects)
         var lightingSettings = settings
         if isPalmMode {
             // Depth must identify virtual geometry, not reconstructed ground.

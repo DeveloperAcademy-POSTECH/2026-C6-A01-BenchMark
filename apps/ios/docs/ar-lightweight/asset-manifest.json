@@ -1,0 +1,290 @@
+[
+  {
+    "name": "ponix",
+    "trianglesBefore": 1928847,
+    "trianglesAfter": 200000,
+    "bytesBefore": 63865481,
+    "bytesAfter": 9548238,
+    "boundsBefore": [
+      [
+        -0.8657423853874207,
+        0.0,
+        -0.4637141227722168
+      ],
+      [
+        0.8644813299179077,
+        1.5,
+        0.46104931831359863
+      ]
+    ],
+    "boundsAfter": [
+      [
+        -0.8657991290092468,
+        1.6646190488245338e-05,
+        -0.4637131989002228
+      ],
+      [
+        0.8645925521850586,
+        1.4999970197677612,
+        0.46099042892456055
+      ]
+    ],
+    "textures": [
+      {
+        "file": "extracted_image_1.jpg",
+        "maxDimension": 2048
+      },
+      {
+        "file": "extracted_image_0.jpg",
+        "maxDimension": 1024
+      },
+      {
+        "file": "extracted_image_2.jpg_metallic.png",
+        "maxDimension": 512
+      },
+      {
+        "file": "extracted_image_2.jpg_roughness.png",
+        "maxDimension": 512
+      }
+    ],
+    "asset": "ar-ponix.usdz",
+    "sha256": "2d601dc3631af0f1254b51de8113e0fa8d73481aee5af7f206c49db29b5c9390"
+  },
+  {
+    "name": "neopjuk",
+    "trianglesBefore": 97608,
+    "trianglesAfter": 97608,
+    "bytesBefore": 14174163,
+    "bytesAfter": 3550384,
+    "boundsBefore": [
+      [
+        -0.7102364301681519,
+        5.960464477539063e-08,
+        -0.5500823855400085
+      ],
+      [
+        0.7092321515083313,
+        1.5,
+        0.5526403188705444
+      ]
+    ],
+    "boundsAfter": [
+      [
+        -0.7102364301681519,
+        5.960464477539063e-08,
+        -0.5500823855400085
+      ],
+      [
+        0.7092321515083313,
+        1.5,
+        0.5526403188705444
+      ]
+    ],
+    "textures": [
+      {
+        "file": "extracted_image_1.jpg",
+        "maxDimension": 2048
+      },
+      {
+        "file": "extracted_image_0.jpg",
+        "maxDimension": 1024
+      },
+      {
+        "file": "extracted_image_2.jpg_metallic.png",
+        "maxDimension": 512
+      },
+      {
+        "file": "extracted_image_2.jpg_roughness.png",
+        "maxDimension": 512
+      }
+    ],
+    "asset": "ar-neopjuk.usdz",
+    "sha256": "44c17dad70bc06e5059c2ea0b8d5f85edf7832202c6c711c50fa4f61c6631d34"
+  },
+  {
+    "name": "ponixVsNeopjuk",
+    "trianglesBefore": 196440,
+    "trianglesAfter": 119999,
+    "bytesBefore": 12257612,
+    "bytesAfter": 7036566,
+    "boundsBefore": [
+      [
+        -2.334937572479248,
+        0.0,
+        -0.5828996300697327
+      ],
+      [
+        2.332153081893921,
+        2.0,
+        0.6089433431625366
+      ]
+    ],
+    "boundsAfter": [
+      [
+        -2.335080862045288,
+        2.205371856689453e-05,
+        -0.5828996300697327
+      ],
+      [
+        2.3321428298950195,
+        2.0000641345977783,
+        0.6089197397232056
+      ]
+    ],
+    "textures": [
+      {
+        "file": "extracted_image_1.jpg",
+        "maxDimension": 2048
+      },
+      {
+        "file": "extracted_image_0.jpg",
+        "maxDimension": 1024
+      },
+      {
+        "file": "extracted_image_2.jpg_metallic.png",
+        "maxDimension": 512
+      },
+      {
+        "file": "extracted_image_2.jpg_roughness.png",
+        "maxDimension": 512
+      }
+    ],
+    "asset": "ar-ponixVsNeopjuk.usdz",
+    "sha256": "adea4ce08dbb66a5f509fdd31b7ba7e1d6a60452203e705273bbd0f91f48e3bd"
+  },
+  {
+    "name": "oi-dinosaur",
+    "trianglesBefore": 100000,
+    "trianglesAfter": 100000,
+    "bytesBefore": 11410799,
+    "bytesAfter": 10988359,
+    "textures": [
+      {
+        "file": "clean-face-albedo.png",
+        "maxDimension": 2048
+      },
+      {
+        "file": "unified-skin-metallic.png",
+        "maxDimension": 512
+      },
+      {
+        "file": "unified-skin-normal.png",
+        "maxDimension": 1024
+      },
+      {
+        "file": "unified-skin-roughness.png",
+        "maxDimension": 512
+      }
+    ],
+    "asset": "ar-oi-dinosaur.usdz",
+    "sha256": "5bd07154121b095ebae26e7a6f97875cb99eb4385f928e5865d5eee6be0725e4"
+  },
+  {
+    "name": "oi-cat",
+    "trianglesBefore": 99999,
+    "trianglesAfter": 99999,
+    "bytesBefore": 11640408,
+    "bytesAfter": 11128480,
+    "textures": [
+      {
+        "file": "clean-face-albedo.png",
+        "maxDimension": 2048
+      },
+      {
+        "file": "unified-skin-metallic.png",
+        "maxDimension": 512
+      },
+      {
+        "file": "unified-skin-normal.png",
+        "maxDimension": 1024
+      },
+      {
+        "file": "unified-skin-roughness.png",
+        "maxDimension": 512
+      }
+    ],
+    "asset": "ar-oi-cat.usdz",
+    "sha256": "eb42bb840b6cf8671eeb5db97d8a7de4052d722ff777bec3ded0080448c086d0"
+  },
+  {
+    "name": "oi-baseball",
+    "trianglesBefore": 100000,
+    "trianglesAfter": 100000,
+    "bytesBefore": 11163268,
+    "bytesAfter": 10457856,
+    "textures": [
+      {
+        "file": "clean-skin-roughness.png",
+        "maxDimension": 512
+      },
+      {
+        "file": "clean-face-albedo.png",
+        "maxDimension": 2048
+      },
+      {
+        "file": "clean-skin-metallic.png",
+        "maxDimension": 512
+      },
+      {
+        "file": "clean-skin-normal.png",
+        "maxDimension": 1024
+      }
+    ],
+    "asset": "ar-oi-baseball.usdz",
+    "sha256": "9051700e17e7d4c865cceebb878045952fd12674907c8738a7430be42ad3dac4"
+  },
+  {
+    "name": "oi-farmer",
+    "trianglesBefore": 99999,
+    "trianglesAfter": 99999,
+    "bytesBefore": 11622152,
+    "bytesAfter": 10931131,
+    "textures": [
+      {
+        "file": "clean-skin-roughness.png",
+        "maxDimension": 512
+      },
+      {
+        "file": "clean-face-albedo.png",
+        "maxDimension": 2048
+      },
+      {
+        "file": "clean-skin-metallic.png",
+        "maxDimension": 512
+      },
+      {
+        "file": "clean-skin-normal.png",
+        "maxDimension": 1024
+      }
+    ],
+    "asset": "ar-oi-farmer.usdz",
+    "sha256": "60dde2fb3d1bce0d6979b4c5feef13360c0ecdfc676e654254a6c0125ccd4758"
+  },
+  {
+    "name": "oi-sportswear",
+    "trianglesBefore": 99999,
+    "trianglesAfter": 99999,
+    "bytesBefore": 11373632,
+    "bytesAfter": 10665576,
+    "textures": [
+      {
+        "file": "clean-skin-roughness.png",
+        "maxDimension": 512
+      },
+      {
+        "file": "clean-skin-metallic.png",
+        "maxDimension": 512
+      },
+      {
+        "file": "clean-skin-normal.png",
+        "maxDimension": 1024
+      },
+      {
+        "file": "sportswear-raised-eye-albedo.png",
+        "maxDimension": 2048
+      }
+    ],
+    "asset": "ar-oi-sportswear.usdz",
+    "sha256": "2a68630041e652a3d2de1217fefd061716338aed100d17908d4ad9452a0937fd"
+  }
+]

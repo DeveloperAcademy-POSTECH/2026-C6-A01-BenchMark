@@ -60,7 +60,7 @@ import SwiftUI
     func testSelectableCampusMascotsAreBundledAndLoadWithPalmNormalization() async throws {
         let loader = ARCharacterController()
         for character in ARCharacter.selectableCases where character.wardrobeCostumeID == nil {
-            XCTAssertNotNil(Bundle.main.url(forResource: character.rawValue, withExtension: "usdz"),
+            XCTAssertNotNil(Bundle.main.url(forResource: (character.modelFilename as NSString).deletingPathExtension, withExtension: "usdz"),
                 "Selectable mascots must be included in the app target: " + character.title)
             let loaded = try await loader.load(character)
             let bounds = loaded.root.visualBounds(relativeTo: nil)

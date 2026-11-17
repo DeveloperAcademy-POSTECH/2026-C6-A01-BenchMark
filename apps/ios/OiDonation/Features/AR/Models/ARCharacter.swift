@@ -36,7 +36,8 @@ enum ARCharacter: String, CaseIterable, Codable, Identifiable {
         return (self == .neopjukAnimated ? "neopjuk" : rawValue) + "Preview"
     }
     var modelFilename: String {
-        if let wardrobeCostumeID { return "wardrobe-costume-" + wardrobeCostumeID + ".usdz" }
+        if let wardrobeCostumeID { return "ar-oi-" + wardrobeCostumeID + ".usdz" }
+        if Self.selectableCases.contains(self) { return "ar-" + rawValue + ".usdz" }
         return rawValue + ".usdz"
     }
 }

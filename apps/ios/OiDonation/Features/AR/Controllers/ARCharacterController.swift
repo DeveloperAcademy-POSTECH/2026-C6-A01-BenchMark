@@ -4,12 +4,12 @@ import Foundation
 @MainActor
 final class ARCharacterController {
     func load(_ character: ARCharacter) async throws -> (root: Entity, model: Entity) {
-        let model: Entity
-        if let id = character.wardrobeCostumeID, let costume = OiWardrobeLook.Costume(rawValue: id) {
-            var look = OiWardrobeLook()
-            look.costume = costume
-            model = try await OiWardrobeAsset.loadForPlacement(look)
-        } else { model = try await Entity(named: character.modelFilename) }
+        // Static capture presets use separate optimized copies. Published outfits
+        // still use their original, user-authored model via ARCameraSubject.
+        let name = (character.modelFilename as NSString).deletingPathExtension
+        guard let url = Bundle.main.url(forResource: name, withExtension: "usdz", subdirectory: "ARModels")
+            ?? Bundle.main.url(forResource: name, withExtension: "usdz") else { throw CocoaError(.fileNoSuchFile) }
+        let model = try await Entity(contentsOf: url)
         return try normalize(model)
     }
 
