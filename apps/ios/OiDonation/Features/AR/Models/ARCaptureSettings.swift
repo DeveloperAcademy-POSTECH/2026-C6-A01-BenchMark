@@ -7,7 +7,7 @@ struct ARCaptureSettings: Codable, Equatable {
     var opaquePhotoMargins = false
     var cameraExposure: Float = 0
     var photoFilter: ARPhotoFilter = .original
-    var character: ARCharacter = .neopjuk
+    var character: ARCharacter = .ponix
     // Optional fields preserve decoding of photo records made before palm placement.
     var placementMode: ARManualPlacementMode? = nil
     var palmHeight: Float? = nil

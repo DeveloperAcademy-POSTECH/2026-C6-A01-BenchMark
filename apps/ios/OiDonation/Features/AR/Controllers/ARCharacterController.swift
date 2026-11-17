@@ -4,7 +4,12 @@ import Foundation
 @MainActor
 final class ARCharacterController {
     func load(_ character: ARCharacter) async throws -> (root: Entity, model: Entity) {
-        let model = try await Entity(named: character.modelFilename)
+        let model: Entity
+        if let id = character.wardrobeCostumeID, let costume = OiWardrobeLook.Costume(rawValue: id) {
+            var look = OiWardrobeLook()
+            look.costume = costume
+            model = try await OiWardrobeAsset.loadForPlacement(look)
+        } else { model = try await Entity(named: character.modelFilename) }
         return try normalize(model)
     }
 

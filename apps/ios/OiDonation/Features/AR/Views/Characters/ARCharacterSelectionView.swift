@@ -30,7 +30,7 @@ struct ARCharacterSelectionView: View {
             }
             ScrollView {
                 VStack(spacing: 6) {
-                    ForEach(ARCharacter.allCases) { character in
+                    ForEach(ARCharacter.selectableCases) { character in
                         Button {
                             selection = character
                             dismiss()

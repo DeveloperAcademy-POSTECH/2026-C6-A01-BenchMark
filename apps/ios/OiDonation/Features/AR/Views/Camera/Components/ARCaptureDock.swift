@@ -127,12 +127,7 @@ struct ARCaptureDock: View {
 
     private var characterButton: some View {
     Button { showCharacters = true } label: {
-        ZStack {
-            Image(ARCharacter.ponix.previewImageName).resizable().scaledToFit()
-                .frame(width: 31, height: 34).offset(x: -12)
-            Image(ARCharacter.neopjuk.previewImageName).resizable().scaledToFit()
-                .frame(width: 29, height: 34).offset(x: 12)
-        }
+        ARSelectedCharacterThumbnail(character: controller.settings.character, subject: controller.subject)
         .frame(width: 56)
         .padding(.horizontal, 4)
         .padding(.vertical, 4)

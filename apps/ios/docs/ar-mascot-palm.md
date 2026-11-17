@@ -5,12 +5,14 @@
 ## 사용 방법
 
 1. 지도에서 공개 오이의 요약 → 오른쪽 위 **3D**로 촬영 화면을 연다.
-2. 사진·비디오 토글 왼쪽의 포닉스·넙죽이 썸네일 버튼에서 캐릭터를 고른다. 기존 다른 마스코트·애니메이션 모델 선택도 유지한다.
+2. 사진·비디오 토글 왼쪽 버튼에는 현재 캐릭터 하나만 표시한다. 새 촬영 기본값은 **포닉스**다. 포닉스·넙죽이·포닉스 vs 넙죽이와 공룡 잠옷·고양이 잠옷·야구복·농부·운동복 오이를 고를 수 있다. 도니·넙죽이 애니메이션은 선택 목록에서 제외하고 이전 촬영 JSON의 값은 계속 읽을 수 있게 둔다.
 3. 오른쪽 배치 메뉴에서 **바닥에 놓기 / 손바닥에 놓기**를 고른다. 바닥은 인식된 수평면을 탭하며 손바닥은 후면 카메라에 손 전체를 보여주면 자동 배치한다.
 4. 핀치로 크기를 조절하고 캐릭터를 한 손가락으로 드래그해 위치를 옮긴다. 손바닥 크기는 기본 6.5cm·2.5~20cm, 바닥은 기존 20cm~2.5m 범위다. 손 위 보정은 기준 위치에서 15cm까지다. 손가락 수가 바뀌면 진행 중인 단일 드래그를 초기화한다.
 5. 잠금은 현재 공간 위치를 고정하고 손 인식을 멈춘다. 잠금을 풀면 새 손 관찰을 기다린다. 원래 오이는 캐릭터 목록의 **지도 오이**에서 복원한다. 지도 오이의 GPS 배치는 마스코트처럼 드래그로 이동시키지 않는다.
 
 기존 사진/영상·조명·타이머·복구 기능과 공개 오이 재조회는 유지한다. 원래 오이의 촬영 설정과 마스코트 설정을 런타임에서 분리하며, 새 palm 설정은 optional이어서 이전 촬영 JSON도 복원한다.
+
+2026-11-17 목록 후속 변경: 오이 5종은 기존 `Wardrobe` USDZ와 `WardrobeThumbnails` PNG를 재사용한다. 선택한 의상만 기존 `OiWardrobeAsset.loadForPlacement`로 조립하고 AR의 1m 기준으로 정규화한다. 버튼은 캐시된 2D 썸네일을 사용하며 별도 3D 렌더러를 만들지 않는다. 지도 오이 버튼은 공개 상태·배치를 재확인한 승인 초상 이미지를 사용하고, 이미지가 없으면 잎 아이콘을 표시한다.
 
 ## Unity 구현 재사용과 범위
 
@@ -28,6 +30,9 @@
 공식 API 근거: [Vision 손 관절 인식](https://developer.apple.com/documentation/vision/vndetecthumanhandposerequest), [ARKit 지원 카메라 형식](https://developer.apple.com/documentation/arkit/arconfiguration/supportedvideoformats), [비디오 형식의 프레임 속도](https://developer.apple.com/documentation/arkit/arconfiguration/videoformat-swift.class/framespersecond).
 
 ## 검증
+
+- 캐릭터 목록 후속 변경: iOS 27.2 Simulator에서 의상 5종 실제 USDZ 로드·PNG 디코드·1m/바닥 정규화 및 기존 전환·지도 오이 복원·렌더러 분리 **7개 테스트 통과**(`Oi438Catalog.xcresult`). 순수 Swift 손바닥/설정 검사와 카메라 수명 주기 검사도 통과했다. 새 의상 5종의 실제 손 추적·시각 품질은 이 모델 로드 검사와 별개다.
+- 후속 변경 Release 빌드·서명 검증 성공, Jun iPhone에 기존 데이터를 유지한 업데이트 설치·실행 완료. 5종 각각의 실기기 손바닥 사용성은 아직 별도로 확인하지 않았다.
 
 - `sh apps/ios/Tests/run-ar-palm-checks.sh`: 단일 작업·세대/작업 순서·빈도 제한, 네 방향/aspect-fill, 부분 관절, 오래된 관찰 거절, 추적 만료·재획득, 이전 설정 JSON 통과.
 - `sh apps/ios/Tests/run-ar-camera-lifecycle-checks.sh`: 숨김·결과창·녹화 중 전환 차단, 캐릭터 변경 중 이전 시작 완료 거절을 포함해 통과.

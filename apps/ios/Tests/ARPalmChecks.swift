@@ -70,6 +70,15 @@ import simd
         try expect(abs(reacquired.x - 1) < 0.00001, "Reacquisition does not interpolate from an expired world position")
 
         let original = ARCaptureSettings()
+        try expect(original.character == .ponix, "New cameras default to Ponix")
+        try expect(ARCharacter.selectableCases == [.ponix, .neopjuk, .ponixVsNeopjuk,
+            .oiDinosaur, .oiCat, .oiBaseball, .oiFarmer, .oiSportswear], "Offer the requested mascot catalog")
+        for character in [ARCharacter.doni, .neopjukAnimated, .neopjuk] {
+            var saved = original
+            saved.character = character
+            try expect(try JSONDecoder().decode(ARCaptureSettings.self, from: JSONEncoder().encode(saved)) == saved,
+                       "Previously saved mascot records remain readable")
+        }
         let bytes = try JSONEncoder().encode(original)
         let legacy = try JSONDecoder().decode(ARCaptureSettings.self, from: bytes)
         try expect(legacy.placementMode == nil && legacy.palmHeight == nil, "Legacy records retain floor defaults")

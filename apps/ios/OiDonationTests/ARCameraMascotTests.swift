@@ -8,9 +8,24 @@
 import XCTest
 import ARKit
 import RealityKit
+import UIKit
 @testable import OiDonation
 
 @MainActor final class ARCameraMascotTests: XCTestCase {
+    func testWardrobeMascotsLoadBundledModelsAndThumbnails() async throws {
+        let loader = ARCharacterController()
+        for character in ARCharacter.selectableCases where character.wardrobeCostumeID != nil {
+            let url = try XCTUnwrap(Bundle.main.url(forResource: character.previewImageName,
+                withExtension: "png", subdirectory: "WardrobeThumbnails")
+                ?? Bundle.main.url(forResource: character.previewImageName, withExtension: "png"), character.title)
+            XCTAssertNotNil(UIImage(contentsOfFile: url.path), character.title)
+            let loaded = try await loader.load(character)
+            let bounds = loaded.root.visualBounds(relativeTo: nil)
+            XCTAssertEqual(bounds.extents.y, 1, accuracy: 0.005, character.title)
+            XCTAssertEqual(bounds.min.y, 0, accuracy: 0.005, character.title)
+        }
+    }
+
     func testMascotSwitchRestoresOriginalStoryAndItsSettings() async throws {
         let id = UUID()
         let placement = try XCTUnwrap(CampusPlacement.story(id: id, latitude: 36.0125, longitude: 129.325,

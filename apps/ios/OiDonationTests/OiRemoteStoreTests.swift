@@ -3521,7 +3521,7 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(loaded.root.visualBounds(relativeTo: nil).extents.y, 1.5, accuracy: 0.001)
         let legacy = ARSessionController()
         XCTAssertNil(legacy.subject)
-        XCTAssertEqual(legacy.settings.character, .neopjuk)
+        XCTAssertEqual(legacy.settings.character, .ponix)
         XCTAssertNil(legacy.settings.cucumberStoryID)
         XCTAssertEqual(legacy.settings.height, 1.2)
         let bytes = try JSONEncoder().encode(camera.settings)
