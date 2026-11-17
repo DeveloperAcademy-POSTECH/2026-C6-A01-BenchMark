@@ -12,6 +12,7 @@ import Observation
 
 struct EducationLightExperience: View {
     @State private var model: EducationLightWebModel
+    @State private var isVisible = false
     @Environment(\.scenePhase) private var phase
     @Environment(\.dismiss) private var dismiss
     @Environment(OiRemoteStore.self) private var remote: OiRemoteStore?
@@ -46,7 +47,8 @@ struct EducationLightExperience: View {
             }
         }
         .preferredColorScheme(model.scattered ? .dark : .light)
-        .onAppear { model.connectEducation(remote) }
+        .onAppear { isVisible = true; model.setActive(phase == .active); model.connectEducation(remote) }
+        .onDisappear { isVisible = false; model.setActive(false) }
         .onChange(of: remote?.account?.id) { _, _ in model.educationSignInRequested = false; model.notifyEducationIdentity() }
         .onChange(of: remote?.needsReauthentication) { _, _ in model.notifyEducationIdentity() }
         .onChange(of: remote?.canStartStory) { _, _ in model.notifyEducationIdentity() }
@@ -60,8 +62,8 @@ struct EducationLightExperience: View {
                 }
             }
         }
-        .onChange(of: phase) { _, value in model.setActive(value == .active) }
-        .onChange(of: model.closeRequested) { _, requested in if requested { dismiss() } }
+        .onChange(of: phase) { _, value in model.setActive(isVisible && value == .active) }
+        .onChange(of: model.closeRequested) { _, requested in if requested { model.setActive(false); dismiss() } }
     }
 }
 
@@ -122,7 +124,7 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
 
     func setActive(_ active: Bool) {
         self.active = active
-        webView.evaluateJavaScript("window.setNativeActive?.(\(active ? "true" : "false"))", completionHandler: nil)
+        webView.evaluateJavaScript("window.__nativePaused=\(active ? "false" : "true");window.setNativeActive?.(\(active ? "true" : "false"))", completionHandler: nil)
         if active {
             webView.evaluateJavaScript("window.dispatchEvent(new Event('education-feed-refresh'))", completionHandler: nil)
         }
@@ -134,6 +136,7 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
     }
 
     func notifyEducationIdentity() {
+        guard active else { return }
         webView.evaluateJavaScript("window.dispatchEvent(new Event('education-auth-changed'))", completionHandler: nil)
     }
 
@@ -302,6 +305,10 @@ private final class EducationWeakMessageHandler: NSObject, WKScriptMessageHandle
 
 private struct EducationLightWebView: UIViewRepresentable {
     let model: EducationLightWebModel
+    func makeCoordinator() -> EducationLightWebModel { model }
     func makeUIView(context: Context) -> WKWebView { model.webView }
     func updateUIView(_ uiView: WKWebView, context: Context) {}
+    static func dismantleUIView(_ uiView: WKWebView, coordinator: EducationLightWebModel) {
+        coordinator.setActive(false)
+    }
 }

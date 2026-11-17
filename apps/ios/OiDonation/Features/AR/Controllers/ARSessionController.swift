@@ -146,6 +146,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         guard lifecycle.completeStart(attempt) else { return }
         recoveryIssue = nil
         ready = true
+        animation.setSceneActive(true)
         locationProvider?.start()
         configureSession(resetTracking: attempt.requiresTrackingReset || usesGeographicPlacement)
         updateBackground()
@@ -176,6 +177,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     }
 
     func pause() {
+        animation.setSceneActive(false)
         locationProvider?.stop()
         invalidateGeographicPlacement()
         lifecycle.pause()

@@ -221,8 +221,8 @@ struct ARCameraScreen: View {
             ARVideoResultView(result: result, discardRecovery: { try video.discardRecovery(result.url) })
         }
         .sheet(item: $controller.result) { ARPhotoResultView(result: $0) }
-        .onChange(of: video.result?.id) { _, _ in closeIfResultsFinished() }
-        .onChange(of: controller.result?.id) { _, _ in closeIfResultsFinished() }
+        .onChange(of: video.result?.id) { _, _ in model.resultPresentationChanged(); closeIfResultsFinished() }
+        .onChange(of: controller.result?.id) { _, _ in model.resultPresentationChanged(); closeIfResultsFinished() }
         .alert("안내", isPresented: Binding(get: { controller.errorMessage != nil }, set: { if !$0 { controller.errorMessage = nil } })) {
             Button("확인", role: .cancel) { controller.errorMessage = nil }
         } message: { Text(controller.errorMessage ?? "") }

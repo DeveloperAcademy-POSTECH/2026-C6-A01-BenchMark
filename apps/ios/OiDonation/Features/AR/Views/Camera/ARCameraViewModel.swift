@@ -17,6 +17,7 @@ final class ARCameraViewModel {
     private var visible = false
     private var active = false
     private var retryRequested = false
+    private var hasPresentedResult: Bool { controller.result != nil || video.result != nil }
 
     convenience init() {
         self.init(controller: ARSessionController(), video: ARVideoRecorder())
@@ -58,7 +59,7 @@ final class ARCameraViewModel {
     }
 
     func capture() {
-        guard visible, active, !closing else { return }
+        guard visible, active, !closing, !hasPresentedResult else { return }
         if timerTask != nil { cancelTimer(); return }
         if video.state == .recording {
             stopRecording()
@@ -67,7 +68,7 @@ final class ARCameraViewModel {
             recordingStartTask = Task { [weak self] in
                 guard let self else { return }
                 defer { recordingStartTask = nil }
-                guard visible, active, !Task.isCancelled, controller.canCapture else { return }
+                guard visible, active, !hasPresentedResult, !Task.isCancelled, controller.canCapture else { return }
                 await video.start(view: controller.view)
             }
         } else {
@@ -121,8 +122,20 @@ final class ARCameraViewModel {
         if !busy { resumeCamera() }
     }
 
+    func resultPresentationChanged() {
+        if hasPresentedResult {
+            cancelStartup()
+            cancelTimer()
+            recordingStartTask?.cancel()
+            controller.pause()
+            stopRecording()
+        } else {
+            resumeCamera()
+        }
+    }
+
     func retryRecovery() {
-        guard visible, active, !closing, !retryRequested, startupTask == nil else { return }
+        guard visible, active, !closing, !hasPresentedResult, !retryRequested, startupTask == nil else { return }
         retryRequested = true
         cancelTimer()
         if video.busy { stopRecording() }
@@ -130,7 +143,7 @@ final class ARCameraViewModel {
     }
 
     private func resumeCamera() {
-        guard visible, active, !closing, !video.busy, startupTask == nil else { return }
+        guard visible, active, !closing, !hasPresentedResult, !video.busy, startupTask == nil else { return }
         let id = UUID()
         startupID = id
         let retry = retryRequested
@@ -143,7 +156,7 @@ final class ARCameraViewModel {
                     startupID = nil
                 }
             }
-            guard visible, active, !Task.isCancelled else { return }
+            guard visible, active, !hasPresentedResult, !Task.isCancelled else { return }
             if retry { await controller.retryRecovery() }
             else { await controller.start() }
         }

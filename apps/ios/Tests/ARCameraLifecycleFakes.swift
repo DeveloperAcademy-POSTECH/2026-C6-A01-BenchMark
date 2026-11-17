@@ -17,6 +17,7 @@ final class ARSessionController {
     var settings = Settings()
     var ready = false
     var capturing = false
+    var result: UUID?
     var videoRecording = false
     var canCapture: Bool { ready && !capturing && !videoRecording }
     var holdsStarts = false
@@ -66,6 +67,7 @@ final class ARVideoRecorder {
     enum State { case idle, preparing, recording, finishing }
 
     var state = State.idle
+    var result: UUID?
     var busy: Bool { state != .idle }
     var holdsStarts = false
     var holdsStops = false
