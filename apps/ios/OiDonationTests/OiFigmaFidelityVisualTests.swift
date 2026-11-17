@@ -3092,12 +3092,21 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             onOpenRequest: { _ in })
             .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
         let failed = CampusNotificationInboxView(requests: rows, isLoading: false,
-            loadFailed: true, onOpenRequest: { _ in })
+            loadFailed: true, onRetry: {}, onOpenRequest: { _ in })
             .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
         let emptyImage = try await capture(empty, name: "campus-notifications-empty", variant: reference,
             defaults: fixture.defaults, includesSafeArea: false, attach: true)
         let failedImage = try await capture(failed, name: "campus-notifications-error", variant: reference,
-            defaults: fixture.defaults, includesSafeArea: false, attach: true, validateRender: assertSpinnerOnlyRender)
+            defaults: fixture.defaults, includesSafeArea: false, attach: true)
+        let failedWithoutRows = CampusNotificationInboxView(requests: [], isLoading: false,
+            loadFailed: true, onRetry: {}, onOpenRequest: { _ in })
+            .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
+        let failedWithoutRowsImage = try await capture(failedWithoutRows, name: "campus-notifications-error-empty",
+            variant: reference, defaults: fixture.defaults, includesSafeArea: false, attach: true)
+        XCTAssertGreaterThan(try myV4ChangedPixels(failedImage, failedWithoutRowsImage, size: reference.size,
+            rect: CGRect(x: 20, y: 150, width: 362, height: 350)), 1000,
+            "A partial failure must keep the successfully loaded card rows visible under the retry banner")
+        XCTAssertNotEqual(emptyImage, failedWithoutRowsImage, "An error must never be mistaken for zero notifications")
         let partial = CampusNotificationInboxView(requests: rows, isLoading: true, isInitialLoading: true,
             unconfirmedRequestID: UUID(), onOpenRequest: { _ in })
             .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
