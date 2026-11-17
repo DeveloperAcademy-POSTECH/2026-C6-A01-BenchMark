@@ -2213,6 +2213,160 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertTrue(finished, "Completion Done must return to the story list")
     }
 
+    /// #473: 접수 완료 화면의 완료 버튼은 이야기 목록(편집 화면을 연 화면)으로 돌아가야 한다.
+    @MainActor func testCompletionDonePopsBackToTheStoryList() async throws {
+        struct Harness: View {
+            let remote: OiRemoteStore
+            let id: UUID
+            let record: (OiStoryEditor.NavigationTestActions) -> Void
+            @State private var selected: UUID?
+            @State private var opened = false
+            var body: some View {
+                // The list reappears after the pop; open the editor only the first time.
+                Text("story-list-root").onAppear { if !opened { opened = true; selected = id } }
+                    .navigationDestination(item: $selected) { id in
+                        OiStoryEditor(remote: remote, localID: id, onFinish: { selected = nil })
+                            .observeNavigationForTest({ _ in }, actions: record)
+                    }
+            }
+        }
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        var local = OiLocalDraft(draft: draft(title: "완료 버튼"), version: 1, creationStep: OiCreationStep.card.rawValue)
+        local.draft.cucumberName = "기계이일구오이"
+        try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+        var actions: OiStoryEditor.NavigationTestActions?
+        let controller = UIHostingController(rootView: NavigationStack {
+            Harness(remote: store, id: local.id, record: { actions = $0 })
+        })
+        let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = controller; window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+        func navigation(in view: UIView) -> UINavigationController? {
+            var responder: UIResponder? = view
+            while let current = responder { if let nav = current as? UINavigationController { return nav }; responder = current.next }
+            for sub in view.subviews { if let nav = navigation(in: sub) { return nav } }
+            return nil
+        }
+        func depth() -> Int { navigation(in: controller.view)?.viewControllers.count ?? -1 }
+        for _ in 0..<160 where actions == nil { try await Task.sleep(for: .milliseconds(25)) }
+        try await Task.sleep(for: .seconds(2))
+        let editorDepth = depth()
+        try XCTUnwrap(actions).finish()
+        try await Task.sleep(for: .seconds(1.5))
+        XCTAssertTrue(try XCTUnwrap(actions).isCompletion(), "Card Done must open the completion view")
+        let completionDepth = depth()
+        XCTAssertGreaterThan(completionDepth, editorDepth, "The completion view is pushed on the navigation stack")
+        try XCTUnwrap(actions).completionDone()
+        try await Task.sleep(for: .seconds(1.5))
+        XCTAssertEqual(depth(), editorDepth - 1, "Completion Done must return to the story list (editor \(editorDepth), completion \(completionDepth))")
+    }
+
+    /// #473: 접수 완료 화면의 완료 버튼은 이야기 목록(편집 화면을 연 화면)으로 돌아가야 한다.
+    @MainActor func testCompletionDonePopsBackFromTheNewStoryFlow() async throws {
+        struct Harness: View {
+            let remote: OiRemoteStore
+            let id: UUID
+            let record: (OiStoryEditor.NavigationTestActions) -> Void
+            @State private var showing = false
+            @State private var opened = false
+            var body: some View {
+                // The list reappears after the pop; open the editor only the first time.
+                Text("story-list-root").onAppear { if !opened { opened = true; showing = true } }
+                    .navigationDestination(isPresented: $showing) {
+                        OiStoryEditor(remote: remote, initialStep: .card, onFinish: { showing = false })
+                            .observeNavigationForTest({ _ in }, actions: record)
+                    }
+            }
+        }
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        var local = OiLocalDraft(draft: draft(title: "완료 버튼"), version: 1, creationStep: OiCreationStep.card.rawValue)
+        local.draft.cucumberName = "기계이일구오이"
+        try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+        var actions: OiStoryEditor.NavigationTestActions?
+        let controller = UIHostingController(rootView: NavigationStack {
+            Harness(remote: store, id: local.id, record: { actions = $0 })
+        })
+        let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = controller; window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+        func navigation(in view: UIView) -> UINavigationController? {
+            var responder: UIResponder? = view
+            while let current = responder { if let nav = current as? UINavigationController { return nav }; responder = current.next }
+            for sub in view.subviews { if let nav = navigation(in: sub) { return nav } }
+            return nil
+        }
+        func depth() -> Int { navigation(in: controller.view)?.viewControllers.count ?? -1 }
+        for _ in 0..<160 where actions == nil { try await Task.sleep(for: .milliseconds(25)) }
+        try await Task.sleep(for: .seconds(2))
+        let editorDepth = depth()
+        try XCTUnwrap(actions).finish()
+        try await Task.sleep(for: .seconds(1.5))
+        XCTAssertTrue(try XCTUnwrap(actions).isCompletion(), "Card Done must open the completion view")
+        let completionDepth = depth()
+        XCTAssertGreaterThan(completionDepth, editorDepth, "The completion view is pushed on the navigation stack")
+        try XCTUnwrap(actions).completionDone()
+        try await Task.sleep(for: .seconds(1.5))
+        XCTAssertEqual(depth(), editorDepth - 1, "Completion Done must return to the story list (editor \(editorDepth), completion \(completionDepth))")
+    }
+
+    /// #473: 접수 완료 화면의 완료 버튼은 이야기 목록(편집 화면을 연 화면)으로 돌아가야 한다.
+    @MainActor func testCompletionDonePopsBackFromTheMapEntry() async throws {
+        struct Harness: View {
+            let remote: OiRemoteStore
+            let id: UUID
+            let record: (OiStoryEditor.NavigationTestActions) -> Void
+            @State private var selected: UUID?
+            @State private var opened = false
+            var body: some View {
+                // The list reappears after the pop; open the editor only the first time.
+                Text("story-list-root").onAppear { if !opened { opened = true; selected = id } }
+                    .navigationDestination(item: $selected) { id in
+                        OiStoryEditor(remote: remote, localID: id)
+                            .observeNavigationForTest({ _ in }, actions: record)
+                    }
+            }
+        }
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        var local = OiLocalDraft(draft: draft(title: "완료 버튼"), version: 1, creationStep: OiCreationStep.card.rawValue)
+        local.draft.cucumberName = "기계이일구오이"
+        try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+        var actions: OiStoryEditor.NavigationTestActions?
+        let controller = UIHostingController(rootView: NavigationStack {
+            Harness(remote: store, id: local.id, record: { actions = $0 })
+        })
+        let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = controller; window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+        func navigation(in view: UIView) -> UINavigationController? {
+            var responder: UIResponder? = view
+            while let current = responder { if let nav = current as? UINavigationController { return nav }; responder = current.next }
+            for sub in view.subviews { if let nav = navigation(in: sub) { return nav } }
+            return nil
+        }
+        func depth() -> Int { navigation(in: controller.view)?.viewControllers.count ?? -1 }
+        for _ in 0..<160 where actions == nil { try await Task.sleep(for: .milliseconds(25)) }
+        try await Task.sleep(for: .seconds(2))
+        let editorDepth = depth()
+        try XCTUnwrap(actions).finish()
+        try await Task.sleep(for: .seconds(1.5))
+        XCTAssertTrue(try XCTUnwrap(actions).isCompletion(), "Card Done must open the completion view")
+        let completionDepth = depth()
+        XCTAssertGreaterThan(completionDepth, editorDepth, "The completion view is pushed on the navigation stack")
+        try XCTUnwrap(actions).completionDone()
+        try await Task.sleep(for: .seconds(1.5))
+        XCTAssertEqual(depth(), editorDepth - 1, "Completion Done must return to the story list (editor \(editorDepth), completion \(completionDepth))")
+    }
+
+    /// #473: 접수 완료 화면의 완료 버튼은 이야기 목록(편집 화면을 연 화면)으로 돌아가야 한다.
     @MainActor func testStepOneExitSavesDraftAndKeepsItOnSaveFailure() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }

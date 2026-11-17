@@ -1282,7 +1282,13 @@ struct OiStoryEditor: View {
     }
 
     private func finish() {
-        if let onFinish { onFinish() } else { dismiss() }
+        let close = { if let onFinish { onFinish() } else { dismiss() } }
+        guard showingCardCompletion else { close(); return }
+        // The completion screen is pushed above this editor, so dismissing the editor alone does nothing while
+        // it is on top. Drop the completion screen without animation first, then close the editor (#473).
+        var transaction = Transaction(); transaction.disablesAnimations = true
+        withTransaction(transaction) { showingCardCompletion = false }
+        DispatchQueue.main.async(execute: close)
     }
 
     private func removePhoto(_ item: OiEditingPhoto) {
