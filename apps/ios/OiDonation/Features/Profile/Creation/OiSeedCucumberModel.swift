@@ -85,7 +85,7 @@ enum OiSeedCucumberGarment: Hashable, CaseIterable {
         case .postechJacket: OiWardrobeLook.Top.postech.title
         case .longPants: OiWardrobeLook.Bottom.long.title
         case .shorts: OiWardrobeLook.Bottom.shorts.title
-        case .sneakers: "흰 운동화"
+        case .sneakers: "운동화"
         case .costume(let costume), .costumeProposal(let costume, _): costume.title
         }
     }

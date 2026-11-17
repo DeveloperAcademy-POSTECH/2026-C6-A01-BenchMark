@@ -172,8 +172,7 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
                 originalMaterials = surface?.components[ModelComponent.self]?.materials ?? []
             }
 
-            func applyColor(_ rgb: UInt32?) -> Bool {
-                let color = rgb == 0xFFFFFF ? nil : rgb
+            func applyColor(_ color: UInt32?) -> Bool {
                 guard color != appliedColor, let tintSurface, var model = tintSurface.components[ModelComponent.self] else {
                     return false
                 }
@@ -181,7 +180,12 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
                     let tint = UIColor(wardrobeRGB: color)
                     model.materials = originalMaterials.map { original in
                         guard var material = original as? PhysicallyBasedMaterial else { return original }
-                        material.baseColor.tint = tint
+                        if color == 0xFFFFFF {
+                            // White tint alone still multiplies the fabric's baked base color.
+                            material.baseColor = .init(tint: tint)
+                        } else {
+                            material.baseColor.tint = tint
+                        }
                         return material
                     }
                 } else {

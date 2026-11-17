@@ -49,7 +49,7 @@ struct OiCucumberCustomizationStep: View {
         guard customization.selectedSeedSet == nil else { return [:] }
         var result: [OiSeedCucumberGarment.Slot: UInt32] = [:]
         for tab in [OiWardrobeTab.top, .bottom, .shoes] {
-            if let slot = tab.seedColorSlot, let color = customization.garmentColors[tab.rawValue], color < 0xFFFFFF {
+            if let slot = tab.seedColorSlot, let color = savedSeedColor(for: tab) {
                 result[slot] = color
             }
         }
@@ -340,7 +340,7 @@ struct OiCucumberCustomizationStep: View {
                 let selected = allowsWardrobeEditing
                     ? look.costume == nil
                     : customization.selectedSeedSet == nil && customization.seedSneakers == true
-                card("흰 운동화", image: "oi-thumb-sneakers", selected: selected, id: "sneakers") {
+                card(OiSeedCucumberGarment.sneakers.title, image: "oi-thumb-sneakers", selected: selected, id: "sneakers") {
                     if allowsWardrobeEditing {
                         change { $0.shoeColor = 0xFFFFFF; $0.costume = nil }
                     } else {
@@ -440,7 +440,9 @@ struct OiCucumberCustomizationStep: View {
 
     private func swatch(_ color: Swatch) -> some View {
         let (name, rgb) = (color.name, color.rgb)
-        let selected = currentFabric == nil && currentColor == rgb
+        let selected = allowsWardrobeEditing
+            ? currentFabric == nil && currentColor == rgb
+            : savedSeedColor(for: tab) == rgb
         return Button { selectColor(rgb) } label: {
             VStack(spacing: 5) {
                 Circle().fill(Color(UIColor(wardrobeRGB: rgb)))
@@ -624,11 +626,13 @@ struct OiCucumberCustomizationStep: View {
         .init("스카이", 0xC5DBEC, 0xB6C7D5), .init("라벤더", 0xD6CCE6, 0xC8BFD9),
         .init("블러시", 0xEDCBD1, 0xD4BCC1), .init("버터", 0xF0E2B0, 0xD1CBA6)
     ]
+    private func savedSeedColor(for tab: OiWardrobeTab) -> UInt32? {
+        guard let saved = customization.garmentColors[tab.rawValue], saved <= 0xFFFFFF else { return nil }
+        return saved
+    }
+
     private var currentColor: UInt32 {
-        if !allowsWardrobeEditing {
-            let saved = customization.garmentColors[tab.rawValue] ?? 0xFFFFFF
-            return saved <= 0xFFFFFF ? saved : 0xFFFFFF
-        }
+        if !allowsWardrobeEditing { return savedSeedColor(for: tab) ?? 0xFFFFFF }
         return tab == .bottom ? look.bottomColor : tab == .shoes ? look.shoeColor : look.topColor
     }
     private var currentFabric: OiDenim? { selectedPhotoSlot?.fabric(in: look) }
@@ -643,7 +647,7 @@ struct OiCucumberCustomizationStep: View {
     private func selectColor(_ rgb: UInt32) {
         guard showsColors else { return }
         if !allowsWardrobeEditing {
-            customization.garmentColors[tab.rawValue] = rgb == 0xFFFFFF ? nil : rgb
+            customization.garmentColors[tab.rawValue] = rgb
             return
         }
         change { value in

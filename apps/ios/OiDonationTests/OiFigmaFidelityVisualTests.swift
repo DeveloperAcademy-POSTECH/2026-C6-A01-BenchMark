@@ -2229,6 +2229,10 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let saved = try JSONEncoder().encode(original)
         let restored = try JSONDecoder().decode(OiDraftCustomization.self, from: saved)
         XCTAssertEqual(restored.garmentColors, colors)
+        var whiteOutfit = restored
+        whiteOutfit.garmentColors = ["상의": 0xFFFFFF, "하의": 0xFFFFFF, "신발": 0xFFFFFF]
+        let restoredWhite = try JSONDecoder().decode(OiDraftCustomization.self, from: JSONEncoder().encode(whiteOutfit))
+        XCTAssertEqual(restoredWhite.garmentColors, whiteOutfit.garmentColors)
 
         let screen = CreationCapturePage(step: 3) {
             OiCucumberCustomizationStep(customization: Binding(get: { draft.value }, set: { draft.value = $0 }),
@@ -2254,9 +2258,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             XCTAssertTrue(try XCTUnwrap(rotate.actionHandler)(rotate))
             let viewpoint = camera.position(relativeTo: nil)
 
+            @MainActor func material(_ node: Entity) -> PhysicallyBasedMaterial? {
+                node.components[ModelComponent.self]?.materials.first as? PhysicallyBasedMaterial
+            }
             @MainActor func rgb(_ node: Entity) -> UInt32? {
-                guard let material = node.components[ModelComponent.self]?.materials.first
-                    as? PhysicallyBasedMaterial else { return nil }
+                guard let material = material(node) else { return nil }
                 var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
                 guard material.baseColor.tint.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else { return nil }
                 func channel(_ value: CGFloat) -> UInt32 { UInt32((min(1, max(0, value)) * 255).rounded()) }
@@ -2297,6 +2303,14 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             try await self.waitForStep3 {
                 model.findEntity(named: OiSeedCucumberGarment.hoodie.rawValue) === hoodie && matchesRestoredColors()
             }
+            draft.value = restoredWhite
+            try await self.waitForStep3 {
+                [topMesh, bottomMesh, shoeMesh].allSatisfy { node in
+                    rgb(node) == 0xFFFFFF && material(node)?.baseColor.texture == nil
+                }
+            }
+            XCTAssertEqual(rgb(torsoSkin), defaultTorsoSkin)
+            XCTAssertEqual(rgb(legSkin), defaultLegSkin)
             XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), viewpoint), 0, accuracy: 0.001)
             return surface
         })
