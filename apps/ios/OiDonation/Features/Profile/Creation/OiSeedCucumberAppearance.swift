@@ -7,7 +7,7 @@
 
 import CoreGraphics
 
-enum OiSeedCucumberPart: String, CaseIterable, Identifiable {
+nonisolated enum OiSeedCucumberPart: String, CaseIterable, Identifiable, Sendable {
     case eyes, mouth, stem, body
 
     static let faceParts: [Self] = [.eyes, .mouth]
@@ -24,7 +24,7 @@ enum OiSeedCucumberPart: String, CaseIterable, Identifiable {
     }
 }
 
-enum OiSeedCucumberLayer: CaseIterable {
+nonisolated enum OiSeedCucumberLayer: CaseIterable, Sendable {
     case leftEye, rightEye, mouth, stem
 
     var part: OiSeedCucumberPart {
@@ -57,7 +57,7 @@ enum OiSeedCucumberLayer: CaseIterable {
     static let faceLayers: [Self] = [.leftEye, .rightEye, .mouth]
 }
 
-struct OiSeedCucumberAppearance: Codable, Equatable, Sendable {
+nonisolated struct OiSeedCucumberAppearance: Codable, Equatable, Sendable {
     static let sourceSize = CGSize(width: 1058, height: 1658)
     // Ground line of the visible body artwork, excluding transparent padding.
     static let bodyPivot = CGPoint(x: sourceSize.width / 2, y: 1549)
@@ -73,7 +73,7 @@ struct OiSeedCucumberAppearance: Codable, Equatable, Sendable {
     static let heightRange: ClosedRange<CGFloat> = 0.85...1.20
     static let widthRange: ClosedRange<CGFloat> = 0.90...1.30
 
-    struct Face: Codable, Equatable, Sendable {
+    nonisolated struct Face: Codable, Equatable, Sendable {
         var x: CGFloat = 0
         var y: CGFloat = 0
         var size: CGFloat = 1
@@ -181,7 +181,7 @@ struct OiSeedCucumberAppearance: Codable, Equatable, Sendable {
     }
 }
 
-struct OiSeedCucumberStemWarp {
+nonisolated struct OiSeedCucumberStemWarp: Sendable {
     private static let root = OiSeedCucumberAppearance.stemBase
     private static let tip = OiSeedCucumberAppearance.stemDefaultTip
     private static let reach = hypot(tip.x - root.x, tip.y - root.y)
