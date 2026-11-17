@@ -13,7 +13,7 @@ import subprocess
 from zipfile import ZipFile
 
 import numpy as np
-from PIL import Image, ImageChops, ImageOps
+from PIL import Image, ImageOps
 
 import seed_costume_geometry as geometry
 from seed_costume_coverage import compact_skin, overlay_material
@@ -214,16 +214,14 @@ def render_preview(mesh, accessory, skin, basename, output, albedo, master, phon
             suffix = "BodyBaseColor" if name == "VisibleBody" else name
             image = Image.open(io.BytesIO(archive.read(f"Textures/{suffix}.png"))).convert("RGB")
             packages.append(([part], np.asarray(image)))
-    geometry.raster(None, packages, basename)
-    with Image.open(geometry.root / f"{basename}-0.ppm") as frame:
-        background = Image.new("RGB", frame.size, frame.getpixel((0, 0)))
-        bounds = ImageChops.difference(frame, background).getbbox()
-        if bounds is None:
-            raise ValueError(f"Missing POSTECH selfie preview for {basename}")
-        thumbnail = Image.new("RGB", (129, 210), frame.getpixel((0, 0)))
-        figure = ImageOps.contain(frame.crop(bounds), (121, 202), Image.Resampling.LANCZOS)
-        thumbnail.paste(figure, ((thumbnail.width - figure.width) // 2, (thumbnail.height - figure.height) // 2))
-        thumbnail.save(output / f"{basename}.jpg", quality=95, subsampling=0)
+    frame = geometry.raster(None, packages, basename, transparent_front=True)
+    bounds = frame.getchannel("A").getbbox()
+    if bounds is None:
+        raise ValueError(f"Missing POSTECH selfie preview for {basename}")
+    thumbnail = Image.new("RGBA", (129, 210))
+    figure = ImageOps.contain(frame.crop(bounds), (121, 202), Image.Resampling.LANCZOS)
+    thumbnail.paste(figure, ((thumbnail.width - figure.width) // 2, (thumbnail.height - figure.height) // 2))
+    thumbnail.save(output / f"{basename}.png")
 
 
 def main():

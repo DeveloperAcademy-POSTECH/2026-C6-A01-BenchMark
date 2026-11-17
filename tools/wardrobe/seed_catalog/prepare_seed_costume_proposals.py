@@ -207,11 +207,10 @@ def preview(costume, key, stage, maps, master):
         if name == "Stem":
             points = points + STEMS.get(costume, (0, 0, 0))
         sections.append(([(name, points, faces, uv)], pixels(master.read(f"Textures/{name}.png"))))
-    geometry.raster(None, sections, key)
-    with Image.open(geometry.root / f"{key}-0.ppm") as frame:
-        thumbnail = frame.crop((36, 14, 354, 532))
-        thumbnail.thumbnail((150, 210))
-        thumbnail.save(geometry.root.parent / key / f"{key}.jpg", quality=91)
+    frame = geometry.raster(None, sections, key, transparent_front=True)
+    thumbnail = frame.crop((36, 14, 354, 532))
+    thumbnail.thumbnail((150, 210))
+    thumbnail.save(geometry.root.parent / key / f"{key}.png")
 
 
 def main():

@@ -2215,6 +2215,107 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         })
     }
 
+    func testStep3DraftColorsUpdateOnlyGarmentMaterials() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let tab = ProcessInfo.processInfo.environment["OI_CAPTURE_TAB"] ?? "상의"
+        let colors: [String: UInt32] = ["상의": 0xEDCBD1, "하의": 0xC5DBEC, "신발": 0xC7D8C1]
+        var original = OiDraftCustomization()
+        original.selectedSeedTop = .hoodie
+        original.selectedSeedBottom = .long
+        original.toggleSeedSneakers()
+        let draft = Step3DraftFixture(original)
+        original.garmentColors = colors
+        let saved = try JSONEncoder().encode(original)
+        let restored = try JSONDecoder().decode(OiDraftCustomization.self, from: saved)
+        XCTAssertEqual(restored.garmentColors, colors)
+        var whiteOutfit = restored
+        whiteOutfit.garmentColors = ["상의": 0xFFFFFF, "하의": 0xFFFFFF, "신발": 0xFFFFFF]
+        let restoredWhite = try JSONDecoder().decode(OiDraftCustomization.self, from: JSONEncoder().encode(whiteOutfit))
+        XCTAssertEqual(restoredWhite.garmentColors, whiteOutfit.garmentColors)
+
+        let screen = CreationCapturePage(step: 3) {
+            OiCucumberCustomizationStep(customization: Binding(get: { draft.value }, set: { draft.value = $0 }),
+                                        initialTabTitle: tab)
+        }
+        .environment(\.scenePhase, .active)
+
+        try await capture(screen, name: "step3-wardrobe-colors-\(tab)", variant: variants[0],
+                          defaults: fixture.defaults, delay: .zero, attach: true, prepareRealityCapture: { host in
+            let surface = try await self.step3Surface(in: host)
+            try await self.waitForStep3 { surface.accessibilityValue == "3D 미리보기" }
+            let model = try XCTUnwrap(surface.scene.findEntity(named: "SeedCucumber"))
+            let hoodie = try XCTUnwrap(model.findEntity(named: OiSeedCucumberGarment.hoodie.rawValue))
+            let pants = try XCTUnwrap(model.findEntity(named: OiSeedCucumberGarment.longPants.rawValue))
+            let shoes = try XCTUnwrap(model.findEntity(named: OiSeedCucumberGarment.sneakers.rawValue))
+            let topMesh = try XCTUnwrap(hoodie.findEntity(named: "Hoodie"))
+            let bottomMesh = try XCTUnwrap(pants.findEntity(named: "LongPants"))
+            let shoeMesh = try XCTUnwrap(shoes.findEntity(named: "Shoes"))
+            let torsoSkin = try XCTUnwrap(hoodie.findEntity(named: "VisibleBodyUpper"))
+            let legSkin = try XCTUnwrap(shoes.findEntity(named: "ShinLeftLeg"))
+            let camera = try self.step3Camera(in: surface)
+            let rotate = try XCTUnwrap(surface.accessibilityCustomActions?.first)
+            XCTAssertTrue(try XCTUnwrap(rotate.actionHandler)(rotate))
+            let viewpoint = camera.position(relativeTo: nil)
+
+            @MainActor func material(_ node: Entity) -> PhysicallyBasedMaterial? {
+                node.components[ModelComponent.self]?.materials.first as? PhysicallyBasedMaterial
+            }
+            @MainActor func rgb(_ node: Entity) -> UInt32? {
+                guard let material = material(node) else { return nil }
+                var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+                guard material.baseColor.tint.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else { return nil }
+                func channel(_ value: CGFloat) -> UInt32 { UInt32((min(1, max(0, value)) * 255).rounded()) }
+                return channel(red) << 16 | channel(green) << 8 | channel(blue)
+            }
+            let defaultTop = try XCTUnwrap(rgb(topMesh))
+            let defaultBottom = try XCTUnwrap(rgb(bottomMesh))
+            let defaultShoes = try XCTUnwrap(rgb(shoeMesh))
+            let defaultTorsoSkin = try XCTUnwrap(rgb(torsoSkin))
+            let defaultLegSkin = try XCTUnwrap(rgb(legSkin))
+
+            @MainActor func matchesRestoredColors() -> Bool {
+                rgb(topMesh) == colors["상의"] && rgb(bottomMesh) == colors["하의"] && rgb(shoeMesh) == colors["신발"]
+            }
+
+            draft.value = restored
+            try await self.waitForStep3 { matchesRestoredColors() }
+            XCTAssertTrue(model.findEntity(named: OiSeedCucumberGarment.hoodie.rawValue) === hoodie)
+            XCTAssertTrue(model.findEntity(named: OiSeedCucumberGarment.longPants.rawValue) === pants)
+            XCTAssertTrue(model.findEntity(named: OiSeedCucumberGarment.sneakers.rawValue) === shoes)
+            XCTAssertEqual(rgb(torsoSkin), defaultTorsoSkin)
+            XCTAssertEqual(rgb(legSkin), defaultLegSkin)
+
+            draft.value.garmentColors = [:]
+            try await self.waitForStep3 {
+                rgb(topMesh) == defaultTop && rgb(bottomMesh) == defaultBottom && rgb(shoeMesh) == defaultShoes
+            }
+            draft.value = restored
+            try await self.waitForStep3 { matchesRestoredColors() }
+
+            draft.value.selectSeedSet(.postech)
+            try await self.waitForStep3 {
+                model.findEntity(named: OiSeedCucumberGarment.postechJacket.rawValue) != nil
+                    && rgb(bottomMesh) == defaultBottom && rgb(shoeMesh) == defaultShoes
+            }
+            XCTAssertEqual(draft.value.garmentColors, colors)
+            draft.value.selectSeedSet(.postech)
+            try await self.waitForStep3 {
+                model.findEntity(named: OiSeedCucumberGarment.hoodie.rawValue) === hoodie && matchesRestoredColors()
+            }
+            draft.value = restoredWhite
+            try await self.waitForStep3 {
+                [topMesh, bottomMesh, shoeMesh].allSatisfy { node in
+                    rgb(node) == 0xFFFFFF && material(node)?.baseColor.texture == nil
+                }
+            }
+            XCTAssertEqual(rgb(torsoSkin), defaultTorsoSkin)
+            XCTAssertEqual(rgb(legSkin), defaultLegSkin)
+            XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), viewpoint), 0, accuracy: 0.001)
+            return surface
+        })
+    }
+
     func testStep3CatalogGarmentsLoadFromAppBundle() async throws {
         @MainActor func verifyGarment(_ garment: OiSeedCucumberGarment) async throws {
             let asset = try await OiSeedCucumberModel.loadGarment(garment)
@@ -2255,7 +2356,18 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             }
             for proposal in proposals {
                 let garment = OiSeedCucumberGarment.costumeProposal(costume, proposal)
-                XCTAssertNotNil(Bundle.main.url(forResource: garment.rawValue, withExtension: "jpg"))
+                let thumbnail = try XCTUnwrap(Bundle.main.url(forResource: garment.rawValue, withExtension: "png"))
+                let data = try Data(contentsOf: thumbnail)
+                let image = try XCTUnwrap(UIImage(data: data)?.cgImage)
+                let bitmap = try renderedBitmap(data, size: CGSize(width: image.width, height: image.height))
+                let count = bitmap.width * bitmap.height
+                let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: count * 4)
+                let corners = [0, bitmap.width - 1, count - bitmap.width, count - 1]
+                for corner in corners {
+                    XCTAssertEqual(pixels[corner * 4 + 3], 0, "\(garment.title) must not have an opaque image backdrop")
+                }
+                let foreground = (0..<count).filter { pixels[$0 * 4 + 3] == 255 }.count
+                XCTAssertGreaterThan(foreground, count / 20, "\(garment.title) must retain the illustration")
                 try await verifyGarment(garment)
             }
         }

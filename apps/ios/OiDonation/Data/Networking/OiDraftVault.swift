@@ -652,12 +652,12 @@ nonisolated struct OiWardrobeLook: Codable, Equatable, Sendable {
     nonisolated enum Top: String, Codable, CaseIterable, Sendable {
         case tshirt, hoodie, cardigan, postech
         var title: String {
-            switch self { case .tshirt: "흰 반팔 티"; case .hoodie: "흰 후드티"; case .cardigan: "흰 가디건"; case .postech: "포스텍 과잠" }
+            switch self { case .tshirt: "반팔 티"; case .hoodie: "후드티"; case .cardigan: "가디건"; case .postech: "포스텍 과잠" }
         }
     }
     nonisolated enum Bottom: String, Codable, CaseIterable, Sendable {
         case long, shorts
-        var title: String { self == .long ? "흰 긴바지" : "흰 반바지" }
+        var title: String { self == .long ? "긴바지" : "반바지" }
     }
     nonisolated enum Costume: String, Codable, CaseIterable, Identifiable, Sendable {
         case dinosaur, raincoat, bee, cat
@@ -694,7 +694,7 @@ nonisolated struct OiWardrobeLook: Codable, Equatable, Sendable {
 
     var modelName: String { costume?.modelName ?? "wardrobe-\(top.rawValue)-\(bottom.rawValue)" }
     var bodySource: String { costume?.rawValue ?? (top == .tshirt ? (bottom == .shorts ? "shorts" : "base") : top.rawValue) }
-    var title: String { costume?.title ?? "\(top.title) · \(bottom.title) · 흰 운동화" }
+    var title: String { costume?.title ?? "\(top.title) · \(bottom.title) · 운동화" }
 
     init() {}
     private enum CodingKeys: String, CodingKey { case top, bottom, topColor, bottomColor, shoeColor, artwork, fabrics, costume }
