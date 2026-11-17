@@ -66,6 +66,18 @@ import SwiftUI
             let bounds = loaded.root.visualBounds(relativeTo: nil)
             XCTAssertEqual(bounds.extents.y, 1, accuracy: 0.005, character.title)
             XCTAssertEqual(bounds.min.y, 0, accuracy: 0.005, character.title)
+            let url = try XCTUnwrap(Bundle.main.url(forResource: (character.modelFilename as NSString).deletingPathExtension,
+                withExtension: "usdz"))
+            let imported = try await Entity(contentsOf: url)
+            let original = imported.visualBounds(relativeTo: nil)
+            XCTAssertEqual(bounds.extents.x, original.extents.x / original.extents.y, accuracy: 0.001, character.title)
+            XCTAssertEqual(bounds.extents.z, original.extents.z / original.extents.y, accuracy: 0.001, character.title)
+            XCTAssertTrue(loaded.model is ModelEntity)
+            func checkLocalScene(_ entity: Entity) {
+                XCTAssertNil(entity.synchronization)
+                for child in entity.children { checkLocalScene(child) }
+            }
+            checkLocalScene(loaded.root)
             loaded.root.scale = SIMD3(repeating: 0.065)
             XCTAssertEqual(loaded.root.visualBounds(relativeTo: nil).extents.y, 0.065, accuracy: 0.001, character.title)
         }

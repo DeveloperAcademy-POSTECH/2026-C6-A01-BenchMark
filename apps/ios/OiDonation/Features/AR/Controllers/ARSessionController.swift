@@ -25,10 +25,10 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     var isPalmMode: Bool { placementMode == .palm }
     var canUseLocationMode: Bool { subject?.placement != nil }
     private(set) var palmTracking = false
-    private var palmState = ARPalmPlacementState()
-    private var palmOffset = SIMD3<Float>.zero
-    private var lastPalmFrame: TimeInterval?
-    private var palmFailed = false
+    @ObservationIgnored private var palmState = ARPalmPlacementState()
+    @ObservationIgnored private var palmOffset = SIMD3<Float>.zero
+    @ObservationIgnored private var lastPalmFrame: TimeInterval?
+    @ObservationIgnored private var palmFailed = false
     @ObservationIgnored private var palm: ARPalmTrackingService?
     var usesGeographicPlacement: Bool { canUseLocationMode && placementMode == .location }
     private(set) var geographicReady = false
@@ -82,7 +82,9 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     }
 
     private func applyCharacterRotation() {
-        characterRoot?.orientation = simd_quatf(angle: characterRotation * .pi / 180, axis: [0, 1, 0])
+        guard let characterRoot else { return }
+        let orientation = simd_quatf(angle: characterRotation * .pi / 180, axis: [0, 1, 0])
+        if characterRoot.orientation.vector != orientation.vector { characterRoot.orientation = orientation }
     }
     private var loadTask: Task<Void, Never>?
     private var lifecycle = ARSessionLifecycle()
@@ -328,9 +330,11 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
             lightingSettings.sceneOcclusion = false
         }
         lighting.apply(lightingSettings, to: view, meshSupported: meshSupported)
-        characterRoot?.scale = SIMD3(repeating: isPalmMode ? (settings.palmHeight ?? 0.065) : settings.height)
+        let scale = SIMD3(repeating: isPalmMode ? (settings.palmHeight ?? 0.065) : settings.height)
+        if let characterRoot, characterRoot.scale != scale { characterRoot.scale = scale }
         applyCharacterRotation()
-        characterRoot?.position.y = isPalmMode ? 0 : settings.floorOffset
+        let floorOffset: Float = isPalmMode ? 0 : settings.floorOffset
+        if let characterRoot, characterRoot.position.y != floorOffset { characterRoot.position.y = floorOffset }
     }
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
@@ -382,14 +386,16 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
                 view.scene.addAnchor(newAnchor)
                 anchor = newAnchor
             }
-            anchor?.position = point + palmOffset + SIMD3(0, 0.004, 0)
-            anchor?.isEnabled = true
-            placed = true
+            let position = point + palmOffset + SIMD3(0, 0.004, 0)
+            // Exact equality only: never drop a small genuine hand movement.
+            if let anchor, anchor.position != position { anchor.position = position }
+            if anchor?.isEnabled == false { anchor?.isEnabled = true }
+            if !placed { placed = true }
             let notice = fresh ? "손바닥 추적 중 · 핀치로 크기, 드래그로 위치 조절" : "손을 다시 인식하고 있어요. 잠시 위치를 유지합니다."
             if message != notice { message = notice }
         } else {
-            anchor?.isEnabled = false
-            placed = false
+            if anchor?.isEnabled == true { anchor?.isEnabled = false }
+            if placed { placed = false }
             let notice = palmFailed ? "손 인식을 다시 준비하고 있어요. 계속되면 바닥 모드로 전환해 주세요." : "밝은 곳에서 손바닥 전체를 후면 카메라에 펼쳐 보여 주세요."
             if message != notice { message = notice }
         }

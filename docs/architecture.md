@@ -1,5 +1,7 @@
 # 오이기부 아키텍처 및 팀 협업 제안
 
+2026-11-17 #438 CPU 후속 조사: 정적 촬영 프리셋만 ModelEntity 로더로 평탄화하고, 촬영 모델의 불필요한 동기화와 내부 손 필터의 Observation 추적·동일 엔티티 값 재적용을 제거한다. 사용자 모델/애니메이션 로더, 손 인식 주기·보정·외형은 유지한다. 동일 모델의 실기기 CPU 가중 평균 46.21%→46.15%로 큰 감소는 확인하지 못했다. [원인·비교·검증](../apps/ios/docs/ar-cpu.md).
+
 2026-11-17 #438 AR 자산 경량화: 선택 가능한 마스코트는 `ARCharacter.modelFilename`의 `ar-*.usdz`를 ARModels/번들 루트에서 명시적으로 찾는다. 원본 Characters 3종은 본 앱 포함에서 제외하며 리소스 회귀 테스트는 실제 선택 파일을 로드한다. 의상 5종의 사본은 topology·재질 네트워크를 유지한 정적 촬영용이며, 사용자 오이는 기존 subject 로더로 승인 외형을 보존한다. ARLightingController는 조명 속성만 비교해 동일 설정의 갱신을 생략한다. 위치 모드도 카메라 30fps 형식을 선택하고 motion blur·depth of field·camera grain을 끈다. 실제 렌더 FPS 제한과는 구분한다. [자산·렌더·측정 기록](../apps/ios/docs/ar-lightweight.md).
 
 2026-11-17 #438 회전·공유: 촬영 viewport 크기 측정용 뷰의 하단 overlay에 Figma `5719:9948` 회전 컨트롤을 배치한다. Paperlogy Regular 16pt와 원본 SVG 58×15.1437pt를 사용하고 터치 영역은 104×48pt다. 드래그는 0.6도/pt, VoiceOver는 15도 단위이며 0~360도 범위로 정규화한다. 손바닥 회전과 일반 회전 값을 분리하며 회전만 바뀌면 엔티티 변환만 갱신하고 광원/그림자를 재설정하지 않는다. 촬영·녹화·카운트다운·복구 중에는 컨트롤을 숨긴다. 촬영 결과 ShareLink는 imageURL 하나만 전달하고 기존 로컬 JSON 보관은 유지한다.
