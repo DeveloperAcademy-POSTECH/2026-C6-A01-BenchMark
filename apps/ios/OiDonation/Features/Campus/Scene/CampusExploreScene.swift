@@ -2,6 +2,7 @@ import SwiftUI
 import RealityKit
 import ARKit
 import Observation
+import CoreText
 
 extension OiLiveStory {
     var campusPlacement: CampusPlacement? {
@@ -1720,14 +1721,18 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 }
 
-@MainActor private final class CampusRegionButton: UIButton {
+@MainActor final class CampusRegionButton: UIButton {
     private let diameter: CGFloat = 90
+    private let minimumContentHeight: CGFloat = 57
     private let surfaceOpacity: CGFloat = 0.6
     private let panel = UIImageView(image: UIImage(named: "CampusRegionPanel"))
     private let circle = UIView()
     private let content = UIStackView()
     private let icon = UIImageView(image: UIImage(named: "OiMapCucumber"))
-    private let number = UILabel()
+    private let number = UIImageView()
+    private let numberFont = UIFont(name: "YANGJIN", size: 26) ?? .systemFont(ofSize: 26, weight: .bold)
+    private let numberColor = UIColor(red: 84 / 255, green: 105 / 255, blue: 48 / 255, alpha: 1)
+    private var displayedCount: Int?
 
     init() {
         super.init(frame: CGRect(x: 0, y: 0, width: diameter, height: diameter))
@@ -1748,14 +1753,12 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         addSubview(panel)
 
         icon.contentMode = .scaleAspectFit
-        number.font = UIFont(name: "YANGJIN", size: 26) ?? .systemFont(ofSize: 26, weight: .bold)
-        number.textColor = UIColor(red: 84 / 255, green: 105 / 255, blue: 48 / 255, alpha: 1)
-        number.textAlignment = .center
+        number.contentMode = .center
         content.addArrangedSubview(icon); content.addArrangedSubview(number)
         content.axis = .vertical; content.alignment = .center; content.spacing = 4
         content.isUserInteractionEnabled = false
         addSubview(content)
-        content.frame = CGRect(x: 0, y: 0, width: diameter, height: 57)
+        content.frame = CGRect(x: 0, y: 0, width: diameter, height: minimumContentHeight)
         icon.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             icon.widthAnchor.constraint(equalToConstant: 19),
@@ -1764,7 +1767,26 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
 
     func setCount(_ count: Int) {
-        number.attributedText = NSAttributedString(string: String(count), attributes: [.kern: 1.04])
+        guard displayedCount != count else { return }
+        displayedCount = count
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: String(count), attributes: [
+            .font: numberFont,
+            .kern: 1.04,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): numberColor.cgColor
+        ]))
+        // Yangjin's digit outlines extend below its declared descent.
+        let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+        let size = CGSize(width: ceil(ink.width) + 2, height: ceil(ink.height) + 2)
+        number.image = UIGraphicsImageRenderer(size: size).image { renderer in
+            let context = renderer.cgContext
+            context.translateBy(x: size.width / 2 - ink.midX, y: size.height / 2 + ink.midY)
+            context.scaleBy(x: 1, y: -1)
+            context.textMatrix = .identity
+            context.textPosition = .zero
+            CTLineDraw(line, context)
+        }
+        let fittingHeight = content.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).height
+        content.bounds.size.height = max(minimumContentHeight, ceil(fittingHeight))
     }
 
     func place(at anchor: CGPoint, opacity: CGFloat, panelOpacity: CGFloat) {
