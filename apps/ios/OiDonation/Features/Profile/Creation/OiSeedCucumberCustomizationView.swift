@@ -9,6 +9,8 @@ import SwiftUI
 
 struct OiSeedCucumberCustomizationView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.dismiss) private var dismiss
+    private let onApply: ((OiSeedCucumberAppearance) -> Void)?
     @State private var appearance: OiSeedCucumberAppearance
     @State private var selection: OiSeedCucumberPart
     @State private var previewRequest: PreviewRequest?
@@ -18,9 +20,11 @@ struct OiSeedCucumberCustomizationView: View {
         let appearance: OiSeedCucumberAppearance
     }
 
-    init(appearance: OiSeedCucumberAppearance = .init(), selection: OiSeedCucumberPart = .eyes) {
+    init(appearance: OiSeedCucumberAppearance = .init(), selection: OiSeedCucumberPart = .eyes,
+         onApply: ((OiSeedCucumberAppearance) -> Void)? = nil) {
         _appearance = State(initialValue: appearance)
         _selection = State(initialValue: selection)
+        self.onApply = onApply
     }
 
     var body: some View {
@@ -28,18 +32,20 @@ struct OiSeedCucumberCustomizationView: View {
             VStack(spacing: 0) {
                 VStack(spacing: 0) {
                     preview
-                    Button {
-                        previewRequest = PreviewRequest(appearance: appearance)
-                    } label: {
-                        Label("3D 랜더링", systemImage: "cube")
-                            .font(.subheadline.weight(.semibold))
-                            .padding(.horizontal, 8)
-                            .frame(minHeight: 44)
+                    if onApply == nil {
+                        Button {
+                            previewRequest = PreviewRequest(appearance: appearance)
+                        } label: {
+                            Label("3D 랜더링", systemImage: "cube")
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 8)
+                                .frame(minHeight: 44)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(Color("OiGreen"))
+                        .padding(.bottom, 8)
+                        .accessibilityIdentifier("seedCucumber.3D.open")
                     }
-                    .buttonStyle(.bordered)
-                    .tint(Color("OiGreen"))
-                    .padding(.bottom, 8)
-                    .accessibilityIdentifier("seedCucumber.3D.open")
                 }
                 .frame(height: max(64, geometry.size.height * (dynamicTypeSize.isAccessibilitySize ? 0.4 : 0.53)))
                 Divider()
@@ -51,8 +57,23 @@ struct OiSeedCucumberCustomizationView: View {
             }
         }
         .background(Color(.systemBackground).ignoresSafeArea())
-        .navigationTitle("오이 커스텀")
+        .navigationTitle(onApply == nil ? "오이 커스텀" : "얼굴 꾸미기")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if let onApply {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("취소") { dismiss() }
+                        .accessibilityIdentifier("seedCucumber.face.cancel")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("적용") {
+                        onApply(appearance)
+                        dismiss()
+                    }
+                    .accessibilityIdentifier("seedCucumber.face.apply")
+                }
+            }
+        }
         .sheet(item: $previewRequest) { request in
             OiSeedCucumber3DPreview(appearance: request.appearance)
         }
@@ -61,14 +82,7 @@ struct OiSeedCucumberCustomizationView: View {
     private var preview: some View {
         Canvas { context, size in
             let viewport = OiSeedCucumberViewport(size: size)
-            var artwork = context
-            artwork.concatenate(viewport.transform)
-            appearance.drawStem(in: artwork)
-            // The crown covers the stem's cut edge at every rotation and length.
-            artwork.draw(Image("SeedCucumberBody"), in: appearance.bodyFrame)
-            for layer in OiSeedCucumberLayer.faceLayers {
-                artwork.draw(Image(layer.asset), in: appearance.faceFrame(layer))
-            }
+            OiSeedCucumberFrontArtwork.draw(appearance, in: context, viewport: viewport)
             drawSelection(in: context, viewport: viewport)
         }
         .overlay {
@@ -181,6 +195,28 @@ struct OiSeedCucumberCustomizationView: View {
         let amount = Int(value.rounded())
         guard amount != 0 else { return "기본 위치" }
         return "\(amount < 0 ? negative : positive) \(abs(amount))"
+    }
+}
+
+struct OiSeedCucumberFrontArtwork: View {
+    let appearance: OiSeedCucumberAppearance
+
+    var body: some View {
+        Canvas { context, size in
+            Self.draw(appearance, in: context, viewport: OiSeedCucumberViewport(size: size))
+        }
+    }
+
+    fileprivate static func draw(_ appearance: OiSeedCucumberAppearance, in context: GraphicsContext,
+                                 viewport: OiSeedCucumberViewport) {
+        var artwork = context
+        artwork.concatenate(viewport.transform)
+        appearance.drawStem(in: artwork)
+        // The crown covers the stem's cut edge at every rotation and length.
+        artwork.draw(Image("SeedCucumberBody"), in: appearance.bodyFrame)
+        for layer in OiSeedCucumberLayer.faceLayers {
+            artwork.draw(Image(layer.asset), in: appearance.faceFrame(layer))
+        }
     }
 }
 

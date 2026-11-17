@@ -388,10 +388,33 @@ struct OiServiceChecks {
         record.creationStep = OiCreationStep.card.rawValue
         record.customization = OiDraftCustomization(fill: .gradient, firstColor: 0xABCDEF, secondColor: 0x123456,
                                                    showsCharacter: false, garmentColors: ["모자":0x445566])
-        // Old customization records have no wardrobe key and must still recover.
+        // Old customization records can omit the local appearance and outfit.
         let oldCustomization = try JSONEncoder().encode(record.customization!)
         let oldRecovered = try JSONDecoder().decode(OiDraftCustomization.self, from: oldCustomization)
-        precondition(oldRecovered.wardrobe == nil && oldRecovered.card == nil)
+        precondition(oldRecovered.wardrobe == nil && oldRecovered.card == nil && oldRecovered.seedAppearance == nil)
+        precondition(oldRecovered.seedWhiteTshirt == nil && oldRecovered.seedLongPants == nil)
+        precondition(oldRecovered.seedSneakers == nil && oldRecovered.selectedSeedSet == nil)
+        var seedAppearance = OiSeedCucumberAppearance()
+        seedAppearance.bodyHeight = 1.1
+        seedAppearance.bodyWidth = 1.2
+        seedAppearance.eyeSpacing = 1.13
+        seedAppearance.stemLength = 1.45
+        seedAppearance.stemAngle = -48
+        seedAppearance[.eyes] = .init(x: -15, y: -28, size: 1.25)
+        seedAppearance[.mouth] = .init(x: 6, y: 18, size: 0.75)
+        record.customization?.seedAppearance = seedAppearance
+        record.customization?.seedWhiteTshirt = true
+        let shirtOnly = try JSONEncoder().encode(record.customization!)
+        let shirtOnlyRecovered = try JSONDecoder().decode(OiDraftCustomization.self, from: shirtOnly)
+        precondition(shirtOnlyRecovered.seedWhiteTshirt == true && shirtOnlyRecovered.seedLongPants == nil)
+        precondition(shirtOnlyRecovered.selectedSeedTop == .tshirt && shirtOnlyRecovered.selectedSeedBottom == nil)
+        record.customization?.seedLongPants = true
+        let legacyOutfit = try JSONDecoder().decode(OiDraftCustomization.self, from: JSONEncoder().encode(record.customization!))
+        precondition(legacyOutfit.selectedSeedTop == .tshirt && legacyOutfit.selectedSeedBottom == .long)
+        record.customization?.selectedSeedTop = .cardigan
+        record.customization?.selectedSeedBottom = .shorts
+        record.customization?.toggleSeedSneakers()
+        record.customization?.selectSeedSet(.costume(.scientistGoggles))
         let future = try JSONDecoder().decode(OiWardrobeLook.self, from: Data(#"{"top":"future-garment","bottom":"retired-pants","topColor":4294967295}"#.utf8))
         precondition(future.top == .tshirt && future.bottom == .long && future.topColor == 0xFFFFFF)
         precondition(future.fabrics.isEmpty, "Legacy looks have no fabric override")
@@ -510,6 +533,36 @@ struct OiServiceChecks {
         precondition(recovered?.customization?.card == card, "Card framing, portrait, background, caption and privacy choice must survive vault reopening")
         precondition(recovered?.customization?.card?.characterOrientation == card.characterOrientation)
         print("PASS: card framing, 3D orientation and artwork survive draft recovery; legacy cards and public payload unchanged")
+        precondition(recovered?.customization?.seedAppearance == seedAppearance, "Face, stem, and body edits must survive reopening the account draft")
+        precondition(recovered?.customization?.selectedSeedTop == .cardigan, "The STEP 3 top selection must survive reopening the account draft")
+        precondition(recovered?.customization?.selectedSeedBottom == .shorts, "The STEP 3 bottom selection must survive reopening the account draft")
+        guard var restoredOutfit = recovered?.customization else { preconditionFailure("Missing STEP 3 draft customization") }
+        precondition(restoredOutfit.selectedSeedSet == .costume(.scientistGoggles) && restoredOutfit.seedSneakers == true)
+        restoredOutfit.selectSeedSet(.costume(.scientistGoggles))
+        precondition(restoredOutfit.selectedSeedSet == nil && restoredOutfit.seedSneakers == true)
+        precondition(restoredOutfit.selectedSeedTop == .cardigan && restoredOutfit.selectedSeedBottom == .shorts)
+        restoredOutfit.selectSeedSet(.postech)
+        let savedPostechSet = try JSONDecoder().decode(OiDraftCustomization.self, from: JSONEncoder().encode(restoredOutfit))
+        precondition(savedPostechSet.selectedSeedSet == .postech)
+        restoredOutfit.selectSeedTop(.hoodie)
+        precondition(restoredOutfit.selectedSeedSet == nil && restoredOutfit.selectedSeedTop == .hoodie)
+        precondition(restoredOutfit.selectedSeedBottom == .shorts && restoredOutfit.seedSneakers == true)
+        restoredOutfit.toggleSeedSneakers()
+        precondition(restoredOutfit.seedSneakers != true)
+        restoredOutfit.selectSeedSet(.costume(.dinosaur))
+        restoredOutfit.toggleSeedSneakers()
+        precondition(restoredOutfit.selectedSeedSet == nil && restoredOutfit.seedSneakers == true)
+        restoredOutfit.selectSeedSet(.costume(.dinosaur))
+        restoredOutfit.toggleSeedSneakers()
+        precondition(restoredOutfit.selectedSeedSet == nil && restoredOutfit.seedSneakers == true,
+                     "Choosing shoes while wearing a set must equip the shoes")
+        print("PASS: STEP 3 set and sneakers survive draft reopening and restore modular choices")
+        precondition(recovered?.customization?.seedWhiteTshirt == nil && recovered?.customization?.seedLongPants == nil)
+        var removedOutfit = legacyOutfit
+        removedOutfit.selectedSeedTop = nil
+        removedOutfit.selectedSeedBottom = nil
+        let recoveredRemoval = try JSONDecoder().decode(OiDraftCustomization.self, from: JSONEncoder().encode(removedOutfit))
+        precondition(recoveredRemoval.selectedSeedTop == nil && recoveredRemoval.selectedSeedBottom == nil)
         precondition(recovered?.customization?.wardrobe == look, "Garments and all three colors must survive reopening the account draft")
         precondition(recovered?.customization?.wardrobe?.artwork == look.artwork)
         precondition(recovered?.customization?.wardrobe?.fabrics == look.fabrics)

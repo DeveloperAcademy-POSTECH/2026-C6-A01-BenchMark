@@ -17,6 +17,7 @@ struct OiStoryEditor: View {
 
     let remote: OiRemoteStore
     var onFinish: (() -> Void)?
+    private var cucumberPreviewMode: OiCucumberCustomizationStep.PreviewMode = .seed
     @State private var draft: OiStoryDraft
     @State private var owner: UUID?
     @State private var photos: [UUID] = []
@@ -90,6 +91,12 @@ struct OiStoryEditor: View {
     }
 
     #if DEBUG
+    func useWardrobeEditorForTest() -> Self {
+        var view = self
+        view.cucumberPreviewMode = .wardrobe
+        return view
+    }
+
     // Hosted tests can drive the mounted editor without depending on SwiftUI's UIKit accessibility tree.
     struct PhotoEditingTestActions {
         let items: @MainActor () -> [OiEditingPhoto]
@@ -904,8 +911,16 @@ struct OiStoryEditor: View {
         return OiEditingPhoto.applyingOrder(photoOrder, to: items, key: \.orderKey)
     }
     private var currentStory: OiLiveStory? { remote.ownStories.first { $0.id == draft.id } }
-    // On a second device, preserve the last reviewed design until the author customizes it here.
-    private var reusedCardPath: String? { customization == OiDraftCustomization() ? currentStory?.cardArtworkPath : nil }
+    // Preserve the last reviewed card until the author edits its artwork.
+    private var reusedCardPath: String? {
+        var cardCustomization = customization
+        cardCustomization.seedAppearance = nil
+        cardCustomization.selectedSeedTop = nil
+        cardCustomization.selectedSeedBottom = nil
+        cardCustomization.seedSneakers = nil
+        cardCustomization.selectedSeedSet = nil
+        return cardCustomization == OiDraftCustomization() ? currentStory?.cardArtworkPath : nil
+    }
 
     @ViewBuilder private var editorStatus: some View {
         OiConnectionStatus(remote: remote)
@@ -978,6 +993,7 @@ struct OiStoryEditor: View {
             }
         case .cucumber:
             OiCucumberCustomizationStep(customization: $customization, cucumberName: $draft.cucumberName,
+                previewMode: cucumberPreviewMode,
                 // Figma: 완료 goes straight to STEP 4 card customization (`5919:12077`, #377).
                 canContinue: true, isFinished: false, onContinue: advance,
                 onPhotoEditingChanged: { wardrobePhotoEditing = $0 })
