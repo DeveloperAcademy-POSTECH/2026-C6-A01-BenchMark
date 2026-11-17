@@ -17,6 +17,9 @@ final class ARSessionController {
     var settings = Settings()
     var ready = false
     var capturing = false
+    var loading = false
+    private(set) var mascotSelections = 0
+    private(set) var storyRestorations = 0
     var result: UUID?
     var videoRecording = false
     var canCapture: Bool { ready && !capturing && !videoRecording }
@@ -60,6 +63,8 @@ final class ARSessionController {
     func stop() { stopRequests += 1; pause() }
     func pause() { pauseRequests += 1; generation += 1; ready = false }
     func capture() { guard canCapture else { return }; captures += 1; capturing = true }
+    func selectMascot(_ character: ARCharacter) { mascotSelections += 1; pause() }
+    func restoreOriginalSubject() { storyRestorations += 1; pause() }
 }
 
 @MainActor

@@ -94,6 +94,22 @@ final class ARCameraViewModel {
 
     func cancelTimer() { timerTask?.cancel(); timerTask = nil; countdown = nil }
 
+    func selectMascot(_ character: ARCharacter) {
+        guard visible, active, !closing, !hasPresentedResult, !video.busy, !controller.capturing,
+              !controller.loading, timerTask == nil else { return }
+        cancelStartup()
+        controller.selectMascot(character)
+        resumeCamera()
+    }
+
+    func restoreOriginalSubject() {
+        guard visible, active, !closing, !hasPresentedResult, !video.busy, !controller.capturing,
+              !controller.loading, timerTask == nil else { return }
+        cancelStartup()
+        controller.restoreOriginalSubject()
+        resumeCamera()
+    }
+
     func viewportChanged() {
         recordingStartTask?.cancel()
         cancelTimer()

@@ -23,7 +23,13 @@ struct ARCameraPreview: View {
                             .buttonStyle(.bordered)
                     }
                 }
-                if controller.recoveryIssue == nil && (!controller.placed || !controller.ready || (controller.usesGeographicPlacement && !controller.geographicReady)) {
+                if controller.isPalmMode {
+                    Text(controller.locked ? "현재 위치 고정 · 잠금을 풀면 손을 다시 인식해요" : controller.message)
+                        .font(.caption).multilineTextAlignment(.center)
+                        .padding(10).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                        .accessibilityIdentifier("ar.camera.palmStatus")
+                }
+                if !controller.isPalmMode && controller.recoveryIssue == nil && (!controller.placed || !controller.ready || (controller.usesGeographicPlacement && !controller.geographicReady)) {
                     Text(controller.message)
                         .font(.callout).multilineTextAlignment(.center)
                         .padding(12).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))

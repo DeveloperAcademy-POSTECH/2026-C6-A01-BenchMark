@@ -3395,7 +3395,7 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(update(fix(), camera: [8, 3, 6], ground: 1), .ready([8, 1, 6]))
     }
 
-    @MainActor func testGeographicCameraUsesMetresAndSavedHeadingWithoutManualFallback() throws {
+    @MainActor func testGeographicCameraUsesMetresAndSavedHeadingWithoutManualFallback() async throws {
         let now = Date()
         let target = CampusPlacement(storyID: "direction-test", latitude: 36.0121, longitude: 129.3231,
                                      heightMeters: 1.5, headingDegrees: 90)
@@ -3429,7 +3429,11 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(controller.locationNotice, "위치 접근을 허용해 주세요.")
         controller.pause()
         XCTAssertFalse(controller.geographicReady)
-        XCTAssertFalse(ARSessionController().usesGeographicPlacement)
+        // Allocate actor-isolated RealityKit owners outside XCTest's autoclosure.
+        // A temporary owner here crashes in Swift's deinitOnExecutor runtime.
+        let manualController = ARSessionController()
+        defer { manualController.stop() }
+        XCTAssertFalse(manualController.usesGeographicPlacement)
     }
 
     @MainActor func testPausedCameraDetachesRendererAndReusesItsSceneOnReturn() async throws {

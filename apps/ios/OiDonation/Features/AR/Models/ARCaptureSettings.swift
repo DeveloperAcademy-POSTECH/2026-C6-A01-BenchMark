@@ -8,6 +8,10 @@ struct ARCaptureSettings: Codable, Equatable {
     var cameraExposure: Float = 0
     var photoFilter: ARPhotoFilter = .original
     var character: ARCharacter = .neopjuk
+    // Optional fields preserve decoding of photo records made before palm placement.
+    var placementMode: ARManualPlacementMode? = nil
+    var palmHeight: Float? = nil
+    var palmRotation: Float? = nil
     /// Present only for a selected public cucumber; legacy mascot records still decode.
     var cucumberStoryID: UUID? = nil
     var cucumberName: String? = nil
@@ -23,6 +27,11 @@ struct ARCaptureSettings: Codable, Equatable {
     var azimuth: Float = 45
     var elevation: Float = 45
     var intensity: Float = 1500
+}
+
+enum ARManualPlacementMode: String, Codable, CaseIterable {
+    case floor, palm
+    var title: String { self == .floor ? "바닥" : "손바닥" }
 }
 
 enum ARPhotoRatio: String, Codable, CaseIterable {

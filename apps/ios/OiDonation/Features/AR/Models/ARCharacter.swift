@@ -6,7 +6,7 @@ enum ARCharacter: String, CaseIterable, Codable, Identifiable {
     var title: String {
         switch self {
         case .neopjuk: "넙죽이"
-        case .ponix: "Ponix"
+        case .ponix: "포닉스"
         case .ponixVsNeopjuk: "포닉스 vs 넙죽이"
         case .doni: "도니"
         case .neopjukAnimated: "넙죽이 · 애니메이션"
