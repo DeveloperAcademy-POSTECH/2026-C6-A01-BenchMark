@@ -568,17 +568,12 @@ struct OiStoryEditor: View {
     }
 
     private func navigate(to destination: OiCreationStep) {
-        // Every creation screen switches at once, without a slide or fade (#373, #386).
-        Self.withoutAnimation {
+        // STEP 1 ↔ STEP 2 switch at once, without a slide or fade (#373); other steps keep the short fade.
+        let switchesAtOnce = Set([step, destination]) == [.consent, .story]
+        withAnimation(reduceMotion || switchesAtOnce ? nil : .easeInOut(duration: 0.18)) {
             if step != destination { customizationReady = false; cardPlacementReady = false }
             step = destination
         }
-    }
-
-    private static func withoutAnimation(_ change: () -> Void) {
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction, change)
     }
 
     /// Save the draft on this device before showing the completion summary; keep editing on failure.
@@ -590,7 +585,7 @@ struct OiStoryEditor: View {
         guard await persist() else { return }
         // Prepare the trimmed cucumber first and fade the summary in, so it neither pops in nor cuts in (#386).
         completionFigure = await OiStoryCompletionView.figureImage(draft: draft, customization: customization)
-        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.28)) { showingCardCompletion = true }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { showingCardCompletion = true }
     }
 
     private func toggleCustomizationReady() {
