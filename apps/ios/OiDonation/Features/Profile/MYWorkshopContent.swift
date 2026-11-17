@@ -49,9 +49,9 @@ struct MYWorkshopContent: View {
                     .padding(.bottom, 16)
             }
             if tab == .connected {
-                ContentUnavailableView("이어진 기부", systemImage: "link",
-                    description: Text("연결된 기부 내역은 아직 제공하지 않습니다."))
-                    .accessibilityIdentifier("my.v4.connected.unavailable")
+                if remote?.account != nil {
+                    OiContinuationList().frame(minHeight: 400)
+                } else { signInMessage }
             } else if let remote, !remote.hasLoadedRemote {
                 if remote.loadError == nil || remote.isRefreshing {
                     ProgressView().frame(maxWidth: .infinity).padding(.vertical, 40)

@@ -14,6 +14,7 @@ struct MYWorkshopView: View {
     @State private var selectedTab: MYWorkshopTab
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.dismiss) private var dismiss
+    @Environment(CampusStoryStore.self) private var campusStore: CampusStoryStore?
 
     init(demo: MYLibraryStore, remote: OiRemoteStore? = nil, initialTab: MYWorkshopTab = .authored,
          storyRepository: any StoryRepository = AppContainer.pilot.storyRepository) {
@@ -82,6 +83,21 @@ struct MYWorkshopView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarRole(.navigationStack)
         .onChange(of: remote?.account?.id) { _, _ in selectedTab = .authored }
+        .task(id: "\(remote?.continuationPrivacyKey ?? "public")/\(remote?.revision ?? 0)/\(selectedTab.rawValue)") {
+            guard selectedTab != .connected, let remote, remote.account != nil else { return }
+            _ = try? await remote.storyContinuations(mine: true)
+        }
+        .navigationDestination(for: CampusDestination.self) { destination in
+            if let campusStore {
+                switch destination {
+                case .summary(let id):
+                    if let story = campusStore.story(id) { CampusSummaryView(story: story, store: campusStore) }
+                case .story(let id):
+                    if let story = campusStore.story(id) { CampusCucumberStoryView(story: story, store: campusStore) }
+                default: ContentUnavailableView("이야기를 다시 열어 주세요", systemImage: "book")
+                }
+            }
+        }
     }
 
     private func profileHeader(scale: CGFloat) -> some View {
@@ -99,7 +115,7 @@ struct MYWorkshopView: View {
                     .padding(.top, 1)
                 VStack(alignment: .leading, spacing: 6) {
                     unavailableCount("기부횟수")
-                    unavailableCount("이어진 기부 횟수")
+                    unavailableCount("이어진 기부 횟수", count: remote?.incomingContinuationCount)
                 }.padding(.top, 7)
             }
             .frame(width: 211 * scale, alignment: .leading)
@@ -134,7 +150,7 @@ struct MYWorkshopView: View {
             academicLabel
             profileName
             unavailableCount("기부횟수")
-            unavailableCount("이어진 기부 횟수")
+            unavailableCount("이어진 기부 횟수", count: remote?.incomingContinuationCount)
             farmer.frame(height: 237).frame(maxWidth: .infinity)
             if isSignedIn {
                 Text("캐릭터를 눌러 농부를 꾸며주세요!")
@@ -187,19 +203,19 @@ struct MYWorkshopView: View {
         return "\(year.suffix(2))학번 \(name)"
     }
 
-    private func unavailableCount(_ title: String) -> some View {
+    private func unavailableCount(_ title: String, count: Int? = nil) -> some View {
         HStack(spacing: 6) {
             Text(title).font(CampusStyle.medium(12))
                 .foregroundStyle(Color(red: 80 / 255, green: 80 / 255, blue: 80 / 255))
-            Text("—").font(CampusStyle.semibold(12)).foregroundStyle(CampusStyle.green)
+            Text(count.map { "\($0)" } ?? "—").font(CampusStyle.semibold(12)).foregroundStyle(CampusStyle.green)
         }
         .tracking(0.24).padding(.horizontal, 16).padding(.vertical, 8)
         .frame(minWidth: title == "기부횟수" ? 102 : 141)
         .background(.white, in: Capsule())
         .overlay { Capsule().strokeBorder(Color(red: 192 / 255, green: 156 / 255, blue: 126 / 255), lineWidth: 1) }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title).accessibilityValue("집계 미제공")
-        .accessibilityHint("기부 집계를 제공하지 않습니다")
+        .accessibilityLabel(title).accessibilityValue(count.map { "공개된 이어진 이야기 \($0)개" } ?? "집계 미제공")
+        .accessibilityHint("실제 납입이나 학교 기부 확인을 뜻하지 않습니다")
     }
 
     private var farmer: some View {

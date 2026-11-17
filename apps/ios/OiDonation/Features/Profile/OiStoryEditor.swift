@@ -45,6 +45,7 @@ struct OiStoryEditor: View {
     @State private var focusedStoryField: OiStoryWritingStep.Field?
     /// STEP 2 shows missing items under the buttons only after Next is tapped (#373).
     @State private var showingStoryMissing = false
+    @State private var showingDonorPicker = false
     @State private var customization = OiDraftCustomization()
     @State private var personalPlacement: OiPersonalPlacement?
     @State private var removedMediaPaths: [String] = []
@@ -342,6 +343,12 @@ struct OiStoryEditor: View {
                 Text("제목, 본문, 위치를 서버 버전으로 바꿉니다. 추가한 사진과 기기에서 꾸민 오이·카드는 보관합니다.")
             }
             .fullScreenCover(item: $photoCheckpoint) { _ in photoEditorContent }
+            .fullScreenCover(isPresented: $showingDonorPicker) {
+                OiConnectedDonationPicker(
+                    stories: recentDonationStories,
+                    onCancel: { showingDonorPicker = false },
+                    onDone: { customization.connectedStoryID = $0; customization.connectedStorySelectionEdited = true; showingDonorPicker = false })
+            }
             .sheet(isPresented: $showingPreview, onDismiss: {
                 guard openingPhotosAfterReview else { return }
                 openingPhotosAfterReview = false
@@ -737,6 +744,9 @@ struct OiStoryEditor: View {
                 reviewedContentFingerprint = record.reviewedContentFingerprint
                 step = record.creationStep.flatMap(OiCreationStep.init(rawValue:)) ?? .story
                 customization = record.customization ?? OiDraftCustomization()
+                if customization.connectedStorySelectionEdited != true, customization.connectedStoryID == nil {
+                    customization.connectedStoryID = currentStory?.continuedFromStoryId?.uuidString
+                }
                 personalPlacement = record.personalPlacement
                 customizationReady = personalPlacement != nil && step == .card
                 cardPlacementReady = customizationReady
@@ -748,6 +758,9 @@ struct OiStoryEditor: View {
             if let server = remote.ownStories.first(where: { $0.id == draft.id }) {
                 if draft.heightMeters == nil { draft.heightMeters = server.heightMeters }
                 if draft.headingDegrees == nil { draft.headingDegrees = server.headingDegrees }
+                if customization.connectedStorySelectionEdited != true, customization.connectedStoryID == nil {
+                    customization.connectedStoryID = server.continuedFromStoryId?.uuidString
+                }
                 submitted = !OiCreationAccess.canEdit(status: server.status, submitted: submitted)
             }
             restored = true; localError = nil; saveLabel = "이 계정의 기기 초안 자동 저장"
@@ -955,7 +968,11 @@ struct OiStoryEditor: View {
                 OiStoryWritingStep(draft: $draft, focusedField: $focusedStoryField)
                 OiStoryAttachmentSections(photoCount: editingPhotos.count,
                     latitude: draft.latitude, longitude: draft.longitude,
-                    onPhotos: openPhotoEditor, onLocation: { endStoryEditing(); navigate(to: .location) })
+                    onPhotos: openPhotoEditor, onLocation: { endStoryEditing(); navigate(to: .location) },
+                    connectedStory: connectedStory, onSelectDonor: selectDonor,
+                    onClearDonor: customization.connectedStoryID == nil ? nil : {
+                        customization.connectedStoryID = nil; customization.connectedStorySelectionEdited = true
+                    })
             }
         case .cucumber:
             OiCucumberCustomizationStep(customization: $customization, cucumberName: $draft.cucumberName,
@@ -970,6 +987,28 @@ struct OiStoryEditor: View {
                 isFinished: false, onContinue: { Task { await completeCard() } })
 
         }
+    }
+
+    private var recentDonationStories: [CampusStory] {
+        guard let owner = remote.account?.id, let campusStore else { return [] }
+        return OiRecentStories.pickerStories(owner: owner) { id in
+            guard let story = campusStore.story(id),
+                  !(story.authorID.map { OiContentSafetyStore.shared.isBlocked($0) } ?? false) else { return nil }
+            return story
+        }
+    }
+
+    /// The story this donation continues from, while it is still public.
+    private var connectedStory: CampusStory? {
+        guard let id = customization.connectedStoryID, let story = campusStore?.story(id),
+              !(story.authorID.map { OiContentSafetyStore.shared.isBlocked($0) } ?? false) else { return nil }
+        return story
+    }
+
+    /// Keep the saved selection until a new choice is confirmed; cancel must preserve it.
+    private func selectDonor() {
+        endStoryEditing()
+        showingDonorPicker = true
     }
 
     private func cardStoryPhoto(_ photo: OiEditingPhoto) async throws -> Data {
