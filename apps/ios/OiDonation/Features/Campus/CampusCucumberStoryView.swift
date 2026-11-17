@@ -149,15 +149,20 @@ private struct CampusCucumberStoryPanel: View {
 
     private var tabs: some View {
         ZStack(alignment: .topLeading) {
-            // Paint the tabs back to front so each one's concave corner lies over the next tab.
-            ForEach(Array(CampusCucumberStoryView.Tab.allCases.reversed()), id: \.rawValue) { item in
-                let x = CGFloat(item.rawValue) * tabWidth
-                UnevenRoundedRectangle(topLeadingRadius: 15, topTrailingRadius: 15)
-                    .fill(item.fill).frame(width: tabWidth, height: tabHeight)
-                    .offset(x: x)
-                CampusStoryTabCorner().fill(item.fill).frame(width: 14, height: 14)
-                    .offset(x: x + tabWidth, y: tabHeight - 14)
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(CampusCucumberStoryView.Tab.allCases.reversed()), id: \.rawValue) { item in
+                    ZStack(alignment: .topLeading) {
+                        UnevenRoundedRectangle(topLeadingRadius: 15, topTrailingRadius: 15)
+                            .fill(item.fill).frame(width: tabWidth, height: tabHeight)
+                        CampusStoryTabCorner().fill(item.fill).frame(width: 14, height: 14)
+                            .offset(x: tabWidth, y: tabHeight - 14)
+                    }
+                    .offset(x: CGFloat(item.rawValue) * tabWidth)
+                    .zIndex(tab == item ? 1 : 0)
+                }
             }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
             ForEach(CampusCucumberStoryView.Tab.allCases, id: \.rawValue) { item in
                 Button { tab = item } label: {
                     Text(item.title).font(CampusStyle.medium(16)).foregroundStyle(Color(oiRGB: 0x273116))

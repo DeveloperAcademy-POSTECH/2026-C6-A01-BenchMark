@@ -3685,6 +3685,43 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testCucumberStoryHeaderRaisesSelectedTabAtOverlap() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let store = CampusStoryStore(defaults: fixture.defaults, isExample: true)
+        let story = try XCTUnwrap(CampusStoryExamples.stories.first)
+        let reference = try XCTUnwrap(variants.first)
+        typealias Tab = CampusCucumberStoryView.Tab
+        let expectations: [(tab: Tab, leading: Tab, trailing: Tab)] = [
+            (.related, .related, .location),
+            (.location, .location, .location),
+            (.donor, .related, .donor)
+        ]
+
+        for expectation in expectations {
+            let detail = NavigationStack {
+                CampusCucumberStoryView(story: story, store: store, initialTab: expectation.tab)
+            }
+            let png = try await capture(detail, name: "story-header-\(expectation.tab.rawValue)", variant: reference,
+                defaults: fixture.defaults, attach: true)
+            let bitmap = try renderedBitmap(png, size: reference.size)
+            let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: bitmap.bytesPerRow * bitmap.height)
+            func color(x: Int, y: Int) -> UInt32 {
+                let start = y * bitmap.bytesPerRow + x * 4
+                return UInt32(pixels[start]) << 16 | UInt32(pixels[start + 1]) << 8 | UInt32(pixels[start + 2])
+            }
+            // Find a solid row near the bottom of the tab, inside the two curved overlaps.
+            let middle = bitmap.height / 2
+            let locationFill = color(x: 198, y: middle)
+            let bottom = try XCTUnwrap((middle...middle + 35).first { color(x: 198, y: $0) != locationFill })
+            let overlapY = bottom - 2
+            let fills = [90, 198, 310].map { color(x: $0, y: overlapY) }
+            XCTAssertEqual(Set(fills).count, 3, "All three tab fills should be visible")
+            XCTAssertEqual(color(x: 112, y: overlapY), fills[expectation.leading.rawValue], "Overlap between related and location tabs")
+            XCTAssertEqual(color(x: 222, y: overlapY), fills[expectation.trailing.rawValue], "Overlap between location and donor tabs")
+        }
+    }
+
     func testCampusDetailAndSummaryCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
