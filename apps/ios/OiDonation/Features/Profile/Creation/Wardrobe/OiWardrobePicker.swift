@@ -32,11 +32,16 @@ struct OiCucumberCustomizationStep: View {
     /// Top of the keyboard in global coordinates, animated with the keyboard itself (#377).
     @State private var keyboardTop: CGFloat?
     @State private var showsFaceEditor = false
+    @State private var costumeProposals: [OiWardrobeLook.Costume: OiSeedCostumeProposal] = [:]
     private var allowsWardrobeEditing: Bool { previewMode == .wardrobe }
     private var seedAppearance: OiSeedCucumberAppearance { customization.seedAppearance ?? .init() }
     private var seedGarments: Set<OiSeedCucumberGarment> {
         switch customization.selectedSeedSet {
-        case .costume(let costume): return [.costume(costume)]
+        case .costume(let costume):
+            if let proposal = costumeProposals[costume] {
+                return [.costumeProposal(costume, proposal)]
+            }
+            return [.costume(costume)]
         case .postech: return [.postechJacket, .longPants, .sneakers]
         case nil: break
         }
@@ -496,13 +501,19 @@ struct OiCucumberCustomizationStep: View {
                 EmptyView()
             case .set:
                 ForEach(OiWardrobeLook.Costume.allCases) { costume in
-                    let seedSelection = allowsWardrobeEditing ? nil : customization.selectedSeedSet == .costume(costume)
-                    item(costume.title, image: costume.thumbnailName, selected: look.costume == costume,
-                         id: "set-" + costume.rawValue, seedSelection: seedSelection) {
-                        if seedSelection != nil {
-                            customization.selectSeedSet(.costume(costume))
-                        } else {
-                            change { $0.costume = costume }
+                    if !allowsWardrobeEditing && OiSeedCostumeProposal.costumes.contains(costume) {
+                        ForEach(OiSeedCostumeProposal.allCases, id: \.self) { proposal in
+                            proposalItem(costume, proposal)
+                        }
+                    } else {
+                        let seedSelection = allowsWardrobeEditing ? nil : customization.selectedSeedSet == .costume(costume)
+                        item(costume.title, image: costume.thumbnailName, selected: look.costume == costume,
+                             id: "set-" + costume.rawValue, seedSelection: seedSelection) {
+                            if seedSelection != nil {
+                                customization.selectSeedSet(.costume(costume))
+                            } else {
+                                change { $0.costume = costume }
+                            }
                         }
                     }
                 }
@@ -521,6 +532,17 @@ struct OiCucumberCustomizationStep: View {
                 }
             }
         }
+        }
+    }
+
+    private func proposalItem(_ costume: OiWardrobeLook.Costume, _ proposal: OiSeedCostumeProposal) -> some View {
+        let isWorn = customization.selectedSeedSet == .costume(costume)
+        let isSelected = isWorn && costumeProposals[costume] == proposal
+        let garment = OiSeedCucumberGarment.costumeProposal(costume, proposal)
+        return item("\(costume.title)\(proposal.rawValue)", image: garment.rawValue, selected: isSelected,
+                    id: "set-\(costume.rawValue)-proposal-\(proposal.rawValue)", seedSelection: isSelected) {
+            costumeProposals[costume] = proposal
+            if !isWorn || isSelected { customization.selectSeedSet(.costume(costume)) }
         }
     }
 

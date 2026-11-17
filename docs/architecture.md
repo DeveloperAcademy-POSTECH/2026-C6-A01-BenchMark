@@ -386,6 +386,8 @@ STEP 3 옷장 확장(#299)은 흰 운동화와 목록의 세트 18종을 같은 
 
 STEP 3 후드 비침 수정(#299)은 착용 중 잘린 피부의 경계를 후드 안쪽에서 연결해 닫힌 메시를 만든다. 후드·헬멧 개구부에는 원본 테두리 안쪽에 불투명 안감을 이어 붙인다. RealityKit은 로드한 후드의 불투명 재질을 양면으로 그리고 피부 재질의 불투명도를 고정한다. 연구원은 원본 가운과 플라스크·손의 정점을 사용하고 씨앗 목 부분만 원본 목둘레에 맞춰 잘라낸다. 눈·입·꼭지 편집과 투명 보안경은 유지한다. [후드 안쪽 비교](images/seed-cucumber-customization/step3-hood-interior-closure.jpg) · [연구원 비교](images/seed-cucumber-customization/step3-scientist-original-fit.jpg)
 
+실기기 의상 비교용 #299 작업 브랜치의 세트 목록은 노란 우비·우주복·연구원·곰돌이 고양이·과잠 셀카·남색 우주복에 각각 1·2·3번 카드를 제공한다. 선택한 시안은 기존 미리보기 위에서 교체하며 번호는 화면 안에서 관리한다. 초안에는 기존 세트 ID를 보관한다. 번들 에셋과 썸네일은 `tools/wardrobe/seed_catalog/prepare_seed_costume_proposals.py`를 `--preview`로 실행해 생성한다.
+
 `OiLocalDraft`의 선택적 `creationStep`·`customization`·`removedMediaPaths`는 구버전 초안을 그대로 읽을 수 있게 추가한다. `OiDraftCustomization`은 로컬 미리보기 전용이며 `OiStoryDraft.payload()`나 공유 DB를 확장하지 않는다. 업로드 사진 순서를 유지하고 기기 사본과 서버 경로를 중복 표시하지 않는다. 기존 `attach_media` RPC로 사진 연결을 변경하며, 변경 직후 목록 동기화가 실패해도 응답의 revision과 경로를 보존한다.
 
 위치 선택은 기존 `CampusExploreScene`을 재사용한다. 2026-11-05 후속 요청에 따라 `OiLocationPicker`가 장소 검색 → 지도 확인을 소유하고, `OiStoryLocationStep`은 번들 POSTECH POI 검색 목록을 표시한다. 별도 오이 모델 로딩 없이 지도 카메라의 광학 중심 광선과 `CampusHeightField`의 교차점으로 임시 좌표를 계산한다. 이동·회전·기울기·확대·탄성 복귀마다 갱신하며 유효하지 않으면 이전 유효 좌표도 비워 잘못 확정되지 않게 한다. 확인 버튼에서 카메라 이동을 멈추고 다시 검증한 뒤 초안에 전달한다. 지도 검색 복귀·화면 종료 시 숨은 RealityKit 렌더러를 해제하며 메인과 같은 `CampusMapLabels`를 사용한다. 현장 테스트 화면의 탭·`CampusPlacementTools`는 변경하지 않는다. 구현 경계와 검증 절차는 [이야기 생성 흐름](story-creation-flow.md)을 따른다.

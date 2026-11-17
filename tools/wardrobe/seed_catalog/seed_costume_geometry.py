@@ -57,7 +57,7 @@ prim_pattern = re.compile(r'(?m)^( *)def (Xform|Mesh) "([^"]+)"[^\n]*\n')
 next_prim = re.compile(r'(?m)^\s*def \w+ "')
 archive = re.compile(r'(?m)asset inputs:file = @([^@]+)@')
 
-def meshes(text):
+def meshes(text, *, include_transform=False):
     ancestors = []
     for prim in prim_pattern.finditer(text):
         indentation, kind, name = prim.groups()
@@ -84,7 +84,8 @@ def meshes(text):
         else:
             texcoords = texcoords[faces]
         world = points @ transform[:3,:3] + transform[3,:3]
-        yield name, world, faces, texcoords
+        mesh = (name, world, faces, texcoords)
+        yield (*mesh, transform) if include_transform else mesh
 
 def sample(texture, uv):
     h,w,_ = texture.shape

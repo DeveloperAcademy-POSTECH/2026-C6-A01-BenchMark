@@ -10,9 +10,18 @@ import Foundation
 import RealityKit
 import simd
 
+enum OiSeedCostumeProposal: Int, CaseIterable {
+    case one = 1, two, three
+
+    static let costumes: Set<OiWardrobeLook.Costume> = [
+        .raincoat, .astronaut, .scientist, .catBear, .postechSelfie, .astronautNavy
+    ]
+}
+
 enum OiSeedCucumberGarment: Hashable, CaseIterable {
     case whiteTshirt, hoodie, cardigan, postechJacket, longPants, shorts, sneakers
     case costume(OiWardrobeLook.Costume)
+    case costumeProposal(OiWardrobeLook.Costume, OiSeedCostumeProposal)
 
     static var allCases: [Self] {
         [.whiteTshirt, .hoodie, .cardigan, .postechJacket, .longPants, .shorts, .sneakers]
@@ -29,6 +38,8 @@ enum OiSeedCucumberGarment: Hashable, CaseIterable {
         case .shorts: "SeedCucumberShorts"
         case .sneakers: "SeedCucumberSneakers"
         case .costume(let costume): "seed-costume-" + costume.rawValue
+        case .costumeProposal(let costume, let proposal):
+            "seed-costume-\(costume.rawValue)-proposal-\(proposal.rawValue)"
         }
     }
 
@@ -57,7 +68,7 @@ enum OiSeedCucumberGarment: Hashable, CaseIterable {
         case .whiteTshirt, .hoodie, .cardigan, .postechJacket: .top
         case .longPants, .shorts: .bottom
         case .sneakers: .shoes
-        case .costume: .costume
+        case .costume, .costumeProposal: .costume
         }
     }
 
@@ -70,12 +81,14 @@ enum OiSeedCucumberGarment: Hashable, CaseIterable {
         case .longPants: OiWardrobeLook.Bottom.long.title
         case .shorts: OiWardrobeLook.Bottom.shorts.title
         case .sneakers: "흰 운동화"
-        case .costume(let costume): costume.title
+        case .costume(let costume), .costumeProposal(let costume, _): costume.title
         }
     }
 
     var coveredSeedParts: Set<String> {
         switch self {
+        case .costumeProposal:
+            ["Body", "LeftArm", "RightArm", "LeftLeg", "RightLeg"]
         case .costume(.dinosaur), .costume(.raincoat), .costume(.bee), .costume(.cat), .costume(.catBear),
              .costume(.astronaut), .costume(.astronautNavy), .costume(.scientist):
             ["Body", "LeftArm", "RightArm", "LeftLeg", "RightLeg"]
@@ -94,6 +107,8 @@ enum OiSeedCucumberGarment: Hashable, CaseIterable {
     // Positions are in the unscaled seed model's authored coordinates.
     var hoodAttachments: (faceDepth: Float, stem: SIMD3<Float>)? {
         switch self {
+        case .costumeProposal(let costume, _):
+            Self.costume(costume).hoodAttachments.map { (0, $0.stem) }
         case .costume(.bee): (0, SIMD3(-0.028, -0.084, -0.010))
         case .costume(.cat): (0.034, SIMD3(-0.024, -0.061, 0.022))
         case .costume(.catBear): (0.023, SIMD3(-0.036, -0.064, -0.066))
