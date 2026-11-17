@@ -206,7 +206,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project app
 
 ## 이어진 이야기와 앱 내 알림 — #418
 
-2026-11-17 사용자 합의, 작업 브랜치 `feat/#418-story-continuations`. PR #415의 선택 UI를 통합한 서버·앱 후속이다. **현재 로컬 검증 단계이며 운영 52gibu에는 적용하지 않았다.**
+2026-11-17 사용자 합의, 작업 브랜치 `feat/#418-story-continuations`. PR #415의 선택 UI를 통합한 서버·앱 후속이다. **PR #425를 develop에 병합하고 2026-11-17 운영 52gibu에 적용했다.** 원래 mutator delegate 해시·적용 SQL SHA256 일치와 가상 자료 롤백 검증을 확인했다.
 
 ### 저장·검수·개인정보 계약
 
@@ -215,7 +215,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project app
 - `save_story.continued_from_story_id`: 필드 없음=기존 연결 유지, null=해제, UUID=공개된 다른 작성자의 이야기로 설정. 잘못된 UUID·미존재·비공개·자기 이야기·제한 작성자·순환 관계를 거절한다. topology 변경은 트랜잭션 advisory lock으로 직렬화하고 기존 인증·canonical 계정·리비전 검사를 delegate에서 그대로 실행한다.
 - 제출·공개 승인에서 대상을 재확인한다. AI 검수 snapshot에는 부모를 포함하고 부모 변경 후 기존 승인을 재사용할 수 없다. null 부모의 기존 snapshot은 바꾸지 않는다. 실제 심기의 기존 승인 검사·위치 검사를 유지한다. 검수 통과만으로 알림이나 공개 관계를 생성하지 않는다.
 - 관계의 `published_at`은 자식의 최초 실제 공개 시점이다. 재시도·숨김 후 재공개는 새 알림이나 읽음 초기화를 만들지 않는다. 부모 변경은 새 연결이므로 공개·읽음 시각을 초기화한다.
-- 공개 목록·개수·알림은 부모/자식 모두 published, 서로 다른 현재 canonical 소유자, 양쪽 작성자 제한 없음일 때만 제공한다. 앱의 기기 작성자 차단은 서버 계정 설정이 아니므로 각 조회의 `p_blocked` UUID 배열로 동일하게 좁힌다. 클라이언트 필터로 서버 공개 권한을 넓힐 수 없다.
+- 공개 목록·개수·알림은 부모/자식 모두 published, 서로 다른 현재 canonical 소유자, 양쪽 작성자 제한·탈퇴 진행 상태 없음일 때만 제공한다. 앱의 기기 작성자 차단은 서버 계정 설정이 아니므로 각 조회의 `p_blocked` UUID 배열로 동일하게 좁힌다. 클라이언트 필터로 서버 공개 권한을 넓힐 수 없다.
 - 원시 공개 행에 부모 ID·읽음 시각을 노출하지 않는다. 본인 초안 복원 RPC와 mutation 영수증도 숨겨진 부모 ID를 null로 표시한다. 추가 개인정보를 공개하지 않으며 기존 공개 이야기 DTO만 반환한다.
 
 ### RPC와 capability
@@ -244,3 +244,12 @@ PR #407의 `CampusNotificationSheet`·`CampusNotificationInboxView`와 기존 �
 - iOS 선택 회귀 20개와 시뮬레이터 캡처가 통과했다. [검증 기록과 한계](../apps/ios/docs/verification/continuations-418/README.md)에 결과를 남긴다. 실기기·실제 두 사용자 공개 흐름·운영 RPC 배포 검증을 로컬 통과로 간주하지 않는다.
 - 적용 순서: PR 리뷰 → 운영 사전 drift 검사 → DB 적용/기능 표시 확인 → 새 앱. 심사 NFC 태그·지정 이야기는 건드리지 않는다. 운영 검증은 별도 가상 계정/이야기를 사용한다.
 - 알 수 없는 drift는 중단하고 운영 함수를 덮어쓰지 않는다. 적용 전 오류는 전체 transaction rollback이다. 적용 후 문제는 우선 두 capability를 false로 내리는 후속 마이그레이션으로 새 앱 기능을 중단하고 관계 데이터는 보존한다. 클라이언트만 되돌려도 필드 생략=유지여서 기존 연결을 삭제하지 않는다. 구 정의로의 delegate 복구는 새 snapshot을 가진 검수 중 이야기의 재검수 계획을 검토한 뒤 별도 리뷰에서 결정하며 이미 적용한 마이그레이션을 편집/삭제하지 않는다.
+
+
+### 탈퇴 진행 중 공개 경계 보완 — 2026-11-17 / #418
+
+PR #425 적용 후 추가 점검에서 기존 `oi_hide_deleting_stories` RLS와 새 security-definer 관계 조회의 차이를 발견했다. 회원 탈퇴 완료뿐 아니라 `oi_account_deletions`에 들어간 준비 단계에서도 부모·자식 이야기를 숨겨야 한다. 새 `20261117020000_oi_continuation_deletion_visibility.sql`에서 알려진 다섯 함수의 소스 해시를 먼저 확인하고 유일한 앵커만 치환한다. 이미 적용한 마이그레이션은 수정하지 않는다.
+
+대상 검증·변경 영수증, 공개 관계 helper, 부모 일괄 집계, 본인 초안 메타데이터에 기존 `oi_account_is_deleting`를 반영한다. 목록과 알림 읽기는 같은 helper를 사용한다. 부모가 탈퇴 준비 중이면 부모 존재를 추론할 0개 행도 반환하지 않고 집계 결과에서 제외하며, 자식만 탈퇴 준비 중이면 공개 부모의 개수는 0이다. 기존 비공개 관계는 최종 삭제 전까지 보존한다.
+
+새 회귀 검사는 기존 구현에서 `deleting parent relation leaked`로 실패하는 것을 먼저 재현했다. 부모·자식 각각에 대해 원시 공개 RLS, 관계 목록·개수·알림·초안 부모 UUID·새 대상 지정의 공개 조건을 검사한다. 다섯 함수 각각의 미지 변경에서 전체 정의 치환이 거절·롤백되는지도 두 DB 이력에서 검증한다. iOS 코드와 capability 이름은 바꾸지 않는다.

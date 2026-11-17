@@ -56,6 +56,29 @@ def check_continuation_drift(connection, migration):
     print('PASS: continuation mutation, review snapshot and capability drift reject before schema changes')
 
 
+def check_continuation_visibility_drift(connection, migration):
+    signatures = ['benchmark_private.oi_check_continuation(uuid,uuid,uuid)',
+                  'benchmark_private.oi_mutate_internal(text,jsonb,text)',
+                  'benchmark_private.oi_visible_continuations(uuid[])',
+                  'public.oi_story_continuation_counts(uuid[],uuid[])',
+                  'public.oi_my_story_continuation_targets()']
+    def query(sql):
+        return subprocess.run(connection + ['-qAtc', sql], capture_output=True, text=True, check=True, timeout=20).stdout.strip()
+    originals = {sig: query(f"select pg_get_functiondef('{sig}'::regprocedure);") for sig in signatures}
+    for signature in signatures:
+        edited = originals[signature].replace('AS $function$', 'AS $function$\n-- unknown deletion visibility drift\n', 1)
+        run(connection, input=edited, text=True)
+        try:
+            rejected = subprocess.run(connection + ['-f', str(migration)], capture_output=True, text=True, timeout=20)
+            assert rejected.returncode != 0 and 'Continuation deletion visibility drift' in rejected.stderr, rejected.stderr
+            for sig in signatures:
+                expected = edited if sig == signature else originals[sig]
+                assert query(f"select pg_get_functiondef('{sig}'::regprocedure);") == expected
+        finally:
+            run(connection, input=originals[signature], text=True)
+    print('PASS: all five continuation deletion visibility drift guards roll back unchanged definitions')
+
+
 def check_postcard_cover_drift(connection, migration):
     def query(sql):
         return subprocess.run(connection + ['-qAtc', sql], capture_output=True, text=True, check=True, timeout=20).stdout.strip()
@@ -338,6 +361,8 @@ grant execute on function auth.jwt() to anon,authenticated;
                     check_jpeg_cover_drift(database, migration)
                 if migration.name.endswith('_oi_story_continuations.sql'):
                     check_continuation_drift(database, migration)
+                if migration.name.endswith('_oi_continuation_deletion_visibility.sql'):
+                    check_continuation_visibility_drift(database, migration)
                 run(database + ['-f', str(migration)])
                 if migration.name.endswith('_oi_postcard_cover_jpeg.sql'):
                     check_jpeg_cover_backfill(database, backfill_before)
