@@ -186,7 +186,7 @@ struct HomeView: View {
             if let remote, remote.canPlaceOi {
                 switch destination {
                 case .personal(let id): OiStoryEditor(remote: remote, localID: id)
-                case .story(let id): OiStoryManagement(remote: remote, storyID: id)
+                case .story(let id): OiAuthoredStoryDestination(remote: remote, storyID: id)
                 }
             }
         }

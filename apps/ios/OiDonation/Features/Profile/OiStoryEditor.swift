@@ -17,6 +17,8 @@ struct OiStoryEditor: View {
 
     let remote: OiRemoteStore
     var onFinish: (() -> Void)?
+    private let onReopen: (() -> Void)?
+    private let onDeleteSubmittedStory: (() -> Void)?
     private let continuation: OiStoryContinuationIntent?
     private var cucumberPreviewMode: OiCucumberCustomizationStep.PreviewMode = .seed
     @State private var draft: OiStoryDraft
@@ -92,8 +94,11 @@ struct OiStoryEditor: View {
 
     init(remote: OiRemoteStore, story: OiLiveStory? = nil, localID: UUID? = nil,
          initialStep: OiCreationStep = .story, continuation: OiStoryContinuationIntent? = nil,
+         onReopen: (() -> Void)? = nil, onDeleteSubmittedStory: (() -> Void)? = nil,
          onFinish: (() -> Void)? = nil) {
         self.remote = remote
+        self.onReopen = onReopen
+        self.onDeleteSubmittedStory = onDeleteSubmittedStory
         self.onFinish = onFinish
         self.continuation = continuation
         var value: OiStoryDraft
@@ -367,7 +372,7 @@ struct OiStoryEditor: View {
                     Task { await discardDraft() }
                 }
                 Button("계속 작성", role: .cancel) {}
-            } message: { Text("기기 초안과 사진 복사본을 삭제해요. 공개 요청을 보낸 이야기는 내 이야기에서 관리할 수 있어요.") }
+            } message: { Text("기기 초안과 사진 복사본을 삭제해요. 공개 요청을 보낸 이야기는 MY에서 확인할 수 있어요.") }
             .alert("현재 진행 상황을\n저장하고 나가시겠습니까?", isPresented: $confirmingConsentExit) {
                 Button("저장하고 나가기") { Task { _ = await saveAndExit() } }
                     .accessibilityIdentifier("oi.consent.exit.save")
@@ -862,6 +867,9 @@ struct OiStoryEditor: View {
                 photoOrder = record.photoOrder
             }
             if let server = remote.ownStories.first(where: { $0.id == draft.id }) {
+                if record?.submitted == true, OiCreationAccess.canRebase(draft, to: server) {
+                    draft.revision = server.revision
+                }
                 if draft.heightMeters == nil { draft.heightMeters = server.heightMeters }
                 if draft.headingDegrees == nil { draft.headingDegrees = server.headingDegrees }
                 if customization.connectedStorySelectionEdited != true, customization.connectedStoryID == nil {
@@ -1215,9 +1223,13 @@ struct OiStoryEditor: View {
                         completionMetadata("위치", value: completionLocation)
                         if let date = currentStory?.createdDateLabel { completionMetadata("날짜", value: date) }
                     }
-                    Text(isPreview ? "접수 후에는 이렇게 보여요" : "공개 검토 요청이 접수됐어요").font(CampusStyle.semibold(16))
-                    Text("승인되면 이야기와 사진, 꾸민 오이와 카드를 다른 사람도 볼 수 있어요.")
-                        .font(CampusStyle.body(14)).foregroundStyle(.secondary)
+                    if !isPreview, let story = currentStory, story.status != "pending" {
+                        Text(story.status.oiStatusTitle).font(CampusStyle.semibold(16))
+                    } else {
+                        Text(isPreview ? "접수 후에는 이렇게 보여요" : "공개 검토 요청이 접수됐어요").font(CampusStyle.semibold(16))
+                        Text("승인되면 이야기와 사진, 꾸민 오이와 카드를 다른 사람도 볼 수 있어요.")
+                            .font(CampusStyle.body(14)).foregroundStyle(.secondary)
+                    }
                     if !isPreview, let owner, owner == remote.account?.id, !remote.needsReauthentication,
                        let registered = remote.ownStories.first(where: { $0.id == draft.id && $0.userId == owner && $0.isRegisteredOnCampus }),
                        let showPlacement = campusStore?.showAuthoredPlacementAction {
@@ -1228,7 +1240,16 @@ struct OiStoryEditor: View {
                         OiCreationNextButton(title: "지도에서 내 오이 보기") { showPlacement(draft.id) }
                             .accessibilityIdentifier("oi.creation.showAuthoredPlacement")
                     }
-                    OiCreationNextButton(title: isPreview ? "작성으로 돌아가기" : "이야기 목록으로 돌아가기") {
+                    if !isPreview {
+                        if let onReopen {
+                            Button(currentStory?.status == "pending" ? "초안으로 되돌리기" : "수정 시작", action: onReopen)
+                                .accessibilityIdentifier("oi.creation.reopen")
+                        }
+                        if let onDeleteSubmittedStory {
+                            Button("이야기 삭제", role: .destructive, action: onDeleteSubmittedStory)
+                        }
+                    }
+                    OiCreationNextButton(title: isPreview ? "작성으로 돌아가기" : onReopen == nil ? "이야기 목록으로 돌아가기" : "돌아가기") {
                         if isPreview { supplementaryScreen = nil } else { finish() }
                     }
                 }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
@@ -1307,7 +1328,7 @@ struct OiStoryEditor: View {
     }
 
     private func scheduleSave() {
-        guard restored, photoCheckpoint == nil, !preparingPhoto, !placing, !publishing, !replacingServerDraft,
+        guard restored, !submitted, photoCheckpoint == nil, !preparingPhoto, !placing, !publishing, !replacingServerDraft,
               let owner else { return }
         localVersion += 1
         let snapshot = record()

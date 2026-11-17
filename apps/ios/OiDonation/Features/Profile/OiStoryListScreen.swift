@@ -37,6 +37,7 @@ struct OiStoryListScreen: View {
 
     #if DEBUG
     struct ReviewTestActions {
+        let selectStory: (UUID) -> Void
         let request: (UUID) -> Void
         let status: (UUID) -> OiStoryListReviewState
         let visibleIDs: () -> [UUID]
@@ -119,7 +120,8 @@ struct OiStoryListScreen: View {
             .onDisappear { reviewWork = nil }
             #if DEBUG
             .onAppear {
-                onReviewActionsForTest?(.init(request: { requestReview($0, offersAIReview: remote.autoStoryModeration) }, status: reviewState,
+                onReviewActionsForTest?(.init(selectStory: handleStoryTap,
+                    request: { requestReview($0, offersAIReview: remote.autoStoryModeration) }, status: reviewState,
                     visibleIDs: { state.items.map(\.id) }, message: reviewMessage,
                     openPlantPicker: selectStoryToPlant, showsPlantPicker: { plantSelection != nil },
                     selectPlantCard: selectPlantCard, selectedPlantCard: { plantSelection?.selectedID },
@@ -188,7 +190,7 @@ struct OiStoryListScreen: View {
             OiStoryEditor(remote: remote, localID: id, onFinish: { selectedLocalID = nil })
         }
         .navigationDestination(item: $selectedStoryID) { storyID in
-            OiStoryManagement(remote: remote, storyID: storyID)
+            OiAuthoredStoryDestination(remote: remote, storyID: storyID)
         }
         .navigationDestination(isPresented: $showingConsent) {
             OiStoryCreationConsentFlow(remote: remote, continuation: continuation, onFinish: { showingConsent = false })
@@ -566,12 +568,12 @@ struct OiStoryListScreen: View {
     }
 
     private func selectStory(id: UUID) {
-        if loadedDraftOwner == remote.account?.id, localDrafts.contains(where: { $0.id == id && !$0.submitted }),
-           !remote.ownStories.contains(where: { $0.id == id }) {
-            selectedLocalID = id; return
+        guard let owner = remote.account?.id else { return }
+        if remote.ownStories.contains(where: { $0.id == id && $0.userId == owner }) {
+            selectedStoryID = id
+        } else if loadedDraftOwner == owner, localDrafts.contains(where: { $0.id == id && !$0.submitted }) {
+            selectedLocalID = id
         }
-        guard remote.ownStories.contains(where: { $0.id == id }) else { return }
-        selectedStoryID = id
     }
 
     private func requestDeletion(id: UUID) {
