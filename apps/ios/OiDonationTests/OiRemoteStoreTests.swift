@@ -3432,6 +3432,37 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertFalse(ARSessionController().usesGeographicPlacement)
     }
 
+    @MainActor func testPausedCameraDetachesRendererAndReusesItsSceneOnReturn() async throws {
+        let controller = ARSessionController()
+        let anchor = AnchorEntity(world: .zero)
+        controller.view.scene.addAnchor(anchor)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive })
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: ARCameraView(controller: controller, isActive: true))
+        defer {
+            controller.stop()
+            window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+            previousKey?.makeKey()
+        }
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.layoutIfNeeded()
+        for _ in 0..<20 where controller.view.window == nil { try await Task.sleep(for: .milliseconds(25)) }
+        XCTAssertTrue(controller.view.window === window)
+        host.rootView = ARCameraView(controller: controller, isActive: false)
+        host.view.layoutIfNeeded()
+        for _ in 0..<20 where controller.view.superview != nil { try await Task.sleep(for: .milliseconds(25)) }
+        XCTAssertNil(controller.view.superview, "A paused camera must detach its Metal render surface")
+        XCTAssertTrue(controller.view.scene.anchors.contains { $0 === anchor }, "Pausing must preserve the scene")
+        host.rootView = ARCameraView(controller: controller, isActive: true)
+        host.view.layoutIfNeeded()
+        for _ in 0..<20 where controller.view.window == nil { try await Task.sleep(for: .milliseconds(25)) }
+        XCTAssertTrue(controller.view.window === window)
+        XCTAssertTrue(controller.view.scene.anchors.contains { $0 === anchor }, "Returning must reuse the same scene")
+    }
+
     @MainActor func testARCameraCreatesOneSessionAcrossPresenterRefreshes() async throws {
         var created = 0
         func screen() -> ARCameraScreen {

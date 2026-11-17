@@ -6,7 +6,7 @@ struct ARCameraPreview: View {
     var topInset: CGFloat = 0
     var body: some View {
         ZStack(alignment: .top) {
-            ARCameraView(controller: controller)
+            ARCameraView(controller: controller, isActive: controller.ready)
                 .saturation(controller.settings.photoFilter.saturation)
             VStack(spacing: 8) {
                 Text(controller.tracking)
