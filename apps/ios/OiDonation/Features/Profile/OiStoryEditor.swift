@@ -970,9 +970,11 @@ struct OiStoryEditor: View {
                     latitude: draft.latitude, longitude: draft.longitude,
                     onPhotos: openPhotoEditor, onLocation: { endStoryEditing(); navigate(to: .location) },
                     connectedStory: connectedStory, onSelectDonor: selectDonor,
-                    onClearDonor: customization.connectedStoryID == nil ? nil : {
+                    // A restored cloud draft may hide a non-public parent's ID. Keep
+                    // an explicit clear action available without revealing that ID.
+                    onClearDonor: customization.connectedStoryID != nil || (remote.supportsStoryContinuations && currentStory != nil) ? {
                         customization.connectedStoryID = nil; customization.connectedStorySelectionEdited = true
-                    })
+                    } : nil)
             }
         case .cucumber:
             OiCucumberCustomizationStep(customization: $customization, cucumberName: $draft.cucumberName,
