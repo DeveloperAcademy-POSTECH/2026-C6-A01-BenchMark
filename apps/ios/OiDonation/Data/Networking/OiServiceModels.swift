@@ -308,6 +308,7 @@ struct OiCapabilities: Decodable {
     var storyCardCover: Bool? = nil
     var storyCardCoverJpeg: Bool? = nil
     var autoStoryModeration: Bool? = nil
+    var operatorManualStoryReview: Bool? = nil
     var storyContinuations: Bool? = nil
     var storyContinuationNotifications: Bool? = nil
 }
