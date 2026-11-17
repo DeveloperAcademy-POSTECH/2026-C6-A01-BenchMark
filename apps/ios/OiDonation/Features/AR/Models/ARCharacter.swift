@@ -32,7 +32,7 @@ enum ARCharacter: String, CaseIterable, Codable, Identifiable {
         }
     }
     var previewImageName: String {
-        if let wardrobeCostumeID { return "oi-costume-" + wardrobeCostumeID }
+        if let wardrobeCostumeID { return "ar-costume-" + wardrobeCostumeID }
         return (self == .neopjukAnimated ? "neopjuk" : rawValue) + "Preview"
     }
     var modelFilename: String {

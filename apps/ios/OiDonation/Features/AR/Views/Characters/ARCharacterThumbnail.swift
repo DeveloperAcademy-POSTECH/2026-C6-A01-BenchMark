@@ -15,7 +15,7 @@ struct ARCharacterThumbnail: View {
         let key = character.rawValue as NSString
         if let image = Self.previewCache.object(forKey: key) { return image }
         guard
-              let url = Bundle.main.url(forResource: character.previewImageName, withExtension: "png", subdirectory: "WardrobeThumbnails")
+              let url = Bundle.main.url(forResource: character.previewImageName, withExtension: "png", subdirectory: "ARThumbnails")
                 ?? Bundle.main.url(forResource: character.previewImageName, withExtension: "png") else { return nil }
         guard let image = UIImage(contentsOfFile: url.path) else { return nil }
         Self.previewCache.setObject(image, forKey: key, cost: Int(image.size.width * image.size.height * image.scale * image.scale * 4))
@@ -29,8 +29,6 @@ struct ARCharacterThumbnail: View {
         }
             .padding(4)
             .frame(width: size, height: size)
-            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .accessibilityHidden(true)
     }
 }
@@ -39,15 +37,16 @@ struct ARCharacterThumbnail: View {
 struct ARSelectedCharacterThumbnail: View {
     let character: ARCharacter
     let subject: ARCameraSubject?
+    var size: CGFloat = 40
     @State private var portrait: UIImage?
 
     var body: some View {
         Group {
-            if subject == nil { ARCharacterThumbnail(character: character, size: 40) }
+            if subject == nil { ARCharacterThumbnail(character: character, size: size) }
             else if let portrait { Image(uiImage: portrait).resizable().scaledToFit().padding(4) }
             else { Image(systemName: "leaf.fill").font(.title3).foregroundStyle(.mint) }
         }
-        .frame(width: 40, height: 40)
+        .frame(width: size, height: size)
         .accessibilityHidden(true)
         .task(id: subject?.id) {
             portrait = nil

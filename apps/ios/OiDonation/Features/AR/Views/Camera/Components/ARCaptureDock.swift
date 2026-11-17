@@ -17,13 +17,7 @@ struct ARCaptureDock: View {
                 ARCaptureModePicker(videoMode: $model.videoMode)
                     .disabled(video.busy || controller.capturing || model.countdown != nil)
                 Spacer(minLength: 0)
-                if let subject = controller.subject {
-                    Text(subject.title)
-                        .font(.caption2.weight(.semibold)).lineLimit(1)
-                        .frame(width: 60, height: 44)
-                        .accessibilityLabel("AR 촬영 오이: " + subject.title)
-                        .accessibilityIdentifier("ar.camera.selectedCucumber")
-                } else { placementMenu }
+                placementMenu
             }
             .overlay(alignment: .center) {
                 // 촬영 영역이 움직이지 않도록 높이가 고정된 모드 선택 행에 녹화 상태를 표시합니다.
@@ -98,10 +92,12 @@ struct ARCaptureDock: View {
 
     private var placementMenu: some View {
         Menu {
-            Picker("배치 방식", selection: Binding(get: { controller.settings.placementMode ?? .floor },
+            Picker("배치 방식", selection: Binding(get: { controller.placementMode },
                 set: { controller.settings.placementMode = $0 })) {
-                Label("바닥에 놓기", systemImage: "square.dashed").tag(ARManualPlacementMode.floor)
-                Label("손바닥에 놓기", systemImage: "hand.raised.fill").tag(ARManualPlacementMode.palm)
+                ForEach(ARManualPlacementMode.allCases, id: \.self) { mode in
+                    Label(mode.title, systemImage: mode.symbol).tag(mode)
+                        .disabled(mode == .location && !controller.canUseLocationMode)
+                }
             }
             if !controller.motions.isEmpty {
                 Section("애니메이션") {
@@ -114,13 +110,13 @@ struct ARCaptureDock: View {
                 }
             }
         } label: {
-            Image(systemName: controller.isPalmMode ? "hand.raised.fill" : "square.dashed")
+            Image(systemName: controller.placementMode.symbol)
                 .font(.system(size: 20))
                 .frame(width: 44, height: 44)
                 .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
         }
         .accessibilityLabel("배치 방식 선택")
-        .accessibilityValue(controller.isPalmMode ? "손바닥" : "바닥")
+        .accessibilityValue(controller.placementMode.title)
         .accessibilityIdentifier("ar.camera.placementMode")
         .disabled(controller.loading || controller.capturing || video.busy || model.countdown != nil)
     }
@@ -137,7 +133,7 @@ struct ARCaptureDock: View {
     }
     .popover(isPresented: $showCharacters, arrowEdge: .bottom) {
         ARCharacterSelectionView(selection: Binding(get: { controller.settings.character }, set: { model.selectMascot($0) }),
-            originalSubjectTitle: controller.originalSubject?.title,
+            originalSubject: controller.originalSubject,
             isMascotSelected: controller.subject == nil,
             restoreOriginal: { model.restoreOriginalSubject() })
             .preferredColorScheme(.dark)

@@ -31,14 +31,16 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     let originalSubject: ARCameraSubject?
     private var originalSettings: ARCaptureSettings?
     private var mascotSettings = ARCaptureSettings()
-    var isPalmMode: Bool { subject == nil && settings.placementMode == .palm }
+    var placementMode: ARManualPlacementMode { settings.placementMode ?? .floor }
+    var isPalmMode: Bool { placementMode == .palm }
+    var canUseLocationMode: Bool { subject?.placement != nil }
     private(set) var palmTracking = false
     private var palmState = ARPalmPlacementState()
     private var palmOffset = SIMD3<Float>.zero
     private var lastPalmFrame: TimeInterval?
     private var palmFailed = false
     @ObservationIgnored private var palm: ARPalmTrackingService?
-    var usesGeographicPlacement: Bool { subject?.placement != nil }
+    var usesGeographicPlacement: Bool { canUseLocationMode && placementMode == .location }
     private(set) var geographicReady = false
     private(set) var locationNotice = ""
     @ObservationIgnored private let locationProvider: (any ARCameraLocationProviding)?
@@ -46,7 +48,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     @ObservationIgnored private var lastGeographicCheck = 0.0
     @ObservationIgnored private var headingAligned = false
     @ObservationIgnored private var cameraPoses = ARCameraPoseHistory()
-    var message = "바닥이 보이도록 카메라를 천천히 움직여 주세요."
+    var message = "손바닥 전체를 펼쳐 보여 주세요."
     var tracking = "준비 중"
     var loading = false
     var placed = false
@@ -95,6 +97,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         NotificationCenter.default.addObserver(self, selector: #selector(featureUsageChanged),
             name: OiFeatureUsage.didChange, object: nil)
         settings = subject?.defaultSettings ?? ARCaptureSettings()
+        message = placementInstruction
         view.session.delegate = self
         view.session.delegateQueue = .main
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:)))
@@ -219,7 +222,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         config.planeDetection = isPalmMode ? [] : [.horizontal]
         config.isLightEstimationEnabled = true
         config.environmentTexturing = isPalmMode ? .none : .automatic
-        if subject == nil {
+        if !usesGeographicPlacement {
             let formats = ARWorldTrackingConfiguration.supportedVideoFormats
             if !formats.isEmpty {
                 let defaultSize = config.videoFormat.imageResolution
@@ -256,7 +259,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         settings = mascotSettings
         settings.character = character
         discardCharacterPlacement()
-        message = isPalmMode ? "손바닥 전체를 펼쳐 보여 주세요." : "바닥을 비춘 뒤 터치해 캐릭터를 놓으세요."
+        message = placementInstruction
     }
 
     func restoreOriginalSubject() {
@@ -266,7 +269,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         subject = originalSubject
         settings = originalSettings ?? originalSubject.defaultSettings
         discardCharacterPlacement()
-        message = "지도에 저장한 오이의 위치를 다시 확인하고 있어요."
+        message = placementInstruction
     }
 
     private func discardCharacterPlacement() {
@@ -278,17 +281,31 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     }
 
     func update(from previous: ARCaptureSettings) {
+        // Only a selected campus cucumber has a saved geographic target.
+        if placementMode == .location && !canUseLocationMode { settings.placementMode = .palm }
         // A stadium compositor has no live palm image to track or capture.
         if isPalmMode { settings.background = .original }
-        if previous.placementMode != settings.placementMode, subject == nil {
+        if previous.placementMode != settings.placementMode {
+            locationProvider?.stop()
             resetPlacement()
-            configureSession()
-            message = isPalmMode ? "손바닥 전체를 펼쳐 보여 주세요." : "바닥을 터치해 캐릭터를 놓으세요."
+            locationNotice = ""
+            cameraPoses.reset()
+            if ready && usesGeographicPlacement {
+                guard OiFeatureUsage.shared.isEnabled(.location) else { featureUsageChanged(); return }
+                locationProvider?.start()
+            }
+            configureSession(resetTracking: previous.placementMode == .location || usesGeographicPlacement)
+            message = placementInstruction
         }
         if previous.character != settings.character { loadCharacter() }
         if previous.peopleOcclusion != settings.peopleOcclusion || previous.sceneOcclusion != settings.sceneOcclusion { configureSession() }
         if previous.background != settings.background { updateBackground() }
         applySettings()
+    }
+
+    private var placementInstruction: String {
+        if usesGeographicPlacement { return "저장 위치의 바닥을 비추면 오이가 자동으로 나타나요." }
+        return isPalmMode ? "손바닥 전체를 펼쳐 보여 주세요." : "바닥을 비춘 뒤 터치해 캐릭터를 놓으세요."
     }
 
     func resetSettings() {
@@ -297,7 +314,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
 
     func applySettings() {
         let optionalEffects: RealityKit.ARView.RenderOptions = [.disableMotionBlur, .disableDepthOfField, .disableCameraGrain]
-        if subject == nil { view.renderOptions.formUnion(optionalEffects) }
+        if !usesGeographicPlacement { view.renderOptions.formUnion(optionalEffects) }
         else { view.renderOptions.subtract(optionalEffects) }
         var lightingSettings = settings
         if isPalmMode || settings.background == .stadium {
@@ -430,8 +447,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
                 self.loadTask = nil
                 self.applySettings()
                 self.lastGeographicCheck = 0
-                self.message = self.usesGeographicPlacement ? "저장 위치의 바닥을 찾으면 오이가 자동으로 나타나요." :
-                    self.placed ? "캐릭터를 바꿨습니다." : "캐릭터 준비 완료 · 인식된 바닥을 터치하세요."
+                self.message = self.placed ? "캐릭터를 바꿨습니다." : self.placementInstruction
             } catch is CancellationError {
                 return
             } catch {
@@ -668,7 +684,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         anchor = nil
         placed = false
         locked = false
-        message = usesGeographicPlacement ? "저장 위치의 바닥을 다시 확인하고 있어요." : "새 위치의 바닥을 터치하세요."
+        message = placementInstruction
     }
 
     func session(_ session: ARSession, cameraDidChangeTrackingState camera: ARCamera) {

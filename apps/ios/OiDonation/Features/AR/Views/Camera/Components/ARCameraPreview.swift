@@ -9,10 +9,6 @@ struct ARCameraPreview: View {
             ARCameraView(controller: controller, isActive: controller.ready)
                 .saturation(controller.settings.photoFilter.saturation)
             VStack(spacing: 8) {
-                Text(controller.tracking)
-                    .font(.caption.weight(.medium))
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(.ultraThinMaterial, in: Capsule())
                 if controller.usesGeographicPlacement {
                     Text(controller.locationNotice.isEmpty ? "저장 위치를 확인하고 있어요." : controller.locationNotice)
                         .font(.caption).multilineTextAlignment(.center)

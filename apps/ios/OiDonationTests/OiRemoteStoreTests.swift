@@ -3520,6 +3520,7 @@ final class OiRemoteStoreTests: XCTestCase {
         let subject = ARCameraSubject(id: target.id, title: "위치 권한 검사", heightMeters: 1.5, placement: target) { Entity() }
         let location = Location()
         let camera = ARSessionController(subject: subject, locationProvider: location)
+        camera.settings.placementMode = .location
         XCTAssertEqual(camera.makeSessionConfiguration().worldAlignment, .gravity)
         location.hasPreciseLocationPermission = true
         let authorized = camera.makeSessionConfiguration()
@@ -3598,12 +3599,15 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(status, .ready([3 + offset.x, -0.7, 4 + offset.z]))
         let subject = ARCameraSubject(id: target.id, title: "위치 오이", heightMeters: 1.5, placement: target) { Entity() }
         let controller = ARSessionController(subject: subject)
+        controller.settings.placementMode = .location
         XCTAssertTrue(controller.usesGeographicPlacement)
         XCTAssertFalse(controller.geographicReady)
         XCTAssertFalse(controller.canCapture)
         XCTAssertEqual(controller.settings.rotation, 90)
         controller.settings.rotation = 0
         controller.resetSettings()
+        XCTAssertTrue(controller.isPalmMode, "Reset returns to palm without enabling GPS automatically")
+        controller.settings.placementMode = .location
         XCTAssertEqual(controller.settings.rotation, 90)
         XCTAssertEqual(controller.settings.height, 1.5)
         controller.applyGeographicStatus(.outsideRange(40), locationMessage: nil)

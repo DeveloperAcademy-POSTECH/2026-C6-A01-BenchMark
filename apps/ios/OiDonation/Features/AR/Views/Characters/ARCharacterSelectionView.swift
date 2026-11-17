@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ARCharacterSelectionView: View {
     @Binding var selection: ARCharacter
-    var originalSubjectTitle: String? = nil
+    var originalSubject: ARCameraSubject? = nil
     var isMascotSelected = true
     var restoreOriginal: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
@@ -16,15 +16,26 @@ struct ARCharacterSelectionView: View {
                     Image(systemName: "xmark").frame(width: 44, height: 44)
                 }.accessibilityLabel("캐릭터 목록 닫기")
             }
-            if let title = originalSubjectTitle, let restoreOriginal {
+            if let originalSubject, let restoreOriginal {
                 Button {
                     restoreOriginal()
                     dismiss()
                 } label: {
-                    Label("지도 오이 · " + title, systemImage: "leaf")
-                        .font(.subheadline).frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
+                    HStack(spacing: 12) {
+                        ARSelectedCharacterThumbnail(character: selection, subject: originalSubject, size: 52)
+                        Text(originalSubject.title).font(.subheadline.weight(.medium))
+                            .foregroundStyle(.primary).multilineTextAlignment(.leading)
+                        Spacer(minLength: 4)
+                        if !isMascotSelected { Image(systemName: "checkmark.circle.fill").foregroundStyle(.mint) }
+                    }
+                    .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(!isMascotSelected ? Color.mint.opacity(0.12) : .clear,
+                                in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("캠퍼스에서 선택한 오이: " + originalSubject.title)
+                .accessibilityAddTraits(isMascotSelected ? [] : .isSelected)
                 .accessibilityIdentifier("ar.camera.restoreStory")
                 Divider()
             }

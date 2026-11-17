@@ -9,7 +9,7 @@ struct ARCaptureSettings: Codable, Equatable {
     var photoFilter: ARPhotoFilter = .original
     var character: ARCharacter = .ponix
     // Optional fields preserve decoding of photo records made before palm placement.
-    var placementMode: ARManualPlacementMode? = nil
+    var placementMode: ARManualPlacementMode? = .palm
     var palmHeight: Float? = nil
     var palmRotation: Float? = nil
     /// Present only for a selected public cucumber; legacy mascot records still decode.
@@ -30,8 +30,13 @@ struct ARCaptureSettings: Codable, Equatable {
 }
 
 enum ARManualPlacementMode: String, Codable, CaseIterable {
-    case floor, palm
-    var title: String { self == .floor ? "바닥" : "손바닥" }
+    case floor, palm, location
+    var title: String {
+        switch self { case .floor: "바닥 인식"; case .palm: "손바닥 인식"; case .location: "위치 인식" }
+    }
+    var symbol: String {
+        switch self { case .floor: "square.dashed"; case .palm: "hand.raised.fill"; case .location: "mappin.and.ellipse" }
+    }
 }
 
 enum ARPhotoRatio: String, Codable, CaseIterable {
