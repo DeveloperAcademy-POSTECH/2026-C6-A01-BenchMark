@@ -159,13 +159,14 @@ struct OiServiceAPI {
         return outcome
     }
 
-    func rows<Value: Decodable & Identifiable>(_ table: String, query: String = "", token: String? = nil, as type: Value.Type) async throws -> [Value] {
+    func rows<Value: Decodable & Identifiable>(_ table: String, select: String = "*", query: String = "",
+                                                token: String? = nil, as type: Value.Type) async throws -> [Value] {
         var values: [Value] = []
         var seen: Set<Value.ID> = []
         var offset = 0
         while true {
             let suffix = query.isEmpty ? "" : "&\(query)"
-            let data = try await request("rest/v1/\(table)?select=*&limit=200&offset=\(offset)\(suffix)", token: token)
+            let data = try await request("rest/v1/\(table)?select=\(select)&limit=200&offset=\(offset)\(suffix)", token: token)
             let page = try decoder.decode([Value].self, from: data)
             values += page.filter { seen.insert($0.id).inserted }
             if page.count < 200 { return values }

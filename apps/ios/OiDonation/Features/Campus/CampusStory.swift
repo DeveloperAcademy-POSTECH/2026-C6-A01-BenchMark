@@ -15,6 +15,7 @@ struct CampusStory: Identifiable, Hashable {
     let popularity: Int
     let palette: Int
     var authorID: UUID? = nil
+    var donorFarmerAsset: String? = nil
     /// The story's own title, shown under the cucumber name on list cards (Figma `5441:17267`).
     var storyTitle: String = ""
     var remoteBody: String? = nil

@@ -134,7 +134,7 @@ private struct CampusCucumberStoryPanel: View {
                 switch tab {
                 case .related: CampusCucumberRelatedTab(story: story, store: store)
                 case .location: CampusCucumberLocationTab(story: story)
-                case .donor: CampusCucumberDonorTab(story: story)
+                case .donor: CampusCucumberDonorTab(story: story, store: store)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -242,16 +242,27 @@ private struct CampusCucumberLocationTab: View {
 
 private struct CampusCucumberDonorTab: View {
     let story: CampusStory
+    let store: CampusStoryStore
     @Environment(OiRemoteStore.self) private var remote: OiRemoteStore?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private var authorID: UUID? {
+        guard !story.isExample, let id = story.authorID, !OiContentSafetyStore.shared.isBlocked(id) else { return nil }
+        return id
+    }
 
     var body: some View {
         GeometryReader { geometry in
+            let showsFarmer = authorID != nil && !dynamicTypeSize.isAccessibilitySize
+            let profileWidth = max(0, showsFarmer ? geometry.size.width * 0.52 - 30 : geometry.size.width - 60)
             ZStack(alignment: .topLeading) {
-                Ellipse().fill(RadialGradient(colors: [.black.opacity(0.25), .clear], center: .center,
-                                              startRadius: 0, endRadius: 108))
-                    .frame(width: 216, height: 42).position(x: 294, y: 353)
-                Image("OiStoryDonorFarmer").resizable().scaledToFit()
-                    .frame(width: 264, height: 352).offset(x: 155, y: 22).accessibilityHidden(true)
+                if showsFarmer {
+                    Ellipse().fill(RadialGradient(colors: [.black.opacity(0.25), .clear], center: .center,
+                                                  startRadius: 0, endRadius: 108))
+                        .frame(width: 216, height: 42).position(x: 294, y: 353)
+                    MYPublicFarmerArtwork(asset: story.donorFarmerAsset)
+                        .frame(width: 264, height: 352).offset(x: 155, y: 22)
+                }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         VStack(alignment: .leading, spacing: 0) {
@@ -269,11 +280,23 @@ private struct CampusCucumberDonorTab: View {
                             }.padding(.top, 17)
                             Text("이어진 횟수는 공개된 이야기 연결 수이며 실제 납입 내역이 아니에요.")
                                 .font(CampusStyle.body(12)).foregroundStyle(.secondary).padding(.top, 10)
-                        }.padding(.horizontal, 30).padding(.top, 48)
+                        }
+                        .frame(width: profileWidth, alignment: .leading)
+                        .padding(.leading, 30).padding(.top, 48)
                         Spacer(minLength: 24)
-                        Text("기부자 자세히보기 →").underline().font(CampusStyle.semibold(16))
-                            .foregroundStyle(Color(oiRGB: 0x708C40))
-                            .padding(.leading, 30).padding(.bottom, 64)
+                        if let authorID, let remote {
+                            NavigationLink {
+                                MYPublicWorkshopView(authorID: authorID, remote: remote, store: store)
+                            } label: {
+                                Text("기부자 자세히보기 →").underline().font(CampusStyle.semibold(16))
+                                    .foregroundStyle(CampusStyle.green)
+                                    .frame(minHeight: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.leading, 30).padding(.bottom, 50)
+                            .accessibilityIdentifier("campus.story.donor.details")
+                        }
                     }.frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .topLeading)
                 }.scrollIndicators(.hidden).scrollBounceBehavior(.basedOnSize)
             }

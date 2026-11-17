@@ -578,13 +578,33 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         return try await api.publishedStories().filter { !OiContentSafetyStore.shared.isBlocked($0.userId) }
     }
 
-    func campusStory(_ item: OiLiveStory, order: Int = 0) -> CampusStory {
+    func publicAuthor(_ id: UUID) async throws -> (profile: OiProfile, stories: [OiLiveStory]) {
+        guard let api else { throw OiServiceError.configuration }
+        guard !OiContentSafetyStore.shared.isBlocked(id) else { throw OiServiceError.unavailable }
+        let started = generation
+        // Use the public role even if the viewer owns the profile or is an operator.
+        async let profileRows = api.rows("oi_profiles",
+            select: "id,nickname,school_id,farmer_asset,public_name,department,admission_year",
+            query: "id=eq.\(id.uuidString)", as: OiProfile.self)
+        async let storyRows = api.rows("oi_stories",
+            query: "user_id=eq.\(id.uuidString)&status=eq.published&order=created_at.desc,id.asc", as: OiLiveStory.self)
+        let (profiles, stories) = try await (profileRows, storyRows)
+        try Task.checkCancellation()
+        guard generation == started else { throw OiServiceError.accountChanged }
+        guard !OiContentSafetyStore.shared.isBlocked(id),
+              let profile = profiles.first(where: { $0.id == id }) else { throw OiServiceError.unavailable }
+        return (profile, stories.filter { $0.userId == id && $0.status == "published" })
+    }
+
+    func campusStory(_ item: OiLiveStory, order: Int = 0, authorProfile: OiProfile? = nil) -> CampusStory {
+        let author = authorProfile ?? profiles.first { $0.id == item.userId }
         var story = CampusStory(id: item.id.uuidString, regionID: item.regionId, title: item.cucumberName,
             image: item.cucumberAsset, tags: [item.theme, item.emotion],
-            donor: profiles.first { $0.id == item.userId }.map(\.publicDonorLine) ?? "작성자 정보 확인 중",
+            donor: author?.publicDonorLine ?? "작성자 정보 확인 중",
             location: regions.first { $0.id == item.regionId }?.name ?? "POSTECH",
             date: item.createdDateLabel, order: order, popularity: collectionCounts[item.id] ?? 0, palette: 0)
         story.authorID = item.userId
+        story.donorFarmerAsset = author?.farmerAsset
         story.storyTitle = item.title
         story.remoteBody = item.body
         story.remoteMediaPaths = mediaPaths(storyID: item.id)
