@@ -42,19 +42,26 @@ struct CampusNotificationInboxView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            if !showsSpinner { CampusNotificationRetentionNotice() }
-            GeometryReader { viewport in
-                ScrollView {
-                    content
-                        .frame(maxWidth: .infinity, minHeight: viewport.size.height,
-                            alignment: showsSpinner || isEmpty ? .center : .top)
+            if showsSpinner {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityLabel("알림을 불러오는 중이에요")
+                    .accessibilityIdentifier("campus.notifications.loading")
+            } else {
+                CampusNotificationRetentionNotice()
+                GeometryReader { viewport in
+                    ScrollView {
+                        content
+                            .frame(maxWidth: .infinity, minHeight: viewport.size.height,
+                                alignment: isEmpty ? .center : .top)
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
                 }
-                .scrollBounceBehavior(.basedOnSize)
-            }
-            if !showsSpinner, let onOpenOlderRequests {
-                Button("이전 카드 요청 보기", action: onOpenOlderRequests)
-                    .font(CampusStyle.medium(16))
-                    .disabled(unconfirmedRequestID != nil)
+                if let onOpenOlderRequests {
+                    Button("이전 카드 요청 보기", action: onOpenOlderRequests)
+                        .font(CampusStyle.medium(16))
+                        .disabled(unconfirmedRequestID != nil)
+                }
             }
         }
         .padding(.horizontal, 20)
@@ -65,11 +72,7 @@ struct CampusNotificationInboxView: View {
 
     private var content: some View {
         Group {
-            if showsSpinner {
-                ProgressView()
-                    .accessibilityLabel("알림을 불러오는 중이에요")
-                    .accessibilityIdentifier("campus.notifications.loading")
-            } else if isEmpty {
+            if isEmpty {
                 Text("알림 없음")
                     .font(CampusStyle.medium(21))
                     .tracking(0.42)
