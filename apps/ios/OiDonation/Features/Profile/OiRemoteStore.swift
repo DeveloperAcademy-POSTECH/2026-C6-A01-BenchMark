@@ -704,6 +704,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         localRecoveryWarning = recoveryWarning
         collectionCounts = counts
         hasLoadedRemote = true; needsReauthentication = false; loadError = nil; syncWarning = localSignOutWarning ?? metricsWarning
+        prepareContinuationMetrics()
         if contentChanged { revision += 1 }
     }
 
@@ -1431,7 +1432,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     }
 
     var continuationPrivacyKey: String {
-        (account?.id.uuidString ?? "public") + "/" + OiContentSafetyStore.shared.authors.keys.sorted().joined(separator: ",")
+        (account?.id.uuidString ?? "public") + "/\(supportsStoryContinuations)/\(supportsContinuationNotifications)/\(needsReauthentication)/"
+            + OiContentSafetyStore.shared.authors.keys.sorted().joined(separator: ",")
     }
 
     func storyContinuations(parent: UUID? = nil, mine: Bool = false,

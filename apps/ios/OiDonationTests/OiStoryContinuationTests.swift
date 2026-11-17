@@ -45,6 +45,21 @@ final class OiStoryContinuationTests: XCTestCase {
         XCTAssertNil(caps.storyContinuations); XCTAssertNil(caps.storyContinuationNotifications)
     }
 
+    func testExplicitClearMustReachServerWhenHiddenParentIsRedacted() throws {
+        var json = try XCTUnwrap(try row()["story"] as? [String: Any]); json["status"] = "draft"
+        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let server = try decoder.decode(OiLiveStory.self, from: JSONSerialization.data(withJSONObject: json))
+        var draft = OiStoryDraft(story: server)
+        XCTAssertNil(server.continuedFromStoryId)
+        XCTAssertTrue(OiCreationAccess.canRebase(draft, to: server))
+        draft.updatesContinuation = true
+        XCTAssertFalse(OiCreationAccess.canRebase(draft, to: server), "Explicit null must not be mistaken for no change")
+        draft.continuedFromStoryID = parent
+        XCTAssertFalse(OiCreationAccess.canRebase(draft, to: server))
+        draft.updatesContinuation = nil
+        XCTAssertTrue(OiCreationAccess.canRebase(draft, to: server), "Older drafts preserve the existing server relationship")
+    }
+
     func testRPCUsesPublicReadAuthenticatedInboxBlockedFilterAndStableCursor() async throws {
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [OiStoreURLProtocol.self]
         let session = URLSession(configuration: config), previous = OiStoreURLProtocol.handle
@@ -137,6 +152,7 @@ final class OiStoryContinuationTests: XCTestCase {
 
     func testPublicListMYAndReadReceiptRejectLateAccountResponse() async throws {
         let backend = OiTestBackend(); backend.install()
+        backend.configure { $0.storyContinuations = true; $0.storyContinuationNotifications = true }
         let fallback = OiStoreURLProtocol.handle
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [OiStoreURLProtocol.self]
         let session = URLSession(configuration: config)
@@ -154,8 +170,6 @@ final class OiStoryContinuationTests: XCTestCase {
         let held = expectation(description: "Read receipt is in flight")
         OiStoreURLProtocol.handle = { request, client in
             switch request.url?.lastPathComponent {
-            case "oi_capabilities":
-                client.respond(200, Data(#"{"operator":false,"coins_enabled":false,"unapproved_drafts_enabled":true,"independent_story_creation":true,"story_continuations":true,"story_continuation_notifications":true}"#.utf8))
             case "oi_my_story_continuation_targets": client.respond(200, Data("[]".utf8))
             case "oi_story_continuations": client.respond(200, page)
             case "oi_story_continuation_counts":
@@ -178,6 +192,13 @@ final class OiStoryContinuationTests: XCTestCase {
                 .environment(remote).environment(store)
         }, name: "my-incoming-continuations")
         XCTAssertEqual(remote.incomingContinuationCount, 1)
+        backend.configure { $0.storyContinuations = false; $0.storyContinuationNotifications = false }
+        await remote.refresh()
+        XCTAssertNil(remote.incomingContinuationCount, "Disabling the capability must invalidate previous counts")
+        XCTAssertTrue(remote.continuationCounts.isEmpty)
+        backend.configure { $0.storyContinuations = true; $0.storyContinuationNotifications = true }
+        await remote.refresh()
+        XCTAssertNil(remote.incomingContinuationCount, "Re-enabling must reload, not resurrect an old count")
         let request = Task { try await remote.readStoryContinuation(child) }
         await fulfillment(of: [held], timeout: 5)
         await remote.signOut(); backend.releaseHeldRead()

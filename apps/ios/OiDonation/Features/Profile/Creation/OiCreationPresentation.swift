@@ -117,6 +117,9 @@ enum OiCreationAccess {
 
     static func canRebase(_ draft: OiStoryDraft, to story: OiLiveStory) -> Bool {
         guard story.status == "draft" else { return false }
+        // A hidden parent's ID is redacted to nil. Explicit clear must still reach
+        // the server, even when the visible fields already appear identical.
+        if draft.updatesContinuation == true && draft.continuedFromStoryID == nil { return false }
         var serverDraft = OiStoryDraft(story: story)
         serverDraft.revision = draft.revision
         if draft.heightMeters == nil { serverDraft.heightMeters = nil }

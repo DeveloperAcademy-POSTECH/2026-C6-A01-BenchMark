@@ -47,6 +47,8 @@ final class OiTestBackend {
         var duplexStoryCard = false
         var storyCardCover = false
         var storyCardCoverJpeg = false
+        var storyContinuations = false
+        var storyContinuationNotifications = false
         var autoStoryModeration = false
         var rejectModeration = false
         var moderationCount = 0
@@ -424,6 +426,8 @@ final class OiTestBackend {
             if state.duplexStoryCard { capabilities["duplex_story_card"] = true }
             if state.storyCardCover { capabilities["story_card_cover"] = true }
             if state.storyCardCoverJpeg { capabilities["story_card_cover_jpeg"] = true }
+            if state.storyContinuations { capabilities["story_continuations"] = true }
+            if state.storyContinuationNotifications { capabilities["story_continuation_notifications"] = true }
             if state.autoStoryModeration { capabilities["auto_story_moderation"] = true }
             if let canonical = state.canonicalAccountID {
                 capabilities["account_id"] = canonical.uuidString

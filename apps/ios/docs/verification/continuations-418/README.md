@@ -18,14 +18,18 @@
 
 운영 함수 해시를 직접 조회한 결과가 아니다. 운영 DB는 PR 리뷰 후 별도 drift 확인·적용이 필요하다. 심사 NFC `test-01`·지정 이야기 상태와 연결을 변경하지 않았다.
 
+`npm --prefix supabase test`의 Node 검사 71개도 통과했다. 로컬 `npm --prefix supabase run check`는 Deno가 설치되어 있지 않아 실행하지 못했다. CI의 Deno 설치·타입 검사를 별도로 확인한다.
+
 ## iOS
 
-Xcode `OiFlowChecks`, Debug, iPhone 18 Pro / iOS Simulator에서 선택한 19개 검사 통과(실패·skip 0). 결과 번들: `/private/tmp/oi-418-client-regression.xcresult`.
+Xcode `OiFlowChecks`, Debug, iPhone 18 Pro / iOS Simulator에서 선택한 20개 검사 통과(실패·skip 0). 결과 번들: `/private/tmp/oi-418-client-final.xcresult`.
 
-- `OiStoryContinuationTests` 5개: payload 생략/지정/null·옛 Codable 호환, 공개/인증 RPC·차단·커서·원자적 읽음 DTO, capability별 저장 전송·본인 대상 복원, 최근 30일 표시·알림 캡처, 부모 목록·MY 캡처와 로그아웃 후 늦은 알림 응답 폐기.
+- `OiStoryContinuationTests` 6개: payload 생략/지정/null·옛 Codable 호환, 공개/인증 RPC·차단·커서·원자적 읽음 DTO, capability별 저장 전송·본인 대상 복원, 최근 30일 표시·알림 캡처, 부모 목록·MY 캡처와 로그아웃 후 늦은 알림 응답 폐기, 비공개 부모 ID가 가려져도 명시적 해제 전송 보장.
 - `OiRecentStoriesTests` 4개: PR #415의 계정별 최근 기록·5개 대상·옛 초안 회귀.
 - 기존 알림/카드 요청 8개: 목록·오류·큰 글자·시트 캡처 4개, 요청 영수증·다른 이야기 영수증 거절·로그아웃 후 응답·404 충돌 4개.
 - 기존 AI 승인 후 명시적 심기, JPEG 5개 파일 업로드·검토·조회 2개.
+
+최신 develop `decaa7b` 병합 후 위 검사를 다시 통과했다. 이후 capability 중단·재활성화에서 오래된 개수가 복원되지 않도록 공개 상태 키를 확장하고 관계 검사 6개를 추가 실행해 모두 통과했다(`/private/tmp/oi-418-client-privacy.xcresult`). 같은 테스트 빌드에 포함된 본 앱·App Clip의 Debug Simulator 빌드도 성공했다.
 
 화면은 가상 공개 응답을 사용하는 실제 SwiftUI 뷰다. DB에서 공개 조건을 검증한 검사와 앱의 HTTP fixture 검사를 분리했으며, 실제 두 계정을 운영 서버에서 공개한 end-to-end 검사가 아니다. 실기기 빌드·사용자 공개 흐름·운영 RPC 배포·APNs 푸시는 확인하지 않았다. 검증용 창은 캡처 후 숨기고 scene에서 분리했다.
 

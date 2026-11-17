@@ -991,12 +991,18 @@ struct OiStoryEditor: View {
 
     private var recentDonationStories: [CampusStory] {
         guard let owner = remote.account?.id, let campusStore else { return [] }
-        return OiRecentStories.pickerStories(owner: owner) { campusStore.story($0) }
+        return OiRecentStories.pickerStories(owner: owner) { id in
+            guard let story = campusStore.story(id),
+                  !(story.authorID.map { OiContentSafetyStore.shared.isBlocked($0) } ?? false) else { return nil }
+            return story
+        }
     }
 
     /// The story this donation continues from, while it is still public.
     private var connectedStory: CampusStory? {
-        customization.connectedStoryID.flatMap { campusStore?.story($0) }
+        guard let id = customization.connectedStoryID, let story = campusStore?.story(id),
+              !(story.authorID.map { OiContentSafetyStore.shared.isBlocked($0) } ?? false) else { return nil }
+        return story
     }
 
     /// Keep the saved selection until a new choice is confirmed; cancel must preserve it.

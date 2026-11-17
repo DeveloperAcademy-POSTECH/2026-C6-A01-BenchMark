@@ -241,6 +241,6 @@ PR #407의 `CampusNotificationSheet`·`CampusNotificationInboxView`와 기존 �
 
 - `python3 supabase/tests/run-account-merge-db-checks.py`: 저장소 이력·배포 호환 이력 모두에 새 마이그레이션/회귀를 실행한다. mutator·snapshot·capability 각각에 미지 변경을 넣었을 때 스키마 생성 전 거절·롤백되는지도 검사한다.
 - 새 `supabase/tests/oi-story-continuations.sql`: 저장/변경/null/옛 payload, 미공개 비노출, 자기/잘못된/숨김 대상·순환 거절, AI 승인 후 관계 변경 검출, 실제 심기 후 목록·알림·개수, 비공개/제한/차단/타인 읽음 거절, 재공개 멱등, 20+5 페이지, canonical 계정 통합, 부모 논리 삭제·탈퇴 삭제와 자식 보존을 가상 자료로 검증한다. 기존 카드 PNG/JPEG·공개·탈퇴·건물 쪽지·자동검수 회귀도 함께 실행한다.
-- iOS 선택 회귀 19개와 시뮬레이터 캡처가 통과했다. [검증 기록과 한계](../apps/ios/docs/verification/continuations-418/README.md)에 결과를 남긴다. 실기기·실제 두 사용자 공개 흐름·운영 RPC 배포 검증을 로컬 통과로 간주하지 않는다.
+- iOS 선택 회귀 20개와 시뮬레이터 캡처가 통과했다. [검증 기록과 한계](../apps/ios/docs/verification/continuations-418/README.md)에 결과를 남긴다. 실기기·실제 두 사용자 공개 흐름·운영 RPC 배포 검증을 로컬 통과로 간주하지 않는다.
 - 적용 순서: PR 리뷰 → 운영 사전 drift 검사 → DB 적용/기능 표시 확인 → 새 앱. 심사 NFC 태그·지정 이야기는 건드리지 않는다. 운영 검증은 별도 가상 계정/이야기를 사용한다.
 - 알 수 없는 drift는 중단하고 운영 함수를 덮어쓰지 않는다. 적용 전 오류는 전체 transaction rollback이다. 적용 후 문제는 우선 두 capability를 false로 내리는 후속 마이그레이션으로 새 앱 기능을 중단하고 관계 데이터는 보존한다. 클라이언트만 되돌려도 필드 생략=유지여서 기존 연결을 삭제하지 않는다. 구 정의로의 delegate 복구는 새 snapshot을 가진 검수 중 이야기의 재검수 계획을 검토한 뒤 별도 리뷰에서 결정하며 이미 적용한 마이그레이션을 편집/삭제하지 않는다.
