@@ -3468,6 +3468,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             $0.admissionYear = "2019"
             $0.schoolID = "postech"
             $0.schoolProfileEnabled = true
+            $0.storyContinuations = true
         }
         let schoolData = try JSONSerialization.data(withJSONObject: [["id": "postech", "name": "포항공과대학교"]])
         func installMYBackend() {
@@ -3476,6 +3477,10 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             OiStoreURLProtocol.handle = { request, client in
                 if request.url?.path.hasSuffix("/oi_schools") == true {
                     client.respond(200, schoolData)
+                } else if request.url?.lastPathComponent == "oi_story_continuations" {
+                    client.respond(200, Data(#"{"items":[],"total":0,"next_cursor":null}"#.utf8))
+                } else if request.url?.lastPathComponent == "oi_my_story_continuation_targets" {
+                    client.respond(200, Data("[]".utf8))
                 } else {
                     handler?(request, client)
                 }
@@ -3513,6 +3518,23 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertTrue(remote.ownStories.isEmpty)
         let empty = try await capture(NavigationStack { MYWorkshopView(demo: library, remote: remote) },
             name: "my-v4-empty", variant: reference, defaults: fixture.defaults, attach: true)
+
+        let connectedEmpty = try await capture(NavigationStack {
+            MYWorkshopView(demo: library, remote: remote, initialTab: .connected)
+        }, name: "my-v4-connected-empty", variant: reference, defaults: fixture.defaults, attach: true)
+        XCTAssertEqual(remote.incomingContinuationCount, 0)
+        let collectedEmpty = try await capture(NavigationStack {
+            MYWorkshopView(demo: library, remote: remote, initialTab: .collected)
+        }, name: "my-v4-collected-empty", variant: reference, defaults: fixture.defaults, attach: true)
+        XCTAssertNotEqual(empty, connectedEmpty)
+        XCTAssertNotEqual(connectedEmpty, collectedEmpty)
+        for variant in variants where variant.name == "375x667" || variant.name == "440x956" {
+            for tab in MYWorkshopTab.allCases {
+                try await capture(NavigationStack {
+                    MYWorkshopView(demo: library, remote: remote, initialTab: tab)
+                }, name: "my-v4-\(tab)-empty", variant: variant, defaults: fixture.defaults, attach: true)
+            }
+        }
 
         // The grid uses virtual service records, never the design's example donation counts.
         var records: [[String: Any]] = []
