@@ -16,6 +16,8 @@ struct OiCardCustomizationStep: View {
     var loadStoryPhoto: ((OiEditingPhoto) async throws -> Data)? = nil
     var canContinue = true
     var isFinished = false
+    /// The 완료 tap is saving the draft; the pill shows progress instead of looking unresponsive (#386).
+    var isCompleting = false
     var onContinue: (() -> Void)?
     var onSizeEditingChanged: ((Bool) -> Void)? = nil
     @State private var showingBack = false
@@ -161,12 +163,14 @@ struct OiCardCustomizationStep: View {
                         // Figma `5919:12077`: 61×32 pill whose bottom lines up with the card's bottom edge;
                         // the 44pt hit area extends past it without moving the pill.
                         Text(isFinished ? "다시 꾸미기" : "완료").font(CampusStyle.body(16)).tracking(0.32)
+                            .opacity(isCompleting ? 0 : 1)
+                            .overlay { if isCompleting { ProgressView().controlSize(.small).tint(.black) } }
                             .frame(height: 20)
                             .padding(.horizontal, 16).padding(.vertical, 6).background(Color("OiBorder"), in: Capsule())
                             .frame(minHeight: 44).contentShape(Rectangle())
                     }.buttonStyle(OiCreationPressStyle()).foregroundStyle(.black)
                         .padding(.vertical, -6)
-                        .disabled(!canContinue || needsPortrait).accessibilityIdentifier("oi.customization.done")
+                        .disabled(!canContinue || needsPortrait || isCompleting).accessibilityIdentifier("oi.customization.done")
                 }
             }
         }.frame(maxWidth: .infinity).frame(height: height)

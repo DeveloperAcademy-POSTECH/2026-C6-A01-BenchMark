@@ -228,8 +228,6 @@ struct OiStoryEditor: View {
                 restorationStatus
             } else if submitted {
                 completion
-            } else if showingCardCompletion {
-                cardCompletion
             } else if step == .location && !locationOverStory {
                 locationPicker
             } else if step == .card && cardPlacementReady {
@@ -334,6 +332,13 @@ struct OiStoryEditor: View {
         }
         .interactiveDismissDisabled()
         // From the story form the picker is a native push: slides in from the right and swipes back (#430).
+        // 접수 완료 is a native push too, so it slides in and swipes back exactly like the location picker (#386).
+        .navigationDestination(isPresented: $showingCardCompletion) {
+            cardCompletion
+                .toolbar(.hidden, for: .navigationBar)
+                .navigationBarBackButtonHidden()
+                .oiSwipeBackEnabled()
+        }
         .navigationDestination(isPresented: Binding(
             get: { locationOverStory },
             set: { if !$0, step == .location { navigate(to: .story) } }
@@ -638,7 +643,7 @@ struct OiStoryEditor: View {
         guard await persist() else { return }
         // Prepare the trimmed cucumber first and fade the summary in, so it neither pops in nor cuts in (#386).
         completionFigure = await OiStoryCompletionView.figureImage(draft: draft, customization: customization)
-        withAnimation(reduceMotion ? nil : OiCreationMotion.screen) { showingCardCompletion = true }
+        showingCardCompletion = true
     }
 
     private func toggleCustomizationReady() {
@@ -1102,7 +1107,7 @@ struct OiStoryEditor: View {
                 donorName: remote.profile?.publicName ?? "",
                 academicAuthor: OiPostcardAuthor.academic(department: remote.profile?.department, year: remote.profile?.admissionYear),
                 storyPhotos: editingPhotos, loadStoryPhoto: cardStoryPhoto,
-                isFinished: false, onContinue: { Task { await completeCard() } })
+                isFinished: false, isCompleting: completingCard, onContinue: { Task { await completeCard() } })
 
         }
     }
