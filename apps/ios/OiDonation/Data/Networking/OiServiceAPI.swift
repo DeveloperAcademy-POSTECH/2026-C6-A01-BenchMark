@@ -89,7 +89,10 @@ struct OiServiceAPI {
             case 404 where path == "rest/v1/rpc/\(Self.resolveCardRequestRPC)": throw OiServiceError.conflict
             case 404 where path == Self.boundedCollectionMetricsPath: throw OiCollectionMetricsError.boundedQueryNotDeployed
             case 404 where path == "rest/v1/rpc/oi_operator_audit": throw OiAuditError.notDeployed
+            case 404 where path.hasPrefix("rest/v1/rpc/oi_story_continuation") || path == "rest/v1/rpc/oi_my_story_continuation_targets" || path == "rest/v1/rpc/oi_read_story_continuation":
+                throw OiContinuationError.notSupported
             case 404 where OiNFCTagError.rpcPaths.contains(path): throw OiNFCTagError.notDeployed
+            case 404 where path.contains("building_note"): throw CampusBuildingNoteError.notDeployed
             case 409: throw OiServiceError.conflict
             case 426: throw OiServiceError.server("앱을 업데이트한 뒤 다시 시도해 주세요.")
             case 400, 422: throw OiServiceError.invalidInput

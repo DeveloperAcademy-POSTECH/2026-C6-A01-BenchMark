@@ -13,6 +13,7 @@ struct ScratchPostcardView: View {
     let postcard: ScratchPostcard
     let validateCollection: () async throws -> Bool
     let onBlock: () -> Void
+    let onRetryFaces: () -> Void
     var body: some View { EmptyView() }
 }
 enum CheckLineHeight { case exact(points: CGFloat) }
@@ -74,8 +75,16 @@ private struct FixtureRepository: StoryRepository {
             precondition(crop.width == 296 && crop.height == 436, "Unavailable/invalid JPEG must use the approved front window")
         }
         print("PASS: legacy PNG plus missing, corrupt, oversized and mismatched JPEG fallbacks")
-        _ = await load(cover, backURL: missing)
-        if case .failed = loader.state {} else { fatalError("A missing mandatory back must fail for retry") }
-        print("PASS: mandatory back failure retains retry state")
+        guard let partial = await load(cover, backURL: missing) else {
+            fatalError("A failed back must keep the visible postcard")
+        }
+        precondition(partial.backFailed && !partial.frontFailed && partial.back == nil)
+        let retry = FixtureRepository(details: PublicPostcardDetails(frontURL: front, backURL: back,
+            coverPhotoURL: nil, donorLine: nil, coverURL: cover, coverType: .jpeg))
+        await loader.retryFaces(repository: retry, usesTag: false)
+        guard case .loaded(let repaired) = loader.state else { fatalError("Retry removed the visible postcard") }
+        precondition(!repaired.hasFailedFaces && repaired.back != nil
+            && repaired.front === partial.front && repaired.coverPhoto === partial.coverPhoto)
+        print("PASS: mandatory back failure keeps the postcard and retries only the failed face")
     }
 }

@@ -87,6 +87,19 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var educationDetailTask: Task<Void, Never>?
     private var educationCamera: (target: SIMD3<Float>, radius: Float, yaw: Float, pitch: Float)?
     var onRegion: ((CampusRegion) -> Void)?
+    var onBuilding: ((CampusBuildingTarget) -> Void)? {
+        didSet {
+            mapLabels.onSelectBuilding = onBuilding == nil ? nil : { [weak self] id in
+                guard let self, let item = self.buildingTargets.first(where: { $0.id == id }) else { return }
+                self.selectBuilding(item)
+            }
+            if let data, let canvas { mapLabels.configure(data: data, in: canvas) }
+        }
+    }
+    private(set) var selectedBuilding: CampusBuildingTarget?
+    @ObservationIgnored private var buildingTargets: [CampusBuildingTarget] = []
+    private var buildingCamera: (target: SIMD3<Float>, radius: Float, yaw: Float, pitch: Float, moved: Bool)?
+    private var buildingViewport: CGSize?
     var onPlacement: ((UUID) -> Void)?
     private var sharedMap = false
     var onStory: ((String) -> Void)?
@@ -238,6 +251,9 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         canvas.addGestureRecognizer(tap)
         if placementPreview != nil { installPreviewGestures(on: canvas) }
         canvas.didLayout = { [weak self] in
+            if let self, self.selectedBuilding != nil, self.buildingViewport != self.canvas?.bounds.size {
+                self.fitSelectedBuilding(animated: true)
+            }
             self?.updateCamera()
             if self?.activeNavigation.isEmpty == true, self?.cameraMotion == nil {
                 self?.settleCamera()
@@ -271,6 +287,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             // detached until a renderer is available instead of reviving the old scene.
             if canvas?.map != nil { try installMap() }
             self.data = data; ready = true
+            buildingTargets = CampusBuildingTarget.catalog(data)
             try installEducationDistrict(data: data)
             if let canvas { mapLabels.configure(data: data, in: canvas) }
             if let region { focus(region, stories: stories) } else { showOverview() }
@@ -375,7 +392,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
 
     func selectEducationDistrict() {
-        guard !editingPlacement, !selectingCenterLocation, let data else { return }
+        guard selectedBuilding == nil, !editingPlacement, !selectingCenterLocation, let data else { return }
         if educationCamera == nil { educationCamera = (target, radius, yaw, pitch) }
         stopNavigation()
         yaw = CampusEducationDistrict.heading
@@ -389,6 +406,33 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         educationCamera = nil
         stopNavigation()
         yaw = previous.yaw; pitch = previous.pitch
+        animateCamera(to: previous.target, radius: previous.radius)
+    }
+
+    func selectBuilding(_ building: CampusBuildingTarget) {
+        guard onBuilding != nil, !sharedMap, !editingPlacement, !selectingCenterLocation,
+              placementPreview == nil, educationCamera == nil else { return }
+        if buildingCamera == nil { buildingCamera = (target, radius, yaw, pitch, hasMovedFromOverview) }
+        stopNavigation()
+        selectedBuilding = building
+        pitch = 0.78
+        onBuilding?(building)
+        fitSelectedBuilding(animated: true)
+    }
+
+    private func fitSelectedBuilding(animated: Bool) {
+        guard let building = selectedBuilding, let canvas else { return }
+        let distance = building.cameraRadius(viewport: canvas.bounds.size, yaw: yaw, pitch: pitch)
+        buildingViewport = canvas.bounds.size
+        if animated { animateCamera(to: building.center, radius: distance) }
+        else { stopNavigation(); target = building.center; radius = distance }
+    }
+
+    func finishBuilding() {
+        guard let previous = buildingCamera else { return }
+        selectedBuilding = nil; buildingCamera = nil; buildingViewport = nil
+        stopNavigation()
+        yaw = previous.yaw; pitch = previous.pitch; hasMovedFromOverview = previous.moved
         animateCamera(to: previous.target, radius: previous.radius)
     }
 
@@ -1168,8 +1212,12 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                 if isFirstSelection { focusPlacementFromAbove() }
             }
         } else {
+            guard selectedBuilding == nil else { return }
             if hitsEducationBuilding(at: point, viewport: view.bounds) {
                 selectEducationDistrict(); return
+            }
+            if onBuilding != nil, let id = mapLabels.building(at: point), let building = buildingTargets.first(where: { $0.id == id }) {
+                selectBuilding(building); return
             }
             var entity = view.entity(at: point)
             while let current = entity {
@@ -1183,6 +1231,10 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                     if let onPlacement { onPlacement(record.id) } else { onStory?(record.storyID) }; return
                 }
                 entity = current.parent
+            }
+            if onBuilding != nil, !sharedMap, let ray = mapProjection(in: view.bounds).ray(through: point),
+               let building = CampusBuildingTarget.hit(in: buildingTargets, origin: ray.origin, direction: ray.direction) {
+                selectBuilding(building); return
             }
             onEmptyMapTap?()
         }
@@ -1275,6 +1327,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     private func updateCamera() {
         updateMapShadows()
+        storyLayer.isEnabled = selectedBuilding == nil
+        authoredLayer.isEnabled = selectedBuilding == nil
         camera.look(at: target, from: eye, relativeTo: nil)
         updateCenterLocation()
         guard visible, let canvas, let view = canvas.map else { return }
@@ -1288,7 +1342,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         for index in pins.indices {
             let pin = pins[index]
             let button = pin.button
-            guard !editingPlacement, educationCamera == nil, let foot = projection.point(pin.ground), visibleBounds.contains(foot) else {
+            guard selectedBuilding == nil, !editingPlacement, educationCamera == nil, let foot = projection.point(pin.ground), visibleBounds.contains(foot) else {
                 if let model = pin.model {
                     model.entity.removeFromParent()
                     pins[index].model = nil
@@ -1318,7 +1372,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
         var visibleButtons: [UIView] = pins.map(\.button)
         for (id, pin) in authoredPins {
-            guard !editingPlacement, educationCamera == nil, let screen = projection.point(pin.ground), visibleBounds.contains(screen) else {
+            guard selectedBuilding == nil, !editingPlacement, educationCamera == nil, let screen = projection.point(pin.ground), visibleBounds.contains(screen) else {
                 pin.button.isHidden = true
                 pin.entity?.removeFromParent(); authoredPins[id]?.entity = nil
                 authoredPins[id]?.modelCorners = []
@@ -1341,7 +1395,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                                                 separation: projection.planeSeparation) ?? []
         storyFrames.sort { $0.minY < $1.minY }
         var shownRegionIDs: Set<String> = []
-        if !editingPlacement && educationCamera == nil {
+        if selectedBuilding == nil && !editingPlacement && educationCamera == nil {
             for marker in markers {
                 guard let button = regionButtons[marker.node.id], let screen = projection.point(marker.anchor),
                       visibleBounds.contains(screen) else { continue }
@@ -1365,7 +1419,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                 educationNear = near
                 updateEducationDetail(entity, near: near)
             }
-            if !editingPlacement, !selectingCenterLocation, let screen, visibleBounds.contains(screen) {
+            if selectedBuilding == nil, !editingPlacement, !selectingCenterLocation, let screen, visibleBounds.contains(screen) {
                 // Measure against the viewport, never the previous narrow button frame.
                 button.bounds.size = button.sizeThatFits(CGSize(width: max(44, view.bounds.width - 24), height: 44))
                 // Keep the invisible hit area usable even when the overview caption is small.
@@ -1422,7 +1476,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private func settledRadius(from radius: Float? = nil) -> Float {
         let current = radius ?? self.radius
         let clamped = min(zoomLimits.upperBound, max(zoomLimits.lowerBound, current))
-        guard !editingPlacement, let view = canvas?.map, let clustering = regionClustering else { return clamped }
+        guard selectedBuilding == nil, !editingPlacement, let view = canvas?.map, let clustering = regionClustering else { return clamped }
         let projection = mapProjection(in: view.bounds)
         return clustering.settledRadius(for: clamped, within: zoomLimits, focalLength: projection.focalLength,
                                         separation: projection.planeSeparation)
