@@ -86,7 +86,7 @@ struct OiStoryCompletionView: View {
         }
         .frame(width: 333, height: 277, alignment: .topLeading)
         .task(id: figureSourceKey) {
-            let data = customization.showsCharacter ? design.portraitPNG : nil
+            let data = design.portraitPNG
             let asset = draft.cucumberAsset == "OiCats" ? "OiCatsPortrait" : draft.cucumberAsset
             let source = data.flatMap(UIImage.init(data:)) ?? UIImage(named: asset)
             guard let source else { figure = nil; return }

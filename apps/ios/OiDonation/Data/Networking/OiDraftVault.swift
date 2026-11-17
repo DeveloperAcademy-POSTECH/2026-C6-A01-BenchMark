@@ -24,6 +24,25 @@ struct OiLocalDraft: Codable, Identifiable, Equatable {
     /// Preferred photo order by `OiEditingPhoto.orderKey`; nil keeps the attachment order.
     var photoOrder: [String]?
     var reviewedContentFingerprint: String?
+    var reviewSubmission: ReviewSubmission?
+
+    struct ReviewSubmission: Codable, Equatable {
+        let fingerprint: String
+        let appearance: OiCucumberAppearance?
+        let cardID: UUID
+        let cardFormat: Int
+        let coverType: StoryCard.CoverType?
+    }
+
+    func matchesCompletedReview(_ story: OiLiveStory) -> Bool {
+        guard let reviewSubmission, contentFingerprint == reviewSubmission.fingerprint,
+              draft.id == story.id, story.revision == draft.revision + 1,
+              OiCreationAccess.canRebase(draft, to: story) else { return false }
+        return story.cucumberAppearance == reviewSubmission.appearance &&
+            story.cardSnapshotId == reviewSubmission.cardID &&
+            (story.cardSnapshotFormat ?? 1) == reviewSubmission.cardFormat &&
+            story.resolvedCardCoverType == reviewSubmission.coverType
+    }
     var id: UUID { draft.id }
 
     var draftWithSavedLocation: OiStoryDraft {
@@ -331,6 +350,31 @@ actor OiDraftVault {
         guard try pendingCardDecision(owner: owner) == decision else { return }
         let url = try ownerDirectory(owner).appending(path: "pending-card-decision.json")
         try FileManager.default.removeItem(at: url)
+    }
+
+    private struct PendingBuildingNote: Codable {
+        let id: UUID
+        let fingerprint: String
+    }
+
+    func prepareBuildingNote(id: UUID, building: String, body: String, owner: UUID) throws -> UUID {
+        let buildingKey = SHA256.hash(data: Data(building.utf8)).description
+        let url = try ownerDirectory(owner).appending(path: "building-note-\(buildingKey).json")
+        let fingerprint = SHA256.hash(data: Data(body.utf8)).description
+        if FileManager.default.fileExists(atPath: url.path) {
+            let saved = try JSONDecoder().decode(PendingBuildingNote.self, from: Data(contentsOf: url))
+            if saved.fingerprint == fingerprint { return saved.id }
+        }
+        try write(JSONEncoder().encode(PendingBuildingNote(id: id, fingerprint: fingerprint)), to: url)
+        return id
+    }
+
+    func clearBuildingNote(id: UUID, building: String, owner: UUID) throws {
+        let buildingKey = SHA256.hash(data: Data(building.utf8)).description
+        let url = try ownerDirectory(owner).appending(path: "building-note-\(buildingKey).json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        let saved = try JSONDecoder().decode(PendingBuildingNote.self, from: Data(contentsOf: url))
+        if saved.id == id { try FileManager.default.removeItem(at: url) }
     }
 
     func schoolEvidenceReview(owner: UUID) throws -> OiSavedSchoolEvidenceReview? {

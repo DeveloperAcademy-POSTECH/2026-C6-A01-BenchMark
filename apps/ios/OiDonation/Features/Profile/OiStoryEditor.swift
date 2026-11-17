@@ -471,8 +471,10 @@ struct OiStoryEditor: View {
     private func saveAndClosePhotoEditor() {
         guard !preparingPhoto, !saving, photoSelections.isEmpty, photoCheckpoint != nil else { return }
         saving = true
+        localVersion += 1
         Task {
             defer { saving = false }
+            await pendingSave?.value
             if await persist() { photoCheckpoint = nil }
         }
     }
@@ -494,7 +496,7 @@ struct OiStoryEditor: View {
                 try Task.checkCancellation()
                 guard remote.account?.id == owner else { throw OiServiceError.accountChanged }
                 guard editingPhotos.count < OiCreationStep.storyPhotoLimit else { break }
-                photos.append(id); localVersion += 1; _ = await persist()
+                photos.append(id)
             } catch is CancellationError { return }
             catch { failures += 1 }
         }
@@ -1174,7 +1176,9 @@ struct OiStoryEditor: View {
             if let orderIndex = photoOrder?.firstIndex(of: id.uuidString) {
                 photoOrder?[orderIndex] = newID.uuidString
             }
-            photos[index] = newID; localVersion += 1
+            photos[index] = newID
+            if photoCheckpoint != nil { return true }
+            localVersion += 1
             return await persist()
         } catch { localError = error.localizedDescription; return false }
     }
@@ -1184,7 +1188,7 @@ struct OiStoryEditor: View {
     }
 
     private func scheduleSave() {
-        guard restored, !placing, !publishing, !replacingServerDraft, let owner else { return }
+        guard restored, photoCheckpoint == nil, !placing, !publishing, !replacingServerDraft, let owner else { return }
         localVersion += 1
         let snapshot = record()
         let previous = pendingSave
@@ -1261,6 +1265,7 @@ struct OiStoryMediaImage: View {
     let path: String
     var allowsRetry = true
     var contentMode: ContentMode = .fit
+    var onPhotoLoaded: (() -> Void)? = nil
     let loadURL: (String) async throws -> URL
     @State private var retryCount = 0
     @State private var resolution: Resolution?
@@ -1282,6 +1287,7 @@ struct OiStoryMediaImage: View {
                 AsyncImage(url: url) { phase in
                     if let image = phase.image {
                         image.resizable().aspectRatio(contentMode: contentMode).accessibilityLabel("이야기에 첨부된 사진")
+                            .onAppear { if Request(path: path, attempt: retryCount) == request { onPhotoLoaded?() } }
                     } else if phase.error != nil { failure("사진을 불러오지 못했어요.") }
                     else { ProgressView().accessibilityLabel("사진 불러오는 중") }
                 }

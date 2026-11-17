@@ -162,12 +162,15 @@ struct OiCucumberAppearance: Codable, Hashable {
     let shoeColor: UInt32
     let topTexture: Bool
     let bottomTexture: Bool
+    var seed: OiSeedCucumberSnapshot? = nil
 
     var payload: [String: Any] {
         var result: [String: Any] = ["id": id.uuidString.lowercased(), "top": top, "bottom": bottom,
             "topColor": topColor, "bottomColor": bottomColor, "shoeColor": shoeColor,
             "topTexture": topTexture, "bottomTexture": bottomTexture]
         if let costume { result["costume"] = costume }
+        if let seed, let bytes = try? JSONEncoder().encode(seed),
+           let value = try? JSONSerialization.jsonObject(with: bytes) { result["seed"] = value }
         return result
     }
 }
@@ -456,16 +459,25 @@ nonisolated struct OiSavedSchoolEvidenceReview: Codable, Sendable {
     let outcome: OiSchoolEvidenceOutcome
     let reviewedAt: Date
 
-    private enum CodingKeys: String, CodingKey { case outcome, reviewedAt, summary }
+    struct Profile: Codable, Equatable, Sendable {
+        let schoolID: String?
+        let admissionYear: Int?
+        let department: String?
+    }
+    var profile: Profile?
 
-    init(outcome: OiSchoolEvidenceOutcome, reviewedAt: Date) {
+    private enum CodingKeys: String, CodingKey { case outcome, reviewedAt, summary, profile }
+
+    init(outcome: OiSchoolEvidenceOutcome, reviewedAt: Date, profile: Profile? = nil) {
         self.outcome = outcome
         self.reviewedAt = reviewedAt
+        self.profile = profile
     }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         reviewedAt = try values.decode(Date.self, forKey: .reviewedAt)
+        profile = try values.decodeIfPresent(Profile.self, forKey: .profile)
         if let outcome = try values.decodeIfPresent(OiSchoolEvidenceOutcome.self, forKey: .outcome) {
             self.outcome = outcome
         } else {
@@ -482,6 +494,7 @@ nonisolated struct OiSavedSchoolEvidenceReview: Codable, Sendable {
         var values = encoder.container(keyedBy: CodingKeys.self)
         try values.encode(outcome, forKey: .outcome)
         try values.encode(reviewedAt, forKey: .reviewedAt)
+        try values.encodeIfPresent(profile, forKey: .profile)
     }
 }
 
