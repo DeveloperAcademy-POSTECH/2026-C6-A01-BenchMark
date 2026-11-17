@@ -337,17 +337,23 @@ struct ScratchPostcardFallbackFront: View {
                                       startPoint: .topLeading, endPoint: .bottomTrailing)
 }
 
-/// A face that is still downloading after the card became scratchable (#348).
+/// A face that is loading or awaiting retry after the card became scratchable.
 struct ScratchPostcardPendingFace: View {
+    let isLoading: Bool
+
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 12).fill(ScratchPostcardFallbackFront.paper)
-            ProgressView().scaleEffect(1.6)
+            if isLoading {
+                ProgressView().scaleEffect(1.6)
+            } else {
+                Text("이미지를 불러오지 못했어요").foregroundStyle(.secondary)
+            }
         }
         .frame(width: 362, height: 502)
         .modifier(PostcardCanvas())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("엽서를 불러오는 중")
+        .accessibilityLabel(isLoading ? "엽서를 불러오는 중" : "이미지를 불러오지 못했어요")
     }
 }
 

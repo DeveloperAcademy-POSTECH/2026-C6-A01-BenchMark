@@ -15,6 +15,7 @@ struct OiStoryListScreen: View {
     let remote: OiRemoteStore
 
     @State private var localDrafts: [OiLocalDraft] = []
+    @State private var unchangedReviewedDraftIDs: Set<UUID> = []
     @State private var selectedLocalID: UUID?
     @State private var showingSettings = false
     @State private var localError: String?
@@ -411,14 +412,15 @@ struct OiStoryListScreen: View {
         }
         if loadedDraftOwner == remote.account?.id,
            let local = localDrafts.first(where: { $0.id == id }),
-           !matchesReview(local, story: story) {
+           !(local.draft.revision == story.revision
+             ? unchangedReviewedDraftIDs.contains(id)
+             : matchesLegacyReview(local, story: story)) {
             return .unreviewed
         }
         return review.status == .approved ? .approved : .rejected
     }
 
-    private func matchesReview(_ local: OiLocalDraft, story: OiLiveStory) -> Bool {
-        if local.draft.revision == story.revision { return local.matchesReviewedContent }
+    private func matchesLegacyReview(_ local: OiLocalDraft, story: OiLiveStory) -> Bool {
         // An older submitted draft is read-only on this device. The transaction
         // can finalize it while the app is suspended, before the local receipt is saved.
         return local.submitted && story.revision == local.draft.revision + 1
@@ -483,7 +485,9 @@ struct OiStoryListScreen: View {
         do {
             let current = try await remote.localDraft(id: story.id, owner: owner)
             guard owner == remote.account?.id else { return }
-            if let current, !matchesReview(current, story: story) {
+            if let current, !(current.draft.revision == story.revision
+                             ? current.matchesReviewedContent
+                             : matchesLegacyReview(current, story: story)) {
                 publicationMessage = "내용이 바뀌었어요. 다시 검토해 주세요."
                 await loadLocalDrafts()
                 return
@@ -519,6 +523,7 @@ struct OiStoryListScreen: View {
         guard let owner = remote.account?.id else {
             loadedDraftOwner = nil
             localDrafts = []
+            unchangedReviewedDraftIDs = []
             unreadableDraftCount = 0
             pendingDiscardCount = 0
             localError = nil
@@ -529,6 +534,7 @@ struct OiStoryListScreen: View {
             guard !Task.isCancelled, draftLoadAttempt == attempt, remote.account?.id == owner else { return }
             loadedDraftOwner = owner
             localDrafts = listing.drafts
+            unchangedReviewedDraftIDs = Set(listing.drafts.filter(\.matchesReviewedContent).map(\.id))
             unreadableDraftCount = listing.unreadableFiles.count
             pendingDiscardCount = listing.pendingDiscardCount
             localError = nil
@@ -536,6 +542,7 @@ struct OiStoryListScreen: View {
             guard !Task.isCancelled, draftLoadAttempt == attempt, remote.account?.id == owner else { return }
             if loadedDraftOwner != owner {
                 localDrafts = []
+                unchangedReviewedDraftIDs = []
                 unreadableDraftCount = 0
                 pendingDiscardCount = 0
             }

@@ -820,6 +820,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         guard started == generation else { throw OiServiceError.accountChanged }
         if collections.contains(where: { $0.storyId == id }) { return }
 
+        let unconfirmedErrorRevision = errorRevision
         let confirmed: Bool = try await withCardRequestSession { api, token in
             let rows = try await api.rows("oi_collections", query: "story_id=eq.\(id.uuidString)&limit=1",
                                           token: token, as: OiOwnedStory.self)
@@ -830,6 +831,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             throw OiServiceError.server(error ?? "수집 저장을 확인하지 못했어요. 다시 시도해 주세요.")
         }
         applyReceipt(OiMutationID(id: id), action: "collect", payload: [:])
+        if errorRevision == unconfirmedErrorRevision { error = nil }
     }
 
     func finishScratchCollection(id: UUID, owner: UUID, onConfirmed: () -> Void) async throws {

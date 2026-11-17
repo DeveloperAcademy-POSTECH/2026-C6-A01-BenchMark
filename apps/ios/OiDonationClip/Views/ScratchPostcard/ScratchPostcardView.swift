@@ -350,7 +350,7 @@ struct ScratchPostcardView: View {
             if let back = postcard.back {
                 Image(uiImage: back).resizable().scaledToFit()
             } else if postcard.isLoadingFaces || postcard.backFailed {
-                ScratchPostcardPendingFace()
+                ScratchPostcardPendingFace(isLoading: postcard.isLoadingFaces)
             } else {
                 ScratchPostcardFallbackBack(message: postcard.story.content, author: postcard.donorLine)
             }
@@ -378,7 +378,7 @@ struct ScratchPostcardView: View {
             if let front = postcard.front {
                 Image(uiImage: front).resizable().scaledToFit()
             } else if postcard.isLoadingFaces || postcard.frontFailed {
-                ScratchPostcardPendingFace()
+                ScratchPostcardPendingFace(isLoading: postcard.isLoadingFaces)
             } else {
                 ScratchPostcardFallbackFront(photo: postcard.coverPhoto)
             }

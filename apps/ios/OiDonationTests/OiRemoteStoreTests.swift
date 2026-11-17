@@ -2741,6 +2741,35 @@ final class OiRemoteStoreTests: XCTestCase {
         } catch { XCTAssertTrue(error is CocoaError) }
     }
 
+    @MainActor func testV4DeletionDoesNotReplayAgainstEditedVersionAfterRestart() async throws {
+        let (store, backend, sessionVault, session, directory) = try context()
+        defer { clean(session, directory: directory) }
+        await store.start()
+        let savedResult = await store.save(draft())
+        let saved = try XCTUnwrap(savedResult)
+        let owner = OiTestBackend.owner
+        try await store.saveLocalDraft(OiLocalDraft(draft: OiStoryDraft(story: saved), version: 1), owner: owner)
+        backend.configure { $0.failDelete = true }
+        let deleted = await store.deleteStory(saved)
+        XCTAssertFalse(deleted)
+        backend.configure {
+            $0.failDelete = false
+            $0.story?["revision"] = saved.revision + 1
+            $0.story?["title"] = "다른 기기에서 수정한 버전"
+        }
+
+        let disk = OiDraftVault(directory: directory)
+        let restarted = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+                                      drafts: disk, vault: sessionVault)
+        await restarted.start()
+        XCTAssertEqual(restarted.ownStories.first?.revision, saved.revision + 1)
+        XCTAssertEqual(backend.snapshot().deleteCount, 1)
+        let pending = try await disk.pendingStoryDeletions(owner: owner)
+        let local = try await restarted.localDraft(id: saved.id, owner: owner)
+        XCTAssertTrue(pending.isEmpty)
+        XCTAssertNotNil(local)
+    }
+
     @MainActor func testStoryListDeletionRejectsStaleRevisionAndSignedOutAccount() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { clean(session, directory: directory) }
@@ -4343,6 +4372,7 @@ extension OiRemoteStoreTests {
 
         try await store.saveScratchCollection(id: storyID, owner: owner)
         XCTAssertTrue(store.collections.contains(where: { $0.storyId == storyID }))
+        XCTAssertNil(store.error, "A confirmed lookup clears the uncertain write error")
         let restarted = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
                                       drafts: OiDraftVault(directory: directory), vault: sessionVault)
         await restarted.start()
