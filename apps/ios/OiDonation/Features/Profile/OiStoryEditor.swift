@@ -32,6 +32,8 @@ struct OiStoryEditor: View {
     @State private var discardCleanupError: String?
     @State private var submitted = false
     @State private var photoCheckpoint: PhotoCheckpoint?
+    /// Step the location picker was opened from; the story form stays mounted underneath so its scroll position survives.
+    @State private var locationOrigin: OiCreationStep?
     private struct PhotoCheckpoint: Identifiable {
         let id = UUID()
         let photos: [UUID]
@@ -212,10 +214,8 @@ struct OiStoryEditor: View {
                 completion
             } else if showingCardCompletion {
                 cardCompletion
-            } else if step == .location {
-                OiLocationPicker(latitude: $draft.latitude, longitude: $draft.longitude,
-                                 regionID: $draft.regionId,
-                                 onFinish: { navigate(to: .story) })
+            } else if step == .location && !locationOverStory {
+                locationPicker
             } else if step == .card && cardPlacementReady {
                 placementPreview
             } else {
@@ -254,7 +254,11 @@ struct OiStoryEditor: View {
                                 .modifier(OiCustomizationScrollEdge())
                                 .accessibilityIdentifier("oi.creation.storyScroll")
                                 .scrollDismissesKeyboard(.interactively)
-                                .onChange(of: step) { _, _ in scroll.scrollTo("creation.top", anchor: .top) }
+                                                                .onChange(of: step) { old, new in
+                                    // Coming back from the location picker keeps the earlier scroll position.
+                                    guard old != .location, new != .location else { return }
+                                    scroll.scrollTo("creation.top", anchor: .top)
+                                }
                                 .onChange(of: wardrobePhotoEditing) { _, editing in
                                     if editing { scroll.scrollTo("creation.top", anchor: .top) }
                                 }
@@ -281,6 +285,13 @@ struct OiStoryEditor: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
+            }
+        }
+        .overlay {
+            if locationOverStory {
+                locationPicker
+                    .background(Color(.systemBackground))
+                    .transition(.opacity)
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { bottomSafeAreaInset = $0 }
@@ -498,7 +509,7 @@ struct OiStoryEditor: View {
         VStack(alignment: .leading, spacing: 20) {
             editorStatus
             stepContent.id("creation.top")
-            if step == .story {
+            if contentStep == .story {
                 // Figma `5400:7726`: the buttons follow the last section instead of floating over it.
                 OiCreationNavigationBar(inline: true, missingItems: showingStoryMissing ? missingStoryItems : [],
                     onPrevious: reviewPreviousStep, onNext: storyNext,
@@ -506,7 +517,7 @@ struct OiStoryEditor: View {
                     .padding(.top, 30)
                     .id("creation.storyButtons")
             }
-            if step != .story {
+            if contentStep != .story {
                 Text(saveLabel).font(.caption2).foregroundStyle(.secondary).accessibilityIdentifier("oi.draft.saveState")
             }
         }.padding(.horizontal, 20).padding(.bottom, 24)
@@ -551,10 +562,21 @@ struct OiStoryEditor: View {
         _ = renderer.cgImage
     }
 
+    private var locationOverStory: Bool { step == .location && locationOrigin == .story }
+    /// Content shown in the scroll view; the story form stays while the picker covers it.
+    private var contentStep: OiCreationStep { locationOverStory ? .story : step }
+
+    private var locationPicker: some View {
+        OiLocationPicker(latitude: $draft.latitude, longitude: $draft.longitude,
+                         regionID: $draft.regionId,
+                         onFinish: { navigate(to: .story) })
+    }
+
     private func navigate(to destination: OiCreationStep) {
+        if destination == .location { locationOrigin = step }
         // STEP 1 ↔ STEP 2 switch at once, without a slide or fade (#373); other steps keep the short fade.
         let switchesAtOnce = Set([step, destination]) == [.consent, .story]
-        withAnimation(reduceMotion || switchesAtOnce ? nil : .easeInOut(duration: 0.18)) {
+        withAnimation(reduceMotion || switchesAtOnce ? nil : .easeInOut(duration: 0.28)) {
             if step != destination { customizationReady = false; cardPlacementReady = false }
             step = destination
         }
@@ -961,7 +983,7 @@ struct OiStoryEditor: View {
     }
 
     @ViewBuilder private var stepContent: some View {
-        switch step {
+        switch contentStep {
         case .consent, .photos, .location: EmptyView() // Presented separately above.
         case .story:
             VStack(alignment: .leading, spacing: 50) {

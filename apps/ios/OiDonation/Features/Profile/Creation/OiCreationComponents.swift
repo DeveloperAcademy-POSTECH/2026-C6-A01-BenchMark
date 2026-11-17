@@ -455,13 +455,37 @@ struct OiStoryWritingStep: View {
             Text(value)
                 .tracking(0.32).lineLimit(1).minimumScaleFactor(0.8)
                 .padding(.horizontal, 20).frame(minHeight: 36)
-                .foregroundStyle(isSelected ? Color.white : Color("OiDark"))
-                .background(isSelected ? Color("OiGreen") : fieldBackground, in: Capsule())
-                .overlay(Capsule().strokeBorder(isSelected ? Color("OiGreen") : Color(white: 234 / 255), lineWidth: 1))
-                .frame(minHeight: 44).contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(OiCreationTagStyle(isSelected: isSelected, idleFill: fieldBackground))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// Fades to the selected colour from touch-down, without the plain style's dimming flash.
+private struct OiCreationTagStyle: ButtonStyle {
+    let isSelected: Bool
+    let idleFill: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        let active = isSelected || configuration.isPressed
+        // Only the incoming chip fades; the previous one drops its colour at once.
+        let fill: Animation? = active && !reduceMotion ? .easeOut(duration: 0.12) : nil
+        // The text turns white once the green is mostly in, so it never reads as white on grey.
+        let text: Animation? = active && !reduceMotion ? .easeOut(duration: 0.08).delay(0.04) : nil
+        configuration.label
+            .foregroundStyle(active ? Color.white : Color("OiDark"))
+            .animation(text, value: active)
+            .background {
+                Capsule().fill(idleFill)
+                    .overlay(Capsule().strokeBorder(Color(white: 234 / 255), lineWidth: 1))
+                    .overlay {
+                        Capsule().fill(Color("OiGreen"))
+                            .opacity(active ? 1 : 0)
+                            .animation(fill, value: active)
+                    }
+            }
+            .frame(minHeight: 44).contentShape(Rectangle())
     }
 }
 
