@@ -184,6 +184,23 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         value.card?.postcardLogo = "white"
         value.card?.postcardDate = date.addingTimeInterval(86_400)
         XCTAssertNotEqual(try front(), baseline, "The printed date must be part of the current postcard")
+
+        let glyphAssets = (0...9).map { "OiPostcardDate-\($0)" } + ["OiPostcardDate-dot", "OiPostcardFrom"]
+        for name in glyphAssets {
+            XCTAssertNotNil(UIImage(named: name), "Missing postcard vector asset: \(name)")
+        }
+        for (name, printedDate) in [
+            ("date-figma-reference", "26.10.24"),
+            ("date-other-digits", "38.05.29"),
+            ("date-wide-digits", "99.09.27"),
+        ] {
+            let image = try OiCardImageExport.render(OiPostcardFront(date: printedDate) {
+                Color(white: 0.3)
+            })
+            let png = try XCTUnwrap(image.pngData())
+            let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+        }
     }
 
     func testPostcardCustomGradientUsesFigmaFields() throws {
@@ -442,6 +459,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         value.card?.postcardBackground = .init(color: 0xE8EECF, preset: "lime")
         value.card?.backgroundPhoto = photo.pngData()
         value.card?.postcardStamp = 1
+        value.card?.postcardDate = Date(timeIntervalSince1970: 1_799_779_200)
         func render(_ style: OiDraftCustomization) throws -> Data {
             let renderer = ImageRenderer(content: OiDraftCardPreview(draft: Self.draft,
                 customization: style, portrait: portrait).frame(width: 362, height: 502))
@@ -450,9 +468,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
         for character in [false, true] {
             value.showsCharacter = character
-            value.card?.postcardLogo = nil
+            // An unset logo color means white. Use transparent ink for the unmarked reference.
+            value.card?.postcardLogoOpacity = 0
             let original = try renderedBitmap(render(value), size: CGSize(width: 362, height: 502))
             let before = try XCTUnwrap(original.data).bindMemory(to: UInt8.self, capacity: 362 * 502 * 4)
+            value.card?.postcardLogoOpacity = 1
             for logo in ["white", "black"] {
                 value.card?.postcardLogo = logo
                 let png = try render(value)

@@ -37,14 +37,10 @@ enum OiPostcardTypography {
         return max(0, bodyLineHeight - lineHeight)
     }
 
-    // REATIC embedding permission is pending. Use system faces with matching metrics.
-    static let from = Font.system(size: 10, weight: .light).width(.condensed)
-    static let date = Font.system(size: 14, weight: .ultraLight, design: .rounded).width(.expanded).monospacedDigit()
-    static let mark = Font.system(size: 14, weight: .light, design: .rounded).width(.expanded)
     static let author = Font.custom("Paperlogy-4Regular", fixedSize: 12)
 }
 
-/// Figma 6635:10680 and 5912:11099 use a same-ink 0.4pt outside stroke.
+/// Figma 6635:10680 uses a same-ink 0.4pt outside stroke.
 struct OiPostcardLetteringStroke: TextRenderer {
     private static let offsets: [CGPoint] = (0..<8).map { direction in
         let angle = Double(direction) * .pi / 4
