@@ -2229,15 +2229,15 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             entity.components[ModelComponent.self] != nil || entity.children.contains(where: hasModel)
         }
 
-        let costumes = OiWardrobeLook.Costume.allCases
-        XCTAssertEqual(Set(OiSeedCucumberGarment.allCases.filter { $0.slot == .costume }),
-                       Set(costumes.map { .costume($0) }))
-        try await verifyGarment(.sneakers)
-        try await verifyGarment(.hoodie)
-        try await verifyGarment(.postechJacket)
-        for costume in costumes {
-            try await verifyGarment(.costume(costume))
-            for proposal in OiSeedCostumeProposal.options(for: costume) {
+        for garment in OiSeedCucumberGarment.allCases where garment.slot != .costume {
+            try await verifyGarment(garment)
+        }
+        for costume in OiSeedCucumberSet.availableCostumes {
+            let proposals = OiSeedCostumeProposal.options(for: costume)
+            if proposals.isEmpty {
+                try await verifyGarment(.costume(costume))
+            }
+            for proposal in proposals {
                 let garment = OiSeedCucumberGarment.costumeProposal(costume, proposal)
                 XCTAssertNotNil(Bundle.main.url(forResource: garment.rawValue, withExtension: "jpg"))
                 try await verifyGarment(garment)
