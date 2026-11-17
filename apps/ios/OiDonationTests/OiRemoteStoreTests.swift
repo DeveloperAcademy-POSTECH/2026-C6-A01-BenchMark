@@ -4499,7 +4499,7 @@ extension OiRemoteStoreTests {
         let previousKey = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
         window.rootViewController = UIHostingController(
-            rootView: CampusNotificationSheet(remote: store).environment(\.scenePhase, .active)
+            rootView: CampusNotificationOverlay(remote: store, dismiss: {}).environment(\.scenePhase, .active)
         )
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }

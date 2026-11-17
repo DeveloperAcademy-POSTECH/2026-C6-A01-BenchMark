@@ -25,7 +25,6 @@ struct HomeView: View {
     @State private var searchMode: CampusSearchMode?
     @State private var pendingStoryID: String?
     @State private var showingNotifications = false
-    @State private var pendingNotificationStoryID: String?
     @State private var listIsAtTop = true
     @State private var listDrag = RegionListDrag.idle
     @GestureState private var isListDragActive = false
@@ -119,6 +118,7 @@ struct HomeView: View {
                         homeActions.padding(.leading, 22).padding(.trailing, 20).padding(.bottom, 0)
                     }
                 }
+                .opacity(showingNotifications ? 0 : 1)
                 if let remote, let error = remote.error {
                     VStack(spacing: 8) {
                         Text(error).font(.footnote)
@@ -196,8 +196,16 @@ struct HomeView: View {
                 scene.showOverview()
             }
         }
-        .accessibilityHidden(showingSearchChoice)
+        .accessibilityHidden(showingSearchChoice || showingNotifications)
         .overlay {
+            if showingSearchChoice {
+                Color.black.opacity(0.2).ignoresSafeArea()
+                    .onTapGesture { showingSearchChoice = false }
+                    .accessibilityHidden(true)
+                    .transition(.opacity)
+            }
+        }
+        .overlay(alignment: .bottom) {
             if showingSearchChoice {
                 CampusSearchChoiceSheet(choose: { mode in
                     showingSearchChoice = false
@@ -205,7 +213,7 @@ struct HomeView: View {
                     scene.suspendRendering()
                     searchMode = mode
                 }, dismiss: { showingSearchChoice = false })
-                .transition(.opacity)
+                .transition(.move(edge: .bottom))
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: showingSearchChoice)
@@ -219,17 +227,19 @@ struct HomeView: View {
                 pendingStoryID = $0.id; searchMode = nil
             }
         }
-        .sheet(isPresented: $showingNotifications, onDismiss: {
-            if let id = pendingNotificationStoryID { pendingNotificationStoryID = nil; openStory(id) }
-        }) {
-            if canOpenNotifications, let remote {
-                CampusNotificationSheet(remote: remote) { id in
-                    pendingNotificationStoryID = id; showingNotifications = false
-                }.id(remote.account?.id)
+        .overlay {
+            if canOpenNotifications, showingNotifications, let remote {
+                CampusNotificationOverlay(remote: remote, dismiss: { showingNotifications = false }) { id in
+                    showingNotifications = false
+                    openStory(id)
+                }
+                .id(remote.account?.id)
+                .transition(.opacity)
             }
         }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: showingNotifications)
         .onChange(of: canOpenNotifications) { _, canOpen in
-            if !canOpen { pendingNotificationStoryID = nil; showingNotifications = false }
+            if !canOpen { showingNotifications = false }
         }
         .task {
             configureSceneCallbacks()

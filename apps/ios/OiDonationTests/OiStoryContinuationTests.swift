@@ -141,11 +141,11 @@ final class OiStoryContinuationTests: XCTestCase {
         let item = try decoder.decode(OiStoryContinuation.self, from: JSONSerialization.data(withJSONObject: row()))
         let remote = OiRemoteStore(api: nil)
         let now = ISO8601DateFormatter().date(from: "2026-11-17T01:00:00Z")!
-        let notices = CampusNotificationSheet.notices([item], remote: remote, now: now)
+        let notices = CampusNotificationOverlay.notices([item], remote: remote, now: now)
         XCTAssertEqual(notices.count, 1); XCTAssertTrue(notices[0].isUnread)
-        XCTAssertTrue(CampusNotificationSheet.notices([item], remote: remote, now: now.addingTimeInterval(31 * 86400)).isEmpty)
+        XCTAssertTrue(CampusNotificationOverlay.notices([item], remote: remote, now: now.addingTimeInterval(31 * 86400)).isEmpty)
         let view = CampusNotificationInboxView(requests: [], isLoading: false,
-            onReload: {}, onOpenRequest: { _ in }, continuations: notices, onOpenContinuation: { _ in })
+            onOpenRequest: { _ in }, continuations: notices, onOpenContinuation: { _ in })
             .frame(width: 402, height: 650).background(CampusStyle.mapSheet)
         try await capture(view, name: "continuation-notification")
     }

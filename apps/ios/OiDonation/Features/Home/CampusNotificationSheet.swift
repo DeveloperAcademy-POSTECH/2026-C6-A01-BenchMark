@@ -7,12 +7,13 @@
 
 import SwiftUI
 
-struct CampusNotificationSheet: View {
+struct CampusNotificationOverlay: View {
     let remote: OiRemoteStore
+    let dismiss: () -> Void
     var onOpenContinuation: ((String) -> Void)? = nil
 
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(CampusStoryStore.self) private var storyStore: CampusStoryStore?
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
@@ -32,6 +33,22 @@ struct CampusNotificationSheet: View {
     @State private var loadID = UUID()
     @State private var timestamp = Date.now
     @State private var hasLoadedContinuationPages = false
+    @State private var inboxIsAtTop = true
+    @State private var detailIsAtTop = true
+    @State private var swipe = Swipe.idle
+    @State private var isClosing = false
+    @GestureState private var isSwiping = false
+
+    private enum Swipe: Equatable {
+        case idle
+        case scrolling
+        case dismissing(CGFloat)
+
+        var offset: CGFloat {
+            guard case let .dismissing(distance) = self else { return 0 }
+            return max(0, distance)
+        }
+    }
 
     private enum FailedLoad: Equatable {
         case inbox
@@ -43,48 +60,42 @@ struct CampusNotificationSheet: View {
         return failedLoad
     }
 
+    private var canClose: Bool {
+        pendingRequestID == nil && !openingContinuation && !isClosing
+    }
+
     var body: some View {
-        let now = timestamp
-        let recentRequests = requests.filter { Self.isRecent($0.createdAt, now: now) }
-        let hasOlderRequests = recentRequests.count != requests.count
-        let hasSession = remote.account != nil && !remote.needsReauthentication
-        NavigationStack {
-            CampusNotificationInboxView(
-                requests: hasSession ? recentRequests : [],
-                isLoading: hasSession && (isLoading || !hasLoadedRequests),
-                isInitialLoading: hasSession && !hasLoadedRequests,
-                loadFailed: hasSession && failedLoad != nil,
-                unconfirmedRequestID: hasSession ? unconfirmedDecision?.id : nil,
-                onOpenOlderRequests: hasSession && hasOlderRequests ? { showingOlderRequests = true } : nil,
-                onReload: reload,
-                onOpenRequest: { id in
-                    guard hasSession else { return }
-                    if unconfirmedDecision == nil { actionError = nil }
-                    selectedRequestID = id
-                },
-                continuations: hasSession ? continuations.filter { Self.isRecent($0.createdAt, now: now) } : [],
-                onOpenContinuation: { id in Task { await openContinuation(id) } },
-                onMoreContinuations: continuationCursor == nil ? nil : { Task { await loadMoreContinuations() } }
-            )
-            .task(id: remote.continuationPrivacyKey) {
-                loadID = UUID(); isLoading = false; continuations = []; continuationCursor = nil
-                requests = []; hasLoadedRequests = false; failedLoad = nil
-                hasLoadedContinuationPages = false
-                await reload()
+        GeometryReader { viewport in
+            ZStack {
+                Color.black.opacity(isClosing ? 0 : 0.2)
+                    .ignoresSafeArea()
+                    .contentShape(.rect)
+                    .onTapGesture(perform: close)
+                    .accessibilityHidden(true)
+
+                panel
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background {
+                        UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35)
+                            .fill(CampusStyle.mapSheet.opacity(reduceTransparency || contrast == .increased ? 1 : 0.7))
+                            .ignoresSafeArea(edges: [.horizontal, .bottom])
+                    }
+                    .offset(y: isClosing ? viewport.size.height + viewport.safeAreaInsets.bottom : swipe.offset)
+                    .simultaneousGesture(dismissSwipe)
+                    .allowsHitTesting(!isClosing)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityAddTraits(.isModal)
+                    .accessibilityIdentifier("campus.notifications.panel")
             }
-            .disabled(openingContinuation)
-            .toolbar(.hidden, for: .navigationBar)
-            .accessibilityAction(.escape) { if pendingRequestID == nil { dismiss() } }
-            .navigationDestination(item: $selectedRequestID) { id in
-                if remote.account != nil && !remote.needsReauthentication {
-                    requestDetail(requests.filter { $0.id == id }, title: "카드 요청")
-                }
-            }
-            .navigationDestination(isPresented: $showingOlderRequests) {
-                if remote.account != nil && !remote.needsReauthentication {
-                    requestDetail(requests.filter { !Self.isRecent($0.createdAt, now: now) }, title: "이전 카드 요청")
-                }
-            }
+        }
+        .onChange(of: isSwiping) { _, active in
+            if !active, !isClosing { resetSwipe() }
+        }
+        .task(id: remote.continuationPrivacyKey) {
+            loadID = UUID(); isLoading = false; continuations = []; continuationCursor = nil
+            requests = []; hasLoadedRequests = false; failedLoad = nil
+            hasLoadedContinuationPages = false
+            await reload()
         }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
@@ -100,17 +111,10 @@ struct CampusNotificationSheet: View {
             guard let target = retryTarget else { return }
             await retryLoads(target)
         }
-        .interactiveDismissDisabled(pendingRequestID != nil || openingContinuation)
         .alert("이어진 이야기를 열지 못했어요", isPresented: Binding(
             get: { continuationError != nil }, set: { if !$0 { continuationError = nil } })) {
                 Button("확인", role: .cancel) { continuationError = nil }
             } message: { Text(continuationError ?? "") }
-        .presentationDetents([.large])
-        .presentationCornerRadius(35)
-        .presentationDragIndicator(.hidden)
-        .presentationBackground {
-            CampusStyle.mapSheet.opacity(reduceTransparency || contrast == .increased ? 1 : 0.7)
-        }
         .onChange(of: remote.needsReauthentication) { _, needsReauthentication in
             if needsReauthentication {
                 selectedRequestID = nil
@@ -125,33 +129,145 @@ struct CampusNotificationSheet: View {
         }
     }
 
+    private var panel: some View {
+        let now = timestamp
+        let recentRequests = requests.filter { Self.isRecent($0.createdAt, now: now) }
+        let hasOlderRequests = recentRequests.count != requests.count
+        let hasSession = remote.account != nil && !remote.needsReauthentication
+        let showsDetail = hasSession && (selectedRequestID != nil || showingOlderRequests)
+
+        return ZStack {
+            CampusNotificationInboxView(
+                requests: hasSession ? recentRequests : [],
+                isLoading: hasSession && (isLoading || !hasLoadedRequests),
+                isInitialLoading: hasSession && !hasLoadedRequests,
+                loadFailed: hasSession && failedLoad != nil,
+                unconfirmedRequestID: hasSession ? unconfirmedDecision?.id : nil,
+                onOpenOlderRequests: hasSession && hasOlderRequests ? { showingOlderRequests = true } : nil,
+                onOpenRequest: { id in
+                    guard hasSession else { return }
+                    if unconfirmedDecision == nil { actionError = nil }
+                    selectedRequestID = id
+                },
+                continuations: hasSession ? continuations.filter { Self.isRecent($0.createdAt, now: now) } : [],
+                onOpenContinuation: { id in Task { await openContinuation(id) } },
+                onMoreContinuations: continuationCursor == nil ? nil : { Task { await loadMoreContinuations() } }
+            )
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y + geometry.contentInsets.top <= 1
+            } action: { _, atTop in
+                inboxIsAtTop = atTop
+            }
+            .opacity(showsDetail ? 0 : 1)
+            .disabled(openingContinuation || showsDetail)
+            .accessibilityHidden(showsDetail)
+            .accessibilityAction(.escape, close)
+
+            if hasSession, let selectedRequestID {
+                requestDetail(requests.filter { $0.id == selectedRequestID }, title: "카드 요청")
+            } else if hasSession, showingOlderRequests {
+                requestDetail(requests.filter { !Self.isRecent($0.createdAt, now: now) }, title: "이전 카드 요청")
+            }
+        }
+        .onChange(of: showsDetail) { _, _ in detailIsAtTop = true }
+        .onChange(of: failedLoad) { _, failure in
+            if failure != nil { inboxIsAtTop = true; detailIsAtTop = true }
+        }
+    }
+
+    private var dismissSwipe: some Gesture {
+        DragGesture(minimumDistance: 12, coordinateSpace: .global)
+            .updating($isSwiping) { _, active, _ in active = true }
+            .onChanged { gesture in
+                guard canClose else { return }
+                let distance = gesture.translation.height
+                switch swipe {
+                case .idle:
+                    let showsDetail = selectedRequestID != nil || showingOlderRequests
+                    let isAtTop = showsDetail ? detailIsAtTop : inboxIsAtTop
+                    swipe = isAtTop && distance > abs(gesture.translation.width) ? .dismissing(distance) : .scrolling
+                case .dismissing:
+                    swipe = .dismissing(distance)
+                case .scrolling:
+                    break
+                }
+            }
+            .onEnded { gesture in
+                if swipe.offset > 72 || (swipe.offset > 24 && gesture.predictedEndTranslation.height > 144) {
+                    close()
+                } else {
+                    resetSwipe()
+                }
+            }
+    }
+
+    private func close() {
+        guard canClose else { return }
+        if reduceMotion {
+            dismiss()
+        } else {
+            withAnimation(.easeOut(duration: 0.24), completionCriteria: .logicallyComplete) {
+                isClosing = true
+            } completion: {
+                dismiss()
+            }
+        }
+    }
+
+    private func resetSwipe() {
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { swipe = .idle }
+    }
+
     static func isRecent(_ createdAt: Date, now: Date) -> Bool {
         createdAt > now.addingTimeInterval(-30 * 24 * 60 * 60)
     }
 
     private func requestDetail(_ rows: [OiCardRequestInboxItem], title: String) -> some View {
-        Group {
-            if failedLoad != nil {
-                ProgressView().accessibilityLabel("알림을 불러오는 중이에요")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                OiCardRequestInboxView(
-                    requests: rows,
-                    isLoading: isLoading,
-                    loadError: nil,
-                    pendingRequestID: pendingRequestID,
-                    actionError: actionError,
-                    onReload: reload,
-                    onDecision: resolve,
-                    onRetryDecision: retryAction,
-                    showsHeader: false
-                )
+        NavigationStack {
+            Group {
+                if failedLoad != nil {
+                    ProgressView().accessibilityLabel("알림을 불러오는 중이에요")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    OiCardRequestInboxView(
+                        requests: rows,
+                        isLoading: isLoading,
+                        loadError: nil,
+                        pendingRequestID: pendingRequestID,
+                        actionError: actionError,
+                        onReload: reload,
+                        onDecision: resolve,
+                        onRetryDecision: retryAction,
+                        showsHeader: false
+                    )
+                }
             }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y + geometry.contentInsets.top <= 1
+            } action: { _, atTop in
+                detailIsAtTop = atTop
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.visible, for: .navigationBar)
+            .toolbar {
+                if pendingRequestID == nil {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(action: closeRequestDetail) {
+                            Image(systemName: "chevron.backward")
+                        }
+                        .accessibilityLabel("알림 목록으로 돌아가기")
+                    }
+                }
+            }
+            .accessibilityAction(.escape) { closeRequestDetail() }
         }
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
-        .navigationBarBackButtonHidden(pendingRequestID != nil)
+    }
+
+    private func closeRequestDetail() {
+        guard pendingRequestID == nil else { return }
+        selectedRequestID = nil
+        showingOlderRequests = false
     }
 
     private func reload() async {

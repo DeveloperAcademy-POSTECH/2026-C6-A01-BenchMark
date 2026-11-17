@@ -5,25 +5,20 @@ struct CampusSearchChoiceSheet: View {
     let dismiss: () -> Void
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            Color.black.opacity(0.2).ignoresSafeArea()
-                .onTapGesture(perform: dismiss)
-                .accessibilityHidden(true)
-            choices
-                .frame(maxWidth: .infinity, minHeight: 356, alignment: .top)
-                .background {
-                    let shape = UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35)
-                    shape.fill(CampusStyle.mapSheet.opacity(0.7))
-                        .background(.ultraThinMaterial, in: shape)
-                        .ignoresSafeArea(edges: [.horizontal, .bottom])
-                }
-                .simultaneousGesture(DragGesture(minimumDistance: 20).onEnded { gesture in
-                    if gesture.translation.height > 50 && gesture.translation.height > abs(gesture.translation.width) { dismiss() }
-                })
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityAddTraits(.isModal)
-        .accessibilityAction(.escape) { dismiss() }
+        choices
+            .frame(maxWidth: .infinity, minHeight: 356, alignment: .top)
+            .background {
+                let shape = UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35)
+                shape.fill(CampusStyle.mapSheet.opacity(0.7))
+                    .background(.ultraThinMaterial, in: shape)
+                    .ignoresSafeArea(edges: [.horizontal, .bottom])
+            }
+            .simultaneousGesture(DragGesture(minimumDistance: 20).onEnded { gesture in
+                if gesture.translation.height > 50 && gesture.translation.height > abs(gesture.translation.width) { dismiss() }
+            })
+            .accessibilityElement(children: .contain)
+            .accessibilityAddTraits(.isModal)
+            .accessibilityAction(.escape) { dismiss() }
     }
 
     private var choices: some View {
@@ -123,14 +118,14 @@ struct CampusSearchView: View {
     @ViewBuilder private var searchFields: some View {
         if mode == .donor {
             VStack(spacing: 10) {
-                field("학교입력", text: $query.school, icon: "pencil")
+                field("학교입력", text: $query.school, icon: "pencil", clearLabel: "학교 지우기")
                     .accessibilityIdentifier("campus.search.school")
-                field("학과입력", text: $query.department, icon: "pencil")
+                field("학과입력", text: $query.department, icon: "pencil", clearLabel: "학과 지우기")
                     .accessibilityIdentifier("campus.search.department")
-                field("학번", text: $query.year, icon: "pencil")
+                field("학번", text: $query.year, icon: "pencil", clearLabel: "학번 지우기")
                     .accessibilityHint("입학연도를 입력하세요. 예: 26 또는 2026")
                     .accessibilityIdentifier("campus.search.year")
-                field("이름", text: $query.name, icon: "pencil")
+                field("이름", text: $query.name, icon: "pencil", clearLabel: "이름 지우기")
                     .accessibilityIdentifier("campus.search.name")
                 Button { submitted = query; focused = false } label: {
                     Text("검색").font(CampusStyle.semibold(18)).foregroundStyle(query.hasDonorFilter ? .white : CampusStyle.secondaryAction)
@@ -155,15 +150,39 @@ struct CampusSearchView: View {
         }
     }
 
-    private func field(_ prompt: String, text: Binding<String>, icon: String) -> some View {
+    private func field(_ prompt: String, text: Binding<String>, icon: String, clearLabel: String? = nil) -> some View {
         HStack {
             TextField(prompt, text: text, prompt: Text(prompt).foregroundStyle(.black.opacity(0.5)))
                 .font(CampusStyle.medium(18)).focused($focused)
                 .textInputAutocapitalization(.never).autocorrectionDisabled().submitLabel(.search)
                 .onSubmit { if mode == .donor && query.hasDonorFilter { submitted = query }; focused = false }
-            Image(systemName: icon).font(.system(size: 20, weight: .semibold)).foregroundStyle(.gray).accessibilityHidden(true)
-        }.padding(.horizontal, 22).frame(minHeight: 57)
-            .background(Color(white: 248/255), in: Capsule())
+            if let clearLabel {
+                if text.wrappedValue.isEmpty {
+                    fieldIcon(icon).frame(width: 44, height: 44).accessibilityHidden(true)
+                } else {
+                    Button {
+                        text.wrappedValue = ""
+                        if !query.hasDonorFilter { submitted = nil }
+                    } label: {
+                        fieldIcon("xmark")
+                            .frame(width: 44, height: 44)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(clearLabel)
+                }
+            } else {
+                fieldIcon(icon).accessibilityHidden(true)
+            }
+        }
+        .padding(.leading, 22)
+        .padding(.trailing, clearLabel == nil ? 22 : 10)
+        .frame(minHeight: 57)
+        .background(Color(white: 248/255), in: Capsule())
+    }
+
+    private func fieldIcon(_ name: String) -> some View {
+        Image(systemName: name).font(.system(size: 20, weight: .semibold)).foregroundStyle(.gray)
     }
 }
 
