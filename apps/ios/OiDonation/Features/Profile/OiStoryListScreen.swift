@@ -71,15 +71,7 @@ struct OiStoryListScreen: View {
     private struct DeletionTarget: Identifiable {
         let id: UUID
         let owner: UUID
-        let name: String
         let story: OiLiveStory?
-        let hasPersonalPlacement: Bool
-
-        var message: String {
-            if story != nil { return "이야기가 비공개·삭제 상태로 바뀌어요. 이 기기의 같은 초안과 내 지도 배치도 삭제돼요." }
-            if hasPersonalPlacement { return "기기 초안과 첨부 사진, 내 지도에 배치한 오이가 삭제돼요. 되돌릴 수 없어요." }
-            return "기기 초안과 첨부 사진이 삭제돼요. 되돌릴 수 없어요."
-        }
     }
 
     private struct DraftLoadKey: Equatable {
@@ -172,16 +164,16 @@ struct OiStoryListScreen: View {
                 .background(.regularMaterial)
             }
         }
-        .confirmationDialog(
-            pendingDeletion.map { "‘\($0.name)’ 삭제할까요?" } ?? "오이를 삭제할까요?",
+        // Figma `6101:8056`: the same fixed wording for every cucumber, whatever the delete covers.
+        .alert(
+            "‘작성 중인 오이'를\n삭제하시겠습니까?",
             isPresented: Binding(get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }),
-            titleVisibility: .visible,
             presenting: pendingDeletion
         ) { target in
-            Button("삭제", role: .destructive) { Task { await delete(target) } }
-            Button("취소", role: .cancel) { pendingDeletion = nil }
-        } message: { target in
-            Text(target.message)
+            Button("취소하기", role: .cancel) { pendingDeletion = nil }
+            Button("삭제하기", role: .destructive) { Task { await delete(target) } }
+        } message: { _ in
+            Text("삭제된 오이는 되돌릴 수 없습니다")
         }
         .alert("삭제하지 못했어요", isPresented: Binding(
             get: { deletionError != nil }, set: { if !$0 { deletionError = nil } }
@@ -559,12 +551,11 @@ struct OiStoryListScreen: View {
 
     private func requestDeletion(id: UUID) {
         guard deletingID == nil, !remote.isBusy, let owner = remote.account?.id,
-              let item = state.items.first(where: { $0.id == id }) else { return }
+              state.items.contains(where: { $0.id == id }) else { return }
         let story = remote.ownStories.first { $0.id == id }
         let local = loadedDraftOwner == owner ? localDrafts.first { $0.id == id && !$0.submitted } : nil
         guard story != nil || local != nil else { return }
-        pendingDeletion = DeletionTarget(id: id, owner: owner, name: item.cucumberName,
-            story: story, hasPersonalPlacement: local?.personalPlacement != nil)
+        pendingDeletion = DeletionTarget(id: id, owner: owner, story: story)
     }
 
     private func delete(_ target: DeletionTarget) async {
