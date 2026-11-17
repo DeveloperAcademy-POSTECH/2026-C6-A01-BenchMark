@@ -1291,7 +1291,13 @@ struct OiStoryEditor: View {
         // opened the editor, then let that screen update its own state (#473).
         if let navigation = completionNavigation.navigation, navigation.viewControllers.count >= 3 {
             let target = navigation.viewControllers[navigation.viewControllers.count - 3]
+            // The system pop takes about 0.35s; run it a little slower (about 0.47s) for this long leave.
+            let slowed = !reduceMotion
+            if slowed { navigation.view.layer.speed = 0.75 }
             navigation.popToViewController(target, animated: !reduceMotion)
+            if slowed {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.65) { [weak navigation] in navigation?.view.layer.speed = 1 }
+            }
             if let onFinish {
                 if let coordinator = navigation.transitionCoordinator {
                     coordinator.animate(alongsideTransition: nil) { _ in onFinish() }
