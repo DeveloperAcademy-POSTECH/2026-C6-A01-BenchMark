@@ -655,7 +655,13 @@ struct OiStoryEditor: View {
         saving = true; completingCard = true
         defer { saving = false; completingCard = false }
         await pendingSave?.value
-        guard await persist() else { return }
+        guard !Task.isCancelled, let owner, remote.account?.id == owner else { return }
+        var design = customization.card ?? OiCardDesign()
+        if design.postcardDate == nil {
+            design.postcardDate = .now
+            customization.card = design
+        }
+        guard await persist(), !Task.isCancelled, remote.account?.id == owner else { return }
         // Prepare the trimmed cucumber first and fade the summary in, so it neither pops in nor cuts in (#386).
         completionFigure = await OiStoryCompletionView.figureImage(draft: draft, customization: customization)
         showingCardCompletion = true

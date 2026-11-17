@@ -45,17 +45,12 @@ struct OiPostcardFront<Artwork: View>: View {
                             .offset(x: 23, y: CGFloat(26 + index * 13))
                             .accessibilityHidden(true)
                     }
-                    Text("OiD").font(OiPostcardTypography.mark).tracking(1.12)
-                        .foregroundStyle(.white).fixedSize().rotationEffect(.degrees(-90))
-                        .frame(width: 21, height: 58).offset(x: 43, y: 396)
-                        .accessibilityHidden(true)
+                    OiPostcardDecorations(stamp: nil, logo: "white")
                 }
-                if !date.isEmpty {
-                    Text(date).font(OiPostcardTypography.date)
-                        .foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6)
-                        .frame(width: 144, height: 21, alignment: .trailing).offset(x: 173, y: 42)
-                        .accessibilityLabel("작성 날짜 \(date)")
-                }
+                OiPostcardDateArtwork(value: date)
+                    .shadow(color: .black.opacity(0.6), radius: 1)
+                    .frame(width: 170, height: 14, alignment: .bottomTrailing)
+                    .offset(x: 147, y: 45.68)
                 Image("OiPostcardSeal").renderingMode(.template).resizable()
                     .foregroundStyle(Color(oiRGB: OiPostcardInk.color(backgroundStyle?.visiblePaperColor ?? first)))
                     .frame(width: design?.postcardLayoutVersion == 2 ? 98 : 116,
@@ -65,6 +60,39 @@ struct OiPostcardFront<Artwork: View>: View {
                     .accessibilityHidden(true)
             }
         }.frame(width: 362, height: 502).mask(OiPostcardPaper()).dynamicTypeSize(.medium)
+    }
+}
+
+/// Uses the Figma date outlines at their actual ink widths, including the narrow 1 and period.
+private struct OiPostcardDateArtwork: View {
+    let value: String
+
+    private static let widths: [Character: CGFloat] = [
+        "0": 25.2, "1": 5.684, "2": 25.214, "3": 25.214, "4": 24.416,
+        "5": 25.214, "6": 25.214, "7": 25.2, "8": 25.2, "9": 25.214, ".": 1.4,
+    ]
+
+    var body: some View {
+        let characters = Array(value)
+        if characters.count == 8, characters[2] == ".", characters[5] == ".",
+           characters.filter({ $0 != "." }).count == 6,
+           characters.allSatisfy({ Self.widths[$0] != nil }) {
+            HStack(alignment: .bottom, spacing: 1.254) {
+                ForEach(characters.indices, id: \.self) { index in
+                    let character = characters[index]
+                    if let width = Self.widths[character] {
+                        let height: CGFloat = character == "." ? 1.4 : character == "5" ? 14.014 : 14
+                        Image("OiPostcardDate-\(character == "." ? "dot" : String(character))")
+                            .resizable()
+                            // Keep the SVG canvas at its exported size. Only the ink advances the next image.
+                            .frame(width: ceil(width), height: ceil(height))
+                            .frame(width: width, height: height, alignment: .topLeading)
+                    }
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("작성 날짜 \(value)")
+        }
     }
 }
 
@@ -78,7 +106,13 @@ struct OiPostcardBack: View {
     var tags: [String] = []
     var scrollable = false
     var exportFontSize: CGFloat? = nil
-    private var ink: Color { Color(oiRGB: OiPostcardInk.color(backgroundStyle?.visiblePaperColor ?? first)) }
+    private var paperColor: UInt32 { backgroundStyle?.visiblePaperColor ?? first }
+    private var ink: Color { Color(oiRGB: OiPostcardInk.color(paperColor)) }
+    private var textInk: Color { OiPostcardInk.color(paperColor) == 0xFFFFFF ? .white : Color(oiRGB: 0x343434) }
+    private var tagInk: Color {
+        if [0xEECFDF, 0xEFD6E2].contains(paperColor) { return Color(oiRGB: 0x5D1132) }
+        return ink
+    }
     var body: some View {
         ZStack(alignment: .topLeading) {
             if let backgroundStyle { OiPostcardBackground(style: backgroundStyle) }
@@ -97,18 +131,20 @@ struct OiPostcardBack: View {
                     ScrollView { letter.fixedSize(horizontal: false, vertical: true) }.scrollIndicators(.hidden)
                 } else { letter.minimumScaleFactor(0.6) }
             }.frame(width: 292, height: 389, alignment: .topLeading).offset(x: 35, y: 30)
-            Text("FROM").font(OiPostcardTypography.from).opacity(0.98)
-                .frame(height: 10)
-                .offset(x: 35, y: 443)
+            Image("OiPostcardFrom").renderingMode(.template).resizable()
+                .foregroundStyle(textInk)
+                .frame(width: 31, height: 10)
+                .offset(x: 35, y: 444)
+                .accessibilityLabel("FROM")
             HStack(spacing: 8) {
-                Text(author).font(OiPostcardTypography.author).tracking(0.72)
+                Text(author).font(OiPostcardTypography.author).tracking(0.24)
                     .layoutPriority(1)
                 Spacer(minLength: 0)
-                Text(tagLine).font(CampusStyle.body(10)).tracking(0.2)
+                Text(tagLine).font(OiPostcardTypography.author).tracking(0.24).foregroundStyle(tagInk)
             }
             .opacity(0.98).lineLimit(1).minimumScaleFactor(0.6)
             .frame(width: 292, height: 15, alignment: .leading).offset(x: 35, y: 457)
-        }.foregroundStyle(ink).frame(width: 362, height: 502)
+        }.foregroundStyle(textInk).frame(width: 362, height: 502)
             .mask(OiPostcardPaper()).dynamicTypeSize(.medium)
     }
     private var tagLine: String {
@@ -120,7 +156,7 @@ struct OiPostcardBack: View {
         Text(message.isEmpty ? "아직 남긴 이야기가 없어요." : message)
             .font(exportFontSize.map { .custom(OiPostcardTypography.handwritingName, fixedSize: $0) } ?? OiPostcardTypography.handwriting)
             .tracking(0.17).lineSpacing(OiPostcardTypography.lineSpacing * (exportFontSize ?? 17) / 17)
-            .textRenderer(OiPostcardHandwritingStroke())
+            .textRenderer(OiPostcardLetteringStroke())
             .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
