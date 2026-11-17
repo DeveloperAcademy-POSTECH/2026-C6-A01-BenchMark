@@ -27,8 +27,8 @@ struct HomeView: View {
     @State private var showingNotifications = false
     @State private var pendingNotificationStoryID: String?
     @State private var listIsAtTop = true
-    /// Live vertical drag of the region list: negative grows it, positive pulls it down (#395).
-    @State private var listDrag: CGFloat = 0
+    @State private var listDrag = RegionListDrag.idle
+    @GestureState private var isListDragActive = false
     @State private var listBottomInset: CGFloat = 0
     @State private var showingEducationDistrict = false
     @State private var selectedBuilding: CampusBuildingTarget?
@@ -38,6 +38,41 @@ struct HomeView: View {
     private enum AuthoredDestination: Hashable {
         case personal(UUID)
         case story(UUID)
+    }
+
+    private enum MapCoordinateSpace {
+        static let regionList = "campusRegionList"
+    }
+
+    enum RegionListDrag: Equatable {
+        case idle, ignored, panel(CGFloat)
+
+        var translation: CGFloat {
+            if case let .panel(translation) = self { return translation }
+            return 0
+        }
+
+        mutating func update(_ translation: CGSize, expanded: Bool, listIsAtTop: Bool) {
+            switch self {
+            case .idle:
+                let vertical = abs(translation.height) > abs(translation.width)
+                let canMovePanel = !expanded || (translation.height > 0 && listIsAtTop)
+                self = vertical && canMovePanel ? .panel(translation.height) : .ignored
+            case .panel:
+                self = .panel(translation.height)
+            case .ignored:
+                break
+            }
+        }
+
+        func layout(availableHeight: CGFloat, expanded: Bool) -> (height: CGFloat, offset: CGFloat) {
+            let compact = max(220, availableHeight * 0.416)
+            let tall = max(compact, availableHeight - 68)
+            if expanded {
+                return (max(compact, tall - max(0, translation)), 0)
+            }
+            return (min(tall, compact - min(0, translation)), max(0, translation))
+        }
     }
 
     private struct AuthoredPlacementSource: Equatable {
@@ -114,6 +149,7 @@ struct HomeView: View {
                         .transition(.move(edge: .bottom))
                 }
             }
+            .coordinateSpace(.named(MapCoordinateSpace.regionList))
             // The list slides up when a bubble opens it and back down when it closes (#395).
             .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: region == nil)
             .onAppear { configureMapLabels(geometry) }
@@ -122,6 +158,9 @@ struct HomeView: View {
             .onChange(of: region?.id) { _, _ in configureMapLabels(geometry) }
             .onChange(of: expanded) { _, _ in configureMapLabels(geometry) }
             .onChange(of: selectedBuilding?.id) { _, _ in configureMapLabels(geometry) }
+            .onChange(of: isListDragActive) { _, active in
+                if !active, listDrag != .idle { resetListDrag() }
+            }
         }
         .toolbar(.hidden, for: .navigationBar)
         .background(CampusStyle.lightGreen)
@@ -340,7 +379,7 @@ struct HomeView: View {
             scene.setMapLabelPresentation(enabled: false, topInset: 0, bottomInset: 0)
             return
         }
-        let bottom = region == nil ? 8 : regionPanelHeight(geometry.size.height) + 58
+        let bottom = region == nil ? 8 : RegionListDrag.idle.layout(availableHeight: geometry.size.height, expanded: expanded).height + 58
         let bottomY = geometry.size.height + geometry.safeAreaInsets.top
         let controls = region == nil ? [
             CGRect(x: 22, y: bottomY - 108, width: 108, height: 112),
@@ -349,10 +388,6 @@ struct HomeView: View {
         scene.setMapLabelPresentation(enabled: !expanded,
             topInset: geometry.safeAreaInsets.top + 64,
             bottomInset: geometry.safeAreaInsets.bottom + bottom, controls: controls)
-    }
-
-    private func regionPanelHeight(_ availableHeight: CGFloat) -> CGFloat {
-        expanded ? max(200, availableHeight - 68) : max(220, availableHeight * 0.416)
     }
 
     private func buildingPanelHeight(_ availableHeight: CGFloat) -> CGFloat {
@@ -475,10 +510,7 @@ struct HomeView: View {
         let items = store.stories(in: searchResults == nil ? region.id : nil,
                                   matching: searchResults, sortedBy: sort, distances: distances)
         // Figma: sheet starts at y=516 (collapsed) or y=130 (expanded) in an 874pt screen.
-        let restingHeight = regionPanelHeight(availableHeight)
-        let tallest = max(200, availableHeight - 68)
-        // The list follows the finger: pulling up grows it toward the tall height, pulling down slides it.
-        let height = listDrag < 0 ? min(tallest, restingHeight - listDrag) : restingHeight
+        let layout = listDrag.layout(availableHeight: availableHeight, expanded: expanded)
         return VStack(spacing: 9.5) {
             VStack(spacing: 20) {
                 HStack(spacing: 7) {
@@ -532,54 +564,62 @@ struct HomeView: View {
                         geometry.contentOffset.y + geometry.contentInsets.top <= 1
                     } action: { _, isAtTop in listIsAtTop = isAtTop }
             }
-            .padding(.horizontal, 20).padding(.top, 20).frame(height: height)
+            .padding(.horizontal, 20).padding(.top, 20).frame(height: layout.height)
             .background {
                 UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35)
                     .fill(Color(white: 244/255).opacity(0.85))
                     .padding(.bottom, -bottomInset)
                     .shadow(color: .black.opacity(0.25), radius: 20)
             }
-            .offset(y: max(0, listDrag))
+            .offset(y: layout.offset)
             .onGeometryChange(for: CGFloat.self) { geometry in
                 geometry.size.height
             } action: { listBottomInset = $0 + bottomInset }
-            .simultaneousGesture(DragGesture(minimumDistance: 8)
+            .simultaneousGesture(DragGesture(minimumDistance: 8, coordinateSpace: .named(MapCoordinateSpace.regionList))
+                .updating($isListDragActive) { _, active, _ in active = true }
                 .onChanged { gesture in
-                    let dy = gesture.translation.height
-                    guard abs(dy) > abs(gesture.translation.width) else { return }
-                    // A tall list scrolls its rows upward; it only follows a downward pull from the top.
-                    if dy < 0 { listDrag = expanded ? 0 : dy }
-                    else { listDrag = listIsAtTop ? dy : 0 }
+                    // Keep the initial gesture owner even when the scroll view reaches its top.
+                    var drag = listDrag
+                    drag.update(gesture.translation, expanded: expanded, listIsAtTop: listIsAtTop)
+                    if drag != listDrag { listDrag = drag }
                 }
                 .onEnded { gesture in
-                    // Decide from where the flick would land so a quick swipe responds at once.
+                    guard case .panel = listDrag else {
+                        listDrag = .idle
+                        return
+                    }
                     let landing = gesture.predictedEndTranslation.height
-                    let pulled = listDrag
-                    if pulled < 0, landing < -60 {
+                    let pulled = gesture.translation.height
+                    if !expanded, pulled < 0, landing < -60 {
                         setListExpanded(true)
                     } else if pulled > 0, landing > 60 {
                         // Down steps back: a tall list first returns to its default height, then closes (#395).
-                        if expanded { setListExpanded(false) } else { closeRegionList(); return }
+                        if expanded { setListExpanded(false) } else { closeRegionList() }
+                    } else {
+                        resetListDrag()
                     }
-                    withAnimation(reduceMotion ? nil : .spring(duration: 0.25)) { listDrag = 0 }
                 })
             .accessibilityAction(named: "목록 닫기") { closeRegionList() }
             .accessibilityAction(named: expanded ? "목록 줄이기" : "목록 크게 보기") { setListExpanded(!expanded) }
         }
     }
 
+    private func resetListDrag() {
+        withAnimation(reduceMotion ? nil : .spring(duration: 0.25)) { listDrag = .idle }
+    }
+
     /// Closes the region list and keeps the map exactly where it was (#395).
     private func closeRegionList() {
         region = nil; expanded = false; searchResults = nil
         scene.showOverview(keepingCamera: true)
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) { listDrag = 0 }
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) { listDrag = .idle }
     }
 
     private func setListExpanded(_ value: Bool) {
         guard expanded != value else { return }
         withAnimation(reduceMotion ? nil : .spring(duration: 0.3)) {
             expanded = value
-            listDrag = 0
+            listDrag = .idle
         }
     }
 
