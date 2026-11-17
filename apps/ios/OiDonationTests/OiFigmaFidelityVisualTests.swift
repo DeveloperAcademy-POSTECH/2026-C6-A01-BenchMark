@@ -1096,10 +1096,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         value.card?.postcardBackground?.startOpacity = 0
         value.card?.postcardBackground?.middleOpacity = 0
         value.card?.postcardBackground?.endOpacity = 0
-        XCTAssertEqual(try sample(render(value)), 0xFFFFFF, "Zero background ink reveals opaque white paper")
+        XCTAssertEqual(try sample(render(value)), 0xCCCCCC, "The automatic 20% shade sits above otherwise white paper")
         value.card?.postcardBackground?.middleOpacity = 0.5
         let half = try sample(render(value))
-        for shift in [16, 8, 0] { XCTAssertEqual(Double((half >> shift) & 255), 128, accuracy: 2) }
+        for shift in [16, 8, 0] { XCTAssertEqual(Double((half >> shift) & 255), 102, accuracy: 2) }
+        value.card?.postcardLogoOpacity = 0
         let plain = try render(value).pngData()
         value.card?.postcardLogo = "black"
         value.card?.postcardLogoOpacity = 0
@@ -1118,7 +1119,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         value.card?.characterBackdropOpacity = 0
         XCTAssertEqual(try render(value).pngData(), frontBefore)
         value.card?.characterBackdropOpacity = 0.5
-        XCTAssertNotEqual(try render(value).pngData(), frontBefore)
+        XCTAssertEqual(try render(value).pngData(), frontBefore, "Legacy backdrop opacity no longer affects layout 2")
         let encoded = try JSONEncoder().encode(value)
         XCTAssertEqual(try JSONDecoder().decode(OiDraftCustomization.self, from: encoded), value)
         let publication = try OiDraftCardPreview(draft: Self.draft, customization: value,
@@ -1126,7 +1127,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let front = try XCTUnwrap(UIImage(data: publication.png))
         OiPostcardBackgroundMetadata.remember(png: publication.png, image: front)
         XCTAssertEqual(OiPostcardBackgroundMetadata.style(for: front), value.card?.postcardBackground)
-        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "", tags: [Self.draft.emotion, Self.draft.theme])
+        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "", tags: Self.draft.postcardTags)
         XCTAssertEqual(restored.parts[.back], publication.parts[.back])
         var invalid = try XCTUnwrap(value.card?.postcardBackground)
         invalid.startOpacity = -0.1
@@ -1139,12 +1140,12 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(OiCardOpacity.normalized(2), 1)
     }
 
-    func testPostcardCustomCharacterBackdropPersistsAndExports() throws {
+    func testLegacyPostcardCustomCharacterBackdropPersistsAndExports() throws {
         let portrait = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { _ in }
         var value = Self.customization
         value.showsCharacter = true
         value.card = OiCardDesign()
-        value.card?.postcardLayoutVersion = 2
+        value.card?.postcardLayoutVersion = nil
         value.card?.postcardBackground = .init(color: 0xEECFDF, fill: .solid)
         value.card?.characterBackdropEnabled = true
         func render(_ customization: OiDraftCustomization, back: Bool = false) throws -> UIImage {
@@ -1185,100 +1186,23 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertNil(legacy.characterBackdropColor)
     }
 
-    func testPostcardCharacterBackdropPickerUpdatesLivePreview() async throws {
+    func testPostcardAutomaticShadeBackgroundEditorCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
         var value = Self.customization
         value.showsCharacter = true
         value.card = OiCardDesign()
         value.card?.postcardLayoutVersion = 2
-        value.card?.postcardBackground = .init(color: 0xEECFDF, fill: .solid)
-        value.card?.characterBackdropEnabled = true
+        value.card?.portraitPNG = try XCTUnwrap(UIImage(named: "OiCatsPortrait")?.pngData())
+        value.card?.postcardBackground = .init(color: 0xD9E6CA, fill: .gradient, preset: "sage")
+        // Retained settings must not bring removed controls or an old flat tint back.
+        value.card?.characterBackdropEnabled = false
+        value.card?.characterBackdropColor = 0x246BA0
+        value.card?.characterBackdropOpacity = 0.4
         for variant in variants.prefix(2) {
-            value.card?.characterBackdropColor = 0x246BA0
             try await capture(PostcardBackdropLiveFixture(draft: Self.draft, customization: value, changed: { _ in }),
-                name: "postcard-backdrop-color-editor", variant: variant, defaults: fixture.defaults, attach: true)
+                name: "postcard-automatic-shade-background", variant: variant, defaults: fixture.defaults, attach: true)
         }
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let previous = scene.windows.first(where: \.isKeyWindow)
-        let window = UIWindow(windowScene: scene)
-        var selected: OiDraftCustomization?
-        value.card?.characterBackdropColor = nil
-        let host = UIHostingController(rootView: PostcardBackdropLiveFixture(draft: Self.draft,
-            customization: value, changed: { selected = $0 }))
-        window.rootViewController = host; window.makeKeyAndVisible()
-        defer {
-            host.dismiss(animated: false); window.isHidden = true
-            window.rootViewController = nil; window.windowScene = nil; previous?.makeKey()
-        }
-        try await Task.sleep(for: .milliseconds(300))
-        func button(in view: UIView) -> UIButton? {
-            if let button = view as? UIButton, button.accessibilityIdentifier == "oi.postcard.color-ring.control" { return button }
-            for child in view.subviews { if let found = button(in: child) { return found } }
-            return nil
-        }
-        let control = try XCTUnwrap(button(in: host.view))
-        XCTAssertTrue(control.isEnabled)
-        control.sendActions(for: .primaryActionTriggered)
-        try await Task.sleep(for: .milliseconds(650))
-        func colorPicker(in controller: UIViewController) -> UIColorPickerViewController? {
-            if let picker = controller as? UIColorPickerViewController { return picker }
-            if let presented = controller.presentedViewController, let found = colorPicker(in: presented) { return found }
-            for child in controller.children { if let found = colorPicker(in: child) { return found } }
-            return nil
-        }
-        let picker = try XCTUnwrap(colorPicker(in: host))
-        XCTAssertEqual(Color(picker.selectedColor).oiRGB, 0x835C6E)
-        XCTAssertTrue(picker.supportsAlpha)
-        for rgb in [0x246BA0, 0x9B8050] as [UInt32] {
-            picker.delegate?.colorPickerViewController?(picker,
-                didSelect: UIColor(Color(oiRGB: rgb)).withAlphaComponent(0.4), continuously: true)
-            try await Task.sleep(for: .milliseconds(150))
-            let updated = try XCTUnwrap(selected)
-            XCTAssertEqual(updated.card?.characterBackdropColor, rgb)
-            XCTAssertEqual(try XCTUnwrap(updated.card?.characterBackdropOpacity), 0.4, accuracy: 0.001)
-            XCTAssertEqual(OiPostcardCharacterBackdrop.color(for: try XCTUnwrap(updated.card)), rgb)
-        }
-        let sheet = try XCTUnwrap(host.presentedViewController)
-        let reset = try XCTUnwrap(picker.navigationItem.leftBarButtonItem)
-        XCTAssertEqual(reset.accessibilityIdentifier, "oi.postcard.color.reset")
-        XCTAssertNil(reset.customView, "The toolbar uses a system item without an extra glass button")
-        XCTAssertTrue(UIApplication.shared.sendAction(try XCTUnwrap(reset.action), to: reset.target, from: reset, for: nil))
-        try await Task.sleep(for: .milliseconds(200))
-        let restored = try XCTUnwrap(selected)
-        XCTAssertNil(restored.card?.characterBackdropColor, "Reset returns to automatic, rather than saving a manual copy")
-        XCTAssertNil(restored.card?.characterBackdropOpacity)
-        XCTAssertTrue(try XCTUnwrap(restored.card).usesCharacterBackdrop, "Reset must not turn off the background")
-        XCTAssertEqual(OiPostcardCharacterBackdrop.color(for: try XCTUnwrap(restored.card)), 0x835C6E)
-        XCTAssertEqual(Color(picker.selectedColor).oiRGB, 0x835C6E, "The open picker must follow the restored recommendation")
-        XCTAssertEqual(Double(picker.selectedColor.cgColor.alpha), 1, accuracy: 0.001)
-        XCTAssertNotNil(picker.viewIfLoaded?.window, "Reset keeps the live preview picker open")
-        if ProcessInfo.processInfo.environment["OI_HOLD_BACKDROP_PICKER_CAPTURE"] == "1" {
-            FileHandle.standardOutput.write(Data("POSTCARD_BACKDROP_PICKER_READY\n".utf8))
-            try await Task.sleep(for: .seconds(8))
-            sheet.sheetPresentationController?.animateChanges {
-                sheet.sheetPresentationController?.selectedDetentIdentifier = .large
-            }
-            try await Task.sleep(for: .seconds(1))
-            FileHandle.standardOutput.write(Data("POSTCARD_EXPANDED_PICKER_READY\n".utf8))
-            try await Task.sleep(for: .seconds(8))
-        }
-        let apply = try XCTUnwrap(picker.navigationItem.rightBarButtonItem)
-        XCTAssertEqual(apply.accessibilityIdentifier, "oi.postcard.color.apply")
-        XCTAssertEqual(apply.style, .prominent)
-        XCTAssertNil(apply.customView, "The native confirmation item must not contain nested glass")
-        XCTAssertNotNil(picker.navigationController, "Reset sheets retain their upper toolbar")
-        XCTAssertTrue(picker.supportsEyedropper)
-        picker.delegate?.colorPickerViewController?(picker,
-            didSelect: UIColor(Color(oiRGB: 0x246BA0)).withAlphaComponent(0.35), continuously: true)
-        try await Task.sleep(for: .milliseconds(100))
-        XCTAssertTrue(UIApplication.shared.sendAction(try XCTUnwrap(apply.action), to: apply.target, from: apply, for: nil))
-        for _ in 0..<20 where host.presentedViewController != nil {
-            try await Task.sleep(for: .milliseconds(100))
-        }
-        XCTAssertNil(host.presentedViewController, "Apply dismisses the sheet")
-        XCTAssertEqual(selected?.card?.characterBackdropColor, 0x246BA0)
-        XCTAssertEqual(try XCTUnwrap(selected?.card?.characterBackdropOpacity), 0.35, accuracy: 0.001)
     }
 
     func testPostcardAttachmentOnlyAppearsWhenSelected() throws {
@@ -1328,68 +1252,124 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
-    func testPostcardOptionalCharacterBackdrop() async throws {
+    func testPostcardAutomaticShadeIgnoresSavedToggleAndPreservesDraftData() throws {
         let clear = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { _ in }
         var value = Self.customization
         value.card = OiCardDesign()
         value.card?.postcardLayoutVersion = 2
         value.card?.postcardBackground = .init(color: 0xEECFDF, fill: .solid)
         value.showsCharacter = true
-        func render(_ customization: OiDraftCustomization, back: Bool = false) throws -> UIImage {
+        func render(_ value: OiDraftCustomization, back: Bool = false) throws -> Data {
             let renderer = ImageRenderer(content: OiDraftCardPreview(draft: Self.draft,
-                customization: customization, portrait: clear, showingBack: back).frame(width: 362, height: 502))
+                customization: value, portrait: clear, showingBack: back).frame(width: 362, height: 502))
             renderer.scale = 1
-            return try XCTUnwrap(renderer.uiImage)
+            return try XCTUnwrap(renderer.uiImage?.pngData())
         }
-        XCTAssertFalse(try XCTUnwrap(value.card).usesCharacterBackdrop)
-        let original = try render(value).pngData()
-        let back = try render(value, back: true).pngData()
-        value.card?.characterBackdropEnabled = true
-        XCTAssertEqual(OiPostcardSnapshot.color(try render(value), x: 50.0 / 362, y: 180.0 / 502), 0x835C6E)
-        XCTAssertEqual(try render(value, back: true).pngData(), back, "A front-only option must preserve the story side")
-        XCTAssertEqual(try JSONDecoder().decode(OiDraftCustomization.self, from: JSONEncoder().encode(value)), value)
-        value.card?.characterBackdropEnabled = false
-        XCTAssertEqual(try render(value).pngData(), original, "Turning off the option must restore the exact original composition")
-        value.showsCharacter = false
-        let photo = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { context in
-            UIColor.systemBlue.setFill(); context.fill(CGRect(x: 0, y: 0, width: 20, height: 20))
-        }
-        value.card?.backgroundPhoto = photo.pngData()
-        let photoOnly = try render(value).pngData()
-        value.card?.characterBackdropEnabled = true
-        XCTAssertEqual(try render(value).pngData(), photoOnly, "A saved option must never obscure photo-only cards")
-        XCTAssertFalse(OiCardDesign().usesCharacterBackdrop, "Pre-unified drafts retain their own inner gradient")
-        var legacy = OiCardDesign()
-        legacy.postcardBackground = .init(color: 0xEECFDF, fill: .solid)
-        XCTAssertTrue(legacy.usesCharacterBackdrop, "Unified legacy cards retain the previous automatic field")
-        var legacyValue = value
-        legacy.backgroundPhoto = photo.pngData()
-        legacyValue.card = legacy
-        legacyValue.showsCharacter = true
-        let legacyImage = try render(legacyValue)
-        XCTAssertEqual(OiPostcardSnapshot.color(legacyImage, x: 50.0 / 362, y: 180.0 / 502),
-                       0x835C6E, "Legacy drafts must also honor the active character source")
-        XCTAssertEqual(legacyValue.card?.backgroundPhoto, photo.pngData(), "The hidden photo stays saved")
-        value.showsCharacter = true
-        XCTAssertEqual(OiPostcardSnapshot.color(try render(value), x: 50.0 / 362, y: 180.0 / 502), 0x835C6E,
-                       "The automatic field must remain visible even when an older card photo is retained")
-        let fixture = try isolatedDefaults()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
-        value.card?.backgroundPhoto = nil
-        value.card?.portraitPNG = try XCTUnwrap(UIImage(named: "OiCatsPortrait")?.pngData())
-        for enabled in [false, true] {
+        let original = try render(value)
+        let back = try render(value, back: true)
+        for enabled in [nil, false, true] as [Bool?] {
             value.card?.characterBackdropEnabled = enabled
-            let page = VStack(spacing: 0) {
-                OiCreationProgressHeader(step: 4, onPrevious: {}).padding(.horizontal, 20).padding(.bottom, 8)
-                OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(value),
-                    donorName: "가상 작성자", onContinue: {}).tabForTest("배경")
-            }.background(.white)
-            try await capture(page, name: "optional-character-backdrop-\(enabled ? "on" : "off")",
-                variant: variants[0], defaults: fixture.defaults, attach: true)
+            value.card?.characterBackdropColor = 0x246BA0
+            value.card?.characterBackdropOpacity = 0.5
+            let bytes = try JSONEncoder().encode(value)
+            let reopened = try JSONDecoder().decode(OiDraftCustomization.self, from: bytes)
+            XCTAssertEqual(reopened, value, "Older optional controls remain losslessly decodable")
+            XCTAssertEqual(try render(reopened), original, "Layout 2 always uses the same automatic shade")
+            XCTAssertEqual(try render(reopened, back: true), back, "The story side is unchanged")
+        }
+        value.showsCharacter = false
+        XCTAssertEqual(try render(value), original, "An empty photo window has the same automatic shading")
+    }
+
+    func testPostcardAutomaticShadeMatchesFigmaPaperAndExports() throws {
+        let clear = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { _ in }
+        let points = [CGPoint(x: 50, y: 180), CGPoint(x: 310, y: 60), CGPoint(x: 60, y: 440)]
+        let custom = OiPostcardBackgroundStyle(color: 0xEEAD56, fill: .gradient,
+            middleColor: 0xA1C8DB, endColor: 0xDA85A8)
+        let styles = OiPostcardPreset.allCases.map {
+            OiPostcardBackgroundStyle(color: $0.color, fill: .gradient, preset: $0.rawValue)
+        } + [custom, .init(color: 0xB5CCAD, fill: .solid)]
+        for preset in OiPostcardPreset.allCases {
+            let asset = try XCTUnwrap(UIImage(named: preset.asset), preset.rawValue)
+            XCTAssertEqual(asset.cgImage?.width, 1086, preset.rawValue)
+            XCTAssertEqual(asset.cgImage?.height, 1506, preset.rawValue)
+            XCTAssertNotNil(UIImage(named: preset.swatch), preset.rawValue)
+        }
+        for style in styles {
+            var value = Self.customization
+            value.showsCharacter = true
+            value.card = OiCardDesign()
+            value.card?.postcardLayoutVersion = 2
+            value.card?.postcardBackground = style
+            let paperRenderer = ImageRenderer(content: OiPostcardBackground(style: style).frame(width: 362, height: 502))
+            paperRenderer.scale = 1
+            let paper = try XCTUnwrap(paperRenderer.uiImage)
+            let publication = try OiDraftCardPreview(draft: Self.draft, customization: value,
+                portrait: clear).publication(colorScheme: .light)
+            let front = try XCTUnwrap(UIImage(data: publication.png))
+            let preview = try XCTUnwrap(publication.parts[.frontPreview].flatMap(UIImage.init(data:)))
+            XCTAssertTrue(OiPostcardSnapshot.isPostcard(front))
+            for point in points {
+                let base = try XCTUnwrap(OiPostcardSnapshot.color(paper, x: point.x / 362, y: point.y / 502))
+                for image in [front, preview] {
+                    let shaded = try XCTUnwrap(OiPostcardSnapshot.color(image, x: point.x / 362, y: point.y / 502))
+                    for shift in [16, 8, 0] {
+                        XCTAssertEqual(Double((shaded >> shift) & 255), Double((base >> shift) & 255) * 0.8, accuracy: 2,
+                            "Figma 6647:10696 uses black at 20%, preserving the actual paper gradient")
+                    }
+                }
+            }
+            for point in [CGPoint(x: 18, y: 180), CGPoint(x: 180, y: 18)] {
+                XCTAssertEqual(OiPostcardSnapshot.color(front, x: point.x / 362, y: point.y / 502),
+                    OiPostcardSnapshot.color(paper, x: point.x / 362, y: point.y / 502), "The paper border stays unshaded")
+            }
+            let a = XCTAttachment(data: publication.png, uniformTypeIdentifier: "public.png")
+            a.name = "postcard-automatic-shade-" + (style.preset ?? "custom")
+            a.lifetime = .keepAlways
+            add(a)
         }
     }
 
-    func testPostcardFigmaCompanionPalette() async throws {
+    func testPostcardAutomaticShadeStaysBehindPhotoAndCharacter() async throws {
+        let red = UIGraphicsImageRenderer(size: CGSize(width: 296, height: 436)).image { context in
+            UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 296, height: 436))
+        }
+        var value = Self.customization
+        value.card = OiCardDesign()
+        value.card?.postcardLayoutVersion = 2
+        value.card?.postcardBackground = .init(color: 0xB5CCAD, fill: .solid)
+        value.card?.backgroundPhoto = try XCTUnwrap(red.pngData())
+        for character in [false, true] {
+            value.showsCharacter = character
+            let publication = try OiDraftCardPreview(draft: Self.draft, customization: value,
+                portrait: red).publication(colorScheme: .light)
+            let front = try XCTUnwrap(UIImage(data: publication.png))
+            XCTAssertEqual(OiPostcardSnapshot.color(front, x: 0.5, y: 0.5), 0xFF0000,
+                "The shade must never dim the photo or the character")
+        }
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let clear = UIGraphicsImageRenderer(size: CGSize(width: 296, height: 436)).image { _ in }
+        for (name, input, expected) in [("portrait", red, UInt32(0xFF0000)), ("background", clear, UInt32(0x91A38A))] {
+            // ImageRenderer cannot render the editor's UIKit gesture surface;
+            // capture the hosted production view instead of its red placeholder.
+            try await capture(OiCardPlacementEditor(image: input, placement: .constant(.init()),
+                frameHeight: 436, compact: true, minimalChrome: true, postcardPaper: value.card)
+                .frame(width: 336, height: 452), name: "automatic-shade-placement-" + name,
+                variant: Variant(name: "336x452", size: CGSize(width: 336, height: 452), dynamicTypeSize: .medium),
+                defaults: fixture.defaults, includesSafeArea: false, attach: true,
+                validateRender: { data, size in
+                    _ = try self.renderedBitmap(data, size: size)
+                    // A deliberately uniform portrait/background is valid here;
+                    // check its expected pixel instead of the generic color-count heuristic.
+                    let image = try XCTUnwrap(UIImage(data: data))
+                    let pixel = try XCTUnwrap(OiPostcardSnapshot.color(image, x: 0.5, y: 0.5))
+                    for shift in [16, 8, 0] { XCTAssertEqual(Double((pixel >> shift) & 255), Double((expected >> shift) & 255), accuracy: 2) }
+                })
+        }
+    }
+
+    func testLegacyPostcardFigmaCompanionPalette() async throws {
         let references: [(paper: UInt32, backdrop: UInt32)] = [
             (0xEECFDF, 0x835C6E), (0xEEE7CF, 0x83785C),
             (0xE8EECF, 0x77835C), (0xCFE1EE, 0x5C7183)
@@ -1399,7 +1379,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             var value = Self.customization
             value.showsCharacter = true
             value.card = OiCardDesign()
-            value.card?.postcardLayoutVersion = 2
+            value.card?.postcardLayoutVersion = nil
             value.card?.characterBackdropEnabled = true
             value.card?.postcardBackground = .init(color: reference.paper, fill: .solid)
             let publication = try OiDraftCardPreview(draft: Self.draft, customization: value,
@@ -1427,7 +1407,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                         var value = Self.customization
                         value.showsCharacter = true
                         value.card = OiCardDesign()
-                        value.card?.postcardLayoutVersion = 2
+                        value.card?.postcardLayoutVersion = nil
                         value.card?.characterBackdropEnabled = true
                         value.card?.postcardBackground = .init(color: preset.color, fill: .gradient, preset: preset.rawValue)
                         return value
@@ -1443,7 +1423,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             defaults: fixture.defaults, includesSafeArea: false, attach: true)
     }
 
-    func testPostcardAutomaticCharacterBackdrop() throws {
+    func testLegacyPostcardAutomaticCharacterBackdrop() throws {
         let clearPortrait = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { _ in }
         var customization = Self.customization
         customization.showsCharacter = true
