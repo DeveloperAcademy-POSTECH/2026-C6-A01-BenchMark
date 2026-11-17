@@ -486,6 +486,13 @@ struct OiSchoolEvidenceView: View {
     private func saveProfile(_ input: ProfileSubmission) async {
         defer { if profileSubmission?.id == input.id { profileSubmission = nil } }
         guard remote.account?.id == input.owner, !Task.isCancelled else { return }
+        do {
+            if var saved = try await remote.localSchoolEvidenceReview(owner: input.owner), saved.profile == nil {
+                saved.profile = reviewProfile
+                try await remote.saveSchoolEvidenceReview(saved, owner: input.owner)
+            }
+        } catch { self.error = error.localizedDescription; return }
+        guard remote.account?.id == input.owner, !Task.isCancelled else { return }
         await remote.updateSchoolProfile(schoolID: input.schoolID, admissionYear: input.admissionYear, department: input.department)
         guard !Task.isCancelled, profileSubmission?.id == input.id, remote.account?.id == input.owner else { return }
         guard remote.error == nil, remote.profile?.schoolId == input.schoolID,
@@ -499,7 +506,8 @@ struct OiSchoolEvidenceView: View {
     private func goBack() {
         clearTransient()
         switch step {
-        case .profile, .result: dismiss()
+        case .profile: dismiss()
+        case .result: step = .profile
         case .affiliation: step = .profile
         case .document: step = .affiliation
         case .attachment(let affiliation, _): step = .document(affiliation)
@@ -606,7 +614,7 @@ struct OiSchoolEvidenceView: View {
             do {
                 let outcome = try await remote.reviewSchoolEvidence(attachment.data, contentType: attachment.contentType)
                 guard isCurrentReview(request, owner: attachment.owner) else { return }
-                pending = PendingReview(owner: attachment.owner, result: .init(outcome: outcome, reviewedAt: .now))
+                pending = PendingReview(owner: attachment.owner, result: .init(outcome: outcome, reviewedAt: .now, profile: reviewProfile))
                 pendingReview = pending
                 self.attachment = nil
                 acknowledged = false
@@ -637,6 +645,11 @@ struct OiSchoolEvidenceView: View {
         !Task.isCancelled && reviewRequest?.id == request.id && remote.account?.id == owner
     }
 
+    private var reviewProfile: OiSavedSchoolEvidenceReview.Profile {
+        .init(schoolID: remote.profile?.schoolId, admissionYear: remote.profile?.schoolAdmissionYear,
+              department: remote.profile?.schoolDepartment)
+    }
+
     private func loadReview(owner: UUID) async {
         defer {
             if !Task.isCancelled, remote.account?.id == owner { reviewLoadedOwner = owner }
@@ -644,7 +657,7 @@ struct OiSchoolEvidenceView: View {
         do {
             let saved = try await remote.localSchoolEvidenceReview(owner: owner)
             guard !Task.isCancelled, remote.account?.id == owner else { return }
-            if let saved { step = .result(saved.outcome) }
+            if let saved, saved.profile == nil || saved.profile == reviewProfile { step = .result(saved.outcome) }
         } catch {
             guard !Task.isCancelled, remote.account?.id == owner else { return }
             historyError = "이전 자료 확인 결과를 불러오지 못했어요. 화면을 다시 열어 주세요."

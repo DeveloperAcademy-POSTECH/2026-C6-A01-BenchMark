@@ -21,15 +21,17 @@ final class ARVideoExporter {
         guard let geometry = ARVideoCropGeometry(naturalSize: natural, preferredTransform: preferred, normalizedRect: crop) else {
             throw failure("촬영 영역이 올바르지 않습니다.")
         }
-        let composition = AVMutableVideoComposition()
-        composition.renderSize = geometry.size
-        composition.frameDuration = CMTime(value: 1, timescale: 30)
-        let layer = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
+        var layer = AVVideoCompositionLayerInstruction.Configuration(assetTrack: track)
         layer.setTransform(geometry.transform, at: .zero)
-        let instruction = AVMutableVideoCompositionInstruction()
-        instruction.timeRange = CMTimeRange(start: .zero, duration: duration)
-        instruction.layerInstructions = [layer]
-        composition.instructions = [instruction]
+        let instruction = AVVideoCompositionInstruction(configuration: .init(
+            layerInstructions: [AVVideoCompositionLayerInstruction(configuration: layer)],
+            timeRange: CMTimeRange(start: .zero, duration: duration)
+        ))
+        let composition = AVVideoComposition(configuration: .init(
+            frameDuration: CMTime(value: 1, timescale: 30),
+            instructions: [instruction],
+            renderSize: geometry.size
+        ))
         guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else {
             throw failure("영상 내보내기를 준비하지 못했습니다.")
         }

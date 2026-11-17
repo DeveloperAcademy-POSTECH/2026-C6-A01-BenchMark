@@ -18,6 +18,7 @@
 		C15811050000000000000001 /* OiDonationTests/OiSchoolEvidenceContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15811050000000000000002 /* OiDonationTests/OiSchoolEvidenceContractTests.swift */; };
 		C37911160000000000000001 /* OiDonationTests/Fixtures/MYV4Figma in Resources */ = {isa = PBXBuildFile; fileRef = C37911160000000000000002 /* OiDonationTests/Fixtures/MYV4Figma */; };
 		C59111160000000000000001 /* CampusBuildingNotesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59111160000000000000002; };
+		C41811170000000000000001 /* OiStoryContinuationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41811170000000000000002; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -66,6 +67,7 @@
 		C15811050000000000000002 /* OiDonationTests/OiSchoolEvidenceContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiSchoolEvidenceContractTests.swift; sourceTree = SOURCE_ROOT; };
 		C37911160000000000000002 /* OiDonationTests/Fixtures/MYV4Figma */ = {isa = PBXFileReference; lastKnownFileType = folder; path = OiDonationTests/Fixtures/MYV4Figma; sourceTree = SOURCE_ROOT; };
 		C59111160000000000000002 /* CampusBuildingNotesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/CampusBuildingNotesTests.swift; sourceTree = SOURCE_ROOT; };
+		C41811170000000000000002 /* OiStoryContinuationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiStoryContinuationTests.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -121,6 +123,26 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				Resources/Characters/doni.usdz,
+				Resources/Characters/neopjuk.usdz,
+				Resources/Characters/neopjukAnimated.usdz,
+				Resources/Characters/ponix.usdz,
+				Resources/Characters/ponixVsNeopjuk.usdz,
+				"Resources/Characters/seed-costume-astronaut-navy-proposal-2.usdz",
+				"Resources/Characters/seed-costume-astronaut-navy-proposal-3.usdz",
+				"Resources/Characters/seed-costume-astronaut-navy.usdz",
+				"Resources/Characters/seed-costume-astronaut-proposal-2.usdz",
+				"Resources/Characters/seed-costume-astronaut-proposal-3.usdz",
+				"Resources/Characters/seed-costume-astronaut.usdz",
+				"Resources/Characters/seed-costume-cat-bear-proposal-2.usdz",
+				"Resources/Characters/seed-costume-cat-bear-proposal-3.usdz",
+				"Resources/Characters/seed-costume-cat-bear.usdz",
+				"Resources/Characters/seed-costume-postech-selfie.usdz",
+				"Resources/Characters/seed-costume-raincoat.usdz",
+				"Resources/Characters/seed-costume-scientist-proposal-1.usdz",
+				"Resources/Characters/seed-costume-scientist-proposal-2.usdz",
+				"Resources/Characters/seed-costume-scientist-proposal-3.usdz",
+				"Resources/Characters/seed-costume-scientist.usdz",
 			);
 			target = 8736DA6830777C9800D0CFC9 /* OiDonation */;
 		};
@@ -200,6 +222,7 @@
 		8736DA6030777C9800D0CFC9 = {
 			isa = PBXGroup;
 			children = (
+				C41811170000000000000002 /* OiStoryContinuationTests.swift */,
 				C59111160000000000000002 /* CampusBuildingNotesTests.swift */,
 				B10000000000000000000008 /* OiDonationTests/OiRemoteStoreTests.swift */,
 				C13211030000000000000010 /* OiDonationTests/OiFigmaFidelityVisualTests.swift */,
@@ -312,7 +335,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2700;
-				LastUpgradeCheck = 2630;
+				LastUpgradeCheck = 2710;
 				TargetAttributes = {
 					87169564307CB1CF0090D456 = {
 						CreatedOnToolsVersion = 27.0;
@@ -430,6 +453,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C41811170000000000000001 /* OiStoryContinuationTests.swift in Sources */,
 				C59111160000000000000001 /* CampusBuildingNotesTests.swift in Sources */,
 				B10000000000000000000009 /* OiDonationTests/OiRemoteStoreTests.swift in Sources */,
 				C13211030000000000000011 /* OiDonationTests/OiFigmaFidelityVisualTests.swift in Sources */,
@@ -589,6 +613,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -646,6 +671,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};

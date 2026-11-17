@@ -97,10 +97,10 @@ final class CameraPlacementController: UIViewController {
             // UIKit can restore the full bar frame during tab interactions.
             // Observe public layer geometry so the reserved space survives them.
             boundsObservation = tabs.tabBar.layer.observe(\.bounds) { [weak self] _, _ in
-                Task { @MainActor in self?.scheduleLayout() }
+                Task { @MainActor [weak self] in self?.scheduleLayout() }
             }
             positionObservation = tabs.tabBar.layer.observe(\.position) { [weak self] _, _ in
-                Task { @MainActor in self?.scheduleLayout() }
+                Task { @MainActor [weak self] in self?.scheduleLayout() }
             }
         }
         let bar = tabs.tabBar

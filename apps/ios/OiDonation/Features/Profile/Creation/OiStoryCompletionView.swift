@@ -15,7 +15,14 @@ struct OiStoryCompletionView: View {
     let donorName: String
     let location: String
     let onDone: () -> Void
+    /// The trimmed cucumber prepared before this screen appears, so it never pops in afterwards.
+    var initialFigure: UIImage? = nil
     @State private var showingBack = false
+    /// 공유 opens the system share sheet with both card faces; its own 이미지 저장 action saves them to Photos.
+    @State private var sharedCard: SharedCard?
+    @State private var preparingShare = false
+    @State private var shareError: String?
+    private struct SharedCard: Identifiable { let id = UUID(); let images: [UIImage] }
     /// The card portrait keeps transparent margins; trim them so the figure fills Figma's 269pt height.
     @State private var figure: UIImage?
 
@@ -58,20 +65,48 @@ struct OiStoryCompletionView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .topTrailing) {
-            Button(action: onDone) {
-                Text("완료").font(CampusStyle.body(16)).tracking(0.32)
-                    .frame(height: 20)
-                    .padding(.horizontal, 16).padding(.vertical, 6)
-                    .background(Color("OiBorder"), in: Capsule())
-                    .frame(minHeight: 44).contentShape(Rectangle())
+            HStack(spacing: 8) {
+                // Icon-only share button in the system's default style, left of 완료.
+                Button(action: shareCard) {
+                    Image(systemName: "square.and.arrow.up")
+                        .frame(minWidth: 22, minHeight: 22)
+                }
+                .buttonStyle(.glass).buttonBorderShape(.circle)
+                .disabled(preparingShare)
+                .accessibilityLabel("공유")
+                .accessibilityIdentifier("oi.creation.completion.share")
+                Button(action: onDone) {
+                    Text("완료").font(CampusStyle.body(16)).tracking(0.32)
+                        .frame(height: 20)
+                        .padding(.horizontal, 16).padding(.vertical, 6)
+                        .background(Color("OiBorder"), in: Capsule())
+                        .frame(minHeight: 44).contentShape(Rectangle())
+                }
+                .buttonStyle(OiCreationPressStyle()).foregroundStyle(.black)
+                .accessibilityIdentifier("oi.creation.completion.done")
             }
-            .buttonStyle(OiCreationPressStyle()).foregroundStyle(.black)
             .padding(.trailing, 20)
             .padding(.top, -8)
-            .accessibilityIdentifier("oi.creation.completion.done")
         }
         .background(Color(oiRGB: 0xF0F0F0).ignoresSafeArea())
         .environment(\.colorScheme, .light)
+        .sheet(item: $sharedCard) { OiCardShareSheet(images: $0.images) }
+        .alert("카드를 공유할 수 없어요", isPresented: Binding(get: { shareError != nil }, set: { if !$0 { shareError = nil } })) {
+            Button("확인", role: .cancel) {}
+        } message: { Text(shareError ?? "") }
+    }
+
+    /// Renders the front and back and opens the share sheet straight away (no extra picker sheet).
+    private func shareCard() {
+        guard !preparingShare else { return }
+        preparingShare = true
+        defer { preparingShare = false }
+        do {
+            let card = try OiDraftCardPreview(draft: draft, customization: customization, donorName: donorName)
+                .publication(colorScheme: .light)
+            let images = try OiCardExportImages(card)
+            sharedCard = SharedCard(images: [images.front] + (images.back.map { [$0] } ?? []))
+        } catch { shareError = error.localizedDescription }
     }
 
     /// Figma: cucumber frame 34–173pt × 76–353pt with the visible figure at 81–350pt
@@ -86,11 +121,9 @@ struct OiStoryCompletionView: View {
         }
         .frame(width: 333, height: 277, alignment: .topLeading)
         .task(id: figureSourceKey) {
-            let data = customization.showsCharacter ? design.portraitPNG : nil
-            let asset = draft.cucumberAsset == "OiCats" ? "OiCatsPortrait" : draft.cucumberAsset
-            let source = data.flatMap(UIImage.init(data:)) ?? UIImage(named: asset)
-            guard let source else { figure = nil; return }
-            figure = await Task.detached(priority: .userInitiated) { OiOpaqueImageTrim.trimmed(source) }.value
+            // The editor already prepared the first figure; only a changed source needs trimming again.
+            if figure == nil, initialFigure != nil { return }
+            figure = await Self.figureImage(draft: draft, customization: customization)
         }
     }
 
@@ -98,8 +131,17 @@ struct OiStoryCompletionView: View {
         "\(customization.showsCharacter)/\(design.portraitKey ?? "")/\(design.portraitPNG?.count ?? 0)/\(draft.cucumberAsset)"
     }
 
+    /// The card portrait with its transparent margins trimmed, ready to draw at Figma's 269pt height.
+    static func figureImage(draft: OiStoryDraft, customization: OiDraftCustomization) async -> UIImage? {
+        let design = customization.card ?? OiCardDesign()
+        let data = design.portraitPNG
+        let asset = draft.cucumberAsset == "OiCats" ? "OiCatsPortrait" : draft.cucumberAsset
+        guard let source = data.flatMap(UIImage.init(data:)) ?? UIImage(named: asset) else { return nil }
+        return await Task.detached(priority: .userInitiated) { OiOpaqueImageTrim.trimmed(source) }.value
+    }
+
     @ViewBuilder private var cucumber: some View {
-        if let figure {
+        if let figure = figure ?? initialFigure {
             Image(uiImage: figure).resizable().scaledToFit().accessibilityLabel("내가 꾸민 오이")
         } else {
             Color.clear

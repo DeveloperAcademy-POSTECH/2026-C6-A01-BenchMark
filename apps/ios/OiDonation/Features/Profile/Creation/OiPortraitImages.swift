@@ -17,6 +17,9 @@ actor OiPortraitImages {
 
     func cached(key: String) -> UIImage? { entry?.key == key ? entry?.image : nil }
 
+    /// The PNG rendered for `key` while STEP 3 was still open, so STEP 4 can use it without rendering again (#386).
+    func cachedData(key: String) -> Data? { entry?.key == key ? entry?.data : nil }
+
     func restore(_ data: Data, key: String) -> UIImage? {
         guard !Task.isCancelled else { return nil }
         if let entry, entry.key == key, entry.data == data { return entry.image }
