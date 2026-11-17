@@ -535,18 +535,39 @@ struct OiStoryAttachmentSections: View {
                         }
                         .accessibilityIdentifier("oi.story.connectedCard")
                     }
-                    formButton(connectedStory == nil ? "기부자 선택하기" : "다시 선택하기",
-                               highlighted: false, action: onSelectDonor)
-                        .accessibilityIdentifier("oi.story.selectDonor")
-                    if let onClearDonor {
-                        Button(connectedStory == nil ? "선택 없이 진행하기" : "연결 해제", action: onClearDonor).font(CampusStyle.body(14))
-                            .accessibilityIdentifier("oi.story.clearConnectedStory")
+                    if connectedStory != nil {
+                        // Figma `5400:7644` 내용 검토 요청하기: Paperlogy Regular 13pt, tracking 0.26, #232323, underlined,
+                        // 15pt high and 20pt in from the card's edges. 다시 선택하기 sits at the left end, 삭제하기 at the right end.
+                        HStack {
+                            linkButton("다시 선택하기", action: onSelectDonor)
+                                .accessibilityIdentifier("oi.story.selectDonor")
+                            Spacer(minLength: 12)
+                            if let onClearDonor {
+                                linkButton("삭제하기", action: onClearDonor)
+                                    .accessibilityIdentifier("oi.story.clearConnectedStory")
+                            }
+                        }.padding(.horizontal, 20).padding(.top, -28) // text 6pt under the card (Figma), touch area stays 44pt
+                    } else {
+                        formButton("기부자 선택하기", highlighted: false, action: onSelectDonor)
+                            .accessibilityIdentifier("oi.story.selectDonor")
+                        // A hidden parent kept on a restored draft has no card; it can still be cleared (#429).
+                        if let onClearDonor {
+                            Button("선택 없이 진행하기", action: onClearDonor).font(CampusStyle.body(14))
+                                .accessibilityIdentifier("oi.story.clearConnectedStory")
+                        }
                     }
-                    Text("공개된 이야기의 연결이며 실제 기부·납입 내역이 아니에요.")
-                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
+    }
+
+    /// The underlined text button of the story list's review row (Figma `6101:8973`); the touch area is 44pt high.
+    private func linkButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(.custom("Paperlogy-4Regular", size: 13, relativeTo: .caption)).tracking(0.26)
+                .underline().foregroundStyle(Color(oiRGB: 0x232323))
+                .frame(minHeight: 44).contentShape(Rectangle())
+        }.buttonStyle(.plain)
     }
 
     private func formButton(_ title: String, highlighted: Bool, action: @escaping () -> Void) -> some View {

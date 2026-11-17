@@ -2553,7 +2553,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             name: "connected-picker-empty", variant: variants[0], defaults: fixture.defaults, delay: .milliseconds(500), attach: true)
         for (name, story) in [("connected-section-empty", CampusStory?.none), ("connected-section-selected", stories[0])] {
             let section = OiStoryAttachmentSections(photoCount: 0, latitude: 36.0139, longitude: 129.3232, onPhotos: {}, onLocation: {},
-                connectedStory: story, onSelectDonor: {})
+                connectedStory: story, onSelectDonor: {}, onClearDonor: story == nil ? nil : {})
                 .padding(20).offset(y: -520).frame(maxHeight: .infinity, alignment: .top).clipped()
             try await capture(section, name: name, variant: variants[0], defaults: fixture.defaults, delay: .seconds(2), attach: true)
         }
