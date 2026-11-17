@@ -60,15 +60,7 @@ struct EducationLightExperience: View {
                 }
             }
         }
-        .alert("이야기 삭제", isPresented: $model.confirmingEducationDeletion) {
-            Button("취소하기", role: .cancel) { model.resolveEducationDeletion(confirmed: false) }
-            Button("삭제하기", role: .destructive) { model.resolveEducationDeletion(confirmed: true) }
-        }
-        .onChange(of: phase) { _, value in
-            model.setActive(value == .active)
-            if value == .background { model.resolveEducationDeletion(confirmed: false) }
-        }
-        .onDisappear { model.resolveEducationDeletion(confirmed: false) }
+        .onChange(of: phase) { _, value in model.setActive(value == .active) }
         .onChange(of: model.closeRequested) { _, requested in if requested { dismiss() } }
     }
 }
@@ -80,8 +72,6 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
     var scattered = false
     var closeRequested = false
     var educationSignInRequested = false
-    var confirmingEducationDeletion = false
-    @ObservationIgnored private var pendingEducationDeletion: CheckedContinuation<Bool, Never>?
     @ObservationIgnored private weak var educationRemote: OiRemoteStore?
     @ObservationIgnored let webView: WKWebView
     private var active = true
@@ -144,23 +134,7 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
     }
 
     func notifyEducationIdentity() {
-        resolveEducationDeletion(confirmed: false)
         webView.evaluateJavaScript("window.dispatchEvent(new Event('education-auth-changed'))", completionHandler: nil)
-    }
-
-    private func confirmEducationDeletion() async -> Bool {
-        guard active, pendingEducationDeletion == nil else { return false }
-        return await withCheckedContinuation { continuation in
-            pendingEducationDeletion = continuation
-            confirmingEducationDeletion = true
-        }
-    }
-
-    func resolveEducationDeletion(confirmed: Bool) {
-        let request = pendingEducationDeletion
-        pendingEducationDeletion = nil
-        confirmingEducationDeletion = false
-        request?.resume(returning: confirmed)
     }
 
     private func educationMessage(_ body: [String: Any], message: WKScriptMessage) {
@@ -181,18 +155,9 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
                     guard remote.account == nil else { throw OiServiceError.unavailable }
                     value = ["signedOut": true]
                 } else {
-                    if action == "rpc", body["name"] as? String == "oi_education_mutate",
-                       let payload = body["payload"] as? [String: Any], payload["p_action"] as? String == "delete" {
-                        guard let owner = remote.account?.id else { throw OiServiceError.signInRequired }
-                        guard await self.confirmEducationDeletion(), remote.account?.id == owner else {
-                            throw CancellationError()
-                        }
-                    }
                     value = try await remote.educationRequest(action, values: body)
                 }
                 response = ["ok": true, "data": value]
-            } catch is CancellationError {
-                response = ["ok": false, "error": ""]
             } catch {
                 response = ["ok": false, "error": error.localizedDescription]
             }

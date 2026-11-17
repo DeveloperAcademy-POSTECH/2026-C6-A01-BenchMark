@@ -14,6 +14,8 @@ import ImageIO
 struct CampusPostcard: View {
     let story: CampusStory
     let store: CampusStoryStore
+    /// 카드 이미지 저장·공유 button under the postcard; hidden for now (#399).
+    var showsExport = false
     @State private var showingBack = false
     @State private var snapshot: UIImage?
     @State private var backSnapshot: UIImage?
@@ -57,7 +59,7 @@ struct CampusPostcard: View {
                         donorName: remote?.profile?.publicName ?? "").frame(width: 362, height: 502)
                 } else if let snapshot {
                     Image(uiImage: snapshot).resizable().frame(width: 362, height: 502)
-                } else if story.cardArtworkPath != nil && !artworkResolved && !failed {
+                } else if story.cardArtworkPath != nil && !artworkResolved && !frontFailed {
                     // Never preview a story photo that the approved front may not use (#326).
                     OiPostcardFront(date: OiPostcardDate.string(from: story.date)) {
                         ZStack { Color(oiRGB: 0x77835C); ProgressView().tint(.white) }
@@ -93,12 +95,7 @@ struct CampusPostcard: View {
             if failed {
                 Button("저장된 엽서 다시 불러오기") { retry += 1 }.font(.caption)
             }
-        }
-        .contextMenu {
-            if let id = UUID(uuidString: story.id), !story.isExample {
-                Button("이야기 ID 복사") { UIPasteboard.general.string = id.uuidString }
-            }
-            if let remote, remote.account?.id == story.authorID, !remote.needsReauthentication {
+            if showsExport, let remote, remote.account?.id == story.authorID, !remote.needsReauthentication {
                 Button("카드 이미지 저장·공유", systemImage: "square.and.arrow.up") { showingExport = true }
                     .accessibilityIdentifier("oi.card.export.owner")
             }

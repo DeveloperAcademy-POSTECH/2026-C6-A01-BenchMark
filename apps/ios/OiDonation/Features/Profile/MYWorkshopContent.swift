@@ -151,12 +151,6 @@ struct MYWorkshopContent: View {
     @ViewBuilder private var collectedContent: some View {
         if let error = demo.clipCollection.persistenceError {
             Text(error).font(.caption).foregroundStyle(.secondary).padding(.bottom, 12)
-        } else if !demo.pinnedOnly {
-            let visibleIDs = Set(demo.cards.map { $0.id.lowercased() })
-            if demo.clipCollection.cards.contains(where: { !visibleIDs.contains($0.storyID.lowercased()) }) {
-                Text("공개 상태, 차단 설정 또는 연결 상태로 표시할 수 없는 카드가 있어요.")
-                    .font(.caption).foregroundStyle(.secondary).padding(.bottom, 12)
-            }
         }
         if cards.isEmpty {
             if remote?.loadError == nil && remote?.needsReauthentication != true {

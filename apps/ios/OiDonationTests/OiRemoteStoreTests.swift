@@ -662,6 +662,38 @@ final class OiRemoteStoreTests: XCTestCase {
         catch { guard case OiServiceError.accountChanged = error else { return XCTFail(String(describing: error)) } }
     }
 
+    @MainActor func testEducationBridgeRejectsConcurrentDeletesForTheSameStory() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let original = OiStoreURLProtocol.handle
+        let requested = expectation(description: "Only the first deletion reaches the server")
+        requested.assertForOverFulfill = true
+        var held: OiStoreURLProtocol?
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.path == "/rest/v1/rpc/oi_education_mutate" {
+                if held == nil { held = client; requested.fulfill() }
+                else { XCTFail("Duplicate deletion reached the server"); client.respond(409, Data()) }
+            } else { original?(request, client) }
+        }
+        let storyID = UUID()
+        let values: [String: Any] = ["name": "oi_education_mutate", "payload": [
+            "p_action": "delete", "p_payload": ["id": storyID.uuidString, "revision": 1]
+        ]]
+        let first = Task { try await store.educationRequest("rpc", values: values) }
+        defer { first.cancel() }
+        await fulfillment(of: [requested], timeout: 2)
+        do {
+            _ = try await store.educationRequest("rpc", values: values)
+            XCTFail("Deletion should remain single-flight while the first response is pending")
+        } catch {
+            guard case OiServiceError.unavailable = error else { return XCTFail(String(describing: error)) }
+        }
+        try XCTUnwrap(held).respond(200, Data("{\"revision\":2}".utf8))
+        let receipt = try await first.value as? [String: Any]
+        XCTAssertEqual(receipt?["revision"] as? Int, 2)
+    }
+
     @MainActor func testExistingAccountStartsAndRefreshesWithoutDonationEvidence() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }

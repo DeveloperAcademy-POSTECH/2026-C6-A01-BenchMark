@@ -49,6 +49,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     private var storyModerationResults: [UUID: OiStoryModerationResult] = [:]
 
     var canPlaceOi: Bool { account != nil && !needsReauthentication && !isAccountDeletionPending }
+    @ObservationIgnored private var pendingEducationDeletions: Set<UUID> = []
 
     /// The bundled education page can request only this channel. Tokens and
     /// public keys stay in native code; no campus mutation is exposed to JS.
@@ -67,6 +68,18 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
                   let payload = values["payload"] as? [String: Any] else { throw OiServiceError.invalidInput }
             if ["oi_education_mutate", "oi_education_report"].contains(name), accessToken == nil {
                 throw OiServiceError.signInRequired
+            }
+            var deletingID: UUID?
+            if name == "oi_education_mutate", payload["p_action"] as? String == "delete" {
+                guard let story = payload["p_payload"] as? [String: Any],
+                      let id = (story["id"] as? String).flatMap(UUID.init(uuidString:)) else {
+                    throw OiServiceError.invalidInput
+                }
+                guard pendingEducationDeletions.insert(id).inserted else { throw OiServiceError.unavailable }
+                deletingID = id
+            }
+            defer {
+                if let deletingID { pendingEducationDeletions.remove(deletingID) }
             }
             let data = try await api.educationRPC(name, payload: payload, token: accessToken)
             result = (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) ?? NSNull()
