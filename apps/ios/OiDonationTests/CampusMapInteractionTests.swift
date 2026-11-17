@@ -6,6 +6,7 @@
 //
 
 import RealityKit
+import CoreText
 import UIKit
 import SwiftUI
 import XCTest
@@ -17,6 +18,60 @@ import os
 
 @MainActor
 final class CampusMapInteractionTests: XCTestCase {
+    func testRegionBadgeRendersCompleteYangjinDigits() throws {
+        let button = CampusRegionButton()
+        let content = try XCTUnwrap(button.subviews.compactMap { $0 as? UIStackView }.first)
+        let number = try XCTUnwrap(content.arrangedSubviews.last)
+        let font = try XCTUnwrap(UIFont(name: "YANGJIN", size: 26))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 3
+        format.opaque = false
+        let counts = [0, 15, 205]
+        let attachment = UIGraphicsImageRenderer(size: CGSize(width: 336, height: 224), format: format).image { canvas in
+            for (row, panelOpacity) in [CGFloat(0), 1].enumerated() {
+                for (column, count) in counts.enumerated() {
+                    button.setCount(count)
+                    button.place(at: CGPoint(x: 45, y: 45), opacity: 1, panelOpacity: panelOpacity)
+                    button.layoutIfNeeded()
+                    content.layoutIfNeeded()
+                    canvas.cgContext.saveGState()
+                    canvas.cgContext.translateBy(x: CGFloat(column * 112 + 11), y: CGFloat(row * 112 + 11))
+                    button.layer.render(in: canvas.cgContext)
+                    canvas.cgContext.restoreGState()
+                }
+            }
+        }
+        let capture = XCTAttachment(image: attachment)
+        capture.name = "region-badge-digits"
+        capture.lifetime = .keepAlways
+        add(capture)
+
+        for count in counts {
+            button.setCount(count)
+            button.layoutIfNeeded()
+            content.layoutIfNeeded()
+            let line = CTLineCreateWithAttributedString(NSAttributedString(
+                string: String(count), attributes: [.font: font, .kern: 1.04]))
+            let outline = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+            let pixels = try XCTUnwrap(UIGraphicsImageRenderer(size: number.bounds.size, format: format).image {
+                number.layer.render(in: $0.cgContext)
+            }.cgImage)
+            let ink = try XCTUnwrap(CGContext(data: nil, width: pixels.width, height: pixels.height,
+                bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue))
+            ink.draw(pixels, in: CGRect(x: 0, y: 0, width: pixels.width, height: pixels.height))
+            let bytes = try XCTUnwrap(ink.data).assumingMemoryBound(to: UInt8.self)
+            let visibleRows = (0..<ink.height).filter { y in
+                let row = bytes.advanced(by: y * ink.bytesPerRow)
+                return (0..<ink.width).contains { x in row[x * 4 + 3] >= 128 }
+            }
+            let first = try XCTUnwrap(visibleRows.first)
+            let last = try XCTUnwrap(visibleRows.last)
+            let height = CGFloat(last - first + 1) / format.scale
+            XCTAssertEqual(height, outline.height, accuracy: 0.8, "The full outline of \(count) should render")
+        }
+    }
+
     func testIdleHomeMapStopsFrameUpdatesAndResumesWithoutReplacingScene() async throws {
         let scene = CampusExploreScene(stillFrameDelay: .seconds(2))
         let controller = UIViewController()

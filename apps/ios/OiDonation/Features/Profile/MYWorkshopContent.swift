@@ -81,7 +81,7 @@ struct MYWorkshopContent: View {
             } else if let id = selection.card.storyID, let store = demo.campusStore,
                       let story = store.story(id) {
                 CampusCucumberStoryView(story: story, store: store)
-            } else {
+            } else if selection.card.storyID == nil {
                 MYCardStoryView(card: selection.card)
             }
         }
@@ -92,23 +92,23 @@ struct MYWorkshopContent: View {
             selectedDetail = nil
         }
         .onDisappear { importTask?.cancel() }
-        .onChange(of: demo.cards.map(\.id)) { _, ids in
-            if let selection = selectedCard, selection.ownedStoryID == nil, !ids.contains(selection.id) {
-                selectedCard = nil
-                pendingDetail = nil
-            }
-            if let selection = selectedDetail, selection.ownedStoryID == nil, !ids.contains(selection.id) {
-                selectedDetail = nil
-            }
+        .onChange(of: demo.cards.map(\.id)) { _, _ in closeUnavailableCards() }
+        .onChange(of: remote?.revision) { _, _ in closeUnavailableCards() }
+        .onChange(of: OiContentSafetyStore.shared.authors) { _, _ in closeUnavailableCards() }
+    }
+
+    private func closeUnavailableCards() {
+        guard let remote else { return }
+        let publishedIDs = Set(remote.stories.map(\.id))
+        let collectedIDs = Set(demo.cards.map(\.id))
+        func unavailable(_ selection: Selection?) -> Bool {
+            guard let selection, selection.ownedStoryID == nil,
+                  let id = selection.card.storyID.flatMap(UUID.init(uuidString:)) else { return false }
+            return !publishedIDs.contains(id) || !collectedIDs.contains(selection.id)
         }
-        .onChange(of: OiContentSafetyStore.shared.authors) { _, _ in
-            if let card = selectedCard, card.ownedStoryID == nil,
-               let id = card.card.storyID, let story = demo.campusStore?.story(id),
-               let authorID = story.authorID, OiContentSafetyStore.shared.isBlocked(authorID) {
-                selectedCard = nil
-                pendingDetail = nil
-            }
-        }
+        if unavailable(selectedCard) { selectedCard = nil }
+        if unavailable(pendingDetail) { pendingDetail = nil }
+        if unavailable(selectedDetail) { selectedDetail = nil }
     }
 
     private var signInMessage: some View {

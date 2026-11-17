@@ -251,14 +251,14 @@ struct OiStoryListScreen: View {
         if let issue = OiCreationStep.reviewInputIssues(draft: draft.draftWithSavedLocation, photoCount: photos.count).first {
             throw OiServiceError.server(issue.message)
         }
-        if draft.customization?.wardrobe != nil && !remote.canPublishCucumberAppearance {
+        if draft.customization?.portraitLook != nil && !remote.canPublishCucumberAppearance {
             throw OiServiceError.server("서버가 꾸민 오이 공개를 지원하면 다시 요청해 주세요.")
         }
 
-        if let look = draft.customization?.wardrobe {
-            let card = draft.customization?.card
+        if let customization = draft.customization, let look = customization.portraitLook {
+            let card = customization.card
             let orientation = card?.characterOrientation ?? OiCardOrientation()
-            let key = OiCardPortrait.key(for: look) + "-angle-" + orientation.cacheIdentity
+            let key = (customization.seedSnapshot?.portraitKey ?? OiCardPortrait.key(for: look)) + "-angle-" + orientation.cacheIdentity
             if card?.portraitKey == key, let bytes = card?.portraitPNG,
                let decoded = try? OiPublishedCucumberImage.decode(bytes, part: .portrait),
                OiPortraitMatte.hasTransparentBackground(UIImage(cgImage: decoded)) {
@@ -301,7 +301,7 @@ struct OiStoryListScreen: View {
 
     @ViewBuilder private var reviewPortraitCapture: some View {
         if let work = reviewWork, case .capture(let owner, let draft, let look, let orientation, let key) = work.stage {
-            OiCardPortraitCapture(look: look, cacheKey: key, orientation: orientation, onCapture: { bytes, _ in
+            OiCardPortraitCapture(look: look, seed: draft.customization?.seedSnapshot, cacheKey: key, orientation: orientation, onCapture: { bytes, _ in
                 guard reviewWork?.id == work.id else { return }
                 reviewWork = work.advancing(to: .submit(owner: owner, draft: draft, portrait: bytes))
             }, onFailure: {
@@ -320,9 +320,9 @@ struct OiStoryListScreen: View {
     private func submitReview(_ work: ReviewWork, owner: UUID, draft: inout OiLocalDraft, portrait: Data?) async throws {
         let customization = draft.customization ?? OiDraftCustomization()
         let cucumber: OiCucumberPublication?
-        if let look = customization.wardrobe {
+        if let look = customization.portraitLook {
             guard let portrait else { throw OiPhotoDataError.unreadable }
-            cucumber = try OiCucumberPublication(look: look, portrait: portrait)
+            cucumber = try OiCucumberPublication(look: look, portrait: portrait, seed: customization.seedSnapshot)
         } else { cucumber = nil }
         let existing = remote.ownStories.first { $0.id == work.storyID }
         let reviewDraft = draft.draftWithSavedLocation
@@ -333,6 +333,13 @@ struct OiStoryListScreen: View {
               (current?.version ?? 0) <= draft.version else { throw OiServiceError.conflict }
         draft.draft = reviewDraft
         let saved = try await remote.saveDraftForReview(&draft, owner: owner)
+        if work.authorizesAIReview, let fingerprint = draft.contentFingerprint {
+            draft.reviewSubmission = .init(fingerprint: fingerprint,
+                appearance: cucumber?.appearance ?? saved.cucumberAppearance,
+                cardID: card.id, cardFormat: card.format, coverType: card.coverType)
+            draft.version += 1
+            try await remote.saveLocalDraft(draft, owner: owner)
+        }
         try Task.checkCancellation()
         guard reviewWork?.id == work.id, remote.account?.id == owner else { return }
         let receipt = await remote.submitStory(saved, cucumber: cucumber, card: card, agreesToAIReview: work.authorizesAIReview)
@@ -345,6 +352,7 @@ struct OiStoryListScreen: View {
             throw OiServiceError.server(remote.error ?? "검토 요청을 확인하지 못했어요. 다시 시도해 주세요.")
         }
         draft.reviewedContentFingerprint = draft.submitted ? nil : draft.contentFingerprint
+        draft.reviewSubmission = nil
         draft.version += 1
         try await remote.saveLocalDraft(draft, owner: owner)
         await loadLocalDrafts()
@@ -418,7 +426,7 @@ struct OiStoryListScreen: View {
            let local = localDrafts.first(where: { $0.id == id }),
            !(local.draft.revision == story.revision
              ? unchangedReviewedDraftIDs.contains(id)
-             : matchesLegacyReview(local, story: story)) {
+             : local.matchesCompletedReview(story) || matchesLegacyReview(local, story: story)) {
             return .unreviewed
         }
         return review.status == .approved ? .approved : .rejected

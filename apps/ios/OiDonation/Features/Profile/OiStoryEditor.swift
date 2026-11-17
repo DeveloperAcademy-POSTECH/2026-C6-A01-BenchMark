@@ -56,7 +56,7 @@ struct OiStoryEditor: View {
     /// STEP 4 완료 is saving the draft; the screen must not dim while it does (#386).
     @State private var completingCard = false
     /// The card portrait rendered in the background once STEP 3 is finished (#386).
-    @State private var portraitPrefetch: (look: OiWardrobeLook, key: String, orientation: OiCardOrientation)?
+    @State private var portraitPrefetch: (look: OiWardrobeLook, seed: OiSeedCucumberSnapshot?, key: String, orientation: OiCardOrientation)?
     @State private var showingDonorPicker = false
     @State private var customization = OiDraftCustomization()
     @State private var personalPlacement: OiPersonalPlacement?
@@ -357,6 +357,7 @@ struct OiStoryEditor: View {
             .background(alignment: .topLeading) { portraitPrefetchSurface }
             .onChange(of: step) { _, _ in updatePortraitPrefetch() }
             .onChange(of: customization.wardrobe) { _, _ in portraitPrefetch = nil }
+            .onChange(of: customization.seedSnapshot) { _, _ in portraitPrefetch = nil }
             .confirmationDialog("현재 입력을 어떻게 할까요?", isPresented: $choosingExit, titleVisibility: .visible) {
                 Button("임시저장 후 나가기") { Task { if await persist() { dismiss() } } }
                 Button(personalPlacement == nil ? "기기 초안 삭제" : "내 지도 배치와 기기 초안 삭제", role: .destructive) {
@@ -523,8 +524,10 @@ struct OiStoryEditor: View {
     private func saveAndClosePhotoEditor() {
         guard !preparingPhoto, !saving, photoSelections.isEmpty, photoCheckpoint != nil else { return }
         saving = true
+        localVersion += 1
         Task {
             defer { saving = false }
+            await pendingSave?.value
             if await persist() { photoCheckpoint = nil }
         }
     }
@@ -549,7 +552,11 @@ struct OiStoryEditor: View {
                 guard remote.account?.id == owner else { throw OiServiceError.accountChanged }
                 guard (pendingRemoval == nil ? editingPhotos.count : 0) < OiCreationStep.storyPhotoLimit else { break }
                 if let old = pendingRemoval { old.forEach(removePhoto); pendingRemoval = nil }
-                photos.append(id); localVersion += 1; _ = await persist()
+                photos.append(id)
+                if photoCheckpoint == nil {
+                    localVersion += 1
+                    _ = await persist()
+                }
             } catch is CancellationError { return }
             catch { failures += 1 }
         }
@@ -655,16 +662,17 @@ struct OiStoryEditor: View {
 
     /// Once STEP 3 is finished the card portrait is rendered behind the screen, so STEP 4 opens with it ready.
     private func updatePortraitPrefetch() {
-        guard step == .cucumber, customizationReady, let look = customization.wardrobe else { portraitPrefetch = nil; return }
+        guard step == .cucumber, customizationReady, let look = customization.portraitLook else { portraitPrefetch = nil; return }
         let orientation = (customization.card?.characterOrientation ?? OiCardOrientation()).normalized
-        let key = OiCardPortrait.key(for: look) + "-angle-" + orientation.cacheIdentity
-        portraitPrefetch = customization.card?.portraitKey == key ? nil : (look, key, orientation)
+        let seed = customization.seedSnapshot
+        let key = (seed?.portraitKey ?? OiCardPortrait.key(for: look)) + "-angle-" + orientation.cacheIdentity
+        portraitPrefetch = customization.card?.portraitKey == key ? nil : (look, seed, key, orientation)
     }
 
     @ViewBuilder private var portraitPrefetchSurface: some View {
         if step == .cucumber, let prefetch = portraitPrefetch {
             // Same size as STEP 4's capture surface; invisible and never touchable.
-            OiCardPortraitCapture(look: prefetch.look, cacheKey: prefetch.key, orientation: prefetch.orientation,
+            OiCardPortraitCapture(look: prefetch.look, seed: prefetch.seed, cacheKey: prefetch.key, orientation: prefetch.orientation,
                                   onCapture: { _, _ in portraitPrefetch = nil })
                 .id(prefetch.key).frame(width: 217, height: 308)
                 .opacity(0.001).allowsHitTesting(false).accessibilityHidden(true)
@@ -1280,7 +1288,9 @@ struct OiStoryEditor: View {
             if let orderIndex = photoOrder?.firstIndex(of: id.uuidString) {
                 photoOrder?[orderIndex] = newID.uuidString
             }
-            photos[index] = newID; localVersion += 1
+            photos[index] = newID
+            if photoCheckpoint != nil { return true }
+            localVersion += 1
             return await persist()
         } catch { localError = error.localizedDescription; return false }
     }
@@ -1290,7 +1300,8 @@ struct OiStoryEditor: View {
     }
 
     private func scheduleSave() {
-        guard restored, !placing, !publishing, !replacingServerDraft, let owner else { return }
+        guard restored, photoCheckpoint == nil, !preparingPhoto, !placing, !publishing, !replacingServerDraft,
+              let owner else { return }
         localVersion += 1
         let snapshot = record()
         let previous = pendingSave
@@ -1367,6 +1378,7 @@ struct OiStoryMediaImage: View {
     let path: String
     var allowsRetry = true
     var contentMode: ContentMode = .fit
+    var onPhotoLoaded: (() -> Void)? = nil
     let loadURL: (String) async throws -> URL
     @State private var retryCount = 0
     @State private var resolution: Resolution?
@@ -1388,6 +1400,7 @@ struct OiStoryMediaImage: View {
                 AsyncImage(url: url) { phase in
                     if let image = phase.image {
                         image.resizable().aspectRatio(contentMode: contentMode).accessibilityLabel("이야기에 첨부된 사진")
+                            .onAppear { if Request(path: path, attempt: retryCount) == request { onPhotoLoaded?() } }
                     } else if phase.error != nil { failure("사진을 불러오지 못했어요.") }
                     else { ProgressView().accessibilityLabel("사진 불러오는 중") }
                 }

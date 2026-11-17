@@ -134,7 +134,7 @@ struct OiStoryCompletionView: View {
     /// The card portrait with its transparent margins trimmed, ready to draw at Figma's 269pt height.
     static func figureImage(draft: OiStoryDraft, customization: OiDraftCustomization) async -> UIImage? {
         let design = customization.card ?? OiCardDesign()
-        let data = customization.showsCharacter ? design.portraitPNG : nil
+        let data = design.portraitPNG
         let asset = draft.cucumberAsset == "OiCats" ? "OiCatsPortrait" : draft.cucumberAsset
         guard let source = data.flatMap(UIImage.init(data:)) ?? UIImage(named: asset) else { return nil }
         return await Task.detached(priority: .userInitiated) { OiOpaqueImageTrim.trimmed(source) }.value

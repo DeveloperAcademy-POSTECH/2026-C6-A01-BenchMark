@@ -29,6 +29,7 @@ struct HomeView: View {
     @State private var listIsAtTop = true
     @State private var listDrag = RegionListDrag.idle
     @GestureState private var isListDragActive = false
+    @State private var listBottomInset: CGFloat = 0
     @State private var showingEducationDistrict = false
     @State private var selectedBuilding: CampusBuildingTarget?
     @State private var loadedAuthoredSource: AuthoredPlacementSource?
@@ -273,7 +274,7 @@ struct HomeView: View {
             scene.setOverviewStories(stories)
             if let region {
                 scene.showStoriesInCurrentArea(region, stories: searchResults == nil ? store.stories(in: region.id, sortedBy: sort) : stories)
-                if searchResults != nil { searchResults = scene.visibleStoryIDs() }
+                if searchResults != nil { searchResults = scene.visibleStoryIDs(bottomInset: listBottomInset) }
             }
         }
     }
@@ -448,7 +449,8 @@ struct HomeView: View {
         guard let closest = scene.nearestRegion() else { return }
         region = closest; expanded = false
         scene.showStoriesInCurrentArea(closest, stories: store.stories)
-        distances = scene.distances(); searchResults = scene.visibleStoryIDs()
+        distances = scene.distances()
+        searchResults = scene.visibleStoryIDs(bottomInset: listBottomInset)
     }
 
     private func openStory(_ id: String) {
@@ -570,6 +572,9 @@ struct HomeView: View {
                     .shadow(color: .black.opacity(0.25), radius: 20)
             }
             .offset(y: layout.offset)
+            .onGeometryChange(for: CGFloat.self) { geometry in
+                geometry.size.height
+            } action: { listBottomInset = $0 + bottomInset }
             .simultaneousGesture(DragGesture(minimumDistance: 8, coordinateSpace: .named(MapCoordinateSpace.regionList))
                 .updating($isListDragActive) { _, active, _ in active = true }
                 .onChanged { gesture in

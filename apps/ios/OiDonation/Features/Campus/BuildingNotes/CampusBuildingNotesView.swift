@@ -70,7 +70,10 @@ struct CampusBuildingNotesView: View {
             if let error = model.error {
                 HStack {
                     Text(error).font(CampusStyle.body(12)).foregroundStyle(.secondary)
-                    Button("다시 시도") { Task { await model.load() } }.font(CampusStyle.medium(12))
+                    Button("다시 시도") {
+                        if model.failedSend { send() }
+                        else { Task { await model.load() } }
+                    }.font(CampusStyle.medium(12))
                 }.padding(.horizontal, 24).padding(.bottom, 8).accessibilityIdentifier("campus.notes.error")
             }
             if let error = OiContentSafetyStore.shared.error { Text(error).font(.caption).foregroundStyle(.secondary) }

@@ -403,6 +403,8 @@ grant execute on function auth.jwt() to anon,authenticated;
             run(database + ['-f', 'supabase/tests/oi-story-auto-moderation.sql'])
             run(database + ['-f', 'supabase/tests/oi-operator-manual-story-review.sql'])
             run(database + ['-f', 'supabase/tests/oi-story-continuations.sql'])
+            run(database + ['-f', 'supabase/tests/oi-card-request-pages.sql'])
+            run(database + ['-f', 'supabase/tests/oi-seed-cucumber-appearance.sql'])
             run(database + ['-f', 'supabase/tests/oi-education-reference-catalog.sql'])
             run(database + ['-f', 'supabase/tests/oi-public-cucumber-appearance.sql'])
             run(database + ['-f', 'supabase/tests/oi-building-notes.sql'])
