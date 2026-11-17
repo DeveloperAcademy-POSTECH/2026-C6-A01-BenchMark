@@ -2328,7 +2328,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let small = try XCTUnwrap(variants.first { $0.name == "375x667" })
         let large = try XCTUnwrap(variants.first { $0.name == "440x956" })
         let accessibility = Variant(name: "375x667-accessibility5", size: small.size, dynamicTypeSize: .accessibility5)
-        let inbox = CampusNotificationInboxView(requests: rows, isLoading: false, loadError: nil,
+        let inbox = CampusNotificationInboxView(requests: rows, isLoading: false,
             onReload: {}, onOpenRequest: { _ in })
             .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
         for variant in [reference, small, large, accessibility] {
@@ -2336,15 +2336,16 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 defaults: fixture.defaults, includesSafeArea: false, attach: true)
         }
 
-        let empty = CampusNotificationInboxView(requests: [], isLoading: false, loadError: nil,
+        let empty = CampusNotificationInboxView(requests: [], isLoading: false,
             onReload: {}, onOpenRequest: { _ in })
             .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
-        let failed = CampusNotificationInboxView(requests: [], isLoading: false,
-            loadError: "연결 상태를 확인한 뒤 다시 시도해 주세요.", onReload: {}, onOpenRequest: { _ in })
+        let failed = CampusNotificationInboxView(requests: rows, isLoading: false,
+            loadFailed: true, onReload: {}, onOpenRequest: { _ in })
+            .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
         let emptyImage = try await capture(empty, name: "campus-notifications-empty", variant: reference,
             defaults: fixture.defaults, includesSafeArea: false, attach: true)
         let failedImage = try await capture(failed, name: "campus-notifications-error", variant: reference,
-            defaults: fixture.defaults, includesSafeArea: false, attach: true)
+            defaults: fixture.defaults, includesSafeArea: false, attach: true, validateRender: assertSpinnerOnlyRender)
         XCTAssertNotEqual(failedImage, emptyImage, "A failed load must render differently from an empty inbox")
     }
 
@@ -3395,7 +3396,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                                  delay: Duration = .milliseconds(180), attach: Bool = false,
                                  checksBottomSheet: Bool = false, cucumberCameraYaw: Float? = nil,
                                  includesRealityKit: Bool = false, waitsForStillMap: Bool = false,
-                                 sheetDetent: UISheetPresentationController.Detent.Identifier? = nil) async throws -> Data {
+                                 sheetDetent: UISheetPresentationController.Detent.Identifier? = nil,
+                                 validateRender: ((Data, CGSize) throws -> Void)? = nil) async throws -> Data {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first, "The isolated simulator test host must have a window scene")
@@ -3510,7 +3512,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             }
         }
         XCTAssertTrue(rendered, "The attached production view must draw its hierarchy")
-        try assertNonemptyRender(png, size: variant.size)
+        if let validateRender { try validateRender(png, variant.size) }
+        else { try assertNonemptyRender(png, size: variant.size) }
         if attach {
             let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
             attachment.name = "\(name)-\(variant.name)"
@@ -3572,6 +3575,26 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             XCTAssertNil(canvas.map, "The owned summary renderer must be released before the next capture")
         }
         for child in view.subviews { releaseCampusRenderers(in: child) }
+    }
+
+    private func assertSpinnerOnlyRender(_ data: Data, _ size: CGSize) throws {
+        let bitmap = try renderedBitmap(data, size: size)
+        let count = bitmap.width * bitmap.height * 4
+        let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: count)
+        let center = CGRect(x: size.width / 2 - 32, y: size.height / 2 - 32, width: 64, height: 64)
+        var foregroundPixels = 0
+        var outsidePixels = 0
+        for y in 0..<bitmap.height {
+            for x in 0..<bitmap.width {
+                let start = (y * bitmap.width + x) * 4
+                guard (0..<4).contains(where: { pixels[start + $0] != pixels[$0] }) else { continue }
+                foregroundPixels += 1
+                if !center.contains(CGPoint(x: x, y: y)) { outsidePixels += 1 }
+            }
+        }
+        XCTAssertGreaterThan(foregroundPixels, 20, "The loading spinner must be visible")
+        XCTAssertLessThan(foregroundPixels, 32 * 32, "The loading screen must contain only a small indicator")
+        XCTAssertEqual(outsidePixels, 0, "Text or controls outside the spinner would change the uniform background")
     }
 
     private func assertNonemptyRender(_ data: Data, size: CGSize) throws {

@@ -124,6 +124,8 @@ final class OiTestBackend {
         var failRefreshToken = false
         var failLogout = false
         var logoutScopes: [String?] = []
+        var cardRequestListFailures: Int?
+        var cardRequestListAttempts = 0
         var cardSendResponse: [String: String] = [:]
         var cardSendPayloads: [[String: String]] = []
         var holdCardSend = false
@@ -207,6 +209,10 @@ final class OiTestBackend {
             state.cardSendPayloads.append(body.compactMapValues { $0 as? String })
             status = request.httpMethod == "POST" && request.value(forHTTPHeaderField: "Authorization") != nil ? 200 : 401
             result = state.cardSendResponse
+        }
+        else if path.hasSuffix("/rpc/oi_card_requests"), let failures = state.cardRequestListFailures {
+            state.cardRequestListAttempts += 1
+            status = state.cardRequestListAttempts <= failures ? 503 : 200
         }
         else if path.hasSuffix("/rpc/oi_resolve_card_request") || path.hasSuffix("/rpc/oi_card_requests") { status = 404 }
         else if path == "/functions/v1/account-merge", body["action"] as? String == "confirm" {
@@ -4380,6 +4386,26 @@ extension OiRemoteStoreTests {
         try await restarted.finishScratchCollection(id: storyID, owner: owner) { navigations += 1 }
         try await restarted.finishScratchCollection(id: storyID, owner: owner) { navigations += 1 }
         XCTAssertEqual(navigations, 1)
+    }
+
+    @MainActor func testCampusNotificationSheetAutomaticallyRecoversFromFailedLoad() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.cardRequestListFailures = 1 }
+        await store.start()
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(
+            rootView: CampusNotificationSheet(remote: store).environment(\.scenePhase, .active)
+        )
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil; previousKey?.makeKey() }
+        for _ in 0..<100 where backend.snapshot().cardRequestListAttempts < 2 {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(backend.snapshot().cardRequestListAttempts, 2, "The visible sheet retries without a button press")
     }
 
     @MainActor func testV4CardDecisionSurvivesLostResponseAndIsScopedToAccount() async throws {
