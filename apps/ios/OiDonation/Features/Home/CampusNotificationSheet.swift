@@ -23,7 +23,7 @@ struct CampusNotificationSheet: View {
     @State private var pendingRequestID: UUID?
     @State private var loadError: String?
     @State private var actionError: String?
-    @State private var unconfirmedDecision: (id: UUID, decision: OiCardRequestDecision)?
+    @State private var unconfirmedDecision: OiPendingCardDecision?
     @State private var continuations: [OiContinuationNotice] = []
     @State private var continuationCursor: OiContinuationCursor?
     @State private var openingContinuation = false
@@ -126,6 +126,10 @@ struct CampusNotificationSheet: View {
         let started = loadID
         defer { if loadID == started { isLoading = false } }
         do {
+            let saved = try await remote.pendingCardDecision(owner: owner)
+            guard loadID == started, !Task.isCancelled, remote.account?.id == owner, !remote.needsReauthentication else { return }
+            unconfirmedDecision = saved
+            if saved != nil { actionError = "처리 결과를 확인하지 못했어요. 같은 응답을 다시 확인해 주세요." }
             let rows = try await remote.cardRequests()
             guard !Task.isCancelled, loadID == started, remote.account?.id == owner, !remote.needsReauthentication else { return }
             requests = rows.filter { $0.status == .pending }.sorted { $0.createdAt > $1.createdAt }.map {
@@ -203,8 +207,9 @@ struct CampusNotificationSheet: View {
     private func resolve(_ id: UUID, _ decision: OiCardRequestDecision) async {
         guard !isLoading, pendingRequestID == nil, !remote.needsReauthentication,
               let owner = remote.account?.id else { return }
+        let submitted = OiPendingCardDecision(id: id, accept: decision == .accept)
         if let unconfirmedDecision {
-            guard unconfirmedDecision.id == id, unconfirmedDecision.decision == decision else { return }
+            guard unconfirmedDecision == submitted else { return }
         } else {
             guard requests.contains(where: { $0.id == id }) else { return }
         }
@@ -212,7 +217,7 @@ struct CampusNotificationSheet: View {
         pendingRequestID = id
         actionError = nil
         do {
-            try await remote.resolveCardRequest(id, accept: decision == .accept)
+            try await remote.resolveRecoverableCardDecision(submitted, owner: owner)
             if remote.account?.id == owner, !remote.needsReauthentication {
                 requests.removeAll { $0.id == id }
                 selectedRequestID = nil
@@ -222,7 +227,7 @@ struct CampusNotificationSheet: View {
                 if case OiServiceError.conflict = error {
                     actionError = "이미 처리됐거나 더 이상 응답할 수 없는 요청이에요."
                 } else {
-                    unconfirmedDecision = (id, decision)
+                    unconfirmedDecision = submitted
                     actionError = "처리 결과를 확인하지 못했어요. 같은 응답을 다시 확인해 주세요."
                 }
             }
@@ -237,7 +242,7 @@ struct CampusNotificationSheet: View {
         guard let unconfirmedDecision else { return }
         // The server accepts a replay of the same decision, including after the
         // request stops appearing in the pending inbox.
-        await resolve(unconfirmedDecision.id, unconfirmedDecision.decision)
+        await resolve(unconfirmedDecision.id, unconfirmedDecision.accept ? .accept : .reject)
     }
 
     private var retryAction: (() async -> Void)? {

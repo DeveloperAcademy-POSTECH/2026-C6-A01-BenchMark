@@ -3221,6 +3221,18 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             defaults: fixture.defaults, delay: .seconds(1), attach: true)
     }
 
+    func testV4ScratchFaceRetryCapture() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        var postcard = scratchPostcardFixture()
+        postcard.frontFailed = true
+        let view = ScratchPostcardView(postcard: postcard, validateCollection: { true },
+            fullApp: ScratchPostcardFullApp(startsRevealed: true, isSaved: false,
+                onBack: {}, onDonate: {}, onSave: { nil }))
+        try await capture(view, name: "v4-scratch-face-retry", variant: variants[0],
+            defaults: fixture.defaults, delay: .seconds(1), attach: true)
+    }
+
     func testScratchPostcardFullAppRevealedSaved() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
