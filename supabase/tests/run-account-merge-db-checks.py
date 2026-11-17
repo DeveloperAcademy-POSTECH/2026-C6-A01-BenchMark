@@ -373,7 +373,11 @@ grant execute on function auth.jwt() to anon,authenticated;
         run(remote_connection, input="set role service_role; do $$ begin if public.oi_evidence_fingerprint_key() <> repeat('c',64) then raise exception 'Migration must preserve the pre-existing named key'; end if; end; $$;", text=True)
         print('PASS: deployed save_campus_story, height_meters and heading_degrees behavior survives canonical ownership patch')
         for database in (connection, remote_connection):
+            ai_only_migrations = [m for m in post_retirement if m.name.endswith(
+                ('_oi_story_ai_only_review.sql', '_oi_education_ai_review.sql'))]
             for migration in post_retirement:
+                if migration in ai_only_migrations:
+                    continue
                 if database is connection and migration.name.endswith('_oi_postcard_cover.sql'):
                     check_postcard_cover_drift(database, migration)
                 if migration.name.endswith('_oi_postcard_cover_jpeg.sql'):
@@ -401,11 +405,14 @@ grant execute on function auth.jwt() to anon,authenticated;
             run(database + ['-f', 'supabase/tests/oi-story-continuations.sql'])
             run(database + ['-f', 'supabase/tests/oi-card-request-pages.sql'])
             run(database + ['-f', 'supabase/tests/oi-seed-cucumber-appearance.sql'])
-            run(database + ['-f', 'supabase/tests/oi-education-stories.sql'])
             run(database + ['-f', 'supabase/tests/oi-education-reference-catalog.sql'])
             run(database + ['-f', 'supabase/tests/oi-public-cucumber-appearance.sql'])
             run(database + ['-f', 'supabase/tests/oi-building-notes.sql'])
             run(database + ['-f', 'supabase/tests/oi-building-note-moderation.sql'])
+            for migration in ai_only_migrations:
+                run(database + ['-f', str(migration)])
+            run(database + ['-f', 'supabase/tests/oi-story-ai-only-review.sql'])
+            run(database + ['-f', 'supabase/tests/oi-education-stories.sql'])
         print('PASS: card formats 1/2/3, PNG/JPEG cover validation/access/review, and deletion on both histories')
         print('PASS: building notes writes, reports, AI/operator review, pagination, merge and deletion on both histories')
         print('PASS: retired evidence RPCs and uploads, retained private records and deletion, story moderation on both histories')

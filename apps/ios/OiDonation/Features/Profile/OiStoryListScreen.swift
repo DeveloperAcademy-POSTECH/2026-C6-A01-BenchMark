@@ -201,6 +201,10 @@ struct OiStoryListScreen: View {
         guard reviewWork == nil, !remote.isBusy, deletingID == nil,
               state.items.contains(where: { $0.id == id }),
               status == .unreviewed || status == .rejected else { return }
+        guard offersAIReview else {
+            reviewFailure = (id, "지금은 자동검수를 사용할 수 없어요. 초안은 보존돼 있어요. 잠시 후 다시 시도해 주세요.")
+            return
+        }
         reviewFailure = nil
         reviewWork = ReviewWork(storyID: id, authorizesAIReview: offersAIReview, stage: .prepare)
     }
@@ -415,7 +419,7 @@ struct OiStoryListScreen: View {
     private func reviewState(for id: UUID) -> OiStoryListReviewState {
         if reviewWork?.storyID == id || remote.reviewingStoryID == id { return .reviewing }
         guard let story = remote.ownStories.first(where: { $0.id == id }) else { return .unreviewed }
-        if story.status == "pending" { return remote.autoStoryModeration ? .unreviewed : .reviewing }
+        if story.status == "pending" { return .unreviewed }
         guard let review = remote.moderationResult(for: story) else {
             return remote.storyReviewLookupFailed ? .lookupFailed : .unreviewed
         }

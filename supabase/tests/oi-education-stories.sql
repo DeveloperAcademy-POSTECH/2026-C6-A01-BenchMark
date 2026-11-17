@@ -10,10 +10,18 @@ create function pg_temp.payload(revision integer) returns jsonb language sql as 
  'title','Synthetic education story','body','Synthetic story body','theme','응원','emotion','따뜻함');$$;
 create function pg_temp.submission(revision integer) returns jsonb language sql as $$
  select pg_temp.payload(revision)||jsonb_build_object('card_snapshot_id','e3780000-0000-4000-8000-000000000021',
- 'publication_consent',true,'rights_consent',true,'consent_version','education-v1-2026-11-16');$$;
+ 'publication_consent',true,'rights_consent',true,'ai_review_consent_version',1,'consent_version','education-v2-2026-11-17');$$;
 create function pg_temp.review(revision integer,status text) returns jsonb language sql as $$
  select pg_temp.payload(revision)||jsonb_build_object('card_snapshot_id','e3780000-0000-4000-8000-000000000021','status',status);$$;
 insert into auth.users(id) values('e3780000-0000-4000-8000-000000000001'),('e3780000-0000-4000-8000-000000000002'),('e3780000-0000-4000-8000-000000000003');
+insert into auth.sessions(id,user_id) values
+ ('e3780000-0000-4000-8000-000000000041','e3780000-0000-4000-8000-000000000001'),
+ ('e3780000-0000-4000-8000-000000000042','e3780000-0000-4000-8000-000000000002');
+create function pg_temp.moderate(revision integer, snapshot text default null, reason text default null, source text default null)
+returns jsonb language sql as $$
+ select public.oi_moderate_education_story('e3780000-0000-4000-8000-000000000001',
+  'e3780000-0000-4000-8000-000000000041',pg_temp.submission(revision),snapshot,reason,source);
+$$;
 insert into benchmark_private.oi_operators values('e3780000-0000-4000-8000-000000000003');
 set local role anon;
 select pg_temp.assert_true(public.oi_education_stories()='[]'::jsonb,'anonymous public list starts empty');
@@ -44,7 +52,10 @@ insert into storage.objects(bucket_id,name,metadata)
  'e3780000-0000-4000-8000-000000000001/education/e3780000-0000-4000-8000-000000000011/card/e3780000-0000-4000-8000-000000000099.png']) path;
 select pg_temp.assert_true((public.oi_education_mutate('attach_media',pg_temp.payload(1)||jsonb_build_object('paths',array['e3780000-0000-4000-8000-000000000001/education/e3780000-0000-4000-8000-000000000011/photos/e3780000-0000-4000-8000-000000000031.jpg']))->>'revision')::int=2,'photo attachment advances revision');
 select pg_temp.rejected($q$select public.oi_education_mutate('submit',pg_temp.submission(2)-'rights_consent')$q$);
-select pg_temp.assert_true(public.oi_education_mutate('submit',pg_temp.submission(2))->>'status'='pending','consenting author submits both sides');
+select pg_temp.rejected($q$select public.oi_education_mutate('submit',pg_temp.submission(2)-'ai_review_consent_version')$q$);
+select pg_temp.assert_true(public.oi_education_mutate('submit',pg_temp.submission(2)) @> '{"status":"pending","review_ready":true}',
+ 'the consenting author submits both sides and can run automatic review');
+select pg_temp.denied($q$select pg_temp.moderate(3)$q$);
 select pg_temp.denied($q$insert into storage.objects(bucket_id,name,metadata) values('oi-story-media','e3780000-0000-4000-8000-000000000001/education/e3780000-0000-4000-8000-000000000011/photos/e3780000-0000-4000-8000-000000000032.jpg','{"mimetype":"image/jpeg","size":100}')$q$);
 set local role anon;
 select set_config('request.jwt.claim.sub','',true);
@@ -52,21 +63,48 @@ select pg_temp.assert_true(public.oi_education_story('e3780000-0000-4000-8000-00
 select pg_temp.assert_true(not exists(select 1 from storage.objects where name like '%/education/%'),'pending pictures and cards not public');
 set local role authenticated;
 select set_config('request.jwt.claim.sub','e3780000-0000-4000-8000-000000000003',true);
-select pg_temp.assert_true(jsonb_array_length(public.oi_education_stories(0,24,false,true))=1,'operator can review pending story');
-select pg_temp.rejected($q$select public.oi_education_mutate('review',pg_temp.review(3,'published')||jsonb_build_object('card_snapshot_id','e3780000-0000-4000-8000-000000000099'))$q$);
-select pg_temp.assert_true(public.oi_education_mutate('review',pg_temp.review(3,'published'))->>'status'='published','operator approves current image set');
+select pg_temp.assert_true(jsonb_array_length(public.oi_education_stories(0,24,false,true))=0,'pending stories are excluded from operator management');
+select pg_temp.assert_true(public.oi_education_story('e3780000-0000-4000-8000-000000000011') is null,
+ 'operator cannot read an unpublished submission by ID');
+select pg_temp.denied($q$select public.oi_education_mutate('review',pg_temp.review(3,'published'))$q$);
+set local role service_role;
+select pg_temp.denied($q$select public.oi_moderate_education_story('e3780000-0000-4000-8000-000000000002',
+ 'e3780000-0000-4000-8000-000000000042',pg_temp.submission(3))$q$);
+select pg_temp.moderate(3) as first_review \gset
+select pg_temp.assert_true(jsonb_array_length(:'first_review'::jsonb->'cards')=4 and jsonb_array_length(:'first_review'::jsonb->'photos')=1,
+ 'review receives all four card images and the attached photo');
+select pg_temp.rejected($q$select pg_temp.moderate(3,'wrong-snapshot')$q$);
+select pg_temp.assert_true(pg_temp.moderate(3,:'first_review'::jsonb->>'snapshot','privacy','photo') @> '{"status":"rejected","revision":4}',
+ 'rejection records the private review result');
+select pg_temp.rejected($q$select pg_temp.moderate(3)$q$);
+set local role authenticated;
+select set_config('request.jwt.claim.sub','e3780000-0000-4000-8000-000000000001',true);
+select pg_temp.assert_true(public.oi_education_story('e3780000-0000-4000-8000-000000000011') @> '{"status":"pending","review_reason":"privacy","review_ready":false}',
+ 'only the owner can see why editing is needed');
+select public.oi_education_mutate('reopen',pg_temp.payload(4));
+select public.oi_education_mutate('save',pg_temp.payload(5)||'{"body":"Corrected story"}');
+select public.oi_education_mutate('submit',pg_temp.submission(6));
+set local role service_role;
+select pg_temp.moderate(7) as updated_review \gset
+select pg_temp.assert_true(pg_temp.moderate(7,:'updated_review'::jsonb->>'snapshot') @> '{"status":"approved","revision":8}',
+ 'only successful AI review publishes the current revision');
+select set_config('request.jwt.claims','{}',true);
 set local role anon;
 select set_config('request.jwt.claim.sub','',true);
 select pg_temp.assert_true(jsonb_array_length(public.oi_education_stories())=1,'published education story visible');
 select pg_temp.assert_true(not(public.oi_education_story('e3780000-0000-4000-8000-000000000011')?'consent_version'),'private consent not exposed');
-select pg_temp.assert_true(not(public.oi_education_story('e3780000-0000-4000-8000-000000000011')?'reports'),'private reports not exposed');
+select pg_temp.assert_true(not(public.oi_education_story('e3780000-0000-4000-8000-000000000011') ?| array['reports','review_reason','review_ready','review_source']),'private reports not exposed');
 select pg_temp.assert_true((select count(*) from storage.objects where name like '%/education/%')=5,'only referenced photo and current four card images are public');
 set local role authenticated;
 select set_config('request.jwt.claim.sub','e3780000-0000-4000-8000-000000000002',true);
 select public.oi_education_report('e3780000-0000-4000-8000-000000000011','privacy','Synthetic report');
 select pg_temp.denied($q$select * from benchmark_private.oi_education_reports$q$);
+select set_config('request.jwt.claim.sub','e3780000-0000-4000-8000-000000000003',true);
+select pg_temp.assert_true(public.oi_education_mutate('review',pg_temp.review(8,'hidden')) @> '{"status":"hidden","revision":9}',
+ 'operators can hide public content in response to reports');
+select pg_temp.denied($q$select public.oi_education_mutate('review',pg_temp.review(9,'published'))$q$);
 select set_config('request.jwt.claim.sub','e3780000-0000-4000-8000-000000000001',true);
-select pg_temp.assert_true(public.oi_education_mutate('reopen',pg_temp.payload(4))->>'status'='draft','reopening withdraws publication');
+select pg_temp.assert_true(public.oi_education_mutate('reopen',pg_temp.payload(9))->>'status'='draft','reopening withdraws publication');
 set local role anon;
 select set_config('request.jwt.claim.sub','',true);
 select pg_temp.assert_true(public.oi_education_stories()='[]'::jsonb,'reopen hides public story');
@@ -75,7 +113,7 @@ reset role;
 update benchmark_private.oi_story_creation_settings set unapproved_drafts_enabled=false where singleton;
 set local role authenticated;
 select set_config('request.jwt.claim.sub','e3780000-0000-4000-8000-000000000001',true);
-select pg_temp.denied($q$select public.oi_education_mutate('save',pg_temp.payload(5))$q$);
+select pg_temp.denied($q$select public.oi_education_mutate('save',pg_temp.payload(10))$q$);
 select pg_temp.assert_true(public.oi_education_story('e3780000-0000-4000-8000-000000000011')->>'status'='draft','paused mode retains draft');
 select pg_temp.assert_true((select count(*) from storage.objects where name like '%/education/%')=6,'paused mode retains owner files');
 reset role;
@@ -84,11 +122,11 @@ update benchmark_private.oi_account_members set account_id='e3780000-0000-4000-8
 delete from public.oi_profiles where id='e3780000-0000-4000-8000-000000000001';
 set local role authenticated;
 select set_config('request.jwt.claim.sub','e3780000-0000-4000-8000-000000000002',true);
-select pg_temp.assert_true(public.oi_education_mutate('save',pg_temp.payload(5))->>'revision'='6','merged login retains education story after source profile is removed');
+select pg_temp.assert_true(public.oi_education_mutate('save',pg_temp.payload(10))->>'revision'='11','merged login retains education story after source profile is removed');
 reset role;
 insert into benchmark_private.oi_content_restrictions(member_id,note) values('e3780000-0000-4000-8000-000000000001','Synthetic restriction');
 set local role authenticated;
-select pg_temp.denied($q$select public.oi_education_mutate('save',pg_temp.payload(6))$q$);
+select pg_temp.denied($q$select public.oi_education_mutate('save',pg_temp.payload(11))$q$);
 reset role;
 insert into benchmark_private.oi_account_deletions(account_id) values('e3780000-0000-4000-8000-000000000002');
 set local role authenticated;

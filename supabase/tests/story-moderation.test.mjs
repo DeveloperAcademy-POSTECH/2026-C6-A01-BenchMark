@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createStoryModerationHandler } from "../functions/moderate-story/handler.ts";
+import { createStoryModerationHandler, withEducationBrowserAccess } from "../functions/moderate-story/handler.ts";
 
 const user = "a3880000-0000-4000-8000-000000000001";
 const session = "a3880000-0000-4000-8000-000000000021";
@@ -9,13 +9,20 @@ const root = `${user}/${storyId}`;
 const snapshot = "a".repeat(64);
 const jwt = `fixture.${Buffer.from(JSON.stringify({ sub: user, role: "authenticated", session_id: session })).toString("base64url")}.signature`;
 
-function setup({ finding = { reason: null, source: null }, failAt, resolution = 200 } = {}) {
+function setup({ finding = { reason: null, source: null }, failAt, resolution = 200, education = false } = {}) {
   const calls = [];
   const draft = {
     title: "A campus walk", body: "A quiet day in autumn", cucumber_name: "잎새",
     snapshot, photos: [`${root}/photo.jpg`], appearance: [`${root}/appearance/look/top.png`],
     cards: [`${root}/card/card.png`, `${root}/card/card/cover.jpg`],
   };
+  if (education) {
+    delete draft.cucumber_name; draft.display_name = "Synthetic author"; draft.appearance = [];
+    draft.photos = [`${user}/education/${storyId}/photos/photo.jpg`];
+    draft.cards = ["card.png", "card/back.png", "card/front-preview.png", "card/back-preview.png"].map(path =>
+      `${user}/education/${storyId}/card/${path}`);
+  }
+  const expected = { id: storyId, revision: 1, ai_review_consent_version: 1, ...(education ? { scope: "education" } : {}) };
   const images = [...draft.photos, ...draft.appearance, ...draft.cards];
   const handler = createStoryModerationHandler({
     supabaseUrl: "https://project.test", anonKey: "test-anon", serviceKey: "test-service", openaiKey: "test-openai",
@@ -28,11 +35,11 @@ function setup({ finding = { reason: null, source: null }, failAt, resolution = 
       return failAt === "auth" || (failAt === "reauth" && calls.filter((call) => call === "auth").length === 2)
         ? Response.json({}, { status: 401 }) : Response.json({ id: user });
     }
-    if (target.pathname === "/rest/v1/rpc/oi_moderate_story") {
+    if (target.pathname === (education ? "/rest/v1/rpc/oi_moderate_education_story" : "/rest/v1/rpc/oi_moderate_story")) {
       assert.equal(options.headers.Authorization, "Bearer test-service");
       assert.equal(body.p_user, user);
       assert.equal(body.p_session, session);
-      assert.deepEqual(body.p_submission, { id: storyId, revision: 1, ai_review_consent_version: 1 });
+      assert.deepEqual(body.p_submission, expected);
       if ("p_snapshot" in body) {
         calls.push("complete");
         assert.equal(body.p_snapshot, snapshot);
@@ -41,7 +48,7 @@ function setup({ finding = { reason: null, source: null }, failAt, resolution = 
         return Response.json({
           story_id: storyId, revision: finding.reason ? 1 : 2,
           status: finding.reason ? "rejected" : "approved", reason: finding.reason, source: finding.source,
-          story: finding.reason ? null : { id: storyId, revision: 2, status: "draft" },
+          story: finding.reason ? null : { id: storyId, revision: 2, status: education ? "published" : "draft" },
         }, { status: resolution });
       }
       calls.push("prepare");
@@ -61,7 +68,8 @@ function setup({ finding = { reason: null, source: null }, failAt, resolution = 
     assert.equal(body.store, false);
     assert.equal(body.text.format.name, "story_publication_review");
     const content = body.input[0].content;
-    assert.deepEqual(JSON.parse(content[0].text), { title: draft.title, body: draft.body, cucumber_name: draft.cucumber_name });
+    assert.deepEqual(JSON.parse(content[0].text), { title: draft.title, body: draft.body,
+      ...(education ? { display_name: draft.display_name } : { cucumber_name: draft.cucumber_name }) });
     assert.deepEqual(content.filter((part) => part.type === "input_image").map((part) => part.image_url),
       images.map((path) => `https://project.test/storage/v1/object/sign/oi-story-media/${path}?token=fixture`));
     if (failAt === "provider") return Response.json({}, { status: 429 });
@@ -69,7 +77,7 @@ function setup({ finding = { reason: null, source: null }, failAt, resolution = 
     return Response.json({ status: "completed", output: [{ type: "message", role: "assistant", content: [output] }] });
   });
   const submit = (consent = 1) => handler(new Request("https://project.test/moderate-story", {
-    method: "POST", headers: { authorization: `Bearer ${jwt}` }, body: JSON.stringify({ id: storyId, revision: 1, ai_review_consent_version: consent }),
+    method: "POST", headers: { authorization: `Bearer ${jwt}` }, body: JSON.stringify({ ...expected, ai_review_consent_version: consent }),
   }));
   return { calls, submit };
 }
@@ -123,4 +131,24 @@ test("does not read a draft or call OpenAI before explicit consent", async () =>
   const { calls, submit } = setup();
   assert.equal((await submit(null)).status, 400);
   assert.deepEqual(calls, ["auth"]);
+});
+
+test("education analyzes its photo and four card images through the education-only RPC", async () => {
+  const { calls, submit } = setup({ education: true });
+  assert.equal((await (await submit()).json()).story.status, "published");
+  assert.deepEqual(calls, ["auth", "prepare", "sign", "analysis", "auth", "complete"]);
+});
+
+test("education browser preflight uses the exact site origin and cannot bypass bearer authentication", async () => {
+  const origin = "https://postech-lights-together.wpwnshrck.chatgpt.site";
+  const endpoint = "https://project.test/moderate-story";
+  const handler = withEducationBrowserAccess(createStoryModerationHandler({}));
+  const denied = await handler(new Request(endpoint, { method: "OPTIONS", headers: { origin: "https://other.test" } }));
+  assert.equal(denied.status, 403);
+  const preflight = await handler(new Request(endpoint, { method: "OPTIONS", headers: { origin } }));
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get("access-control-allow-origin"), origin);
+  const post = await handler(new Request(endpoint, { method: "POST", headers: { origin } }));
+  assert.equal(post.status, 401);
+  assert.equal(post.headers.get("access-control-allow-origin"), origin);
 });
