@@ -7,6 +7,7 @@
 
 import Foundation
 import RealityKit
+import UIKit
 
 /// A fixed photo subject supplied by another feature, independent of the legacy mascot picker.
 @MainActor
@@ -15,6 +16,7 @@ struct ARCameraSubject: Identifiable {
     let title: String
     let heightMeters: Float
     var placement: CampusPlacement? = nil
+    var loadThumbnail: (@MainActor () async throws -> UIImage)? = nil
     let loadModel: @MainActor () async throws -> Entity
 
     var defaultSettings: ARCaptureSettings {
