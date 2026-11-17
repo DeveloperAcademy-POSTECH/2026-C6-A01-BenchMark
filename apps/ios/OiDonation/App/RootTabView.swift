@@ -59,7 +59,10 @@ struct RootTabView: View {
                 case .scratch(let id):
                     if let story = store.story(id) {
                         CampusScratchScreen(story: story, repository: container.storyRepository, remote: remote,
-                                            onDonate: { path.append(CampusDestination.storyList) },
+                                            onDonate: {
+                                                let continuation = OiStoryContinuationIntent(story: story, requestedBy: remote.account?.id)
+                                                path.append(CampusDestination.storyList(continuation: continuation))
+                                            },
                                             onSaved: {
                                                 // 앨범에 저장하기 → MY 수집한 기부.
                                                 var next = NavigationPath()
@@ -69,8 +72,8 @@ struct RootTabView: View {
                     } else {
                         ContentUnavailableView("이야기를 볼 수 없어요", systemImage: "doc")
                     }
-                case .storyList:
-                    OiStoryListScreen(remote: remote)
+                case .storyList(let continuation):
+                    OiStoryListScreen(remote: remote, continuation: continuation)
                 }
             }
             .navigationDestination(for: PublicLinkParser.Destination.self) { publicDestination($0) }
@@ -114,7 +117,6 @@ struct RootTabView: View {
                     isARPresented = false
                 } else { path.append(CampusDestination.scratch(story.id)) }
             }
-            store.openStoryListAction = { path.append(CampusDestination.storyList) }
             store.createStoryAction = {
                 if isARPresented {
                     pendingStoryList = true

@@ -120,7 +120,7 @@ struct OiPostcardPostechLogo: View {
 /// Artwork is placed in the Figma 362 × 502 coordinate system, not stretched to the image window.
 struct OiPostcardDecorations: View {
     let stamp: Int?
-    let logo: String?
+    let logo: String
     var logoOpacity: Double = 1
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -132,10 +132,8 @@ struct OiPostcardDecorations: View {
                 Image("OiPostcardStamp-\(color)\(index)").resizable().scaledToFit()
                     .frame(width: size.width, height: size.height).offset(x: origin.x, y: origin.y)
             }
-            if logo == "white" || logo == "black" {
-                Image("OiPostcardLogo-" + (logo ?? "white")).resizable()
-                    .frame(width: 362, height: 502).opacity(OiCardOpacity.normalized(logoOpacity))
-            }
+            Image("OiPostcardLogo-" + logo).resizable()
+                .frame(width: 362, height: 502).opacity(OiCardOpacity.normalized(logoOpacity))
         }.frame(width: 362, height: 502, alignment: .topLeading).accessibilityHidden(true)
     }
     private var sizes: [CGSize] {

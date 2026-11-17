@@ -618,9 +618,11 @@ nonisolated struct OiCardDesign: Codable, Equatable, Sendable {
     var photoMonochrome: Bool? = nil
     /// Nil keeps the appearance of drafts saved before the unified background editor.
     var postcardBackground: OiPostcardBackgroundStyle? = nil
+    var postcardAuthorMode: String? { postcardBackground?.authorMode ?? (anonymous ? "anonymous" : nil) }
     var postcardLayoutVersion: Int? = nil
     var postcardStamp: Int? = nil
     var postcardLogo: String? = nil
+    var effectivePostcardLogo: String { postcardLogo == "black" ? "black" : "white" }
     /// Nil keeps legacy automatic backdrops and leaves new layouts transparent.
     var characterBackdropEnabled: Bool? = nil
     /// Nil follows the paper's automatic companion color; an explicit RGB is kept when hidden.
@@ -652,12 +654,12 @@ nonisolated struct OiWardrobeLook: Codable, Equatable, Sendable {
     nonisolated enum Top: String, Codable, CaseIterable, Sendable {
         case tshirt, hoodie, cardigan, postech
         var title: String {
-            switch self { case .tshirt: "흰 반팔 티"; case .hoodie: "흰 후드티"; case .cardigan: "흰 가디건"; case .postech: "포스텍 과잠" }
+            switch self { case .tshirt: "반팔 티"; case .hoodie: "후드티"; case .cardigan: "가디건"; case .postech: "포스텍 과잠" }
         }
     }
     nonisolated enum Bottom: String, Codable, CaseIterable, Sendable {
         case long, shorts
-        var title: String { self == .long ? "흰 긴바지" : "흰 반바지" }
+        var title: String { self == .long ? "긴바지" : "반바지" }
     }
     nonisolated enum Costume: String, Codable, CaseIterable, Identifiable, Sendable {
         case dinosaur, raincoat, bee, cat
@@ -694,7 +696,7 @@ nonisolated struct OiWardrobeLook: Codable, Equatable, Sendable {
 
     var modelName: String { costume?.modelName ?? "wardrobe-\(top.rawValue)-\(bottom.rawValue)" }
     var bodySource: String { costume?.rawValue ?? (top == .tshirt ? (bottom == .shorts ? "shorts" : "base") : top.rawValue) }
-    var title: String { costume?.title ?? "\(top.title) · \(bottom.title) · 흰 운동화" }
+    var title: String { costume?.title ?? "\(top.title) · \(bottom.title) · 운동화" }
 
     init() {}
     private enum CodingKeys: String, CodingKey { case top, bottom, topColor, bottomColor, shoeColor, artwork, fabrics, costume }

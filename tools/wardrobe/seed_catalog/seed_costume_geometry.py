@@ -100,7 +100,8 @@ def load(id):
         texture = np.array(Image.open(io.BytesIO(z.read(texture_files[0]))).convert('RGB'))
     return text, texture
 
-def raster(meshes, texture, label):
+def raster(meshes, texture, label, *, transparent_front=False):
+    """Render the review sheet and optionally return the front view with alpha."""
     # Combine all RGB textures horizontally; scale each original chart into one tile.
     if not isinstance(texture, list): texture = [(meshes, texture)]
     size = 1024
@@ -122,13 +123,24 @@ def raster(meshes, texture, label):
         file.write(corner.astype(np.float32).tobytes())
     canvas = Image.new('RGB',(390*4,570),'#ebedea')
     draw = ImageDraw.Draw(canvas)
-    for i,angle in enumerate([0,45,90,180]):
-        target = root/f'{label}-{angle}.ppm'
-        subprocess.run([str(root/'raster'),str(filename),str(target),'390','545',str(math.radians(angle)),'.76','330'],check=True)
-        im=Image.open(target)
-        canvas.paste(im,(390*i,0))
-        draw.text((390*i+10,548),f'{label} {angle}°',fill='#202020')
-    canvas.save(root/f'{label}.jpg',quality=94)
+    front = None
+    for i, angle in enumerate([0, 45, 90, 180]):
+        target = root / f'{label}-{angle}.ppm'
+        mask = root / f'{label}-alpha.pgm' if transparent_front and angle == 0 else None
+        command = [str(root / 'raster'), str(filename), str(target), '390', '545',
+                   str(math.radians(angle)), '.76', '330']
+        if mask is not None:
+            command.extend(['0', '0', str(mask)])
+        subprocess.run(command, check=True)
+        with Image.open(target) as image:
+            canvas.paste(image, (390 * i, 0))
+            if mask is not None:
+                with Image.open(mask) as alpha:
+                    front = image.convert('RGBA')
+                    front.putalpha(alpha)
+        draw.text((390 * i + 10, 548), f'{label} {angle}°', fill='#202020')
+    canvas.save(root / f'{label}.jpg', quality=94)
+    return front
 
 
 AZIMUTH_STEPS = 720

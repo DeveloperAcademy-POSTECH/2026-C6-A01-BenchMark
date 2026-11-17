@@ -13,6 +13,7 @@ extension EnvironmentValues {
 
 struct OiStoryListScreen: View {
     let remote: OiRemoteStore
+    var continuation: OiStoryContinuationIntent? = nil
 
     @State private var localDrafts: [OiLocalDraft] = []
     @State private var unchangedReviewedDraftIDs: Set<UUID> = []
@@ -36,6 +37,7 @@ struct OiStoryListScreen: View {
 
     #if DEBUG
     struct ReviewTestActions {
+        let selectStory: (UUID) -> Void
         let request: (UUID) -> Void
         let status: (UUID) -> OiStoryListReviewState
         let visibleIDs: () -> [UUID]
@@ -118,7 +120,8 @@ struct OiStoryListScreen: View {
             .onDisappear { reviewWork = nil }
             #if DEBUG
             .onAppear {
-                onReviewActionsForTest?(.init(request: { requestReview($0, offersAIReview: remote.autoStoryModeration) }, status: reviewState,
+                onReviewActionsForTest?(.init(selectStory: handleStoryTap,
+                    request: { requestReview($0, offersAIReview: remote.autoStoryModeration) }, status: reviewState,
                     visibleIDs: { state.items.map(\.id) }, message: reviewMessage,
                     openPlantPicker: selectStoryToPlant, showsPlantPicker: { plantSelection != nil },
                     selectPlantCard: selectPlantCard, selectedPlantCard: { plantSelection?.selectedID },
@@ -187,10 +190,10 @@ struct OiStoryListScreen: View {
             OiStoryEditor(remote: remote, localID: id, onFinish: { selectedLocalID = nil })
         }
         .navigationDestination(item: $selectedStoryID) { storyID in
-            OiStoryManagement(remote: remote, storyID: storyID)
+            OiAuthoredStoryDestination(remote: remote, storyID: storyID)
         }
         .navigationDestination(isPresented: $showingConsent) {
-            OiStoryCreationConsentFlow(remote: remote, onFinish: { showingConsent = false })
+            OiStoryCreationConsentFlow(remote: remote, continuation: continuation, onFinish: { showingConsent = false })
         }
 
     }
@@ -200,6 +203,10 @@ struct OiStoryListScreen: View {
         guard reviewWork == nil, !remote.isBusy, deletingID == nil,
               state.items.contains(where: { $0.id == id }),
               status == .unreviewed || status == .rejected else { return }
+        guard offersAIReview else {
+            reviewFailure = (id, "지금은 자동검수를 사용할 수 없어요. 초안은 보존돼 있어요. 잠시 후 다시 시도해 주세요.")
+            return
+        }
         reviewFailure = nil
         reviewWork = ReviewWork(storyID: id, authorizesAIReview: offersAIReview, stage: .prepare)
     }
@@ -367,10 +374,12 @@ struct OiStoryListScreen: View {
             } else { cover = nil }
             return try OiCardImageExport.publication(front: front, message: draft.body, author: author,
                 academicAuthor: OiPostcardAuthor.academic(department: remote.profile?.department, year: remote.profile?.admissionYear),
+                tags: draft.postcardTags,
                 cover: cover, coverType: type)
         }
         let preview = OiDraftCardPreview(draft: draft, customization: customization, donorName: author,
-                                         portrait: portrait.flatMap(UIImage.init(data:)))
+                                         portrait: portrait.flatMap(UIImage.init(data:)),
+                                         fallbackDate: story.map { OiPostcardDate.string(from: $0.createdDateLabel) })
         return try preview.publication(colorScheme: .light, includeCover: remote.canPublishStoryCardCover,
             coverType: remote.canPublishStoryCardCoverJPEG ? .jpeg : .png)
     }
@@ -414,7 +423,7 @@ struct OiStoryListScreen: View {
     private func reviewState(for id: UUID) -> OiStoryListReviewState {
         if reviewWork?.storyID == id || remote.reviewingStoryID == id { return .reviewing }
         guard let story = remote.ownStories.first(where: { $0.id == id }) else { return .unreviewed }
-        if story.status == "pending" { return remote.autoStoryModeration ? .unreviewed : .reviewing }
+        if story.status == "pending" { return .unreviewed }
         guard let review = remote.moderationResult(for: story) else {
             return remote.storyReviewLookupFailed ? .lookupFailed : .unreviewed
         }
@@ -560,12 +569,12 @@ struct OiStoryListScreen: View {
     }
 
     private func selectStory(id: UUID) {
-        if loadedDraftOwner == remote.account?.id, localDrafts.contains(where: { $0.id == id && !$0.submitted }),
-           !remote.ownStories.contains(where: { $0.id == id }) {
-            selectedLocalID = id; return
+        guard let owner = remote.account?.id else { return }
+        if remote.ownStories.contains(where: { $0.id == id && $0.userId == owner }) {
+            selectedStoryID = id
+        } else if loadedDraftOwner == owner, localDrafts.contains(where: { $0.id == id && !$0.submitted }) {
+            selectedLocalID = id
         }
-        guard remote.ownStories.contains(where: { $0.id == id }) else { return }
-        selectedStoryID = id
     }
 
     private func requestDeletion(id: UUID) {

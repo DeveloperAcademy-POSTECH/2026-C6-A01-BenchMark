@@ -9,8 +9,13 @@ struct OiDraftCardPreview: View {
     var portrait: UIImage? = nil
     var showingBack = false
     private var design: OiCardDesign { customization.card ?? OiCardDesign() }
+    var fallbackDate: String? = nil
+    private var tags: [String] { draft.postcardTags }
+    private var date: String {
+        design.postcardDate.map { OiPostcardDate.string($0) } ?? fallbackDate ?? OiPostcardDate.string(.now)
+    }
     private var author: String {
-        OiPostcardAuthor.text(mode: design.postcardBackground?.authorMode, name: donorName,
+        OiPostcardAuthor.text(mode: design.postcardAuthorMode, name: donorName,
                               academic: design.postcardAcademicAuthor ?? "")
     }
     var body: some View {
@@ -18,7 +23,7 @@ struct OiDraftCardPreview: View {
             Group {
                 if showingBack {
                     OiPostcardBack(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond,
-                        backgroundStyle: design.postcardBackground, message: draft.body, author: author,
+                        backgroundStyle: design.postcardBackground, message: draft.body, author: author, tags: tags,
                         exportFontSize: try? OiCardImageExport.fittingFontSize(draft.body))
                 } else { composition }
             }.frame(width: 362, height: 502)
@@ -34,7 +39,7 @@ struct OiDraftCardPreview: View {
         }
         let size = try OiCardImageExport.fittingFontSize(draft.body)
         let back = OiPostcardBack(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond,
-            backgroundStyle: design.postcardBackground, message: draft.body, author: author, exportFontSize: size)
+            backgroundStyle: design.postcardBackground, message: draft.body, author: author, tags: tags, exportFontSize: size)
         let front = try OiCardImageExport.render(composition, colorScheme: colorScheme)
         let rear = try OiCardImageExport.render(back, colorScheme: colorScheme)
         let png = design.postcardBackground.flatMap { OiPostcardBackgroundMetadata.png(image: front, style: $0) } ?? front.pngData()
@@ -46,7 +51,7 @@ struct OiDraftCardPreview: View {
     private var composition: some View { frontComposition(decorations: true) }
     private func frontComposition(decorations: Bool) -> some View {
         OiPostcardFront(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond,
-                        backgroundStyle: design.postcardBackground, date: OiPostcardDate.string(design.postcardDate ?? Date()), design: design, decorationsVisible: decorations) {
+                        backgroundStyle: design.postcardBackground, date: date, design: design, decorationsVisible: decorations) {
             ZStack {
                 OiCardBackground(customization: customization, pattern: design.pattern)
                 if customization.showsCharacter {
@@ -100,7 +105,7 @@ struct OiCardBackground: View {
                         .saturation(design.photoMonochrome == true ? 0 : 1)
                         .blendMode(design.photoMonochrome == true ? .luminosity : .normal)
                 }
-                if let pattern, let image = OiCardPatternTexture.image(for: pattern) {
+                if paper.postcardLayoutVersion != 2, let pattern, let image = OiCardPatternTexture.image(for: pattern) {
                     Image(uiImage: image).resizable().scaledToFill()
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .blendMode(.luminosity).opacity(0.62)

@@ -20,6 +20,8 @@ struct MYWorkshopContent: View {
     let tab: MYWorkshopTab
     let demo: MYLibraryStore
     var remote: OiRemoteStore?
+    var emptyTopPadding: CGFloat = 173
+    var onExploreMap: () -> Void = {}
     var storyRepository: any StoryRepository = AppContainer.pilot.storyRepository
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var selectedCard: Selection?
@@ -45,7 +47,7 @@ struct MYWorkshopContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if tab == .collected, remote?.account != nil { sortChoices.padding(.bottom, 7) }
+            if tab == .collected, remote?.account != nil, !demo.cards.isEmpty { sortChoices.padding(.bottom, 7) }
             if let remote, remote.loadError != nil || remote.syncWarning != nil || remote.needsReauthentication {
                 OiConnectionStatus(remote: remote, showsInitialProgress: false)
                     .padding(.bottom, 16)
@@ -53,7 +55,11 @@ struct MYWorkshopContent: View {
             if remote?.account == nil || remote?.needsReauthentication == true {
                 signInMessage
             } else if tab == .connected {
-                OiContinuationList().frame(minHeight: 400)
+                OiContinuationList(emptyContent: {
+                    AnyView(emptyState(for: .connected) {
+                        Button(action: onExploreMap) { emptyActionLabel("다른 오이 구경하기 →") }
+                    })
+                })
             } else if let remote, !remote.hasLoadedRemote {
                 if remote.loadError == nil || remote.isRefreshing {
                     ProgressView().frame(maxWidth: .infinity).padding(.vertical, 40)
@@ -76,8 +82,7 @@ struct MYWorkshopContent: View {
         }
         .navigationDestination(item: $selectedDetail) { selection in
             if let storyID = selection.ownedStoryID, let remote {
-                OiStoryManagement(remote: remote, storyID: storyID)
-                    .toolbar(.visible, for: .navigationBar)
+                OiAuthoredStoryDestination(remote: remote, storyID: storyID)
             } else if let id = selection.card.storyID, let store = demo.campusStore,
                       let story = store.story(id) {
                 CampusCucumberStoryView(story: story, store: store)
@@ -125,16 +130,13 @@ struct MYWorkshopContent: View {
     @ViewBuilder private var authoredContent: some View {
         if authoredStories.isEmpty {
             if remote?.loadError == nil && remote?.needsReauthentication != true {
-                ContentUnavailableView {
-                    Label("아직 만든 오이가 없어요", systemImage: "leaf")
-                } description: {
-                    Text("나만의 오이와 이야기를 만들어 보세요.")
-                } actions: {
+                emptyState(for: .authored) {
                     if let remote {
-                        NavigationLink("오이와 이야기 만들기") { OiStoryListScreen(remote: remote) }
+                        NavigationLink { OiStoryListScreen(remote: remote) } label: {
+                            emptyActionLabel("오이 만들기 →")
+                        }
                     }
                 }
-                .accessibilityIdentifier("my.v4.authored.empty")
             }
         } else if let remote {
             LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
@@ -154,10 +156,14 @@ struct MYWorkshopContent: View {
         }
         if cards.isEmpty {
             if remote?.loadError == nil && remote?.needsReauthentication != true {
-                ContentUnavailableView(demo.pinnedOnly ? "고정한 카드가 없어요" : "아직 수집한 카드가 없어요",
-                    systemImage: demo.pinnedOnly ? "pin" : "leaf",
-                    description: Text(demo.pinnedOnly ? "카드 확대 화면에서 카드를 고정할 수 있어요." : "캠퍼스의 공개 오이 이야기를 수집해 보세요."))
-                    .accessibilityIdentifier("my.v4.collected.empty")
+                if demo.pinnedOnly, !demo.cards.isEmpty {
+                    ContentUnavailableView("고정한 카드가 없어요", systemImage: "pin",
+                        description: Text("카드 확대 화면에서 카드를 고정할 수 있어요."))
+                } else if demo.clipCollection.persistenceError == nil {
+                    emptyState(for: .collected) {
+                        Button(action: onExploreMap) { emptyActionLabel("수집하러 가기 →") }
+                    }
+                }
             }
         } else {
             LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
@@ -167,6 +173,34 @@ struct MYWorkshopContent: View {
                 }
             }
         }
+    }
+
+    private func emptyState<Action: View>(for tab: MYWorkshopTab, @ViewBuilder action: () -> Action) -> some View {
+        let message: String = switch tab {
+        case .authored: "기부한 오이가 없습니다"
+        case .connected: "이어진 기부가 없습니다"
+        case .collected: "수집한 기부가 없습니다"
+        }
+        return VStack(spacing: 23) {
+            Text(message)
+                .font(CampusStyle.medium(22)).tracking(0.44)
+                .foregroundStyle(Color("OiGreen"))
+                .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
+            action().buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, emptyTopPadding)
+        .accessibilityIdentifier("my.v4.\(tab == .authored ? "authored" : tab == .connected ? "connected" : "collected").empty")
+    }
+
+    private func emptyActionLabel(_ title: String) -> some View {
+        Text(title)
+            .font(CampusStyle.body(20)).tracking(0.4)
+            .foregroundStyle(.black).multilineTextAlignment(.center)
+            .padding(.horizontal, 30).padding(.vertical, 10)
+            .frame(minHeight: 50)
+            .background(.white, in: Capsule())
     }
 
     private var columns: [GridItem] {
@@ -293,7 +327,7 @@ struct MYWorkshopContent: View {
     }
 }
 
-private struct MYWorkshopCardArtwork: View {
+struct MYWorkshopCardArtwork: View {
     let card: MYCard
     let remote: OiRemoteStore?
 

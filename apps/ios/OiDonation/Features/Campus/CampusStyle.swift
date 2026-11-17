@@ -75,11 +75,21 @@ extension EnvironmentValues {
 
 struct CampusCucumberPortrait: View {
     let story: CampusStory
+    var trimsTransparentMargins = false
     @Environment(\.campusCucumberPortraitLoader) private var loadPortrait
 
     var body: some View {
         if let path = story.cucumberPortraitPath, let loadPortrait {
-            OiCucumberPortraitImage(path: path, load: loadPortrait)
+            OiCucumberPortraitImage(path: path) { path in
+                let image = try await loadPortrait(path)
+                guard trimsTransparentMargins else { return image }
+                return await Task.detached(priority: .userInitiated) { OiOpaqueImageTrim.trimmed(image) }.value
+            }
+        } else if trimsTransparentMargins {
+            OiCucumberPortraitImage(path: story.portraitImage) { name in
+                guard let image = UIImage(named: name) else { throw CocoaError(.fileReadNoSuchFile) }
+                return await Task.detached(priority: .userInitiated) { OiOpaqueImageTrim.trimmed(image) }.value
+            }
         } else {
             Image(story.portraitImage).resizable().scaledToFit()
         }

@@ -91,7 +91,7 @@ struct MYFarmView: View {
     }
 
     private func farmCucumber(_ story: OiLiveStory, remote: OiRemoteStore, foregroundPlot: Bool = false) -> some View {
-        NavigationLink { OiStoryManagement(remote: remote, storyID: story.id) } label: {
+        NavigationLink { OiAuthoredStoryDestination(remote: remote, storyID: story.id) } label: {
             VStack(spacing: 8) {
                 farmPortrait(story.cucumberAsset, foregroundPlot: foregroundPlot)
                 VStack(spacing: 4) {
@@ -102,7 +102,7 @@ struct MYFarmView: View {
                     .background(.white.opacity(0.85), in: RoundedRectangle(cornerRadius: 12))
             }.contentShape(Rectangle())
         }.buttonStyle(.plain)
-            .accessibilityLabel("\(story.cucumberName), \(story.status.oiStatusTitle), 내 이야기 관리")
+            .accessibilityLabel("\(story.cucumberName), \(story.status.oiStatusTitle)")
             .accessibilityIdentifier("my.farm.story.\(story.id.uuidString)")
     }
 

@@ -141,11 +141,11 @@ final class OiStoryContinuationTests: XCTestCase {
         let item = try decoder.decode(OiStoryContinuation.self, from: JSONSerialization.data(withJSONObject: row()))
         let remote = OiRemoteStore(api: nil)
         let now = ISO8601DateFormatter().date(from: "2026-11-17T01:00:00Z")!
-        let notices = CampusNotificationSheet.notices([item], remote: remote, now: now)
+        let notices = CampusNotificationOverlay.notices([item], remote: remote, now: now)
         XCTAssertEqual(notices.count, 1); XCTAssertTrue(notices[0].isUnread)
-        XCTAssertTrue(CampusNotificationSheet.notices([item], remote: remote, now: now.addingTimeInterval(31 * 86400)).isEmpty)
+        XCTAssertTrue(CampusNotificationOverlay.notices([item], remote: remote, now: now.addingTimeInterval(31 * 86400)).isEmpty)
         let view = CampusNotificationInboxView(requests: [], isLoading: false,
-            onReload: {}, onOpenRequest: { _ in }, continuations: notices, onOpenContinuation: { _ in })
+            onOpenRequest: { _ in }, continuations: notices, onOpenContinuation: { _ in })
             .frame(width: 402, height: 650).background(CampusStyle.mapSheet)
         try await capture(view, name: "continuation-notification")
     }
@@ -208,11 +208,153 @@ final class OiStoryContinuationTests: XCTestCase {
         XCTAssertTrue(remote.continuationCounts.isEmpty)
     }
 
-    private func capture<V: View>(_ view: V, name: String) async throws {
+    func testContinuationIntentResolvesOnlyForEligibleNewDraftOwner() throws {
+        let owner = OiTestBackend.owner
+        let author = OiTestBackend.other
+        let story = CampusStory(id: parent.uuidString, regionID: "pond", title: "이어갈오이",
+            image: "", tags: [], donor: "테스트", location: "", date: "", order: 0, popularity: 0, palette: 0,
+            authorID: author)
+        let store = CampusStoryStore()
+        store.synchronize(stories: [story], collected: [])
+        let signedIn = try XCTUnwrap(OiStoryContinuationIntent(story: story, requestedBy: owner))
+        XCTAssertEqual(signedIn.availableParent(in: store, for: owner), parent.uuidString)
+        XCTAssertNil(signedIn.availableParent(in: store, for: UUID()))
+        XCTAssertNil(OiStoryContinuationIntent(story: story, requestedBy: author))
+        let guest = try XCTUnwrap(OiStoryContinuationIntent(story: story, requestedBy: nil))
+        XCTAssertEqual(guest.availableParent(in: store, for: owner), parent.uuidString)
+        XCTAssertNil(guest.availableParent(in: store, for: author))
+        store.synchronize(stories: [], collected: [])
+        XCTAssertNil(guest.availableParent(in: store, for: owner))
+    }
+
+    func testNewCreationSavesSelectedParentAndExistingDraftKeepsItsSelection() async throws {
+        let backend = OiTestBackend()
+        backend.install()
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: config)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer {
+            session.invalidateAndCancel()
+            OiStoreURLProtocol.handle = nil
+            try? FileManager.default.removeItem(at: directory)
+            withExtendedLifetime(backend) {}
+        }
+        let owner = OiTestBackend.owner
+        let remote = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: OiMemorySession(owner: owner))
+        await remote.start()
+        XCTAssertEqual(remote.account?.id, owner)
+        let story = CampusStory(id: parent.uuidString, regionID: "pond", title: "이어갈오이",
+            image: "", tags: [], donor: "테스트", location: "", date: "", order: 0, popularity: 0, palette: 0,
+            authorID: OiTestBackend.other)
+        let store = CampusStoryStore()
+        store.synchronize(stories: [story], collected: [])
+        let intent = try XCTUnwrap(OiStoryContinuationIntent(story: story, requestedBy: owner))
+
+        try await capture(NavigationStack {
+            OiStoryCreationConsentFlow(remote: remote, continuation: intent).environment(store)
+        }, name: "continue-creation-consent")
+        var records = try await remote.localDrafts()
+        let created = try XCTUnwrap(records.first)
+        XCTAssertEqual(created.customization?.connectedStoryID, parent.uuidString)
+        XCTAssertEqual(created.customization?.connectedStorySelectionEdited, true)
+
+        let existingParent = UUID()
+        var existing = OiLocalDraft(draft: OiStoryDraft())
+        existing.creationStep = OiCreationStep.consent.rawValue
+        var customization = OiDraftCustomization()
+        customization.connectedStoryID = existingParent.uuidString
+        customization.connectedStorySelectionEdited = true
+        existing.customization = customization
+        try await remote.saveLocalDraft(existing, owner: owner)
+        try await capture(NavigationStack {
+            OiStoryEditor(remote: remote, localID: existing.id, continuation: intent).environment(store)
+        }, name: "continue-existing-draft")
+        records = try await remote.localDrafts()
+        XCTAssertEqual(records.first(where: { $0.id == existing.id })?.customization?.connectedStoryID,
+                       existingParent.uuidString)
+    }
+
+    func testPublicMYUsesAnonymousAuthorQueriesAndRejectsPrivateOrForeignStories() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: config)
+        let previous = OiStoreURLProtocol.handle
+        defer { session.invalidateAndCancel(); OiStoreURLProtocol.handle = previous }
+
+        let author = OiTestBackend.other
+        let remote = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+                                  vault: OiMemorySession())
+        let profile = try JSONSerialization.data(withJSONObject: [[
+            "id": author.uuidString, "nickname": "공개 닉네임", "farmer_asset": "OiFarmer",
+            "public_name": "테스트농부", "department": "기계공학과", "admission_year": "19"
+        ]])
+        let published = try XCTUnwrap(try row()["story"] as? [String: Any])
+        var privateStory = published
+        privateStory["id"] = UUID().uuidString
+        privateStory["status"] = "draft"
+        var foreignStory = published
+        foreignStory["id"] = UUID().uuidString
+        foreignStory["user_id"] = UUID().uuidString
+        let stories = try JSONSerialization.data(withJSONObject: [published, privateStory, foreignStory])
+
+        OiStoreURLProtocol.handle = { request, client in
+            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            switch request.url?.lastPathComponent {
+            case "oi_profiles":
+                XCTAssertTrue(query.contains(.init(name: "id", value: "eq.\(author.uuidString)")))
+                XCTAssertTrue(query.contains(.init(name: "select",
+                    value: "id,nickname,school_id,farmer_asset,public_name,department,admission_year")))
+                client.respond(200, profile)
+            case "oi_stories":
+                XCTAssertTrue(query.contains(.init(name: "user_id", value: "eq.\(author.uuidString)")))
+                XCTAssertTrue(query.contains(.init(name: "status", value: "eq.published")))
+                client.respond(200, stories)
+            default:
+                XCTFail("Public MY used an unexpected endpoint")
+                client.respond(404, Data("{}".utf8))
+            }
+        }
+        let result = try await remote.publicAuthor(author)
+        XCTAssertEqual(result.profile.id, author)
+        XCTAssertEqual(result.profile.farmerAsset, "OiFarmer")
+        XCTAssertNotNil(UIImage(named: result.profile.farmerAsset))
+        XCTAssertNil(result.profile.schoolDepartment)
+        XCTAssertEqual(result.stories.map(\.id), [child])
+
+        let store = CampusStoryStore()
+        for (name, size, dynamicType) in [
+            ("402x874", CGSize(width: 402, height: 874), DynamicTypeSize.large),
+            ("375x667", CGSize(width: 375, height: 667), .large),
+            ("440x956", CGSize(width: 440, height: 956), .large),
+            ("accessibility", CGSize(width: 402, height: 874), .accessibility3)
+        ] {
+            try await capture(NavigationStack(path: .constant([author])) {
+                Color.clear.navigationDestination(for: UUID.self) { id in
+                    MYPublicWorkshopView(authorID: id, remote: remote, store: store)
+                        .environment(\.scenePhase, .active)
+                        .environment(\.dynamicTypeSize, dynamicType)
+                }
+            }, name: "public-my-\(name)", size: size)
+        }
+        XCTAssertEqual(store.stories.map(\.id), [child.uuidString])
+        XCTAssertEqual(store.stories.first?.donor, result.profile.publicDonorLine)
+        XCTAssertEqual(store.stories.first?.donorFarmerAsset, "OiFarmer")
+
+        OiStoreURLProtocol.handle = { _, client in client.respond(200, Data("[]".utf8)) }
+        do {
+            _ = try await remote.publicAuthor(author)
+            XCTFail("An author who no longer has a public profile must not be shown")
+        } catch OiServiceError.unavailable {}
+    }
+
+    private func capture<V: View>(_ view: V, name: String, size: CGSize = CGSize(width: 402, height: 750)) async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         let host = UIHostingController(rootView: view.environment(\.colorScheme, .light))
-        window.frame = CGRect(x: 0, y: 0, width: 402, height: 750)
+        window.frame = CGRect(origin: .zero, size: size)
         window.rootViewController = host; window.isHidden = false
         defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
         window.layoutIfNeeded(); host.view.layoutIfNeeded()

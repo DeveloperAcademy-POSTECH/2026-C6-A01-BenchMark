@@ -52,7 +52,7 @@ struct OiOperatorStoriesView: View {
                 }
             }
         }
-        .navigationTitle("이야기 검토")
+        .navigationTitle("이야기 관리")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -79,7 +79,6 @@ struct OiOperatorStoryDetailView: View {
     @State private var checkedAppearance: OiCucumberArtworkReference?
     @State private var appearanceImages: [OiCucumberArtworkReference.Part: UIImage] = [:]
     @State private var checkedCards: [String: UIImage] = [:]
-    @State private var checkedPhotoPaths: Set<String> = []
     @State private var appearanceError = false
     @State private var imageAttempt = 0
     @State private var selectedArtwork: ReviewArtwork?
@@ -93,12 +92,6 @@ struct OiOperatorStoryDetailView: View {
 
     private var artwork: OiCucumberArtworkReference? { model.detail?.story.cucumberArtwork }
     private var cardPaths: [String] { model.detail?.story.cardArtworkPaths ?? [] }
-    private var artworkReady: Bool {
-        guard let detail = model.detail, detail.story.hasSupportedCardArtwork else { return false }
-        return detail.media.allSatisfy { checkedPhotoPaths.contains($0.objectPath) } &&
-            (artwork == nil || checkedAppearance == artwork) && cardPaths.allSatisfy { checkedCards[$0] != nil }
-    }
-
     var body: some View {
         List {
             if model.isLoading {
@@ -123,7 +116,7 @@ struct OiOperatorStoryDetailView: View {
             }
             if model.requiresReload && model.warning != nil { Section { reloadButton } }
         }
-        .navigationTitle("이야기 검토 상세")
+        .navigationTitle("이야기 관리 상세")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -144,19 +137,16 @@ struct OiOperatorStoryDetailView: View {
         }
         .confirmationDialog("공개 상태를 변경할까요?", isPresented: $showingConfirmation,
                             titleVisibility: .visible, presenting: confirmation) { story in
-            let publish = story.status != "published"
-            Button(publish ? "확인하고 공개" : "확인하고 비공개") {
+            Button("확인하고 비공개") {
                 Task {
-                    guard phase == .active, !publish || artworkReady else { return }
-                    if let saved = await model.review(story, publish: publish, using: remote) { onUpdated(saved) }
+                    guard phase == .active, story.status == "published" else { return }
+                    if let saved = await model.review(story, publish: false, using: remote) { onUpdated(saved) }
                     confirmation = nil
                 }
             }
             Button("취소", role: .cancel) { confirmation = nil }
         } message: { story in
-            Text(story.status == "published"
-                 ? "‘\(story.title)’을 공개 목록에서 내리고 숨김 상태로 보관합니다."
-                 : "‘\(story.title)’의 내용과 사진, 위치, 꾸민 오이와 카드를 확인했나요? 승인하면 다른 이용자가 볼 수 있습니다.")
+            Text("‘\(story.title)’을 공개 목록에서 내리고 숨김 상태로 보관합니다.")
         }
         .interactiveDismissDisabled(model.isProcessing)
         .privacySensitive()
@@ -188,7 +178,7 @@ struct OiOperatorStoryDetailView: View {
                 Text("첨부된 사진이 없어요.").foregroundStyle(.secondary)
             } else {
                 ForEach(detail.media) { media in
-                    OiStoryMediaImage(path: media.objectPath, onPhotoLoaded: { checkedPhotoPaths.insert(media.objectPath) }) { path in
+                    OiStoryMediaImage(path: media.objectPath) { path in
                         try await remote.mediaURL(bucket: "oi-story-media", path: path)
                     }
                     .frame(minHeight: 120, maxHeight: 320)
@@ -242,24 +232,18 @@ struct OiOperatorStoryDetailView: View {
                 }
             }
         }
-        if !remote.autoStoryModeration || remote.supportsManualStoryReview || story.status == "published" {
-            Section(story.status == "published" ? "공개 상태" : "운영자 공개 검토") {
+        if story.status == "published" {
+            Section("공개 상태") {
                 if model.isProcessing { ProgressView("공개 상태를 처리하는 중") }
                 Button {
                     confirmation = story; showingConfirmation = true
                 } label: {
-                    Label(story.status == "published" ? "비공개로 변경" : "공개 승인",
-                          systemImage: story.status == "published" ? "eye.slash" : "checkmark.seal")
+                    Label("비공개로 변경", systemImage: "eye.slash")
                         .frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(!model.canReview || remote.isBusy || !remote.isOperator || remote.needsReauthentication
-                          || (story.status != "published" && !artworkReady))
+                .disabled(!model.canReview || remote.isBusy || !remote.isOperator || remote.needsReauthentication)
                 .accessibilityIdentifier("operator.story.review")
-                Text(remote.autoStoryModeration
-                     ? "AI 자동검수는 유지됩니다. 운영자가 직접 검토해 공개할 수도 있어요."
-                     : "이야기와 사진, 꾸민 오이와 카드를 검토해 공개 여부를 결정합니다.")
-                    .font(.footnote).foregroundStyle(.secondary)
             }
         }
     }

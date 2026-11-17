@@ -42,6 +42,7 @@ struct MYWorkshopView: View {
     var body: some View {
         GeometryReader { geometry in
             let scale = geometry.size.width / 402
+            let panelHeight = max(300, geometry.size.height - 325 * scale)
             ScrollView {
                 VStack(spacing: 0) {
                     if usesExpandedLayout || profileNeedsMoreRoom(width: geometry.size.width) {
@@ -51,13 +52,15 @@ struct MYWorkshopView: View {
                     }
                     VStack(spacing: 10) {
                         tabs
-                        MYWorkshopContent(tab: selectedTab, demo: demo, remote: remote, storyRepository: storyRepository)
+                        MYWorkshopContent(tab: selectedTab, demo: demo, remote: remote,
+                            emptyTopPadding: max(32, 173 + (panelHeight - 549) / 2),
+                            onExploreMap: { dismiss() }, storyRepository: storyRepository)
                     }
                     .padding(.leading, 21).padding(.trailing, 19)
                     .padding(.top, 6)
                     .padding(.bottom, 116)
                     .frame(maxWidth: .infinity, alignment: .top)
-                    .frame(minHeight: max(300, geometry.size.height - 325 * scale), alignment: .top)
+                    .frame(minHeight: panelHeight, alignment: .top)
                     .background { panelBackground }
                     .clipShape(UnevenRoundedRectangle(topLeadingRadius: 30, topTrailingRadius: 30, style: .circular))
                 }

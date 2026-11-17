@@ -16,6 +16,7 @@ struct CampusBuildingNotesView: View {
     @State private var deletingNote: CampusBuildingNote?
     @State private var sendTask: Task<Void, Never>?
     @FocusState private var composing: Bool
+    @ScaledMetric(relativeTo: .body) private var composerFontSize: CGFloat = 18
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let green = Color(red: 112/255, green: 140/255, blue: 64/255)
@@ -126,7 +127,7 @@ struct CampusBuildingNotesView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 8) {
                     TextField("입력", text: $model.text, axis: .vertical)
-                        .font(CampusStyle.semibold(18)).lineLimit(1...3).focused($composing)
+                        .font(.system(size: composerFontSize, weight: .thin)).lineLimit(1...3).focused($composing)
                         .submitLabel(.send).onSubmit(send)
                         .accessibilityLabel("건물에 남길 짧은 글").accessibilityIdentifier("campus.notes.input")
                     Button(action: send) {

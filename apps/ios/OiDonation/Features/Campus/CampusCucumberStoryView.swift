@@ -30,14 +30,21 @@ struct CampusCucumberStoryView: View {
         var fill: Color { [Color(oiRGB: 0xD3DBC4), Color(oiRGB: 0xEAEEE2), Color(oiRGB: 0xF1F4EC)][rawValue] }
     }
 
+    private var visibleTabs: [Tab] {
+        guard let id = UUID(uuidString: story.id), remote?.continuationCounts[id] == 0 else { return Tab.allCases }
+        return [.location, .donor]
+    }
+
     var body: some View {
+        let tabs = visibleTabs
+        let selection = Binding(get: { tabs.contains(tab) ? tab : .location }, set: { tab = $0 })
         GeometryReader { geometry in
             // Keep both information buttons visible on compact phones; longer text can still scroll.
             let compactPanelLimit = max(geometry.size.height * 0.35, geometry.size.height - 376)
-            let panelHeight = min(457, geometry.size.height * 0.52, compactPanelLimit)
+            let panelHeight = min(457, geometry.size.height * 457 / 874, compactPanelLimit)
             VStack(spacing: 0) {
                 top(height: geometry.size.height - panelHeight, width: geometry.size.width)
-                CampusCucumberStoryPanel(story: story, store: store, tab: $tab)
+                CampusCucumberStoryPanel(story: story, store: store, visibleTabs: tabs, tab: selection)
                     .frame(height: panelHeight)
             }
         }
@@ -59,13 +66,14 @@ struct CampusCucumberStoryView: View {
 
     /// Cucumber on the left (`5441:16814`, 158×315 at 22,72) and the white information card (`5441:16812`).
     private func top(height: CGFloat, width: CGFloat) -> some View {
-        let portraitWidth = min(158, max(0, width - 22 - 7 - 209))
+        let portraitWidth = min(158, max(0, width - 22 - 209 - 13))
         return ScrollView {
-            HStack(alignment: .top, spacing: 7) {
-                CampusCucumberPortrait(story: story)
-                    .frame(width: portraitWidth).frame(maxHeight: 315)
+            HStack(alignment: .top, spacing: -13) {
+                CampusCucumberPortrait(story: story, trimsTransparentMargins: true)
+                    .frame(width: portraitWidth, height: portraitWidth * 315 / 158)
                     .padding(.leading, 22)
-                information.frame(width: 209)
+                    .zIndex(1)
+                information.frame(width: 209).padding(.top, 26)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 72).padding(.bottom, 16)
@@ -101,12 +109,17 @@ struct CampusCucumberStoryView: View {
                 .lineLimit(1).minimumScaleFactor(0.7)
             }.frame(maxWidth: .infinity, alignment: .leading)
             VStack(spacing: 16) {
-                Button { store.openStoryListAction?() } label: {
+                NavigationLink {
+                    if let remote {
+                        OiStoryListScreen(remote: remote,
+                            continuation: OiStoryContinuationIntent(story: story, requestedBy: remote.account?.id))
+                    }
+                } label: {
                     Text("이어서 기부하기").font(CampusStyle.medium(16)).tracking(0.32)
                         .foregroundStyle(.black).frame(width: 169, height: 43)
                         .background(Color(oiRGB: 0xD3DBC4), in: RoundedRectangle(cornerRadius: 20))
                         .shadow(color: Color(oiRGB: 0x688633).opacity(0.9), radius: 2.5, x: 1, y: 1)
-                }.buttonStyle(.plain).disabled(store.openStoryListAction == nil)
+                }.buttonStyle(.plain).disabled(remote == nil)
                     .accessibilityIdentifier("campus.story.continue")
                 CampusCollectButton(story: story, store: store)
                     .frame(width: 169, height: 43)
@@ -122,6 +135,7 @@ struct CampusCucumberStoryView: View {
 private struct CampusCucumberStoryPanel: View {
     let story: CampusStory
     let store: CampusStoryStore
+    let visibleTabs: [CampusCucumberStoryView.Tab]
     @Binding var tab: CampusCucumberStoryView.Tab
 
     private let tabWidth: CGFloat = 110
@@ -134,7 +148,7 @@ private struct CampusCucumberStoryPanel: View {
                 switch tab {
                 case .related: CampusCucumberRelatedTab(story: story, store: store)
                 case .location: CampusCucumberLocationTab(story: story)
-                case .donor: CampusCucumberDonorTab(story: story)
+                case .donor: CampusCucumberDonorTab(story: story, store: store)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -144,22 +158,30 @@ private struct CampusCucumberStoryPanel: View {
 
     private var tabs: some View {
         ZStack(alignment: .topLeading) {
-            // Paint the tabs back to front so each one's concave corner lies over the next tab.
-            ForEach(Array(CampusCucumberStoryView.Tab.allCases.reversed()), id: \.rawValue) { item in
-                let x = CGFloat(item.rawValue) * tabWidth
-                UnevenRoundedRectangle(topLeadingRadius: 15, topTrailingRadius: 15)
-                    .fill(item.fill).frame(width: tabWidth, height: tabHeight)
-                    .offset(x: x)
-                CampusStoryTabCorner().fill(item.fill).frame(width: 14, height: 14)
-                    .offset(x: x + tabWidth, y: tabHeight - 14)
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(visibleTabs.enumerated().reversed()), id: \.element.rawValue) { index, item in
+                    ZStack(alignment: .topLeading) {
+                        UnevenRoundedRectangle(topLeadingRadius: 15, topTrailingRadius: 15)
+                            .fill(item.fill).frame(width: tabWidth, height: tabHeight)
+                        CampusStoryTabCorner().fill(item.fill).frame(width: 14, height: 14)
+                            .offset(x: tabWidth, y: tabHeight - 14)
+                    }
+                    .compositingGroup()
+                    .shadow(color: .black.opacity(item == .donor ? 0.10 : 0.15),
+                            radius: item == .donor ? 3 : 4, x: 3, y: item == .donor ? -2 : 0)
+                    .offset(x: CGFloat(index) * tabWidth)
+                    .zIndex(tab == item ? 1 : 0)
+                }
             }
-            ForEach(CampusCucumberStoryView.Tab.allCases, id: \.rawValue) { item in
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            ForEach(Array(visibleTabs.enumerated()), id: \.element.rawValue) { index, item in
                 Button { tab = item } label: {
                     Text(item.title).font(CampusStyle.medium(16)).foregroundStyle(Color(oiRGB: 0x273116))
                         .frame(width: tabWidth, height: tabHeight)
                         .contentShape(Rectangle())
                 }.buttonStyle(.plain)
-                    .offset(x: CGFloat(item.rawValue) * tabWidth)
+                    .offset(x: CGFloat(index) * tabWidth)
                     .accessibilityAddTraits(tab == item ? .isSelected : [])
             }
         }
@@ -242,16 +264,27 @@ private struct CampusCucumberLocationTab: View {
 
 private struct CampusCucumberDonorTab: View {
     let story: CampusStory
+    let store: CampusStoryStore
     @Environment(OiRemoteStore.self) private var remote: OiRemoteStore?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private var authorID: UUID? {
+        guard !story.isExample, let id = story.authorID, !OiContentSafetyStore.shared.isBlocked(id) else { return nil }
+        return id
+    }
 
     var body: some View {
         GeometryReader { geometry in
+            let showsFarmer = authorID != nil && !dynamicTypeSize.isAccessibilitySize
+            let profileWidth = max(0, showsFarmer ? geometry.size.width * 0.52 - 30 : geometry.size.width - 60)
             ZStack(alignment: .topLeading) {
-                Ellipse().fill(RadialGradient(colors: [.black.opacity(0.25), .clear], center: .center,
-                                              startRadius: 0, endRadius: 108))
-                    .frame(width: 216, height: 42).position(x: 294, y: 353)
-                Image("OiStoryDonorFarmer").resizable().scaledToFit()
-                    .frame(width: 264, height: 352).offset(x: 155, y: 22).accessibilityHidden(true)
+                if showsFarmer {
+                    Ellipse().fill(RadialGradient(colors: [.black.opacity(0.25), .clear], center: .center,
+                                                  startRadius: 0, endRadius: 108))
+                        .frame(width: 216, height: 42).position(x: 294, y: 353)
+                    MYPublicFarmerArtwork(asset: story.donorFarmerAsset)
+                        .frame(width: 264, height: 352).offset(x: 155, y: 22)
+                }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         VStack(alignment: .leading, spacing: 0) {
@@ -269,11 +302,23 @@ private struct CampusCucumberDonorTab: View {
                             }.padding(.top, 17)
                             Text("이어진 횟수는 공개된 이야기 연결 수이며 실제 납입 내역이 아니에요.")
                                 .font(CampusStyle.body(12)).foregroundStyle(.secondary).padding(.top, 10)
-                        }.padding(.horizontal, 30).padding(.top, 48)
+                        }
+                        .frame(width: profileWidth, alignment: .leading)
+                        .padding(.leading, 30).padding(.top, 48)
                         Spacer(minLength: 24)
-                        Text("기부자 자세히보기 →").underline().font(CampusStyle.semibold(16))
-                            .foregroundStyle(Color(oiRGB: 0x708C40))
-                            .padding(.leading, 30).padding(.bottom, 64)
+                        if let authorID, let remote {
+                            NavigationLink {
+                                MYPublicWorkshopView(authorID: authorID, remote: remote, store: store)
+                            } label: {
+                                Text("작성자 자세히 보기 →").underline().font(CampusStyle.semibold(16))
+                                    .foregroundStyle(CampusStyle.green)
+                                    .frame(minHeight: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.leading, 30).padding(.bottom, 50)
+                            .accessibilityIdentifier("campus.story.donor.details")
+                        }
                     }.frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .topLeading)
                 }.scrollIndicators(.hidden).scrollBounceBehavior(.basedOnSize)
             }

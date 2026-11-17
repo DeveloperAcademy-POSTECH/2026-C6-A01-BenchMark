@@ -26,7 +26,7 @@ enum OiOperatorStoryError: LocalizedError {
     case accessDenied, busy, unconfirmedResult, storyUnavailable, manualReviewUnavailable
     var errorDescription: String? {
         switch self {
-        case .manualReviewUnavailable: "현재는 운영자 수동 공개 승인을 사용할 수 없어요. 새로고침 후 다시 확인해 주세요."
+        case .manualReviewUnavailable: "이야기 공개에는 AI 자동검수가 필요해요."
         case .accessDenied: "운영자 권한이 없어 내용을 확인하거나 처리할 수 없어요."
         case .busy: "다른 작업을 처리 중이에요. 완료된 뒤 다시 확인해 주세요."
         case .unconfirmedResult: "처리 결과를 확인하지 못했어요. 중복 처리하지 말고 최신 내용을 다시 불러와 주세요."

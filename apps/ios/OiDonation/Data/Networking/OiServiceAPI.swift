@@ -162,13 +162,14 @@ struct OiServiceAPI {
         return outcome
     }
 
-    func rows<Value: Decodable & Identifiable>(_ table: String, query: String = "", token: String? = nil, as type: Value.Type) async throws -> [Value] {
+    func rows<Value: Decodable & Identifiable>(_ table: String, select: String = "*", query: String = "",
+                                                token: String? = nil, as type: Value.Type) async throws -> [Value] {
         var values: [Value] = []
         var seen: Set<Value.ID> = []
         var offset = 0
         while true {
             let suffix = query.isEmpty ? "" : "&\(query)"
-            let data = try await request("rest/v1/\(table)?select=*&limit=200&offset=\(offset)\(suffix)", token: token)
+            let data = try await request("rest/v1/\(table)?select=\(select)&limit=200&offset=\(offset)\(suffix)", token: token)
             let page = try decoder.decode([Value].self, from: data)
             values += page.filter { seen.insert($0.id).inserted }
             if page.count < 200 { return values }
@@ -241,6 +242,13 @@ struct OiServiceAPI {
         let body = try JSONSerialization.data(withJSONObject: payload)
         let data = try await request("functions/v1/moderate-story", method: "POST", token: token, body: body, timeout: 65)
         return try decoder.decode(OiStoryModerationResult.self, from: data)
+    }
+
+    func moderateEducationStory(id: UUID, revision: Int, token: String) async throws -> Data {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "scope": "education", "id": id.uuidString.lowercased(), "revision": revision, "ai_review_consent_version": 1,
+        ])
+        return try await request("functions/v1/moderate-story", method: "POST", token: token, body: body, timeout: 65)
     }
 
     func storyModerationResults(token: String) async throws -> [OiStoryModerationResult] {
