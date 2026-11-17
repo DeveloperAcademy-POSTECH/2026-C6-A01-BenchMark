@@ -18,6 +18,9 @@ struct ARCameraLifecycleChecks {
         do {
             try await delayedStartupCannotOutliveClose()
             try await hiddenCameraIgnoresLateCallbacks()
+            try await resultSheetsPauseCameraUntilAllResultsClose()
+            try await hiddenResultDismissalCannotRestartCamera()
+            try await characterSwitchesRespectCameraOwnership()
             try await sceneTransitionsCancelStaleStartup()
             try await retryWaitsForFinishingVideo()
             try await activeCameraRestartsAfterVideoDrains()
@@ -51,6 +54,93 @@ struct ARCameraLifecycleChecks {
     @MainActor
     private static func settle() async {
         for _ in 0..<30 { await Task.yield() }
+    }
+
+    @MainActor
+    private static func resultSheetsPauseCameraUntilAllResultsClose() async throws {
+        let controller = ARSessionController()
+        let video = ARVideoRecorder()
+        let model = ARCameraViewModel(controller: controller, video: video)
+        model.appear(in: .active)
+        try await eventually("camera before result") { controller.ready }
+        await settle()
+        controller.result = UUID()
+        model.resultPresentationChanged()
+        let starts = controller.startRequests
+        try expect(!controller.ready, "A photo result sheet must pause the camera")
+        model.sceneChanged(to: .inactive)
+        model.sceneChanged(to: .active)
+        model.recordingStateChanged(false)
+        model.retryRecovery()
+        model.capture()
+        await settle()
+        try expect(controller.startRequests == starts && controller.captures == 0,
+                   "Active/drain/retry callbacks must not restart a camera under a result")
+        video.result = UUID()
+        controller.result = nil
+        model.resultPresentationChanged()
+        await settle()
+        try expect(controller.startRequests == starts, "An outstanding video result still covers the camera")
+        video.result = nil
+        model.resultPresentationChanged()
+        try await eventually("visible camera resumes after all results close") { controller.ready }
+        try expect(controller.startRequests == starts + 1, "Resume exactly once after the last result closes")
+        await model.close()
+    }
+
+    @MainActor
+    private static func hiddenResultDismissalCannotRestartCamera() async throws {
+        let controller = ARSessionController()
+        let model = ARCameraViewModel(controller: controller, video: ARVideoRecorder())
+        model.appear(in: .active)
+        try await eventually("camera before hidden result") { controller.ready }
+        controller.result = UUID()
+        model.resultPresentationChanged()
+        model.disappear()
+        let starts = controller.startRequests
+        controller.result = nil
+        model.resultPresentationChanged()
+        model.sceneChanged(to: .active)
+        await settle()
+        try expect(controller.startRequests == starts && !controller.ready,
+                   "Dismissing a result after leaving must not wake the camera")
+        await model.close()
+    }
+
+    @MainActor
+    private static func characterSwitchesRespectCameraOwnership() async throws {
+        let controller = ARSessionController()
+        let video = ARVideoRecorder()
+        let model = ARCameraViewModel(controller: controller, video: video)
+        model.selectMascot(.ponix)
+        try expect(controller.mascotSelections == 0, "A hidden picker cannot start or switch a camera")
+        controller.holdsStarts = true
+        model.appear(in: .active)
+        try await eventually("initial camera start waits") { controller.suspendedStarts == 1 }
+        model.selectMascot(.ponix)
+        try await eventually("replacement camera start waits") { controller.suspendedStarts == 2 }
+        controller.releaseNextStart()
+        await settle()
+        try expect(!controller.ready, "The old start must not reactivate the previous subject")
+        controller.releaseNextStart()
+        try await eventually("mascot camera starts") { controller.ready }
+        controller.holdsStarts = false
+        controller.result = UUID()
+        model.resultPresentationChanged()
+        model.selectMascot(.neopjuk)
+        model.restoreOriginalSubject()
+        try expect(controller.mascotSelections == 1 && controller.storyRestorations == 0,
+                   "Results must block both mascot and story switches")
+        controller.result = nil
+        model.resultPresentationChanged()
+        try await eventually("camera returns after result") { controller.ready }
+        video.state = .recording
+        model.selectMascot(.neopjuk)
+        try expect(controller.mascotSelections == 1, "Do not replace a recording camera")
+        video.state = .idle
+        model.restoreOriginalSubject()
+        try await eventually("story camera returns") { controller.ready && controller.storyRestorations == 1 }
+        await model.close()
     }
 
     @MainActor

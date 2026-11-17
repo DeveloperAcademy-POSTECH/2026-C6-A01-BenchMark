@@ -82,7 +82,7 @@ struct ARCameraScreen: View {
                 .ignoresSafeArea()
             }
             .overlay(alignment: .top) {
-                HStack(spacing: 22) {
+                HStack(spacing: 8) {
                     Group {
                         Button { showPhotoSettings.toggle(); showAdjustments = false } label: {
                             Label(controller.settings.photoTimer == 0 ? "끔" : "\(controller.settings.photoTimer)초", systemImage: "timer")
@@ -101,6 +101,12 @@ struct ARCameraScreen: View {
                         }.accessibilityLabel("필터 설정")
                     }
                     .disabled(video.busy || controller.capturing || model.countdown != nil || controller.recoveryIssue != nil)
+                    Text(controller.tracking)
+                        .font(.caption2.weight(.medium)).lineLimit(1).minimumScaleFactor(0.75)
+                        .padding(.horizontal, 8).padding(.vertical, 6)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .frame(maxWidth: 92)
+                        .accessibilityIdentifier("ar.camera.trackingStatus")
                     Spacer(minLength: 0)
                     Button(action: closeCamera) {
                         Image(systemName: "xmark")
@@ -127,7 +133,7 @@ struct ARCameraScreen: View {
             .overlay(alignment: .bottom) {
                 if showPhotoSettings {
                     ScrollView {
-                        ARPhotoSettingsPanel(settings: $controller.settings, reselectBench: {
+                        ARPhotoSettingsPanel(settings: $controller.settings, allowsStadiumBackground: !controller.isPalmMode, reselectBench: {
                             controller.selectBenchAgain()
                             showPhotoSettings = false
                         }) { showPhotoSettings = false }
@@ -221,8 +227,8 @@ struct ARCameraScreen: View {
             ARVideoResultView(result: result, discardRecovery: { try video.discardRecovery(result.url) })
         }
         .sheet(item: $controller.result) { ARPhotoResultView(result: $0) }
-        .onChange(of: video.result?.id) { _, _ in closeIfResultsFinished() }
-        .onChange(of: controller.result?.id) { _, _ in closeIfResultsFinished() }
+        .onChange(of: video.result?.id) { _, _ in model.resultPresentationChanged(); closeIfResultsFinished() }
+        .onChange(of: controller.result?.id) { _, _ in model.resultPresentationChanged(); closeIfResultsFinished() }
         .alert("안내", isPresented: Binding(get: { controller.errorMessage != nil }, set: { if !$0 { controller.errorMessage = nil } })) {
             Button("확인", role: .cancel) { controller.errorMessage = nil }
         } message: { Text(controller.errorMessage ?? "") }

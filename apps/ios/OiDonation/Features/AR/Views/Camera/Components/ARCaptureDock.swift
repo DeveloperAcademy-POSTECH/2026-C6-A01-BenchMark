@@ -11,23 +11,14 @@ struct ARCaptureDock: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            ARCaptureModePicker(videoMode: $model.videoMode)
-                .disabled(video.busy || controller.capturing || model.countdown != nil)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .overlay(alignment: .leading) {
-                    if controller.subject == nil { motionButton }
-                }
-                .overlay(alignment: .trailing) {
-                    if let subject = controller.subject {
-                        Text(subject.title)
-                            .font(.caption2.weight(.semibold)).lineLimit(1)
-                            .frame(width: 72, height: 44)
-                            .padding(.horizontal, 4)
-                            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
-                            .accessibilityLabel("AR 촬영 오이: " + subject.title)
-                            .accessibilityIdentifier("ar.camera.selectedCucumber")
-                    } else { characterButton }
-                }
+            HStack(spacing: 8) {
+                characterButton
+                Spacer(minLength: 0)
+                ARCaptureModePicker(videoMode: $model.videoMode)
+                    .disabled(video.busy || controller.capturing || model.countdown != nil)
+                Spacer(minLength: 0)
+                placementMenu
+            }
             .overlay(alignment: .center) {
                 // 촬영 영역이 움직이지 않도록 높이가 고정된 모드 선택 행에 녹화 상태를 표시합니다.
                 if let start = video.startedAt {
@@ -99,62 +90,60 @@ struct ARCaptureDock: View {
 
     }
 
-    private var motionButton: some View {
+    private var placementMenu: some View {
         Menu {
-            if controller.motions.isEmpty {
-                Button("넙죽이 애니메이션 모델 선택") {
-                    controller.settings.character = .neopjukAnimated
+            Picker("배치 방식", selection: Binding(get: { controller.placementMode },
+                set: { controller.settings.placementMode = $0 })) {
+                ForEach(ARManualPlacementMode.allCases, id: \.self) { mode in
+                    Label(mode.title, systemImage: mode.symbol).tag(mode)
+                        .disabled(mode == .location && !controller.canUseLocationMode)
                 }
-                Text("현재 모델에 재생 가능한 동작이 없습니다.")
-            } else {
-                ForEach(controller.motions) { motion in
-                    Button {
-                        controller.playMotion(motion.id)
-                    } label: {
-                        if controller.selectedMotion == motion.id {
-                            Label(motion.title, systemImage: "checkmark")
-                        } else { Text(motion.title) }
+            }
+            if !controller.motions.isEmpty {
+                Section("애니메이션") {
+                    ForEach(controller.motions) { motion in
+                        Button(motion.title) { controller.playMotion(motion.id) }
                     }
-                }
-                if controller.selectedMotion != nil {
-                    Divider()
-                    Button(controller.motionPlaying ? "일시정지" : "계속 재생") { controller.toggleMotion() }
+                    if controller.selectedMotion != nil {
+                        Button(controller.motionPlaying ? "일시정지" : "계속 재생") { controller.toggleMotion() }
+                    }
                 }
             }
         } label: {
-            Image(systemName: controller.motionPlaying ? "figure.walk.motion" : "figure.stand")
+            Image(systemName: controller.placementMode.symbol)
                 .font(.system(size: 20))
-                .foregroundStyle(controller.motionPlaying ? .mint : .white)
                 .frame(width: 44, height: 44)
                 .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
         }
-        .accessibilityLabel("애니메이션 선택")
-        .accessibilityValue(controller.motionPlaying ? "재생 중" : "정지 상태")
+        .accessibilityLabel("배치 방식 선택")
+        .accessibilityValue(controller.placementMode.title)
+        .accessibilityIdentifier("ar.camera.placementMode")
         .disabled(controller.loading || controller.capturing || video.busy || model.countdown != nil)
     }
 
     private var characterButton: some View {
     Button { showCharacters = true } label: {
-        HStack(spacing: 6) {
-            ARCharacterThumbnail(character: controller.settings.character, size: 32)
-            Image(systemName: "chevron.up.chevron.down")
-                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 10)
+        ARSelectedCharacterThumbnail(character: controller.settings.character, subject: controller.subject)
+        .frame(width: 56)
+        .padding(.horizontal, 4)
         .padding(.vertical, 4)
         .frame(minHeight: 44)
         .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
     .popover(isPresented: $showCharacters, arrowEdge: .bottom) {
-        ARCharacterSelectionView(selection: Binding(get: { controller.settings.character }, set: { controller.settings.character = $0 }))
+        ARCharacterSelectionView(selection: Binding(get: { controller.settings.character }, set: { model.selectMascot($0) }),
+            originalSubject: controller.originalSubject,
+            isMascotSelected: controller.subject == nil,
+            restoreOriginal: { model.restoreOriginalSubject() })
             .preferredColorScheme(.dark)
             .presentationCompactAdaptation(.popover)
             .presentationBackground(.ultraThinMaterial)
             .presentationCornerRadius(24)
     }
     .accessibilityLabel("캐릭터 선택")
-    .accessibilityValue(controller.settings.character.title)
+    .accessibilityValue(controller.subject?.title ?? controller.settings.character.title)
+    .accessibilityIdentifier("ar.camera.characters")
     .disabled(controller.loading || controller.capturing || video.busy || model.countdown != nil)
     }
 

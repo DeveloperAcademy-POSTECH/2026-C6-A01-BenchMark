@@ -6,13 +6,9 @@ struct ARCameraPreview: View {
     var topInset: CGFloat = 0
     var body: some View {
         ZStack(alignment: .top) {
-            ARCameraView(controller: controller)
+            ARCameraView(controller: controller, isActive: controller.ready)
                 .saturation(controller.settings.photoFilter.saturation)
             VStack(spacing: 8) {
-                Text(controller.tracking)
-                    .font(.caption.weight(.medium))
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(.ultraThinMaterial, in: Capsule())
                 if controller.usesGeographicPlacement {
                     Text(controller.locationNotice.isEmpty ? "저장 위치를 확인하고 있어요." : controller.locationNotice)
                         .font(.caption).multilineTextAlignment(.center)
@@ -23,7 +19,13 @@ struct ARCameraPreview: View {
                             .buttonStyle(.bordered)
                     }
                 }
-                if controller.recoveryIssue == nil && (!controller.placed || !controller.ready || (controller.usesGeographicPlacement && !controller.geographicReady)) {
+                if controller.isPalmMode {
+                    Text(controller.locked ? "현재 위치 고정 · 잠금을 풀면 손을 다시 인식해요" : controller.message)
+                        .font(.caption).multilineTextAlignment(.center)
+                        .padding(10).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                        .accessibilityIdentifier("ar.camera.palmStatus")
+                }
+                if !controller.isPalmMode && controller.recoveryIssue == nil && (!controller.placed || !controller.ready || (controller.usesGeographicPlacement && !controller.geographicReady)) {
                     Text(controller.message)
                         .font(.callout).multilineTextAlignment(.center)
                         .padding(12).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))

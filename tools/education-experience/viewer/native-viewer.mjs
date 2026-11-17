@@ -5,6 +5,8 @@ document.querySelector('.garden-notes')?.remove();
 document.querySelector('.night-backdrop')?.remove();
 document.querySelector('.space-mascot')?.remove();
 const dimmer=document.createElement('div');dimmer.className='viewer-dimmer';dimmer.setAttribute('aria-hidden','true');root.prepend(dimmer);
+// Use the renderer's morph progress so the garden brightens while pearls gather.
+window.educationViewerProgress=progress=>{dimmer.style.opacity=String(.78*Math.max(0,Math.min(1,progress)));};
 const intro = document.querySelector('.intro');
 intro.append(document.querySelector('.funding'));
 

@@ -3565,6 +3565,7 @@ final class OiRemoteStoreTests: XCTestCase {
         let subject = ARCameraSubject(id: target.id, title: "위치 권한 검사", heightMeters: 1.5, placement: target) { Entity() }
         let location = Location()
         let camera = ARSessionController(subject: subject, locationProvider: location)
+        camera.settings.placementMode = .location
         XCTAssertEqual(camera.makeSessionConfiguration().worldAlignment, .gravity)
         location.hasPreciseLocationPermission = true
         let authorized = camera.makeSessionConfiguration()
@@ -3624,7 +3625,7 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(update(fix(), camera: [8, 3, 6], ground: 1), .ready([8, 1, 6]))
     }
 
-    @MainActor func testGeographicCameraUsesMetresAndSavedHeadingWithoutManualFallback() throws {
+    @MainActor func testGeographicCameraUsesMetresAndSavedHeadingWithoutManualFallback() async throws {
         let now = Date()
         let target = CampusPlacement(storyID: "direction-test", latitude: 36.0121, longitude: 129.3231,
                                      heightMeters: 1.5, headingDegrees: 90)
@@ -3643,12 +3644,15 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(status, .ready([3 + offset.x, -0.7, 4 + offset.z]))
         let subject = ARCameraSubject(id: target.id, title: "위치 오이", heightMeters: 1.5, placement: target) { Entity() }
         let controller = ARSessionController(subject: subject)
+        controller.settings.placementMode = .location
         XCTAssertTrue(controller.usesGeographicPlacement)
         XCTAssertFalse(controller.geographicReady)
         XCTAssertFalse(controller.canCapture)
         XCTAssertEqual(controller.settings.rotation, 90)
         controller.settings.rotation = 0
         controller.resetSettings()
+        XCTAssertTrue(controller.isPalmMode, "Reset returns to palm without enabling GPS automatically")
+        controller.settings.placementMode = .location
         XCTAssertEqual(controller.settings.rotation, 90)
         XCTAssertEqual(controller.settings.height, 1.5)
         controller.applyGeographicStatus(.outsideRange(40), locationMessage: nil)
@@ -3658,7 +3662,42 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(controller.locationNotice, "위치 접근을 허용해 주세요.")
         controller.pause()
         XCTAssertFalse(controller.geographicReady)
-        XCTAssertFalse(ARSessionController().usesGeographicPlacement)
+        // Allocate actor-isolated RealityKit owners outside XCTest's autoclosure.
+        // A temporary owner here crashes in Swift's deinitOnExecutor runtime.
+        let manualController = ARSessionController()
+        defer { manualController.stop() }
+        XCTAssertFalse(manualController.usesGeographicPlacement)
+    }
+
+    @MainActor func testPausedCameraDetachesRendererAndReusesItsSceneOnReturn() async throws {
+        let controller = ARSessionController()
+        let anchor = AnchorEntity(world: .zero)
+        controller.view.scene.addAnchor(anchor)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive })
+        let previousKey = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: ARCameraView(controller: controller, isActive: true))
+        defer {
+            controller.stop()
+            window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+            previousKey?.makeKey()
+        }
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.layoutIfNeeded()
+        for _ in 0..<20 where controller.view.window == nil { try await Task.sleep(for: .milliseconds(25)) }
+        XCTAssertTrue(controller.view.window === window)
+        host.rootView = ARCameraView(controller: controller, isActive: false)
+        host.view.layoutIfNeeded()
+        for _ in 0..<20 where controller.view.superview != nil { try await Task.sleep(for: .milliseconds(25)) }
+        XCTAssertNil(controller.view.superview, "A paused camera must detach its Metal render surface")
+        XCTAssertTrue(controller.view.scene.anchors.contains { $0 === anchor }, "Pausing must preserve the scene")
+        host.rootView = ARCameraView(controller: controller, isActive: true)
+        host.view.layoutIfNeeded()
+        for _ in 0..<20 where controller.view.window == nil { try await Task.sleep(for: .milliseconds(25)) }
+        XCTAssertTrue(controller.view.window === window)
+        XCTAssertTrue(controller.view.scene.anchors.contains { $0 === anchor }, "Returning must reuse the same scene")
     }
 
     @MainActor func testARCameraCreatesOneSessionAcrossPresenterRefreshes() async throws {
@@ -3715,7 +3754,7 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(loaded.root.visualBounds(relativeTo: nil).extents.y, 1.5, accuracy: 0.001)
         let legacy = ARSessionController()
         XCTAssertNil(legacy.subject)
-        XCTAssertEqual(legacy.settings.character, .neopjuk)
+        XCTAssertEqual(legacy.settings.character, .ponix)
         XCTAssertNil(legacy.settings.cucumberStoryID)
         XCTAssertEqual(legacy.settings.height, 1.2)
         let bytes = try JSONEncoder().encode(camera.settings)

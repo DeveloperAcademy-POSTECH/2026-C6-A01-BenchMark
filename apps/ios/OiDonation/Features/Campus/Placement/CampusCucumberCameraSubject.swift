@@ -15,7 +15,7 @@ enum CampusCucumberCameraSubject {
               let latitude = story.latitude, let longitude = story.longitude,
               let placement = CampusPlacement.story(id: id, latitude: latitude, longitude: longitude,
                   heightMeters: story.heightMeters, headingDegrees: story.headingDegrees) else { return nil }
-        return ARCameraSubject(id: id, title: story.title, heightMeters: Float(story.heightMeters), placement: placement) {
+        var subject = ARCameraSubject(id: id, title: story.title, heightMeters: Float(story.heightMeters), placement: placement) {
             // Recheck the public role on each load/retry; never render a private draft
             // or fall back to a different character when approved artwork fails.
             let current = try await remote.publishedStory(id)
@@ -24,5 +24,13 @@ enum CampusCucumberCameraSubject {
             if let artwork = current.cucumberArtwork { return try await remote.cucumberModel(artwork) }
             return try await CampusOiAsset.load()
         }
+        subject.loadThumbnail = {
+            let current = try await remote.publishedStory(id)
+            guard current.campusPlacement == placement, let path = current.cucumberArtwork?.path(.portrait) else {
+                throw OiServiceError.unavailable
+            }
+            return try await remote.cucumberImage(path)
+        }
+        return subject
     }
 }
