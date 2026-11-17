@@ -51,6 +51,13 @@ final class StoryCollectionStore {
         return save(current)
     }
 
+    /// Re-reads the shared records, which the App Clip writes from another process.
+    func reload() {
+        guard let defaults else { return }
+        do { cards = try Self.load(from: defaults); persistenceError = nil }
+        catch { persistenceError = Self.readFailure }
+    }
+
     func contains(storyID: String) -> Bool {
         cards.contains { $0.storyID == storyID }
     }
