@@ -126,6 +126,36 @@ do $$ begin
     'c4180000-0000-4000-8000-000000000011','c4180000-0000-4000-8000-000000000001');
   raise exception 'Indirect cycle accepted';
 exception when invalid_parameter_value then null; end; $$;
+-- Pending account deletion must match the existing public-story RLS boundary.
+insert into benchmark_private.oi_account_deletions(account_id) values('c4180000-0000-4000-8000-000000000001');
+set local role anon;
+select pg_temp.check_result(not exists(select 1 from public.oi_stories where id='c4180000-0000-4000-8000-000000000004'),'existing story RLS did not hide deleting parent');
+select pg_temp.check_result(public.oi_story_continuations('c4180000-0000-4000-8000-000000000004')->>'total'='0','deleting parent relation leaked');
+select pg_temp.check_result(public.oi_story_continuation_counts(array['c4180000-0000-4000-8000-000000000004'::uuid])='[]'::jsonb,'deleting parent counted');
+set local role authenticated;
+select set_config('request.jwt.claim.sub','c4180000-0000-4000-8000-000000000002',true);
+select pg_temp.check_result(public.oi_my_story_continuation_targets()->0->'continued_from_story_id'='null'::jsonb,'deleting parent UUID leaked in draft metadata');
+do $$ begin
+ perform public.oi_mutate('save_story',pg_temp.payload('c4180000-0000-4000-8000-000000000019',0)||
+   '{"continued_from_story_id":"c4180000-0000-4000-8000-000000000004"}');
+ raise exception 'Deleting parent accepted as new target';
+exception when invalid_parameter_value then null; end; $$;
+reset role;
+delete from benchmark_private.oi_account_deletions where account_id='c4180000-0000-4000-8000-000000000001';
+insert into benchmark_private.oi_account_deletions(account_id) values('c4180000-0000-4000-8000-000000000002');
+set local role anon;
+select pg_temp.check_result(not exists(select 1 from public.oi_stories where id='c4180000-0000-4000-8000-000000000011'),'existing story RLS did not hide deleting child');
+select pg_temp.check_result(public.oi_story_continuations('c4180000-0000-4000-8000-000000000004')->>'total'='0','deleting child relation leaked');
+select pg_temp.check_result(public.oi_story_continuation_counts(array['c4180000-0000-4000-8000-000000000004'::uuid])->0->>'count'='0','deleting child counted');
+set local role authenticated;
+select set_config('request.jwt.claim.sub','c4180000-0000-4000-8000-000000000001',true);
+select pg_temp.check_result(public.oi_story_continuations(p_mine=>true)->>'total'='0','deleting child remained in notifications');
+do $$ begin
+ perform public.oi_read_story_continuation('c4180000-0000-4000-8000-000000000011');
+ raise exception 'Deleting child opened from notification';
+exception when invalid_parameter_value then null; end; $$;
+reset role;
+delete from benchmark_private.oi_account_deletions where account_id='c4180000-0000-4000-8000-000000000002';
 insert into benchmark_private.oi_content_restrictions(member_id,note)
   values('c4180000-0000-4000-8000-000000000001','Synthetic parent restriction');
 set local role anon;
