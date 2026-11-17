@@ -31,12 +31,15 @@ struct ScratchPostcardView: View {
     /// Called after the viewer blocks this postcard's author from the menu.
     var onBlock: () -> Void = {}
     var fullApp: ScratchPostcardFullApp?
+    var onRetryFaces: () -> Void
 
     init(postcard: ScratchPostcard, validateCollection: @escaping () async throws -> Bool,
-         onBlock: @escaping () -> Void = {}, fullApp: ScratchPostcardFullApp? = nil) {
+         onBlock: @escaping () -> Void = {}, onRetryFaces: @escaping () -> Void = {},
+         fullApp: ScratchPostcardFullApp? = nil) {
         self.postcard = postcard
         self.validateCollection = validateCollection
         self.onBlock = onBlock
+        self.onRetryFaces = onRetryFaces
         self.fullApp = fullApp
         let revealed = fullApp?.startsRevealed == true
         _phase = State(initialValue: revealed ? .revealed : .scratching)
@@ -229,14 +232,22 @@ struct ScratchPostcardView: View {
             }
 
             if showsSuccessLayout {
-                Text("탭하거나 옆으로 밀어서 뒤집기")
-                    .font(.custom("Paperlogy-4Regular", size: 12))
-                    .tracking(0.24)
-                    .foregroundStyle(Self.hintGray)
-                    .fixedSize()
-                    .frame(width: layout.size.width, height: 20)
-                    .offset(y: cardFrame.maxY + 19 - 10)
-                    .transition(.opacity)
+                Group {
+                    if postcard.hasFailedFaces {
+                        Button(postcard.isLoadingFaces ? "엽서 이미지 불러오는 중" : "엽서 이미지 다시 불러오기",
+                               action: onRetryFaces)
+                            .disabled(postcard.isLoadingFaces)
+                            .accessibilityIdentifier("scratch.faces.retry")
+                    } else {
+                        Text("탭하거나 옆으로 밀어서 뒤집기")
+                    }
+                }
+                .font(.custom("Paperlogy-4Regular", size: 12))
+                .tracking(0.24)
+                .foregroundStyle(Self.hintGray)
+                .frame(width: layout.size.width, height: postcard.hasFailedFaces ? 44 : 20)
+                .offset(y: cardFrame.maxY + (postcard.hasFailedFaces ? 2 : 9))
+                .transition(.opacity)
                 actionBar(layout)
                     .offset(y: layout.size.height - layout.barHeight)
                     .transition(.move(edge: .bottom))
@@ -338,7 +349,7 @@ struct ScratchPostcardView: View {
         } back: {
             if let back = postcard.back {
                 Image(uiImage: back).resizable().scaledToFit()
-            } else if postcard.isLoadingFaces {
+            } else if postcard.isLoadingFaces || postcard.backFailed {
                 ScratchPostcardPendingFace()
             } else {
                 ScratchPostcardFallbackBack(message: postcard.story.content, author: postcard.donorLine)
@@ -366,7 +377,7 @@ struct ScratchPostcardView: View {
         ZStack {
             if let front = postcard.front {
                 Image(uiImage: front).resizable().scaledToFit()
-            } else if postcard.isLoadingFaces {
+            } else if postcard.isLoadingFaces || postcard.frontFailed {
                 ScratchPostcardPendingFace()
             } else {
                 ScratchPostcardFallbackFront(photo: postcard.coverPhoto)

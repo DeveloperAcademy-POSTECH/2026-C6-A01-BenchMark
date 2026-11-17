@@ -105,6 +105,11 @@ struct OiEvidenceOperation: Codable, Equatable {
     }
 }
 
+struct OiPendingCardDecision: Codable, Equatable {
+    let id: UUID
+    let accept: Bool
+}
+
 actor OiDraftVault {
     private let directory: URL
 
@@ -278,6 +283,54 @@ actor OiDraftVault {
 
     private func discardMarker(in folder: URL, id: UUID) -> URL {
         folder.appending(path: "discarded-draft-\(id.uuidString).json")
+    }
+
+    func pendingStoryDeletions(owner: UUID) throws -> [UUID: Int] {
+        let url = try ownerDirectory(owner).appending(path: "pending-story-deletions.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
+        return try JSONDecoder().decode([UUID: Int].self, from: Data(contentsOf: url))
+    }
+
+    func setPendingStoryDeletion(id: UUID, revision: Int?, owner: UUID) throws {
+        var pending = try pendingStoryDeletions(owner: owner)
+        pending[id] = revision
+        let url = try ownerDirectory(owner).appending(path: "pending-story-deletions.json")
+        try write(JSONEncoder().encode(pending), to: url)
+    }
+
+    func markScratchCollection(id: UUID, owner: UUID) throws {
+        try write(Data(), to: scratchCollectionMarker(id: id, owner: owner))
+    }
+
+    private func scratchCollectionMarker(id: UUID, owner: UUID) throws -> URL {
+        try ownerDirectory(owner).appending(path: "pending-scratch-\(id.uuidString)")
+    }
+
+    func hasPendingScratchCollection(id: UUID, owner: UUID) throws -> Bool {
+        try FileManager.default.fileExists(atPath: scratchCollectionMarker(id: id, owner: owner).path)
+    }
+
+    func clearScratchCollection(id: UUID, owner: UUID) throws {
+        let marker = try scratchCollectionMarker(id: id, owner: owner)
+        if FileManager.default.fileExists(atPath: marker.path) { try FileManager.default.removeItem(at: marker) }
+    }
+
+    func pendingCardDecision(owner: UUID) throws -> OiPendingCardDecision? {
+        let url = try ownerDirectory(owner).appending(path: "pending-card-decision.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try JSONDecoder().decode(OiPendingCardDecision.self, from: Data(contentsOf: url))
+    }
+
+    func saveCardDecision(_ decision: OiPendingCardDecision, owner: UUID) throws {
+        if let pending = try pendingCardDecision(owner: owner), pending != decision { throw OiServiceError.conflict }
+        let url = try ownerDirectory(owner).appending(path: "pending-card-decision.json")
+        try write(JSONEncoder().encode(decision), to: url)
+    }
+
+    func clearCardDecision(_ decision: OiPendingCardDecision, owner: UUID) throws {
+        guard try pendingCardDecision(owner: owner) == decision else { return }
+        let url = try ownerDirectory(owner).appending(path: "pending-card-decision.json")
+        try FileManager.default.removeItem(at: url)
     }
 
     func schoolEvidenceReview(owner: UUID) throws -> OiSavedSchoolEvidenceReview? {

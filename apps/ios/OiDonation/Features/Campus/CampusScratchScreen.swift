@@ -22,6 +22,8 @@ struct CampusScratchScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var loader = ScratchPostcardLoader()
     @State private var attempt = 0
+    @State private var faceAttempt = 0
+    @State private var finishingSave = false
     /// Decided once when the postcard loads, so saving mid-screen never skips the scratching.
     @State private var startsRevealed: Bool?
     @State private var revealOwner: UUID?
@@ -48,6 +50,7 @@ struct CampusScratchScreen: View {
                         validateCollection: { true },
                         // A blocked author's postcard reloads into the unavailable state.
                         onBlock: { attempt += 1 },
+                        onRetryFaces: { faceAttempt += 1 },
                         fullApp: ScratchPostcardFullApp(
                             startsRevealed: startsRevealed, isSaved: isSaved,
                             onBack: { dismiss() }, onDonate: onDonate, onSave: save))
@@ -75,6 +78,14 @@ struct CampusScratchScreen: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden()
         .preferredColorScheme(.light)
+        .task(id: faceAttempt) {
+            guard faceAttempt > 0 else { return }
+            await loader.retryFaces(repository: repository, usesTag: false)
+        }
+        .task(id: SaveConfirmation(owner: remote.account?.id, saved: isSaved)) {
+            guard isSaved, let owner = remote.account?.id, let storyUUID else { return }
+            await finishRecoveredSave(storyUUID, owner: owner)
+        }
         .task(id: LoadContext(attempt: attempt, owner: remote.account?.id, hydrated: remote.hasLoadedRemote)) {
             guard let revealed = Self.initialRevealState(storyID: storyUUID, remote: remote) else { return }
             if startsRevealed == nil || revealOwner != remote.account?.id {
@@ -119,22 +130,31 @@ struct CampusScratchScreen: View {
         .accessibilityLabel("뒤로")
     }
 
-    /// Saves to the signed-in account; the root's receipt observer then refreshes MY 작업실의 `수집한 기부` 탭.
-    private func save() async -> String? {
-        guard let storyUUID, remote.account != nil, !remote.needsReauthentication else {
-            return "로그인한 뒤 저장할 수 있어요."
-        }
-        guard !remote.isBusy, !remote.isRefreshing else { return "잠시 뒤에 다시 시도해 주세요." }
-        let owner = remote.account?.id
-        // The receipt already adds the card, so MY opens now and the lists reload behind it.
-        await remote.perform("collect", payload: ["id": storyUUID.uuidString], refreshesInBackground: true)
-        return Self.finishSaving(storyID: storyUUID, owner: owner, remote: remote, onSaved: onSaved)
+    private struct SaveConfirmation: Equatable {
+        let owner: UUID?
+        let saved: Bool
     }
 
-    static func finishSaving(storyID: UUID, owner: UUID?, remote: OiRemoteStore, onSaved: () -> Void) -> String? {
-        guard !Task.isCancelled else { return nil }
-        guard remote.account?.id == owner else { return "로그인한 계정이 바뀌었어요. 다시 시도해 주세요." }
-        if remote.collections.contains(where: { $0.storyId == storyID }) { onSaved(); return nil }
-        return remote.error ?? "수집 저장을 확인하지 못했어요. 다시 시도해 주세요."
+    private func save() async -> String? {
+        guard let storyUUID, let owner = remote.account?.id else { return "로그인한 뒤 저장할 수 있어요." }
+        do {
+            try await remote.saveScratchCollection(id: storyUUID, owner: owner)
+            await finishRecoveredSave(storyUUID, owner: owner)
+            return nil
+        } catch {
+            return Task.isCancelled ? nil : error.localizedDescription
+        }
     }
+
+    private func finishRecoveredSave(_ id: UUID, owner: UUID) async {
+        guard !finishingSave else { return }
+        finishingSave = true
+        defer { finishingSave = false }
+        do {
+            try await remote.finishScratchCollection(id: id, owner: owner, onConfirmed: onSaved)
+        } catch {
+            if remote.account?.id == owner, !Task.isCancelled { remote.error = error.localizedDescription }
+        }
+    }
+
 }
