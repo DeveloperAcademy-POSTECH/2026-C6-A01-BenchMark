@@ -49,7 +49,8 @@ struct OiCardCustomizationStep: View {
         GeometryReader { geometry in
             let previewHeight = min(308.0, max(180.0, geometry.size.height * 0.47))
             VStack(spacing: 0) {
-                preview(height: previewHeight).padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 20)
+                // Figma `5919:12077`: 34pt from the card's bottom edge to the tab row (#386).
+                preview(height: previewHeight).padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 30)
                 VStack(spacing: 0) {
                     if isFinished {
                         ScrollView {
@@ -84,7 +85,7 @@ struct OiCardCustomizationStep: View {
                                 // Card save/share stays available elsewhere; this step no longer shows it (#377).
                                 VStack(alignment: .leading, spacing: 24) {
                                     controls
-                                }.padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 24 + bottomInset)
+                                }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 24 + bottomInset)
                             }
                             .modifier(OiCustomizationScrollEdge())
                             .accessibilityIdentifier("oi.card.settingsScroll")
@@ -240,11 +241,13 @@ struct OiCardCustomizationStep: View {
                     .font(Self.hintFont).foregroundStyle(Self.hintColor).fixedSize(horizontal: false, vertical: true)
             }.frame(height: dynamicTypeSize.isAccessibilitySize ? nil : 20, alignment: .top)
             VStack(alignment: .leading, spacing: 6) {
-                Text("내용").font(CampusStyle.medium(16))
+                Text("내용").font(CampusStyle.medium(16)).frame(height: 16, alignment: .bottom)
                 // Figma `5919:12095`: the same story text as STEP 2 (`draft.body`), so editing here updates the story.
                 VStack(alignment: .leading, spacing: 4) {
                     TextField("엽서에 남길 이야기", text: OiStoryWritingStep.limitedStoryText($draft.body), axis: .vertical)
                         .lineLimit(3...5).font(CampusStyle.body(16)).tracking(0.32).lineSpacing(5)
+                        // Figma: three 24pt lines (16pt at 1.5) even when the text is shorter.
+                        .frame(minHeight: 72, alignment: .topLeading)
                         .foregroundStyle(Color(white: 65 / 255))
                         .focused($editingCaption)
                         .accessibilityIdentifier("oi.card.caption")
@@ -254,7 +257,8 @@ struct OiCardCustomizationStep: View {
                         Spacer()
                         Button(editingCaption ? "완료" : "수정") { editingCaption.toggle() }
                             .underline().foregroundStyle(Color("OiGreen"))
-                            .frame(minWidth: 44, minHeight: 30, alignment: .trailing)
+                            // 15pt line as in Figma; the 30pt touch area extends past it.
+                            .frame(minWidth: 44, minHeight: 30, alignment: .trailing).padding(.vertical, -7.5)
                     }.font(CampusStyle.body(10)).tracking(0.2)
                 }.padding(.horizontal, 20).padding(.vertical, 16)
                     .background(Color(white: 247 / 255), in: RoundedRectangle(cornerRadius: 30))
@@ -291,7 +295,7 @@ struct OiCardCustomizationStep: View {
                     if selected { Image(systemName: "checkmark").font(.system(size: 12, weight: .semibold)) }
                 }
                 Text(title).font(CampusStyle.body(17)).fixedSize()
-            }.frame(minHeight: 30)
+            }.frame(minHeight: 30).padding(.vertical, -5) // Figma 20pt row; the touch area stays 30pt.
         }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
     }
     private func authorChoice(_ title: String, mode: String) -> some View {
