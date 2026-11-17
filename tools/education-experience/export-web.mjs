@@ -27,6 +27,13 @@ if(scripts.length!==2)throw Error('Inspect standalone web entry points.');
 const entry=fileURLToPath(new URL('./viewer/web-viewer.mjs',import.meta.url));
 const result=await build({stdin:{contents:[`import ${JSON.stringify(entry)};`,...scripts.map(m=>`import ${JSON.stringify(m[1])};`)].join('\n'),resolveDir:source},bundle:true,format:'iife',platform:'browser',target:'safari18',minify:true,legalComments:'inline',write:false,define:{'import.meta.url':'document.baseURI'},plugins:[{name:'shared-garden-viewer',setup(builder){
  builder.onResolve({filter:/^@education\/three$/},()=>({path:path.join(source,'vendor/three.module.js')}));
+ // The renderer snapshot supplies the garden. Use the repository's current
+ // story modules even if that snapshot predates the current review contract.
+ builder.onLoad({filter:/education-(service|card|library|web-transport|native-transport|ui)\.js$/},async args=>{
+  if(path.dirname(args.path)!==source)return;
+  const contents=await readFile(new URL('./shared/'+path.basename(args.path),import.meta.url),'utf8');
+  return {contents,loader:'js',resolveDir:source};
+ });
  builder.onLoad({filter:/scatter-stories\.js$/},async args=>({contents:adaptNativeStories(await readFile(args.path,'utf8'),{web:true}),loader:'js'}));
  builder.onLoad({filter:/building-3d\.js$/},async args=>{
   let text=adaptNativeRenderer(await readFile(args.path,'utf8'),{web:true});const i=text.indexOf('const stage=');
