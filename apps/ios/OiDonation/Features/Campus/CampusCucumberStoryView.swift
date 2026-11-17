@@ -293,7 +293,7 @@ private struct CampusCucumberDonorTab: View {
                             NavigationLink {
                                 MYPublicWorkshopView(authorID: authorID, remote: remote, store: store)
                             } label: {
-                                Text("기부자 자세히보기 →").underline().font(CampusStyle.semibold(16))
+                                Text("작성자 자세히 보기 →").underline().font(CampusStyle.semibold(16))
                                     .foregroundStyle(CampusStyle.green)
                                     .frame(minHeight: 44)
                                     .contentShape(Rectangle())
