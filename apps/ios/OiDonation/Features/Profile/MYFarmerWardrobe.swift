@@ -94,7 +94,7 @@ extension OiFarmerOutfit {
 
     func selecting(_ item: MYFarmerWardrobeItem) -> Self {
         var next = character == item.character ? slots : [:]
-        if next[item.slot.rawValue] == item.id {
+        if [.shoes, .accessory].contains(item.slot), next[item.slot.rawValue] == item.id {
             next.removeValue(forKey: item.slot.rawValue)
         } else if item.slot == .set {
             next.removeValue(forKey: "top")

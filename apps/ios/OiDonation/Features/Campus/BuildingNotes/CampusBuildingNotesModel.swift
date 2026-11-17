@@ -46,10 +46,12 @@ struct CampusBuildingNoteReport: Decodable, Identifiable {
     func prepareBuildingNote(id: UUID, building: String, body: String, owner: UUID) async throws -> UUID
     func postBuildingNote(id: UUID, building: String, body: String) async throws -> CampusBuildingNote
     func deleteBuildingNote(id: UUID) async throws
+    func clearPreparedBuildingNote(id: UUID, building: String, owner: UUID) async throws
 }
 
 extension CampusBuildingNoteServing {
     func prepareBuildingNote(id: UUID, building: String, body: String, owner: UUID) async throws -> UUID { id }
+    func clearPreparedBuildingNote(id: UUID, building: String, owner: UUID) async throws {}
 }
 
 @MainActor @Observable final class CampusBuildingNotesModel {
@@ -126,10 +128,12 @@ extension CampusBuildingNoteServing {
         guard let pending else { return }
         sending = true; error = nil; failedSend = false
         defer { if request == generation { sending = false } }
+        var attemptID = pending.id
         do {
             let id = try await service.prepareBuildingNote(id: pending.id, building: buildingID, body: body, owner: account)
             guard request == generation, account == service.buildingNoteAccountID, !Task.isCancelled else { return }
             self.pending = (id, body)
+            attemptID = id
             let receipt = try await service.postBuildingNote(id: id, building: buildingID, body: body)
             guard request == generation, account == service.buildingNoteAccountID,
                   self.pending?.id == id, !Task.isCancelled else { return }
@@ -141,21 +145,25 @@ extension CampusBuildingNoteServing {
             self.pending = nil; sentID = receipt.id
         } catch {
             guard request == generation, account == service.buildingNoteAccountID,
-                  !OiServiceFailure.isCancellation(error) else { return }
+                  self.pending?.id == attemptID, !OiServiceFailure.isCancellation(error) else { return }
             failedSend = true
             self.error = error.localizedDescription
         }
     }
 
     func delete(_ note: CampusBuildingNote) async {
-        guard note.authorId == service.buildingNoteAccountID else { return }
-        let request = generation, account = service.buildingNoteAccountID
+        guard let account = service.buildingNoteAccountID, note.authorId == account else { return }
+        let request = generation
         do {
             try await service.deleteBuildingNote(id: note.id)
             guard request == generation, account == service.buildingNoteAccountID, !Task.isCancelled else { return }
             contentRevision += 1
             notes.removeAll { $0.id == note.id }
-            if pending?.id == note.id { pending = nil }
+            if pending?.id == note.id {
+                pending = nil
+                failedSend = false; error = nil
+            }
+            try await service.clearPreparedBuildingNote(id: note.id, building: buildingID, owner: account)
         } catch {
             guard request == generation, account == service.buildingNoteAccountID, !OiServiceFailure.isCancellation(error) else { return }
             self.error = error.localizedDescription

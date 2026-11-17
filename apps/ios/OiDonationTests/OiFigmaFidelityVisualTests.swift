@@ -2277,6 +2277,21 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertNil(draft.selectedSeedProposal)
     }
 
+    func testStep3SnapshotRestoresSelectedFaceAndGarmentInPublishedModel() async throws {
+        var draft = OiDraftCustomization()
+        draft.seedAppearance = editedSeedCucumber3DAppearance()
+        draft.selectSeedProposal(.one, for: .raincoat)
+        let snapshot = try XCTUnwrap(draft.seedSnapshot)
+        let bytes = try JSONEncoder().encode(snapshot)
+        let published = try JSONDecoder().decode(OiSeedCucumberSnapshot.self, from: bytes)
+        XCTAssertEqual(published.appearance, draft.seedAppearance)
+        XCTAssertEqual(published.garments, ["seed-costume-raincoat-proposal-1"])
+        XCTAssertEqual(published.portraitKey, snapshot.portraitKey)
+        let model = try await OiSeedCucumberModel.make(snapshot: published)
+        XCTAssertNotNil(model.findEntity(named: "seed-costume-raincoat-proposal-1"))
+        XCTAssertNotNil(model.findEntity(named: "FaceBacking"))
+    }
+
     func testStep3SetsReplaceOutfitsAndRestoreModularItems() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }

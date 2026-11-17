@@ -1668,6 +1668,11 @@ extension OiRemoteStore: CampusBuildingNoteServing {
         }
         return receipt
     }
+    func clearPreparedBuildingNote(id: UUID, building: String, owner: UUID) async throws {
+        guard account?.id == owner, !needsReauthentication else { throw OiServiceError.accountChanged }
+        try await drafts.clearBuildingNote(id: id, building: building, owner: owner)
+    }
+
     func deleteBuildingNote(id: UUID) async throws {
         try await withCardRequestSession { api, token in try await api.deleteBuildingNote(id: id, token: token) }
     }
