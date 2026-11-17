@@ -354,6 +354,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
         if let savedCard {
             return try OiCardImageExport.publication(front: savedCard, message: draft.body, author: donorName,
                 academicAuthor: OiPostcardAuthor.academic(department: remote.profile?.department, year: remote.profile?.admissionYear),
+                tags: [draft.emotion, draft.theme],
                 cover: remote.canPublishStoryCardCover ? savedCoverData : nil,
                 coverType: savedStory?.resolvedCardCoverType ?? .png)
         }

@@ -372,6 +372,7 @@ struct OiStoryListScreen: View {
             } else { cover = nil }
             return try OiCardImageExport.publication(front: front, message: draft.body, author: author,
                 academicAuthor: OiPostcardAuthor.academic(department: remote.profile?.department, year: remote.profile?.admissionYear),
+                tags: [draft.emotion, draft.theme],
                 cover: cover, coverType: type)
         }
         let preview = OiDraftCardPreview(draft: draft, customization: customization, donorName: author,

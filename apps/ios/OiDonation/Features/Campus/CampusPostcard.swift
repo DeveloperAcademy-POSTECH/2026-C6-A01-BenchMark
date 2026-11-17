@@ -48,8 +48,15 @@ struct CampusPostcard: View {
     }
     private var fallbackAuthor: String {
         let design = localDraft?.customization?.card
+        // A legacy back must wait for the approved front's author display rule.
+        if story.cardArtworkPath != nil && !artworkResolved { return "익명" }
+        let publicProfile = remote?.profiles.first { $0.id == story.authorID }
+        let publicAcademic = OiPostcardAuthor.academic(department: publicProfile?.department,
+                                                        year: publicProfile?.admissionYear)
+        let donor = story.donor.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = donor.isEmpty || donor == "작성자 정보 확인 중" ? "익명" : donor
         return OiPostcardAuthor.text(mode: (design?.postcardBackground ?? backgroundStyle)?.authorMode,
-            name: story.donor, academic: design?.postcardAcademicAuthor ?? "")
+            name: name, academic: design?.postcardAcademicAuthor ?? publicAcademic)
     }
     var body: some View {
         VStack(spacing: 12) {
@@ -87,7 +94,7 @@ struct CampusPostcard: View {
                     OiPostcardBack(first: colors.0, second: colors.1,
                                backgroundStyle: localDraft?.customization?.card?.postcardBackground ?? backgroundStyle,
                                message: localDraft?.draft.body ?? story.body,
-                               author: fallbackAuthor, scrollable: true)
+                               author: fallbackAuthor, tags: story.tags, scrollable: true)
                 }
             }
             Text("탭하거나 옆으로 밀어서 뒤집기").font(CampusStyle.body(12)).tracking(0.24)

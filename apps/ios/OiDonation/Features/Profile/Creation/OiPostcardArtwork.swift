@@ -33,11 +33,11 @@ struct OiPostcardFront<Artwork: View>: View {
             else { OiCardGradient(fill: fill, first: first, second: second) }
             artwork().frame(width: 296, height: 436).clipped().offset(x: 33, y: 33)
             if decorationsVisible {
-                if design?.postcardLayoutVersion == 2 {
+                if let design, design.postcardLayoutVersion == 2 {
                     Rectangle().stroke(Color(white: 0.62), lineWidth: 0.6)
                         .frame(width: 296, height: 436).offset(x: 33, y: 33)
-                    OiPostcardDecorations(stamp: design?.postcardStamp, logo: design?.postcardLogo,
-                        logoOpacity: OiCardOpacity.normalized(design?.postcardLogoOpacity))
+                    OiPostcardDecorations(stamp: design.postcardStamp, logo: design.effectivePostcardLogo,
+                        logoOpacity: OiCardOpacity.normalized(design.postcardLogoOpacity))
                 } else {
                     ForEach(0..<3) { index in
                         Image("OiPostcardWave\(index + 1)").resizable()
@@ -45,14 +45,16 @@ struct OiPostcardFront<Artwork: View>: View {
                             .offset(x: 23, y: CGFloat(26 + index * 13))
                             .accessibilityHidden(true)
                     }
-                    Text(date).font(OiPostcardTypography.date)
-                        .foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6)
-                        .frame(width: 150, height: 21, alignment: .trailing).offset(x: 167, y: 42)
-                        .accessibilityLabel("작성 날짜 \(date)")
                     Text("OiD").font(OiPostcardTypography.mark).tracking(1.12)
                         .foregroundStyle(.white).fixedSize().rotationEffect(.degrees(-90))
                         .frame(width: 21, height: 58).offset(x: 43, y: 396)
                         .accessibilityHidden(true)
+                }
+                if !date.isEmpty {
+                    Text(date).font(OiPostcardTypography.date)
+                        .foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6)
+                        .frame(width: 144, height: 21, alignment: .trailing).offset(x: 173, y: 42)
+                        .accessibilityLabel("작성 날짜 \(date)")
                 }
                 Image("OiPostcardSeal").renderingMode(.template).resizable()
                     .foregroundStyle(Color(oiRGB: OiPostcardInk.color(backgroundStyle?.visiblePaperColor ?? first)))
@@ -73,6 +75,7 @@ struct OiPostcardBack: View {
     var backgroundStyle: OiPostcardBackgroundStyle? = nil
     let message: String
     let author: String
+    var tags: [String] = []
     var scrollable = false
     var exportFontSize: CGFloat? = nil
     private var ink: Color { Color(oiRGB: OiPostcardInk.color(backgroundStyle?.visiblePaperColor ?? first)) }
@@ -97,16 +100,27 @@ struct OiPostcardBack: View {
             Text("FROM").font(OiPostcardTypography.from).opacity(0.98)
                 .frame(height: 10)
                 .offset(x: 35, y: 443)
-            Text(author).font(OiPostcardTypography.author).tracking(0.72).opacity(0.98)
-                .lineLimit(1).minimumScaleFactor(0.6)
-                .frame(width: 292, height: 15, alignment: .leading).offset(x: 35, y: 457)
+            HStack(spacing: 8) {
+                Text(author).font(OiPostcardTypography.author).tracking(0.72)
+                    .layoutPriority(1)
+                Spacer(minLength: 0)
+                Text(tagLine).font(CampusStyle.body(10)).tracking(0.2)
+            }
+            .opacity(0.98).lineLimit(1).minimumScaleFactor(0.6)
+            .frame(width: 292, height: 15, alignment: .leading).offset(x: 35, y: 457)
         }.foregroundStyle(ink).frame(width: 362, height: 502)
             .mask(OiPostcardPaper()).dynamicTypeSize(.medium)
     }
+    private var tagLine: String {
+        let trimmed = tags.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "# ").union(.whitespacesAndNewlines)) }
+        return trimmed.filter { !$0.isEmpty }.prefix(2).map { "#" + $0 }.joined(separator: " ")
+    }
+
     private var letter: some View {
         Text(message.isEmpty ? "아직 남긴 이야기가 없어요." : message)
             .font(exportFontSize.map { .custom(OiPostcardTypography.handwritingName, fixedSize: $0) } ?? OiPostcardTypography.handwriting)
             .tracking(0.17).lineSpacing(OiPostcardTypography.lineSpacing * (exportFontSize ?? 17) / 17)
+            .textRenderer(OiPostcardHandwritingStroke())
             .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
@@ -160,6 +174,11 @@ enum OiPostcardFlip {
     static func accepts(_ translation: CGSize) -> Bool {
         abs(translation.width) >= 35 && abs(translation.width) > abs(translation.height) * 1.3
     }
+
+    static func closingAngle(for translation: CGSize) -> Double? {
+        guard accepts(translation) else { return nil }
+        return translation.width < 0 ? -90 : 90
+    }
 }
 
 struct OiFlippablePostcard<Front: View, Back: View>: View {
@@ -168,6 +187,7 @@ struct OiFlippablePostcard<Front: View, Back: View>: View {
     @ViewBuilder var back: () -> Back
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var angle = 0.0
+    @State private var isFlipping = false
     var body: some View {
         GeometryReader { proxy in
             Group {
@@ -179,7 +199,9 @@ struct OiFlippablePostcard<Front: View, Back: View>: View {
             .contentShape(Rectangle())
             .onTapGesture { flip() }
             .simultaneousGesture(DragGesture(minimumDistance: 20).onEnded { value in
-                if OiPostcardFlip.accepts(value.translation) { flip() }
+                if let closingAngle = OiPostcardFlip.closingAngle(for: value.translation) {
+                    flip(closingAngle: closingAngle)
+                }
             })
             .accessibilityElement(children: .contain)
             .accessibilityLabel("엽서 \(showingBack ? "뒷면" : "앞면")")
@@ -187,13 +209,24 @@ struct OiFlippablePostcard<Front: View, Back: View>: View {
             .accessibilityAction(named: "엽서 뒤집기") { flip() }
             .accessibilityIdentifier("oi.postcard.flip")
     }
-    private func flip() {
-        guard angle == 0 else { return }
+    private func flip(closingAngle: Double = 90) {
+        guard !isFlipping else { return }
         if reduceMotion { showingBack.toggle(); return }
-        withAnimation(.easeIn(duration: 0.16), completionCriteria: .logicallyComplete) { angle = 90 } completion: {
-            showingBack.toggle()
-            angle = -90
-            withAnimation(.easeOut(duration: 0.16)) { angle = 0 }
+        isFlipping = true
+        withAnimation(.easeIn(duration: 0.16), completionCriteria: .logicallyComplete) {
+            angle = closingAngle
+        } completion: {
+            var swap = Transaction()
+            swap.disablesAnimations = true
+            withTransaction(swap) {
+                showingBack.toggle()
+                angle = -closingAngle
+            }
+            withAnimation(.easeOut(duration: 0.16), completionCriteria: .logicallyComplete) {
+                angle = 0
+            } completion: {
+                isFlipping = false
+            }
         }
     }
 }

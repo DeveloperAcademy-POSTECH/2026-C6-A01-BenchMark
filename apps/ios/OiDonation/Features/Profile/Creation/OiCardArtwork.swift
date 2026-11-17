@@ -9,6 +9,7 @@ struct OiDraftCardPreview: View {
     var portrait: UIImage? = nil
     var showingBack = false
     private var design: OiCardDesign { customization.card ?? OiCardDesign() }
+    private var tags: [String] { [draft.emotion, draft.theme] }
     private var author: String {
         OiPostcardAuthor.text(mode: design.postcardBackground?.authorMode, name: donorName,
                               academic: design.postcardAcademicAuthor ?? "")
@@ -18,7 +19,7 @@ struct OiDraftCardPreview: View {
             Group {
                 if showingBack {
                     OiPostcardBack(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond,
-                        backgroundStyle: design.postcardBackground, message: draft.body, author: author,
+                        backgroundStyle: design.postcardBackground, message: draft.body, author: author, tags: tags,
                         exportFontSize: try? OiCardImageExport.fittingFontSize(draft.body))
                 } else { composition }
             }.frame(width: 362, height: 502)
@@ -34,7 +35,7 @@ struct OiDraftCardPreview: View {
         }
         let size = try OiCardImageExport.fittingFontSize(draft.body)
         let back = OiPostcardBack(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond,
-            backgroundStyle: design.postcardBackground, message: draft.body, author: author, exportFontSize: size)
+            backgroundStyle: design.postcardBackground, message: draft.body, author: author, tags: tags, exportFontSize: size)
         let front = try OiCardImageExport.render(composition, colorScheme: colorScheme)
         let rear = try OiCardImageExport.render(back, colorScheme: colorScheme)
         let png = design.postcardBackground.flatMap { OiPostcardBackgroundMetadata.png(image: front, style: $0) } ?? front.pngData()
@@ -100,7 +101,7 @@ struct OiCardBackground: View {
                         .saturation(design.photoMonochrome == true ? 0 : 1)
                         .blendMode(design.photoMonochrome == true ? .luminosity : .normal)
                 }
-                if let pattern, let image = OiCardPatternTexture.image(for: pattern) {
+                if paper.postcardLayoutVersion != 2, let pattern, let image = OiCardPatternTexture.image(for: pattern) {
                     Image(uiImage: image).resizable().scaledToFill()
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .blendMode(.luminosity).opacity(0.62)

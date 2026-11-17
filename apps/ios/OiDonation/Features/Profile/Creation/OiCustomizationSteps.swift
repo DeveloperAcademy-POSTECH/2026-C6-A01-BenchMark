@@ -497,7 +497,7 @@ struct OiCardCustomizationStep: View {
         VStack(spacing: 16) {
             HStack(alignment: .top, spacing: 20) {
                 ForEach(["white", "black"], id: \.self) { logo in
-                    Button { change { $0.postcardLayoutVersion = 2; $0.postcardLogo = $0.postcardLogo == logo ? nil : logo } } label: {
+                    Button { change { $0.postcardLayoutVersion = 2; $0.postcardLogo = logo } } label: {
                         VStack(spacing: 10) {
                             GeometryReader { _ in
                                 RoundedRectangle(cornerRadius: 20).fill(Color(white: logo == "white" ? 0.2 : 0.96))
@@ -505,25 +505,28 @@ struct OiCardCustomizationStep: View {
                                     .offset(x: 16, y: 114)
                             }.frame(height: 205).clipShape(RoundedRectangle(cornerRadius: 20))
                                 .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color(white: 0.76), lineWidth: 2))
-                                .overlay { if design.postcardLogo == logo { RoundedRectangle(cornerRadius: 20).stroke(Color("OiGreen"), lineWidth: 2) } }
+                                .overlay { if design.effectivePostcardLogo == logo { RoundedRectangle(cornerRadius: 20).stroke(Color("OiGreen"), lineWidth: 2) } }
                             Text(logo == "white" ? "White Logo" : "Black Logo").font(CampusStyle.medium(20)).foregroundStyle(Color(white: 0.19))
                         }
-                    }.buttonStyle(.plain).accessibilityLabel(logo == "white" ? "흰색 로고" : "검정색 로고")
+                    }.buttonStyle(.plain)
+                        .accessibilityLabel(logo == "white" ? "흰색 로고" : "검정색 로고")
+                        .accessibilityAddTraits(design.effectivePostcardLogo == logo ? .isSelected : [])
                 }
             }.padding(.top, 16)
-            if design.postcardLogo != nil {
-                OiPostcardOpacityControl(opacity: opacityBinding(\.postcardLogoOpacity))
-                    .accessibilityIdentifier("oi.card.front.logo.opacity")
-            }
+            OiPostcardOpacityControl(opacity: opacityBinding(\.postcardLogoOpacity))
+                .accessibilityIdentifier("oi.card.front.logo.opacity")
         }
     }
     private var stampEditor: some View {
         VStack(alignment: .trailing, spacing: 8) {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
                 ForEach(1...12, id: \.self) { number in
+                    let variant = (number - 1) % 6 + 1
                     Button { change { $0.postcardLayoutVersion = 2; $0.postcardStamp = $0.postcardStamp == number ? nil : number } } label: {
-                        Image("OiPostcardStamp-\(number <= 6 ? "white" : "black")\((number-1)%6+1)")
-                            .resizable().scaledToFit().padding(.horizontal, 14).padding(.vertical, 8)
+                        Image("OiPostcardStamp-\(number <= 6 ? "white" : "black")\(variant)")
+                            .resizable().scaledToFit()
+                            .frame(height: variant == 5 ? 32 : 38)
+                            .padding(.horizontal, 14)
                             .frame(maxWidth: .infinity).frame(height: 54)
                             .background(Color(white: number <= 6 ? 0.2 : 0.96), in: RoundedRectangle(cornerRadius: 8))
                             .overlay(RoundedRectangle(cornerRadius: 8).stroke(design.postcardStamp == number ? Color("OiGreen") : .clear, lineWidth: 2))
