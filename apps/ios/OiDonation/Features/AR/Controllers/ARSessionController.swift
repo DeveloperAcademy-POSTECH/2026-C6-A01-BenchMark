@@ -71,6 +71,19 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
             && (!usesGeographicPlacement || geographicReady)
             && (!isPalmMode || locked || palmTracking)
     }
+    var characterRotation: Float { isPalmMode ? (settings.palmRotation ?? 0) : settings.rotation }
+
+    func rotateCharacter(to degrees: Float) {
+        guard ready, !loading, !capturing, !videoRecording, recoveryIssue == nil, degrees.isFinite else { return }
+        let angle = degrees.truncatingRemainder(dividingBy: 360)
+        if isPalmMode { settings.palmRotation = angle < 0 ? angle + 360 : angle }
+        else { settings.rotation = angle < 0 ? angle + 360 : angle }
+        applyCharacterRotation()
+    }
+
+    private func applyCharacterRotation() {
+        characterRoot?.orientation = simd_quatf(angle: characterRotation * .pi / 180, axis: [0, 1, 0])
+    }
     private var loadTask: Task<Void, Never>?
     private var lifecycle = ARSessionLifecycle()
     @ObservationIgnored private var cameraAuthorizationTask: Task<Bool, Never>?
@@ -265,6 +278,14 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
     }
 
     func update(from previous: ARCaptureSettings) {
+        // Rotation gestures need only a transform update, never recreate lighting/shadows.
+        var withoutRotation = settings
+        withoutRotation.rotation = previous.rotation
+        withoutRotation.palmRotation = previous.palmRotation
+        if withoutRotation == previous {
+            applyCharacterRotation()
+            return
+        }
         if previous.palmResponse != settings.palmResponse { invalidatePalm() }
         // Only a selected campus cucumber has a saved geographic target.
         if placementMode == .location && !canUseLocationMode { settings.placementMode = .palm }
@@ -309,7 +330,7 @@ final class ARSessionController: NSObject, ARSessionDelegate, UIGestureRecognize
         }
         lighting.apply(lightingSettings, to: view, meshSupported: meshSupported)
         characterRoot?.scale = SIMD3(repeating: isPalmMode ? (settings.palmHeight ?? 0.065) : settings.height)
-        characterRoot?.orientation = simd_quatf(angle: (isPalmMode ? (settings.palmRotation ?? 0) : settings.rotation) * .pi / 180, axis: [0, 1, 0])
+        applyCharacterRotation()
         characterRoot?.position.y = isPalmMode ? 0 : settings.floorOffset
     }
 

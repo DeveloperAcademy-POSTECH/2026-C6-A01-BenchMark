@@ -46,6 +46,17 @@ struct ARCameraScreen: View {
                     .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
                         controller.photoViewport = $0
                     }
+                    .overlay(alignment: .bottom) {
+                        if !showAdjustments && !showPhotoSettings && !showSettings &&
+                            !video.busy && model.countdown == nil && !controller.capturing &&
+                            controller.recoveryIssue == nil {
+                            ARCharacterRotationControl(angle: controller.characterRotation,
+                                rotate: { controller.rotateCharacter(to: $0) })
+                                .id("\(controller.subject?.id.uuidString ?? controller.settings.character.rawValue)-\(controller.placementMode.rawValue)")
+                                .disabled(!controller.ready || controller.loading)
+                                .padding(.bottom, 12)
+                        }
+                    }
                     .overlay {
                         if let countdown = model.countdown {
                             Text("\(countdown)")

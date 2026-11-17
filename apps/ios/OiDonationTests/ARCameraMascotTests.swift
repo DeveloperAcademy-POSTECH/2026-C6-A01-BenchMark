@@ -9,9 +9,54 @@ import XCTest
 import ARKit
 import RealityKit
 import UIKit
+import SwiftUI
 @testable import OiDonation
 
 @MainActor final class ARCameraMascotTests: XCTestCase {
+    func testRotationChangesOnlyCurrentModesAngleAndBlocksCaptureStates() async {
+        let camera = ARSessionController()
+        camera.ready = true
+        camera.locked = true
+        let height = camera.settings.height
+        camera.rotateCharacter(to: 420)
+        XCTAssertEqual(camera.settings.palmRotation, 60)
+        XCTAssertEqual(camera.settings.rotation, 0)
+        camera.settings.placementMode = .floor
+        camera.rotateCharacter(to: -30)
+        XCTAssertEqual(camera.settings.rotation, 330)
+        XCTAssertEqual(camera.settings.palmRotation, 60)
+        XCTAssertEqual(camera.settings.height, height)
+        XCTAssertEqual(camera.settings.floorOffset, 0)
+        camera.capturing = true
+        camera.rotateCharacter(to: 120)
+        XCTAssertEqual(camera.settings.rotation, 330)
+        camera.capturing = false
+        camera.videoRecording = true
+        camera.rotateCharacter(to: 120)
+        XCTAssertEqual(camera.settings.rotation, 330)
+        camera.videoRecording = false
+        camera.rotateCharacter(to: .nan)
+        XCTAssertEqual(camera.settings.rotation, 330)
+        camera.stop()
+        camera.rotateCharacter(to: 120)
+        XCTAssertEqual(camera.settings.rotation, 330)
+    }
+
+    func testRotationControlRendersFigmaVectorAtOriginalSize() async throws {
+        let asset = try XCTUnwrap(UIImage(named: "ARCharacterRotationArrow"))
+        XCTAssertEqual(asset.size.width, 58, accuracy: 1)
+        let renderer = ImageRenderer(content: ARCharacterRotationControl(angle: 0, rotate: { _ in })
+            .background(.white))
+        renderer.scale = 3
+        let image = try XCTUnwrap(renderer.uiImage)
+        XCTAssertEqual(image.size.width, 104)
+        XCTAssertEqual(image.size.height, 48)
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "AR-rotation-Figma-5719-9948"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testSelectableCampusMascotsAreBundledAndLoadWithPalmNormalization() async throws {
         let loader = ARCharacterController()
         for character in ARCharacter.selectableCases where character.wardrobeCostumeID == nil {
