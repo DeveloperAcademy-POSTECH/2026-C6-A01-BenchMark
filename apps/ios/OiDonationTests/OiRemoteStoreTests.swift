@@ -5678,6 +5678,59 @@ extension OiRemoteStoreTests {
     }
 }
 
+/// #409: MY `수집한 기부` merges account cards and App Clip cards.
+final class MYCollectedCardsTests: XCTestCase {
+    private func card(_ id: String) -> MYCard {
+        MYCard(id: id, title: id, image: "OiCats", school: .postech, order: 0, body: "", donor: "농부", date: "")
+    }
+    private func entry(_ id: String, _ time: TimeInterval?) -> MYCollectedCardEntry {
+        MYCollectedCardEntry(card: card(id), collectedAt: time.map { Date(timeIntervalSince1970: $0) })
+    }
+
+    func testMergesBySharedTimeNewestFirstAndRenumbers() {
+        let merged = MYCollectedCards.merged(
+            account: [entry("a", 300), entry("b", 100)], clip: [entry("c", 200), entry("d", 400)])
+        XCTAssertEqual(merged.map(\.id), ["d", "a", "c", "b"])
+        XCTAssertEqual(merged.map(\.order), [0, 1, 2, 3])
+    }
+
+    func testStoryInBothListsAppearsOnceAsTheAccountCard() {
+        let merged = MYCollectedCards.merged(account: [entry("a", 100)], clip: [entry("a", 900), entry("b", 500)])
+        XCTAssertEqual(merged.map(\.id), ["b", "a"])
+    }
+
+    func testUndatedAccountCardCountsAsNewest() {
+        let merged = MYCollectedCards.merged(account: [entry("a", nil)], clip: [entry("b", 900)])
+        XCTAssertEqual(merged.map(\.id), ["a", "b"])
+    }
+
+    func testParsesServerDatesWithAndWithoutFractionalSeconds() {
+        XCTAssertNotNil(MYCollectedCards.date(from: "2026-11-16T10:00:00.123456+00:00"))
+        XCTAssertNotNil(MYCollectedCards.date(from: "2026-11-16T10:00:00Z"))
+        XCTAssertNil(MYCollectedCards.date(from: nil))
+        XCTAssertNil(MYCollectedCards.date(from: "not a date"))
+    }
+
+    @MainActor func testReloadObservesAnotherStoreAndPreservesUnreadableRecords() throws {
+        let name = "MYCollectedCardsTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let reader = StoryCollectionStore(defaults: defaults)
+        let writer = StoryCollectionStore(defaults: defaults)
+        let card = StoryCard(cardID: "card", storyID: UUID().uuidString, imageURL: nil)
+        XCTAssertTrue(writer.collect(card))
+        XCTAssertTrue(reader.cards.isEmpty)
+        reader.reload()
+        XCTAssertEqual(reader.cards.map(\.storyID), [card.storyID])
+        let broken = Data("unreadable".utf8)
+        defaults.set(broken, forKey: "collectedStoryCards.v1")
+        reader.reload()
+        XCTAssertNotNil(reader.persistenceError)
+        XCTAssertEqual(reader.cards.map(\.storyID), [card.storyID])
+        XCTAssertEqual(defaults.data(forKey: "collectedStoryCards.v1"), broken)
+    }
+}
+
 /// #411: the stories an account opened most recently, offered as donations to continue from.
 @MainActor
 final class OiRecentStoriesTests: XCTestCase {
@@ -5735,5 +5788,170 @@ final class OiRecentStoriesTests: XCTestCase {
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: old) as? [String: Any])
         json.removeValue(forKey: "connectedStoryID")
         XCTAssertNil(try JSONDecoder().decode(OiDraftCustomization.self, from: JSONSerialization.data(withJSONObject: json)).connectedStoryID)
+    }
+}
+
+extension OiRemoteStoreTests {
+    @MainActor func testMYCollectionMergesClipCardsOnlyAfterLoginUsingApprovedArtwork() async throws {
+        let (remote, backend, _, session, directory) = try context()
+        let suite = "MYClipMerge.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite); withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        let library = MYLibraryStore(clipCollection: StoryCollectionStore(defaults: defaults))
+        let writer = StoryCollectionStore(defaults: defaults)
+        let ids = (0..<3).map { _ in UUID() }
+        let snapshot = UUID()
+        let rows = try ids.map { id -> [String: Any] in
+            var row = try draft().payload()
+            row["id"] = id.uuidString
+            row["user_id"] = OiTestBackend.owner.uuidString
+            row["status"] = "published"
+            row["created_at"] = "2026-11-16T00:00:00Z"
+            row["card_snapshot_id"] = snapshot.uuidString
+            return row
+        }
+        let stories = try JSONSerialization.data(withJSONObject: rows)
+        let collections = try JSONSerialization.data(withJSONObject: [
+            ["story_id": ids[0].uuidString, "created_at": "2026-11-16T10:00:00Z"],
+            ["story_id": ids[1].uuidString, "created_at": "2026-11-16T08:00:00Z"]
+        ])
+        let original = OiStoreURLProtocol.handle
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.lastPathComponent == "oi_stories" { client.respond(200, stories) }
+            else if request.url?.lastPathComponent == "oi_collections" { client.respond(200, collections) }
+            else { original?(request, client) }
+        }
+        for id in [ids[0], ids[2]] {
+            XCTAssertTrue(writer.collect(StoryCard(cardID: id.uuidString, storyID: id.uuidString.lowercased(), imageURL: nil),
+                at: try XCTUnwrap(MYCollectedCards.date(from: "2026-11-16T09:00:00Z"))))
+        }
+        library.synchronizeCollectedCards(from: remote)
+        XCTAssertTrue(library.cards.isEmpty, "Saved Clip IDs alone cannot show cards before login and initial load")
+        await remote.start()
+        library.synchronizeCollectedCards(from: remote)
+        XCTAssertEqual(library.cards.map(\.id), [ids[0], ids[2], ids[1]].map(\.uuidString))
+        XCTAssertEqual(library.cards.map(\.order), [0, 1, 2])
+        XCTAssertEqual(library.collectionCards(school: nil, sort: .oldest, pinnedOnly: false).map(\.id),
+                       [ids[1], ids[2], ids[0]].map(\.uuidString))
+        XCTAssertEqual(library.cards.first { $0.id == ids[2].uuidString }?.cardArtworkPath,
+            StoryCard.artworkPath(owner: OiTestBackend.owner, story: ids[2], snapshot: snapshot),
+            "The Clip card uses the same approved front image as an account card")
+        XCTAssertEqual(writer.cards.count, 2, "Displaying the union must not silently import the Clip records")
+        await remote.signOut()
+        library.synchronizeCollectedCards(from: remote)
+        XCTAssertTrue(library.cards.isEmpty)
+        XCTAssertEqual(StoryCollectionStore(defaults: defaults).cards.count, 2)
+    }
+
+    @MainActor func testMYClipRefreshHidesUnavailableStoriesWithoutDeletingRecords() async throws {
+        let (remote, backend, _, session, directory) = try context()
+        let suite = "MYClipVisibility.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let author = UUID()
+        defer {
+            OiContentSafetyStore.shared.setBlocked(author, name: "", blocked: false)
+            defaults.removePersistentDomain(forName: suite); withExtendedLifetime(backend) {}; clean(session, directory: directory)
+        }
+        await remote.start()
+        let result = await remote.save(draft())
+        let saved = try XCTUnwrap(result)
+        backend.configure { $0.story?["status"] = "published" }
+        await remote.refresh()
+        let library = MYLibraryStore(clipCollection: StoryCollectionStore(defaults: defaults))
+        let writer = StoryCollectionStore(defaults: defaults)
+        XCTAssertTrue(writer.collect(StoryCard(cardID: "public", storyID: saved.id.uuidString, imageURL: nil)))
+        XCTAssertTrue(writer.collect(StoryCard(cardID: "missing", storyID: UUID().uuidString, imageURL: nil)))
+        let revision = remote.revision
+        await remote.refresh(reuseCatalog: true)
+        XCTAssertEqual(remote.revision, revision)
+        library.synchronizeCollectedCards(from: remote)
+        XCTAssertEqual(library.cards.map(\.id), [saved.id.uuidString], "New Clip records appear even without a remote revision")
+        for status in ["hidden", "deleted", "draft"] {
+            backend.configure { $0.story?["status"] = status }
+            await remote.refresh()
+            library.synchronizeCollectedCards(from: remote)
+            XCTAssertTrue(library.cards.isEmpty)
+            XCTAssertEqual(library.clipCollection.cards.count, 2)
+        }
+        backend.configure { $0.story?["status"] = "published"; $0.story?["user_id"] = author.uuidString; $0.isOperator = true }
+        await remote.refresh()
+        XCTAssertTrue(OiContentSafetyStore.shared.setBlocked(author, name: "가상 차단 작성자", blocked: true))
+        library.synchronizeCollectedCards(from: remote)
+        XCTAssertTrue(library.cards.isEmpty)
+        XCTAssertEqual(library.clipCollection.cards.count, 2)
+        XCTAssertTrue(OiContentSafetyStore.shared.setBlocked(author, name: "", blocked: false))
+        library.synchronizeCollectedCards(from: remote)
+        XCTAssertEqual(library.cards.map(\.id), [saved.id.uuidString])
+    }
+
+    @MainActor func testMYClipImportRetainsDeviceRecordUntilAccountSaveConfirmed() async throws {
+        let (remote, backend, _, session, directory) = try context()
+        let suite = "MYClipImport.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite); withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await remote.start()
+        let result = await remote.save(draft())
+        let saved = try XCTUnwrap(result)
+        backend.configure { $0.story?["status"] = "published" }
+        await remote.refresh()
+        let records = StoryCollectionStore(defaults: defaults)
+        XCTAssertTrue(records.collect(StoryCard(cardID: "card", storyID: saved.id.uuidString.lowercased(), imageURL: nil)))
+        let library = MYLibraryStore(clipCollection: records)
+        library.synchronizeCollectedCards(from: remote)
+        let card = try XCTUnwrap(library.cards.first)
+        let original = OiStoreURLProtocol.handle
+        var acceptsSave = false
+        let receipt = try JSONSerialization.data(withJSONObject: ["id": saved.id.uuidString])
+        let collection = try JSONSerialization.data(withJSONObject: [["story_id": saved.id.uuidString]])
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.lastPathComponent == "oi_mutate" {
+                client.respond(acceptsSave ? 200 : 503, acceptsSave ? receipt : Data())
+            } else if request.url?.lastPathComponent == "oi_collections", acceptsSave { client.respond(200, collection) }
+            else { original?(request, client) }
+        }
+        let failed = await library.importClipCard(card, into: remote)
+        XCTAssertFalse(failed)
+        XCTAssertEqual(records.cards.count, 1)
+        acceptsSave = true
+        let imported = await library.importClipCard(card, into: remote)
+        XCTAssertTrue(imported)
+        XCTAssertTrue(records.cards.isEmpty)
+        XCTAssertEqual(library.cards.map(\.id), [saved.id.uuidString])
+    }
+
+    @MainActor func testMYClipCancelledImportPreservesRecordAfterSignOut() async throws {
+        let (remote, backend, _, session, directory) = try context()
+        let suite = "MYClipAccountChange.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite); withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await remote.start()
+        let result = await remote.save(draft())
+        let saved = try XCTUnwrap(result)
+        backend.configure { $0.story?["status"] = "published" }
+        await remote.refresh()
+        let records = StoryCollectionStore(defaults: defaults)
+        XCTAssertTrue(records.collect(StoryCard(cardID: "card", storyID: saved.id.uuidString, imageURL: nil)))
+        let library = MYLibraryStore(clipCollection: records)
+        library.synchronizeCollectedCards(from: remote)
+        let card = try XCTUnwrap(library.cards.first)
+        let original = OiStoreURLProtocol.handle
+        let requested = expectation(description: "Clip import awaiting account receipt")
+        var held: OiStoreURLProtocol?
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.lastPathComponent == "oi_mutate" { held = client; requested.fulfill() }
+            else { original?(request, client) }
+        }
+        let importing = Task { await library.importClipCard(card, into: remote) }
+        await fulfillment(of: [requested], timeout: 3)
+        importing.cancel()
+        held?.respond(200, try JSONSerialization.data(withJSONObject: ["id": saved.id.uuidString]))
+        let imported = await importing.value
+        XCTAssertFalse(imported)
+        XCTAssertEqual(records.cards.count, 1)
+        // The production store blocks logout while a write is in flight; sign out after cancellation completes.
+        await remote.signOut()
+        XCTAssertNil(remote.account)
+        library.synchronizeCollectedCards(from: remote)
+        XCTAssertTrue(library.cards.isEmpty)
     }
 }
