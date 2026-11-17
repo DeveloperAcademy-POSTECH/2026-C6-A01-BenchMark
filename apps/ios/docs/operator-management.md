@@ -139,3 +139,19 @@ PR 검토 시 구분할 변경:
 - 대부분 기존 서버 로직과 전용 화면의 연결이다. 새 서버 계약은 재제출 충돌 방지용 검토 RPC와 운영자 감사 읽기 RPC 두 개다.
 - 현재 증빙 검토 경로의 ‘원본 확인 완료’ 단계 및 보완·반려·철회 의견 필수는 청크 3에서 추가한 조건이며 기존 review_evidence의 기본 필수 조건과 다르다. 최종 검증은 이 조건이 포함된 현재 코드를 기준으로 했다.
 - 2026-11-05 사용자 지시에 따라 로컬 검증과 PR 본문 준비까지 진행하며 **push·PR 생성은 사용자 확인 전 수행하지 않는다.** 서버 마이그레이션·Edge Function 배포 승인을 포함하지 않는다.
+
+## AI 자동검수와 수동 공개 병행 (2026-11-17, 사용자 결정 · #435)
+
+AI 모드에서도 서버 `operator_manual_story_review`가 참이면 검토 대기·비공개 상세에서 운영자 공개 승인을 제공한다. 승인 직전에 최신 권한과 capability를 재확인하고 기존 리비전·외형·카드 형식·JPEG 표지 타입 확인을 보낸다. 미지원 AI 서버에서는 버튼을 숨기고 변경 요청도 차단한다. 기존 공개 숨기기, 충돌 후 재조회, 응답 유실 시 재전송 방지는 유지한다. AI 승인 draft는 작성자 직접 심기를 유지한다. 서버 계약과 되돌리기는 [supabase-flow](../../../docs/supabase-flow.md#운영자-수동-공개-검토와-ai-병행-2026-11-17-388-후속)를 참고한다. 실서비스 글을 승인하는 검증은 하지 않는다.
+
+### 이번 작업의 검증·적용 기록
+
+- 기준: 최신 develop `6085b46`, 작업 브랜치 `feat/#435-operator-manual-review`.
+- 격리 DB: `python3 supabase/tests/run-account-merge-db-checks.py` 전체 통과. canonical/운영 재현 두 이력에서 알 수 없는 함수 drift의 원자적 거절, AI·수동 capability 병행, 초안 수동 공개 거절, 권한·리비전, 동시 AI 결과 충돌, 감사, 숨김·복구 및 PNG/JPEG 기존 검사를 확인했다.
+- Edge Function Node 검사: `npm --prefix supabase test` 71개 통과. 실제 OpenAI 요청은 새로 보내지 않았다.
+- iOS 최종 관련 검사 14개 전부 통과: 수동 승인·미지원 서버 차단, AI 승인 초안 비공개·작성자 심기, 권한 재확인, 계정 전환, 충돌·응답 유실·중복 요청, PNG/JPEG 호환성 및 화면 렌더링. AI 지원 서버의 공개 승인 버튼 표시와 미지원 서버의 숨김을 캡처로 확인했다.
+- iOS 전체 `OiRemoteStoreTests` 최초 실행: 128 통과·6 실패·4 건너뜀. 새 테스트의 재조회 필요 기대값을 기존 안전 규칙에 맞게 수정했다. 사진 편집 키보드 검사는 개별 재실행에서 통과했다.
+- 남은 네 실패는 변경 전 develop 원본을 별도 경로에 추출해 같은 시뮬레이터에서 전부 동일하게 재현했다. `testCustomizationNavigationRequiresDoneAndCardNextOpensPlacement`(UIScrollView 탐색), `testLateFarmWriteCannotReplaceAnotherAccountFarm`, `testLateFarmerOutfitWriteCannotReplaceAnotherAccountOutfit`(계정 전환 시 기대값), `testStoryListKeepsPendingStoryInItsSlotWhileScrollingAndRefreshing`(리비전 4/5 기대값). 이번 승인 기능 밖의 코드는 수정하지 않았다. 전체 회귀가 모두 통과한 것으로 보고하지 않는다.
+- 운영 52gibu: 알려진 함수 해시와 일치함을 확인한 뒤 신규 마이그레이션 하나와 이력을 같은 트랜잭션으로 적용했다. 저장된 SQL SHA256도 로컬 원본과 일치했다. 이미 운영에 없는 다른 마이그레이션은 재생하지 않았다. 따라서 #426 이후의 AI 경쟁 결과 검사는 격리 DB에서, 운영에서는 현재 이력의 수동 승인 경로를 확인했다.
+- 운영 가상 자료: AI 활성화 및 새 capability, pending 승인·숨김·복구, 비운영자·권한 철회·리비전 충돌·감사 검사를 전부 롤백했다. 남은 가상 계정 0개, AI 활성화 참, 보호 대상 이야기와 NFC 태그 지문 불변을 확인했다. 실제 사용자 글을 승인하지 않았다.
+- 실기기: Jun iPhone용 Release 빌드·서명 검사·설치·실행 성공. 개인 서명 설정은 저장소에 반영하지 않았다. 실제 관리자 계정의 실기기 승인 클릭은 수행하지 않았다.
