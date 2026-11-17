@@ -5,6 +5,15 @@ private enum OiWardrobeTab: String, CaseIterable {
     case content = "내용", pose = "포즈", top = "상의", bottom = "하의", shoes = "신발", hat = "모자", set = "세트", accessory = "악세서리", special = "스페셜"
     var isAvailable: Bool { [.content, .top, .bottom, .shoes, .set].contains(self) }
     var isClothing: Bool { [.top, .bottom, .shoes, .set].contains(self) }
+
+    var seedColorSlot: OiSeedCucumberGarment.Slot? {
+        switch self {
+        case .top: .top
+        case .bottom: .bottom
+        case .shoes: .shoes
+        default: nil
+        }
+    }
 }
 
 struct OiCucumberCustomizationStep: View {
@@ -25,6 +34,7 @@ struct OiCucumberCustomizationStep: View {
     var initialTabTitle: String?
     @Environment(\.oiCustomizationBottomInset) private var bottomInset
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var photoScene: OiWardrobeScene?
     @State private var tab: OiWardrobeTab = .content
     @State private var wardrobeScrollPosition = ScrollPosition()
@@ -51,6 +61,16 @@ struct OiCucumberCustomizationStep: View {
         return garments
     }
     private var look: OiWardrobeLook { customization.wardrobe ?? OiWardrobeLook() }
+    private var seedGarmentColors: [OiSeedCucumberGarment.Slot: UInt32] {
+        guard customization.selectedSeedSet == nil else { return [:] }
+        var result: [OiSeedCucumberGarment.Slot: UInt32] = [:]
+        for tab in [OiWardrobeTab.top, .bottom, .shoes] {
+            if let slot = tab.seedColorSlot, let color = customization.garmentColors[tab.rawValue], color < 0xFFFFFF {
+                result[slot] = color
+            }
+        }
+        return result
+    }
     /// Tabs, the name label and its field must stay above the keyboard while typing.
     private static let nameEditingClearance: CGFloat = 44 + 15 + 32 + 70 + 16
 
@@ -66,6 +86,7 @@ struct OiCucumberCustomizationStep: View {
     var body: some View {
         GeometryReader { geometry in
             let panelHeight = min(462.0, max(300.0, geometry.size.height - 180))
+            let scrollsItemTray = !allowsWardrobeEditing && verticalSizeClass == .compact
             VStack(spacing: 0) {
                 // Keep one RealityKit surface mounted while opening/closing the tools.
                 // Figma `5719:9790`: the cucumber area ends about 14pt above the tabs at y=491.
@@ -94,8 +115,10 @@ struct OiCucumberCustomizationStep: View {
                     VStack(spacing: 0) {
                         if !isFinished {
                             wardrobeTabs.frame(height: 44).padding(.horizontal, 20)
-                            // The item tray stays put; only the colors below it scroll (#377).
-                            if showsItemTray { itemStrip.padding(.horizontal, 20).padding(.bottom, 4) }
+                            // Keep the tray fixed in portrait, but leave room to reach the colors in landscape.
+                            if showsItemTray && !scrollsItemTray {
+                                itemStrip.padding(.horizontal, 20).padding(.bottom, 4)
+                            }
                         }
                         ScrollView {
                             VStack(spacing: 16) {
@@ -104,6 +127,7 @@ struct OiCucumberCustomizationStep: View {
                                     Text("다음을 눌러 카드와 오이 이름을 설정해 주세요.")
                                         .font(.subheadline).foregroundStyle(.secondary)
                                 } else {
+                                    if scrollsItemTray && showsItemTray { itemStrip }
                                     wardrobeControls
                                 }
                             // Figma: the 내용 tab starts 15pt below the tabs, the item tray directly under them.
@@ -174,6 +198,7 @@ struct OiCucumberCustomizationStep: View {
                 Color.clear.frame(height: height)
             } else {
                 OiStep3CucumberPreview(appearance: seedAppearance, garments: seedGarments,
+                                       garmentColors: seedGarmentColors,
                                       isActive: !showsFaceEditor)
                     .frame(height: fullHeight)
                     .scaleEffect(fullHeight > 0 ? min(1, height / fullHeight) : 1)
@@ -288,7 +313,13 @@ struct OiCucumberCustomizationStep: View {
     private var showsItemTray: Bool { [.top, .bottom, .shoes].contains(tab) }
 
     /// The postech jacket and one-piece sets keep their own colors.
-    private var showsColors: Bool { allowsWardrobeEditing && look.costume == nil && !(tab == .top && look.top == .postech) }
+    private var showsColors: Bool {
+        guard tab.seedColorSlot != nil else { return false }
+        if allowsWardrobeEditing {
+            return look.costume == nil && !(tab == .top && look.top == .postech)
+        }
+        return customization.selectedSeedSet == nil && !(tab == .top && customization.selectedSeedTop == .postech)
+    }
 
     /// Figma `5719:10056`: up to four 76×112 white cards centered on a #D9D9D9 tray, without scrolling.
     private var itemStrip: some View {
@@ -407,20 +438,32 @@ struct OiCucumberCustomizationStep: View {
     /// Figma `5719:9997`: two rows of six 40pt swatches, 21pt apart.
     private var colorRows: some View {
         VStack(alignment: .leading, spacing: 16) {
-            ForEach([Self.neutral, Self.pastel], id: \.first?.1) { row in
-                HStack(spacing: 21) {
-                    ForEach(row, id: \.1) { name, rgb in swatch(name, rgb: rgb) }
-                }
+            colorRow(Self.neutral)
+            colorRow(Self.pastel)
+        }
+    }
+
+    private func colorRow(_ row: [Swatch]) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 21) {
+                ForEach(row) { swatch($0) }
+            }
+            HStack(spacing: 0) {
+                ForEach(row) { swatch($0).frame(maxWidth: .infinity) }
             }
         }
     }
 
-    private func swatch(_ name: String, rgb: UInt32) -> some View {
+    private func swatch(_ color: Swatch) -> some View {
+        let (name, rgb) = (color.name, color.rgb)
         let selected = currentFabric == nil && currentColor == rgb
         return Button { selectColor(rgb) } label: {
             VStack(spacing: 5) {
                 Circle().fill(Color(UIColor(wardrobeRGB: rgb)))
-                    .overlay { Circle().strokeBorder(selected ? Color("OiGreen") : Color.black.opacity(0.08), lineWidth: selected ? 2 : 1) }
+                    .overlay {
+                        Circle().strokeBorder(selected ? Color("OiGreen") : Color(UIColor(wardrobeRGB: color.border)),
+                                              lineWidth: selected ? 2 : 1)
+                    }
                     .frame(width: 40, height: 40)
                 Text(name).font(CampusStyle.body(10)).tracking(0.2).foregroundStyle(Color(white: 49 / 255))
                     .lineLimit(1).minimumScaleFactor(0.8)
@@ -457,6 +500,7 @@ struct OiCucumberCustomizationStep: View {
     }
 
     private var selectedPhotoSlot: OiPhotoSlot? {
+        guard allowsWardrobeEditing else { return nil }
         let slot: OiPhotoSlot? = tab == .top ? .top : tab == .bottom ? .bottom : tab == .set && look.costume != nil ? .top : nil
         return slot?.supports(look) == true ? slot : nil
     }
@@ -572,11 +616,37 @@ struct OiCucumberCustomizationStep: View {
         }
     }
 
-    private static let neutral: [(String, UInt32)] = [("화이트", 0xFFFFFF), ("아이보리", 0xF2EBDD), ("오트밀", 0xD7CBB8), ("토프", 0xB2A398), ("스톤", 0xB9BFBA), ("차콜", 0x555957)]
-    private static let pastel: [(String, UInt32)] = [("세이지", 0xC6D8C2), ("민트", 0xC2DED3), ("스카이", 0xC5DBEC), ("라벤더", 0xD6CCE8), ("블러시", 0xEDCCD2), ("버터", 0xF1E3B2)]
-    private var colors: [(String, UInt32)] { Self.neutral + Self.pastel }
-    private var currentColor: UInt32 { tab == .bottom ? look.bottomColor : tab == .shoes ? look.shoeColor : look.topColor }
-    private var selectedColorName: String { currentFabric.map { $0.title + " 데님" } ?? colors.first { $0.1 == currentColor }?.0 ?? "직접 선택" }
+    private struct Swatch: Identifiable {
+        let name: String
+        let rgb: UInt32
+        let border: UInt32
+        var id: UInt32 { rgb }
+
+        init(_ name: String, _ rgb: UInt32, _ border: UInt32) {
+            self.name = name
+            self.rgb = rgb
+            self.border = border
+        }
+    }
+
+    // Figma `5719:9998` and `5719:10017`: use the original swatch fills and strokes.
+    private static let neutral: [Swatch] = [
+        .init("화이트", 0xFFFFFF, 0xDFDFDF), .init("아이보리", 0xF4EBDD, 0xDDD7CD),
+        .init("오트밀", 0xD8CBB6, 0xBFB5A6), .init("토프", 0xB6A097, 0x9D938A),
+        .init("스톤", 0xB7BEBA, 0xA8A9A6), .init("차콜", 0x575958, 0x515352)
+    ]
+    private static let pastel: [Swatch] = [
+        .init("세이지", 0xC7D8C1, 0xC4CDC3), .init("민트", 0xC2DDD4, 0xB1CAC2),
+        .init("스카이", 0xC5DBEC, 0xB6C7D5), .init("라벤더", 0xD6CCE6, 0xC8BFD9),
+        .init("블러시", 0xEDCBD1, 0xD4BCC1), .init("버터", 0xF0E2B0, 0xD1CBA6)
+    ]
+    private var currentColor: UInt32 {
+        if !allowsWardrobeEditing {
+            let saved = customization.garmentColors[tab.rawValue] ?? 0xFFFFFF
+            return saved <= 0xFFFFFF ? saved : 0xFFFFFF
+        }
+        return tab == .bottom ? look.bottomColor : tab == .shoes ? look.shoeColor : look.topColor
+    }
     private var currentFabric: OiDenim? { selectedPhotoSlot?.fabric(in: look) }
     private var customColor: Binding<Color> {
         Binding(get: { Color(UIColor(wardrobeRGB: currentColor)) }, set: { color in
@@ -587,6 +657,11 @@ struct OiCucumberCustomizationStep: View {
         })
     }
     private func selectColor(_ rgb: UInt32) {
+        guard showsColors else { return }
+        if !allowsWardrobeEditing {
+            customization.garmentColors[tab.rawValue] = rgb == 0xFFFFFF ? nil : rgb
+            return
+        }
         change { value in
             if let slot = selectedPhotoSlot { value.fabrics.removeValue(forKey: slot.itemID(in: value)) }
             switch tab {

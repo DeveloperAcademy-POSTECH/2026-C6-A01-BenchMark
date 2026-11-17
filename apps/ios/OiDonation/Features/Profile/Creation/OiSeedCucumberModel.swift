@@ -64,6 +64,19 @@ enum OiSeedCucumberGarment: Hashable, CaseIterable {
         }
     }
 
+    /// Some garments include visible skin meshes. Only the named fabric or shoe mesh takes a tint.
+    var tintSurfaceName: String? {
+        switch self {
+        case .whiteTshirt: "WhiteTshirt"
+        case .hoodie: "Hoodie"
+        case .cardigan: "cardigan_top_001"
+        case .longPants: "LongPants"
+        case .shorts: "Shorts"
+        case .sneakers: "Shoes"
+        case .postechJacket, .costume, .costumeProposal: nil
+        }
+    }
+
     var title: String {
         switch self {
         case .whiteTshirt: OiWardrobeLook.Top.tshirt.title
