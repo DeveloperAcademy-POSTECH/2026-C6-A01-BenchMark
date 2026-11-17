@@ -117,7 +117,6 @@ struct OiCardCustomizationStep: View {
         }
         .onAppear {
             prepareBackground()
-            if design.postcardDate == nil { change { $0.postcardDate = Date() } }
             refreshPortrait(); onSizeEditingChanged?(isSizeEditing)
         }
         .onChange(of: customization.wardrobe) { _, _ in refreshPortrait() }
@@ -290,7 +289,7 @@ struct OiCardCustomizationStep: View {
     }
     /// The mode the card really shows: 실명 and 학과·학번 fall back to 익명 until the account registers that information.
     private var effectiveAuthorMode: String {
-        let mode = style.authorMode ?? "name"
+        let mode = design.postcardAuthorMode ?? "name"
         if mode == "name" && donorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "anonymous" }
         if mode == "academic" && academicAuthor.isEmpty { return "anonymous" }
         return mode
@@ -329,7 +328,10 @@ struct OiCardCustomizationStep: View {
             value.postcardBackground = .init(color: 0xD9D9D9, fill: .solid)
             customization.card = value
         } else if design.postcardBackground == nil {
-            change { $0.postcardBackground = .init(color: $0.borderFirst, fill: $0.borderFill) }
+            change { card in
+                card.postcardBackground = .init(color: card.borderFirst, fill: card.borderFill,
+                    authorMode: card.postcardAuthorMode)
+            }
         }
         customBackground = style.middleColor != nil || style.endColor != nil
     }

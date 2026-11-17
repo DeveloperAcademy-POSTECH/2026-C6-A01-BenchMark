@@ -618,6 +618,7 @@ nonisolated struct OiCardDesign: Codable, Equatable, Sendable {
     var photoMonochrome: Bool? = nil
     /// Nil keeps the appearance of drafts saved before the unified background editor.
     var postcardBackground: OiPostcardBackgroundStyle? = nil
+    var postcardAuthorMode: String? { postcardBackground?.authorMode ?? (anonymous ? "anonymous" : nil) }
     var postcardLayoutVersion: Int? = nil
     var postcardStamp: Int? = nil
     var postcardLogo: String? = nil

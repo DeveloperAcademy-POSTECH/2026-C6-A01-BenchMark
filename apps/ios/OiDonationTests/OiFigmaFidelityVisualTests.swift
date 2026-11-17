@@ -184,6 +184,23 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         value.card?.postcardLogo = "white"
         value.card?.postcardDate = date.addingTimeInterval(86_400)
         XCTAssertNotEqual(try front(), baseline, "The printed date must be part of the current postcard")
+
+        let glyphAssets = (0...9).map { "OiPostcardDate-\($0)" } + ["OiPostcardDate-dot", "OiPostcardFrom"]
+        for name in glyphAssets {
+            XCTAssertNotNil(UIImage(named: name), "Missing postcard vector asset: \(name)")
+        }
+        for (name, printedDate) in [
+            ("date-figma-reference", "26.10.24"),
+            ("date-other-digits", "38.05.29"),
+            ("date-wide-digits", "99.09.27"),
+        ] {
+            let image = try OiCardImageExport.render(OiPostcardFront(date: printedDate) {
+                Color(white: 0.3)
+            })
+            let png = try XCTUnwrap(image.pngData())
+            let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+        }
     }
 
     func testPostcardCustomGradientUsesFigmaFields() throws {
@@ -442,6 +459,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         value.card?.postcardBackground = .init(color: 0xE8EECF, preset: "lime")
         value.card?.backgroundPhoto = photo.pngData()
         value.card?.postcardStamp = 1
+        value.card?.postcardDate = Date(timeIntervalSince1970: 1_799_779_200)
         func render(_ style: OiDraftCustomization) throws -> Data {
             let renderer = ImageRenderer(content: OiDraftCardPreview(draft: Self.draft,
                 customization: style, portrait: portrait).frame(width: 362, height: 502))
@@ -450,9 +468,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
         for character in [false, true] {
             value.showsCharacter = character
-            value.card?.postcardLogo = nil
+            // An unset logo color means white. Use transparent ink for the unmarked reference.
+            value.card?.postcardLogoOpacity = 0
             let original = try renderedBitmap(render(value), size: CGSize(width: 362, height: 502))
             let before = try XCTUnwrap(original.data).bindMemory(to: UInt8.self, capacity: 362 * 502 * 4)
+            value.card?.postcardLogoOpacity = 1
             for logo in ["white", "black"] {
                 value.card?.postcardLogo = logo
                 let png = try render(value)
@@ -938,6 +958,39 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         unfinished.wardrobe = OiWardrobeLook()
         XCTAssertThrowsError(try OiDraftCardPreview(draft: draft, customization: unfinished).publication(colorScheme: .light),
                              "A missing custom portrait must never export an unrelated fallback character")
+    }
+
+    func testPostcardCompletionDateAnonymousAuthorAndTagsAreInExport() throws {
+        var draft = Self.draft
+        var customization = Self.customization
+        customization.showsCharacter = false
+        customization.card = OiCardDesign()
+        customization.card?.postcardDate = Date(timeIntervalSince1970: 1_799_779_200)
+        customization.card?.postcardBackground = .init(color: 0xEECFDF, authorMode: "anonymous")
+
+        func publish(_ name: String, fallbackDate: String) throws -> OiStoryCardPublication {
+            try OiDraftCardPreview(draft: draft, customization: customization,
+                donorName: name, fallbackDate: fallbackDate).publication(colorScheme: .light)
+        }
+
+        let completed = try publish("첫 번째 이름", fallbackDate: "26.11.16")
+        let reopened = try publish("다른 이름", fallbackDate: "26.11.17")
+        XCTAssertEqual(completed.id, reopened.id, "A completed card must retain its date and never reveal the profile name")
+        let firstBack = try XCTUnwrap(completed.parts[.back])
+        let front = try XCTUnwrap(UIImage(data: completed.png))
+        OiPostcardBackgroundMetadata.remember(png: completed.png, image: front)
+        let republished = try OiCardImageExport.publication(front: front, message: draft.body,
+            author: "다른 이름", tags: draft.postcardTags)
+        XCTAssertEqual(firstBack, republished.parts[.back], "Server re-review must retain the rendered anonymous signature and tags")
+
+        draft.theme = "추억"
+        let retagged = try publish("다른 이름", fallbackDate: "26.11.17")
+        XCTAssertEqual(completed.png, retagged.png)
+        XCTAssertNotEqual(firstBack, retagged.parts[.back], "A changed tag must be rendered on the back itself")
+        for (name, png) in [("postcard-completion-date", completed.png), ("postcard-anonymous-tags", firstBack)] {
+            let capture = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            capture.name = name; capture.lifetime = .keepAlways; add(capture)
+        }
     }
 
     func testDuplexCardExportAndAppClipCaptures() async throws {
@@ -1447,8 +1500,6 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let handwriting = try XCTUnwrap(UIFont(name: OiPostcardTypography.handwritingName, size: 17),
                                         "The postcard must load the bundled Figma font rather than silently fall back")
         XCTAssertEqual(handwriting.fontName, "NanumEongGeongKwiCe")
-        let from = try XCTUnwrap(UIFont(name: OiPostcardTypography.fromName, size: 6))
-        XCTAssertEqual(from.fontName, "EduAUVICWANTPre-Regular")
         let characters = Array("함께한 순간을 오래 기억하며, 고마워요. 26.11.12".utf16)
         var glyphs = [CGGlyph](repeating: 0, count: characters.count)
         XCTAssertTrue(CTFontGetGlyphsForCharacters(handwriting as CTFont, characters, &glyphs, characters.count),
@@ -3072,12 +3123,21 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             onOpenRequest: { _ in })
             .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
         let failed = CampusNotificationInboxView(requests: rows, isLoading: false,
-            loadFailed: true, onOpenRequest: { _ in })
+            loadFailed: true, onRetry: {}, onOpenRequest: { _ in })
             .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
         let emptyImage = try await capture(empty, name: "campus-notifications-empty", variant: reference,
             defaults: fixture.defaults, includesSafeArea: false, attach: true)
         let failedImage = try await capture(failed, name: "campus-notifications-error", variant: reference,
-            defaults: fixture.defaults, includesSafeArea: false, attach: true, validateRender: assertSpinnerOnlyRender)
+            defaults: fixture.defaults, includesSafeArea: false, attach: true)
+        let failedWithoutRows = CampusNotificationInboxView(requests: [], isLoading: false,
+            loadFailed: true, onRetry: {}, onOpenRequest: { _ in })
+            .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
+        let failedWithoutRowsImage = try await capture(failedWithoutRows, name: "campus-notifications-error-empty",
+            variant: reference, defaults: fixture.defaults, includesSafeArea: false, attach: true)
+        XCTAssertGreaterThan(try myV4ChangedPixels(failedImage, failedWithoutRowsImage, size: reference.size,
+            rect: CGRect(x: 20, y: 150, width: 362, height: 350)), 1000,
+            "A partial failure must keep the successfully loaded card rows visible under the retry banner")
+        XCTAssertNotEqual(emptyImage, failedWithoutRowsImage, "An error must never be mistaken for zero notifications")
         let partial = CampusNotificationInboxView(requests: rows, isLoading: true, isInitialLoading: true,
             unconfirmedRequestID: UUID(), onOpenRequest: { _ in })
             .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
@@ -3448,6 +3508,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             $0.admissionYear = "2019"
             $0.schoolID = "postech"
             $0.schoolProfileEnabled = true
+            $0.storyContinuations = true
         }
         let schoolData = try JSONSerialization.data(withJSONObject: [["id": "postech", "name": "포항공과대학교"]])
         func installMYBackend() {
@@ -3456,6 +3517,10 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             OiStoreURLProtocol.handle = { request, client in
                 if request.url?.path.hasSuffix("/oi_schools") == true {
                     client.respond(200, schoolData)
+                } else if request.url?.lastPathComponent == "oi_story_continuations" {
+                    client.respond(200, Data(#"{"items":[],"total":0,"next_cursor":null}"#.utf8))
+                } else if request.url?.lastPathComponent == "oi_my_story_continuation_targets" {
+                    client.respond(200, Data("[]".utf8))
                 } else {
                     handler?(request, client)
                 }
@@ -3493,6 +3558,23 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertTrue(remote.ownStories.isEmpty)
         let empty = try await capture(NavigationStack { MYWorkshopView(demo: library, remote: remote) },
             name: "my-v4-empty", variant: reference, defaults: fixture.defaults, attach: true)
+
+        let connectedEmpty = try await capture(NavigationStack {
+            MYWorkshopView(demo: library, remote: remote, initialTab: .connected)
+        }, name: "my-v4-connected-empty", variant: reference, defaults: fixture.defaults, attach: true)
+        XCTAssertEqual(remote.incomingContinuationCount, 0)
+        let collectedEmpty = try await capture(NavigationStack {
+            MYWorkshopView(demo: library, remote: remote, initialTab: .collected)
+        }, name: "my-v4-collected-empty", variant: reference, defaults: fixture.defaults, attach: true)
+        XCTAssertNotEqual(empty, connectedEmpty)
+        XCTAssertNotEqual(connectedEmpty, collectedEmpty)
+        for variant in variants where variant.name == "375x667" || variant.name == "440x956" {
+            for tab in MYWorkshopTab.allCases {
+                try await capture(NavigationStack {
+                    MYWorkshopView(demo: library, remote: remote, initialTab: tab)
+                }, name: "my-v4-\(tab)-empty", variant: variant, defaults: fixture.defaults, attach: true)
+            }
+        }
 
         // The grid uses virtual service records, never the design's example donation counts.
         var records: [[String: Any]] = []
@@ -3873,6 +3955,52 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             XCTAssertEqual(color(x: 112, y: overlapY), fills[expectation.leading.rawValue], "Overlap between related and location tabs")
             XCTAssertEqual(color(x: 222, y: overlapY), fills[expectation.trailing.rawValue], "Overlap between location and donor tabs")
         }
+    }
+
+    func testCucumberStoryHidesContinuationTabAfterConfirmedZero() async throws {
+        let fixture = try isolatedDefaults()
+        let previousHandler = OiStoreURLProtocol.handle
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer {
+            session.invalidateAndCancel()
+            OiStoreURLProtocol.handle = previousHandler
+            fixture.defaults.removePersistentDomain(forName: fixture.name)
+        }
+
+        let id = UUID()
+        let counts = try JSONSerialization.data(withJSONObject: [["story_id": id.uuidString, "count": 0]])
+        OiStoreURLProtocol.handle = { request, client in
+            switch request.url?.lastPathComponent {
+            case "oi_story_continuation_counts":
+                client.respond(200, counts)
+            case "oi_story_continuations":
+                client.respond(200, Data(#"{"items":[],"total":0,"next_cursor":null}"#.utf8))
+            default:
+                XCTFail("Unexpected RPC for the story detail")
+                client.respond(404, Data("{}".utf8))
+            }
+        }
+        let remote = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+                                   vault: OiMemorySession())
+        let story = CampusStory(id: id.uuidString, regionID: "pond", title: "테스트 오이", image: "OiCats",
+            tags: ["우정"], donor: "테스트", location: "캠퍼스", date: "2026년 11월 17일", order: 0, popularity: 0, palette: 0)
+        let store = CampusStoryStore(defaults: fixture.defaults)
+        let reference = try XCTUnwrap(variants.first)
+        let png = try await capture(NavigationStack {
+            CampusCucumberStoryView(story: story, store: store).environment(remote)
+        }, name: "story-no-continuations", variant: reference, defaults: fixture.defaults, attach: true)
+        XCTAssertEqual(remote.continuationCounts[id], 0)
+        let bitmap = try renderedBitmap(png, size: reference.size)
+        let bytes = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: bitmap.bytesPerRow * bitmap.height)
+        func rgb(_ x: Int, _ y: Int) -> UInt32 {
+            let offset = y * bitmap.bytesPerRow + x * 4
+            return UInt32(bytes[offset]) << 16 | UInt32(bytes[offset + 1]) << 8 | UInt32(bytes[offset + 2])
+        }
+        XCTAssertEqual(rgb(90, 437), 0xEAEEE2, "Location should replace the zero-count tab in the first slot")
+        XCTAssertEqual(rgb(198, 437), 0xF1F4EC, "Donor should move into the second slot")
+        XCTAssertEqual(rgb(310, 437), rgb(390, 437), "There should be no third tab")
     }
 
     func testCampusDetailAndSummaryCaptures() async throws {

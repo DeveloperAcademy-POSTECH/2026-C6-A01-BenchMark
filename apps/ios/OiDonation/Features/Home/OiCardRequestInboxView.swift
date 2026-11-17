@@ -38,6 +38,7 @@ struct OiCardRequestInboxView: View {
     let onDecision: (UUID, OiCardRequestDecision) async -> Void
     var onRetryDecision: (() async -> Void)? = nil
     var showsHeader = true
+    var decisionsEnabled = true
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -102,7 +103,7 @@ struct OiCardRequestInboxView: View {
                 if let onRetryDecision {
                     Button("처리 결과 다시 확인") { Task { await onRetryDecision() } }
                         .buttonStyle(.bordered)
-                        .disabled(isLoading || pendingRequestID != nil)
+                        .disabled(!decisionsEnabled || isLoading || pendingRequestID != nil)
                         .accessibilityIdentifier("oi.cardRequests.retryDecision")
                 }
                 if let pendingRequestID, !requests.contains(where: { $0.id == pendingRequestID }) {
@@ -237,7 +238,7 @@ struct OiCardRequestInboxView: View {
                     decisionButton(.reject, for: request, fill: Self.rejectGreen)
                     decisionButton(.accept, for: request, fill: Self.acceptGreen)
                 }
-                .disabled(pendingRequestID != nil || isLoading || loadError != nil || onRetryDecision != nil)
+                .disabled(!decisionsEnabled || pendingRequestID != nil || isLoading || loadError != nil || onRetryDecision != nil)
             }
         }
     }

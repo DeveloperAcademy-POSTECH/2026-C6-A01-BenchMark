@@ -13,16 +13,14 @@ import UIKit
 @MainActor
 enum OiPostcardTypography {
     static let handwritingName = "NanumEongGeongKwiCe"
-    static let fromName = "EduAUVICWANTPre-Regular"
     static let bodySize: CGFloat = 17
     static let bodyLineHeight: CGFloat = 25.5
 
     private static let registration: Void = {
-        for name in ["NanumEongGeongKwiCe", "EduAUVICWANTPre"] {
-            if let url = Bundle.main.url(forResource: name, withExtension: "ttf")
-                ?? Bundle.main.url(forResource: name, withExtension: "ttf", subdirectory: "Fonts") {
-                CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
-            }
+        let name = handwritingName
+        if let url = Bundle.main.url(forResource: name, withExtension: "ttf")
+            ?? Bundle.main.url(forResource: name, withExtension: "ttf", subdirectory: "Fonts") {
+            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
         }
     }()
 
@@ -39,20 +37,11 @@ enum OiPostcardTypography {
         return max(0, bodyLineHeight - lineHeight)
     }
 
-    static var from: Font {
-        registerFonts()
-        return .custom(fromName, fixedSize: 6)
-    }
-
-    // REATIC Wide Bold / Narrow are pending app-embedding permission.
-    // Do not silently bundle the restricted font files from the local Ch6 folder.
-    static let date = Font.system(size: 14, weight: .ultraLight, design: .rounded)
-    static let mark = Font.system(size: 14, weight: .light, design: .rounded)
-    static let author = CampusStyle.body(12)
+    static let author = Font.custom("Paperlogy-4Regular", fixedSize: 12)
 }
 
-/// Figma 5400:5279 uses a same-ink 0.4pt outside stroke on the handwriting.
-struct OiPostcardHandwritingStroke: TextRenderer {
+/// Figma 6635:10680 uses a same-ink 0.4pt outside stroke.
+struct OiPostcardLetteringStroke: TextRenderer {
     private static let offsets: [CGPoint] = (0..<8).map { direction in
         let angle = Double(direction) * .pi / 4
         return CGPoint(x: 0.4 * cos(angle), y: 0.4 * sin(angle))

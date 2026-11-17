@@ -374,11 +374,12 @@ struct OiStoryListScreen: View {
             } else { cover = nil }
             return try OiCardImageExport.publication(front: front, message: draft.body, author: author,
                 academicAuthor: OiPostcardAuthor.academic(department: remote.profile?.department, year: remote.profile?.admissionYear),
-                tags: [draft.emotion, draft.theme],
+                tags: draft.postcardTags,
                 cover: cover, coverType: type)
         }
         let preview = OiDraftCardPreview(draft: draft, customization: customization, donorName: author,
-                                         portrait: portrait.flatMap(UIImage.init(data:)))
+                                         portrait: portrait.flatMap(UIImage.init(data:)),
+                                         fallbackDate: story.map { OiPostcardDate.string(from: $0.createdDateLabel) })
         return try preview.publication(colorScheme: .light, includeCover: remote.canPublishStoryCardCover,
             coverType: remote.canPublishStoryCardCoverJPEG ? .jpeg : .png)
     }

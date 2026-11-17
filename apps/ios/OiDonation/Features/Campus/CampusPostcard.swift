@@ -55,7 +55,7 @@ struct CampusPostcard: View {
                                                         year: publicProfile?.admissionYear)
         let donor = story.donor.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = donor.isEmpty || donor == "작성자 정보 확인 중" ? "익명" : donor
-        return OiPostcardAuthor.text(mode: (design?.postcardBackground ?? backgroundStyle)?.authorMode,
+        return OiPostcardAuthor.text(mode: design?.postcardAuthorMode ?? backgroundStyle?.authorMode,
             name: name, academic: design?.postcardAcademicAuthor ?? publicAcademic)
     }
     var body: some View {
@@ -63,7 +63,7 @@ struct CampusPostcard: View {
             OiFlippablePostcard(showingBack: $showingBack) {
                 if let record = localDraft, let customization = record.customization {
                     OiDraftCardPreview(draft: record.draft, customization: customization,
-                        donorName: remote?.profile?.publicName ?? "").frame(width: 362, height: 502)
+                        donorName: remote?.profile?.publicName ?? "", fallbackDate: OiPostcardDate.string(from: story.date)).frame(width: 362, height: 502)
                 } else if let snapshot {
                     Image(uiImage: snapshot).resizable().frame(width: 362, height: 502)
                 } else if story.cardArtworkPath != nil && !artworkResolved && !frontFailed {
@@ -94,7 +94,7 @@ struct CampusPostcard: View {
                     OiPostcardBack(first: colors.0, second: colors.1,
                                backgroundStyle: localDraft?.customization?.card?.postcardBackground ?? backgroundStyle,
                                message: localDraft?.draft.body ?? story.body,
-                               author: fallbackAuthor, tags: story.tags, scrollable: true)
+                               author: fallbackAuthor, tags: localDraft?.draft.postcardTags ?? story.tags, scrollable: true)
                 }
             }
             Text("탭하거나 옆으로 밀어서 뒤집기").font(CampusStyle.body(12)).tracking(0.24)
@@ -113,7 +113,7 @@ struct CampusPostcard: View {
                       !remote.needsReauthentication else { throw OiServiceError.accountChanged }
                 if let record = localDraft, let customization = record.customization {
                     return try OiCardExportImages(OiDraftCardPreview(draft: record.draft, customization: customization,
-                        donorName: story.donor).publication(colorScheme: .light))
+                        donorName: story.donor, fallbackDate: OiPostcardDate.string(from: story.date)).publication(colorScheme: .light))
                 }
                 guard let path = story.cardArtworkPath, let loadImage else { throw OiCardExportError.imageUnavailable }
                 let front = try await loadImage(path)
