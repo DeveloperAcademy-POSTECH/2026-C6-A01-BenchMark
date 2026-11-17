@@ -308,6 +308,7 @@ struct OiCapabilities: Decodable {
     var storyCardCover: Bool? = nil
     var storyCardCoverJpeg: Bool? = nil
     var autoStoryModeration: Bool? = nil
+    var operatorManualStoryReview: Bool? = nil
     var storyContinuations: Bool? = nil
     var storyContinuationNotifications: Bool? = nil
 }
@@ -348,7 +349,7 @@ struct OiStoryModerationResult: Decodable, Equatable {
     }
 }
 
-struct OiStoryDraft: Codable, Equatable {
+nonisolated struct OiStoryDraft: Codable, Equatable, Sendable {
     var id = UUID()
     var grantId: UUID?
     var revision = 0
@@ -369,7 +370,7 @@ struct OiStoryDraft: Codable, Equatable {
 
     init() {}
 
-    init(story: OiLiveStory) {
+    @MainActor init(story: OiLiveStory) {
         id = story.id; grantId = story.grantId; revision = story.revision
         regionId = story.regionId; title = story.title; body = story.body
         theme = story.theme; emotion = story.emotion; cucumberName = story.cucumberName

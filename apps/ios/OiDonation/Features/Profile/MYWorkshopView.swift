@@ -82,7 +82,6 @@ struct MYWorkshopView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarRole(.navigationStack)
-        .onChange(of: remote?.account?.id) { _, _ in selectedTab = .authored }
         .task(id: "\(remote?.continuationPrivacyKey ?? "public")/\(remote?.revision ?? 0)/\(selectedTab.rawValue)") {
             guard selectedTab != .connected, let remote, remote.account != nil else { return }
             _ = try? await remote.storyContinuations(mine: true)

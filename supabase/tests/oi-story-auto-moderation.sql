@@ -57,8 +57,8 @@ select set_config('request.jwt.claim.sub','a3880000-0000-4000-8000-000000000002'
 do $$
 begin
   perform public.oi_mutate('review_story',pg_temp.submission()||'{"status":"published"}');
-  raise exception 'operator can bypass automatic review';
-exception when insufficient_privilege then null;
+  raise exception 'operator can publish an unplanted draft';
+exception when invalid_parameter_value then null;
 end;
 $$;
 

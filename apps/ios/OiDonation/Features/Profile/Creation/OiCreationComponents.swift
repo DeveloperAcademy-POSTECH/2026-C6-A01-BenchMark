@@ -195,6 +195,11 @@ struct OiCreationScrollNavigation: ViewModifier {
     }
 }
 
+/// One fade for every screen change in the story creation flow (#430). Touch feedback such as the tag chips stays faster.
+enum OiCreationMotion {
+    static let screen: Animation = .easeInOut(duration: 0.2)
+}
+
 enum OiCustomizationStyle {
     static let previewUIColor = UIColor(wardrobeRGB: 0xF5F6F2)
     static let previewBackground = Color(uiColor: previewUIColor)
@@ -455,13 +460,37 @@ struct OiStoryWritingStep: View {
             Text(value)
                 .tracking(0.32).lineLimit(1).minimumScaleFactor(0.8)
                 .padding(.horizontal, 20).frame(minHeight: 36)
-                .foregroundStyle(isSelected ? Color.white : Color("OiDark"))
-                .background(isSelected ? Color("OiGreen") : fieldBackground, in: Capsule())
-                .overlay(Capsule().strokeBorder(isSelected ? Color("OiGreen") : Color(white: 234 / 255), lineWidth: 1))
-                .frame(minHeight: 44).contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(OiCreationTagStyle(isSelected: isSelected, idleFill: fieldBackground))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// Fades to the selected colour from touch-down, without the plain style's dimming flash.
+private struct OiCreationTagStyle: ButtonStyle {
+    let isSelected: Bool
+    let idleFill: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        let active = isSelected || configuration.isPressed
+        // Only the incoming chip fades; the previous one drops its colour at once.
+        let fill: Animation? = active && !reduceMotion ? .easeOut(duration: 0.12) : nil
+        // The text turns white once the green is mostly in, so it never reads as white on grey.
+        let text: Animation? = active && !reduceMotion ? .easeOut(duration: 0.08).delay(0.04) : nil
+        configuration.label
+            .foregroundStyle(active ? Color.white : Color("OiDark"))
+            .animation(text, value: active)
+            .background {
+                Capsule().fill(idleFill)
+                    .overlay(Capsule().strokeBorder(Color(white: 234 / 255), lineWidth: 1))
+                    .overlay {
+                        Capsule().fill(Color("OiGreen"))
+                            .opacity(active ? 1 : 0)
+                            .animation(fill, value: active)
+                    }
+            }
+            .frame(minHeight: 44).contentShape(Rectangle())
     }
 }
 
@@ -476,6 +505,8 @@ struct OiStoryAttachmentSections: View {
     var connectedStory: CampusStory? = nil
     var onSelectDonor: (() -> Void)? = nil
     var onClearDonor: (() -> Void)? = nil
+    /// Thumbnails of the chosen photos, shown above the photo button.
+    var photoStrip: AnyView? = nil
     /// MapKit is the costliest view on STEP 2; create it just after STEP 2 appears so the switch shows at once.
     @State private var showsMap = false
 
@@ -489,9 +520,14 @@ struct OiStoryAttachmentSections: View {
         // Figma `5400:7726`: the photo comes before the location, whose title is 30pt.
         VStack(alignment: .leading, spacing: 50) {
             OiCreationSection(title: "사진 선택", hint: "(\(OiCreationStep.storyPhotoLimit)장)") {
-                formButton(photoCount == 0 ? "사진 추가하기" : "선택한 사진 보기",
-                           highlighted: false, action: onPhotos)
-                    .accessibilityIdentifier("oi.story.editPhotos")
+                if photoCount > 0, let photoStrip { photoStrip }
+                if photoCount == 0 {
+                    formButton("사진 추가하기", highlighted: false, action: onPhotos)
+                        .accessibilityIdentifier("oi.story.editPhotos")
+                } else {
+                    resetLink("사진 다시 선택하기", action: onPhotos)
+                        .accessibilityIdentifier("oi.story.editPhotos")
+                }
             }
             OiCreationSection(title: "오이 위치 설정", titleSize: 30) {
                 Group {
@@ -523,8 +559,13 @@ struct OiStoryAttachmentSections: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(coordinate == nil ? "위치를 선택하지 않은 캠퍼스 지도" : "선택한 오이 위치 지도")
                 .accessibilityIdentifier("oi.story.locationPreview")
-                formButton(coordinate == nil ? "위치 설정하기" : "재설정하기", highlighted: true, action: onLocation)
-                    .accessibilityIdentifier("oi.story.editLocation")
+                if coordinate == nil {
+                    formButton("위치 설정하기", highlighted: true, action: onLocation)
+                        .accessibilityIdentifier("oi.story.editLocation")
+                } else {
+                    resetLink("재설정하기", action: onLocation)
+                        .accessibilityIdentifier("oi.story.editLocation")
+                }
             }
             if let onSelectDonor {
                 OiCreationSection(title: "이어질 기부 대상", hint: "(선택)") {
@@ -559,6 +600,21 @@ struct OiStoryAttachmentSections: View {
                 }
             }
         }
+    }
+
+    /// Same underlined text style as 다시 선택하기, 17pt and centred; sits 12pt closer to the preview above (#430).
+    private func resetLink(_ title: String, action: @escaping () -> Void) -> some View {
+        // Only the text (plus a little padding) is tappable, not the full row.
+        HStack {
+            Spacer(minLength: 0)
+            Button(action: action) {
+                Text(title).font(.custom("Paperlogy-4Regular", size: 17, relativeTo: .body)).tracking(0.34)
+                    .underline().foregroundStyle(Color(oiRGB: 0x232323))
+                    .padding(.horizontal, 8).frame(minHeight: 44).contentShape(Rectangle())
+            }.buttonStyle(.plain)
+            Spacer(minLength: 0)
+        }
+        .padding(.top, -12) // the touch area stays 44pt
     }
 
     /// The underlined text button of the story list's review row (Figma `6101:8973`); the touch area is 44pt high.
