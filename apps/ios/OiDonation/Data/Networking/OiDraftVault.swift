@@ -322,6 +322,7 @@ struct OiDraftCustomization: Codable, Equatable {
     var seedBottom: String?
     var seedSneakers: Bool?
     var seedSet: String?
+    var seedProposal: Int?
 
     var selectedSeedTop: OiWardrobeLook.Top? {
         get { seedTop.flatMap(OiWardrobeLook.Top.init(rawValue:)) ?? (seedWhiteTshirt == true ? .tshirt : nil) }
@@ -340,8 +341,22 @@ struct OiDraftCustomization: Codable, Equatable {
     }
 
     var selectedSeedSet: OiSeedCucumberSet? {
-        get { seedSet.flatMap(OiSeedCucumberSet.init(rawValue:)) }
-        set { seedSet = newValue?.rawValue }
+        get {
+            let set = seedSet.flatMap(OiSeedCucumberSet.init(rawValue:))
+            return set == .costume(.scientist) ? nil : set
+        }
+        set {
+            if seedSet != newValue?.rawValue { seedProposal = nil }
+            seedSet = newValue?.rawValue
+        }
+    }
+
+    var selectedSeedProposal: OiSeedCostumeProposal? {
+        guard case .costume(let costume) = selectedSeedSet else { return nil }
+        let options = OiSeedCostumeProposal.options(for: costume)
+        if let seedProposal, let proposal = OiSeedCostumeProposal(rawValue: seedProposal),
+           options.contains(proposal) { return proposal }
+        return options.first
     }
 
     mutating func selectSeedTop(_ top: OiWardrobeLook.Top) {
@@ -362,13 +377,37 @@ struct OiDraftCustomization: Codable, Equatable {
     mutating func selectSeedSet(_ set: OiSeedCucumberSet) {
         selectedSeedSet = selectedSeedSet == set ? nil : set
     }
+
+    mutating func selectSeedProposal(_ proposal: OiSeedCostumeProposal, for costume: OiWardrobeLook.Costume) {
+        guard OiSeedCostumeProposal.options(for: costume).contains(proposal) else { return }
+        let set = OiSeedCucumberSet.costume(costume)
+        if selectedSeedSet == set, selectedSeedProposal == proposal {
+            selectedSeedSet = nil
+        } else {
+            selectedSeedSet = set
+            seedProposal = proposal.rawValue
+        }
+    }
+}
+
+enum OiSeedCostumeProposal: Int, CaseIterable {
+    case one = 1, two, three, four, five
+
+    static func options(for costume: OiWardrobeLook.Costume) -> [Self] {
+        switch costume {
+        case .raincoat, .postechSelfie: allCases
+        case .astronaut, .catBear, .astronautNavy: [.one]
+        default: []
+        }
+    }
 }
 
 enum OiSeedCucumberSet: Equatable, RawRepresentable, CaseIterable {
     case costume(OiWardrobeLook.Costume)
     case postech
 
-    static var allCases: [Self] { OiWardrobeLook.Costume.allCases.map(Self.costume) + [.postech] }
+    static let availableCostumes = OiWardrobeLook.Costume.allCases.filter { $0 != .scientist }
+    static var allCases: [Self] { availableCostumes.map(Self.costume) + [.postech] }
 
     init?(rawValue: String) {
         if rawValue == "postech" {

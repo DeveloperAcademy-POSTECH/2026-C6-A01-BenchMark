@@ -2237,7 +2237,44 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         try await verifyGarment(.postechJacket)
         for costume in costumes {
             try await verifyGarment(.costume(costume))
+            for proposal in OiSeedCostumeProposal.options(for: costume) {
+                let garment = OiSeedCucumberGarment.costumeProposal(costume, proposal)
+                XCTAssertNotNil(Bundle.main.url(forResource: garment.rawValue, withExtension: "jpg"))
+                try await verifyGarment(garment)
+            }
         }
+    }
+
+    func testStep3CostumeProposalsRestoreAndKeepAcceptedChoices() throws {
+        XCTAssertEqual(OiSeedCostumeProposal.options(for: .raincoat), [.one, .two, .three, .four, .five])
+        XCTAssertEqual(OiSeedCostumeProposal.options(for: .postechSelfie), [.one, .two, .three, .four, .five])
+        for costume in [OiWardrobeLook.Costume.astronaut, .astronautNavy, .catBear] {
+            XCTAssertEqual(OiSeedCostumeProposal.options(for: costume), [.one])
+        }
+        XCTAssertFalse(OiSeedCucumberSet.availableCostumes.contains(.scientist))
+
+        let previousDraft = OiDraftCustomization(seedSet: "raincoat")
+        let previousData = try JSONEncoder().encode(previousDraft)
+        var draft = try JSONDecoder().decode(OiDraftCustomization.self, from: previousData)
+        XCTAssertEqual(draft.selectedSeedProposal, .one)
+        draft.selectSeedProposal(.five, for: .raincoat)
+        let saved = try JSONEncoder().encode(draft)
+        draft = try JSONDecoder().decode(OiDraftCustomization.self, from: saved)
+        XCTAssertEqual(draft.selectedSeedSet, .costume(.raincoat))
+        XCTAssertEqual(draft.selectedSeedProposal, .five)
+        draft.selectSeedProposal(.four, for: .postechSelfie)
+        XCTAssertEqual(draft.selectedSeedSet, .costume(.postechSelfie))
+        XCTAssertEqual(draft.selectedSeedProposal, .four)
+        draft.selectSeedProposal(.four, for: .postechSelfie)
+        XCTAssertNil(draft.selectedSeedSet)
+        XCTAssertNil(draft.selectedSeedProposal)
+
+        draft.seedSet = "astronaut"
+        draft.seedProposal = 3
+        XCTAssertEqual(draft.selectedSeedProposal, .one)
+        draft.seedSet = "scientist"
+        XCTAssertNil(draft.selectedSeedSet)
+        XCTAssertNil(draft.selectedSeedProposal)
     }
 
     func testStep3SetsReplaceOutfitsAndRestoreModularItems() async throws {
@@ -2273,9 +2310,13 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             let viewpoint = camera.position(relativeTo: nil)
             let customOutfit: Set<OiSeedCucumberGarment> = [.hoodie, .shorts, .sneakers]
             let postechOutfit: Set<OiSeedCucumberGarment> = [.postechJacket, .longPants, .sneakers]
+            let proposalGarments = OiSeedCucumberSet.availableCostumes.flatMap { costume in
+                OiSeedCostumeProposal.options(for: costume).map { OiSeedCucumberGarment.costumeProposal(costume, $0) }
+            }
+            let availableGarments = OiSeedCucumberGarment.allCases + proposalGarments
 
             @MainActor func mounted() -> Set<OiSeedCucumberGarment> {
-                Set(OiSeedCucumberGarment.allCases.filter { model.findEntity(named: $0.rawValue) != nil })
+                Set(availableGarments.filter { model.findEntity(named: $0.rawValue) != nil })
             }
             @MainActor func waitForReplacement(from previous: Set<OiSeedCucumberGarment>,
                                                to next: Set<OiSeedCucumberGarment>) async throws {
@@ -2297,6 +2338,19 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             XCTAssertFalse(skin.isEnabled)
             XCTAssertFalse(leftArm.isEnabled)
             XCTAssertFalse(leftLeg.isEnabled)
+            let raincoat: Set<OiSeedCucumberGarment> = [.costumeProposal(.raincoat, .one)]
+            let raincoatFive: Set<OiSeedCucumberGarment> = [.costumeProposal(.raincoat, .five)]
+            let astronaut: Set<OiSeedCucumberGarment> = [.costumeProposal(.astronaut, .one)]
+            draft.value.selectSeedSet(.costume(.raincoat))
+            try await waitForReplacement(from: customOutfit, to: raincoat)
+            draft.value.selectSeedProposal(.five, for: .raincoat)
+            try await waitForReplacement(from: raincoat, to: raincoatFive)
+            draft.value.selectSeedSet(.costume(.astronaut))
+            try await waitForReplacement(from: raincoatFive, to: astronaut)
+            draft.value.selectSeedSet(.costume(.astronaut))
+            try await waitForReplacement(from: astronaut, to: customOutfit)
+            XCTAssertEqual(draft.value, original)
+
             let dinosaur: Set<OiSeedCucumberGarment> = [.costume(.dinosaur)]
             draft.value.selectSeedSet(.costume(.dinosaur))
             try await waitForReplacement(from: customOutfit, to: dinosaur)

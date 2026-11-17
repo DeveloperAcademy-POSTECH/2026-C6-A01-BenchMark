@@ -10,14 +10,6 @@ import Foundation
 import RealityKit
 import simd
 
-enum OiSeedCostumeProposal: Int, CaseIterable {
-    case one = 1, two, three
-
-    static let costumes: Set<OiWardrobeLook.Costume> = [
-        .raincoat, .astronaut, .scientist, .catBear, .postechSelfie, .astronautNavy
-    ]
-}
-
 enum OiSeedCucumberGarment: Hashable, CaseIterable {
     case whiteTshirt, hoodie, cardigan, postechJacket, longPants, shorts, sneakers
     case costume(OiWardrobeLook.Costume)

@@ -386,7 +386,9 @@ STEP 3 옷장 확장(#299)은 흰 운동화와 목록의 세트 18종을 같은 
 
 STEP 3 후드 비침 수정(#299)은 착용 중 잘린 피부의 경계를 후드 안쪽에서 연결해 닫힌 메시를 만든다. 후드·헬멧 개구부에는 원본 테두리 안쪽에 불투명 안감을 이어 붙인다. RealityKit은 로드한 후드의 불투명 재질을 양면으로 그리고 피부 재질의 불투명도를 고정한다. 연구원은 원본 가운과 플라스크·손의 정점을 사용하고 씨앗 목 부분만 원본 목둘레에 맞춰 잘라낸다. 눈·입·꼭지 편집과 투명 보안경은 유지한다. [후드 안쪽 비교](images/seed-cucumber-customization/step3-hood-interior-closure.jpg) · [연구원 비교](images/seed-cucumber-customization/step3-scientist-original-fit.jpg)
 
-실기기 의상 비교용 #299 작업 브랜치의 세트 목록은 노란 우비·우주복·연구원·곰돌이 고양이·과잠 셀카·남색 우주복에 각각 1·2·3번 카드를 제공한다. 선택한 시안은 기존 미리보기 위에서 교체하며 번호는 화면 안에서 관리한다. 초안에는 기존 세트 ID를 보관한다. 번들 에셋과 썸네일은 `tools/wardrobe/seed_catalog/prepare_seed_costume_proposals.py`를 `--preview`로 실행해 생성한다.
+실기기 의상 비교용 #299 작업 브랜치는 우주복·곰돌이 고양이·남색 우주복에 1번 모델을 고정하고 연구원을 세트 목록에서 제외한다. 노란 우비와 과잠 셀카의 1–5번은 각각 기존 세트 카드로 표시하고 새 모델이 준비되는 동안 현재 모델과 회전 상태를 유지한다. 기기 초안은 기존 세트 ID와 선택적 `seedProposal` 번호를 보관한다. 번호 없는 비교 세트는 1번으로 복원하고, 이전 연구원 선택은 착용을 해제한 상태로 표시한다.
+
+노란 우비 시안은 `tools/wardrobe/seed_catalog/prepare_raincoat_proposals.py`에서 후드에 남은 이전 피부를 안감 재질로 교체하고 기준 오이의 얼굴 표면과 텍스처를 사용한다. 과잠 셀카 시안은 `tools/wardrobe/seed_catalog/prepare_postech_selfie_proposals.py`에서 원본 바지의 UV와 텍스처를 보존하며 핏을 비교한다. 시안은 앱에서 기기 내 USDZ로 렌더링한다.
 
 `OiLocalDraft`의 선택적 `creationStep`·`customization`·`removedMediaPaths`는 구버전 초안을 그대로 읽을 수 있게 추가한다. `OiDraftCustomization`은 로컬 미리보기 전용이며 `OiStoryDraft.payload()`나 공유 DB를 확장하지 않는다. 업로드 사진 순서를 유지하고 기기 사본과 서버 경로를 중복 표시하지 않는다. 기존 `attach_media` RPC로 사진 연결을 변경하며, 변경 직후 목록 동기화가 실패해도 응답의 revision과 경로를 보존한다.
 
