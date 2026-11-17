@@ -1,5 +1,7 @@
 # 오이기부 아키텍처 및 팀 협업 제안
 
+2026-11-17 #466: 현재 엽서 앞면의 안쪽 296×436 영역은 `OiPostcardImageWindowBackground`로 전체 종이의 같은 위치를 잘라 검정 20%를 합성한다. 카드 미리보기·내보내기와 위치/크기 편집기가 같은 컴포넌트를 사용한다. 배경 탭의 선택형 오이 뒤 배경 UI를 제거하고, 기존 선택값은 Codable 호환을 위해 보관하되 레이아웃 2에서는 사용하지 않는다. 구형 렌더 경로·기존 공개 이미지·서버 계약은 보존한다. [결정·검증](postcard-customization.md).
+
 2026-11-17 #438 CPU 후속 조사: 정적 촬영 프리셋만 ModelEntity 로더로 평탄화하고, 촬영 모델의 불필요한 동기화와 내부 손 필터의 Observation 추적·동일 엔티티 값 재적용을 제거한다. 사용자 모델/애니메이션 로더, 손 인식 주기·보정·외형은 유지한다. 동일 모델의 실기기 CPU 가중 평균 46.21%→46.15%로 큰 감소는 확인하지 못했다. [원인·비교·검증](../apps/ios/docs/ar-cpu.md).
 
 2026-11-17 #438 AR 자산 경량화: 선택 가능한 마스코트는 `ARCharacter.modelFilename`의 `ar-*.usdz`를 ARModels/번들 루트에서 명시적으로 찾는다. 원본 Characters 3종은 본 앱 포함에서 제외하며 리소스 회귀 테스트는 실제 선택 파일을 로드한다. 의상 5종의 사본은 topology·재질 네트워크를 유지한 정적 촬영용이며, 사용자 오이는 기존 subject 로더로 승인 외형을 보존한다. ARLightingController는 조명 속성만 비교해 동일 설정의 갱신을 생략한다. 위치 모드도 카메라 30fps 형식을 선택하고 motion blur·depth of field·camera grain을 끈다. 실제 렌더 FPS 제한과는 구분한다. [자산·렌더·측정 기록](../apps/ios/docs/ar-lightweight.md).

@@ -81,11 +81,11 @@ struct OiCardBackground: View {
             let photoTint = !customization.showsCharacter && paper.photoMonochrome == true && paper.backgroundPhoto != nil
             ZStack {
                 Group {
-                    if customization.showsCharacter, paper.usesCharacterBackdrop {
+                    if paper.postcardLayoutVersion == 2 {
+                        OiPostcardImageWindowBackground(design: paper)
+                    } else if customization.showsCharacter, paper.usesCharacterBackdrop {
                         Color(oiRGB: OiPostcardCharacterBackdrop.color(for: paper))
                             .opacity(OiCardOpacity.normalized(paper.characterBackdropOpacity))
-                    } else if paper.postcardLayoutVersion == 2 {
-                        Color.clear
                     } else if let style = paper.postcardBackground {
                         // Crop the very same full-paper background into the artwork window.
                         OiPostcardBackground(style: style)
@@ -112,6 +112,25 @@ struct OiCardBackground: View {
                 }
             }.frame(width: geometry.size.width, height: geometry.size.height)
                 .clipped().compositingGroup()
+        }.allowsHitTesting(false)
+    }
+}
+
+/// Figma 6647:10696: the paper remains visible through 20% black in the
+/// 296 × 436 image window, inset 33 points from each edge of the 362 × 502 card.
+/// Shared by the actual front composition and its placement editor.
+struct OiPostcardImageWindowBackground: View {
+    let design: OiCardDesign
+    var body: some View {
+        GeometryReader { geometry in
+            Group {
+                if let style = design.postcardBackground { OiPostcardBackground(style: style) }
+                else { OiCardGradient(fill: design.borderFill, first: design.borderFirst, second: design.borderSecond) }
+            }
+            .frame(width: geometry.size.width * 362 / 296, height: geometry.size.height * 502 / 436)
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .overlay { Color.black.opacity(0.2) }
+            .clipped()
         }.allowsHitTesting(false)
     }
 }
@@ -150,6 +169,7 @@ struct OiCardPlacementEditor: View {
     var minimalChrome = false
     var backdropColor: UInt32? = nil
     var backdropOpacity: Double = 1
+    var postcardPaper: OiCardDesign? = nil
     var emptyMessage = "오이 이미지를 준비하고 있어요"
     var look: OiWardrobeLook? = nil
     var seed: OiSeedCucumberSnapshot? = nil
@@ -184,9 +204,12 @@ struct OiCardPlacementEditor: View {
                     .accessibilityIdentifier("oi.card.placement.reset")
             }.frame(height: compact ? 32 : nil) }
             ZStack {
-                RoundedRectangle(cornerRadius: 5).fill(backdropColor.map {
-                    Color(oiRGB: $0).opacity(OiCardOpacity.normalized(backdropOpacity))
-                } ?? .white)
+                if let postcardPaper { OiPostcardImageWindowBackground(design: postcardPaper) }
+                else {
+                    RoundedRectangle(cornerRadius: 5).fill(backdropColor.map {
+                        Color(oiRGB: $0).opacity(OiCardOpacity.normalized(backdropOpacity))
+                    } ?? .white)
+                }
                 if let look, let orientation, let onCapture {
                     GeometryReader { proxy in
                         let p = placement.normalized
