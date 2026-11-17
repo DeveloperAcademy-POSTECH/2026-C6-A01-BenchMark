@@ -3895,6 +3895,52 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testCucumberStoryHidesContinuationTabAfterConfirmedZero() async throws {
+        let fixture = try isolatedDefaults()
+        let previousHandler = OiStoreURLProtocol.handle
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer {
+            session.invalidateAndCancel()
+            OiStoreURLProtocol.handle = previousHandler
+            fixture.defaults.removePersistentDomain(forName: fixture.name)
+        }
+
+        let id = UUID()
+        let counts = try JSONSerialization.data(withJSONObject: [["story_id": id.uuidString, "count": 0]])
+        OiStoreURLProtocol.handle = { request, client in
+            switch request.url?.lastPathComponent {
+            case "oi_story_continuation_counts":
+                client.respond(200, counts)
+            case "oi_story_continuations":
+                client.respond(200, Data(#"{"items":[],"total":0,"next_cursor":null}"#.utf8))
+            default:
+                XCTFail("Unexpected RPC for the story detail")
+                client.respond(404, Data("{}".utf8))
+            }
+        }
+        let remote = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+                                   vault: OiMemorySession())
+        let story = CampusStory(id: id.uuidString, regionID: "pond", title: "테스트 오이", image: "OiCats",
+            tags: ["우정"], donor: "테스트", location: "캠퍼스", date: "2026년 11월 17일", order: 0, popularity: 0, palette: 0)
+        let store = CampusStoryStore(defaults: fixture.defaults)
+        let reference = try XCTUnwrap(variants.first)
+        let png = try await capture(NavigationStack {
+            CampusCucumberStoryView(story: story, store: store).environment(remote)
+        }, name: "story-no-continuations", variant: reference, defaults: fixture.defaults, attach: true)
+        XCTAssertEqual(remote.continuationCounts[id], 0)
+        let bitmap = try renderedBitmap(png, size: reference.size)
+        let bytes = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: bitmap.bytesPerRow * bitmap.height)
+        func rgb(_ x: Int, _ y: Int) -> UInt32 {
+            let offset = y * bitmap.bytesPerRow + x * 4
+            return UInt32(bytes[offset]) << 16 | UInt32(bytes[offset + 1]) << 8 | UInt32(bytes[offset + 2])
+        }
+        XCTAssertEqual(rgb(90, 437), 0xEAEEE2, "Location should replace the zero-count tab in the first slot")
+        XCTAssertEqual(rgb(198, 437), 0xF1F4EC, "Donor should move into the second slot")
+        XCTAssertEqual(rgb(310, 437), rgb(390, 437), "There should be no third tab")
+    }
+
     func testCampusDetailAndSummaryCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
