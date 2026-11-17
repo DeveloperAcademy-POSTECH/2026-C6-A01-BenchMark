@@ -20,6 +20,7 @@ struct CampusNotificationInboxView: View {
     let isLoading: Bool
     var isInitialLoading = false
     var loadFailed = false
+    var onRetry: (() -> Void)? = nil
     var unconfirmedRequestID: UUID? = nil
     var onOpenOlderRequests: (() -> Void)? = nil
     let onOpenRequest: (UUID) -> Void
@@ -37,7 +38,7 @@ struct CampusNotificationInboxView: View {
     }
 
     private var showsSpinner: Bool {
-        loadFailed || isInitialLoading || (isLoading && isEmpty)
+        !loadFailed && (isInitialLoading || (isLoading && isEmpty))
     }
 
     var body: some View {
@@ -49,6 +50,19 @@ struct CampusNotificationInboxView: View {
                     .accessibilityIdentifier("campus.notifications.loading")
             } else {
                 CampusNotificationRetentionNotice()
+                if loadFailed {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(isEmpty ? "알림을 불러오지 못했어요." : "일부 알림을 불러오지 못했어요.")
+                            .font(CampusStyle.body(16))
+                        if let onRetry {
+                            Button("다시 시도", action: onRetry)
+                                .buttonStyle(.bordered)
+                                .disabled(isLoading)
+                                .accessibilityIdentifier("campus.notifications.retry")
+                        }
+                    }
+                    .accessibilityIdentifier("campus.notifications.error")
+                }
                 GeometryReader { viewport in
                     ScrollView {
                         content
@@ -72,7 +86,7 @@ struct CampusNotificationInboxView: View {
 
     private var content: some View {
         Group {
-            if isEmpty {
+            if isEmpty, !loadFailed {
                 Text("알림 없음")
                     .font(CampusStyle.medium(21))
                     .tracking(0.42)

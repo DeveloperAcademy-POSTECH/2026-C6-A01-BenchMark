@@ -30,14 +30,21 @@ struct CampusCucumberStoryView: View {
         var fill: Color { [Color(oiRGB: 0xD3DBC4), Color(oiRGB: 0xEAEEE2), Color(oiRGB: 0xF1F4EC)][rawValue] }
     }
 
+    private var visibleTabs: [Tab] {
+        guard let id = UUID(uuidString: story.id), remote?.continuationCounts[id] == 0 else { return Tab.allCases }
+        return [.location, .donor]
+    }
+
     var body: some View {
+        let tabs = visibleTabs
+        let selection = Binding(get: { tabs.contains(tab) ? tab : .location }, set: { tab = $0 })
         GeometryReader { geometry in
             // Keep both information buttons visible on compact phones; longer text can still scroll.
             let compactPanelLimit = max(geometry.size.height * 0.35, geometry.size.height - 376)
-            let panelHeight = min(457, geometry.size.height * 0.52, compactPanelLimit)
+            let panelHeight = min(457, geometry.size.height * 457 / 874, compactPanelLimit)
             VStack(spacing: 0) {
                 top(height: geometry.size.height - panelHeight, width: geometry.size.width)
-                CampusCucumberStoryPanel(story: story, store: store, tab: $tab)
+                CampusCucumberStoryPanel(story: story, store: store, visibleTabs: tabs, tab: selection)
                     .frame(height: panelHeight)
             }
         }
@@ -59,13 +66,14 @@ struct CampusCucumberStoryView: View {
 
     /// Cucumber on the left (`5441:16814`, 158×315 at 22,72) and the white information card (`5441:16812`).
     private func top(height: CGFloat, width: CGFloat) -> some View {
-        let portraitWidth = min(158, max(0, width - 22 - 7 - 209))
+        let portraitWidth = min(158, max(0, width - 22 - 209 - 13))
         return ScrollView {
-            HStack(alignment: .top, spacing: 7) {
-                CampusCucumberPortrait(story: story)
-                    .frame(width: portraitWidth).frame(maxHeight: 315)
+            HStack(alignment: .top, spacing: -13) {
+                CampusCucumberPortrait(story: story, trimsTransparentMargins: true)
+                    .frame(width: portraitWidth, height: portraitWidth * 315 / 158)
                     .padding(.leading, 22)
-                information.frame(width: 209)
+                    .zIndex(1)
+                information.frame(width: 209).padding(.top, 26)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 72).padding(.bottom, 16)
@@ -127,6 +135,7 @@ struct CampusCucumberStoryView: View {
 private struct CampusCucumberStoryPanel: View {
     let story: CampusStory
     let store: CampusStoryStore
+    let visibleTabs: [CampusCucumberStoryView.Tab]
     @Binding var tab: CampusCucumberStoryView.Tab
 
     private let tabWidth: CGFloat = 110
@@ -150,26 +159,29 @@ private struct CampusCucumberStoryPanel: View {
     private var tabs: some View {
         ZStack(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
-                ForEach(Array(CampusCucumberStoryView.Tab.allCases.reversed()), id: \.rawValue) { item in
+                ForEach(Array(visibleTabs.enumerated().reversed()), id: \.element.rawValue) { index, item in
                     ZStack(alignment: .topLeading) {
                         UnevenRoundedRectangle(topLeadingRadius: 15, topTrailingRadius: 15)
                             .fill(item.fill).frame(width: tabWidth, height: tabHeight)
                         CampusStoryTabCorner().fill(item.fill).frame(width: 14, height: 14)
                             .offset(x: tabWidth, y: tabHeight - 14)
                     }
-                    .offset(x: CGFloat(item.rawValue) * tabWidth)
+                    .compositingGroup()
+                    .shadow(color: .black.opacity(item == .donor ? 0.10 : 0.15),
+                            radius: item == .donor ? 3 : 4, x: 3, y: item == .donor ? -2 : 0)
+                    .offset(x: CGFloat(index) * tabWidth)
                     .zIndex(tab == item ? 1 : 0)
                 }
             }
             .allowsHitTesting(false)
             .accessibilityHidden(true)
-            ForEach(CampusCucumberStoryView.Tab.allCases, id: \.rawValue) { item in
+            ForEach(Array(visibleTabs.enumerated()), id: \.element.rawValue) { index, item in
                 Button { tab = item } label: {
                     Text(item.title).font(CampusStyle.medium(16)).foregroundStyle(Color(oiRGB: 0x273116))
                         .frame(width: tabWidth, height: tabHeight)
                         .contentShape(Rectangle())
                 }.buttonStyle(.plain)
-                    .offset(x: CGFloat(item.rawValue) * tabWidth)
+                    .offset(x: CGFloat(index) * tabWidth)
                     .accessibilityAddTraits(tab == item ? .isSelected : [])
             }
         }

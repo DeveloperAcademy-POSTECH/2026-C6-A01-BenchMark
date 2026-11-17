@@ -16,11 +16,6 @@ struct CampusSummaryView: View {
                     .buttonStyle(.plain).accessibilityIdentifier("campus.details")
                 CampusPostcard(story: story, store: store)
                     .frame(width: cardWidth).accessibilityIdentifier("campus.summary.card")
-                if let id = UUID(uuidString: story.id), let count = remote?.continuationCounts[id] {
-                    Text("이어진 이야기 \(count)개 · 공개된 이야기 연결이에요")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .accessibilityIdentifier("campus.summary.continuationCount")
-                }
                 if story.isExample { CampusExampleBadge() }
             }.padding(.horizontal, 20).padding(.top, 113).padding(.bottom, 105)
                 .frame(maxWidth: .infinity)
@@ -34,9 +29,6 @@ struct CampusSummaryView: View {
             // The story form offers the five most recently opened stories as donations to continue from (#411).
             // Also runs when the account finishes loading, so a story opened right after launch is not missed.
             .task(id: "\(remote?.continuationPrivacyKey ?? "public")/\(remote?.revision ?? 0)") {
-                if let remote, let id = UUID(uuidString: story.id), !story.isExample {
-                    try? await remote.refreshContinuationCounts(for: [id])
-                }
                 if let owner = remote?.account?.id, !story.isExample {
                     OiRecentStories.record(story.id, owner: owner)
                 }
