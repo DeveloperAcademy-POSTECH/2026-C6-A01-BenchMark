@@ -963,7 +963,8 @@ struct OiStoryEditor: View {
                 OiStoryAttachmentSections(photoCount: editingPhotos.count,
                     latitude: draft.latitude, longitude: draft.longitude,
                     onPhotos: openPhotoEditor, onLocation: { endStoryEditing(); navigate(to: .location) },
-                    connectedStory: connectedStory, onSelectDonor: selectDonor)
+                    connectedStory: connectedStory, onSelectDonor: selectDonor,
+                    onClearDonor: customization.connectedStoryID == nil ? nil : { customization.connectedStoryID = nil })
             }
         case .cucumber:
             OiCucumberCustomizationStep(customization: $customization, cucumberName: $draft.cucumberName,
@@ -982,18 +983,28 @@ struct OiStoryEditor: View {
 
     private var recentDonationStories: [CampusStory] {
         guard let owner = remote.account?.id, let campusStore else { return [] }
-        return OiRecentStories.pickerStories(owner: owner) { campusStore.story($0) }
+        // A blocked author's story is never offered as a target.
+        return OiRecentStories.pickerStories(owner: owner) { id in
+            guard let story = campusStore.story(id), !isBlockedAuthor(story) else { return nil }
+            return story
+        }
     }
 
     /// The story this donation continues from, while it is still public.
     private var connectedStory: CampusStory? {
-        customization.connectedStoryID.flatMap { campusStore?.story($0) }
+        guard let id = customization.connectedStoryID, let story = campusStore?.story(id),
+              !isBlockedAuthor(story) else { return nil }
+        return story
     }
 
-    /// 기부자 선택하기 / 다시 선택하기: any earlier choice is cleared before the list opens.
+    private func isBlockedAuthor(_ story: CampusStory) -> Bool {
+        story.authorID.map { OiContentSafetyStore.shared.isBlocked($0) } ?? false
+    }
+
+    /// 기부자 선택하기 / 다시 선택하기: the earlier choice stays until a new one is confirmed; cancel keeps it.
+    /// `삭제하기` is the only way to clear it.
     private func selectDonor() {
         endStoryEditing()
-        customization.connectedStoryID = nil
         showingDonorPicker = true
     }
 
