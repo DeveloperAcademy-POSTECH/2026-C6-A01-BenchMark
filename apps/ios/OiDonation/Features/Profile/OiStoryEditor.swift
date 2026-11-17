@@ -17,6 +17,7 @@ struct OiStoryEditor: View {
 
     let remote: OiRemoteStore
     var onFinish: (() -> Void)?
+    private let continuation: OiStoryContinuationIntent?
     private var cucumberPreviewMode: OiCucumberCustomizationStep.PreviewMode = .seed
     @State private var draft: OiStoryDraft
     @State private var owner: UUID?
@@ -79,9 +80,11 @@ struct OiStoryEditor: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(remote: OiRemoteStore, story: OiLiveStory? = nil, localID: UUID? = nil,
-         initialStep: OiCreationStep = .story, onFinish: (() -> Void)? = nil) {
+         initialStep: OiCreationStep = .story, continuation: OiStoryContinuationIntent? = nil,
+         onFinish: (() -> Void)? = nil) {
         self.remote = remote
         self.onFinish = onFinish
+        self.continuation = continuation
         var value: OiStoryDraft
         if let story { value = OiStoryDraft(story: story) }
         else { value = OiStoryDraft() }
@@ -769,6 +772,10 @@ struct OiStoryEditor: View {
                     customization.connectedStoryID = server.continuedFromStoryId?.uuidString
                 }
                 submitted = !OiCreationAccess.canEdit(status: server.status, submitted: submitted)
+            } else if record == nil, let parent = continuation?.availableParent(in: campusStore, for: accountID) {
+                customization.connectedStoryID = parent
+                customization.connectedStorySelectionEdited = true
+                OiRecentStories.record(parent, owner: accountID)
             }
             restored = true; localError = nil; saveLabel = "이 계정의 기기 초안 자동 저장"
             if step == .photos {

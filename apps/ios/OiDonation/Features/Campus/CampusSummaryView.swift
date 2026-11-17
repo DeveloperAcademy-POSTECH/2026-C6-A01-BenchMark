@@ -7,7 +7,7 @@ struct CampusSummaryView: View {
     @Environment(OiRemoteStore.self) private var remote: OiRemoteStore?
     var body: some View {
         GeometryReader { geometry in
-            let cardWidth = min(440, geometry.size.width - 40,
+            let cardWidth = min(440, max(0, geometry.size.width - 40),
                                 max(200, (geometry.size.height - 180) * 362 / 502))
             ScrollView {
             // Figma `5400:5071`: info card at y 113 from the screen top, postcard at y 226 (26pt below the card).
@@ -48,11 +48,16 @@ struct CampusSummaryView: View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
                 // Continues to the story list (#399).
-                Button { store.openStoryListAction?() } label: {
+                NavigationLink {
+                    if let remote {
+                        OiStoryListScreen(remote: remote,
+                            continuation: OiStoryContinuationIntent(story: story, requestedBy: remote.account?.id))
+                    }
+                } label: {
                     Text("이어서 기부하기").font(CampusStyle.medium(16)).tracking(0.32)
                         .foregroundStyle(.black).frame(maxWidth: .infinity, minHeight: 46)
                         .background(.white, in: RoundedRectangle(cornerRadius: 20))
-                }.buttonStyle(.plain).disabled(store.openStoryListAction == nil)
+                }.buttonStyle(.plain).disabled(remote == nil)
                     .accessibilityIdentifier("campus.summary.continue")
                 CampusCollectButton(story: story, store: store).frame(maxWidth: .infinity)
             }.padding(.horizontal, 20).padding(.top, 20)

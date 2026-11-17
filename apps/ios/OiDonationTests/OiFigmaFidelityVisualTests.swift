@@ -3852,9 +3852,9 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             defaults: fixture.defaults, delay: .seconds(1), attach: true)
         let store = CampusStoryStore(defaults: fixture.defaults)
         store.synchronize(stories: [story], collected: [])
-        store.openStoryListAction = {}
+        let remote = OiRemoteStore(vault: OiMemorySession())
         let summary = NavigationStack { CampusSummaryView(story: story, store: store) }
-            .environment(store).environment(\.scenePhase, .active)
+            .environment(store).environment(remote).environment(\.scenePhase, .active)
         try await capture(summary, name: "summary-view", variant: variants[0],
             defaults: fixture.defaults, delay: .seconds(2), attach: true)
     }
@@ -3866,12 +3866,15 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             tags: ["고마움", "우정"], donor: "24학번 컴퓨터공학과 John Doe", location: "지곡연못 산책로",
             date: "2026년 11월 16일", order: 0, popularity: 0, palette: 0)
         story.storyTitle = "공개 프로필 이름과 작은 화면 확인"
+        story.authorID = UUID()
+        story.donorFarmerAsset = "OiFarmer"
         let store = CampusStoryStore(defaults: fixture.defaults)
         store.synchronize(stories: [story], collected: [])
-        store.openStoryListAction = {}
+        let remote = OiRemoteStore(vault: OiMemorySession())
         for variant in variants where variant.name != "440x956" {
             for tab in CampusCucumberStoryView.Tab.allCases {
                 let content = NavigationStack { CampusCucumberStoryView(story: story, store: store, initialTab: tab) }
+                    .environment(remote)
                 try await capture(content, name: "cucumber-story-tab-\(tab.rawValue)", variant: variant,
                                   defaults: fixture.defaults, delay: .milliseconds(500), attach: true)
             }

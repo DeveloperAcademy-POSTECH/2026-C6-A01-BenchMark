@@ -101,12 +101,17 @@ struct CampusCucumberStoryView: View {
                 .lineLimit(1).minimumScaleFactor(0.7)
             }.frame(maxWidth: .infinity, alignment: .leading)
             VStack(spacing: 16) {
-                Button { store.openStoryListAction?() } label: {
+                NavigationLink {
+                    if let remote {
+                        OiStoryListScreen(remote: remote,
+                            continuation: OiStoryContinuationIntent(story: story, requestedBy: remote.account?.id))
+                    }
+                } label: {
                     Text("이어서 기부하기").font(CampusStyle.medium(16)).tracking(0.32)
                         .foregroundStyle(.black).frame(width: 169, height: 43)
                         .background(Color(oiRGB: 0xD3DBC4), in: RoundedRectangle(cornerRadius: 20))
                         .shadow(color: Color(oiRGB: 0x688633).opacity(0.9), radius: 2.5, x: 1, y: 1)
-                }.buttonStyle(.plain).disabled(store.openStoryListAction == nil)
+                }.buttonStyle(.plain).disabled(remote == nil)
                     .accessibilityIdentifier("campus.story.continue")
                 CampusCollectButton(story: story, store: store)
                     .frame(width: 169, height: 43)
