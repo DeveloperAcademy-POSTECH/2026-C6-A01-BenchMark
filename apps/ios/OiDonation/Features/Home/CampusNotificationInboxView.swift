@@ -7,6 +7,14 @@
 
 import SwiftUI
 
+struct OiContinuationNotice: Identifiable, Equatable {
+    let id: UUID
+    let title: String
+    let author: String
+    let createdAt: Date
+    let isUnread: Bool
+}
+
 struct CampusNotificationInboxView: View {
     let requests: [OiCardRequestInboxItem]
     let isLoading: Bool
@@ -15,6 +23,9 @@ struct CampusNotificationInboxView: View {
     var onOpenOlderRequests: (() -> Void)? = nil
     let onReload: () async -> Void
     let onOpenRequest: (UUID) -> Void
+    var continuations: [OiContinuationNotice] = []
+    var onOpenContinuation: ((UUID) -> Void)? = nil
+    var onMoreContinuations: (() -> Void)? = nil
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var contrast
@@ -28,7 +39,7 @@ struct CampusNotificationInboxView: View {
                 ScrollView {
                     content
                         .frame(maxWidth: .infinity, minHeight: viewport.size.height,
-                            alignment: requests.isEmpty && unconfirmedRequestID == nil ? .center : .top)
+                            alignment: requests.isEmpty && continuations.isEmpty && unconfirmedRequestID == nil ? .center : .top)
                 }
                 .refreshable { await onReload() }
             }
@@ -46,7 +57,7 @@ struct CampusNotificationInboxView: View {
 
     private var content: some View {
         Group {
-            if let loadError, requests.isEmpty && unconfirmedRequestID == nil {
+            if let loadError, requests.isEmpty && continuations.isEmpty && unconfirmedRequestID == nil {
                 ContentUnavailableView {
                     Label("알림을 불러오지 못했어요", systemImage: "exclamationmark.circle")
                 } description: {
@@ -56,7 +67,7 @@ struct CampusNotificationInboxView: View {
                         .buttonStyle(.bordered)
                 }
                 .accessibilityIdentifier("campus.notifications.loadError")
-            } else if requests.isEmpty && unconfirmedRequestID == nil {
+            } else if requests.isEmpty && continuations.isEmpty && unconfirmedRequestID == nil {
                 if isLoading {
                     ProgressView("알림을 불러오는 중이에요")
                 } else {
@@ -95,6 +106,27 @@ struct CampusNotificationInboxView: View {
             ForEach(requests) { request in
                 requestRow(request)
                     .disabled(unconfirmedRequestID.map { $0 != request.id } ?? false)
+            }
+            ForEach(continuations) { notice in
+                Button { onOpenContinuation?(notice.id) } label: {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("이어진 이야기 · \(notice.author)")
+                            Spacer()
+                            if notice.isUnread { Circle().fill(CampusStyle.green).frame(width: 7, height: 7) }
+                        }.font(.caption).foregroundStyle(.secondary)
+                        Text("내 이야기에서 새 이야기가 이어졌어요").font(CampusStyle.medium(16))
+                        Text(notice.title).font(CampusStyle.body(18))
+                        Text("공개된 이야기 연결 · 실제 납입 알림이 아니에요").font(.caption).foregroundStyle(.secondary)
+                        requestDate(notice.createdAt).font(.caption).foregroundStyle(.secondary)
+                    }
+                    .foregroundStyle(.primary).frame(maxWidth: .infinity, alignment: .leading).padding(20)
+                    .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 20))
+                }.buttonStyle(.plain).disabled(unconfirmedRequestID != nil)
+                    .accessibilityIdentifier("campus.notifications.continuation.\(notice.id.uuidString)")
+            }
+            if let onMoreContinuations {
+                Button("이어진 이야기 알림 더 보기", action: onMoreContinuations).disabled(unconfirmedRequestID != nil || isLoading)
             }
         }
     }
@@ -160,7 +192,7 @@ struct CampusNotificationRetentionNotice: View {
 
     var body: some View {
         let period = Text("30일").font(.custom("Paperlogy-7Bold", size: 16, relativeTo: .body))
-        Text("알림은 \(period)이 지나면 삭제됩니다")
+        Text("최근 \(period) 동안의 알림을 표시해요")
             .font(CampusStyle.medium(16))
             .tracking(0.32)
             .lineHeight(.exact(points: lineHeight))

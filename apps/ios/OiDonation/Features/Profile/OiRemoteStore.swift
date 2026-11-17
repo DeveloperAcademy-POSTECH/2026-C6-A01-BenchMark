@@ -31,6 +31,17 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     private(set) var canPublishDuplexCard = false
     private(set) var canPublishStoryCardCover = false
     private(set) var canPublishStoryCardCoverJPEG = false
+    private(set) var supportsStoryContinuations = false
+    private(set) var supportsContinuationNotifications = false
+    private var cachedIncomingContinuationCount: Int?
+    private var cachedContinuationCounts: [UUID: Int] = [:]
+    private var continuationMetricsPrivacy: String?
+    var incomingContinuationCount: Int? {
+        continuationMetricsPrivacy == continuationPrivacyKey ? cachedIncomingContinuationCount : nil
+    }
+    var continuationCounts: [UUID: Int] {
+        continuationMetricsPrivacy == continuationPrivacyKey ? cachedContinuationCounts : [:]
+    }
     private(set) var autoStoryModeration = false
     private(set) var reviewingStoryID: UUID?
     private(set) var storyReviewLookupFailed = false
@@ -332,6 +343,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     }
 
     private func resetAccountState() {
+        supportsStoryContinuations = false; supportsContinuationNotifications = false
+        cachedIncomingContinuationCount = nil; cachedContinuationCounts = [:]; continuationMetricsPrivacy = nil
         postcardImages.clear()
         generation = UUID(); loadSequence += 1; refreshTask?.cancel(); refreshTask = nil
         profile = nil; ownStories = []; reviewStories = []; profiles = []; media = []
@@ -631,6 +644,13 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             deletionWarning = await recoverStoryDeletions(in: &fetched, owner: owner, api: api, token: accessToken,
                                                           generation: started, sequence: sequence)
         }
+        if capabilities?.storyContinuations == true, let accessToken {
+            let targets = try await api.continuationTargets(token: accessToken)
+            let byID = Dictionary(uniqueKeysWithValues: targets.map { ($0.storyId, $0) })
+            for index in fetched.indices where fetched[index].userId == resolvedOwner {
+                fetched[index].continuedFromStoryId = byID[fetched[index].id]?.continuedFromStoryId
+            }
+        }
         let published = fetched.filter { $0.status == "published" }
         let fetchedProfiles = try await api.rows("oi_profiles", query: "order=id.asc", token: accessToken, as: OiProfile.self)
         var ownProfile = fetchedProfiles.first { $0.id == resolvedOwner }
@@ -704,6 +724,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         canPublishDuplexCard = capabilities?.duplexStoryCard == true
         canPublishStoryCardCover = capabilities?.storyCardCover == true
         canPublishStoryCardCoverJPEG = canPublishStoryCardCover && capabilities?.storyCardCoverJpeg == true
+        supportsStoryContinuations = capabilities?.storyContinuations == true
+        supportsContinuationNotifications = capabilities?.storyContinuationNotifications == true
         autoStoryModeration = capabilities?.autoStoryModeration == true
         isAccountMergeAvailable = capabilities?.accountMergeEnabled == true; accountMemberIDs = members
         isSchoolProfileAvailable = capabilities?.schoolProfileEnabled == true
@@ -712,6 +734,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         localRecoveryWarning = recoveryWarning
         collectionCounts = counts
         hasLoadedRemote = true; needsReauthentication = false; loadError = nil; syncWarning = localSignOutWarning ?? deletionWarning ?? metricsWarning
+        prepareContinuationMetrics()
         if contentChanged { revision += 1 }
     }
 
@@ -916,6 +939,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
 
     func save(_ draft: OiStoryDraft) async -> OiLiveStory? {
         guard canStartStory else { error = OiServiceError.storyCreationUnavailable.localizedDescription; return nil }
+        var draft = draft
+        if !supportsStoryContinuations { draft.updatesContinuation = false }
         do { return await change("save_story", payload: try draft.payload(), as: OiLiveStory.self) }
         catch { self.error = error.localizedDescription; return nil }
     }
@@ -939,6 +964,18 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
 
         try checkOwner()
         let existing = ownStories.first { $0.id == record.id }
+        if supportsStoryContinuations {
+            let selection = record.customization?.connectedStoryID
+            let editsSelection = record.customization?.connectedStorySelectionEdited == true || selection != nil
+            if editsSelection {
+                guard selection == nil || UUID(uuidString: selection!) != nil else { throw OiServiceError.invalidInput }
+                record.draft.continuedFromStoryID = selection.flatMap(UUID.init(uuidString:))
+                record.draft.updatesContinuation = true
+            } else {
+                record.draft.continuedFromStoryID = existing?.continuedFromStoryId
+                record.draft.updatesContinuation = nil
+            }
+        } else { record.draft.updatesContinuation = nil }
         guard OiCreationAccess.canEdit(status: existing?.status, submitted: record.submitted) else {
             throw OiServiceError.conflict
         }
@@ -1534,6 +1571,65 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         try Task.checkCancellation()
         guard generation == started else { throw OiServiceError.accountChanged }
         return image
+    }
+
+    var continuationPrivacyKey: String {
+        (account?.id.uuidString ?? "public") + "/\(supportsStoryContinuations)/\(supportsContinuationNotifications)/\(needsReauthentication)/"
+            + OiContentSafetyStore.shared.authors.keys.sorted().joined(separator: ",")
+    }
+
+    func storyContinuations(parent: UUID? = nil, mine: Bool = false,
+                            cursor: OiContinuationCursor? = nil) async throws -> OiContinuationPage {
+        guard let api else { throw OiServiceError.configuration }
+        if account != nil && !supportsStoryContinuations { throw OiContinuationError.notSupported }
+        prepareContinuationMetrics()
+        if mine { cachedIncomingContinuationCount = nil }
+        let started = generation, privacy = continuationPrivacyKey
+        let blocked = OiContentSafetyStore.shared.authors.keys.compactMap(UUID.init(uuidString:))
+        let accessToken = mine ? try await token() : nil
+        let page = try await api.continuations(parent: parent, mine: mine, cursor: cursor, blocked: blocked, token: accessToken)
+        try Task.checkCancellation()
+        guard generation == started, privacy == continuationPrivacyKey else { throw OiServiceError.accountChanged }
+        guard page.items.allSatisfy({ $0.childStoryId == $0.story.id && $0.story.status == "published" && (parent == nil || $0.parentStoryId == parent) }) else {
+            throw OiServiceError.unavailable
+        }
+        prepareContinuationMetrics()
+        if mine { cachedIncomingContinuationCount = page.total }
+        if let parent { cachedContinuationCounts[parent] = page.total }
+        return page
+    }
+
+    private func prepareContinuationMetrics() {
+        if continuationMetricsPrivacy != continuationPrivacyKey {
+            cachedIncomingContinuationCount = nil; cachedContinuationCounts = [:]
+            continuationMetricsPrivacy = continuationPrivacyKey
+        }
+    }
+
+    func refreshContinuationCounts(for stories: [UUID]) async throws {
+        prepareContinuationMetrics()
+        for story in stories { cachedContinuationCounts[story] = nil }
+        if account != nil && !supportsStoryContinuations { throw OiContinuationError.notSupported }
+        guard let api else { throw OiServiceError.configuration }
+        let started = generation, privacy = continuationPrivacyKey
+        let blocked = OiContentSafetyStore.shared.authors.keys.compactMap(UUID.init(uuidString:))
+        for start in stride(from: 0, to: stories.count, by: 200) {
+            let rows = try await api.continuationCounts(Array(stories[start..<min(start + 200, stories.count)]), blocked: blocked)
+            try Task.checkCancellation()
+            guard started == generation, privacy == continuationPrivacyKey else { throw OiServiceError.accountChanged }
+            for row in rows where stories.contains(row.storyId) { cachedContinuationCounts[row.storyId] = row.count }
+        }
+    }
+
+    func readStoryContinuation(_ child: UUID) async throws -> CampusStory {
+        guard let api, account != nil, supportsContinuationNotifications else { throw OiContinuationError.notSupported }
+        let started = generation, privacy = continuationPrivacyKey
+        let row = try await api.readContinuation(child,
+            blocked: OiContentSafetyStore.shared.authors.keys.compactMap(UUID.init(uuidString:)), token: token())
+        try Task.checkCancellation()
+        guard started == generation, privacy == continuationPrivacyKey else { throw OiServiceError.accountChanged }
+        guard row.childStoryId == child, row.story.id == child, row.story.status == "published" else { throw OiServiceError.unavailable }
+        return campusStory(row.story)
     }
 }
 

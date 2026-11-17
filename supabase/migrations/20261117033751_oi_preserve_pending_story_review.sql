@@ -4,7 +4,8 @@ begin;
 -- operator queue. Approval and rejection change its status in the verdict transaction.
 do $patch$
 declare
-  mutation text := pg_get_functiondef('benchmark_private.oi_mutate_internal(text,jsonb,text)'::regprocedure);
+  -- Patch the implementation behind the continuation wrapper so its lock and checks still run.
+  mutation text := pg_get_functiondef('benchmark_private.oi_mutate_continuation_base(text,jsonb,text)'::regprocedure);
   moderation text := pg_get_functiondef('public.oi_moderate_story(uuid,uuid,jsonb,text,text,text)'::regprocedure);
   before_mutation text := $old$      if story.status<>'draft' then raise exception 'Only drafts can be submitted' using errcode='22023'; end if;$old$;
   after_mutation text := $new$      if story.status<>'draft' and not (

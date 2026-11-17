@@ -367,6 +367,10 @@ struct OiDraftCustomization: Codable, Equatable {
     /// Nil preserves the existing preset for older drafts. A look is local until the shared asset API exists.
     var wardrobe: OiWardrobeLook?
     var card: OiCardDesign?
+    /// Story this donation continues from (`이어질 기부 대상`, #411). Local until the server stores the link.
+    var connectedStoryID: String?
+    /// Distinguishes an explicit clear from an older draft without this selection field.
+    var connectedStorySelectionEdited: Bool? = nil
 }
 
 /// Card-space coordinates shared by the small editor frame and the final card.

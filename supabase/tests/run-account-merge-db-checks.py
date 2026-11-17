@@ -36,6 +36,26 @@ def run(command, **options):
         raise RuntimeError(f'Check failed (exit {result.returncode}): {command[0]}\n{log_path.read_text()[-3000:]}')
     return result
 
+def check_continuation_drift(connection, migration):
+    signatures = ['benchmark_private.oi_mutate_internal(text,jsonb,text)',
+                  'benchmark_private.oi_story_review_snapshot(jsonb)', 'public.oi_capabilities()']
+    def query(sql):
+        return subprocess.run(connection + ['-qAtc', sql], capture_output=True, text=True, check=True, timeout=20).stdout.strip()
+    for signature in signatures:
+        definition = query(f"select pg_get_functiondef('{signature}'::regprocedure);")
+        assert definition.count('AS $function$') == 1
+        edited = definition.replace('AS $function$', 'AS $function$\n-- unknown continuation drift\n', 1)
+        run(connection, input=edited, text=True)
+        try:
+            rejected = subprocess.run(connection + ['-f', str(migration)], capture_output=True, text=True, timeout=20)
+            assert rejected.returncode != 0 and 'continuation drift requires' in rejected.stderr, rejected.stderr
+            assert query("select to_regclass('benchmark_private.oi_story_continuations') is null;") == 't'
+            assert query(f"select pg_get_functiondef('{signature}'::regprocedure);") == edited
+        finally:
+            run(connection, input=definition, text=True)
+    print('PASS: continuation mutation, review snapshot and capability drift reject before schema changes')
+
+
 def check_postcard_cover_drift(connection, migration):
     def query(sql):
         return subprocess.run(connection + ['-qAtc', sql], capture_output=True, text=True, check=True, timeout=20).stdout.strip()
@@ -316,6 +336,8 @@ grant execute on function auth.jwt() to anon,authenticated;
                 if migration.name.endswith('_oi_postcard_cover_jpeg.sql'):
                     backfill_before = seed_jpeg_cover_backfill(database)
                     check_jpeg_cover_drift(database, migration)
+                if migration.name.endswith('_oi_story_continuations.sql'):
+                    check_continuation_drift(database, migration)
                 run(database + ['-f', str(migration)])
                 if migration.name.endswith('_oi_postcard_cover_jpeg.sql'):
                     check_jpeg_cover_backfill(database, backfill_before)
@@ -328,6 +350,7 @@ grant execute on function auth.jwt() to anon,authenticated;
             run(database + ['-f', 'supabase/tests/oi-postcard-cover.sql'])
             run(database + ['-f', 'supabase/tests/oi-postcard-cover-jpeg.sql'])
             run(database + ['-f', 'supabase/tests/oi-story-auto-moderation.sql'])
+            run(database + ['-f', 'supabase/tests/oi-story-continuations.sql'])
             run(database + ['-f', 'supabase/tests/oi-education-stories.sql'])
             run(database + ['-f', 'supabase/tests/oi-education-reference-catalog.sql'])
             run(database + ['-f', 'supabase/tests/oi-public-cucumber-appearance.sql'])

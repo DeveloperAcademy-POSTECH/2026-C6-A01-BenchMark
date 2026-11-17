@@ -105,6 +105,7 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
     var cardSnapshotId: UUID? = nil
     var cardSnapshotFormat: Int? = nil
     var cardCoverType: String? = nil
+    var continuedFromStoryId: UUID? = nil
 
     var resolvedCardCoverType: StoryCard.CoverType? {
         cardSnapshotFormat == 3 ? StoryCard.CoverType.resolve(cardCoverType) : nil
@@ -307,6 +308,8 @@ struct OiCapabilities: Decodable {
     var storyCardCover: Bool? = nil
     var storyCardCoverJpeg: Bool? = nil
     var autoStoryModeration: Bool? = nil
+    var storyContinuations: Bool? = nil
+    var storyContinuationNotifications: Bool? = nil
 }
 
 struct OiStoryModerationResult: Decodable, Equatable {
@@ -361,6 +364,8 @@ struct OiStoryDraft: Codable, Equatable {
     var longitude: Double?
     var heightMeters: Double?
     var headingDegrees: Double?
+    var continuedFromStoryID: UUID?
+    var updatesContinuation: Bool? = nil
 
     init() {}
 
@@ -371,6 +376,7 @@ struct OiStoryDraft: Codable, Equatable {
         cucumberAsset = story.cucumberAsset; cardAsset = story.cardAsset
         latitude = story.latitude; longitude = story.longitude
         heightMeters = story.heightMeters; headingDegrees = story.headingDegrees
+        continuedFromStoryID = story.continuedFromStoryId
     }
 
     var valid: Bool {
@@ -390,6 +396,7 @@ struct OiStoryDraft: Codable, Equatable {
                 "card_asset": cardAsset, "latitude": latitude, "longitude": longitude]
         if let heightMeters { fields["height_meters"] = heightMeters }
         if let headingDegrees { fields["heading_degrees"] = headingDegrees }
+        if updatesContinuation == true { fields["continued_from_story_id"] = continuedFromStoryID?.uuidString as Any? ?? NSNull() }
         return fields
     }
 }
