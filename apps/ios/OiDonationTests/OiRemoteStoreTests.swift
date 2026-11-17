@@ -2219,11 +2219,13 @@ final class OiRemoteStoreTests: XCTestCase {
             let remote: OiRemoteStore
             let id: UUID
             let record: (OiStoryEditor.NavigationTestActions) -> Void
+            var presented: ((Bool) -> Void)? = nil
             @State private var selected: UUID?
             @State private var opened = false
             var body: some View {
                 // The list reappears after the pop; open the editor only the first time.
                 Text("story-list-root").onAppear { if !opened { opened = true; selected = id } }
+                    .onChange(of: selected) { _, value in presented?(value != nil) }
                     .navigationDestination(item: $selected) { id in
                         OiStoryEditor(remote: remote, localID: id, onFinish: { selected = nil })
                             .observeNavigationForTest({ _ in }, actions: record)
@@ -2238,8 +2240,9 @@ final class OiRemoteStoreTests: XCTestCase {
         local.draft.cucumberName = "기계이일구오이"
         try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
         var actions: OiStoryEditor.NavigationTestActions?
+        var stillPresented = true
         let controller = UIHostingController(rootView: NavigationStack {
-            Harness(remote: store, id: local.id, record: { actions = $0 })
+            Harness(remote: store, id: local.id, record: { actions = $0 }, presented: { stillPresented = $0 })
         })
         let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
         window.rootViewController = controller; window.isHidden = false
@@ -2260,7 +2263,9 @@ final class OiRemoteStoreTests: XCTestCase {
         let completionDepth = depth()
         XCTAssertGreaterThan(completionDepth, editorDepth, "The completion view is pushed on the navigation stack")
         try XCTUnwrap(actions).completionDone()
+        XCTAssertEqual(depth(), editorDepth - 1, "Both screens must leave in one pop, not completion first and editor after")
         try await Task.sleep(for: .seconds(1.5))
+        XCTAssertFalse(stillPresented, "The list must clear the editor's presentation state")
         XCTAssertEqual(depth(), editorDepth - 1, "Completion Done must return to the story list (editor \(editorDepth), completion \(completionDepth))")
     }
 
@@ -2270,11 +2275,13 @@ final class OiRemoteStoreTests: XCTestCase {
             let remote: OiRemoteStore
             let id: UUID
             let record: (OiStoryEditor.NavigationTestActions) -> Void
+            var presented: ((Bool) -> Void)? = nil
             @State private var showing = false
             @State private var opened = false
             var body: some View {
                 // The list reappears after the pop; open the editor only the first time.
                 Text("story-list-root").onAppear { if !opened { opened = true; showing = true } }
+                    .onChange(of: showing) { _, value in presented?(value) }
                     .navigationDestination(isPresented: $showing) {
                         OiStoryEditor(remote: remote, initialStep: .card, onFinish: { showing = false })
                             .observeNavigationForTest({ _ in }, actions: record)
@@ -2289,8 +2296,9 @@ final class OiRemoteStoreTests: XCTestCase {
         local.draft.cucumberName = "기계이일구오이"
         try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
         var actions: OiStoryEditor.NavigationTestActions?
+        var stillPresented = true
         let controller = UIHostingController(rootView: NavigationStack {
-            Harness(remote: store, id: local.id, record: { actions = $0 })
+            Harness(remote: store, id: local.id, record: { actions = $0 }, presented: { stillPresented = $0 })
         })
         let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
         window.rootViewController = controller; window.isHidden = false
@@ -2311,7 +2319,9 @@ final class OiRemoteStoreTests: XCTestCase {
         let completionDepth = depth()
         XCTAssertGreaterThan(completionDepth, editorDepth, "The completion view is pushed on the navigation stack")
         try XCTUnwrap(actions).completionDone()
+        XCTAssertEqual(depth(), editorDepth - 1, "Both screens must leave in one pop, not completion first and editor after")
         try await Task.sleep(for: .seconds(1.5))
+        XCTAssertFalse(stillPresented, "The list must clear the editor's presentation state")
         XCTAssertEqual(depth(), editorDepth - 1, "Completion Done must return to the story list (editor \(editorDepth), completion \(completionDepth))")
     }
 
@@ -2321,11 +2331,13 @@ final class OiRemoteStoreTests: XCTestCase {
             let remote: OiRemoteStore
             let id: UUID
             let record: (OiStoryEditor.NavigationTestActions) -> Void
+            var presented: ((Bool) -> Void)? = nil
             @State private var selected: UUID?
             @State private var opened = false
             var body: some View {
                 // The list reappears after the pop; open the editor only the first time.
                 Text("story-list-root").onAppear { if !opened { opened = true; selected = id } }
+                    .onChange(of: selected) { _, value in presented?(value != nil) }
                     .navigationDestination(item: $selected) { id in
                         OiStoryEditor(remote: remote, localID: id)
                             .observeNavigationForTest({ _ in }, actions: record)
@@ -2340,8 +2352,9 @@ final class OiRemoteStoreTests: XCTestCase {
         local.draft.cucumberName = "기계이일구오이"
         try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
         var actions: OiStoryEditor.NavigationTestActions?
+        var stillPresented = true
         let controller = UIHostingController(rootView: NavigationStack {
-            Harness(remote: store, id: local.id, record: { actions = $0 })
+            Harness(remote: store, id: local.id, record: { actions = $0 }, presented: { stillPresented = $0 })
         })
         let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
         window.rootViewController = controller; window.isHidden = false
@@ -2362,7 +2375,9 @@ final class OiRemoteStoreTests: XCTestCase {
         let completionDepth = depth()
         XCTAssertGreaterThan(completionDepth, editorDepth, "The completion view is pushed on the navigation stack")
         try XCTUnwrap(actions).completionDone()
+        XCTAssertEqual(depth(), editorDepth - 1, "Both screens must leave in one pop, not completion first and editor after")
         try await Task.sleep(for: .seconds(1.5))
+        XCTAssertFalse(stillPresented, "The list must clear the editor's presentation state")
         XCTAssertEqual(depth(), editorDepth - 1, "Completion Done must return to the story list (editor \(editorDepth), completion \(completionDepth))")
     }
 

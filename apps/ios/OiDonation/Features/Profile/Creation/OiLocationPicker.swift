@@ -382,3 +382,22 @@ private struct OiSwipeBackEnabler: UIViewControllerRepresentable {
 extension View {
     func oiSwipeBackEnabled() -> some View { background(OiSwipeBackEnabler().frame(width: 0, height: 0)) }
 }
+
+/// Hands the enclosing navigation controller to a holder so a screen can pop several levels in one animation.
+final class OiNavigationHolder {
+    weak var navigation: UINavigationController?
+}
+
+private struct OiNavigationCapture: UIViewControllerRepresentable {
+    let holder: OiNavigationHolder
+    func makeUIViewController(context: Context) -> UIViewController { UIViewController() }
+    func updateUIViewController(_ controller: UIViewController, context: Context) {
+        DispatchQueue.main.async { holder.navigation = controller.navigationController }
+    }
+}
+
+extension View {
+    func oiCaptureNavigation(into holder: OiNavigationHolder) -> some View {
+        background(OiNavigationCapture(holder: holder).frame(width: 0, height: 0))
+    }
+}
