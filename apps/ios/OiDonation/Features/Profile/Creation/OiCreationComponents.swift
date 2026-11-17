@@ -604,12 +604,17 @@ struct OiStoryAttachmentSections: View {
 
     /// Same underlined text style as 다시 선택하기, 17pt and centred; sits 12pt closer to the preview above (#430).
     private func resetLink(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title).font(.custom("Paperlogy-4Regular", size: 17, relativeTo: .body)).tracking(0.34)
-                .underline().foregroundStyle(Color(oiRGB: 0x232323))
-                .frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
-        }.buttonStyle(.plain)
-            .padding(.top, -12) // the touch area stays 44pt
+        // Only the text (plus a little padding) is tappable, not the full row.
+        HStack {
+            Spacer(minLength: 0)
+            Button(action: action) {
+                Text(title).font(.custom("Paperlogy-4Regular", size: 17, relativeTo: .body)).tracking(0.34)
+                    .underline().foregroundStyle(Color(oiRGB: 0x232323))
+                    .padding(.horizontal, 8).frame(minHeight: 44).contentShape(Rectangle())
+            }.buttonStyle(.plain)
+            Spacer(minLength: 0)
+        }
+        .padding(.top, -12) // the touch area stays 44pt
     }
 
     /// The underlined text button of the story list's review row (Figma `6101:8973`); the touch area is 44pt high.
