@@ -211,7 +211,7 @@ struct OiStoryPhotoStep<Photo: View>: View {
                 }
             }
         }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: items)
+        .animation(reduceMotion ? nil : OiCreationMotion.screen, value: items)
     }
 
     private func reorderGesture(for item: OiEditingPhoto) -> some Gesture {
