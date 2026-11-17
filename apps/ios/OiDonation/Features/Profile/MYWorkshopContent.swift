@@ -20,10 +20,13 @@ struct MYWorkshopContent: View {
     let tab: MYWorkshopTab
     let demo: MYLibraryStore
     var remote: OiRemoteStore?
+    var storyRepository: any StoryRepository = AppContainer.pilot.storyRepository
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var selectedCard: Selection?
     @State private var pendingDetail: Selection?
     @State private var selectedDetail: Selection?
+    @State private var importTask: Task<Void, Never>?
+    @State private var importing = false
 
     private struct Selection: Identifiable, Hashable {
         let card: MYCard
@@ -42,23 +45,21 @@ struct MYWorkshopContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if tab == .collected { sortChoices.padding(.bottom, 7) }
+            if tab == .collected, remote?.account != nil { sortChoices.padding(.bottom, 7) }
             if let remote, remote.loadError != nil || remote.syncWarning != nil || remote.needsReauthentication {
                 OiConnectionStatus(remote: remote, showsInitialProgress: false)
                     .padding(.bottom, 16)
             }
-            if tab == .connected {
-                ContentUnavailableView("이어진 기부", systemImage: "link",
-                    description: Text("연결된 기부 내역은 아직 제공하지 않습니다."))
-                    .accessibilityIdentifier("my.v4.connected.unavailable")
+            if remote?.account == nil || remote?.needsReauthentication == true {
+                signInMessage
+            } else if tab == .connected {
+                OiContinuationList().frame(minHeight: 400)
             } else if let remote, !remote.hasLoadedRemote {
                 if remote.loadError == nil || remote.isRefreshing {
                     ProgressView().frame(maxWidth: .infinity).padding(.vertical, 40)
                         .accessibilityLabel("MY 목록을 불러오는 중")
                         .accessibilityIdentifier("my.v4.loading")
                 }
-            } else if remote?.account == nil {
-                signInMessage
             } else if tab == .authored {
                 authoredContent
             } else {
@@ -67,6 +68,7 @@ struct MYWorkshopContent: View {
         }
         .environment(remote)
         .sheet(item: $selectedCard, onDismiss: {
+            importTask?.cancel()
             selectedDetail = pendingDetail
             pendingDetail = nil
         }) { selection in
@@ -78,15 +80,26 @@ struct MYWorkshopContent: View {
                     .toolbar(.visible, for: .navigationBar)
             } else if let id = selection.card.storyID, let store = demo.campusStore,
                       let story = store.story(id) {
-                CampusStoryDetailView(story: story, store: store)
+                CampusCucumberStoryView(story: story, store: store)
             } else {
                 MYCardStoryView(card: selection.card)
             }
         }
         .onChange(of: remote?.account?.id) { _, _ in
+            importTask?.cancel()
             selectedCard = nil
             pendingDetail = nil
             selectedDetail = nil
+        }
+        .onDisappear { importTask?.cancel() }
+        .onChange(of: demo.cards.map(\.id)) { _, ids in
+            if let selection = selectedCard, selection.ownedStoryID == nil, !ids.contains(selection.id) {
+                selectedCard = nil
+                pendingDetail = nil
+            }
+            if let selection = selectedDetail, selection.ownedStoryID == nil, !ids.contains(selection.id) {
+                selectedDetail = nil
+            }
         }
         .onChange(of: OiContentSafetyStore.shared.authors) { _, _ in
             if let card = selectedCard, card.ownedStoryID == nil,
@@ -136,6 +149,9 @@ struct MYWorkshopContent: View {
     }
 
     @ViewBuilder private var collectedContent: some View {
+        if let error = demo.clipCollection.persistenceError {
+            Text(error).font(.caption).foregroundStyle(.secondary).padding(.bottom, 12)
+        }
         if cards.isEmpty {
             if remote?.loadError == nil && remote?.needsReauthentication != true {
                 ContentUnavailableView(demo.pinnedOnly ? "고정한 카드가 없어요" : "아직 수집한 카드가 없어요",
@@ -151,14 +167,6 @@ struct MYWorkshopContent: View {
                 }
             }
         }
-        // The existing library retains App Clip records and school grouping.
-        NavigationLink(value: MYDestination.collection) {
-            Label("전체 도감 · App Clip 카드", systemImage: "books.vertical")
-                .font(CampusStyle.body(13)).padding(.vertical, 12)
-                .frame(maxWidth: .infinity, minHeight: 44)
-        }
-        .padding(.top, 16)
-        .accessibilityIdentifier("my.v4.collection.library")
     }
 
     private var columns: [GridItem] {
@@ -249,6 +257,25 @@ struct MYWorkshopContent: View {
                         }
                     }
                     .buttonStyle(.plain).foregroundStyle(.black).frame(maxWidth: 362)
+                    if selection.ownedStoryID == nil, demo.clipRecord(for: selection.card) != nil {
+                        Button("내 계정에 저장") {
+                            guard let remote, !importing else { return }
+                            importing = true
+                            importTask = Task { @MainActor in
+                                defer { importing = false }
+                                _ = await demo.importClipCard(selection.card, into: remote)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(importing || remote?.isBusy == true || remote?.needsReauthentication == true)
+                        .accessibilityIdentifier("my.appClip.import")
+                        Text("이 기기에서 수집한 카드예요. 내 계정에 저장하면 다른 기기에서도 볼 수 있어요.")
+                            .font(.caption).foregroundStyle(.white)
+                        if importing { ProgressView().tint(.white) }
+                        if let error = demo.clipCollection.persistenceError {
+                            Text(error).font(.caption).foregroundStyle(.white)
+                        }
+                    }
                     if let remote, let error = remote.error {
                         Text(error).font(.footnote).foregroundStyle(.white)
                     }

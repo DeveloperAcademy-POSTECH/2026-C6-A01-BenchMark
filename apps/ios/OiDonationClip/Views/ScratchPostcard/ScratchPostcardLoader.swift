@@ -26,6 +26,9 @@ struct ScratchPostcard {
     let character: UIImage?
     /// True while the front or back is still downloading behind an already scratchable card (#348).
     var isLoadingFaces = false
+    var frontFailed = false
+    var backFailed = false
+    var hasFailedFaces: Bool { frontFailed || backFailed }
 
     /// Figma colours a trailing "오이" green, so split it off when the author's name ends with it.
     var nameParts: (lead: String, suffix: String) {
@@ -57,12 +60,15 @@ final class ScratchPostcardLoader {
     private(set) var state: State = .loading
     private var requestID = UUID()
 
-    func load(tag: String, repository: any StoryRepository) async {
+    /// `storyID` skips the tag lookup, for the full app opening a story's postcard straight from the map (#399).
+    func load(tag: String, repository: any StoryRepository, storyID preselected: String? = nil) async {
         let current = UUID()
         requestID = current
         state = .loading
         do {
-            guard let storyID = try await repository.fetchNFCPostcardStoryID(tag: tag),
+            let linked: String?
+            if let preselected { linked = preselected } else { linked = try await repository.fetchNFCPostcardStoryID(tag: tag) }
+            guard let storyID = linked,
                   let fetched = try await repository.fetchPublicPostcard(storyID: storyID) else {
                 guard requestID == current, !Task.isCancelled else { return }
                 state = .unavailable
@@ -79,7 +85,7 @@ final class ScratchPostcardLoader {
             var frontImage: UIImage?
             var hasFront = false
             if cover == nil {
-                frontImage = try await front
+                frontImage = try? await front
                 hasFront = true
                 cover = frontImage.flatMap(Self.postcardWindow)
                 if cover == nil, frontImage == nil {
@@ -98,13 +104,12 @@ final class ScratchPostcardLoader {
             guard requestID == current, !Task.isCancelled else { return }
             state = .loaded(postcard)
 
-            // A face that fails behind a visible card gets one more try before the screen resets.
-            if !hasFront {
-                do { postcard.front = try await front } catch is CancellationError { return }
-                catch { postcard.front = try await Self.image(details.frontURL) }
-            }
-            do { postcard.back = try await back } catch is CancellationError { return }
-            catch { postcard.back = try await Self.image(details.backURL) }
+            if !hasFront { postcard.front = try? await front }
+            if postcard.front == nil, details.frontURL != nil { postcard.front = try? await Self.image(details.frontURL) }
+            postcard.back = try? await back
+            if postcard.back == nil, details.backURL != nil { postcard.back = try? await Self.image(details.backURL) }
+            postcard.frontFailed = details.frontURL != nil && postcard.front == nil
+            postcard.backFailed = details.backURL != nil && postcard.back == nil
             postcard.isLoadingFaces = false
             guard requestID == current, !Task.isCancelled else { return }
             state = .loaded(postcard)
@@ -115,6 +120,43 @@ final class ScratchPostcardLoader {
             state = .failed
         }
     }
+
+    func retryFaces(repository: any StoryRepository, usesTag: Bool) async {
+        guard case .loaded(var postcard) = state, postcard.hasFailedFaces, !postcard.isLoadingFaces else { return }
+        let current = UUID()
+        requestID = current
+        postcard.isLoadingFaces = true
+        state = .loaded(postcard)
+        defer {
+            if requestID == current, case .loaded(var latest) = state {
+                latest.isLoadingFaces = false
+                state = .loaded(latest)
+            }
+        }
+        do {
+            let storyID = postcard.story.storyID
+            let linked = usesTag ? try await repository.fetchNFCPostcardStoryID(tag: postcard.tagID) : storyID
+            let fetched = linked == storyID ? try await repository.fetchPublicPostcard(storyID: storyID) : nil
+            guard requestID == current, !Task.isCancelled else { return }
+            guard let fetched, fetched.card.imageURL?.path == postcard.card.imageURL?.path else {
+                state = .unavailable
+                return
+            }
+            let frontURL = postcard.frontFailed ? fetched.details.frontURL : nil
+            let backURL = postcard.backFailed ? fetched.details.backURL : nil
+            async let front = Self.retryImage(frontURL)
+            async let back = Self.retryImage(backURL)
+            let (newFront, newBack) = await (front, back)
+            guard requestID == current, !Task.isCancelled else { return }
+            if let newFront { postcard.front = newFront; postcard.frontFailed = false }
+            if let newBack { postcard.back = newBack; postcard.backFailed = false }
+            state = .loaded(postcard)
+        } catch {
+            // The loaded postcard and its gesture state survive transient lookup errors.
+        }
+    }
+
+    nonisolated private static func retryImage(_ url: URL?) async -> UIImage? { try? await image(url) }
 
     #if DEBUG
     /// Screenshot hook: launch with `OI_SCRATCH_POSTCARD_STATE=loading|unavailable|failed` to hold that state.
@@ -180,6 +222,7 @@ struct ScratchPostcardScreen: View {
 
     @State private var loader = ScratchPostcardLoader()
     @State private var attempt = 0
+    @State private var faceAttempt = 0
     @State private var showingFullAppOverlay = false
 
     var body: some View {
@@ -189,7 +232,7 @@ struct ScratchPostcardScreen: View {
                 ScratchPostcardView(postcard: postcard,
                     validateCollection: { try await repository.canCollectNFCPostcard(tag: tagID, storyID: postcard.story.storyID) },
                     // A blocked author's postcard reloads into the unavailable state.
-                    onBlock: { attempt += 1 })
+                    onBlock: { attempt += 1 }, onRetryFaces: { faceAttempt += 1 })
             case .loading:
                 ScratchPostcardStatusView(message: "엽서를 꺼내는 중이에요\n잠시만 기다려 주세요") {
                     ProgressView().tint(ScratchPostcardStatusView<EmptyView>.green)
@@ -210,6 +253,10 @@ struct ScratchPostcardScreen: View {
         .background(Color.white.ignoresSafeArea())
         .appStoreOverlay(isPresented: $showingFullAppOverlay) {
             SKOverlay.AppClipConfiguration(position: .bottom)
+        }
+        .task(id: faceAttempt) {
+            guard faceAttempt > 0 else { return }
+            await loader.retryFaces(repository: repository, usesTag: true)
         }
         .task(id: attempt) {
             #if DEBUG
@@ -290,17 +337,23 @@ struct ScratchPostcardFallbackFront: View {
                                       startPoint: .topLeading, endPoint: .bottomTrailing)
 }
 
-/// A face that is still downloading after the card became scratchable (#348).
+/// A face that is loading or awaiting retry after the card became scratchable.
 struct ScratchPostcardPendingFace: View {
+    let isLoading: Bool
+
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 12).fill(ScratchPostcardFallbackFront.paper)
-            ProgressView().scaleEffect(1.6)
+            if isLoading {
+                ProgressView().scaleEffect(1.6)
+            } else {
+                Text("이미지를 불러오지 못했어요").foregroundStyle(.secondary)
+            }
         }
         .frame(width: 362, height: 502)
         .modifier(PostcardCanvas())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("엽서를 불러오는 중")
+        .accessibilityLabel(isLoading ? "엽서를 불러오는 중" : "이미지를 불러오지 못했어요")
     }
 }
 

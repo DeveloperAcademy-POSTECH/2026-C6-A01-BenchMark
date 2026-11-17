@@ -52,6 +52,19 @@ struct OiProfile: Codable, Equatable, Identifiable {
     var admissionYear: String? = nil
 }
 
+extension OiProfile {
+    /// "24학번 반도체공학과 서수리" when the public donor details are set, otherwise the nickname (Figma `5441:17267`).
+    var publicDonorLine: String {
+        func clean(_ value: String?) -> String? {
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        guard let name = clean(publicName) else { return clean(nickname) ?? "익명" }
+        let year = clean(admissionYear).map { "\($0.suffix(2))학번" }
+        return [year, clean(department), name].compactMap { $0 }.joined(separator: " ")
+    }
+}
+
 struct OiPublicAcademicInfo: Equatable {
     var name = ""
     var department = ""
@@ -92,6 +105,7 @@ struct OiLiveStory: Codable, Identifiable, Equatable {
     var cardSnapshotId: UUID? = nil
     var cardSnapshotFormat: Int? = nil
     var cardCoverType: String? = nil
+    var continuedFromStoryId: UUID? = nil
 
     var resolvedCardCoverType: StoryCard.CoverType? {
         cardSnapshotFormat == 3 ? StoryCard.CoverType.resolve(cardCoverType) : nil
@@ -294,6 +308,9 @@ struct OiCapabilities: Decodable {
     var storyCardCover: Bool? = nil
     var storyCardCoverJpeg: Bool? = nil
     var autoStoryModeration: Bool? = nil
+    var operatorManualStoryReview: Bool? = nil
+    var storyContinuations: Bool? = nil
+    var storyContinuationNotifications: Bool? = nil
 }
 
 struct OiStoryModerationResult: Decodable, Equatable {
@@ -348,6 +365,8 @@ struct OiStoryDraft: Codable, Equatable {
     var longitude: Double?
     var heightMeters: Double?
     var headingDegrees: Double?
+    var continuedFromStoryID: UUID?
+    var updatesContinuation: Bool? = nil
 
     init() {}
 
@@ -358,6 +377,7 @@ struct OiStoryDraft: Codable, Equatable {
         cucumberAsset = story.cucumberAsset; cardAsset = story.cardAsset
         latitude = story.latitude; longitude = story.longitude
         heightMeters = story.heightMeters; headingDegrees = story.headingDegrees
+        continuedFromStoryID = story.continuedFromStoryId
     }
 
     var valid: Bool {
@@ -377,6 +397,7 @@ struct OiStoryDraft: Codable, Equatable {
                 "card_asset": cardAsset, "latitude": latitude, "longitude": longitude]
         if let heightMeters { fields["height_meters"] = heightMeters }
         if let headingDegrees { fields["heading_degrees"] = headingDegrees }
+        if updatesContinuation == true { fields["continued_from_story_id"] = continuedFromStoryID?.uuidString as Any? ?? NSNull() }
         return fields
     }
 }
@@ -519,3 +540,8 @@ struct OiContentReport: Decodable, Identifiable, Sendable {
     let reviewNote: String?
 }
 struct OiContentReportReceipt: Decodable { let id: UUID; let status: String }
+
+enum CampusBuildingNoteError: LocalizedError {
+    case notDeployed
+    var errorDescription: String? { "건물 글 서비스를 아직 사용할 수 없어요. 잠시 후 다시 시도해 주세요." }
+}

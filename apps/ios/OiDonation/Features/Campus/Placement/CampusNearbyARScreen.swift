@@ -124,7 +124,7 @@ private struct CampusNearbyStoryView: View {
     @State private var error: String?
     var body: some View {
         Group {
-            if let story { CampusStoryDetailView(story: story, store: stories) }
+            if let story { CampusCucumberStoryView(story: story, store: stories) }
             else if let error { ContentUnavailableView("이야기를 확인할 수 없어요", systemImage: "leaf", description: Text(error)) }
             else { ProgressView().accessibilityLabel("이야기 확인 중") }
         }
@@ -132,6 +132,8 @@ private struct CampusNearbyStoryView: View {
             switch destination {
             case .summary(let value), .story(let value):
                 if let nextID = UUID(uuidString: value) { CampusNearbyStoryView(id: nextID, stories: stories, remote: remote) }
+            case .scratch, .storyList:
+                EmptyView()
             }
         }
         .task(id: id) {

@@ -7,33 +7,34 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		C37911160000000000000001 /* MYV4Figma in Resources */ = {isa = PBXBuildFile; fileRef = C37911160000000000000002 /* MYV4Figma */; };
-		C15811050000000000000001 /* OiSchoolEvidenceContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15811050000000000000002; };
+		87169571307CB1D00090D456 /* OiDonationClip.app in Embed App Clips */ = {isa = PBXBuildFile; fileRef = 87169565307CB1CF0090D456 /* OiDonationClip.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B10000000000000000000009 /* OiDonationTests/OiRemoteStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008 /* OiDonationTests/OiRemoteStoreTests.swift */; };
 		C10911020000000000000005 /* OiCats PNG in Resources */ = {isa = PBXBuildFile; fileRef = C10911020000000000000001 /* OiCats PNG */; };
 		C10911020000000000000006 /* OiGardener PNG in Resources */ = {isa = PBXBuildFile; fileRef = C10911020000000000000002 /* OiGardener PNG */; };
 		C10911020000000000000007 /* OiWizard PNG in Resources */ = {isa = PBXBuildFile; fileRef = C10911020000000000000003 /* OiWizard PNG */; };
 		C10911020000000000000008 /* OiTraveler PNG in Resources */ = {isa = PBXBuildFile; fileRef = C10911020000000000000004 /* OiTraveler PNG */; };
-		B10000000000000000000009 /* OiRemoteStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008; };
-		C13211030000000000000011 /* OiFigmaFidelityVisualTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13211030000000000000010; };
-		87169571307CB1D00090D456 /* OiDonationClip.app in Embed App Clips */ = {isa = PBXBuildFile; fileRef = 87169565307CB1CF0090D456 /* OiDonationClip.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		C02610260000000000000001 /* OiDonation.icon in Resources */ = {isa = PBXBuildFile; fileRef = C02610260000000000000002 /* OiDonation.icon */; };
-		C15211040000000000000002 /* CampusMapInteractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15211040000000000000001; };
+		C13211030000000000000011 /* OiDonationTests/OiFigmaFidelityVisualTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13211030000000000000010 /* OiDonationTests/OiFigmaFidelityVisualTests.swift */; };
+		C15211040000000000000002 /* OiDonationTests/CampusMapInteractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15211040000000000000001 /* OiDonationTests/CampusMapInteractionTests.swift */; };
+		C15811050000000000000001 /* OiDonationTests/OiSchoolEvidenceContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15811050000000000000002 /* OiDonationTests/OiSchoolEvidenceContractTests.swift */; };
+		C37911160000000000000001 /* OiDonationTests/Fixtures/MYV4Figma in Resources */ = {isa = PBXBuildFile; fileRef = C37911160000000000000002 /* OiDonationTests/Fixtures/MYV4Figma */; };
+		C59111160000000000000001 /* CampusBuildingNotesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59111160000000000000002; };
+		C41811170000000000000001 /* OiStoryContinuationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41811170000000000000002; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		B1000000000000000000000B = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 8736DA6130777C9800D0CFC9;
-			proxyType = 1;
-			remoteGlobalIDString = 8736DA6830777C9800D0CFC9;
-			remoteInfo = OiDonation;
-		};
 		8716956F307CB1D00090D456 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 8736DA6130777C9800D0CFC9 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 87169564307CB1CF0090D456;
 			remoteInfo = OiDonationClip;
+		};
+		B1000000000000000000000B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8736DA6130777C9800D0CFC9 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8736DA6830777C9800D0CFC9;
+			remoteInfo = OiDonation;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -52,33 +53,29 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		C37911160000000000000002 /* MYV4Figma */ = {isa = PBXFileReference; lastKnownFileType = folder; path = OiDonationTests/Fixtures/MYV4Figma; sourceTree = SOURCE_ROOT; };
-		C15811050000000000000002 /* OiSchoolEvidenceContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiSchoolEvidenceContractTests.swift; sourceTree = SOURCE_ROOT; };
+		87169565307CB1CF0090D456 /* OiDonationClip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OiDonationClip.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8736DA6930777C9800D0CFC9 /* OiDonation.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OiDonation.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000000000000000000007 /* OiDonationTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = OiDonationTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000000000000000000008 /* OiDonationTests/OiRemoteStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiRemoteStoreTests.swift; sourceTree = SOURCE_ROOT; };
+		C02610260000000000000002 /* OiDonation.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = OiDonation.icon; path = "../../design/app-icon/OiDonation.icon"; sourceTree = SOURCE_ROOT; };
 		C10911020000000000000001 /* OiCats PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiCats PNG"; path = Resources/AppClipPresets/61272.png; sourceTree = SOURCE_ROOT; };
 		C10911020000000000000002 /* OiGardener PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiGardener PNG"; path = Resources/AppClipPresets/0e35d.png; sourceTree = SOURCE_ROOT; };
 		C10911020000000000000003 /* OiWizard PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiWizard PNG"; path = Resources/AppClipPresets/9ac42.png; sourceTree = SOURCE_ROOT; };
 		C10911020000000000000004 /* OiTraveler PNG */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "OiTraveler PNG"; path = Resources/AppClipPresets/aeb3a.png; sourceTree = SOURCE_ROOT; };
-		B10000000000000000000007 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = OiDonationTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		B10000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiRemoteStoreTests.swift; sourceTree = SOURCE_ROOT; };
-		C13211030000000000000010 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiFigmaFidelityVisualTests.swift; sourceTree = SOURCE_ROOT; };
-		87169565307CB1CF0090D456 /* OiDonationClip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OiDonationClip.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		8736DA6930777C9800D0CFC9 /* OiDonation.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OiDonation.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		C02610260000000000000002 /* OiDonation.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = OiDonation.icon; path = "../../design/app-icon/OiDonation.icon"; sourceTree = SOURCE_ROOT; };
-		C15211040000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/CampusMapInteractionTests.swift; sourceTree = SOURCE_ROOT; };
+		C13211030000000000000010 /* OiDonationTests/OiFigmaFidelityVisualTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiFigmaFidelityVisualTests.swift; sourceTree = SOURCE_ROOT; };
+		C15211040000000000000001 /* OiDonationTests/CampusMapInteractionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/CampusMapInteractionTests.swift; sourceTree = SOURCE_ROOT; };
+		C15811050000000000000002 /* OiDonationTests/OiSchoolEvidenceContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiSchoolEvidenceContractTests.swift; sourceTree = SOURCE_ROOT; };
+		C37911160000000000000002 /* OiDonationTests/Fixtures/MYV4Figma */ = {isa = PBXFileReference; lastKnownFileType = folder; path = OiDonationTests/Fixtures/MYV4Figma; sourceTree = SOURCE_ROOT; };
+		C59111160000000000000002 /* CampusBuildingNotesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/CampusBuildingNotesTests.swift; sourceTree = SOURCE_ROOT; };
+		C41811170000000000000002 /* OiStoryContinuationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiStoryContinuationTests.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		B10000000000000000000001 /* Main app Info.plist */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (Info.plist,);
-			target = 8736DA6830777C9800D0CFC9 /* OiDonation */;
-		};
 		87169575307CB1D00090D456 /* Exceptions for "OiDonationClip" folder in "OiDonationClip" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 				Models/AppClipExperience.swift,
-				Views/StoryCard/AppClipCardPreview.swift,
 				Views/ARGame/ARGameCameraView.swift,
 				Views/ARGame/ARGameFailureView.swift,
 				Views/ARGame/ARGameFlowView.swift,
@@ -90,6 +87,7 @@
 				Views/ARGame/ARGameViewModel.swift,
 				Views/ARGame/CucumberArtwork.swift,
 				Views/ARGame/CucumberCharacterImage.swift,
+				Views/StoryCard/AppClipCardPreview.swift,
 				Views/StoryCard/AppClipStoryCardView.swift,
 			);
 			target = 87169564307CB1CF0090D456 /* OiDonationClip */;
@@ -99,34 +97,39 @@
 			membershipExceptions = (
 				Data/Networking/APIClient.swift,
 				Domain/Models/CollectedStoryCard.swift,
-				Domain/Models/Story.swift,
 				Domain/Models/OiContentSafetyStore.swift,
-				Domain/Models/StoryCard.swift,
 				Domain/Models/OiSampleStory.swift,
+				Domain/Models/Story.swift,
+				Domain/Models/StoryCard.swift,
+				Domain/Repositories/StoryRepository.swift,
+				Domain/Routing/AppClipLink.swift,
 				Features/Campus/CampusStory.swift,
 				Features/Campus/CampusStoryExamples.swift,
 				Features/Campus/CampusStyle.swift,
-				Domain/Repositories/StoryRepository.swift,
-				Domain/Routing/AppClipLink.swift,
 				"Resources/Fonts/Paperlogy-3Light.ttf",
 				"Resources/Fonts/Paperlogy-4Regular.ttf",
+				"Resources/Fonts/Paperlogy-5Medium.ttf",
 				"Resources/Fonts/Paperlogy-6SemiBold.ttf",
 				"Resources/Fonts/Paperlogy-7Bold.ttf",
 				"Resources/Fonts/Paperlogy-OFL.txt",
-				"Resources/OiStoryCardAssets.xcassets",
-				"Shared/Components/OiStoryCardArtwork.swift",
-				"Shared/Components/OiContentSafetyView.swift",
-				"Shared/Components/OiSupportView.swift",
-				"Resources/Fonts/Paperlogy-5Medium.ttf",
+				Resources/OiStoryCardAssets.xcassets,
+				Shared/Components/OiContentSafetyView.swift,
+				Shared/Components/OiStoryCardArtwork.swift,
+				Shared/Components/OiSupportView.swift,
 			);
 			target = 87169564307CB1CF0090D456 /* OiDonationClip */;
 		};
-		C13211030000000000000001 /* Shared collection game in main app */ = {
+		B10000000000000000000001 /* Exceptions for "OiDonation" folder in "OiDonation" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 8736DA6830777C9800D0CFC9 /* OiDonation */;
+		};
+		C13211030000000000000001 /* Exceptions for "OiDonationClip" folder in "OiDonation" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Models/AppClipExperience.swift,
-				Views/StoryCard/AppClipCardPreview.swift,
-				Views/StoryCard/AppClipStoryCardView.swift,
 				Views/ARGame/ARGameCameraView.swift,
 				Views/ARGame/ARGameFailureView.swift,
 				Views/ARGame/ARGameFlowView.swift,
@@ -138,6 +141,13 @@
 				Views/ARGame/ARGameViewModel.swift,
 				Views/ARGame/CucumberArtwork.swift,
 				Views/ARGame/CucumberCharacterImage.swift,
+				Views/ScratchPostcard/ScratchCover.swift,
+				Views/ScratchPostcard/ScratchCoverage.swift,
+				Views/ScratchPostcard/ScratchPostcardEffects.swift,
+				Views/ScratchPostcard/ScratchPostcardLoader.swift,
+				Views/ScratchPostcard/ScratchPostcardView.swift,
+				Views/StoryCard/AppClipCardPreview.swift,
+				Views/StoryCard/AppClipStoryCardView.swift,
 			);
 			target = 8736DA6830777C9800D0CFC9 /* OiDonation */;
 		};
@@ -147,8 +157,8 @@
 		87169566307CB1CF0090D456 /* OiDonationClip */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
+				C13211030000000000000001 /* Exceptions for "OiDonationClip" folder in "OiDonation" target */,
 				87169575307CB1D00090D456 /* Exceptions for "OiDonationClip" folder in "OiDonationClip" target */,
-				C13211030000000000000001 /* Shared collection game in main app */,
 			);
 			path = OiDonationClip;
 			sourceTree = "<group>";
@@ -156,7 +166,7 @@
 		8736DA6B30777C9800D0CFC9 /* OiDonation */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				B10000000000000000000001 /* Main app Info.plist */,
+				B10000000000000000000001 /* Exceptions for "OiDonation" folder in "OiDonation" target */,
 				8716959A307D0BAE0090D456 /* Exceptions for "OiDonation" folder in "OiDonationClip" target */,
 			);
 			path = OiDonation;
@@ -165,7 +175,6 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		B10000000000000000000005 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 		87169562307CB1CF0090D456 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -180,28 +189,26 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B10000000000000000000005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		C10911020000000000000009 /* App Clip Character Resources */ = {
-			isa = PBXGroup;
-			children = (
-				C10911020000000000000001 /* OiCats PNG */,
-				C10911020000000000000002 /* OiGardener PNG */,
-				C10911020000000000000003 /* OiWizard PNG */,
-				C10911020000000000000004 /* OiTraveler PNG */,
-			);
-			name = "App Clip Character Resources";
-			sourceTree = "<group>";
-		};
 		8736DA6030777C9800D0CFC9 = {
 			isa = PBXGroup;
 			children = (
-				B10000000000000000000008,
-				C13211030000000000000010,
-				C37911160000000000000002 /* MYV4Figma */,
-				C15211040000000000000001 /* CampusMapInteractionTests.swift */,
-				C15811050000000000000002,
+				C41811170000000000000002 /* OiStoryContinuationTests.swift */,
+				C59111160000000000000002 /* CampusBuildingNotesTests.swift */,
+				B10000000000000000000008 /* OiDonationTests/OiRemoteStoreTests.swift */,
+				C13211030000000000000010 /* OiDonationTests/OiFigmaFidelityVisualTests.swift */,
+				C37911160000000000000002 /* OiDonationTests/Fixtures/MYV4Figma */,
+				C15211040000000000000001 /* OiDonationTests/CampusMapInteractionTests.swift */,
+				C15811050000000000000002 /* OiDonationTests/OiSchoolEvidenceContractTests.swift */,
 				8736DA6B30777C9800D0CFC9 /* OiDonation */,
 				87169566307CB1CF0090D456 /* OiDonationClip */,
 				C10911020000000000000009 /* App Clip Character Resources */,
@@ -213,27 +220,27 @@
 		8736DA6A30777C9800D0CFC9 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				B10000000000000000000007,
+				B10000000000000000000007 /* OiDonationTests.xctest */,
 				8736DA6930777C9800D0CFC9 /* OiDonation.app */,
 				87169565307CB1CF0090D456 /* OiDonationClip.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
+		C10911020000000000000009 /* App Clip Character Resources */ = {
+			isa = PBXGroup;
+			children = (
+				C10911020000000000000001 /* OiCats PNG */,
+				C10911020000000000000002 /* OiGardener PNG */,
+				C10911020000000000000003 /* OiWizard PNG */,
+				C10911020000000000000004 /* OiTraveler PNG */,
+			);
+			name = "App Clip Character Resources";
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		B10000000000000000000002 /* OiDonationTests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = B10000000000000000000003;
-			buildPhases = (B10000000000000000000004, B10000000000000000000005, B10000000000000000000006,);
-			buildRules = ();
-			dependencies = (B1000000000000000000000A,);
-			name = OiDonationTests;
-			productName = OiDonationTests;
-			productReference = B10000000000000000000007;
-			productType = "com.apple.product-type.bundle.unit-test";
-		};
 		87169564307CB1CF0090D456 /* OiDonationClip */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 87169576307CB1D00090D456 /* Build configuration list for PBXNativeTarget "OiDonationClip" */;
@@ -282,6 +289,24 @@
 			productReference = 8736DA6930777C9800D0CFC9 /* OiDonation.app */;
 			productType = "com.apple.product-type.application";
 		};
+		B10000000000000000000002 /* OiDonationTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B10000000000000000000003 /* Build configuration list for PBXNativeTarget "OiDonationTests" */;
+			buildPhases = (
+				B10000000000000000000004 /* Sources */,
+				B10000000000000000000005 /* Frameworks */,
+				B10000000000000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B1000000000000000000000A /* PBXTargetDependency */,
+			);
+			name = OiDonationTests;
+			productName = OiDonationTests;
+			productReference = B10000000000000000000007 /* OiDonationTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -322,7 +347,6 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		B10000000000000000000006 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (C37911160000000000000001 /* MYV4Figma in Resources */,); runOnlyForDeploymentPostprocessing = 0; };
 		87169563307CB1CF0090D456 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -338,6 +362,14 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B10000000000000000000006 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C37911160000000000000001 /* OiDonationTests/Fixtures/MYV4Figma in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -383,7 +415,6 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		B10000000000000000000004 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (B10000000000000000000009,C13211030000000000000011,C15211040000000000000002,C15811050000000000000001,); runOnlyForDeploymentPostprocessing = 0; };
 		87169561307CB1CF0090D456 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -398,60 +429,43 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B10000000000000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C41811170000000000000001 /* OiStoryContinuationTests.swift in Sources */,
+				C59111160000000000000001 /* CampusBuildingNotesTests.swift in Sources */,
+				B10000000000000000000009 /* OiDonationTests/OiRemoteStoreTests.swift in Sources */,
+				C13211030000000000000011 /* OiDonationTests/OiFigmaFidelityVisualTests.swift in Sources */,
+				C15211040000000000000002 /* OiDonationTests/CampusMapInteractionTests.swift in Sources */,
+				C15811050000000000000001 /* OiDonationTests/OiSchoolEvidenceContractTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		B1000000000000000000000A = {isa = PBXTargetDependency; target = 8736DA6830777C9800D0CFC9; targetProxy = B1000000000000000000000B; };
 		87169570307CB1D00090D456 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 87169564307CB1CF0090D456 /* OiDonationClip */;
 			targetProxy = 8716956F307CB1D00090D456 /* PBXContainerItemProxy */;
 		};
+		B1000000000000000000000A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8736DA6830777C9800D0CFC9 /* OiDonation */;
+			targetProxy = B1000000000000000000000B /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		B1000000000000000000000C = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
-				PRODUCT_BUNDLE_IDENTIFIER = com.Spero.OiDonation.Tests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OiDonation.app/OiDonation";
-			};
-			name = Debug;
-		};
-		B1000000000000000000000D = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
-				PRODUCT_BUNDLE_IDENTIFIER = com.Spero.OiDonation.Tests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OiDonation.app/OiDonation";
-			};
-			name = Release;
-		};
 		87169573307CB1D00090D456 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				COMPRESS_PNG_FILES = NO;
 				CODE_SIGN_ENTITLEMENTS = OiDonationClip/OiDonationClip.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				COMPRESS_PNG_FILES = NO;
 				CURRENT_PROJECT_VERSION = 20261114;
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
@@ -487,9 +501,9 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				COMPRESS_PNG_FILES = NO;
 				CODE_SIGN_ENTITLEMENTS = OiDonationClip/OiDonationClip.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				COMPRESS_PNG_FILES = NO;
 				CURRENT_PROJECT_VERSION = 20261114;
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
@@ -652,10 +666,10 @@
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NFCReaderUsageDescription = "App Clip을 여는 링크를 NFC 태그에 기록하고 기록 내용을 확인하기 위해 사용합니다.";
 				INFOPLIST_FILE = OiDonation/Info.plist;
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "오이 수집·요청 지역을 확인하고 캠퍼스 지도와 현장 AR에서 위치를 사용합니다.";
+				INFOPLIST_KEY_NFCReaderUsageDescription = "App Clip을 여는 링크를 NFC 태그에 기록하고 기록 내용을 확인하기 위해 사용합니다.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "학교 소속 증빙을 촬영하거나 AR 캐릭터와 함께 사진을 찍기 위해 카메라를 사용합니다.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "오이 수집·요청 지역을 확인하고 캠퍼스 지도와 현장 AR에서 위치를 사용합니다.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "AR 영상에 음성을 함께 녹음하기 위해 마이크를 사용합니다.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "사용자가 선택한 AR 사진, 콜라주와 꾸민 카드 이미지를 사진 보관함에 저장합니다.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -691,10 +705,10 @@
 				DEVELOPMENT_TEAM = K8XVU78YCP;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NFCReaderUsageDescription = "App Clip을 여는 링크를 NFC 태그에 기록하고 기록 내용을 확인하기 위해 사용합니다.";
 				INFOPLIST_FILE = OiDonation/Info.plist;
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "오이 수집·요청 지역을 확인하고 캠퍼스 지도와 현장 AR에서 위치를 사용합니다.";
+				INFOPLIST_KEY_NFCReaderUsageDescription = "App Clip을 여는 링크를 NFC 태그에 기록하고 기록 내용을 확인하기 위해 사용합니다.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "학교 소속 증빙을 촬영하거나 AR 캐릭터와 함께 사진을 찍기 위해 카메라를 사용합니다.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "오이 수집·요청 지역을 확인하고 캠퍼스 지도와 현장 AR에서 위치를 사용합니다.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "AR 영상에 음성을 함께 녹음하기 위해 마이크를 사용합니다.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "사용자가 선택한 AR 사진, 콜라주와 꾸민 카드 이미지를 사진 보관함에 저장합니다.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -719,15 +733,43 @@
 			};
 			name = Release;
 		};
+		B1000000000000000000000C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				PRODUCT_BUNDLE_IDENTIFIER = com.Spero.OiDonation.Tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OiDonation.app/OiDonation";
+			};
+			name = Debug;
+		};
+		B1000000000000000000000D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				PRODUCT_BUNDLE_IDENTIFIER = com.Spero.OiDonation.Tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OiDonation.app/OiDonation";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		B10000000000000000000003 = {
-			isa = XCConfigurationList;
-			buildConfigurations = (B1000000000000000000000C, B1000000000000000000000D,);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Debug;
-		};
 		87169576307CB1D00090D456 /* Build configuration list for PBXNativeTarget "OiDonationClip" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -754,6 +796,15 @@
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
+		};
+		B10000000000000000000003 /* Build configuration list for PBXNativeTarget "OiDonationTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B1000000000000000000000C /* Debug */,
+				B1000000000000000000000D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
 	};

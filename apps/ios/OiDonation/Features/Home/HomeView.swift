@@ -24,11 +24,13 @@ struct HomeView: View {
     @State private var isSearchCoverActive = false
     @State private var searchMode: CampusSearchMode?
     @State private var pendingStoryID: String?
-    @State private var showingRequests = false
+    @State private var showingNotifications = false
+    @State private var pendingNotificationStoryID: String?
     @State private var listIsAtTop = true
     /// Live vertical drag of the region list: negative grows it, positive pulls it down (#395).
     @State private var listDrag: CGFloat = 0
     @State private var showingEducationDistrict = false
+    @State private var selectedBuilding: CampusBuildingTarget?
     @State private var loadedAuthoredSource: AuthoredPlacementSource?
     @State private var selectedAuthoredDestination: AuthoredDestination?
 
@@ -57,15 +59,23 @@ struct HomeView: View {
         return remote.isRefreshing && !remote.hasLoadedRemote
     }
 
+    private var canOpenNotifications: Bool {
+        remote?.account != nil && remote?.needsReauthentication == false
+    }
+
     var body: some View {
         let authoredSource = authoredPlacementSource
         GeometryReader { geometry in
             ZStack {
-                CampusMapSurface(scene: scene).ignoresSafeArea().accessibilityHidden(expanded)
+                CampusMapSurface(scene: scene)
+                    .frame(height: selectedBuilding == nil ? nil : max(120, geometry.size.height - buildingPanelHeight(geometry.size.height) + geometry.safeAreaInsets.top + 40))
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .ignoresSafeArea(edges: selectedBuilding == nil ? .all : .top)
+                    .accessibilityHidden(expanded)
                 VStack {
-                    mapHeader.padding(.horizontal, 20).padding(.top, region == nil ? 9 : 4)
+                    mapHeader.padding(.horizontal, 20).padding(.top, region == nil && selectedBuilding == nil ? 9 : 4)
                     Spacer()
-                    if region == nil {
+                    if region == nil && selectedBuilding == nil {
                         if let remote, remote.loadError != nil || remote.syncWarning != nil || remote.needsReauthentication {
                             OiConnectionStatus(remote: remote, showsInitialProgress: false)
                                 .padding(10).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 20)
@@ -92,7 +102,13 @@ struct HomeView: View {
             }
             // Keep the RealityKit viewport fixed while the list changes height.
             .overlay(alignment: .bottom) {
-                if let region {
+                if let building = selectedBuilding, let remote {
+                    CampusBuildingNotesView(building: building, remote: remote).id(building.id)
+                        .frame(height: buildingPanelHeight(geometry.size.height))
+                        .background(alignment: .bottom) {
+                            Color.white.frame(height: 50).padding(.bottom, -geometry.safeAreaInsets.bottom)
+                        }
+                } else if let region {
                     regionPanel(region, availableHeight: geometry.size.height, bottomInset: geometry.safeAreaInsets.bottom)
                         .transition(.move(edge: .bottom))
                 }
@@ -104,19 +120,20 @@ struct HomeView: View {
             .onChange(of: geometry.safeAreaInsets) { _, _ in configureMapLabels(geometry) }
             .onChange(of: region?.id) { _, _ in configureMapLabels(geometry) }
             .onChange(of: expanded) { _, _ in configureMapLabels(geometry) }
+            .onChange(of: selectedBuilding?.id) { _, _ in configureMapLabels(geometry) }
         }
         .toolbar(.hidden, for: .navigationBar)
         .background(CampusStyle.lightGreen)
         .navigationDestination(for: MYDestination.self) { destination in
             switch destination {
             case .workshop:
-                MYWorkshopView(demo: myDemo, remote: remote)
+                MYWorkshopView(demo: myDemo, remote: remote, storyRepository: container.storyRepository)
             case .cucumberCustomization:
                 OiSeedCucumberCustomizationView()
                     .toolbar(.visible, for: .navigationBar)
             case .farm: MYFarmView(remote: remote).id(remote?.account?.id)
-            case .collection: MYCollectionView(demo: myDemo, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
-            case .school(let school): MYCollectionView(demo: myDemo, school: school, storyRepository: container.storyRepository, remote: remote).id(remote?.account?.id)
+            case .collectedWorkshop: MYWorkshopView(demo: myDemo, remote: remote, initialTab: .collected,
+                                                   storyRepository: container.storyRepository)
             }
         }
         .sheet(isPresented: $showingEducationDistrict, onDismiss: { scene.finishEducationDistrict() }) {
@@ -162,8 +179,17 @@ struct HomeView: View {
                 pendingStoryID = $0.id; searchMode = nil
             }
         }
-        .sheet(isPresented: $showingRequests) {
-            if let remote { CampusCardRequestSheet(remote: remote).id(remote.account?.id) }
+        .sheet(isPresented: $showingNotifications, onDismiss: {
+            if let id = pendingNotificationStoryID { pendingNotificationStoryID = nil; openStory(id) }
+        }) {
+            if canOpenNotifications, let remote {
+                CampusNotificationSheet(remote: remote) { id in
+                    pendingNotificationStoryID = id; showingNotifications = false
+                }.id(remote.account?.id)
+            }
+        }
+        .onChange(of: canOpenNotifications) { _, canOpen in
+            if !canOpen { pendingNotificationStoryID = nil; showingNotifications = false }
         }
         .task {
             configureSceneCallbacks()
@@ -222,6 +248,9 @@ struct HomeView: View {
     }
 
     private func configureSceneCallbacks() {
+        if remote != nil {
+            scene.onBuilding = { building in selectedBuilding = building; expanded = false }
+        }
         scene.onEducationDistrict = { showingEducationDistrict = true }
         if let remote {
             scene.loadCucumberPortrait = { try await remote.cucumberImage($0) }
@@ -298,6 +327,7 @@ struct HomeView: View {
         guard let placement = item?.placement ?? story?.campusPlacement,
               let selectedRegion = CampusRegion.campus.first(where: { $0.id == (item?.regionID ?? story?.regionId) }) ?? scene.nearestRegion()
         else { return }
+        if selectedBuilding != nil { selectedBuilding = nil; scene.finishBuilding() }
         region = selectedRegion; expanded = false; sort = .latest; searchResults = nil
         scene.focus(selectedRegion, stories: store.stories(in: selectedRegion.id, sortedBy: .latest), placement: placement)
         distances = scene.distances()
@@ -305,6 +335,10 @@ struct HomeView: View {
     }
 
     private func configureMapLabels(_ geometry: GeometryProxy) {
+        if selectedBuilding != nil {
+            scene.setMapLabelPresentation(enabled: false, topInset: 0, bottomInset: 0)
+            return
+        }
         let bottom = region == nil ? 8 : regionPanelHeight(geometry.size.height) + 58
         let bottomY = geometry.size.height + geometry.safeAreaInsets.top
         let controls = region == nil ? [
@@ -320,6 +354,10 @@ struct HomeView: View {
         expanded ? max(200, availableHeight - 68) : max(220, availableHeight * 0.416)
     }
 
+    private func buildingPanelHeight(_ availableHeight: CGFloat) -> CGFloat {
+        min(481, max(240, availableHeight * 0.618))
+    }
+
     private var homeActions: some View {
         HStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 8) {
@@ -330,8 +368,8 @@ struct HomeView: View {
             }.disabled(store.isExample)
             Spacer()
             VStack(spacing: 10) {
-                if remote != nil {
-                    mapAction("envelope", label: "카드 요청", id: "campus.requests") { showingRequests = true }
+                if canOpenNotifications {
+                    mapAction("envelope", label: "알림", id: "campus.notifications") { showingNotifications = true }
                 }
                 mapAction("magnifyingglass", label: "오이 검색", id: "campus.search",
                     background: "CampusMapSearchBackground") { showingSearchChoice = true }
@@ -387,7 +425,17 @@ struct HomeView: View {
 
     private var mapHeader: some View {
         HStack(alignment: .top) {
-            if region != nil {
+            if selectedBuilding != nil {
+                Button {
+                    selectedBuilding = nil
+                    scene.finishBuilding()
+                } label: {
+                    Image(systemName: "chevron.left").font(.system(size: 19, weight: .semibold))
+                        .frame(width: 50, height: 50).contentShape(Circle())
+                }.buttonStyle(.plain).glassEffect(.regular.interactive(), in: Circle())
+                    .accessibilityLabel("지도 탐색으로 돌아가기").accessibilityIdentifier("campus.notes.close")
+                Spacer()
+            } else if region != nil {
                 // No back button (#395): tap the map outside the list or swipe the list down to close it.
                 Spacer().frame(height: 50)
             } else {
@@ -403,7 +451,7 @@ struct HomeView: View {
             }
         }
         .overlay(alignment: .top) {
-            if region != nil && !expanded {
+            if selectedBuilding == nil && region != nil && !expanded {
                 searchAreaButton.alignmentGuide(.top) { ($0.height - 34) / 2 }.transition(.opacity)
             }
         }
@@ -466,8 +514,13 @@ struct HomeView: View {
                                 .font(CampusStyle.body(14)).foregroundStyle(.secondary).padding()
                         }
                         ForEach(items) { story in
-                            Button { openStory(story.id) } label: { CampusStoryRow(story: story) }
-                                .buttonStyle(.plain).accessibilityIdentifier("campus.row.\(story.id)")
+                            // Same card as the story list (Figma `5441:17267`, #399).
+                            Button { openStory(story.id) } label: {
+                                OiCucumberCard(name: story.title, tags: story.tags, donor: story.donor,
+                                               title: story.storyTitle) { CampusCucumberPortrait(story: story) }
+                            }
+                            .buttonStyle(.plain).accessibilityIdentifier("campus.row.\(story.id)")
+                            .accessibilityElement(children: .combine)
                         }
                     }.padding(.bottom, 12)
                 }.scrollIndicators(.hidden)

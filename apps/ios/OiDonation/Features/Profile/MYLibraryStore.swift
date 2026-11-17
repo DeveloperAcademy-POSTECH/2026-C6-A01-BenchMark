@@ -43,6 +43,7 @@ struct MYCard: Identifiable, Hashable {
 
 @MainActor @Observable
 final class MYLibraryStore {
+    let clipCollection: StoryCollectionStore
     private(set) var nickname = "농부"
     private(set) var cards: [MYCard] = []
     var favoriteAction: ((MYCard) -> Void)?
@@ -52,7 +53,9 @@ final class MYLibraryStore {
     var collectionSort = MYCardSort.latest
     var pinnedOnly = false
 
-    init() {}
+    init(clipCollection: StoryCollectionStore? = nil) {
+        self.clipCollection = clipCollection ?? StoryCollectionStore()
+    }
 
     func collectionCards(school: MYSchool?, sort: MYCardSort, pinnedOnly: Bool) -> [MYCard] {
         cards.filter { (school == nil || $0.school == school) && (!pinnedOnly || favorites.contains($0.id)) }
@@ -79,6 +82,6 @@ enum MYDestination: Hashable {
     case workshop
     case cucumberCustomization
     case farm
-    case collection
-    case school(MYSchool)
+    /// The workshop opened on `수집한 기부` (after saving a scratched postcard, #399).
+    case collectedWorkshop
 }

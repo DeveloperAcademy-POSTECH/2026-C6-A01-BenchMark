@@ -13,11 +13,39 @@ import SwiftUI
 /// Layout follows Figma "수집 시작 뷰"(5441:15795) and "수집 성공 뷰"(5400:14734). Content comes from the
 /// published story linked to the tag. Saving records the story in the shared App Group collection, so the
 /// full app shows it under "App Clip에서 수집한 카드" after install.
+/// How the full app presents the postcard from the map (#399): a back button instead of the App Clip menu,
+/// and two bottom buttons — keep donating (story list) and save to the account's collection.
+struct ScratchPostcardFullApp {
+    /// Open already scratched, for a story the account has collected.
+    var startsRevealed: Bool
+    var isSaved: Bool
+    var onBack: () -> Void
+    var onDonate: () -> Void
+    /// Saves the postcard to the account; returns an error message, or nil when saved.
+    var onSave: () async -> String?
+}
+
 struct ScratchPostcardView: View {
     let postcard: ScratchPostcard
     let validateCollection: () async throws -> Bool
     /// Called after the viewer blocks this postcard's author from the menu.
     var onBlock: () -> Void = {}
+    var fullApp: ScratchPostcardFullApp?
+    var onRetryFaces: () -> Void
+
+    init(postcard: ScratchPostcard, validateCollection: @escaping () async throws -> Bool,
+         onBlock: @escaping () -> Void = {}, onRetryFaces: @escaping () -> Void = {},
+         fullApp: ScratchPostcardFullApp? = nil) {
+        self.postcard = postcard
+        self.validateCollection = validateCollection
+        self.onBlock = onBlock
+        self.onRetryFaces = onRetryFaces
+        self.fullApp = fullApp
+        let revealed = fullApp?.startsRevealed == true
+        _phase = State(initialValue: revealed ? .revealed : .scratching)
+        _coverVisible = State(initialValue: !revealed)
+        _hasFlipped = State(initialValue: revealed)
+    }
 
     private enum Phase { case scratching, revealing, revealed }
     private enum Toast: Equatable { case failed(String) }
@@ -36,18 +64,18 @@ struct ScratchPostcardView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var collectionStore = StoryCollectionStore()
-    @State private var phase: Phase = .scratching
+    @State private var phase: Phase
     @State private var strokes: [[CGPoint]] = []
     @State private var lastPoint: CGPoint?
     @State private var coverage = ScratchCoverage(countedInset: 0.04)
     @State private var pendingFeedbackCells = 0
     @State private var scratchFeedback = 0
     @State private var revealFeedback = 0
-    @State private var coverVisible = true
+    @State private var coverVisible: Bool
     @State private var effectStart: Date?
     @State private var flipAngle: Double = 0
     @State private var dragAngle: Double = 0
-    @State private var hasFlipped = false
+    @State private var hasFlipped: Bool
     @State private var showingFullAppOverlay = false
     @State private var toast: Toast?
     @State private var revealTask: Task<Void, Never>?
@@ -61,7 +89,7 @@ struct ScratchPostcardView: View {
     private var isRevealed: Bool { phase == .revealed }
     /// The success layout starts as soon as scratching completes, so the card moves while the effects play.
     private var showsSuccessLayout: Bool { phase != .scratching }
-    private var isSaved: Bool { collectionStore.contains(storyID: postcard.story.storyID) }
+    private var isSaved: Bool { fullApp?.isSaved ?? collectionStore.contains(storyID: postcard.story.storyID) }
 
     /// Postcard aspect ratio from Figma (362×502).
     static let cardAspectRatio: CGFloat = 362.0 / 502.0
@@ -159,8 +187,14 @@ struct ScratchPostcardView: View {
 
             // No back button: the postcard is the App Clip's last screen (#347). Report, block and privacy
             // stay reachable from the postcard itself (#351, guideline 1.2). Centred 22.5pt below the header top.
-            menuButton
-                .offset(x: layout.size.width - Layout.sideInset - 44, y: layout.topBarTop + 0.5)
+            if let fullApp {
+                // Figma "수집 시작 뷰"·"수집 성공 뷰" (full app): the back chevron returns to the summary.
+                backButton(fullApp.onBack)
+                    .offset(x: Layout.sideInset - 8, y: layout.topBarTop + 0.5)
+            } else {
+                menuButton
+                    .offset(x: layout.size.width - Layout.sideInset - 44, y: layout.topBarTop + 0.5)
+            }
 
             infoCard(width: layout.contentWidth)
                 .offset(x: Layout.sideInset, y: layout.infoTop)
@@ -198,14 +232,22 @@ struct ScratchPostcardView: View {
             }
 
             if showsSuccessLayout {
-                Text("탭하거나 옆으로 밀어서 뒤집기")
-                    .font(.custom("Paperlogy-4Regular", size: 12))
-                    .tracking(0.24)
-                    .foregroundStyle(Self.hintGray)
-                    .fixedSize()
-                    .frame(width: layout.size.width, height: 20)
-                    .offset(y: cardFrame.maxY + 19 - 10)
-                    .transition(.opacity)
+                Group {
+                    if postcard.hasFailedFaces {
+                        Button(postcard.isLoadingFaces ? "엽서 이미지 불러오는 중" : "엽서 이미지 다시 불러오기",
+                               action: onRetryFaces)
+                            .disabled(postcard.isLoadingFaces)
+                            .accessibilityIdentifier("scratch.faces.retry")
+                    } else {
+                        Text("탭하거나 옆으로 밀어서 뒤집기")
+                    }
+                }
+                .font(.custom("Paperlogy-4Regular", size: 12))
+                .tracking(0.24)
+                .foregroundStyle(Self.hintGray)
+                .frame(width: layout.size.width, height: postcard.hasFailedFaces ? 44 : 20)
+                .offset(y: cardFrame.maxY + (postcard.hasFailedFaces ? 2 : 9))
+                .transition(.opacity)
                 actionBar(layout)
                     .offset(y: layout.size.height - layout.barHeight)
                     .transition(.move(edge: .bottom))
@@ -218,6 +260,19 @@ struct ScratchPostcardView: View {
     }
 
     // MARK: - Header
+
+    private func backButton(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 22, weight: .regular))
+                .foregroundStyle(.black)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("뒤로")
+        .accessibilityIdentifier("scratch.back")
+    }
 
     /// Top-right system menu. The sheets are the shared report and support views.
     private var menuButton: some View {
@@ -294,8 +349,8 @@ struct ScratchPostcardView: View {
         } back: {
             if let back = postcard.back {
                 Image(uiImage: back).resizable().scaledToFit()
-            } else if postcard.isLoadingFaces {
-                ScratchPostcardPendingFace()
+            } else if postcard.isLoadingFaces || postcard.backFailed {
+                ScratchPostcardPendingFace(isLoading: postcard.isLoadingFaces)
             } else {
                 ScratchPostcardFallbackBack(message: postcard.story.content, author: postcard.donorLine)
             }
@@ -322,8 +377,8 @@ struct ScratchPostcardView: View {
         ZStack {
             if let front = postcard.front {
                 Image(uiImage: front).resizable().scaledToFit()
-            } else if postcard.isLoadingFaces {
-                ScratchPostcardPendingFace()
+            } else if postcard.isLoadingFaces || postcard.frontFailed {
+                ScratchPostcardPendingFace(isLoading: postcard.isLoadingFaces)
             } else {
                 ScratchPostcardFallbackFront(photo: postcard.coverPhoto)
             }
@@ -358,19 +413,9 @@ struct ScratchPostcardView: View {
     /// It opens the full-app install overlay and records the collection on this device, as saving did.
     private func actionBar(_ layout: Layout) -> some View {
         let topCorners = UnevenRoundedRectangle(topLeadingRadius: 25, topTrailingRadius: 25)
-        return Button {
-            showingFullAppOverlay = true
-            save()
-        } label: {
-            Text("앱 다운로드 & 우표 수집하기")
-                .font(.custom("Paperlogy-5Medium", size: 16))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: Layout.buttonHeight)
-                .background(Self.green, in: RoundedRectangle(cornerRadius: 20))
+        return Group {
+            if let fullApp { fullAppButtons(fullApp) } else { appClipButton }
         }
-        .accessibilityHint("전체 앱 설치 안내를 열고, 이 엽서를 수집했다는 기록을 이 기기에 남겨요")
-        .accessibilityIdentifier("appclip.postcard.download")
         .buttonStyle(.plain)
         .lineLimit(1)
         .minimumScaleFactor(0.8)
@@ -385,6 +430,50 @@ struct ScratchPostcardView: View {
                     .fill(Self.barBackground)
                     .shadow(color: .black.opacity(0.4), radius: 3, y: -1)
             }
+        }
+    }
+
+    private var appClipButton: some View {
+        Button {
+            showingFullAppOverlay = true
+            save()
+        } label: {
+            Text("앱 다운로드 & 우표 수집하기")
+                .font(.custom("Paperlogy-5Medium", size: 16))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: Layout.buttonHeight)
+                .background(Self.green, in: RoundedRectangle(cornerRadius: 20))
+        }
+        .accessibilityHint("전체 앱 설치 안내를 열고, 이 엽서를 수집했다는 기록을 이 기기에 남겨요")
+        .accessibilityIdentifier("appclip.postcard.download")
+    }
+
+    /// Figma "수집 성공 뷰"(5400:14734) in the full app: two 175pt buttons 12pt apart.
+    private func fullAppButtons(_ fullApp: ScratchPostcardFullApp) -> some View {
+        HStack(spacing: 12) {
+            Button(action: fullApp.onDonate) {
+                Text("이어서 기부하기")
+                    .font(.custom("Paperlogy-5Medium", size: 16))
+                    .tracking(0.32)
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: Layout.buttonHeight)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 20))
+            }
+            .accessibilityHint("이야기 목록 화면을 열어요")
+            .accessibilityIdentifier("scratch.donate")
+            Button(action: save) {
+                Text(fullApp.isSaved ? "저장 완료" : "앨범에 저장하기")
+                    .font(.custom("Paperlogy-6SemiBold", size: 16))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: Layout.buttonHeight)
+                    .background(Self.green.opacity(fullApp.isSaved ? 0.7 : 1), in: RoundedRectangle(cornerRadius: 20))
+            }
+            .disabled(fullApp.isSaved || saving)
+            .accessibilityHint("이 엽서를 내 계정의 수집한 기부 앨범에 저장해요")
+            .accessibilityIdentifier("scratch.save")
         }
     }
 
@@ -501,6 +590,13 @@ struct ScratchPostcardView: View {
     private func save() {
         guard !saving, !isSaved else { return }
         saving = true
+        if let fullApp {
+            saveTask = Task { @MainActor in
+                defer { saving = false }
+                if let message = await fullApp.onSave(), !Task.isCancelled { show(.failed(message)) }
+            }
+            return
+        }
         saveTask = Task { @MainActor in
             defer { saving = false }
             do {
