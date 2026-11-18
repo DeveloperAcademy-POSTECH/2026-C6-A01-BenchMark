@@ -9,10 +9,21 @@ declare
   definition text := pg_get_functiondef('benchmark_private.oi_mutate_continuation_base(text,jsonb,text)'::regprocedure);
   anchor text := $old$moderation_step in ('prepare','approve')$old$;
 begin
-  if length(definition)-length(replace(definition,anchor,''))<>length(anchor) then
+  if length(definition)-length(replace(definition,anchor,''))=length(anchor) then
+    execute replace(definition,anchor,$new$moderation_step in ('prepare','approve','publish')$new$);
+  elsif (select md5(btrim(prosrc,E' \n\r\t')) from pg_proc
+      where oid='benchmark_private.oi_mutate_continuation_base(text,jsonb,text)'::regprocedure)
+      = '3bc42aec4406aa90081aa4229fae81a5' then
+    -- The deployed manual-review history has a single draft guard instead.
+    anchor := $old$if story.status<>'draft' then raise exception 'Only drafts can be submitted' using errcode='22023'; end if;$old$;
+    if length(definition)-length(replace(definition,anchor,''))<>length(anchor) then
+      raise exception 'Pending story publication requires migration review';
+    end if;
+    execute replace(definition,anchor,$new$if story.status<>'draft' and not (story.status='pending' and moderation_step in ('prepare','approve','publish')) then
+        raise exception 'Only drafts can be submitted' using errcode='22023'; end if;$new$);
+  else
     raise exception 'Pending story publication requires migration review';
   end if;
-  execute replace(definition,anchor,$new$moderation_step in ('prepare','approve','publish')$new$);
 end; $patch$;
 
 -- Only the Edge Function may call this after verifying Apple's signed Sandbox AppTransaction.

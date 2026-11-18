@@ -1,0 +1,42 @@
+[
+  {
+    "differentOver8" : 22598,
+    "maxChannelError" : 214,
+    "meanChannelError" : 3.1171051341407785,
+    "percentOver8" : 7.2254409187993192,
+    "pixels" : 312756,
+    "region" : "app"
+  },
+  {
+    "differentOver8" : 1669,
+    "maxChannelError" : 214,
+    "meanChannelError" : 2.6005544417217394,
+    "percentOver8" : 6.1966287963169231,
+    "pixels" : 26934,
+    "region" : "header"
+  },
+  {
+    "differentOver8" : 18050,
+    "maxChannelError" : 185,
+    "meanChannelError" : 3.7270856353591162,
+    "percentOver8" : 8.3103130755064463,
+    "pixels" : 217200,
+    "region" : "cards"
+  },
+  {
+    "differentOver8" : 2879,
+    "maxChannelError" : 130,
+    "meanChannelError" : 2.5873454354117338,
+    "percentOver8" : 8.1153455857481109,
+    "pixels" : 35476,
+    "region" : "footer"
+  },
+  {
+    "differentOver8" : 2068,
+    "maxChannelError" : 124,
+    "meanChannelError" : 2.441510128913444,
+    "percentOver8" : 11.425414364640885,
+    "pixels" : 18100,
+    "region" : "button"
+  }
+]

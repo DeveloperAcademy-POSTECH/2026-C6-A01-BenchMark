@@ -583,8 +583,9 @@ grant execute on function auth.jwt() to anon,authenticated;
                 ('_oi_story_ai_only_review.sql', '_oi_education_ai_review.sql'))]
             coin_migrations = [m for m in post_retirement if m.name.endswith(
                 ('_oi_pickle_coins.sql',))]
+            publication_fixes = [m for m in post_retirement if m.name.endswith('_oi_restore_operator_coin_publication.sql')]
             for migration in post_retirement:
-                if migration in ai_only_migrations or migration in coin_migrations:
+                if migration in ai_only_migrations or migration in coin_migrations or migration in publication_fixes:
                     continue
                 if database is connection and migration.name.endswith('_oi_postcard_cover.sql'):
                     check_postcard_cover_drift(database, migration)
@@ -629,12 +630,25 @@ grant execute on function auth.jwt() to anon,authenticated;
                 live_connection = connection.copy()
                 live_connection[live_connection.index('-d') + 1] = 'live_pickle_compatibility'
                 run(live_connection + ['-f', 'supabase/tests/fixtures/deployed-pickle-mutator.sql'])
+                run(live_connection + ['-f', 'supabase/tests/fixtures/deployed-showcase-base.sql'])
+                run(live_connection, input='alter table benchmark_private.oi_story_creation_settings drop column testflight_showcase_enabled; drop function public.oi_publish_showcase_story(uuid,uuid,jsonb);', text=True)
+                for showcase_migration in post_retirement:
+                    if showcase_migration.name.endswith('_oi_testflight_showcase_publication.sql'):
+                        run(live_connection + ['-f', str(showcase_migration)])
                 run(live_connection, input='update benchmark_private.oi_story_creation_settings set auto_moderation_enabled=true where singleton;', text=True)
                 run(live_connection + ['-f', 'supabase/tests/fixtures/pickle-coins-before.sql'])
                 for coin_migration in coin_migrations:
                     run(live_connection + ['-f', str(coin_migration)])
                 run(live_connection + ['-f', 'supabase/tests/oi-pickle-coins.sql'])
-                print('PASS: captured production mutator and live manual-review capability remain compatible; only the author can spend to plant')
+                for migration in publication_fixes:
+                    run(live_connection + ['-f', str(migration)])
+                manual_test = (REPOSITORY / 'supabase/tests/oi-operator-manual-story-review.sql').read_text()
+                manual_test = manual_test.replace('begin;', 'begin;\nupdate benchmark_private.oi_story_creation_settings set auto_moderation_enabled=false;', 1)
+                manual_test = manual_test.replace('set local role authenticated;', "select benchmark_private.oi_pickle_apply('b3880000-0000-4000-8000-000000000001','test:manual-funds','certificate',30);\nset local role authenticated;", 1)
+                manual_test = manual_test.replace('rollback;', "reset role;\nselect pg_temp.check_result((select balance=10 from benchmark_private.oi_pickle_wallets where account_id='b3880000-0000-4000-8000-000000000001'),'operator publication costs30 once; restore is free');\nrollback;")
+                run(live_connection, input=manual_test, text=True)
+                run(live_connection + ['-f', 'supabase/tests/oi-showcase-coins.sql'])
+                print('PASS: live operator publication restored; ownership, revision, audit, first cost and free restore preserved')
             for migration in ai_only_migrations:
                 run(database + ['-f', str(migration)])
             run(database + ['-f', 'supabase/tests/oi-story-ai-only-review.sql'])
@@ -646,6 +660,9 @@ grant execute on function auth.jwt() to anon,authenticated;
                 check_coin_evidence_backfill_guard(database, migration)
                 run(database + ['-f', str(migration)])
             run(database + ['-f', 'supabase/tests/oi-pickle-coins.sql'])
+            for migration in publication_fixes:
+                run(database + ['-f', str(migration)])
+            run(database + ['-f', 'supabase/tests/oi-showcase-coins.sql'])
             check_pickle_coin_races(database)
         print('PASS: PickleCoin signup/backfill, certificate identities, collection/plant idempotency, outfit ownership, merge and deletion on both histories')
         print('PASS: card formats 1/2/3, PNG/JPEG cover validation/access/review, and deletion on both histories')

@@ -48,7 +48,7 @@ for (const [name, options, status] of [
   assert.equal((await send()).status, status);
   assert.ok(!calls.includes("/rest/v1/rpc/oi_publish_showcase_story"));
 });
-for (const status of [403, 409, 422, 503]) test(`preserves database denial ${status}`, async () => {
+for (const status of [402, 403, 409, 422, 503]) test(`preserves database denial ${status}`, async () => {
   assert.equal((await setup({ rpcStatus: status }).send()).status, status);
 });
 test("requires a bounded app transaction and valid campus revision", async () => {
@@ -60,4 +60,10 @@ test("requires a bounded app transaction and valid campus revision", async () =>
     assert.deepEqual(calls, ["/auth/v1/user"]);
   }
   assert.equal((await setup().send({}, "GET")).status, 405);
+});
+
+test("TF insufficient balance reaches the existing coin recovery UI", async () => {
+  const response = await setup({ rpcStatus: 402 }).send();
+  assert.equal(response.status, 402);
+  assert.deepEqual(await response.json(), { error: "pickle_coins_insufficient" });
 });

@@ -23,6 +23,7 @@ struct OiPickleCoinBalance: View {
     let wallet: OiPickleWallet?
     var compact = false
     var showsPlus = true
+    var foreground: Color = .black
 
     private var scale: CGFloat { compact ? 0.8203 : 1 }
 
@@ -40,7 +41,7 @@ struct OiPickleCoinBalance: View {
                 Text(wallet?.balanceLabel ?? "—pc")
                     .font(CampusStyle.medium(16 * scale)).tracking(0.32 * scale)
                     .lineLimit(1).minimumScaleFactor(0.75)
-                    .foregroundStyle(.black)
+                    .foregroundStyle(foreground)
             }
         }
         .padding(.leading, 7 * scale).padding(.trailing, 15 * scale).padding(.vertical, 6 * scale)

@@ -38,45 +38,19 @@ struct OiStoryListView: View {
     }
 
     var body: some View {
-        Group {
-            switch state {
-            case .loading:
-                ProgressView().accessibilityLabel("이야기를 불러오는 중이에요")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .failure, .empty, .content:
-                storySlots
-            }
-        }
-        .navigationTitle("")
-        .navigationBarBackButtonHidden(true)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(.primary)
-                }
-                .buttonBorderShape(.circle)
-                .controlSize(.large)
-                .opacity(isSelectingPlant ? 0 : 1)
-                .disabled(isSelectingPlant)
-                .accessibilityHidden(isSelectingPlant)
-                .accessibilityLabel("닫기")
-            }
-            .sharedBackgroundVisibility(.hidden)
-
-            ToolbarItem(placement: .topBarTrailing) {
-                if let coinRemote {
-                    OiPickleCoinLink(remote: coinRemote)
-                } else if let onAddSeed {
-                    Button(action: onAddSeed) { OiSeedBalanceLabel(count: seedCount) }
-                        .accessibilityIdentifier("storyList.seedBalance")
+        VStack(spacing: 0) {
+            header
+            Group {
+                switch state {
+                case .loading:
+                    ProgressView().accessibilityLabel("이야기를 불러오는 중이에요")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                case .failure, .empty, .content:
+                    storySlots
                 }
             }
-            .sharedBackgroundVisibility(.hidden)
         }
+        .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if showsStoryChrome && !usesAccessibilityLayout {
                 footer
@@ -98,10 +72,42 @@ struct OiStoryListView: View {
         .onDisappear { portraits.cancel() }
     }
 
+    private var header: some View {
+        HStack {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(Color(oiRGB: 0x232323))
+                    .frame(width: 44, height: 44, alignment: .leading)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("닫기")
+            Spacer(minLength: 0)
+            if let coinRemote {
+                NavigationLink { OiPickleWalletView(remote: coinRemote) } label: {
+                    OiPickleCoinBalance(wallet: coinRemote.pickleWallet, foreground: seedButtonColor)
+                }
+                .buttonStyle(.plain)
+                .disabled(coinRemote.account == nil)
+                .accessibilityIdentifier("pickle.wallet.open")
+            } else if let onAddSeed {
+                Button(action: onAddSeed) { OiSeedBalanceLabel(count: seedCount) }
+                    .accessibilityIdentifier("storyList.seedBalance")
+            }
+        }
+        .padding(.horizontal, 20)
+        // Figma: status area 62, header content 70–112, first card 129.
+        .padding(.top, 7).padding(.bottom, 1)
+        .opacity(isSelectingPlant ? 0 : 1)
+        .allowsHitTesting(!isSelectingPlant)
+        .accessibilityHidden(isSelectingPlant)
+    }
+
     private var isSelectingPlant: Bool { onCancelPlant != nil }
 
     private var screenBackground: Color {
-        isSelectingPlant ? Color(oiRGB: 0xe7eecc) : Color(.systemBackground)
+        isSelectingPlant ? Color(oiRGB: 0xe7eecc) : .white
     }
 
     private var showsStoryChrome: Bool {
@@ -128,8 +134,14 @@ struct OiStoryListView: View {
             ForEach(slots) { slot in
                 Group {
                     if let item = slot.item {
-                        VStack(spacing: 0) {
-                            storySlot(item)
+                        VStack(spacing: isSelectingPlant ? 4 : 6) {
+                            if !isSelectingPlant && reviewState(item.id) == .rejected {
+                                emptySlot(index: slot.index, action: onSelectStory.map { select in { select(item.id) } })
+                                    .accessibilityLabel("수정이 필요한 오이, \(item.cucumberName), \(item.title)")
+                                    .accessibilityIdentifier("storyList.item.\(item.id.uuidString)")
+                            } else {
+                                storySlot(item)
+                            }
                             if onRequestReview != nil || isSelectingPlant {
                                 reviewRow(item.id, state: reviewState(item.id))
                                     .opacity(isSelectingPlant ? 0 : 1)
@@ -154,8 +166,8 @@ struct OiStoryListView: View {
                     }
                 }
                 .disabled(isDeleting)
-                // Figma `5400:7649`: 10pt between slots.
-                .listRowInsets(EdgeInsets(top: metrics.gap / 2, leading: 20, bottom: metrics.gap / 2, trailing: 20))
+                // Figma: normal 139+14, selection 137+10 (hidden review rows retain their height).
+                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: isSelectingPlant ? 10 : 14, trailing: 20))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
                 .id(slot.id)
@@ -181,10 +193,11 @@ struct OiStoryListView: View {
         let isSelected = isSelectingPlant && selectedPlantStoryID == item.id
         return optionalButton(action: onSelectStory.map { select in { select(item.id) } }) {
             OiCucumberCard(name: item.cucumberName, tags: item.tags, donor: item.donorDisplayName,
-                           title: item.title, metrics: OiCucumberCardMetrics(cardHeight: metrics.cardHeight),
+                           title: item.title, metrics: .storyList,
                            selectionOutline: isSelected ? Color(oiRGB: 0x849644) : nil,
                            showsShadow: !isSelectingPlant || !isSelected,
-                           portraitIsDecorative: false) {
+                           portraitIsDecorative: false,
+                           tagTint: item.tags.first == "고마움" ? Color(red: 0.6301833, green: 0.3614067, blue: 0.0099295) : nil) {
                 portrait(item)
             }
         }
@@ -201,7 +214,7 @@ struct OiStoryListView: View {
     @ViewBuilder private func portrait(_ item: OiStoryListItem) -> some View {
         switch portraits.result(for: .init(id: item.id, source: item.portraitSource), owner: portraitAccountID) {
         case .ready(let image):
-            Image(uiImage: image).resizable().scaledToFit().accessibilityHidden(true)
+            Image(uiImage: image).resizable().scaledToFill().accessibilityHidden(true)
         case .failed:
             Button { retryPortrait(item.id) } label: {
                 Image(systemName: "arrow.clockwise").font(.system(size: 20))
@@ -224,6 +237,7 @@ struct OiStoryListView: View {
     private func reviewRow(_ id: UUID, state: OiStoryListReviewState) -> some View {
         let status = Text(state.title)
             .font(.custom("Paperlogy-3Light", size: 13, relativeTo: .caption)).tracking(0.26)
+            .frame(height: usesAccessibilityLayout ? nil : 15)
             .padding(.horizontal, 10).padding(.vertical, 4)
             .background(Color(oiRGB: state.background), in: RoundedRectangle(cornerRadius: 10))
             .foregroundStyle(.black)
@@ -245,9 +259,10 @@ struct OiStoryListView: View {
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("storyList.reviewResult.retry")
                 } else {
-                    Text("요청 완료").underline().foregroundStyle(Color(oiRGB: 0x737373))
+                    Text(OiStoryReviewRequest.title).underline().foregroundStyle(Color(oiRGB: 0x232323))
                 }
             }
+            .frame(minHeight: 23)
             .accessibilityIdentifier("storyList.reviewStatus.\(id.uuidString)")
             if let message = reviewMessage(id) {
                 Text(message).foregroundStyle(.red)
@@ -256,16 +271,15 @@ struct OiStoryListView: View {
         }
         .font(.custom("Paperlogy-4Regular", size: 13, relativeTo: .caption)).tracking(0.26)
         .padding(.horizontal, 20)
-        .padding(.top, 4)
     }
 
-    private func emptySlot(index: Int) -> some View {
+    private func emptySlot(index: Int, action: (() -> Void)? = nil) -> some View {
         VStack(spacing: 4) {
-            optionalButton(action: onCreateStory) {
+            optionalButton(action: action ?? onCreateStory) {
                 RoundedRectangle(cornerRadius: 28)
                     .fill(
                         Color(red: 248 / 255, green: 248 / 255, blue: 248 / 255)
-                            .shadow(.inner(color: .black.opacity(0.2), radius: 4))
+                            .shadow(.inner(color: .black.opacity(0.2), radius: 2))
                     )
                     .frame(maxWidth: .infinity, minHeight: metrics.emptyHeight, maxHeight: metrics.emptyHeight)
                     .overlay {
@@ -294,7 +308,7 @@ struct OiStoryListView: View {
                             .font(.custom("Paperlogy-4Regular", size: 16, relativeTo: .body))
                             .foregroundStyle(Color(oiRGB: 0x383838))
                             .tracking(0.32)
-                            .underline()
+                            .frame(height: usesAccessibilityLayout ? nil : 16)
                             .frame(minWidth: 108, minHeight: 44)
                             .contentShape(.rect)
                     }
@@ -308,14 +322,27 @@ struct OiStoryListView: View {
 
             if let onPlant {
                 Button(action: onPlant) {
-                    Text("농장에 오이 심기")
-                        .font(.custom("Paperlogy-6SemiBold", size: 18, relativeTo: .headline))
-                        .foregroundStyle(seedButtonColor)
-                        .frame(maxWidth: .infinity, minHeight: 50)
-                        .background {
-                            Capsule().fill(seedButtonBackgroundColor)
-                                .shadow(color: seedButtonColor.opacity(0.6), radius: 4)
+                    HStack(spacing: 20) {
+                        Text("농장에 오이 심기")
+                            .font(.custom("Paperlogy-6SemiBold", size: 18, relativeTo: .headline))
+                            .frame(minHeight: 30)
+                        HStack(spacing: 4) {
+                            Image("MYProfileCoin").resizable().scaledToFit()
+                                .frame(width: 30, height: 30).accessibilityHidden(true)
+                            Text("$ 30")
+                                .font(.custom("Paperlogy-4Regular", size: 16, relativeTo: .body))
+                                .frame(minHeight: 30)
                         }
+                    }
+                    .foregroundStyle(seedButtonColor)
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .background {
+                        RoundedRectangle(cornerRadius: 30).fill(seedButtonBackgroundColor)
+                            .shadow(color: seedButtonColor.opacity(0.6), radius: 4)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("농장에 오이 심기")
+                    .accessibilityValue("최초 공개 30 피클코인")
                 }
                 .buttonStyle(.plain)
                 .disabled(!canPlant || isDeleting)
@@ -461,6 +488,7 @@ struct OiStoryProductionRulesButton: View {
             HStack(spacing: 5) {
                 Image(systemName: "questionmark.circle")
                     .font(.system(size: 16))
+                    .frame(width: 19, height: 22)
                     .accessibilityHidden(true)
                 Text("오이 제작 규정")
                     .font(.custom("Paperlogy-4Regular", size: 16, relativeTo: .body))

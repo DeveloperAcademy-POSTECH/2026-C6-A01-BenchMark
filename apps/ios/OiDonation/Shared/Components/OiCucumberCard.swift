@@ -7,9 +7,11 @@
 
 import SwiftUI
 
-/// Figma sizes, shrunk by the story list only as far as needed to fit its four slots without scrolling.
+/// Shared card dimensions with a story-list variant for the exact Figma typography.
 struct OiCucumberCardMetrics: Equatable {
     var cardHeight: CGFloat = 110
+    var usesStoryListTypography = false
+    static let storyList = OiCucumberCardMetrics(usesStoryListTypography: true)
     static let standard = OiCucumberCardMetrics()
     /// Name, tag row and title without the gaps between them.
     static let textHeight: CGFloat = 59
@@ -33,6 +35,7 @@ struct OiCucumberCard<Portrait: View>: View {
     var selectionOutline: Color?
     var showsShadow = true
     var portraitIsDecorative = true
+    var tagTint: Color?
     @ViewBuilder let portrait: () -> Portrait
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -49,14 +52,14 @@ struct OiCucumberCard<Portrait: View>: View {
                 HStack(spacing: 10) { text; image }
             }
         }
-        .padding(.leading, 16)
-        .padding(.trailing, 12)
+        .padding(.leading, metrics.usesStoryListTypography ? 18.5 : 16)
+        .padding(.trailing, metrics.usesStoryListTypography ? 14.5 : 12)
         .padding(.vertical, metrics.cardPadding)
         .frame(maxWidth: .infinity, minHeight: metrics.cardHeight,
                maxHeight: usesAccessibilityLayout ? nil : metrics.cardHeight, alignment: .leading)
         .background {
             RoundedRectangle(cornerRadius: 28)
-                .fill(Color(.systemBackground))
+                .fill(metrics.usesStoryListTypography ? .white : Color(.systemBackground))
                 .shadow(color: .black.opacity(showsShadow ? 0.25 : 0), radius: 2)
         }
         .overlay {
@@ -72,15 +75,18 @@ struct OiCucumberCard<Portrait: View>: View {
     }
 
     private var text: some View {
-        VStack(alignment: .leading, spacing: metrics.textSpacing * 0.6) {
-            VStack(alignment: .leading, spacing: metrics.textSpacing * 0.4) {
+        VStack(alignment: .leading, spacing: metrics.usesStoryListTypography ? 12 : metrics.textSpacing * 0.6) {
+            VStack(alignment: .leading, spacing: metrics.usesStoryListTypography ? 8 : metrics.textSpacing * 0.4) {
                 Text(name)
                     .font(.custom("YANGJIN", size: 22, relativeTo: .title2))
                     .tracking(0.44)
                     .foregroundStyle(.black)
                     .lineLimit(usesAccessibilityLayout ? nil : 1)
                     .minimumScaleFactor(usesAccessibilityLayout ? 1 : 0.8)
-                    .frame(minHeight: 20, alignment: .bottomLeading)
+                    .fixedSize(horizontal: false, vertical: metrics.usesStoryListTypography)
+                    .frame(height: metrics.usesStoryListTypography && !usesAccessibilityLayout ? 20 : nil,
+                           alignment: metrics.usesStoryListTypography ? .leading : .bottomLeading)
+                    .frame(minHeight: metrics.usesStoryListTypography ? nil : 20, alignment: .bottomLeading)
                 tagsAndDonor
             }
             if !title.isEmpty {
@@ -88,7 +94,8 @@ struct OiCucumberCard<Portrait: View>: View {
                     .font(.custom("Paperlogy-3Light", size: 18, relativeTo: .body))
                     .foregroundStyle(.black)
                     .lineLimit(usesAccessibilityLayout ? nil : 1)
-                    .frame(minHeight: 18, alignment: .leading)
+                    .frame(height: metrics.usesStoryListTypography && !usesAccessibilityLayout ? 18 : nil, alignment: .leading)
+                    .frame(minHeight: metrics.usesStoryListTypography ? nil : 18, alignment: .leading)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -97,10 +104,21 @@ struct OiCucumberCard<Portrait: View>: View {
     @ViewBuilder private var tagsAndDonor: some View {
         let tagViews = HStack(spacing: 4) {
             ForEach(Array(tags.prefix(2).enumerated()), id: \.offset) { _, tag in
-                Text("#" + tag).foregroundStyle(Self.tagColor)
+                if metrics.usesStoryListTypography {
+                    HStack(spacing: 1) {
+                        Text("#").frame(width: 10)
+                        Text(tag)
+                    }
+                    .frame(height: usesAccessibilityLayout ? nil : 10)
+                    .foregroundStyle(tagTint ?? Self.tagColor)
+                } else {
+                    Text("#" + tag).foregroundStyle(Self.tagColor)
+                }
             }
         }
         let donorView = Text(donor).foregroundStyle(Self.donorColor)
+            .frame(height: metrics.usesStoryListTypography && !usesAccessibilityLayout ? 14 : nil)
+            .fixedSize(horizontal: false, vertical: metrics.usesStoryListTypography && usesAccessibilityLayout)
         Group {
             if usesAccessibilityLayout {
                 VStack(alignment: .leading, spacing: 4) { tagViews; donorView }
@@ -114,8 +132,13 @@ struct OiCucumberCard<Portrait: View>: View {
     }
 
     private var image: some View {
-        portrait()
-            .frame(width: 50 * metrics.imageHeight / 86, height: 78 * metrics.imageHeight / 86)
+        Group {
+            if metrics.usesStoryListTypography {
+                portrait().frame(width: 50 * metrics.imageHeight / 86, height: 78 * metrics.imageHeight / 86).clipped()
+            } else {
+                portrait().frame(width: 50 * metrics.imageHeight / 86, height: 78 * metrics.imageHeight / 86)
+            }
+        }
             .frame(width: 66 * metrics.imageHeight / 86, height: metrics.imageHeight)
             .background(Color(red: 239 / 255, green: 239 / 255, blue: 239 / 255), in: RoundedRectangle(cornerRadius: 16))
             .accessibilityHidden(portraitIsDecorative)

@@ -21,8 +21,8 @@ export function createShowcasePublicationHandler(config: Configuration,
       });
       if (!response.ok) {
         await response.body?.cancel();
-        throw new AnalysisError([400, 401, 403, 409, 422, 429, 503].includes(response.status) ? response.status : 502,
-          "publication_unavailable");
+        throw new AnalysisError([400, 401, 402, 403, 409, 422, 429, 503].includes(response.status) ? response.status : 502,
+          response.status === 402 ? "pickle_coins_insufficient" : "publication_unavailable");
       }
       return JSON.parse(new TextDecoder().decode(await readBounded(response, 64 * 1024, signal)));
     }
