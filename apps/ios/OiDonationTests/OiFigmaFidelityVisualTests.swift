@@ -615,7 +615,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let front = try XCTUnwrap(UIImage(data: publication.png))
         OiPostcardBackgroundMetadata.remember(png: publication.png, image: front)
         XCTAssertEqual(OiPostcardBackgroundMetadata.style(for: front)?.backLogoColor, 0x246BA0)
-        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "가상 작성자", tags: [Self.draft.emotion, Self.draft.theme])
+        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "가상 작성자", tags: Self.draft.postcardTags)
         XCTAssertEqual(publication.parts[.back], restored.parts[.back], "A reused server front must retain the selected back logo color")
         XCTAssertEqual(publication.parts.count, 4)
         var invalid = style; invalid.backLogoColor = 0x1000000
@@ -1538,7 +1538,9 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
 
     func testPostcardAutomaticShadeMatchesFigmaPaperAndExports() throws {
         let clear = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { _ in }
-        let points = [CGPoint(x: 50, y: 180), CGPoint(x: 310, y: 60), CGPoint(x: 60, y: 440)]
+        // The date ends at y 59.68 and casts a 1pt shadow. Sample the paper below
+        // that decoration so changing the printed digits cannot alter this shade check.
+        let points = [CGPoint(x: 50, y: 180), CGPoint(x: 310, y: 100), CGPoint(x: 60, y: 440)]
         let custom = OiPostcardBackgroundStyle(color: 0xEEAD56, fill: .gradient,
             middleColor: 0xA1C8DB, endColor: 0xDA85A8)
         let styles = OiPostcardPreset.allCases.map {
@@ -1556,6 +1558,9 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             value.card = OiCardDesign()
             value.card?.postcardLayoutVersion = 2
             value.card?.postcardBackground = style
+            value.card?.postcardDate = Date(timeIntervalSince1970: 1_799_779_200)
+            value.card?.postcardStamp = 1
+            value.card?.initialPostcardStamp = 1
             let paperRenderer = ImageRenderer(content: OiPostcardBackground(style: style).frame(width: 362, height: 502))
             paperRenderer.scale = 1
             let paper = try XCTUnwrap(paperRenderer.uiImage)
