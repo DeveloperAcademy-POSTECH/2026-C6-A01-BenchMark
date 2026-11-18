@@ -12,6 +12,14 @@ struct CampusStoryChecks {
         precondition(defaults.object(forKey: "campus.designExample.collectedIDs.v1") == nil)
         precondition(defaults.string(forKey: "unrelated-user-setting") == "preserved")
         precondition(store.stories.isEmpty && store.collected.isEmpty)
+        let places = [
+            CampusStoryLocation.Place(id: "71", name: "대운동장", wgs84: [129.31941994330825, 36.01304782123006]),
+            CampusStoryLocation.Place(id: "88", name: "학생회관", wgs84: [129.322, 36.011])
+        ]
+        precondition(CampusStoryLocation.nearest(latitude: 36.01304782123006, longitude: 129.31941994330825, places: places)?.name == "대운동장")
+        precondition(CampusStoryLocation.nearest(latitude: .nan, longitude: 129.32, places: places) == nil)
+        precondition(CampusStoryLocation.nearest(latitude: 36, longitude: 129, places: []) == nil)
+        precondition(CampusStoryLocation.name(latitude: nil, longitude: nil, fallback: "학생회관") == "학생회관")
         let records = (0..<3).map { index in
             CampusStory(id: "test-\(index)", regionID: "pond", title: "Test", image: "OiCats", tags: [], donor: "Test", location: "Test", date: "", order: index, popularity: index, palette: 0)
         }
