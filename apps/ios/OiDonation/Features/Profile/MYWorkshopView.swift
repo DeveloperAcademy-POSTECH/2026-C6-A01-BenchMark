@@ -26,8 +26,10 @@ struct MYWorkshopView: View {
 
     @ScaledMetric(relativeTo: .headline) private var profileLineHeight = 39.0
     @ScaledMetric(relativeTo: .body) private var academicLineHeight = 12.0
+    @ScaledMetric(relativeTo: .body) private var loginLineHeight = 20.0
 
     private var isSignedIn: Bool { remote?.account != nil }
+    private var displayedTab: MYWorkshopTab { isSignedIn ? selectedTab : .authored }
     private var usesExpandedLayout: Bool { dynamicTypeSize > .large }
 
     private func profileNeedsMoreRoom(width: CGFloat) -> Bool {
@@ -45,16 +47,20 @@ struct MYWorkshopView: View {
             let panelHeight = max(300, geometry.size.height - 325 * scale)
             ScrollView {
                 VStack(spacing: 0) {
-                    if usesExpandedLayout || profileNeedsMoreRoom(width: geometry.size.width) {
+                    if !isSignedIn {
+                        Color.clear.frame(height: 325 * scale)
+                    } else if usesExpandedLayout || profileNeedsMoreRoom(width: geometry.size.width) {
                         expandedProfile
                     } else {
                         profileHeader(scale: scale)
                     }
                     VStack(spacing: 10) {
                         tabs
-                        MYWorkshopContent(tab: selectedTab, demo: demo, remote: remote,
-                            emptyTopPadding: max(32, 173 + (panelHeight - 549) / 2),
-                            onExploreMap: { dismiss() }, storyRepository: storyRepository)
+                        if isSignedIn {
+                            MYWorkshopContent(tab: selectedTab, demo: demo, remote: remote,
+                                emptyTopPadding: max(32, 173 + (panelHeight - 549) / 2),
+                                onExploreMap: { dismiss() }, storyRepository: storyRepository)
+                        }
                     }
                     .padding(.leading, 21).padding(.trailing, 19)
                     .padding(.top, 6)
@@ -65,7 +71,7 @@ struct MYWorkshopView: View {
                     .clipShape(UnevenRoundedRectangle(topLeadingRadius: 30, topTrailingRadius: 30, style: .circular))
                 }
                 .background(alignment: .top) {
-                    if !usesExpandedLayout && !profileNeedsMoreRoom(width: geometry.size.width) {
+                    if !isSignedIn || (!usesExpandedLayout && !profileNeedsMoreRoom(width: geometry.size.width)) {
                         // The room continues behind the paper's rounded top corners.
                         Image("MYProfileRoom").resizable()
                             .frame(width: geometry.size.width, height: 356 * scale)
@@ -75,7 +81,13 @@ struct MYWorkshopView: View {
             }
             .scrollIndicators(.hidden)
             .scrollBounceBehavior(.basedOnSize)
+            .scrollDisabled(!isSignedIn)
+            .allowsHitTesting(isSignedIn)
+            .accessibilityHidden(!isSignedIn)
             .background(Color(red: 1, green: 247 / 255, blue: 225 / 255))
+            .overlay {
+                if !isSignedIn { guestSignInOverlay }
+            }
             .overlay(alignment: .bottomLeading) {
                 exitButton.padding(.leading, 21)
                     .padding(.bottom, max(32, geometry.safeAreaInsets.bottom))
@@ -85,6 +97,7 @@ struct MYWorkshopView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarRole(.navigationStack)
+        .onChange(of: remote?.account?.id) { _, _ in selectedTab = .authored }
         .task(id: "\(remote?.continuationPrivacyKey ?? "public")/\(remote?.revision ?? 0)/\(selectedTab.rawValue)") {
             guard selectedTab != .connected, let remote, remote.account != nil else { return }
             _ = try? await remote.storyContinuations(mine: true)
@@ -100,6 +113,30 @@ struct MYWorkshopView: View {
                 }
             }
         }
+    }
+
+    private var guestSignInOverlay: some View {
+        ZStack {
+            Color(white: 35 / 255).opacity(0.8)
+                .ignoresSafeArea()
+                .accessibilityHidden(true)
+            NavigationLink {
+                MYSettingsView(demo: demo, remote: remote)
+            } label: {
+                Text("로그인")
+                    .font(CampusStyle.medium(30)).tracking(0.6)
+                    .frame(height: loginLineHeight)
+                    .foregroundStyle(Color(red: 241 / 255, green: 244 / 255, blue: 236 / 255))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 35).padding(.vertical, 15)
+                    .background(Color("OiGreen"), in: Capsule())
+                    .shadow(color: .white.opacity(0.2), radius: 5)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("my.v4.signIn")
+            .padding(.horizontal, 21)
+        }
+        .accessibilityIdentifier("my.guest.overlay")
     }
 
     private func profileHeader(scale: CGFloat) -> some View {
@@ -280,15 +317,15 @@ struct MYWorkshopView: View {
             Button { selectedTab = tab } label: {
                 Text(tab.rawValue).font(CampusStyle.medium(16)).tracking(0.32)
                     .fixedSize(horizontal: true, vertical: false)
-                    .foregroundStyle(selectedTab == tab ? Color(white: 35 / 255) : Color(white: 157 / 255))
+                    .foregroundStyle(displayedTab == tab ? Color(white: 35 / 255) : Color(white: 157 / 255))
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .overlay(alignment: .bottom) {
-                        if selectedTab == tab { Rectangle().fill(Color(white: 0.5)).frame(height: 0.5).padding(.bottom, 6) }
+                        if displayedTab == tab { Rectangle().fill(Color(white: 0.5)).frame(height: 0.5).padding(.bottom, 6) }
                     }
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
+            .accessibilityAddTraits(displayedTab == tab ? .isSelected : [])
             .accessibilityIdentifier("my.tab.\(tab)")
         }
     }
@@ -300,13 +337,29 @@ struct MYWorkshopView: View {
         }.accessibilityHidden(true)
     }
 
-    private var exitButton: some View {
+    @ViewBuilder private var exitButton: some View {
+        if isSignedIn {
+            exitControl
+                .glassEffect(.regular.tint(Color(red: 1, green: 188 / 255, blue: 96 / 255).opacity(0.35)).interactive(), in: Circle())
+        } else {
+            exitControl
+                .background {
+                    Circle().fill(Color(red: 1, green: 188 / 255, blue: 96 / 255))
+                        .overlay { Circle().fill(Color(white: 68 / 255).opacity(0.6)).blendMode(.plusLighter) }
+                        .overlay { Circle().fill(Color(white: 248 / 255).opacity(0.2)).blendMode(.luminosity) }
+                        .compositingGroup()
+                }
+                .overlay { Circle().strokeBorder(Color(white: 232 / 255), lineWidth: 0.5) }
+                .shadow(color: .black.opacity(0.02), radius: 15, y: 8)
+        }
+    }
+
+    private var exitControl: some View {
         Button { dismiss() } label: {
             Image("MYExitDoor").resizable().scaledToFit().frame(width: 50, height: 50)
                 .frame(width: 66, height: 66).contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular.tint(Color(red: 1, green: 188 / 255, blue: 96 / 255).opacity(0.35)).interactive(), in: Circle())
         .accessibilityLabel("MY 닫기").accessibilityIdentifier("my.close")
     }
 }

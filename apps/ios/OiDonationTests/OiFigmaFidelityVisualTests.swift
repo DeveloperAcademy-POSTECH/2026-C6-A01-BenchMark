@@ -3643,6 +3643,44 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(try myV4ChangedPixels(guestWithStaleCards, guestWithEmptyCards, size: reference.size,
             rect: CGRect(x: 0, y: 325, width: 402, height: 400)), 0,
             "Signing out must hide a previous account's collection even before its library is synchronized")
+        let guestFromAuthoredTab = try await capture(NavigationStack {
+            MYWorkshopView(demo: library, remote: signedOut, initialTab: .authored)
+        }, name: "my-v4-signed-out-authored-entry", variant: reference, defaults: fixture.defaults)
+        XCTAssertEqual(try myV4ChangedPixels(guestWithStaleCards, guestFromAuthoredTab, size: reference.size,
+            rect: CGRect(x: 21, y: 337, width: 360, height: 38)), 0,
+            "Every signed-out entry must show Figma's authored selection, including a previous collected-tab route")
+        try assertMYGuestRender(guestWithStaleCards, size: reference.size)
+        for variant in variants.dropFirst() {
+            let guest = try await capture(NavigationStack {
+                MYWorkshopView(demo: library, remote: signedOut, initialTab: .collected)
+            }, name: "my-v4-signed-out", variant: variant, defaults: fixture.defaults, attach: true)
+            try assertMYGuestRender(guest, size: variant.size)
+        }
+
+        // The same store must restore account content after login and conceal it again after logout.
+        struct ExistingAccountAuthentication: OiAuthenticating {
+            func signIn(api: OiServiceAPI) async throws -> OiSession {
+                try XCTUnwrap(OiMemorySession().read())
+            }
+        }
+        await signedOut.signIn(using: ExistingAccountAuthentication())
+        XCTAssertEqual(signedOut.account?.id, OiTestBackend.owner)
+        XCTAssertTrue(signedOut.hasLoadedRemote)
+        let signedBackIn = try await capture(NavigationStack {
+            MYWorkshopView(demo: library, remote: signedOut)
+        }, name: "my-v4-signed-back-in", variant: reference, defaults: fixture.defaults, attach: true)
+        XCTAssertGreaterThan(try myV4ChangedPixels(guestWithStaleCards, signedBackIn, size: reference.size,
+            rect: CGRect(x: 0, y: 80, width: 402, height: 230)), 1_000,
+            "Successful login must replace the dim empty room with the account profile and farmer")
+        await signedOut.signOut()
+        XCTAssertNil(signedOut.account)
+        let signedOutAgain = try await capture(NavigationStack {
+            MYWorkshopView(demo: library, remote: signedOut, initialTab: .collected)
+        }, name: "my-v4-signed-out-again", variant: reference, defaults: fixture.defaults, attach: true)
+        try assertMYGuestRender(signedOutAgain, size: reference.size)
+        XCTAssertEqual(try myV4ChangedPixels(guestWithStaleCards, signedOutAgain, size: reference.size,
+            rect: CGRect(x: 0, y: 80, width: 402, height: 230)), 0,
+            "Logout must remove the account profile rather than leave it visible behind the scrim")
 
         installMYBackend()
         let held = expectation(description: "The virtual service holds the first story read")
@@ -3791,6 +3829,70 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             defaults: fixture.defaults, delay: .seconds(1), attach: true)
         XCTAssertEqual(backend.snapshot().artworkUploadAttempts, 0)
         XCTAssertTrue(backend.snapshot().retiredEvidenceRequests.isEmpty)
+    }
+
+    private func assertMYGuestRender(_ data: Data, size: CGSize) throws {
+        let actual = try XCTUnwrap(UIImage(data: data)?.cgImage)
+        let room = try XCTUnwrap(UIImage(named: "MYProfileRoom"))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let expectedRoom = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            room.draw(in: CGRect(x: 0, y: 0, width: size.width, height: 356 * size.width / 402))
+            UIColor(white: 35 / 255, alpha: 0.8).setFill()
+            context.cgContext.setBlendMode(.normal)
+            context.cgContext.fill(CGRect(origin: .zero, size: size))
+        }
+        let expected = try XCTUnwrap(expectedRoom.cgImage)
+
+        func regionPixels(_ image: CGImage, _ rect: CGRect) throws -> [UInt8] {
+            let crop = try XCTUnwrap(image.cropping(to: rect.integral))
+            let bitmap = try XCTUnwrap(CGContext(data: nil, width: crop.width, height: crop.height,
+                bitsPerComponent: 8, bytesPerRow: crop.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+            bitmap.draw(crop, in: CGRect(x: 0, y: 0, width: crop.width, height: crop.height))
+            let pointer = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: crop.width * crop.height * 4)
+            return Array(UnsafeBufferPointer(start: pointer, count: crop.width * crop.height * 4))
+        }
+
+        // These design slots are empty in the guest frame: no name, counts, settings, or farmer.
+        let scale = size.width / 402
+        for rect in [CGRect(x: 28, y: 90, width: 180, height: 140),
+                     CGRect(x: 240, y: 100, width: 140, height: 130)] {
+            let slot = CGRect(x: rect.minX * scale, y: rect.minY * scale,
+                              width: rect.width * scale, height: rect.height * scale)
+            let rendered = try regionPixels(actual, slot)
+            let target = try regionPixels(expected, slot)
+            var totalDifference = 0
+            for offset in stride(from: 0, to: rendered.count, by: 4) {
+                for channel in 0..<3 { totalDifference += abs(Int(rendered[offset + channel]) - Int(target[offset + channel])) }
+            }
+            XCTAssertLessThan(Double(totalDifference) / Double(rendered.count / 4 * 3), 2,
+                "The guest room must match its source artwork under the 80% #232323 scrim, without account content")
+        }
+
+        let center = CGRect(x: size.width / 2 - 160, y: size.height / 2 - 110, width: 320, height: 220)
+        let login = try regionPixels(actual, center)
+        var green = 0
+        var lightText = 0
+        for offset in stride(from: 0, to: login.count, by: 4) {
+            let red = Int(login[offset]), greenValue = Int(login[offset + 1]), blue = Int(login[offset + 2])
+            if greenValue > 90, greenValue > red + 12, greenValue > blue + 18 { green += 1 }
+            if min(red, greenValue, blue) > 200 { lightText += 1 }
+        }
+        XCTAssertGreaterThan(green, 1_000, "The centered login capsule must remain green above the scrim")
+        XCTAssertGreaterThan(lightText, 40, "The login action must have readable light text")
+
+        let exit = try regionPixels(actual, CGRect(x: 21, y: size.height - 100, width: 66, height: 66))
+        let brightExit = stride(from: 0, to: exit.count, by: 4).filter { offset in
+            max(exit[offset], exit[offset + 1], exit[offset + 2]) > 150
+        }.count
+        XCTAssertGreaterThan(brightExit, 500, "The exit button must remain visible above the guest scrim")
+        let paper = try regionPixels(actual, CGRect(x: size.width / 2 + 80, y: size.height - 150, width: 40, height: 40))
+        let brightPaper = stride(from: 0, to: paper.count, by: 4).filter { offset in
+            max(paper[offset], paper[offset + 1], paper[offset + 2]) > 100
+        }.count
+        XCTAssertEqual(brightPaper, 0, "The paper panel must be dimmed while the login and exit actions stay visible")
     }
 
     private func myV4ChangedPixels(_ first: Data, _ second: Data, size: CGSize, rect: CGRect) throws -> Int {
