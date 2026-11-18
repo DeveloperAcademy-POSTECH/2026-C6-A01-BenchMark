@@ -246,10 +246,16 @@ struct OiStoryListScreen: View {
             try await submitLegacyReview(work, story: story, owner: owner, originalLocal: local)
             return
         }
-        guard let draft = local ?? story.map({ OiLocalDraft(draft: OiStoryDraft(story: $0)) }),
+        guard var draft = local ?? story.map({ OiLocalDraft(draft: OiStoryDraft(story: $0)) }),
               OiCreationAccess.canEdit(status: story?.status, submitted: draft.submitted) else { throw OiServiceError.conflict }
-        guard OiStoryConsentState(savedIDs: draft.agreedConsentClauseIDs ?? []).allRequiredClausesAreAgreed else {
-            throw OiServiceError.server("오이를 눌러 필수 약관에 동의해 주세요.")
+        let acceptedClauseIDs = OiStoryConsentState.acceptedForStoryCreation.savedIDs
+        if draft.agreedConsentClauseIDs != acceptedClauseIDs || draft.creationStep == OiCreationStep.consent.rawValue {
+            draft.agreedConsentClauseIDs = acceptedClauseIDs
+            if draft.creationStep == OiCreationStep.consent.rawValue { draft.creationStep = OiCreationStep.story.rawValue }
+            draft.version += 1
+            try await remote.saveLocalDraft(draft, owner: owner)
+            try Task.checkCancellation()
+            guard reviewWork?.id == work.id else { return }
         }
         let photos = OiEditingPhoto.ordered(local: draft.photos, remote: remote.mediaPaths(storyID: work.storyID),
             removed: draft.removedMediaPaths ?? [], removedPhotoIDs: draft.removedPhotoIDs ?? [])

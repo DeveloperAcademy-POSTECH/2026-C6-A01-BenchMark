@@ -1,12 +1,12 @@
 import SwiftUI
 
-/// Visiting a screen does not accept terms; the editor checks consent before submission.
+/// Story creation starts at STEP 2 with the editor's automatic required-clause acceptance.
 struct OiStoryCreationConsentFlow: View {
     let remote: OiRemoteStore
     var continuation: OiStoryContinuationIntent? = nil
     var onFinish: (() -> Void)?
 
     var body: some View {
-        OiStoryEditor(remote: remote, initialStep: .consent, continuation: continuation, onFinish: onFinish)
+        OiStoryEditor(remote: remote, initialStep: .story, continuation: continuation, onFinish: onFinish)
     }
 }
