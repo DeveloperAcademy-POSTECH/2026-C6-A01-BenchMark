@@ -427,6 +427,8 @@ STEP 3 옷장 확장(#299)은 흰 운동화와 목록의 세트 18종을 같은 
 
 같은 날 후드 볼륨 후속은 꿀벌·우비·고양이 두 벌·공룡·우주복 두 벌의 기존 표면 좌표와 재질을 사용한다. 옷 밖으로 나오는 피부를 잘라 의상별로 보이는 얼굴 메시를 만든다. 눈·입·꼭지를 같은 몸체 변환 아래에서 의상 개구부에 맞춰 옮기고, 옷을 벗기면 위치를 복원한다. 흰 후드티와 단독 포스텍 과잠은 원본 상의 메시와 재질을 기준으로 하고, 목둘레와 소맷단 안에 가려지는 씨앗 피부를 잘라낸다. 두 상의의 밑단은 기존 긴바지와 반바지에 겹칠 공간을 계산해 맞춘다. [세트 7종 비교](images/seed-cucumber-customization/step3-hood-volume-comparison.jpg) · [흰 후드티](images/seed-cucumber-customization/step3-white-hoodie-volume-comparison.jpg) · [단독 포스텍 과잠](images/seed-cucumber-customization/step3-postech-jacket-volume-comparison.jpg)
 
+2026-11-18 #488: 고양이 잠옷의 새 얼굴이 원래 후드 개구부보다 좁아 양 볼에 회색 안감이 노출됐다. `seed_costume_soft_hoods.py`에서 고양이의 노출 피부 폭만 1.28배로 늘려 후드 테두리 아래까지 채우고 `seed-costume-cat.usdz`를 갱신했다. 기존 외후드·안감의 정점/삼각형과 텍스처는 보존한다. 정면·45도·측면·뒷면 렌더, 원래 볼 개구부의 2mm 격자 피부 피복 검사(미피복 2,865→0), `usdchecker --arkit` 검사를 통과했다. [수정 전후 비교](images/seed-cucumber-customization/step3-cat-hood-cheek-fix.jpg). 실기기 확인은 별도다.
+
 STEP 3 후드 비침 수정(#299)은 착용 중 잘린 피부의 경계를 후드 안쪽에서 연결해 닫힌 메시를 만든다. 후드·헬멧 개구부에는 원본 테두리 안쪽에 불투명 안감을 이어 붙인다. RealityKit은 로드한 후드의 불투명 재질을 양면으로 그리고 피부 재질의 불투명도를 고정한다. 연구원은 원본 가운과 플라스크·손의 정점을 사용하고 씨앗 목 부분만 원본 목둘레에 맞춰 잘라낸다. 눈·입·꼭지 편집과 투명 보안경은 유지한다. [후드 안쪽 비교](images/seed-cucumber-customization/step3-hood-interior-closure.jpg) · [연구원 비교](images/seed-cucumber-customization/step3-scientist-original-fit.jpg)
 
 실기기 의상 비교용 #299 작업 브랜치는 우주복·곰돌이 고양이·남색 우주복·노란 우비·과잠 셀카에 1번 모델을 사용하고 연구원을 세트 목록에서 제외한다. 기기 초안의 기존 세트 ID를 유지하며 번호가 없거나 제거된 번호가 저장된 경우 1번으로 복원한다. 이전 연구원 선택은 착용을 해제한 상태로 표시한다.
