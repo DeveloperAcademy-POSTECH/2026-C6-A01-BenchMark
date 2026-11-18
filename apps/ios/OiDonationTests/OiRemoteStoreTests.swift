@@ -749,7 +749,8 @@ final class OiRemoteStoreTests: XCTestCase {
         backend.configure { $0.story?["status"] = "published"; $0.boundedMetricsStatus = 503 }
         await store.refresh()
         XCTAssertNil(store.loadError)
-        XCTAssertNotNil(store.syncWarning)
+        XCTAssertNil(store.syncWarning)
+        XCTAssertNotNil(store.collectionMetricsWarning)
         XCTAssertEqual(store.stories.map(\.id), [id])
         XCTAssertEqual(backend.snapshot().legacyMetricsReads, 0)
 
@@ -757,6 +758,7 @@ final class OiRemoteStoreTests: XCTestCase {
         await store.refresh()
         XCTAssertNil(store.loadError)
         XCTAssertNil(store.syncWarning)
+        XCTAssertNil(store.collectionMetricsWarning)
         XCTAssertEqual(store.collectionCounts[id], 3)
         XCTAssertEqual(backend.snapshot().boundedMetricsIDs.last, [id.uuidString])
 
