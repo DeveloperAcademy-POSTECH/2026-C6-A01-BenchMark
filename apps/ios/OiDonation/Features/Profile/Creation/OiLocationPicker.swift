@@ -4,14 +4,30 @@ struct OiLocationPicker: View {
     @Binding var latitude: Double?
     @Binding var longitude: Double?
     var regionID: Binding<String>? = nil
+    var heightMeters: Binding<Double?>? = nil
+    var headingDegrees: Binding<Double?>? = nil
     var focusPlaceID: String? = nil
     var onFinish: (() -> Void)? = nil
+    #if DEBUG
+    struct TestActions {
+        let scene: CampusExploreScene
+        let beginAppearance: () -> Void
+        let backToLocation: () -> Void
+        let confirm: () -> Void
+        let cancel: () -> Void
+    }
+    var onActionsForTest: ((TestActions) -> Void)? = nil
+    #endif
     @State private var scene = CampusExploreScene()
     @State private var showingMap = false
     /// The map stays hidden until the camera is placed, so it never jumps after appearing.
     @State private var mapPrepared = false
     @State private var selectedPlaceID: String?
     @State private var isOnScreen = false
+    @State private var adjustingAppearance = false
+    @State private var appearanceRetry = 0
+    @State private var selectedPlacement: CampusPlacement?
+    @State private var selectedRegionID: String?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -35,6 +51,10 @@ struct OiLocationPicker: View {
         .onAppear {
             isOnScreen = true
             if let focusPlaceID, !showingMap { openMap(focusPlaceID) }
+            #if DEBUG
+            onActionsForTest?(.init(scene: scene, beginAppearance: beginAppearance,
+                backToLocation: backToLocation, confirm: confirmLocation, cancel: close))
+            #endif
         }
         .onDisappear {
             isOnScreen = false
@@ -77,47 +97,59 @@ struct OiLocationPicker: View {
                     CampusMapSurface(scene: scene)
                         .opacity(mapPrepared ? 1 : 0)
                         .animation(OiCreationMotion.screen, value: mapPrepared)
-                    OiLocationPinShape()
-                        .fill(scene.draftPoint == nil ? Color.gray : Color("OiGreen"))
-                        .overlay(alignment: .top) {
-                            Circle().fill(.white).frame(width: 12, height: 12).padding(.top, 12)
-                        }
-                        .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
-                        .frame(width: 36, height: 48)
-                        .position(x: viewport.size.width / 2, y: viewport.size.height / 2 - 24)
-                        .allowsHitTesting(false)
-                        .accessibilityLabel("화면 중앙 위치 핀")
-                        .accessibilityIdentifier("oi.location.centerPin")
+                    if !adjustingAppearance {
+                        OiLocationPinShape()
+                            .fill(scene.draftPoint == nil ? Color.gray : Color("OiGreen"))
+                            .overlay(alignment: .top) {
+                                Circle().fill(.white).frame(width: 12, height: 12).padding(.top, 12)
+                            }
+                            .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+                            .frame(width: 36, height: 48)
+                            .position(x: viewport.size.width / 2, y: viewport.size.height / 2 - 24)
+                            .allowsHitTesting(false)
+                            .accessibilityLabel("화면 중앙 위치 핀")
+                            .accessibilityIdentifier("oi.location.centerPin")
+                    }
+                    if adjustingAppearance && !scene.placementReady && scene.placementError == nil {
+                        ProgressView("기본 오이를 준비하고 있어요")
+                            .padding(16).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    }
                     VStack(spacing: 12) {
                         HStack {
-                            Button(action: backToSearch) {
+                            Button(action: adjustingAppearance ? backToLocation : backToSearch) {
                                 Image(systemName: "chevron.left").font(.system(size: 19, weight: .medium))
                                     .foregroundStyle(.black).frame(width: 50, height: 50)
                                     .background(.regularMaterial, in: Circle())
                             }
-                            .accessibilityLabel("장소 검색으로 돌아가기")
+                            .accessibilityLabel(adjustingAppearance ? "위치 다시 선택" : "장소 검색으로 돌아가기")
                             .accessibilityIdentifier("oi.location.backToSearch")
                             Spacer()
-                            Text("지도를 움직여 위치를 맞춰 주세요")
+                            Text(adjustingAppearance ? "핀치로 크기 · 드래그로 방향" : "지도를 움직여 위치를 맞춰 주세요")
                                 .font(CampusStyle.body(12)).padding(10)
                                 .background(.regularMaterial, in: Capsule())
                         }.padding(.top, safe.safeAreaInsets.top + 8)
                         Spacer(minLength: 8)
                         locationCard
-                        Button(action: confirmLocation) {
-                            Text("오이 위치로 지정하기").font(CampusStyle.medium(17))
+                        Button(action: adjustingAppearance ? confirmLocation : beginAppearance) {
+                            Text(adjustingAppearance ? "오이 위치로 지정하기" : "크기·방향 설정하기").font(CampusStyle.medium(17))
                                 .foregroundStyle(Color("OiLight"))
                                 .frame(maxWidth: .infinity, minHeight: 57)
-                                .background(scene.draftPoint == nil ? Color.gray : Color("OiGreen"),
+                                .background(canConfirm ? Color("OiGreen") : Color.gray,
                                     in: RoundedRectangle(cornerRadius: 20))
                         }.buttonStyle(.plain)
-                            .disabled(!scene.ready || scene.draftPoint == nil)
+                            .disabled(!canConfirm)
                             .accessibilityIdentifier("oi.location.confirm3D")
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, safe.safeAreaInsets.bottom + 15)
                 }
                 .task(id: selectedPlaceID) { await prepare() }
+                .task(id: adjustingAppearance ? appearanceRetry + 1 : 0) {
+                    guard adjustingAppearance, let selectedPlacement else { return }
+                    await scene.preparePlacements(seed: .init(appearance: .init(), garments: []))
+                    guard !Task.isCancelled, showingMap, adjustingAppearance, scene.placementReady else { return }
+                    scene.beginPlacementPreview(selectedPlacement, rotatingInPlace: true)
+                }
                 .onAppear {
                     scene.setMapLabelPresentation(enabled: true,
                         topInset: safe.safeAreaInsets.top + 72, bottomInset: safe.safeAreaInsets.bottom + 190,
@@ -130,16 +162,39 @@ struct OiLocationPicker: View {
 
     private var locationCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let error = scene.error {
+            if let error = scene.error ?? (adjustingAppearance ? scene.placementError : nil) {
                 Text(error).font(CampusStyle.body(16))
-                Button("다시 시도") { Task { await prepare() } }
+                Button("다시 시도") {
+                    if adjustingAppearance { appearanceRetry += 1 }
+                    else { Task { await prepare() } }
+                }
             } else if !scene.ready {
                 ProgressView("캠퍼스 지도 준비 중")
             } else {
                 Text(scene.centerLocationName).font(CampusStyle.medium(20))
-                Text(scene.centerLocationError ?? "포항공과대학교 · 핀 아래 위치로 지정")
+                Text(scene.centerLocationError ?? (adjustingAppearance
+                    ? "선택한 위치에서 오이의 크기와 방향을 맞춰 주세요"
+                    : "포항공과대학교 · 핀 아래 위치로 지정"))
                     .font(.custom("Paperlogy-3Light", size: 16, relativeTo: .body))
                     .foregroundStyle(scene.centerLocationError == nil ? Color.primary : Color.secondary)
+                if adjustingAppearance, let placement = scene.placementPreview {
+                    HStack {
+                        Text("키 \(placement.heightCentimeters)cm")
+                            .accessibilityLabel("오이 키")
+                            .accessibilityValue("\(placement.heightCentimeters)센티미터")
+                            .accessibilityAdjustableAction { direction in
+                                scene.adjustLocationAppearance(scale: direction == .increment ? 1.1 : 1 / 1.1)
+                            }
+                        Spacer()
+                        Text("방향 \(Int(placement.headingDegrees.rounded()) % 360)°")
+                            .accessibilityLabel("오이 방향")
+                            .accessibilityValue("\(Int(placement.headingDegrees.rounded()) % 360)도")
+                            .accessibilityAdjustableAction { direction in
+                                scene.adjustLocationAppearance(headingDelta: direction == .increment ? 15 : -15)
+                            }
+                    }.font(CampusStyle.medium(17))
+                        .accessibilityIdentifier("oi.location.appearanceValues")
+                }
             }
         }
         .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
@@ -161,15 +216,43 @@ struct OiLocationPicker: View {
         withAnimation(OiCreationMotion.screen, completionCriteria: .removed) {
             showingMap = false
         } completion: {
-            if !showingMap { scene.suspendRendering() }
+            if !showingMap { scene.endPlacement(); scene.suspendRendering() }
         }
     }
 
-    private func confirmLocation() {
+    private var canConfirm: Bool {
+        scene.ready && (adjustingAppearance
+            ? scene.placementReady && scene.placementPreview != nil
+            : scene.draftPoint != nil)
+    }
+
+    private func beginAppearance() {
         guard let coordinate = scene.confirmCenterLocation() else { return }
-        latitude = coordinate.latitude
-        longitude = coordinate.longitude
-        if let region = coordinate.region { regionID?.wrappedValue = region.id }
+        selectedRegionID = coordinate.region?.id
+        selectedPlacement = CampusPlacement.story(id: selectedPlacement?.id ?? UUID(),
+            latitude: coordinate.latitude, longitude: coordinate.longitude,
+            heightMeters: selectedPlacement?.heightMeters ?? heightMeters?.wrappedValue,
+            headingDegrees: selectedPlacement?.headingDegrees ?? headingDegrees?.wrappedValue ?? 180)
+        adjustingAppearance = true
+        appearanceRetry += 1
+    }
+
+    private func backToLocation() {
+        guard let placement = scene.placementPreview ?? selectedPlacement else { return }
+        selectedPlacement = placement
+        adjustingAppearance = false
+        scene.endPlacement()
+        scene.beginCenterLocation(latitude: placement.latitude, longitude: placement.longitude)
+    }
+
+    private func confirmLocation() {
+        guard canConfirm, let placement = scene.placementPreview else { return }
+        latitude = placement.latitude
+        longitude = placement.longitude
+        heightMeters?.wrappedValue = placement.heightMeters
+        headingDegrees?.wrappedValue = placement.headingDegrees
+        scene.commitPlacementPreview()
+        if let selectedRegionID { regionID?.wrappedValue = selectedRegionID }
         close()
     }
 
