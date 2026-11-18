@@ -161,13 +161,27 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     private let drafts: OiDraftVault
     private let vault: any OiSessionStorage
 
+    @ObservationIgnored private let showcaseTransaction: (() async throws -> String)?
+    private(set) var allowsShowcasePublication = false
+
     init(api: OiServiceAPI? = nil, drafts: OiDraftVault = OiDraftVault(), vault: (any OiSessionStorage)? = nil,
-         authentication: (any OiAuthenticating)? = nil) {
+         authentication: (any OiAuthenticating)? = nil,
+         showcaseTransaction: (() async throws -> String)? = OiTestFlightShowcase.transactionProvider) {
+        self.showcaseTransaction = showcaseTransaction
         self.api = api; self.drafts = drafts; self.vault = vault ?? OiSessionVault()
         self.authentication = authentication ?? OiGoogleAuthentication()
     }
 
     func start() async {
+        if let showcaseTransaction {
+            do {
+                _ = try await showcaseTransaction()
+                allowsShowcasePublication = true
+            } catch {
+                // Production installs and unverified transactions keep the regular AI review flow.
+                allowsShowcasePublication = false
+            }
+        }
         var started = generation
         do {
             if api == nil { api = try OiServiceAPI.configured() }
@@ -1108,7 +1122,11 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     }
 
     func submitStory(_ story: OiLiveStory, cucumber: OiCucumberPublication? = nil,
-                     card proposedCard: OiStoryCardPublication? = nil, agreesToAIReview: Bool = false) async -> OiLiveStory? {
+                     card proposedCard: OiStoryCardPublication? = nil, agreesToAIReview: Bool = false,
+                     publishForShowcase: Bool = false) async -> OiLiveStory? {
+        guard !publishForShowcase || allowsShowcasePublication else {
+            error = OiServiceError.unavailable.localizedDescription; return nil
+        }
         guard canStartStory else { error = OiServiceError.storyCreationUnavailable.localizedDescription; return nil }
         let card: OiStoryCardPublication?
         do {
@@ -1132,22 +1150,22 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         }
         guard !isBusy, let api, account?.id == story.userId else { return nil }
         let started = generation
-        guard autoStoryModeration else {
+        guard publishForShowcase || autoStoryModeration else {
             error = "지금은 자동검수를 사용할 수 없어요. 초안은 보존돼 있어요. 잠시 후 다시 시도해 주세요."
             return nil
         }
-        guard agreesToAIReview else {
+        guard publishForShowcase || agreesToAIReview else {
             error = "자동검수 안내를 확인하고 다시 요청해 주세요."
             return nil
         }
-        payload["ai_review_consent_version"] = 1
+        if !publishForShowcase { payload["ai_review_consent_version"] = 1 }
         let expectedAppearance = cucumber?.appearance ?? story.cucumberAppearance
         let expectedCard = card?.id ?? story.cardSnapshotId
         let expectedFormat = card?.format ?? story.cardSnapshotFormat ?? 1
         let expectedCoverType = card.map { $0.coverType } ?? story.resolvedCardCoverType
         guard story.hasSupportedCardArtwork else { error = OiServiceError.invalidInput.localizedDescription; return nil }
         func confirmsSubmission(_ result: OiLiveStory) -> Bool {
-            result.id == story.id && result.userId == story.userId && result.status == "draft" &&
+            result.id == story.id && result.userId == story.userId && result.status == (publishForShowcase ? "published" : "draft") &&
             result.revision == story.revision + 1 && result.cucumberAppearance == expectedAppearance &&
             result.cardSnapshotId == expectedCard && (result.cardSnapshotFormat ?? 1) == expectedFormat &&
             result.resolvedCardCoverType == expectedCoverType
@@ -1171,7 +1189,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             return false
         }
         isBusy = true; error = nil
-        reviewingStoryID = story.id
+        if !publishForShowcase { reviewingStoryID = story.id }
         defer {
             if started == generation { isBusy = false; reviewingStoryID = nil }
         }
@@ -1208,34 +1226,48 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             guard started == generation else { throw OiServiceError.accountChanged }
             let receipt: OiLiveStory
             do {
-                let result = try await api.moderateStory(payload, token: accessToken)
-                guard started == generation, result.storyId == story.id else { throw OiServiceError.accountChanged }
-                try applyRejection(result, current: result.story)
-                guard let reviewed = result.story, result.revision == reviewed.revision,
-                      confirmsSubmission(reviewed) else { throw OiServiceError.unavailable }
-                storyModerationResults[story.id] = result
-                receipt = reviewed
+                if publishForShowcase, let showcaseTransaction {
+                    let signedTransaction = try await showcaseTransaction()
+                    try Task.checkCancellation()
+                    guard started == generation else { throw OiServiceError.accountChanged }
+                    receipt = try await api.publishShowcaseStory(payload, transaction: signedTransaction, token: accessToken)
+                } else {
+                    let result = try await api.moderateStory(payload, token: accessToken)
+                    guard started == generation, result.storyId == story.id else { throw OiServiceError.accountChanged }
+                    try applyRejection(result, current: result.story)
+                    guard let reviewed = result.story, result.revision == reviewed.revision,
+                          confirmsSubmission(reviewed) else { throw OiServiceError.unavailable }
+                    storyModerationResults[story.id] = result
+                    receipt = reviewed
+                }
             } catch let failure where (failure as? URLError)?.code == .timedOut
-                || (failure as? URLError)?.code == .networkConnectionLost || isUnavailable(failure) {
+                || (failure as? URLError)?.code == .networkConnectionLost || isUnavailable(failure) || publishForShowcase {
                 let rows = try? await api.rows("oi_stories", query: "id=eq.\(story.id.uuidString)&user_id=eq.\(story.userId.uuidString)",
                                               token: accessToken, as: OiLiveStory.self)
                 try Task.checkCancellation()
-                let results = try? await api.storyModerationResults(token: accessToken)
                 guard started == generation else { throw OiServiceError.accountChanged }
-                guard let result = results?.first(where: { $0.storyId == story.id }) else {
-                    throw OiServiceError.server("검수 결과를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.")
+                if publishForShowcase {
+                    guard let confirmed = rows?.first, confirmsSubmission(confirmed) else { throw failure }
+                    receipt = confirmed
+                } else {
+                    let results = try? await api.storyModerationResults(token: accessToken)
+                    guard started == generation else { throw OiServiceError.accountChanged }
+                    guard let result = results?.first(where: { $0.storyId == story.id }) else {
+                        throw OiServiceError.server("검수 결과를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.")
+                    }
+                    try applyRejection(result, current: rows?.first)
+                    guard let confirmed = rows?.first, confirmsSubmission(confirmed),
+                          result.status == .approved, result.revision == confirmed.revision else {
+                        throw OiServiceError.server("검수 결과를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.")
+                    }
+                    storyModerationResults[story.id] = result
+                    receipt = confirmed
                 }
-                try applyRejection(result, current: rows?.first)
-                guard let confirmed = rows?.first, confirmsSubmission(confirmed),
-                      result.status == .approved, result.revision == confirmed.revision else {
-                    throw OiServiceError.server("검수 결과를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.")
-                }
-                storyModerationResults[story.id] = result
-                receipt = confirmed
             }
             guard started == generation else { throw OiServiceError.accountChanged }
             guard confirmsSubmission(receipt) else { throw OiServiceError.unavailable }
-            applyReceipt(receipt, action: "submit_story", payload: payload)
+            if publishForShowcase { storyModerationResults[story.id] = nil }
+            applyReceipt(receipt, action: publishForShowcase ? "plant_story" : "submit_story", payload: payload)
             await refreshAfterCommit()
             guard started == generation else { return nil }
             return receipt
