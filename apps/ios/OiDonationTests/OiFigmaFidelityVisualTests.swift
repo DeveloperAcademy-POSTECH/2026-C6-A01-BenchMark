@@ -105,6 +105,192 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testCustomizationStampDefaultsPersistAndRepair() throws {
+        for _ in 0..<12 {
+            var value = OiDraftCustomization()
+            value.prepareCardForEditing()
+            let first = try XCTUnwrap(value.card?.postcardStamp)
+            XCTAssertTrue((1...12).contains(first))
+            XCTAssertEqual(value.card?.initialPostcardStamp, first)
+            value.prepareCardForEditing()
+            XCTAssertEqual(value.card?.postcardStamp, first, "Re-entering the editor must retain its first random choice")
+            value = try JSONDecoder().decode(OiDraftCustomization.self, from: JSONEncoder().encode(value))
+            value.prepareCardForEditing()
+            XCTAssertEqual(value.card?.postcardStamp, first, "Saving and reopening must not reroll the stamp")
+            value.card?.postcardStamp = first == 12 ? 1 : first + 1
+            value.resetCardAppearance()
+            XCTAssertEqual(value.card?.postcardStamp, first, "Reset restores the initial mandatory stamp")
+        }
+        for saved in [Int?.none, 0, 13] {
+            var legacy = OiDraftCustomization()
+            legacy.card = OiCardDesign()
+            legacy.card?.postcardStamp = saved
+            legacy.prepareCardForEditing()
+            XCTAssertTrue((1...12).contains(try XCTUnwrap(legacy.card?.postcardStamp)))
+            XCTAssertEqual(legacy.card?.initialPostcardStamp, legacy.card?.postcardStamp)
+        }
+        var selected = OiDraftCustomization()
+        selected.card = OiCardDesign()
+        selected.card?.postcardStamp = 9
+        selected.prepareCardForEditing()
+        XCTAssertEqual(selected.card?.postcardStamp, 9, "An existing valid choice is already the draft's initial stamp")
+        XCTAssertEqual(selected.card?.initialPostcardStamp, 9)
+    }
+
+    func testCustomizationStampRetapKeepsOneSelection() throws {
+        var value = OiDraftCustomization()
+        value.prepareCardForEditing()
+        let initial = try XCTUnwrap(value.card?.postcardStamp)
+        let selection = initial == 12 ? 1 : initial + 1
+        let editor = OiCardCustomizationStep(draft: .constant(Self.draft),
+            customization: Binding(get: { value }, set: { value = $0 }), onContinue: nil)
+        editor.selectStamp(selection)
+        editor.selectStamp(selection)
+        XCTAssertEqual(value.card?.postcardStamp, selection, "A selected stamp cannot be deselected")
+        XCTAssertEqual(value.card?.initialPostcardStamp, initial)
+        value.resetCardAppearance()
+        XCTAssertEqual(value.card?.postcardStamp, initial)
+    }
+
+    func testCustomizationCardResetKeepsContentAndRestoresDefaults() throws {
+        var value = OiDraftCustomization()
+        value.prepareCardForEditing()
+        let initial = try XCTUnwrap(value.card?.postcardStamp)
+        let photo = try XCTUnwrap(UIImage(named: "OiCatsPortrait")?.pngData())
+        let date = Date(timeIntervalSince1970: 1_799_779_200)
+        value.showsCharacter = false
+        value.connectedStoryID = UUID().uuidString
+        value.seedAppearance = editedSeedCucumber3DAppearance()
+        value.card?.postcardBackground = .init(color: 0xFF0000, fill: .gradient,
+            middleColor: 0x00FF00, endColor: 0x0000FF, authorMode: "academic", backLogoColor: 0x246BA0)
+        value.card?.backgroundPhoto = photo
+        value.card?.postcardAcademicAuthor = "컴퓨터공학과 23학번"
+        value.card?.postcardDate = date
+        value.card?.photoMonochrome = true
+        value.card?.caption = "보관 중인 내용"
+        value.card?.anonymous = true
+        value.card?.postcardLogo = "black"
+        value.card?.postcardStamp = initial == 12 ? 1 : initial + 1
+        value.card?.postcardLogoOpacity = 0.2
+        value.card?.characterBackdropEnabled = true
+        value.card?.characterBackdropColor = 0x123456
+        value.card?.characterBackdropOpacity = 0.4
+        value.card?.characterPlacement = .init(x: 0.2, y: 0.8, scale: 2)
+        value.card?.backgroundPlacement = .init(x: 0.8, y: 0.2, scale: 3)
+        value.card?.characterOrientation = .init(yaw: 1, pitch: 0.5)
+        value.card?.portraitPNG = photo
+        value.card?.portraitKey = "previous-angle"
+        let before = value
+        value.resetCardAppearance()
+        let card = try XCTUnwrap(value.card)
+        XCTAssertEqual(card.postcardBackground?.color, 0xD9D9D9)
+        XCTAssertEqual(card.postcardBackground?.fill, .solid)
+        XCTAssertNil(card.postcardBackground?.preset)
+        XCTAssertNil(card.postcardBackground?.middleColor)
+        XCTAssertNil(card.postcardBackground?.endColor)
+        XCTAssertNil(card.postcardBackground?.backLogoColor)
+        XCTAssertEqual(card.postcardLayoutVersion, 2)
+        XCTAssertEqual(card.postcardStamp, initial)
+        XCTAssertNil(card.postcardLogo)
+        XCTAssertNil(card.postcardLogoOpacity)
+        XCTAssertEqual(card.characterPlacement, OiCardPlacement())
+        XCTAssertEqual(card.backgroundPlacement, OiCardPlacement())
+        XCTAssertEqual(card.characterOrientation ?? OiCardOrientation(), OiCardOrientation())
+        XCTAssertFalse(card.usesCharacterBackdrop)
+        XCTAssertNil(card.characterBackdropColor)
+        XCTAssertNil(card.characterBackdropOpacity)
+        XCTAssertNil(card.portraitPNG)
+        XCTAssertNil(card.portraitKey)
+        XCTAssertEqual(card.backgroundPhoto, photo, "The content tab's chosen image must survive presentation reset")
+        XCTAssertEqual(card.postcardBackground?.authorMode, "academic")
+        XCTAssertEqual(card.postcardAcademicAuthor, "컴퓨터공학과 23학번")
+        XCTAssertEqual(card.postcardDate, date)
+        XCTAssertEqual(card.photoMonochrome, true)
+        XCTAssertEqual(card.caption, "보관 중인 내용")
+        XCTAssertTrue(card.anonymous)
+        XCTAssertFalse(value.showsCharacter)
+        XCTAssertEqual(value.seedAppearance, before.seedAppearance)
+        XCTAssertEqual(value.connectedStoryID, before.connectedStoryID)
+        let once = value
+        value.resetCardAppearance()
+        XCTAssertEqual(value, once, "Repeated reset must not reroll or lose preserved content")
+    }
+
+    func testCustomizationCucumberResetClearsAllOutfitsAndKeepsCard() throws {
+        var value = OiDraftCustomization()
+        value.prepareCardForEditing()
+        value.seedAppearance = editedSeedCucumber3DAppearance()
+        value.seedWhiteTshirt = true
+        value.seedLongPants = true
+        value.seedTop = "hoodie"
+        value.seedBottom = "shorts"
+        value.seedSneakers = true
+        value.seedSet = "raincoat"
+        value.seedProposal = 1
+        value.wardrobe = OiWardrobeLook()
+        value.garmentColors = ["상의": 0xFF0000, "하의": 0x00FF00, "신발": 0x0000FF]
+        value.connectedStoryID = UUID().uuidString
+        value.connectedStorySelectionEdited = true
+        value.showsCharacter = false
+        value.card?.backgroundPhoto = try XCTUnwrap(UIImage(named: "OiCatsPortrait")?.pngData())
+        value.card?.postcardLogo = "black"
+        value.card?.postcardBackground = .init(color: 0x246BA0, fill: .solid, authorMode: "anonymous")
+        value.card?.characterOrientation = .init(yaw: 1, pitch: 0.2)
+        value.card?.portraitPNG = Data([1, 2, 3])
+        value.card?.portraitKey = "previous-outfit"
+        var expected = value.card
+        expected?.portraitPNG = nil
+        expected?.portraitKey = nil
+        let link = value.connectedStoryID
+        value.resetCucumberAppearance()
+        XCTAssertEqual(value.seedAppearance ?? OiSeedCucumberAppearance(), OiSeedCucumberAppearance())
+        XCTAssertNotNil(value.seedSnapshot, "The default cucumber must remain the card's portrait source")
+        XCTAssertEqual(value.seedSnapshot?.appearance, OiSeedCucumberAppearance())
+        XCTAssertTrue(value.seedGarments.isEmpty)
+        XCTAssertNil(value.seedWhiteTshirt)
+        XCTAssertNil(value.seedLongPants)
+        XCTAssertNil(value.seedTop)
+        XCTAssertNil(value.seedBottom)
+        XCTAssertNil(value.seedSneakers)
+        XCTAssertNil(value.seedSet)
+        XCTAssertNil(value.seedProposal)
+        XCTAssertNil(value.wardrobe)
+        XCTAssertTrue(value.garmentColors.isEmpty)
+        XCTAssertEqual(value.card, expected, "Only the derived cucumber portrait may change in the card")
+        XCTAssertFalse(value.showsCharacter)
+        XCTAssertEqual(value.connectedStoryID, link)
+        XCTAssertEqual(value.connectedStorySelectionEdited, true)
+        let once = value
+        value.resetCucumberAppearance()
+        XCTAssertEqual(value, once)
+    }
+
+    func testCustomizationResetButtonsAndLogoCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        var value = OiDraftCustomization()
+        value.prepareCardForEditing()
+        value.card?.postcardLogo = "black"
+        value.card?.postcardLogoOpacity = 0
+        value.card?.postcardDate = Date(timeIntervalSince1970: 1_799_779_200)
+        for variant in variants.prefix(3) {
+            for title in ["로고", "스탬프"] {
+                let screen = CreationCapturePage(step: 4) {
+                    OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(value),
+                        donorName: "가상 작성자", onContinue: {}).tabForTest(title)
+                }
+                try await capture(screen, name: "customization-reset-card-\(title)", variant: variant,
+                    defaults: fixture.defaults, attach: true)
+            }
+            let cucumber = CreationCapturePage(step: 3) {
+                OiCucumberCustomizationStep(customization: .constant(.init()),
+                    cucumberName: .constant("검증용오이"), onContinue: {})
+            }.environment(\.scenePhase, .active)
+            try await capture(cucumber, name: "customization-reset-cucumber", variant: variant,
+                defaults: fixture.defaults, attach: true)
+        }
+    }
+
     func testPostcardRefreshPersistenceAndPrivacy() throws {
         var value = Self.customization
         value.showsCharacter = false
@@ -127,7 +313,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(metadata.preset, "lime")
         XCTAssertEqual(metadata.authorMode, "anonymous")
         XCTAssertFalse(String(decoding: try JSONEncoder().encode(metadata), as: UTF8.self).contains("비공개 이름"))
-        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "다른 계정 이름", tags: [Self.draft.emotion, Self.draft.theme])
+        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "다른 계정 이름", tags: Self.draft.postcardTags)
         XCTAssertEqual(anonymous.parts[.back], restored.parts[.back], "Reopening a remote card must retain anonymous attribution")
         XCTAssertEqual(OiPostcardAuthor.text(mode: "academic", name: "비공개 이름", academic: ""), "익명")
         XCTAssertEqual(OiPostcardAuthor.text(mode: "academic", name: "이름", academic: "컴퓨터공학과 23학번"), "컴퓨터공학과 23학번")
@@ -468,12 +654,12 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
         for character in [false, true] {
             value.showsCharacter = character
-            // An unset logo color means white. Use transparent ink for the unmarked reference.
-            value.card?.postcardLogoOpacity = 0
-            let original = try renderedBitmap(render(value), size: CGSize(width: 362, height: 502))
-            let before = try XCTUnwrap(original.data).bindMemory(to: UInt8.self, capacity: 362 * 502 * 4)
-            value.card?.postcardLogoOpacity = 1
             for logo in ["white", "black"] {
+                // Compare opposite ink colors; neither can hide the logo through legacy alpha.
+                value.card?.postcardLogo = logo == "white" ? "black" : "white"
+                value.card?.postcardLogoOpacity = 0
+                let original = try renderedBitmap(render(value), size: CGSize(width: 362, height: 502))
+                let before = try XCTUnwrap(original.data).bindMemory(to: UInt8.self, capacity: 362 * 502 * 4)
                 value.card?.postcardLogo = logo
                 let png = try render(value)
                 let result = try renderedBitmap(png, size: CGSize(width: 362, height: 502))
@@ -1100,13 +1286,14 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         value.card?.postcardBackground?.middleOpacity = 0.5
         let half = try sample(render(value))
         for shift in [16, 8, 0] { XCTAssertEqual(Double((half >> shift) & 255), 102, accuracy: 2) }
-        value.card?.postcardLogoOpacity = 0
-        let plain = try render(value).pngData()
         value.card?.postcardLogo = "black"
-        value.card?.postcardLogoOpacity = 0
-        XCTAssertEqual(try render(value).pngData(), plain, "A transparent front logo must not cover the artwork")
-        value.card?.postcardLogoOpacity = 0.5
-        XCTAssertNotEqual(try render(value).pngData(), plain)
+        value.card?.postcardLogoOpacity = 1
+        let opaqueLogo = try render(value).pngData()
+        for savedOpacity in [0.0, 0.5] {
+            value.card?.postcardLogoOpacity = savedOpacity
+            XCTAssertEqual(try render(value).pngData(), opaqueLogo,
+                           "Removed front-logo opacity must not survive through an older saved draft")
+        }
         value.card?.postcardBackground?.backLogoColor = 0x246BA0
         value.card?.postcardBackground?.backLogoOpacity = 0.3
         let frontBefore = try render(value).pngData()

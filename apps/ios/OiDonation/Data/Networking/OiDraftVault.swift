@@ -427,6 +427,58 @@ nonisolated struct OiDraftCustomization: Codable, Equatable, Sendable {
     var seedSet: String?
     var seedProposal: Int?
 
+    mutating func prepareCardForEditing() {
+        var value = card ?? Self.newCardDesign()
+        if value.postcardBackground == nil {
+            value.postcardBackground = .init(color: value.borderFirst, fill: value.borderFill,
+                authorMode: value.postcardAuthorMode)
+        }
+        value.preparePostcardStamp()
+        card = value
+    }
+
+    /// Keep every content-tab choice while restoring the card's decoration defaults.
+    mutating func resetCardAppearance() {
+        prepareCardForEditing()
+        guard let previous = card else { return }
+        var value = Self.newCardDesign()
+        value.caption = previous.caption
+        value.anonymous = previous.anonymous
+        value.backgroundPhoto = previous.backgroundPhoto
+        value.photoMonochrome = previous.photoMonochrome
+        value.postcardDate = previous.postcardDate
+        value.postcardAcademicAuthor = previous.postcardAcademicAuthor
+        value.postcardBackground?.authorMode = previous.postcardAuthorMode
+        value.initialPostcardStamp = previous.initialPostcardStamp
+        value.postcardStamp = previous.initialPostcardStamp
+        card = value
+    }
+
+    /// An explicit default keeps the bare seed cucumber as the card's portrait source.
+    mutating func resetCucumberAppearance() {
+        seedAppearance = OiSeedCucumberAppearance()
+        seedWhiteTshirt = nil
+        seedLongPants = nil
+        seedTop = nil
+        seedBottom = nil
+        seedSneakers = nil
+        seedSet = nil
+        seedProposal = nil
+        wardrobe = nil
+        garmentColors = [:]
+        card?.portraitPNG = nil
+        card?.portraitKey = nil
+    }
+
+    private static func newCardDesign() -> OiCardDesign {
+        var value = OiCardDesign()
+        value.postcardLayoutVersion = 2
+        value.borderFill = .solid
+        value.borderFirst = 0xD9D9D9
+        value.postcardBackground = .init(color: 0xD9D9D9, fill: .solid)
+        return value
+    }
+
     var selectedSeedTop: OiWardrobeLook.Top? {
         get { seedTop.flatMap(OiWardrobeLook.Top.init(rawValue:)) ?? (seedWhiteTshirt == true ? .tshirt : nil) }
         set {
@@ -621,6 +673,8 @@ nonisolated struct OiCardDesign: Codable, Equatable, Sendable {
     var postcardAuthorMode: String? { postcardBackground?.authorMode ?? (anonymous ? "anonymous" : nil) }
     var postcardLayoutVersion: Int? = nil
     var postcardStamp: Int? = nil
+    /// Chosen once for this draft so reset restores the same random default.
+    var initialPostcardStamp: Int? = nil
     var postcardLogo: String? = nil
     var effectivePostcardLogo: String { postcardLogo == "black" ? "black" : "white" }
     /// Legacy backdrop settings remain decodable. Layout 2 now always shades the
@@ -635,6 +689,14 @@ nonisolated struct OiCardDesign: Codable, Equatable, Sendable {
     }
     /// Academic text stays in the protected draft and rendered card, not style metadata.
     var postcardAcademicAuthor: String? = nil
+
+    mutating func preparePostcardStamp() {
+        let validInitial = initialPostcardStamp.flatMap { (1...12).contains($0) ? $0 : nil }
+        let validSelection = postcardStamp.flatMap { (1...12).contains($0) ? $0 : nil }
+        let initial = validInitial ?? validSelection ?? Int.random(in: 1...12)
+        initialPostcardStamp = initial
+        postcardStamp = validSelection ?? initial
+    }
 }
 
 nonisolated enum OiDenim: String, CaseIterable, Codable, Identifiable, Sendable {

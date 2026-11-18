@@ -134,12 +134,9 @@ struct MYFarmerCustomizationView: View {
     }
 
     private var resetButton: some View {
-        Button {
+        OiCustomizationResetButton {
             character = initial.character; drafts = [initial.character: initial]; saveError = nil
-        } label: {
-            Text("되돌리기").font(CampusStyle.medium(14)).tracking(0.28).underline()
-                .foregroundStyle(Color(white: 107 / 255)).frame(minHeight: 44)
-        }.buttonStyle(.plain).disabled(isSaving).accessibilityIdentifier("my.farmer.reset")
+        }.disabled(isSaving).accessibilityIdentifier("my.farmer.reset")
     }
 
     private var closeButton: some View {

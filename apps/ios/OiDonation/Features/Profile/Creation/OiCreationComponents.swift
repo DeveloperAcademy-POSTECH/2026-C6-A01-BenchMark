@@ -1,6 +1,18 @@
 import MapKit
 import SwiftUI
 
+/// Figma `5400:11817`, shared by the farmer, cucumber and card editors.
+struct OiCustomizationResetButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text("되돌리기").font(CampusStyle.medium(14)).tracking(0.28).underline()
+                .foregroundStyle(Color(white: 107 / 255)).frame(minHeight: 44)
+        }.buttonStyle(.plain)
+    }
+}
+
 struct OiCreationProgressHeader: View {
     let step: Int
     var onPrevious: (() -> Void)?
