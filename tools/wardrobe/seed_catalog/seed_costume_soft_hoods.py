@@ -53,6 +53,10 @@ def prepare_soft_hood(id, output, preview=False):
     target = original[:, 2] + depth * weight
     source_limit = source_face_depth(id, original) - .002
     points[used, 2] = np.minimum(target, source_limit) + weight * np.maximum(target - source_limit, 0)
+    if id == "cat":
+        # Extend the exposed rind beneath the original hood rim so the lining
+        # cannot show through the gap beside the narrower master face.
+        points[used, 0] = cx + (points[used, 0] - cx) * 1.28
     skin = [("Body", "VisibleBody", *seal_hood_face(id, points, faces, uv))]
     face_offsets = {name: (0, 0, depth) for name in ("LeftEye", "RightEye", "Mouth")}
     def mask(centers, green, rgb, name):
