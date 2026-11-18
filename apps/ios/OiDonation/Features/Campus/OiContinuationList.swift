@@ -20,16 +20,29 @@ struct OiContinuationList: View {
     @State private var isLoading = false
     @State private var failure: String?
     @State private var unsupported = false
+    @State private var showsFailureAlert = false
     @State private var requestID = UUID()
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
-            if total == 0, !isLoading, failure == nil, !unsupported, let emptyContent {
-                emptyContent()
+            if let emptyContent {
+                if total == 0, !isLoading, failure == nil, !unsupported {
+                    emptyContent()
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        continuationRows
+                        loadingAndPagination
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             } else {
-                list.frame(minHeight: emptyContent == nil ? nil : 400)
+                list
             }
+        }
+        .alert(failure ?? OiContinuationError.notSupported.localizedDescription, isPresented: $showsFailureAlert) {
+            Button("다시 시도") { Task { await load(reset: true) } }
+            Button("닫기", role: .cancel) { }
         }
         .task(id: "\(parent?.uuidString ?? "mine")/\(remote?.continuationPrivacyKey ?? "public")") {
             await load(reset: true)
@@ -66,23 +79,31 @@ struct OiContinuationList: View {
                 } else if rows.isEmpty && !isLoading && total != nil {
                     ContentUnavailableView("아직 이어진 이야기가 없어요", systemImage: "link")
                 }
-                ForEach(rows) { row in
-                    if let remote {
-                        let story = remote.campusStory(row.story)
-                        NavigationLink(value: CampusDestination.summary(story.id)) {
-                            OiCucumberCard(name: story.title, tags: story.tags, donor: story.donor,
-                                title: story.storyTitle) { CampusCucumberPortrait(story: story) }
-                        }.buttonStyle(.plain)
-                            .accessibilityIdentifier("oi.continuation.\(row.id.uuidString)")
-                    }
-                }
-                if isLoading { ProgressView("이어진 이야기 불러오는 중") }
-                if cursor != nil && !isLoading {
-                    Button("더 보기") { Task { await load(reset: false) } }
-                }
+                continuationRows
+                loadingAndPagination
             }.padding(20)
         }
         .refreshable { await load(reset: true) }
+    }
+
+    private var continuationRows: some View {
+        ForEach(rows) { row in
+            if let remote {
+                let story = remote.campusStory(row.story)
+                NavigationLink(value: CampusDestination.summary(story.id)) {
+                    OiCucumberCard(name: story.title, tags: story.tags, donor: story.donor,
+                        title: story.storyTitle) { CampusCucumberPortrait(story: story) }
+                }.buttonStyle(.plain)
+                    .accessibilityIdentifier("oi.continuation.\(row.id.uuidString)")
+            }
+        }
+    }
+
+    @ViewBuilder private var loadingAndPagination: some View {
+        if isLoading { ProgressView("이어진 이야기 불러오는 중") }
+        if cursor != nil && !isLoading {
+            Button("더 보기") { Task { await load(reset: false) } }
+        }
     }
 
     private var catalogIDs: Set<UUID>? {
@@ -91,11 +112,15 @@ struct OiContinuationList: View {
     }
 
     private func load(reset: Bool) async {
-        guard let remote else { unsupported = true; return }
+        guard let remote else {
+            unsupported = true
+            showsFailureAlert = emptyContent != nil
+            return
+        }
         guard reset || !isLoading else { return }
         if reset { requestID = UUID(); rows = []; cursor = nil; total = nil }
         let started = requestID
-        failure = nil; unsupported = false; isLoading = true
+        failure = nil; unsupported = false; showsFailureAlert = false; isLoading = true
         defer { if requestID == started { isLoading = false } }
         do {
             let result = try await remote.storyContinuations(parent: parent, mine: parent == nil,
@@ -111,7 +136,17 @@ struct OiContinuationList: View {
                 store.synchronize(stories: store.stories.filter { !ids.contains($0.id) } + incoming, collected: store.collected)
             }
         } catch is CancellationError { }
-        catch is OiContinuationError { if !Task.isCancelled && requestID == started { unsupported = true } }
-        catch { if !Task.isCancelled && requestID == started { failure = "이어진 이야기를 불러오지 못했어요. 다시 시도해 주세요." } }
+        catch is OiContinuationError {
+            if !Task.isCancelled && requestID == started {
+                unsupported = true
+                showsFailureAlert = emptyContent != nil
+            }
+        }
+        catch {
+            if !Task.isCancelled && requestID == started {
+                failure = "이어진 이야기를 불러오지 못했어요. 다시 시도해 주세요."
+                showsFailureAlert = emptyContent != nil
+            }
+        }
     }
 }

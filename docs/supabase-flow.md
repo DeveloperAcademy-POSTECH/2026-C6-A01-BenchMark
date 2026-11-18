@@ -206,6 +206,10 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project app
 
 ## 이어진 이야기와 앱 내 알림 — #418
 
+### 2026-11-18 수신 목록 트랜잭션 모드 수정 — #499
+
+운영 로그에서 수신 목록의 HTTP 405 / SQLSTATE 25006을 확인했다. STABLE인 `oi_story_continuations`가 READ ONLY 트랜잭션에서 `oi_actor()`의 계정 멤버십 `FOR SHARE` 잠금을 호출한 것이 원인이다. 새 `20261118065532_oi_continuation_rpc_transaction_mode.sql`은 본문·속성 drift를 확인하고 이 RPC만 VOLATILE로 변경해 POST를 READ WRITE로 실행한다. 본문·권한·계정 잠금·검색 경로는 유지한다. 로컬 양쪽 스키마 이력에서 수정 전 실패와 수정 후 성공, 익명·구세션·탈퇴 차단을 재현했다. **운영 적용은 확인 대기이며 아직 수행하지 않았다.** MY의 오류 UI는 별도 앱 수정이 필요하다. [원인·검증·적용 경계](../apps/ios/docs/continuation-failure-499.md).
+
 2026-11-17 사용자 합의, 작업 브랜치 `feat/#418-story-continuations`. PR #415의 선택 UI를 통합한 서버·앱 후속이다. **PR #425를 develop에 병합하고 2026-11-17 운영 52gibu에 적용했다.** 원래 mutator delegate 해시·적용 SQL SHA256 일치와 가상 자료 롤백 검증을 확인했다.
 
 ### 저장·검수·개인정보 계약

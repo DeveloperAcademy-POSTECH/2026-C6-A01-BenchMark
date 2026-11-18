@@ -350,20 +350,242 @@ final class OiStoryContinuationTests: XCTestCase {
         } catch OiServiceError.unavailable {}
     }
 
-    private func capture<V: View>(_ view: V, name: String, size: CGSize = CGSize(width: 402, height: 750)) async throws {
+    func testMYContinuationFailuresKeepTheFigmaPanelAndRetryOnlyProducesEmptyAfterSuccess() async throws {
+        for status in [404, 405, 503, -1] {
+            let originalHandler = OiStoreURLProtocol.handle
+            let backend = OiTestBackend()
+            backend.configure { $0.storyContinuations = status != -1 }
+            backend.install()
+            let previous = OiStoreURLProtocol.handle
+            let reply = ContinuationReply(status: status)
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [OiStoreURLProtocol.self]
+            let session = URLSession(configuration: configuration)
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ContinuationFailure-\(UUID().uuidString)")
+            defer {
+                reply.release()
+                session.invalidateAndCancel()
+                OiStoreURLProtocol.handle = originalHandler
+                try? FileManager.default.removeItem(at: directory)
+                withExtendedLifetime(backend) { }
+            }
+            OiStoreURLProtocol.handle = { request, client in
+                switch request.url?.lastPathComponent {
+                case "oi_story_continuations": reply.respond(to: client)
+                case "oi_my_story_continuation_targets": client.respond(200, Data("[]".utf8))
+                default: previous?(request, client)
+                }
+            }
+            let remote = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+                drafts: OiDraftVault(directory: directory), vault: OiMemorySession())
+            await remote.start()
+            XCTAssertNil(remote.loadError)
+            let lifecycle = ContinuationLifecycle()
+            try await capture(ContinuationWorkshopHost(remote: remote, lifecycle: lifecycle),
+                name: "my-continuation-retry-\(status)", size: CGSize(width: 402, height: 874), inspect: { host, window in
+                    var alert: UIAlertController?
+                    for _ in 0..<60 where alert == nil {
+                        alert = self.continuationAlert(in: host)
+                        if alert == nil { try await Task.sleep(for: .milliseconds(25)) }
+                    }
+                    let presented = try XCTUnwrap(alert, "A failed MY read must use a system alert, not an invented panel")
+                    XCTAssertEqual(Set(presented.actions.compactMap(\.title)), Set(["다시 시도", "닫기"]))
+                    XCTAssertEqual(presented.title, status == 404 || status == -1
+                        ? OiContinuationError.notSupported.localizedDescription
+                        : "이어진 이야기를 불러오지 못했어요. 다시 시도해 주세요.")
+                    XCTAssertNil(remote.incomingContinuationCount, "An unavailable or failed response must never fabricate zero")
+                    if status == -1 { XCTAssertEqual(reply.requests, 0, "Disabled capability must not send a request") }
+                    let attachment = XCTAttachment(image: self.continuationImage(window))
+                    attachment.name = "my-continuation-failure-\(status)-system-alert"
+                    attachment.lifetime = .keepAlways
+                    self.add(attachment)
+                    for _ in 0..<60 where presented.isBeingPresented {
+                        try await Task.sleep(for: .milliseconds(25))
+                    }
+                    XCTAssertFalse(presented.isBeingPresented)
+                    let presenter = try XCTUnwrap(presented.presentingViewController)
+                    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                        presenter.dismiss(animated: false) { continuation.resume() }
+                    }
+                    for _ in 0..<60 where self.continuationAlert(in: host) != nil {
+                        try await Task.sleep(for: .milliseconds(25))
+                    }
+                    XCTAssertNil(self.continuationAlert(in: host), "Inspect the panel only after the native alert has detached")
+                    XCTAssertNil(presented.viewIfLoaded?.window, "The dismissed alert view must leave the capture window before pixel inspection")
+                    window.layoutIfNeeded()
+                    let failed = self.continuationImage(window)
+                    let panel = XCTAttachment(image: failed)
+                    panel.name = "my-continuation-failure-\(status)-panel-after-alert"
+                    panel.lifetime = .keepAlways
+                    self.add(panel)
+                    XCTAssertEqual(try self.continuationInk(failed, green: true), 0,
+                        "Failure must not display the successful-empty message")
+                    XCTAssertEqual(try self.continuationInk(failed, green: false), 0,
+                        "Failure must not insert shared headings, explanations, or ContentUnavailableView into MY")
+
+                    reply.setStatus(200)
+                    if status == -1 {
+                        backend.configure { $0.storyContinuations = true }
+                        await remote.refresh()
+                    } else {
+                        lifecycle.phase = .inactive
+                        try await Task.sleep(for: .milliseconds(50))
+                        lifecycle.phase = .active
+                    }
+                    for _ in 0..<60 where remote.incomingContinuationCount == nil {
+                        try await Task.sleep(for: .milliseconds(25))
+                    }
+                    XCTAssertEqual(remote.incomingContinuationCount, 0, "Only the successful zero response may establish an empty list")
+                    try await Task.sleep(for: .milliseconds(100))
+                    XCTAssertGreaterThan(try self.continuationInk(self.continuationImage(window), green: true), 500,
+                        "A successful retry must show Figma's connected-donation empty state")
+                })
+        }
+    }
+
+    func testMYContinuationLoadingDoesNotShowEmptyOrSharedHeadings() async throws {
+        let originalHandler = OiStoreURLProtocol.handle
+        let backend = OiTestBackend()
+        backend.configure { $0.storyContinuations = true }
+        backend.install()
+        let previous = OiStoreURLProtocol.handle
+        let reply = ContinuationReply(status: nil)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ContinuationLoading-\(UUID().uuidString)")
+        defer {
+            reply.release(); session.invalidateAndCancel(); OiStoreURLProtocol.handle = originalHandler
+            try? FileManager.default.removeItem(at: directory)
+            withExtendedLifetime(backend) { }
+        }
+        OiStoreURLProtocol.handle = { request, client in
+            switch request.url?.lastPathComponent {
+            case "oi_story_continuations": reply.respond(to: client)
+            case "oi_my_story_continuation_targets": client.respond(200, Data("[]".utf8))
+            default: previous?(request, client)
+            }
+        }
+        let remote = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: OiMemorySession())
+        await remote.start()
+        try await capture(ContinuationWorkshopHost(remote: remote, lifecycle: ContinuationLifecycle()),
+            name: "my-continuation-loading", size: CGSize(width: 402, height: 874), inspect: { host, window in
+                XCTAssertGreaterThan(reply.requests, 0)
+                XCTAssertNil(remote.incomingContinuationCount)
+                XCTAssertNil(self.continuationAlert(in: host))
+                XCTAssertEqual(try self.continuationInk(self.continuationImage(window), green: true), 0)
+                reply.release()
+                for _ in 0..<60 where remote.incomingContinuationCount == nil {
+                    try await Task.sleep(for: .milliseconds(25))
+                }
+                XCTAssertEqual(remote.incomingContinuationCount, 0)
+            })
+    }
+
+    private func continuationAlert(in controller: UIViewController) -> UIAlertController? {
+        if let alert = controller as? UIAlertController { return alert }
+        if let presented = controller.presentedViewController, let alert = continuationAlert(in: presented) { return alert }
+        return controller.children.compactMap { continuationAlert(in: $0) }.first
+    }
+
+    private func continuationImage(_ window: UIWindow) -> UIImage {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        return UIGraphicsImageRenderer(size: window.bounds.size, format: format).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+    }
+
+    private func continuationInk(_ image: UIImage, green: Bool) throws -> Int {
+        let region = green ? CGRect(x: 21, y: 530, width: 360, height: 70) : CGRect(x: 21, y: 385, width: 360, height: 120)
+        let crop = try XCTUnwrap(image.cgImage?.cropping(to: region))
+        let bitmap = try XCTUnwrap(CGContext(data: nil, width: crop.width, height: crop.height,
+            bitsPerComponent: 8, bytesPerRow: crop.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+        bitmap.draw(crop, in: CGRect(origin: .zero, size: region.size))
+        let bytes = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: crop.width * crop.height * 4)
+        return stride(from: 0, to: crop.width * crop.height * 4, by: 4).filter { offset in
+            let r = Int(bytes[offset]), g = Int(bytes[offset + 1]), b = Int(bytes[offset + 2])
+            return green ? g > r + 10 && g > b + 25 && r < 190 : max(r, g, b) < 100
+        }.count
+    }
+
+    private func capture<V: View>(_ view: V, name: String, size: CGSize = CGSize(width: 402, height: 750),
+                                 inspect: ((UIViewController, UIWindow) async throws -> Void)? = nil) async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindows = scene.windows.map { (id: ObjectIdentifier($0), hidden: $0.isHidden, key: $0.isKeyWindow) }
         let window = UIWindow(windowScene: scene)
+        let windowID = ObjectIdentifier(window)
         let host = UIHostingController(rootView: view.environment(\.colorScheme, .light))
         window.frame = CGRect(origin: .zero, size: size)
         window.rootViewController = host; window.isHidden = false
-        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+        defer {
+            host.dismiss(animated: false)
+            window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+            XCTAssertFalse(scene.windows.contains { ObjectIdentifier($0) == windowID }, "The owned capture window must detach, including hidden windows")
+            for previous in previousWindows {
+                if let preserved = scene.windows.first(where: { ObjectIdentifier($0) == previous.id }) {
+                    XCTAssertEqual(preserved.isHidden, previous.hidden)
+                    XCTAssertEqual(preserved.isKeyWindow, previous.key)
+                }
+            }
+        }
         window.layoutIfNeeded(); host.view.layoutIfNeeded()
         try await Task.sleep(for: .milliseconds(350))
         host.view.layoutIfNeeded()
+        try await inspect?(host, window)
         let image = UIGraphicsImageRenderer(size: window.bounds.size).image { _ in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
         let shot = XCTAttachment(image: image); shot.name = name; shot.lifetime = .keepAlways; add(shot)
         XCTAssertGreaterThan(try XCTUnwrap(image.pngData()).count, 15000, "The capture must include rendered text, not a blank host")
+    }
+}
+
+@MainActor
+private final class ContinuationLifecycle: ObservableObject {
+    @Published var phase: ScenePhase = .active
+}
+
+private struct ContinuationWorkshopHost: View {
+    let remote: OiRemoteStore
+    @ObservedObject var lifecycle: ContinuationLifecycle
+    @State private var library = MYLibraryStore()
+
+    var body: some View {
+        NavigationStack {
+            MYWorkshopView(demo: library, remote: remote, initialTab: .connected)
+        }
+        .environment(\.scenePhase, lifecycle.phase)
+    }
+}
+
+/// The URLProtocol callback and the main-actor test share only this locked reply state.
+private final class ContinuationReply: @unchecked Sendable {
+    private let lock = NSLock()
+    private var status: Int?
+    private var count = 0
+    private var held: [OiStoreURLProtocol] = []
+    private static let empty = Data(#"{"items":[],"total":0,"next_cursor":null}"#.utf8)
+
+    init(status: Int?) { self.status = status }
+    var requests: Int { lock.lock(); defer { lock.unlock() }; return count }
+
+    func setStatus(_ value: Int) {
+        lock.lock(); status = value; lock.unlock()
+    }
+
+    func respond(to client: OiStoreURLProtocol) {
+        lock.lock()
+        count += 1
+        let response = status
+        if response == nil { held.append(client) }
+        lock.unlock()
+        if let response { client.respond(response, response == 200 ? Self.empty : Data("{}".utf8)) }
+    }
+
+    func release() {
+        lock.lock(); let clients = held; held = []; status = 200; lock.unlock()
+        clients.forEach { $0.respond(200, Self.empty) }
     }
 }
