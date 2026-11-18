@@ -48,10 +48,11 @@ declare actor uuid:=benchmark_private.oi_actor(); total bigint;
 begin
   if p_liked is null then raise exception 'Invalid like' using errcode='22023'; end if;
   perform 1 from public.oi_stories s where s.id=p_story for share;
+  -- Unsetting must not become a count oracle for hidden/deleted stories either.
+  if not benchmark_private.oi_story_likeable(p_story) then
+    raise exception 'Story unavailable' using errcode='22023';
+  end if;
   if p_liked then
-    if not benchmark_private.oi_story_likeable(p_story) then
-      raise exception 'Story unavailable' using errcode='22023';
-    end if;
     insert into benchmark_private.oi_story_likes(story_id,account_id) values (p_story,actor)
       on conflict do nothing;
   else
