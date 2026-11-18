@@ -148,6 +148,15 @@ final class OiTestBackend {
         var boundedMetricsStatus = 200
         var boundedMetricsIDs: [[String]] = []
         var legacyMetricsReads = 0
+        var coinsEnabled = false
+        var coinBalance: Int64 = 10
+        var coinUnlimited = false
+        var ownedFarmerItems: [String] = []
+        var failCoinWallet = false
+        var holdCoinWallet = false
+        var loseCoinPurchaseReceipt = false
+        var coinPurchaseBodies: [[String: Any]] = []
+        var coinWalletReads = 0
     }
     private var state = State()
 
@@ -158,7 +167,7 @@ final class OiTestBackend {
         configure {
             $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false
             $0.holdReviewResponse = false; $0.holdModerationResponse = false; $0.holdStorySubmissionResponse = false
-            $0.holdAuditRead = false; $0.holdCardSend = false; $0.holdFarmWrite = false; $0.holdFarmerOutfitWrite = false
+            $0.holdAuditRead = false; $0.holdCardSend = false; $0.holdFarmWrite = false; $0.holdFarmerOutfitWrite = false; $0.holdCoinWallet = false
         }
         value?.0.respond(200, value?.1 ?? Data())
     }
@@ -187,6 +196,11 @@ final class OiTestBackend {
         var status = 200
         var result: Any = []
         var bytes: Data?
+        func coinWallet() -> [String: Any] {
+            ["account_id": owner.uuidString, "balance": state.coinBalance,
+             "unlimited": state.coinUnlimited, "plant_cost": 30, "outfit_cost": 3,
+             "owned_items": state.ownedFarmerItems]
+        }
         if path.hasSuffix("/oi_evidence_requests") || path.hasSuffix("/oi_review_evidence")
             || path.contains("/object/oi-evidence/") || path.hasSuffix("/analyze-evidence")
             || path.hasSuffix("/analyze-donation-evidence") {
@@ -435,7 +449,8 @@ final class OiTestBackend {
             result = ["records": page, "next_cursor": cursor]
         } else if path.hasSuffix("/rpc/oi_capabilities") {
             if state.failCapabilities { status = 503 }
-            var capabilities: [String:Any] = ["operator":state.isOperator,"coins_enabled":false]
+            var capabilities: [String:Any] = ["operator":state.isOperator,"coins_enabled":state.coinsEnabled,
+                "pickle_coin_evidence":state.coinsEnabled,"pickle_farmer_shop":state.coinsEnabled]
             if let enabled = state.unapprovedDraftsEnabled { capabilities["unapproved_drafts_enabled"] = enabled }
             if let independent = state.independentStoryCreation { capabilities["independent_story_creation"] = independent }
             if state.publicCucumberAppearance { capabilities["public_cucumber_appearance"] = true }
@@ -456,6 +471,23 @@ final class OiTestBackend {
             if state.farmerOutfitEnabled { capabilities["farmer_outfit_enabled"] = true }
             capabilities["account_providers"] = ["apple"]
             result = capabilities
+        }
+        else if path.hasSuffix("/rpc/oi_pickle_wallet") {
+            state.coinWalletReads += 1
+            if state.failCoinWallet { status = 503 }
+            result = coinWallet()
+        }
+        else if path.hasSuffix("/rpc/oi_purchase_farmer_item") {
+            state.coinPurchaseBodies.append(body)
+            let item = body["p_item"] as? String ?? ""
+            let owned = state.ownedFarmerItems.contains(item)
+            if !owned && !state.coinUnlimited && state.coinBalance < 3 { status = 402 }
+            else if !owned {
+                if !state.coinUnlimited { state.coinBalance -= 3 }
+                state.ownedFarmerItems.append(item)
+            }
+            result = ["item": item, "purchased": !owned, "wallet": coinWallet()]
+            if state.loseCoinPurchaseReceipt { lock.unlock(); client.timeOut(); return }
         }
         else if path.hasSuffix("/rpc/oi_farmer_outfit") || path.hasSuffix("/rpc/oi_save_farmer_outfit") {
             let writing = path.hasSuffix("/rpc/oi_save_farmer_outfit")
@@ -561,7 +593,8 @@ final class OiTestBackend {
             || (path.hasSuffix("/rpc/oi_capabilities") && state.holdPostMergeRead && state.mergeConfirmCount > 0)
             || (path.hasSuffix("/rpc/oi_request_card") && state.holdCardSend)
             || (path.hasSuffix("/oi_profiles") && body["farm_name"] != nil && state.holdFarmWrite)
-            || (path.hasSuffix("/rpc/oi_save_farmer_outfit") && state.holdFarmerOutfitWrite) {
+            || (path.hasSuffix("/rpc/oi_save_farmer_outfit") && state.holdFarmerOutfitWrite)
+            || (path.hasSuffix("/rpc/oi_pickle_wallet") && state.holdCoinWallet) {
             state.held = (client,data)
             let notify = state.didHold
             lock.unlock(); notify?(); return
@@ -6386,5 +6419,276 @@ extension OiRemoteStoreTests {
         XCTAssertNil(remote.account)
         library.synchronizeCollectedCards(from: remote)
         XCTAssertTrue(library.cards.isEmpty)
+    }
+}
+
+
+extension OiRemoteStoreTests {
+    @MainActor func testPickleWalletFailurePreservesContentAndLastConfirmedBalance() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.coinsEnabled = true }
+        await store.start()
+        XCTAssertEqual(store.pickleWallet?.balance, 10)
+        backend.configure { $0.failCoinWallet = true }
+        await store.refresh()
+        XCTAssertTrue(store.hasLoadedRemote)
+        XCTAssertNil(store.loadError, "A wallet outage must not block public stories or the account snapshot")
+        XCTAssertEqual(store.pickleWallet?.balance, 10, "Do not turn an unreadable balance into zero")
+        XCTAssertNotNil(store.walletError)
+        backend.configure { $0.failCoinWallet = false; $0.coinBalance = 41 }
+        await store.refreshPickleWallet()
+        XCTAssertEqual(store.pickleWallet?.balance, 41)
+        XCTAssertNil(store.walletError)
+    }
+
+    @MainActor func testPickleWalletIgnoresLateResponseAfterSignOut() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.coinsEnabled = true }
+        await store.start()
+        let held = expectation(description: "The wallet read is held")
+        backend.configure { $0.holdCoinWallet = true; $0.didHold = { held.fulfill() }; $0.coinBalance = 99 }
+        let task = Task { await store.refreshPickleWallet() }
+        await fulfillment(of: [held], timeout: 5)
+        await store.signOut()
+        backend.releaseHeldRead()
+        await task.value
+        XCTAssertNil(store.account)
+        XCTAssertNil(store.pickleWallet, "A previous account cannot restore its balance after sign-out")
+        XCTAssertNil(store.coinAward)
+    }
+
+    @MainActor func testFarmerPurchaseLostReceiptReconcilesAndRetryDoesNotChargeAgain() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.coinsEnabled = true }
+        await store.start()
+        let wardrobe = try MYFarmerWardrobe.loaded.get()
+        let item = try XCTUnwrap(wardrobe.items.first)
+        let operation = UUID()
+        backend.configure { $0.loseCoinPurchaseReceipt = true }
+        let purchased = await store.purchaseFarmerItem(item, operation: operation)
+        XCTAssertTrue(purchased)
+        XCTAssertEqual(store.pickleWallet?.balance, 7)
+        XCTAssertTrue(store.ownsFarmerItem(item))
+        backend.configure { $0.loseCoinPurchaseReceipt = false }
+        let retried = await store.purchaseFarmerItem(item, operation: operation)
+        XCTAssertTrue(retried)
+        XCTAssertEqual(store.pickleWallet?.balance, 7)
+        XCTAssertEqual(backend.snapshot().coinPurchaseBodies.compactMap { $0["p_operation"] as? String },
+            [operation.uuidString, operation.uuidString])
+    }
+
+    @MainActor func testFarmerPurchaseInsufficientAndUnlimitedBalances() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.coinsEnabled = true; $0.coinBalance = 0 }
+        await store.start()
+        let item = try XCTUnwrap(try MYFarmerWardrobe.loaded.get().items.first)
+        let declined = await store.purchaseFarmerItem(item, operation: UUID())
+        XCTAssertFalse(declined)
+        XCTAssertFalse(store.ownsFarmerItem(item))
+        XCTAssertEqual(store.pickleWallet?.balance, 0)
+        backend.configure { $0.coinUnlimited = true }
+        await store.refreshPickleWallet()
+        let granted = await store.purchaseFarmerItem(item, operation: UUID())
+        XCTAssertTrue(granted)
+        XCTAssertEqual(store.pickleWallet?.balance, 0)
+        XCTAssertEqual(store.pickleWallet?.balanceLabel, "∞pc")
+    }
+
+    @MainActor func testCollectionCoinAwardUsesReceiptAndNotCollectionCount() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.coinsEnabled = true }
+        await store.start()
+        let storyID = UUID()
+        let original = OiStoreURLProtocol.handle
+        var reward = 0
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.lastPathComponent == "oi_mutate" {
+                let wallet: [String: Any] = ["account_id":OiTestBackend.owner.uuidString,"balance":11,
+                    "unlimited":false,"plant_cost":30,"outfit_cost":3,"owned_items":[]]
+                client.respond(200, (try? JSONSerialization.data(withJSONObject:
+                    ["id":storyID.uuidString,"wallet":wallet,"coin_reward":reward])) ?? Data())
+            } else { original?(request, client) }
+        }
+        await store.perform("collect", payload: ["id":storyID.uuidString])
+        XCTAssertNil(store.coinAward, "A new local collection does not prove a server coin reward")
+        reward = 1
+        await store.perform("collect", payload: ["id":storyID.uuidString])
+        XCTAssertEqual(store.coinAward?.amount, 1)
+        if let id = store.coinAward?.id { store.clearCoinAward(id) }
+        reward = 0
+        await store.perform("collect", payload: ["id":storyID.uuidString])
+        XCTAssertNil(store.coinAward, "An idempotent retry must not show the first reward again")
+    }
+}
+
+extension OiRemoteStoreTests {
+    @MainActor func testCoinEvidenceUploadRecoveryPreservesIdentityBytesAndOwner() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let vault = OiDraftVault(directory: directory)
+        let upload = OiCoinEvidenceUpload(id: UUID(), uploadID: UUID(), owner: OiTestBackend.owner,
+            data: Data("synthetic certificate".utf8), contentType: "application/pdf", name: "synthetic.pdf")
+        try await vault.saveCoinEvidenceUpload(upload, owner: upload.owner)
+        let recovered = try await OiDraftVault(directory: directory).coinEvidenceUpload(owner: upload.owner)
+        XCTAssertEqual(recovered?.id, upload.id)
+        XCTAssertEqual(recovered?.uploadID, upload.uploadID)
+        XCTAssertEqual(recovered?.data, upload.data)
+        XCTAssertEqual(recovered?.objectPath, upload.objectPath)
+        let other = try await vault.coinEvidenceUpload(owner: OiTestBackend.other)
+        XCTAssertNil(other)
+        try await vault.clearCoinEvidenceUpload(id: UUID(), owner: upload.owner)
+        let preserved = try await vault.coinEvidenceUpload(owner: upload.owner)
+        XCTAssertNotNil(preserved, "Only the matching completed request may clear the retry bytes")
+        try await vault.clearCoinEvidenceUpload(id: upload.id, owner: upload.owner)
+        let cleared = try await vault.coinEvidenceUpload(owner: upload.owner)
+        XCTAssertNil(cleared)
+    }
+
+    @MainActor func testCoinEvidenceRejectsOldAIContractWithoutApplyingBalance() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.coinsEnabled = true }
+        await store.start()
+        let id = UUID()
+        let original = OiStoreURLProtocol.handle
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.lastPathComponent == "analyze-donation-evidence" {
+                let row: [String: Any] = ["id":id.uuidString,"user_id":OiTestBackend.owner.uuidString,
+                    "status":"approved","created_at":"2026-11-18T00:00:00Z","coin_verification":true]
+                let wallet: [String: Any] = ["account_id":OiTestBackend.owner.uuidString,"balance":40,
+                    "unlimited":false,"plant_cost":30,"outfit_cost":3,"owned_items":[]]
+                let response: [String: Any] = ["request":row,"wallet":wallet,"duplicate":false,"credited":true,
+                    "review_type":"donation_evidence","authenticity_verified":true,"holder_verified":false]
+                client.respond(200, (try? JSONSerialization.data(withJSONObject: response)) ?? Data())
+            } else { original?(request, client) }
+        }
+        do {
+            _ = try await store.retryCoinEvidence(id)
+            XCTFail("An old reference-analysis response cannot grant a new coin balance")
+        } catch {}
+        XCTAssertEqual(store.pickleWallet?.balance, 10)
+    }
+}
+
+extension OiRemoteStoreTests {
+    @MainActor func testRetryCoinEvidenceClearsOnlyItsCompletedUpload() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.coinsEnabled = true }
+        await store.start()
+        let id = UUID()
+        let vault = OiDraftVault(directory: directory)
+        let upload = OiCoinEvidenceUpload(id: id, uploadID: UUID(), owner: OiTestBackend.owner,
+            data: Data("synthetic pending certificate".utf8), contentType: "application/pdf", name: "pending.pdf",
+            submitted: true)
+        try await vault.saveCoinEvidenceUpload(upload, owner: upload.owner)
+        let original = OiStoreURLProtocol.handle
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.lastPathComponent == "analyze-donation-evidence" {
+                let row: [String: Any] = ["id":id.uuidString,"user_id":OiTestBackend.owner.uuidString,
+                    "status":"approved","created_at":"2026-11-18T00:00:00Z","coin_verification":true]
+                let wallet: [String: Any] = ["account_id":OiTestBackend.owner.uuidString,"balance":40,
+                    "unlimited":false,"plant_cost":30,"outfit_cost":3,"owned_items":[]]
+                let response: [String: Any] = ["request":row,"wallet":wallet,"duplicate":false,"credited":false,
+                    "review_type":"pickle_coin_certificate","authenticity_verified":false,"holder_verified":false]
+                client.respond(200, (try? JSONSerialization.data(withJSONObject: response)) ?? Data())
+            } else { original?(request, client) }
+        }
+        _ = try await store.retryCoinEvidence(id)
+        let cleared = try await store.pendingCoinEvidenceUpload()
+        XCTAssertNil(cleared, "History-based retry must release its completed certificate bytes")
+        let next = OiCoinEvidenceUpload(id: UUID(), uploadID: UUID(), owner: upload.owner,
+            data: Data("another certificate".utf8), contentType: "application/pdf", name: "next.pdf")
+        try await vault.saveCoinEvidenceUpload(next, owner: next.owner)
+        _ = try await store.retryCoinEvidence(id)
+        let preserved = try await store.pendingCoinEvidenceUpload()
+        XCTAssertEqual(preserved?.id, next.id, "An older receipt cannot erase a newer upload")
+    }
+
+    @MainActor func testCoinEvidenceMergeAdoptsIdentityAndDoesNotResurrectCompletedUpload() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { XCTAssertNoThrow(try FileManager.default.removeItem(at: directory)) }
+        let vault = OiDraftVault(directory: directory)
+        let source = OiTestBackend.owner, target = OiTestBackend.other
+        let upload = OiCoinEvidenceUpload(id: UUID(), uploadID: UUID(), owner: source,
+            data: Data("synthetic pending certificate".utf8), contentType: "application/pdf", name: "pending.pdf",
+            storageOwner: source, submitted: true)
+        try await vault.saveCoinEvidenceUpload(upload, owner: source)
+        let unresolved = try await vault.adoptDrafts(from: [source, target], into: target)
+        XCTAssertEqual(unresolved, 0)
+        let adopted = try await vault.coinEvidenceUpload(owner: target)
+        XCTAssertEqual(adopted?.owner, target)
+        XCTAssertEqual(adopted?.storageOwner, source)
+        XCTAssertEqual(adopted?.id, upload.id)
+        XCTAssertEqual(adopted?.uploadID, upload.uploadID)
+        XCTAssertEqual(adopted?.data, upload.data)
+        try await vault.clearCoinEvidenceUpload(id: upload.id, owner: target)
+        _ = try await vault.adoptDrafts(from: [source], into: target)
+        let completed = try await vault.coinEvidenceUpload(owner: target)
+        XCTAssertNil(completed, "The preserved source must not resurrect an already adopted and completed upload")
+        let original = try await vault.coinEvidenceUpload(owner: source)
+        XCTAssertEqual(original, upload, "The source account's private original stays intact")
+    }
+
+    @MainActor func testCoinEvidenceMergePreservesConflictingTargetUpload() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { XCTAssertNoThrow(try FileManager.default.removeItem(at: directory)) }
+        let vault = OiDraftVault(directory: directory)
+        let source = OiTestBackend.owner, target = OiTestBackend.other
+        let first = OiCoinEvidenceUpload(id: UUID(), uploadID: UUID(), owner: source,
+            data: Data("source certificate".utf8), contentType: "application/pdf", name: "source.pdf")
+        let second = OiCoinEvidenceUpload(id: UUID(), uploadID: UUID(), owner: target,
+            data: Data("target certificate".utf8), contentType: "application/pdf", name: "target.pdf")
+        try await vault.saveCoinEvidenceUpload(first, owner: source)
+        try await vault.saveCoinEvidenceUpload(second, owner: target)
+        let unresolved = try await vault.adoptDrafts(from: [source], into: target)
+        XCTAssertEqual(unresolved, 1)
+        let preserved = try await vault.coinEvidenceUpload(owner: target)
+        XCTAssertEqual(preserved, second)
+        let original = try await vault.coinEvidenceUpload(owner: source)
+        XCTAssertEqual(original, first)
+    }
+}
+
+extension OiRemoteStoreTests {
+    @MainActor func testCancelCoinEvidencePreservesUploadUntilConfirmedAndKeepsApprovedCoins() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.coinsEnabled = true }
+        await store.start()
+        let id = UUID()
+        let vault = OiDraftVault(directory: directory)
+        let upload = OiCoinEvidenceUpload(id: id, uploadID: UUID(), owner: OiTestBackend.owner,
+            data: Data("synthetic interrupted certificate".utf8), contentType: "application/pdf", name: "interrupted.pdf")
+        try await vault.saveCoinEvidenceUpload(upload, owner: upload.owner)
+        let original = OiStoreURLProtocol.handle
+        var fails = true
+        OiStoreURLProtocol.handle = { request, client in
+            if request.url?.lastPathComponent == "oi_cancel_coin_evidence" {
+                if fails { client.respond(503, Data()); return }
+                let row: [String: Any] = ["id":id.uuidString,"user_id":OiTestBackend.owner.uuidString,
+                    "status":"approved","created_at":"2026-11-18T00:00:00Z","coin_verification":true,
+                    "review_note":"certificate_verified"]
+                let wallet: [String: Any] = ["account_id":OiTestBackend.owner.uuidString,"balance":40,
+                    "unlimited":false,"plant_cost":30,"outfit_cost":3,"owned_items":[]]
+                client.respond(200, (try? JSONSerialization.data(withJSONObject:
+                    ["request":row,"wallet":wallet,"duplicate":false,"credited":false])) ?? Data())
+            } else { original?(request, client) }
+        }
+        do { _ = try await store.cancelCoinEvidence(id); XCTFail("A lost cancellation receipt is not confirmation") }
+        catch {}
+        let preserved = try await store.pendingCoinEvidenceUpload()
+        XCTAssertEqual(preserved, upload)
+        fails = false
+        let receipt = try await store.cancelCoinEvidence(id)
+        XCTAssertEqual(receipt.request.status, "approved", "An already approved request must not be reported as cancelled")
+        XCTAssertEqual(store.pickleWallet?.balance, 40)
+        let cleared = try await store.pendingCoinEvidenceUpload()
+        XCTAssertNil(cleared)
     }
 }

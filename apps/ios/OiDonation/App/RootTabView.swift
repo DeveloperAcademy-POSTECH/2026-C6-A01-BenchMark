@@ -84,6 +84,11 @@ struct RootTabView: View {
             }
         }
         .tint(.black)
+        .environment(\.exploreCampusForCoins, {
+            showingStoryList = false
+            path = NavigationPath()
+        })
+        .overlay(alignment: .top) { OiCoinAwardOverlay(remote: remote) }
         .overlay { plantedSelectionOverlay }
         .alert("이야기가 등록됐어요", isPresented: $showingPlantConfirmation) {
             Button("확인", role: .cancel) {}

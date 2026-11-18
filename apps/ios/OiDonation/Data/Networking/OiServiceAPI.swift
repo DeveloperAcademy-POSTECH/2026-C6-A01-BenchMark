@@ -87,6 +87,7 @@ struct OiServiceAPI {
         catch APIError.httpStatus(let status) {
             switch status {
             case 401: throw OiServiceError.signInRequired
+            case 402: throw OiPickleCoinError.insufficient
             case 403: throw OiServiceError.server("현재 계정에서 이 요청을 처리할 수 없어요. 새로고침해 상태를 다시 확인해 주세요.")
             case 404 where path == "rest/v1/rpc/\(Self.resolveCardRequestRPC)": throw OiServiceError.conflict
             case 404 where path == "rest/v1/rpc/\(Self.cardRequestPageRPC)": throw CardRequestPageError.notDeployed
@@ -256,10 +257,10 @@ struct OiServiceAPI {
         return try decoder.decode([OiStoryModerationResult].self, from: data)
     }
 
-    func plantStory(_ story: OiLiveStory, token: String) async throws -> OiLiveStory {
+    func plantStory(_ story: OiLiveStory, token: String) async throws -> OiPlantStoryReceipt {
         let body = try JSONSerialization.data(withJSONObject: ["p_story": story.id.uuidString, "p_revision": story.revision])
         let data = try await request("rest/v1/rpc/oi_plant_story", method: "POST", token: token, body: body)
-        return try decoder.decode(OiLiveStory.self, from: data)
+        return try decoder.decode(OiPlantStoryReceipt.self, from: data)
     }
 
     func cardRequests(token: String) async throws -> [OiCardRequest] {
