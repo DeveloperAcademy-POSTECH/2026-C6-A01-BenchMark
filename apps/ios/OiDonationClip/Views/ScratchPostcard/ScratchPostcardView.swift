@@ -63,6 +63,7 @@ struct ScratchPostcardView: View {
     private static let hintGray = Color(red: 87 / 255, green: 87 / 255, blue: 87 / 255)         // #575757 (Figma 5441:15794)
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @State private var collectionStore = StoryCollectionStore()
     @State private var phase: Phase
     @State private var strokes: [[CGPoint]] = []
@@ -85,11 +86,16 @@ struct ScratchPostcardView: View {
     @State private var safeAreaInsets = EdgeInsets()
     @State private var showingSafety = false
     @State private var showingSupport = false
+    @State private var isVisible = false
 
     private var isRevealed: Bool { phase == .revealed }
     /// The success layout starts as soon as scratching completes, so the card moves while the effects play.
     private var showsSuccessLayout: Bool { phase != .scratching }
     private var isSaved: Bool { fullApp?.isSaved ?? collectionStore.contains(storyID: postcard.story.storyID) }
+    private var appClipMotionEnabled: Bool {
+        fullApp == nil && isRevealed && isVisible && scenePhase == .active && !reduceMotion
+            && !showingSafety && !showingSupport && !showingFullAppOverlay
+    }
 
     /// Postcard aspect ratio from Figma (362×502).
     static let cardAspectRatio: CGFloat = 362.0 / 502.0
@@ -172,7 +178,9 @@ struct ScratchPostcardView: View {
             }
         }
         .sheet(isPresented: $showingSupport) { OiSupportView() }
+        .onAppear { isVisible = true }
         .onDisappear {
+            isVisible = false
             revealTask?.cancel()
             toastTask?.cancel()
             saveTask?.cancel()
@@ -344,22 +352,24 @@ struct ScratchPostcardView: View {
     // MARK: - Card
 
     private func card(size: CGSize) -> some View {
-        FlipCard(angle: flipAngle + dragAngle) {
-            frontFace
-        } back: {
-            if let back = postcard.back {
-                Image(uiImage: back).resizable().scaledToFit()
-            } else if postcard.isLoadingFaces || postcard.backFailed {
-                ScratchPostcardPendingFace(isLoading: postcard.isLoadingFaces)
-            } else {
-                ScratchPostcardFallbackBack(message: postcard.story.content, author: postcard.donorLine)
+        ScratchPostcardMotionEffect(isEnabled: appClipMotionEnabled) {
+            FlipCard(angle: flipAngle + dragAngle) {
+                frontFace
+            } back: {
+                if let back = postcard.back {
+                    Image(uiImage: back).resizable().scaledToFit()
+                } else if postcard.isLoadingFaces || postcard.backFailed {
+                    ScratchPostcardPendingFace(isLoading: postcard.isLoadingFaces)
+                } else {
+                    ScratchPostcardFallbackBack(message: postcard.story.content, author: postcard.donorLine)
+                }
             }
-        }
-        .modifier(FlipPeekHint(isActive: isRevealed && !hasFlipped && !reduceMotion && dragAngle == 0))
-        .overlay {
-            ScratchSparkleBurst(startDate: effectStart)
-                .frame(width: size.width * 1.4, height: size.height * 1.2)
-                .allowsHitTesting(false)
+            .modifier(FlipPeekHint(isActive: isRevealed && !hasFlipped && !reduceMotion && dragAngle == 0))
+            .overlay {
+                ScratchSparkleBurst(startDate: effectStart)
+                    .frame(width: size.width * 1.4, height: size.height * 1.2)
+                    .allowsHitTesting(false)
+            }
         }
         .contentShape(Rectangle())
         .gesture(phase == .scratching ? scratchGesture(size: size) : nil)
