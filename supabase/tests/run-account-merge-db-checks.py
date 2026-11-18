@@ -204,6 +204,107 @@ def check_seed_top_photo_drift(connection, migration):
     print('PASS: seed top photo migration rejects unknown validator drift and preserves private privileges')
 
 
+def check_continuation_transaction_mode(connection, migration):
+    signature = 'public.oi_story_continuations(uuid,boolean,timestamptz,uuid,uuid[])'
+    owner = 'c4990000-0000-4000-8000-000000000001'
+    parent = 'c4990000-0000-4000-8000-000000000011'
+
+    def query(sql):
+        return subprocess.run(connection + ['-qAtc', sql], capture_output=True, text=True,
+                              check=True, timeout=20).stdout.strip()
+
+    def request(role='authenticated', mine=True, actor=owner, force_mode=None):
+        # Match PostgREST's POST policy, not psql's default READ WRITE transaction.
+        volatility = query(f"select provolatile from pg_proc where oid='{signature}'::regprocedure;")
+        mode = force_mode or ('read write' if volatility == 'v' else 'read only')
+        arguments = 'p_mine=>true' if mine else f"p_parent=>'{parent}'::uuid"
+        sql = f"""begin {mode}; set local role {role};
+          set local request.jwt.claim.sub='{actor}';
+          select public.oi_story_continuations({arguments})->>'total'; rollback;"""
+        return subprocess.run(connection + ['-qAt', '-v', 'VERBOSITY=verbose', '-c', sql],
+                              capture_output=True, text=True, timeout=20)
+
+    catalog_sql = f"""select jsonb_build_object(
+      'rpc',(select to_jsonb(p)-'provolatile' from pg_proc p where oid='{signature}'::regprocedure),
+      'actor',(select to_jsonb(p) from pg_proc p where oid='benchmark_private.oi_actor()'::regprocedure));"""
+
+    def changed_columns(expected, actual):
+        return {name: {column: {'before': str(expected[name].get(column))[:600],
+                                'after': str(actual[name].get(column))[:600]}
+                       for column in expected[name].keys() | actual[name].keys()
+                       if expected[name].get(column) != actual[name].get(column)}
+                for name in expected if expected[name] != actual[name]}
+
+    def assert_catalog(expected, message):
+        actual = json.loads(query(catalog_sql))
+        assert actual == expected, f'{message}: {json.dumps(changed_columns(expected, actual), sort_keys=True)}'
+
+    initial_catalog = json.loads(query(catalog_sql))
+    original = query(f"select pg_get_functiondef('{signature}'::regprocedure);")
+    assert query(f"select provolatile from pg_proc where oid='{signature}'::regprocedure;") == 's'
+    run(connection, input=f"""insert into auth.users(id) values('{owner}');
+      insert into public.oi_stories(id,user_id,storage_owner_id,region_id,title,body,theme,emotion,
+        cucumber_name,cucumber_asset,card_asset,latitude,longitude,status)
+      values('{parent}','{owner}','{owner}','pond','Synthetic transaction mode','Body','theme','emotion',
+        'one','OiCats','MYBasicCard',36,129,'published');""", text=True)
+    try:
+        rejected = request()
+        assert rejected.returncode != 0 and '25006' in rejected.stderr and 'SELECT FOR SHARE' in rejected.stderr, rejected
+        old_psql = request(force_mode='read write')
+        assert old_psql.returncode == 0 and old_psql.stdout.strip() == '0', old_psql
+        public = request(role='anon', mine=False)
+        assert public.returncode == 0 and public.stdout.strip() == '0', public
+
+        # Unknown function edits must not be relabeled as a reviewed POST endpoint.
+        edited = original.replace('AS $function$', 'AS $function$\n-- unknown inbox drift\n', 1)
+        run(connection, input=edited, text=True)
+        drift_before = json.loads(query(catalog_sql))
+        rejected = subprocess.run(connection + ['-f', str(migration)], capture_output=True, text=True, timeout=20)
+        assert rejected.returncode != 0 and 'Continuation transaction mode drift' in rejected.stderr, rejected.stderr
+        assert_catalog(drift_before, 'Rejected migration changed function catalog')
+        assert query(f"select provolatile from pg_proc where oid='{signature}'::regprocedure;") == 's'
+        run(connection, input=original, text=True)
+
+        # CREATE OR REPLACE is test setup, not part of the ALTER under test.
+        # pg_get_functiondef reformats default expressions; PostgreSQL versions
+        # can retain different parse-location metadata in proargdefaults after
+        # that round-trip. Compare every catalog column from the actual input
+        # immediately before this migration, without excluding those columns.
+        assert query(f"select pg_get_functiondef('{signature}'::regprocedure);") == original
+        before = json.loads(query(catalog_sql))
+        assert before['actor'] == initial_catalog['actor'], 'Drift fixture changed the locking function'
+        setup_changes = changed_columns(initial_catalog, before)
+        if setup_changes:
+            print('INFO: pg_get_functiondef setup round-trip catalog changes: '
+                  + json.dumps(setup_changes, sort_keys=True))
+        run(connection + ['-f', str(migration)])
+        assert query(f"select provolatile from pg_proc where oid='{signature}'::regprocedure;") == 'v'
+        assert_catalog(before, 'Transaction mode migration changed body, signature, locks, grants or other attributes')
+        inbox = request()
+        assert inbox.returncode == 0 and inbox.stdout.strip() == '0', inbox
+        public = request(role='anon', mine=False)
+        assert public.returncode == 0 and public.stdout.strip() == '0', public
+        anonymous = request(role='anon')
+        assert anonymous.returncode != 0 and '42501' in anonymous.stderr, anonymous
+        unknown = request(actor='c4990000-0000-4000-8000-000000000099')
+        assert unknown.returncode != 0 and 'PT401' in unknown.stderr, unknown
+        run(connection, input=f"insert into benchmark_private.oi_account_deletions(account_id) values('{owner}');", text=True)
+        deleting = request()
+        assert deleting.returncode != 0 and 'PT409' in deleting.stderr, deleting
+        run(connection, input=f"delete from benchmark_private.oi_account_deletions where account_id='{owner}'; "
+            f"update benchmark_private.oi_account_members set session_cutover=now() where auth_user_id='{owner}';", text=True)
+        stale = request()
+        assert stale.returncode != 0 and 'PT401' in stale.stderr, stale
+        run(connection + ['-f', str(migration)])
+        assert_catalog(before, 'Repeated migration changed unrelated function properties')
+    finally:
+        run(connection, input=f"""delete from public.oi_stories where id='{parent}';
+          delete from benchmark_private.oi_account_deletions where account_id='{owner}';
+          delete from benchmark_private.oi_account_members where auth_user_id='{owner}';
+          delete from public.oi_profiles where id='{owner}'; delete from auth.users where id='{owner}';""", text=True)
+    print('PASS: PostgREST STABLE/READ ONLY reproduces inbox 25006; VOLATILE/READ WRITE restores inbox and preserves anon/session/deletion boundaries, locking function and catalog')
+
+
 def check_postcard_cover_drift(connection, migration):
     def query(sql):
         return subprocess.run(connection + ['-qAtc', sql], capture_output=True, text=True, check=True, timeout=20).stdout.strip()
@@ -498,6 +599,8 @@ grant execute on function auth.jwt() to anon,authenticated;
                     check_manual_review_drift(database, migration)
                 if migration.name.endswith('_oi_seed_top_photo_appearance.sql'):
                     check_seed_top_photo_drift(database, migration)
+                if migration.name.endswith('_oi_continuation_rpc_transaction_mode.sql'):
+                    check_continuation_transaction_mode(database, migration)
                 run(database + ['-f', str(migration)])
                 if migration.name.endswith('_oi_postcard_cover_jpeg.sql'):
                     check_jpeg_cover_backfill(database, backfill_before)

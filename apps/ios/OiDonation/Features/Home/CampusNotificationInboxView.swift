@@ -38,7 +38,7 @@ struct CampusNotificationInboxView: View {
     }
 
     private var showsSpinner: Bool {
-        !loadFailed && (isInitialLoading || (isLoading && isEmpty))
+        isInitialLoading || (isLoading && isEmpty)
     }
 
     var body: some View {
@@ -50,19 +50,6 @@ struct CampusNotificationInboxView: View {
                     .accessibilityIdentifier("campus.notifications.loading")
             } else {
                 CampusNotificationRetentionNotice()
-                if loadFailed {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(isEmpty ? "알림을 불러오지 못했어요." : "일부 알림을 불러오지 못했어요.")
-                            .font(CampusStyle.body(16))
-                        if let onRetry {
-                            Button("다시 시도", action: onRetry)
-                                .buttonStyle(.bordered)
-                                .disabled(isLoading)
-                                .accessibilityIdentifier("campus.notifications.retry")
-                        }
-                    }
-                    .accessibilityIdentifier("campus.notifications.error")
-                }
                 GeometryReader { viewport in
                     ScrollView {
                         content
@@ -70,6 +57,10 @@ struct CampusNotificationInboxView: View {
                                 alignment: isEmpty ? .center : .top)
                     }
                     .scrollBounceBehavior(.basedOnSize)
+                    .refreshable {
+                        guard !isLoading else { return }
+                        onRetry?()
+                    }
                 }
                 if let onOpenOlderRequests {
                     Button("이전 카드 요청 보기", action: onOpenOlderRequests)
@@ -86,7 +77,7 @@ struct CampusNotificationInboxView: View {
 
     private var content: some View {
         Group {
-            if isEmpty, !loadFailed {
+            if isEmpty {
                 Text("알림 없음")
                     .font(CampusStyle.medium(21))
                     .tracking(0.42)

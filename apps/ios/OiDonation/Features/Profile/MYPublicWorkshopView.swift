@@ -22,7 +22,6 @@ struct MYPublicWorkshopView: View {
 
     @State private var state = State.loading
     @State private var tab = MYWorkshopTab.authored
-    @State private var retry = 0
     @State private var loadID = UUID()
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.scenePhase) private var scenePhase
@@ -40,18 +39,14 @@ struct MYPublicWorkshopView: View {
                 case .unavailable:
                     unavailable
                 case .failed:
-                    ContentUnavailableView {
-                        Label("공개 프로필을 불러오지 못했어요", systemImage: "wifi.exclamationmark")
-                    } actions: {
-                        Button("다시 시도") { retry += 1 }
-                    }
+                    unavailable
                 }
             }
         }
         .toolbar(.visible, for: .navigationBar)
         .toolbarBackground(.hidden, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: "\(remote.continuationPrivacyKey)/\(remote.revision)/\(retry)/\(scenePhase)") {
+        .task(id: "\(remote.continuationPrivacyKey)/\(remote.revision)/\(scenePhase)") {
             guard scenePhase == .active else { return }
             await load()
         }

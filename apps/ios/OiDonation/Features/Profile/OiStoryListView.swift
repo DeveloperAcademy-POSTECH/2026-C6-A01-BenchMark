@@ -43,15 +43,7 @@ struct OiStoryListView: View {
             case .loading:
                 ProgressView().accessibilityLabel("이야기를 불러오는 중이에요")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .failure(let message):
-                ContentUnavailableView {
-                    Label("이야기를 불러올 수 없어요", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(message)
-                } actions: {
-                    Button("다시 시도", action: onRetry)
-                }
-            case .empty, .content:
+            case .failure, .empty, .content:
                 storySlots
             }
         }
@@ -114,9 +106,9 @@ struct OiStoryListView: View {
 
     private var showsStoryChrome: Bool {
         switch state {
-        case .empty, .content:
+        case .empty, .content, .failure:
             true
-        case .loading, .failure:
+        case .loading:
             false
         }
     }
@@ -418,8 +410,14 @@ struct OiStoryListView: View {
         @ViewBuilder label: () -> Label
     ) -> some View {
         if let action {
-            Button(action: action, label: label)
-                .buttonStyle(.plain)
+            Button {
+                // Recover unknown slots before an action that depends on the loaded list.
+                if case .failure = state { onRetry() }
+                else { action() }
+            } label: {
+                label()
+            }
+            .buttonStyle(.plain)
         } else {
             label()
         }

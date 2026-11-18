@@ -206,6 +206,14 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project app
 
 ## 이어진 이야기와 앱 내 알림 — #418
 
+### 2026-11-18 수신 목록 트랜잭션 모드 수정 — #499
+
+운영 로그에서 수신 목록의 HTTP 405 / SQLSTATE 25006을 확인했다. STABLE이던 `oi_story_continuations`가 READ ONLY 트랜잭션에서 `oi_actor()`의 계정 멤버십 `FOR SHARE` 잠금을 호출한 것이 원인이다. `20261118081159_oi_continuation_rpc_transaction_mode.sql`은 본문·속성 drift를 확인하고 이 RPC만 VOLATILE로 변경해 POST를 READ WRITE로 실행한다. 사용자 승인 후 운영 52gibu에 Supabase MCP `apply_migration`으로 적용했으며 저장소 파일명은 운영 이력 버전 `20261118081159`와 일치한다. 적용 전후 `pg_proc`에서 RPC의 `provolatile`만 `s`→`v`로 변경됐고 `oi_actor()`의 전체 행은 같았다. 본문·권한·계정 잠금·검색 경로는 유지한다.
+
+운영의 기존 유효 계정 멤버와 transaction-local claims·인증 역할로 수신 목록 SQL 호출의 응답 형식을 확인한 뒤 `ROLLBACK`했다. 사용자 데이터나 읽음 기록은 변경하지 않았다. 실제 익명 HTTP POST의 미존재 부모 조회도 HTTP 200 / 빈 목록으로 성공했다. 최종 파일명으로 실행한 로컬 양쪽 스키마 이력의 전체 DB 회귀 검사도 통과했다. 실제 사용자 JWT의 HTTP 수신 목록·실기기 검증은 미완료다.
+
+같은 날 사용자 결정에 따라 MY·다른 이용자의 MY·이야기 목록·농장·검색·알림·카드 요청·지도 구역 목록·건물 쪽지의 조회 실패에는 각 화면의 기존 빈 상태를 재사용한다. 내부 실패·미확정 개수·캐시 행은 유지하며 인증·저장·삭제·요청 수락 및 거절의 안전장치는 보존한다. 별도 조회 오류 UI를 제거하는 앱 변경의 최종 통합 검사 41개와 마지막 이어진 기부 회귀 13개가 통과했다. 새 앱 배포가 필요하다. [원인·운영 적용·화면 정책과 검증 상태](../apps/ios/docs/continuation-failure-499.md).
+
 2026-11-17 사용자 합의, 작업 브랜치 `feat/#418-story-continuations`. PR #415의 선택 UI를 통합한 서버·앱 후속이다. **PR #425를 develop에 병합하고 2026-11-17 운영 52gibu에 적용했다.** 원래 mutator delegate 해시·적용 SQL SHA256 일치와 가상 자료 롤백 검증을 확인했다.
 
 ### 저장·검수·개인정보 계약
