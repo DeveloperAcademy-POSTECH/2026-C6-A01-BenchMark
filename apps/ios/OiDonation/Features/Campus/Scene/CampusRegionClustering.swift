@@ -38,44 +38,35 @@ struct CampusRegionClustering {
     private static let splitEnd: Float = 0.88
 
     init(sites: [Site]) {
-        let unique = Dictionary(sites.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        var nodes = unique.values.sorted { $0.id < $1.id }.map { site in
-            Node(id: "site:\(site.id)", anchor: site.anchor, sites: [site], children: [])
-        }
-        var candidates = Array(nodes.indices)
-        while candidates.count > 1 {
-            var nearest = (left: 0, right: 1, distance: Float.infinity)
-            // Complete-link distance avoids joining far-apart places through a chain of neighbors.
-            for i in candidates.indices {
-                for j in candidates.indices.dropFirst(i + 1) {
-                    let left = nodes[candidates[i]]
-                    let right = nodes[candidates[j]]
-                    var distance: Float = 0
-                    for a in left.sites {
-                        for b in right.sites {
-                            distance = max(distance, Self.distance(a.anchor, b.anchor))
-                        }
-                    }
-                    if distance < nearest.distance {
-                        nearest = (i, j, distance)
-                    }
-                }
-            }
-
-            let leftIndex = candidates[nearest.left]
-            let rightIndex = candidates[nearest.right]
-            let left = nodes[leftIndex]
-            let right = nodes[rightIndex]
-            let members = (left.sites + right.sites).sorted { $0.id < $1.id }
-            let anchor = (left.anchor * Float(left.sites.count) + right.anchor * Float(right.sites.count))
-                / Float(members.count)
+        let valid = sites.filter { $0.anchor.x.isFinite && $0.anchor.y.isFinite && $0.anchor.z.isFinite }
+        let unique = Dictionary(valid.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var nodes: [Node] = []
+        // A balanced spatial hierarchy keeps construction bounded as the public feed grows.
+        // Equal positions stay together at every zoom; their bubble still opens every story.
+        @discardableResult func append(_ groups: [[Site]]) -> Int {
+            let members = groups.flatMap { $0 }.sorted { $0.id < $1.id }
+            let anchor = members.reduce(SIMD3<Float>.zero) { $0 + $1.anchor / Float(members.count) }
             let key = members.map { "\($0.id.utf8.count):\($0.id)" }.joined()
-            nodes.append(Node(id: "group:\(key)", anchor: anchor, sites: members,
-                              children: [leftIndex, rightIndex]))
-            candidates.remove(at: nearest.right)
-            candidates.remove(at: nearest.left)
-            candidates.append(nodes.count - 1)
+            var children: [Int] = []
+            let xs = groups.map { $0[0].anchor.x }, zs = groups.map { $0[0].anchor.z }
+            let dx = (xs.max() ?? 0) - (xs.min() ?? 0)
+            let dz = (zs.max() ?? 0) - (zs.min() ?? 0)
+            if groups.count > 1 {
+                let axis = dx >= dz ? 0 : 2
+                let ordered = groups.sorted {
+                    let a = $0[0], b = $1[0]
+                    return a.anchor[axis] == b.anchor[axis] ? a.id < b.id : a.anchor[axis] < b.anchor[axis]
+                }
+                let middle = ordered.count / 2
+                children = [append(Array(ordered[..<middle])), append(Array(ordered[middle...]))]
+            }
+            let id = members.count == 1 ? "site:\(members[0].id)" : "group:\(key)"
+            nodes.append(Node(id: id, anchor: anchor, sites: members, children: children))
+            return nodes.count - 1
         }
+        let positions = Dictionary(grouping: unique.values) { SIMD2($0.anchor.x, $0.anchor.z) }
+        let groups = positions.values.map { $0.sorted { $0.id < $1.id } }
+        if !groups.isEmpty { append(groups) }
         self.nodes = nodes
     }
 

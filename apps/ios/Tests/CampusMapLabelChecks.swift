@@ -195,6 +195,19 @@ import simd
             if radius == 600 { precondition(active.count < campusSites.count, "Zooming out must consolidate nearby campus regions") }
         }
         precondition(Cluster(sites: []).markers(radius: 305, focalLength: focalLength, reduceMotion: false).isEmpty)
+        let duplicates = Cluster(sites: [
+            .init(id: "a", anchor: .zero), .init(id: "b", anchor: .zero),
+            .init(id: "c", anchor: SIMD3(100, 0, 0))
+        ])
+        let close = duplicates.markers(radius: 20, focalLength: focalLength, reduceMotion: true).filter(\.isInteractive)
+        precondition(close.count == 2 && close.contains { $0.node.siteIDs == ["a", "b"] })
+        let one = Cluster(sites: [.init(id: "stadium-story", anchor: SIMD3(-6, 6, 52))])
+        precondition(one.markers(radius: 305, focalLength: focalLength, reduceMotion: true).first?.anchor == SIMD3(-6, 6, 52))
+        let invalid = Cluster(sites: [.init(id: "bad", anchor: SIMD3(.nan, 0, 0))])
+        precondition(invalid.nodes.isEmpty)
+        let many = Cluster(sites: (0..<2000).map { .init(id: "story-\($0)", anchor: SIMD3(Float($0 % 100), 0, Float($0 / 100))) })
+        precondition(many.nodes.count == 3999)
+        precondition(many.markers(radius: 305, focalLength: focalLength, reduceMotion: true).filter(\.isInteractive).flatMap { $0.node.siteIDs }.count == 2000)
         print("Campus map clustering: PASS (sum, \(campusSites.count) real POIs, pinch reversal, continuity, Reduce Motion, hit testing)")
     }
 
