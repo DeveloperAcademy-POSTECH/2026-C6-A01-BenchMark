@@ -15,7 +15,7 @@
 
 이 PR 자체는 운영 DB·함수 배포·TF 업로드를 수행하지 않는다.
 
-1. `20261118112744_oi_testflight_showcase_publication.sql`을 검토한 뒤 대상 서버에 적용한다. `testflight_showcase_enabled`는 기본 `false`다. 기존 일반 공개 RPC의 AI 조건을 변경하지 않는다.
+1. `20261118130803_oi_testflight_showcase_publication.sql`을 검토한 뒤 대상 서버에 적용한다. `testflight_showcase_enabled`는 기본 `false`다. 기존 일반 공개 RPC의 AI 조건을 변경하지 않는다.
 2. `publish-showcase-story`를 기존 프로젝트에 배포한다. 기존 JWT 검증을 유지한다. Supabase 기본 환경변수 외 신규 비밀키는 필요 없다. 함수별 `deno.json`의 고정된 Apple 라이브러리 버전을 사용한다.
 3. 패치 포함 Release 빌드를 TestFlight로 제공한다. 유효 TF 설치에서 실제 Apple Sandbox 앱 거래가 검증되는지 확인한다.
 4. 쇼케이스 운영 시 아래 값을 명시적으로 켠다.
@@ -47,3 +47,20 @@ Needs confirmation:
 - Sandbox 앱 거래는 Supabase 계정과 직접 결합된 증명이 아니다. 유효 TF 거래를 가진 이용자에 대한 임시 허용이며, TF 배포 대상과 서버 스위치를 함께 관리한다.
 
 근거: [Apple AppTransaction](https://developer.apple.com/documentation/storekit/apptransaction), [Apple 서버 서명 검증 라이브러리](https://github.com/apple/app-store-server-library-node), [Supabase 함수 의존성](https://supabase.com/docs/guides/functions/dependencies).
+
+## 2026-11-18 운영 적용 및 코인 후속 — #516
+
+운영자·일반 사용자 모두 TF에서는 검수 없이 심을 수 있어야 한다는 사용자 재확인에 따라 미배포 서버 작업을 완료했다. 코인 wrapper가 새로 추가했던 운영자 직접 게시 PT426도 제거했다. 기존 운영자 권한·현재 제출본·감사 기록 검사는 delegate에 유지한다.
+
+- 프로젝트: `52gibu` (`kfzfzarslqdqmrazohej`).
+- 적용 이력: `20261118130803_oi_testflight_showcase_publication`, `20261118130822_oi_restore_operator_coin_publication`.
+- 기존 TF 마이그레이션은 운영에 미적용 상태였으며, 실제 운영 base가 저장소의 pending 허용 anchor와 달라 최초 시도는 롤백됐다. 캡처한 실제 base 해시와 단일 draft guard를 검증하는 분기를 추가한 뒤 로컬 양쪽 이력 검증 후 적용했다. 파일 시각은 실제 운영 이력과 일치시켰다. 이미 운영에 적용된 코인 마이그레이션은 수정하지 않는다.
+- Edge: `publish-showcase-story` v1 `ACTIVE`, `verify_jwt=true`; Apple 공식 검증 라이브러리·신뢰 루트와 기존 세션·소유권·작성 중지·첨부 검사를 유지한다.
+- `testflight_showcase_enabled=true` 확인. `auto_moderation_enabled=true`는 일반 빌드/선택 검토 경로를 위해 유지한다.
+- 공개 RPC 실행 권한: service_role=true, authenticated=false, anon=false. 코인 wrapper의 추가 PT426 제거와 무제한 계정3개 보존 확인.
+- TF 일반 사용자도 최초 공개30코인, 재심기0코인, 지정 무제한 계정0코인. 잔액 부족은402로 전달한다. 버튼은 `농장에 오이 심기 · 30코인`, 일반 계정은 TF에서도 비용 확인 후 진행한다.
+- iOS 선택6개, Node21개, 전체 SQL harness 통과. 실제 운영 base를 fixture로 재현해 일반/무제한 TF 공개·최초 차감·재게시 무료·운영자 기존 공개 권한을 확인했다.
+
+Needs confirmation:
+- 실제 TF 기기에서 Apple 서명 거래 온라인 검증과 타 계정 공개 조회는 수행하지 않았다. 코드·주입 테스트와 서버 활성화 확인을 실기기 완료로 간주하지 않는다.
+- 버튼 문구 변경은 이 패치를 포함한 새 앱 빌드에 적용된다. 이 작업은 TF 업로드 또는 PR 병합을 수행하지 않는다.

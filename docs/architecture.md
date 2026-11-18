@@ -87,6 +87,8 @@ iOS 26.7.3 Jun iPhone에 최신 develop 기반의 수정본을 Release로 빌드
 
 `OiTestFlightShowcase`는 Release 설치에서 StoreKit `AppTransaction.shared`의 검증된 Sandbox 환경을 확인한다. Debug·Simulator는 비활성이다. 목록의 심기 준비는 기존 초안·사진·오이·카드 업로드 경로를 재사용하며 일반 검토 UI와 AI 경로를 보존한다. TF 심기는 `publish-showcase-story` Edge Function으로 Apple 서명 거래를 전달하고, 서버는 Apple 공식 `SignedDataVerifier`로 앱 ID·인증서 체인·서명·Sandbox 환경을 확인한다. `oi_publish_showcase_story`는 서비스 역할에서만 실행하며 실제 세션과 작성자, 임시 서버 플래그, 기존 제출·첨부 검증을 확인한 뒤 공개한다. AI 검수 결과 테이블에 승인 기록을 만들지 않는다. 기본 꺼짐·배포 순서·원복은 [운영 기록](testflight-showcase-publication.md)을 따른다.
 
+2026-11-18 #516: TF 공개 RPC/Edge를 운영에 배포하고 임시 스위치를 활성화했다. 운영의 수동 검토 base와 저장소 AI base 차이를 각각 검증하며, 코인 wrapper에서 추가한 운영자 게시 거절을 제거했다. TF 공개도 최초30코인·재심기0·무제한0 규칙을 같은 트랜잭션에서 적용한다. 잔액 부족은 Edge에서402로 전달하며 목록은 TF에서도 비용 확인 후 기존 업로드·공개 경로를 실행한다. [적용 기록](testflight-showcase-publication.md#2026-11-18-운영-적용-및-코인-후속--516).
+
 ### #388 이야기 공개 자동검수
 
 `moderate-story` Edge Function은 기존 서버 `OPENAI_API_KEY`를 사용한다. `OPENAI_STORY_MODERATION_MODEL`을 별도 설정할 수 있으며 기본값은 학교 자료 분석과 같은 `gpt-4.1-2025-04-14`다. 작성자 세션과 제출 시 동의를 검증한 뒤 공개용 파일에만 90초 읽기 URL을 발급하고 제목·본문·오이 이름과 함께 OpenAI에 전달한다. 거부 사유는 위치·유형 코드로 제한하고 응답 저장을 끈다.

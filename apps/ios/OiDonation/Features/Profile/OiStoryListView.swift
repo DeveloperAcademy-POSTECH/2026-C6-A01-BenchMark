@@ -308,7 +308,7 @@ struct OiStoryListView: View {
 
             if let onPlant {
                 Button(action: onPlant) {
-                    Text("농장에 오이 심기")
+                    Text(coinRemote?.coinsEnabled == true ? "농장에 오이 심기 · 30코인" : "농장에 오이 심기")
                         .font(.custom("Paperlogy-6SemiBold", size: 18, relativeTo: .headline))
                         .foregroundStyle(seedButtonColor)
                         .frame(maxWidth: .infinity, minHeight: 50)

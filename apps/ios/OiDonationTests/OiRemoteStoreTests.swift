@@ -3510,9 +3510,20 @@ final class OiRemoteStoreTests: XCTestCase {
     }
 
     @MainActor func testShowcasePlantButtonPublishesLocalDraftWithUnchangedReviewLabels() async throws {
+        try await checkShowcasePlantButton(unlimited: false)
+    }
+
+    @MainActor func testUnlimitedShowcasePlantButtonPublishesWithoutReviewOrCoinConfirmation() async throws {
+        try await checkShowcasePlantButton(unlimited: true)
+    }
+
+    @MainActor private func checkShowcasePlantButton(unlimited: Bool) async throws {
         let (store, backend, _, session, directory) = try context(showcaseTransaction: { "signed-testflight-fixture" })
         defer { clean(session, directory: directory) }
-        backend.configure { $0.publicStoryCard = true; $0.duplexStoryCard = true }
+        backend.configure {
+            $0.publicStoryCard = true; $0.duplexStoryCard = true
+            $0.coinsEnabled = true; $0.coinBalance = 40; $0.coinUnlimited = unlimited
+        }
         await store.start()
         var local = OiLocalDraft(draft: draft())
         let image = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { ctx in
@@ -3549,6 +3560,11 @@ final class OiRemoteStoreTests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
         buttons.confirmPlant()
+        XCTAssertEqual(buttons.confirmingCoins(), !unlimited)
+        if !unlimited {
+            XCTAssertEqual(backend.snapshot().showcaseCount, 0, "Publication must wait for the cost confirmation")
+            buttons.acceptCoinCost()
+        }
         for _ in 0..<200 {
             if store.stories.contains(where: { $0.id == local.id }) { break }
             try await Task.sleep(for: .milliseconds(50))

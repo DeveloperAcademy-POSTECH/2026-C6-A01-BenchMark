@@ -50,6 +50,8 @@ struct OiStoryListScreen: View {
         let selectedPlantCard: () -> UUID?
         let cancelPlantPicker: () -> Void
         let confirmPlant: () -> Void
+        let confirmingCoins: () -> Bool
+        let acceptCoinCost: () -> Void
     }
 
     var onReviewActionsForTest: ((ReviewTestActions) -> Void)?
@@ -124,7 +126,7 @@ struct OiStoryListScreen: View {
                 Button("취소", role: .cancel) {}
                 Button("심기") { performConfirmedPlant() }
             } message: {
-                Text("처음 심는 오이는 30pc를 사용해요. 이미 심었던 오이를 다시 공개하거나 위치를 수정할 때는 추가로 사용하지 않아요.")
+                Text("처음 심는 오이는 30코인을 사용해요. 이미 심었던 오이를 다시 공개하거나 위치를 수정할 때는 추가로 사용하지 않아요.")
             }
             .navigationDestination(isPresented: $showingCoinWallet) { OiPickleWalletView(remote: remote) }
             .task(id: reviewWork?.id) {
@@ -139,7 +141,11 @@ struct OiStoryListScreen: View {
                     visibleIDs: { state.items.map(\.id) }, message: reviewMessage,
                     openPlantPicker: selectStoryToPlant, showsPlantPicker: { plantSelection != nil },
                     selectPlantCard: selectPlantCard, selectedPlantCard: { plantSelection?.selectedID },
-                    cancelPlantPicker: cancelPlantSelection, confirmPlant: confirmPlant))
+                    cancelPlantPicker: cancelPlantSelection, confirmPlant: confirmPlant,
+                    confirmingCoins: { confirmingCoinPlant }, acceptCoinCost: {
+                        confirmingCoinPlant = false
+                        performConfirmedPlant()
+                    }))
             }
             #endif
     }
@@ -536,6 +542,11 @@ struct OiStoryListScreen: View {
     }
 
     private func confirmPlant() {
+        if remote.coinsEnabled && remote.pickleWallet?.unlimited != true { confirmingCoinPlant = true }
+        else { performConfirmedPlant() }
+    }
+
+    private func performConfirmedPlant() {
         if remote.allowsShowcasePublication {
             guard !remote.isBusy, reviewWork == nil, plantingStoryID == nil, let selection = plantSelection else { return }
             reviewFailure = nil
@@ -543,11 +554,6 @@ struct OiStoryListScreen: View {
                                     showcaseSelection: selection, stage: .prepare)
             return
         }
-        if remote.coinsEnabled && remote.pickleWallet?.unlimited != true { confirmingCoinPlant = true }
-        else { performConfirmedPlant() }
-    }
-
-    private func performConfirmedPlant() {
         guard remote.autoStoryModeration, !remote.isBusy, plantingStoryID == nil, let selection = plantSelection,
               reviewState(for: selection.selectedID) == .approved,
               let story = remote.ownStories.first(where: { $0.id == selection.selectedID }) else { return }
