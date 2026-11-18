@@ -118,6 +118,7 @@
 				"Resources/Fonts/Paperlogy-OFL.txt",
 				Resources/OiStoryCardAssets.xcassets,
 				Shared/Components/OiContentSafetyView.swift,
+				Shared/Components/OiCharacterForegroundMask.swift,
 				Shared/Components/OiStoryCardArtwork.swift,
 				Shared/Components/OiSupportView.swift,
 			);

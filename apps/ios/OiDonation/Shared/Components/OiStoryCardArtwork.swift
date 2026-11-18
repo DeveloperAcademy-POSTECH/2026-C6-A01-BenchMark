@@ -7,6 +7,8 @@
 
 import SwiftUI
 import UIKit
+import CoreImage
+import ImageIO
 
 /// A printed card composition. Its artwork scales as a unit; accessible story text
 /// remains available through the combined label and the surrounding story screen.
@@ -115,7 +117,7 @@ struct OiStoryCardArtwork: View {
         if let portrait {
             Image(uiImage: portrait).resizable().scaledToFit()
         } else if let portraitPath, let loadPortrait {
-            OiCucumberPortraitImage(path: portraitPath, load: loadPortrait)
+            OiCucumberPortraitImage(path: portraitPath, requiresTransparentBackground: true, load: loadPortrait)
         } else if let assetName, !hasCustomPortrait {
             Image(assetName == "OiCats" || assetName == "OiCatsPortrait" ? "OiStoryCardCats" : assetName)
                 .resizable().scaledToFill()
@@ -155,52 +157,91 @@ struct OiStoryCardArtwork: View {
 struct OiCucumberPortraitImage: View {
     let path: String
     var label = "꾸민 오이"
+    var requiresTransparentBackground = false
+    var trimsTransparentMargins = false
     let load: (String) async throws -> UIImage
-    @State private var result: (path: String, image: UIImage?)?
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var result: (identity: String, image: UIImage?)?
+    private var identity: String { "\(path)/cutout=\(requiresTransparentBackground)/trim=\(trimsTransparentMargins)" }
+    private var taskIdentity: String { identity + (requiresTransparentBackground && scenePhase == .background ? "/background" : "") }
 
     var body: some View {
         Group {
-            if let result, result.path == path {
+            if let result, result.identity == identity {
                 if let image = result.image { Image(uiImage: image).resizable().scaledToFit().accessibilityLabel(label) }
                 else { Image(systemName: "photo").foregroundStyle(.secondary).accessibilityLabel("\(label) 이미지를 불러오지 못했어요") }
             } else { ProgressView().accessibilityLabel("\(label) 불러오는 중") }
         }
-        .task(id: path) {
+        .task(id: taskIdentity) {
+            guard !requiresTransparentBackground || scenePhase != .background else { return }
+            let started = identity
             do {
-                let image = try await load(path)
+                let source = try await load(path)
                 try Task.checkCancellation()
-                result = (path, image)
+                let image = requiresTransparentBackground
+                    ? try await OiCharacterPortraitCutout.shared.image(source, key: path, trimsTransparentMargins: trimsTransparentMargins) : source
+                try Task.checkCancellation()
+                result = (started, image)
             } catch {
-                if !Task.isCancelled { result = (path, nil) }
+                if !Task.isCancelled { result = (started, nil) }
             }
+        }
+    }
+}
+
+/// Repairs legacy opaque character snapshots only. Printed cards and photos never enter this worker.
+actor OiCharacterPortraitCutout {
+    static let shared = OiCharacterPortraitCutout()
+    private let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 8
+        cache.totalCostLimit = 32 * 1024 * 1024
+        return cache
+    }()
+    private let context = CIContext(options: [.cacheIntermediates: false])
+    enum Failure: Error { case unreadable, opaqueResult }
+
+    func image(_ source: UIImage, key: String, trimsTransparentMargins: Bool = false) throws -> UIImage {
+        try Task.checkCancellation()
+        if let cached = cache.object(forKey: key as NSString) { return trimsTransparentMargins ? OiOpaqueImageTrim.trimmed(cached) : cached }
+        if OiOpaqueImageTrim.hasTransparentBackground(source) { return trimsTransparentMargins ? OiOpaqueImageTrim.trimmed(source) : source }
+        guard let cgImage = source.cgImage else { throw Failure.unreadable }
+        let image = try OiCharacterForegroundMask.image(cgImage,
+            orientation: source.imageOrientation.oiImageOrientation, context: context)
+        let result = UIImage(cgImage: image, scale: source.scale, orientation: .up)
+        guard OiOpaqueImageTrim.hasTransparentBackground(result) else { throw Failure.opaqueResult }
+        try Task.checkCancellation()
+        cache.setObject(result, forKey: key as NSString, cost: image.bytesPerRow * image.height)
+        return trimsTransparentMargins ? OiOpaqueImageTrim.trimmed(result) : result
+    }
+}
+
+private extension UIImage.Orientation {
+    nonisolated var oiImageOrientation: CGImagePropertyOrientation {
+        switch self {
+        case .up: .up
+        case .upMirrored: .upMirrored
+        case .down: .down
+        case .downMirrored: .downMirrored
+        case .left: .left
+        case .leftMirrored: .leftMirrored
+        case .right: .right
+        case .rightMirrored: .rightMirrored
+        @unknown default: .up
         }
     }
 }
 
 /// Crops an image to its non-transparent pixels so layouts can size the visible figure.
 enum OiOpaqueImageTrim {
+    nonisolated static func hasTransparentBackground(_ image: UIImage) -> Bool {
+        guard let cgImage = image.cgImage else { return false }
+        return OiCharacterForegroundMask.hasTransparentBackground(cgImage)
+    }
+
     nonisolated static func trimmed(_ image: UIImage) -> UIImage {
-        guard let cg = image.cgImage else { return image }
-        let width = cg.width, height = cg.height
-        var alpha = [UInt8](repeating: 0, count: width * height)
-        let drawn = alpha.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
-                bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue)
-            else { return false }
-            context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
-            return true
-        }
-        guard drawn else { return image }
-        var minX = width, minY = height, maxX = -1, maxY = -1
-        for y in 0..<height {
-            let row = y * width
-            for x in 0..<width where alpha[row + x] > 8 {
-                minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
-            }
-        }
-        guard maxX >= minX, maxY >= minY,
-              let cropped = cg.cropping(to: CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1))
-        else { return image }
+        guard let cgImage = image.cgImage, let bounds = OiCharacterForegroundMask.opaqueBounds(cgImage),
+              let cropped = cgImage.cropping(to: bounds) else { return image }
         return UIImage(cgImage: cropped, scale: image.scale, orientation: image.imageOrientation)
     }
 }

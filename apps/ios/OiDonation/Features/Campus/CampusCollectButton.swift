@@ -12,6 +12,7 @@ import SwiftUI
 struct CampusCollectButton: View {
     let story: CampusStory
     let store: CampusStoryStore
+    var fontSize: CGFloat = 16
 
     @Environment(OiRemoteStore.self) private var remote: OiRemoteStore?
     @State private var showingSignIn = false
@@ -26,7 +27,7 @@ struct CampusCollectButton: View {
 
     var body: some View {
         Button(action: collect) {
-            Text(isExample ? "예시 카드" : "수집하기").font(CampusStyle.semibold(16))
+            Text(isExample ? "예시 카드" : "수집하기").font(CampusStyle.semibold(fontSize))
                 .frame(maxWidth: .infinity, minHeight: 46)
                 .foregroundStyle(.white)
                 .background(Color(oiRGB: 0x708C40), in: RoundedRectangle(cornerRadius: 20))

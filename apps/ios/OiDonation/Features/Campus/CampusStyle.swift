@@ -80,15 +80,13 @@ struct CampusCucumberPortrait: View {
 
     var body: some View {
         if let path = story.cucumberPortraitPath, let loadPortrait {
-            OiCucumberPortraitImage(path: path) { path in
-                let image = try await loadPortrait(path)
-                guard trimsTransparentMargins else { return image }
-                return await Task.detached(priority: .userInitiated) { OiOpaqueImageTrim.trimmed(image) }.value
-            }
+            OiCucumberPortraitImage(path: path, requiresTransparentBackground: true,
+                trimsTransparentMargins: trimsTransparentMargins, load: loadPortrait)
         } else if trimsTransparentMargins {
-            OiCucumberPortraitImage(path: story.portraitImage) { name in
+            OiCucumberPortraitImage(path: story.portraitImage, requiresTransparentBackground: true,
+                trimsTransparentMargins: true) { name in
                 guard let image = UIImage(named: name) else { throw CocoaError(.fileReadNoSuchFile) }
-                return await Task.detached(priority: .userInitiated) { OiOpaqueImageTrim.trimmed(image) }.value
+                return image
             }
         } else {
             Image(story.portraitImage).resizable().scaledToFit()

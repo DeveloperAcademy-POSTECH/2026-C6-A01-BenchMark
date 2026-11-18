@@ -621,6 +621,7 @@ grant execute on function auth.jwt() to anon,authenticated;
             run(database + ['-f', 'supabase/tests/oi-public-cucumber-appearance.sql'])
             run(database + ['-f', 'supabase/tests/oi-building-notes.sql'])
             run(database + ['-f', 'supabase/tests/oi-building-note-moderation.sql'])
+            run(database + ['-f', 'supabase/tests/oi-story-likes.sql'])
             if database is remote_connection:
                 # Production still advertises manual review, with automatic review
                 # active. Replay its actual captured wrapper before applying coins.

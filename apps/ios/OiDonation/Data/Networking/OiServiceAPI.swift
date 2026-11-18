@@ -95,6 +95,8 @@ struct OiServiceAPI {
             case 404 where path == "rest/v1/rpc/oi_operator_audit": throw OiAuditError.notDeployed
             case 404 where path.hasPrefix("rest/v1/rpc/oi_story_continuation") || path == "rest/v1/rpc/oi_my_story_continuation_targets" || path == "rest/v1/rpc/oi_read_story_continuation":
                 throw OiContinuationError.notSupported
+            case 404 where path == "rest/v1/rpc/oi_story_likes" || path == "rest/v1/rpc/oi_set_story_like":
+                throw OiStoryLikeError.notSupported
             case 404 where OiNFCTagError.rpcPaths.contains(path): throw OiNFCTagError.notDeployed
             case 404 where path.contains("building_note"): throw CampusBuildingNoteError.notDeployed
             case 409: throw OiServiceError.conflict
