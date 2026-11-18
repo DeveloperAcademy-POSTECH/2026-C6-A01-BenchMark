@@ -53,7 +53,11 @@ struct OiCucumberCard<Portrait: View>: View {
         .padding(.vertical, metrics.cardPadding)
         .frame(maxWidth: .infinity, minHeight: metrics.cardHeight,
                maxHeight: usesAccessibilityLayout ? nil : metrics.cardHeight, alignment: .leading)
-        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 28))
+        .background {
+            RoundedRectangle(cornerRadius: 28)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(showsShadow ? 0.25 : 0), radius: 2)
+        }
         .overlay {
             if let selectionOutline {
                 RoundedRectangle(cornerRadius: 28).strokeBorder(selectionOutline, lineWidth: 2)
@@ -63,7 +67,6 @@ struct OiCucumberCard<Portrait: View>: View {
                     .allowsHitTesting(false)
             }
         }
-        .shadow(color: .black.opacity(showsShadow ? 0.25 : 0), radius: 2)
         .contentShape(RoundedRectangle(cornerRadius: 28))
     }
 

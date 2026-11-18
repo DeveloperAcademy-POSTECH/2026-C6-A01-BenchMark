@@ -1818,6 +1818,34 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                           defaults: fixture.defaults, attach: true)
     }
 
+    func testStoryListCardShadowDoesNotAffectItsContents() throws {
+        let size = CGSize(width: 386, height: 134)
+        func render(shadow: Bool) throws -> Data {
+            let card = OiCucumberCard(name: "HINT펩오이", tags: ["즐거움", "연구"],
+                donor: "가상 작성자", title: "반도체 HINT 연구실의 추억", showsShadow: shadow) {
+                    Image("StoryListJacketCucumber").resizable().scaledToFit()
+                }
+                .frame(width: 362).padding(12)
+                .background(Color(white: 0.95))
+                .environment(\.colorScheme, .light)
+            let renderer = ImageRenderer(content: card)
+            renderer.scale = 1
+            return try XCTUnwrap(renderer.uiImage?.pngData())
+        }
+        let withShadow = try render(shadow: true)
+        let withoutShadow = try render(shadow: false)
+        XCTAssertEqual(try myV4ChangedPixels(withShadow, withoutShadow, size: size,
+            rect: CGRect(x: 28, y: 26, width: 330, height: 80)), 0,
+            "The card shadow must never darken the name, tags, title or portrait")
+        XCTAssertGreaterThan(try myV4ChangedPixels(withShadow, withoutShadow, size: size,
+            rect: CGRect(x: 7, y: 35, width: 5, height: 60)), 0,
+            "The background must retain the card's exterior shadow")
+        for (name, png) in [("story-list-card-shadow", withShadow), ("story-list-card-no-shadow", withoutShadow)] {
+            let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+        }
+    }
+
     func testStoryListSeedUICaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
