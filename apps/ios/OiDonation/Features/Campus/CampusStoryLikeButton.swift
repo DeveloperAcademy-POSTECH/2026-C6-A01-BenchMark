@@ -23,23 +23,29 @@ struct CampusStoryLikeButton: View {
     private var storyID: UUID? { UUID(uuidString: story.id) }
     private var isExample: Bool { story.isExample || store.isExample }
     private var liked: Bool { like?.liked ?? false }
-    private let green = Color(oiRGB: 0x708C40)
+    /// Figma `Like` (6862:16197): 68×46 capsule, heart and count side by side.
+    private let likedColor = Color(oiRGB: 0xB0C85B)
+    private let idleBorder = Color(oiRGB: 0xC2C2C2)
+    private let idleText = Color(oiRGB: 0x535353)
 
     var body: some View {
         Group {
             if !unsupported && !isExample {
                 Button(action: toggle) {
-                    VStack(spacing: 2) {
+                    HStack(spacing: 6) {
                         Image(systemName: liked ? "heart.fill" : "heart")
-                            .font(.system(size: 20, weight: .regular))
-                            .foregroundStyle(liked ? green : .black)
+                            .font(.system(size: 16, weight: .medium))
                             .contentTransition(.symbolEffect(.replace))
                         Text(like.map { String($0.count) } ?? "–")
-                            .font(CampusStyle.body(12)).monospacedDigit()
-                            .foregroundStyle(.black).contentTransition(.numericText())
+                            .font(CampusStyle.medium(16)).tracking(0.32).monospacedDigit()
+                            .lineLimit(1).minimumScaleFactor(0.6)
+                            .contentTransition(.numericText())
                     }
-                    .frame(width: 54, height: 46)
-                    .background(.white, in: RoundedRectangle(cornerRadius: 20))
+                    .foregroundStyle(liked ? likedColor : idleText)
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .frame(width: 68, height: 46)
+                    .background(.white, in: Capsule())
+                    .overlay(Capsule().strokeBorder(liked ? likedColor : idleBorder, lineWidth: 1))
                 }
                 .buttonStyle(.plain).disabled(isUpdating)
                 .accessibilityLabel(liked ? "좋아요 취소" : "좋아요")
