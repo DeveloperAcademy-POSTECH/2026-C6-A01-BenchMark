@@ -141,6 +141,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var previewDragPoint: CGPoint?
     @ObservationIgnored private var previewTouchState = CampusPlacementGestureState()
     @ObservationIgnored private var previewRecognizer: OiTouchSequenceRecognizer?
+    @ObservationIgnored private var previewRotatesInPlace = false
     @ObservationIgnored private var placementLayer = Entity()
     @ObservationIgnored private var authoredLayer = Entity()
     @ObservationIgnored private var storyLayer = Entity()
@@ -951,13 +952,26 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         entity.orientation = CampusOiAsset.heading(record.headingDegrees)
     }
 
-    func beginPlacementPreview(_ placement: CampusPlacement) {
+    func beginPlacementPreview(_ placement: CampusPlacement, rotatingInPlace: Bool = false) {
         guard let data else { return }
         stopNavigation()
+        selectingCenterLocation = false
+        previewTouchState = CampusPlacementGestureState()
+        previewDragPoint = nil
+        previewMovementError = nil
+        previewRotatesInPlace = rotatingInPlace
         placementPreview = placement
         if let canvas { installPreviewGestures(on: canvas) }
         let point = data.world(latitude: placement.latitude, longitude: placement.longitude)
-        if let region = nearestRegion(to: point) { focus(region, stories: [], placement: placement) }
+        if rotatingInPlace {
+            editingPlacement = true
+            camera.camera.near = 0.01
+            target = point + SIMD3(0, Float(placement.heightMeters * data.unitsPerMeter * 0.5), 0)
+            yaw = .pi - Float(placement.headingDegrees * .pi / 180)
+            pitch = 0.45
+            radius = Float(max(6, placement.heightMeters * 4.5) * data.unitsPerMeter)
+            updateCamera()
+        } else if let region = nearestRegion(to: point) { focus(region, stories: [], placement: placement) }
         syncPlacements(records: [placement])
     }
 
@@ -965,6 +979,16 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         guard let placement = placementPreview, let data else { return }
         let point = data.world(latitude: placement.latitude, longitude: placement.longitude)
         onPreviewChange?(placement, nearestRegion(to: point))
+    }
+
+    func adjustLocationAppearance(scale: Double = 1, headingDelta: Double = 0) {
+        guard previewRotatesInPlace, let placement = placementPreview,
+              scale.isFinite, scale > 0, headingDelta.isFinite else { return }
+        let range = CampusPlacement.heightRange
+        updatePlacementPreview(placement, latitude: placement.latitude, longitude: placement.longitude,
+            height: min(range.upperBound, max(range.lowerBound, placement.heightMeters * scale)),
+            heading: CampusPlacement.wrappedHeading(placement.headingDegrees + headingDelta))
+        commitPlacementPreview()
     }
 
     private func installPreviewGestures(on canvas: CampusMapCanvas) {
@@ -990,12 +1014,20 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         guard let change, let placement = placementPreview, let data, let view = canvas?.map else { return }
         switch change {
         case .move(let delta):
-            movePlacementPreview(placement, by: delta, data: data, viewport: view.bounds)
+            if previewRotatesInPlace {
+                guard view.bounds.width > 0 else { return }
+                let heading = CampusPlacement.wrappedHeading(placement.headingDegrees - 360 * Double(delta.x / view.bounds.width))
+                updatePlacementPreview(placement, latitude: placement.latitude, longitude: placement.longitude,
+                                       height: placement.heightMeters, heading: heading)
+            } else {
+                movePlacementPreview(placement, by: delta, data: data, viewport: view.bounds)
+            }
         case .transform(let horizontal, let scale, let rotation):
             guard view.bounds.width > 0 else { return }
             let range = CampusPlacement.heightRange
             let height = min(range.upperBound, max(range.lowerBound, placement.heightMeters * Double(scale)))
-            let degrees = -360 * Double(horizontal / view.bounds.width) - rotation * 180 / .pi
+            // In STEP 2 a pinch changes only size, even if its centroid drifts.
+            let degrees = previewRotatesInPlace ? 0 : -360 * Double(horizontal / view.bounds.width) - rotation * 180 / .pi
             let heading = CampusPlacement.wrappedHeading(placement.headingDegrees + degrees)
             guard height != placement.heightMeters || heading != placement.headingDegrees else { return }
             updatePlacementPreview(placement, latitude: placement.latitude, longitude: placement.longitude,
@@ -1128,6 +1160,16 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
 
     func endPlacement() {
+        if placementPreview != nil {
+            placementPreview = nil
+            savedPlacements = []
+            if let previewRecognizer { canvas?.removeGestureRecognizer(previewRecognizer) }
+            previewRecognizer = nil
+            previewTouchState = CampusPlacementGestureState()
+            previewRotatesInPlace = false
+            previewDragPoint = nil
+            navigationGestures.forEach { $0.isEnabled = true }
+        }
         editingPlacement = false; draftPoint = nil
         selectingCenterLocation = false; centerLocationError = nil
         editingPlacementID = nil
@@ -1145,7 +1187,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
 
     func updateDraft(height: Double, heading: Double) {
         draftHeight = height; draftHeading = heading
-        guard !selectingCenterLocation, let point = draftPoint, let data, let oiTemplate else { return }
+        guard !selectingCenterLocation, placementPreview == nil, let point = draftPoint, let data, let oiTemplate else { return }
         if draftEntity == nil {
             let entity = oiTemplate.clone(recursive: true)
             root.addChild(entity); draftEntity = entity
