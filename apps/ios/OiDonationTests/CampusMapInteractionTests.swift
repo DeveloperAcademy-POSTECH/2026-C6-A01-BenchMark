@@ -1725,6 +1725,76 @@ final class CampusEducationDistrictTests: XCTestCase {
         model.load()
     }
 
+    private func assertStorySheetLayout(_ model: EducationLightWebModel, window: UIWindow, name: String) async throws {
+        for size in [CGSize(width: 390, height: 844), CGSize(width: 320, height: 568), CGSize(width: 844, height: 390)] {
+            window.frame.size = size
+            model.webView.frame = CGRect(origin: .zero, size: size)
+            window.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(150))
+            let result = try await model.webView.evaluateJavaScript("""
+            (()=>{const sheet=document.querySelector('#educationDialog'),content=sheet.querySelector('.education-content'),close=sheet.querySelector('.close-button');
+            content.scrollTop=0;
+            const rect=sheet.getBoundingClientRect(),button=close.getBoundingClientRect(),title=content.querySelector('h2').getBoundingClientRect(),style=getComputedStyle(sheet);
+            content.scrollTop=content.scrollHeight;
+            const last=content.lastElementChild.getBoundingClientRect();
+            return {left:rect.left,right:rect.right-innerWidth,bottom:rect.bottom-innerHeight,top:rect.top,
+              closeX:button.x,closeY:button.y,webCloseHidden:getComputedStyle(close).visibility==='hidden',
+              lowerLeft:parseFloat(style.borderBottomLeftRadius),lowerRight:parseFloat(style.borderBottomRightRadius),
+              closeWidth:button.width,closeHeight:button.height,headerClear:title.top>=button.bottom,
+              closePinned:Math.abs(close.getBoundingClientRect().top-button.top)<1,
+              noHorizontalOverflow:content.scrollWidth<=content.clientWidth,
+              endReachable:last.bottom<=rect.bottom-20};})()
+            """)
+            let layout = try XCTUnwrap(result as? [String: Any])
+            for edge in ["left", "right", "bottom", "lowerLeft", "lowerRight"] {
+                XCTAssertEqual(try XCTUnwrap(layout[edge] as? Double), 0, accuracy: 1, "\(name) \(size) \(edge)")
+            }
+            XCTAssertGreaterThanOrEqual(try XCTUnwrap(layout["top"] as? Double), 12)
+            for dimension in ["closeWidth", "closeHeight"] {
+                XCTAssertGreaterThanOrEqual(try XCTUnwrap(layout[dimension] as? Double), 44)
+            }
+            for check in ["headerClear", "closePinned", "noHorizontalOverflow", "endReachable"] {
+                XCTAssertEqual(layout[check] as? Bool, true, "\(name) \(size) \(check)")
+            }
+            let nativeClose = model.storySheetCloseButton
+            // The DOM layout and native message delivery cross process boundaries.
+            for _ in 0..<40 {
+                if !nativeClose.isHidden,
+                   abs(nativeClose.frame.minX - (layout["closeX"] as? Double ?? -100)) < 1,
+                   abs(nativeClose.frame.minY - (layout["closeY"] as? Double ?? -100)) < 1 { break }
+                try await Task.sleep(for: .milliseconds(25))
+            }
+            XCTAssertFalse(nativeClose.isHidden, "The real UIKit close button must replace the HTML control")
+            XCTAssertEqual(layout["webCloseHidden"] as? Bool, true)
+            XCTAssertEqual(nativeClose.accessibilityLabel, "닫기")
+            XCTAssertEqual(nativeClose.configuration?.image?.isSymbolImage, true)
+            XCTAssertEqual(nativeClose.frame.minX, try XCTUnwrap(layout["closeX"] as? Double), accuracy: 1)
+            XCTAssertEqual(nativeClose.frame.minY, try XCTUnwrap(layout["closeY"] as? Double), accuracy: 1)
+            _ = try await model.webView.evaluateJavaScript("document.querySelector('.education-content').scrollTop=0")
+            try await Task.sleep(for: .milliseconds(100))
+            let image = UIGraphicsImageRenderer(bounds: model.webView.bounds).image { _ in
+                model.webView.drawHierarchy(in: model.webView.bounds, afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "\(name)-\(Int(size.width))x\(Int(size.height))"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        window.frame.size = CGSize(width: 390, height: 844)
+        model.webView.frame = window.bounds
+    }
+
+    private func closeStorySheet(_ model: EducationLightWebModel) async throws {
+        model.storySheetCloseButton.sendActions(for: .touchUpInside)
+        for _ in 0..<30 where !model.storySheetCloseButton.isHidden {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let closed = try await model.webView.evaluateJavaScript("!document.querySelector('#educationDialog').open")
+        XCTAssertEqual(closed as? Bool, true)
+        XCTAssertTrue(model.storySheetCloseButton.isHidden)
+        XCTAssertFalse(model.closeRequested, "Closing a story sheet must keep the building experience open")
+    }
+
     func testEducationWriterSavesThroughNativeAccountWithoutMapPlacement() async throws {
         let backend = OiTestBackend(); backend.install()
         let configuration = URLSessionConfiguration.ephemeral
@@ -1782,7 +1852,8 @@ final class CampusEducationDistrictTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(100))
         }
         XCTAssertTrue(sharedReferenceVisible, "Native WebKit must keep the shared story list open when the account refresh completes")
-        _ = try await model.webView.evaluateJavaScript("document.querySelector('#educationDialog').close()")
+        try await assertStorySheetLayout(model, window: window, name: "Education-story-list")
+        try await closeStorySheet(model)
         _ = try await model.webView.evaluateJavaScript("document.querySelector('#scatterButton').click()")
         var photoVisible = false
         for _ in 0..<50 {
@@ -1808,6 +1879,7 @@ final class CampusEducationDistrictTests: XCTestCase {
             if try await model.webView.evaluateJavaScript("!!document.querySelector('.education-form')") as? Bool == true { break }
             try await Task.sleep(for: .milliseconds(100))
         }
+        try await assertStorySheetLayout(model, window: window, name: "Education-story-writer")
         let preparingPhoto = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
             model.webView.callAsyncJavaScript("""
             const c=document.createElement('canvas');c.width=c.height=16;c.getContext('2d').fillRect(0,0,16,16);
@@ -1834,7 +1906,10 @@ final class CampusEducationDistrictTests: XCTestCase {
         XCTAssertEqual(editor as? Bool, true)
         await fulfillment(of: [saved, photoStored], timeout: 5)
         for _ in 0..<30 {
-            if (try await model.webView.evaluateJavaScript("document.querySelector('.education-status')?.textContent") as? String)?.contains("저장했어요") == true { return }
+            if (try await model.webView.evaluateJavaScript("document.querySelector('.education-status')?.textContent") as? String)?.contains("저장했어요") == true {
+                try await closeStorySheet(model)
+                return
+            }
             try await Task.sleep(for: .milliseconds(100))
         }
         XCTFail("The WebKit editor must receive the native save receipt")
