@@ -764,4 +764,68 @@ final class OiStoryLikeTests: XCTestCase {
         do { _ = try await api.storyLikes([story], token: nil); XCTFail("Missing RPC must not look like an empty count") }
         catch OiStoryLikeError.notSupported {}
     }
+
+    func testLikeCacheSurvivesRefreshFailureOnlyWithinTheSameStoryAndAccount() async throws {
+        let state = CampusStoryLikeState()
+        let first = CampusStoryLikeState.Context(storyID: story, accountID: OiTestBackend.owner)
+        let second = CampusStoryLikeState.Context(storyID: story, accountID: OiTestBackend.other)
+        let value = OiStoryLike(storyId: story, count: 3, liked: true)
+        await state.load(first) { value }
+        await state.load(first) { throw URLError(.notConnectedToInternet) }
+        XCTAssertEqual(state.like, value, "A same-account refresh keeps its last confirmed value")
+
+        await state.load(second) { throw URLError(.notConnectedToInternet) }
+        XCTAssertNil(state.like, "A new account must not inherit the previous account's filled heart")
+        XCTAssertEqual(state.context, second)
+        await state.load(second) { throw OiStoryLikeError.notSupported }
+        XCTAssertTrue(state.unsupported)
+        await state.load(second) { .init(storyId: self.story, count: 3, liked: false) }
+        XCTAssertFalse(state.unsupported, "A successful retry restores a newly deployed button")
+
+        await state.load(.init(storyID: UUID(), accountID: OiTestBackend.other)) {
+            throw URLError(.notConnectedToInternet)
+        }
+        XCTAssertNil(state.like, "A different story also starts without a stale cached value")
+    }
+
+    func testLikeRejectsLateAccountReadAndMutationResponses() async throws {
+        let state = CampusStoryLikeState()
+        let first = CampusStoryLikeState.Context(storyID: story, accountID: OiTestBackend.owner)
+        let second = CampusStoryLikeState.Context(storyID: story, accountID: OiTestBackend.other)
+        var heldRead: CheckedContinuation<OiStoryLike?, Never>?
+        let read = Task { await state.load(first) { await withCheckedContinuation { heldRead = $0 } } }
+        for _ in 0..<100 where heldRead == nil { await Task.yield() }
+        let readReply = try XCTUnwrap(heldRead)
+        await state.load(second) { throw URLError(.notConnectedToInternet) }
+        readReply.resume(returning: .init(storyId: story, count: 3, liked: true))
+        await read.value
+        XCTAssertNil(state.like, "The old account's late read must not populate the new account")
+
+        var heldSave: CheckedContinuation<OiStoryLike, Never>?
+        let save = Task { await state.set(first) { await withCheckedContinuation { heldSave = $0 } } }
+        for _ in 0..<100 where heldSave == nil { await Task.yield() }
+        let saveReply = try XCTUnwrap(heldSave)
+        let current = OiStoryLike(storyId: story, count: 4, liked: false)
+        await state.load(second) { current }
+        saveReply.resume(returning: .init(storyId: story, count: 5, liked: true))
+        await save.value
+        XCTAssertEqual(state.like, current, "An old toggle receipt must not change the new account's heart")
+        XCTAssertFalse(state.isUpdating)
+        XCTAssertNil(state.message)
+    }
+
+    func testLikeToggleReceiptWinsOverAnOlderRefresh() async throws {
+        let state = CampusStoryLikeState()
+        let context = CampusStoryLikeState.Context(storyID: story, accountID: OiTestBackend.owner)
+        var heldRead: CheckedContinuation<OiStoryLike?, Never>?
+        let read = Task { await state.load(context) { await withCheckedContinuation { heldRead = $0 } } }
+        for _ in 0..<100 where heldRead == nil { await Task.yield() }
+        let readReply = try XCTUnwrap(heldRead)
+        let updated = OiStoryLike(storyId: story, count: 4, liked: true)
+        await state.set(context) { updated }
+        readReply.resume(returning: .init(storyId: story, count: 3, liked: false))
+        await read.value
+        XCTAssertEqual(state.like, updated)
+        XCTAssertFalse(state.isUpdating)
+    }
 }

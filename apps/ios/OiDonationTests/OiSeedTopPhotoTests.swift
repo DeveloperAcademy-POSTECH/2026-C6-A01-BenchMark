@@ -232,6 +232,33 @@ final class OiSeedTopPhotoTests: XCTestCase {
                        .remote("approved-portrait.png"), "Remote photos must use the approved pixels instead of local editable sources")
     }
 
+    func testServerOnlyDraftPortraitUsesPublishedPixelsForSeedPhotos() throws {
+        let customization = try fixture(top: .hoodie)
+        let snapshot = try XCTUnwrap(customization.seedSnapshot)
+        var story = OiLiveStory(id: UUID(), userId: UUID(), grantId: nil, regionId: "pond",
+            title: "가상 이야기", body: "목록 미리보기 검사", theme: "추억", emotion: "기쁨",
+            cucumberName: "가상 오이", cucumberAsset: "OiCats", cardAsset: "OiCard",
+            latitude: 36.0126, longitude: 129.323, status: "draft", revision: 1,
+            createdAt: "2026-11-18T00:00:00Z")
+        story.cucumberAppearance = OiCucumberAppearance(id: UUID(), top: "hoodie", bottom: "long",
+            costume: nil, topColor: 0xFFFFFF, bottomColor: 0xFFFFFF, shoeColor: 0xFFFFFF,
+            topTexture: true, bottomTexture: false, seed: snapshot)
+        let remotePath = try XCTUnwrap(story.cucumberArtwork?.path(.portrait))
+        let restored = OiStoryListItem(story: story, donorDisplayName: "가상 작성자", locationDisplayName: "POSTECH")
+        XCTAssertEqual(restored.portraitSource, .remote(remotePath),
+            "A server-only draft has no editable photo sources, so it must use its saved portrait")
+
+        let localSource = OiStoryListPortraitSource.seedWithPhotos(snapshot, customization.seedPhotoLook)
+        let local = OiStoryListItem(story: story, portraitSource: localSource,
+            donorDisplayName: "가상 작성자", locationDisplayName: "POSTECH")
+        XCTAssertEqual(local.portraitSource, localSource, "A local draft keeps its current editable look")
+
+        let plain = OiSeedCucumberSnapshot(appearance: snapshot.appearance, garments: snapshot.garments)
+        story.cucumberAppearance?.seed = plain
+        let unprinted = OiStoryListItem(story: story, donorDisplayName: "가상 작성자", locationDisplayName: "POSTECH")
+        XCTAssertEqual(unprinted.portraitSource, .seed(plain), "A seed without photo sources can still render locally")
+    }
+
     func testPrivatePlacementRetainsSeedPhotosAndPreparesTheSeedModel() async throws {
         let customization = try fixture(top: .hoodie)
         var record = OiLocalDraft(draft: OiStoryDraft(), customization: customization)

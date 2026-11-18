@@ -9,6 +9,22 @@ create function pg_temp.check_error(command text, expected text) returns void la
   raise exception 'Unexpected SQLSTATE %, expected %',sqlstate,expected;
  end; raise exception 'Expected error: %',expected;
 end; $$;
+select pg_temp.check_true(has_function_privilege('anon','public.oi_story_likes(uuid[])','EXECUTE')
+  and has_function_privilege('authenticated','public.oi_story_likes(uuid[])','EXECUTE'),
+  'public count RPC keeps anonymous and signed-in read permissions');
+select pg_temp.check_true(not has_function_privilege('anon','public.oi_set_story_like(uuid,boolean)','EXECUTE')
+  and has_function_privilege('authenticated','public.oi_set_story_like(uuid,boolean)','EXECUTE'),
+  'like changes remain signed-in only');
+select pg_temp.check_true(not has_function_privilege('anon','benchmark_private.oi_story_likeable(uuid)','EXECUTE')
+  and not has_function_privilege('authenticated','benchmark_private.oi_story_likeable(uuid)','EXECUTE')
+  and not has_function_privilege('service_role','benchmark_private.oi_story_likeable(uuid)','EXECUTE'),
+  'visibility helper stays private after replacement');
+select pg_temp.check_true(not has_table_privilege('anon','benchmark_private.oi_story_likes','SELECT')
+  and not has_table_privilege('authenticated','benchmark_private.oi_story_likes','SELECT'),
+  'individual like records stay private');
+select pg_temp.check_true((select prosecdef and provolatile='s' from pg_proc
+  where oid='benchmark_private.oi_story_likeable(uuid)'::regprocedure),
+  'visibility helper retains its stable security-definer contract');
 insert into auth.users(id) values
  ('50400000-0000-4000-8000-000000000001'),('50400000-0000-4000-8000-000000000002'),
  ('50400000-0000-4000-8000-000000000003');
@@ -48,6 +64,34 @@ select pg_temp.check_true(jsonb_array_length(public.oi_story_likes(array['504000
 select pg_temp.check_true(public.oi_set_story_like('50400000-0000-4000-8000-000000000011',false)->>'count'='1','unlike removes only own like');
 select pg_temp.check_true(public.oi_set_story_like('50400000-0000-4000-8000-000000000011',false)->>'count'='1','repeat unlike is idempotent');
 select pg_temp.check_error($q$select public.oi_story_likes((select array_agg(gen_random_uuid()) from generate_series(1,201)))$q$,'22023');
+
+-- The story remains published while deletion is prepared, but public RLS hides
+-- it immediately. The definer RPCs must not reveal its known UUID or like count.
+reset role;
+insert into benchmark_private.oi_account_deletions(account_id)
+  values('50400000-0000-4000-8000-000000000001');
+set local role anon;
+select set_config('request.jwt.claim.sub','',true);
+select pg_temp.check_true(not exists(select 1 from public.oi_stories
+  where id='50400000-0000-4000-8000-000000000011'), 'public story RLS hides a departing author');
+select pg_temp.check_true(public.oi_story_likes(array['50400000-0000-4000-8000-000000000011']::uuid[])='[]'::jsonb,
+  'anonymous count lookup hides a departing author');
+set local role authenticated;
+select set_config('request.jwt.claim.sub','50400000-0000-4000-8000-000000000002',true);
+select pg_temp.check_true(public.oi_story_likes(array['50400000-0000-4000-8000-000000000011']::uuid[])='[]'::jsonb,
+  'signed-in count lookup hides a departing author');
+select pg_temp.check_error($q$select public.oi_set_story_like('50400000-0000-4000-8000-000000000011',true)$q$,'22023');
+select pg_temp.check_error($q$select public.oi_set_story_like('50400000-0000-4000-8000-000000000011',false)$q$,'22023');
+reset role;
+delete from benchmark_private.oi_account_deletions where account_id='50400000-0000-4000-8000-000000000001';
+set local role anon;
+select set_config('request.jwt.claim.sub','',true);
+select pg_temp.check_true(public.oi_story_likes(array['50400000-0000-4000-8000-000000000011']::uuid[])->0->>'count'='1',
+  'cancelling deletion restores the unchanged public count');
+set local role authenticated;
+select set_config('request.jwt.claim.sub','50400000-0000-4000-8000-000000000002',true);
+select pg_temp.check_true(public.oi_story_likes(array['50400000-0000-4000-8000-000000000011']::uuid[])->0->>'liked'='true',
+  'denied changes preserve the existing account like');
 
 reset role;
 delete from public.oi_stories where id='50400000-0000-4000-8000-000000000011';

@@ -61,7 +61,9 @@ struct OiStoryListItem: Identifiable, Equatable, Sendable {
             cucumberAsset: story.cucumberAsset,
             portraitPNG: portraitPNG,
             portraitSource: portraitSource ?? portraitPNG.map(OiStoryListPortraitSource.image)
-                ?? story.cucumberAppearance?.seed.map(OiStoryListPortraitSource.seed)
+                ?? story.cucumberAppearance?.seed.flatMap { seed -> OiStoryListPortraitSource? in
+                    seed.topPhotoVersion == nil ? .seed(seed) : nil
+                }
                 ?? story.cucumberArtwork.map { .remote($0.path(.portrait)) },
             donorDisplayName: donorDisplayName,
             locationDisplayName: locationDisplayName,

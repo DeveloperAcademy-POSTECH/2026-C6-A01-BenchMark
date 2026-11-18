@@ -1708,11 +1708,12 @@ final class OiRemoteStoreTests: XCTestCase {
         await fulfillment(of: [held], timeout: 5)
         vault.value = OiMemorySession(owner: OiTestBackend.other).value
         await store.start()
+        let restoredProfile = try XCTUnwrap(store.profile)
+        XCTAssertEqual(restoredProfile.id, OiTestBackend.other)
         backend.releaseHeldRead()
         await write.value
         XCTAssertEqual(store.account?.id, OiTestBackend.other)
-        XCTAssertNil(store.profile, "A stale write must not repopulate the profile cleared during account restoration")
-        // Account restoration deliberately skips a refresh while a write is busy.
+        XCTAssertEqual(store.profile, restoredProfile, "A stale write must not replace the newly restored account profile")
         await store.refresh()
         XCTAssertEqual(store.profile?.farmName, "다른밭")
         XCTAssertEqual(store.profile?.nickname, "Owner B")
@@ -1833,11 +1834,13 @@ final class OiRemoteStoreTests: XCTestCase {
         await fulfillment(of: [held], timeout: 5)
         vault.value = OiMemorySession(owner: OiTestBackend.other).value
         await store.start()
+        let restoredOutfit = OiFarmerOutfit(character: "cumber", slots: ["set": "legacy-classic"])
+        XCTAssertEqual(store.farmerOutfit, restoredOutfit)
         backend.releaseHeldRead()
         let saved = await write.value
         XCTAssertFalse(saved)
         XCTAssertEqual(store.account?.id, OiTestBackend.other)
-        XCTAssertNil(store.farmerOutfit)
+        XCTAssertEqual(store.farmerOutfit, restoredOutfit, "The previous account's late write must preserve the new account's outfit")
         await store.refresh()
         XCTAssertEqual(store.farmerOutfit, OiFarmerOutfit(character: "cumber", slots: ["set": "legacy-classic"]))
     }
@@ -2026,6 +2029,11 @@ final class OiRemoteStoreTests: XCTestCase {
         var expected = card
         expected.portraitPNG = savedCard.portraitPNG
         expected.portraitKey = savedCard.portraitKey
+        let stamp = try XCTUnwrap(savedCard.postcardStamp)
+        XCTAssertTrue((1...12).contains(stamp), "Opening a legacy draft must prepare its required stamp")
+        XCTAssertEqual(savedCard.initialPostcardStamp, stamp)
+        expected.postcardStamp = stamp
+        expected.initialPostcardStamp = stamp
         XCTAssertEqual(savedCard, expected, "Regeneration must preserve card settings and orientation")
         let restoredPhoto = try await store.localPhoto(id: photoID, owner: owner)
         XCTAssertEqual(restoredPhoto, photo)
@@ -2246,7 +2254,9 @@ final class OiRemoteStoreTests: XCTestCase {
                 return own + view.subviews.flatMap(verticalScrolls)
             }
             let settings = try XCTUnwrap(verticalScrolls(controller.view).filter {
-                $0.bounds.height > 80 && $0.contentSize.height > $0.bounds.height + 20
+                // The content tab may fit without overflow; its panel must still
+                // stay below the preview and keep Done as the navigation gate.
+                $0.bounds.height > 80
             }.max { $0.bounds.height < $1.bounds.height })
             let frame = settings.convert(settings.bounds, to: window)
             XCTAssertGreaterThan(frame.minY, 200, "Settings must sit below the fixed preview and tabs")
@@ -3991,7 +4001,8 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(receipt?.revision, 3)
         XCTAssertEqual(receipt?.heightMeters, 1.35)
         XCTAssertEqual(receipt?.headingDegrees, 263.5)
-        XCTAssertEqual(store.ownStories.first(where: { $0.id == current.id })?.isRegisteredOnCampus, true)
+        XCTAssertEqual(store.ownStories.first(where: { $0.id == current.id })?.isRegisteredOnCampus, false,
+                       "AI approval keeps the story private until the author plants it")
         XCTAssertTrue(store.stories.isEmpty, "A pending placement must stay out of the public map and search")
         backend.configure { $0.story?["status"] = "published" }
         let published = try await store.publishedStory(current.id)
