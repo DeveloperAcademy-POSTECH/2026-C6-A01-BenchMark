@@ -6,6 +6,149 @@
 //
 
 import SwiftUI
+import UIKit
+
+/// Keeps device-tilt presentation outside the SwiftUI card's existing flip and scratch state.
+struct ScratchPostcardMotionEffect<Content: View>: UIViewControllerRepresentable {
+    let isEnabled: Bool
+    let content: Content
+
+    init(isEnabled: Bool, @ViewBuilder content: () -> Content) {
+        self.isEnabled = isEnabled
+        self.content = content()
+    }
+
+    func makeUIViewController(context: Context) -> ScratchPostcardMotionEffectController<Content> {
+        ScratchPostcardMotionEffectController(content: content, isEnabled: isEnabled, environment: context.environment)
+    }
+
+    func updateUIViewController(_ controller: ScratchPostcardMotionEffectController<Content>, context: Context) {
+        withTransaction(context.transaction) {
+            controller.update(content: content, isEnabled: isEnabled, environment: context.environment)
+        }
+    }
+
+    static func dismantleUIViewController(_ controller: ScratchPostcardMotionEffectController<Content>, coordinator: ()) {
+        controller.stopMotionEffects()
+    }
+}
+
+/// The hosting controller stays stable when the effect is enabled, paused, or disabled.
+final class ScratchPostcardMotionEffectController<Content: View>: UIViewController {
+    let motionView = ScratchPostcardMotionEffectView()
+    private let hostingController: UIHostingController<AnyView>
+
+    init(content: Content, isEnabled: Bool, environment: EnvironmentValues = EnvironmentValues()) {
+        hostingController = UIHostingController(rootView: AnyView(content.environment(\.self, environment)))
+        super.init(nibName: nil, bundle: nil)
+        hostingController.safeAreaRegions = []
+        motionView.setMotionEnabled(isEnabled)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { return nil }
+
+    override func loadView() {
+        let container = UIView()
+        container.backgroundColor = .clear
+        container.isOpaque = false
+        view = container
+        motionView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(motionView)
+        NSLayoutConstraint.activate([
+            motionView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            motionView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            motionView.topAnchor.constraint(equalTo: container.topAnchor),
+            motionView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        ])
+        addChild(hostingController)
+        guard let hostedView = hostingController.view else { return }
+        hostedView.backgroundColor = .clear
+        hostedView.isOpaque = false
+        hostedView.clipsToBounds = false
+        hostedView.translatesAutoresizingMaskIntoConstraints = false
+        motionView.addSubview(hostedView)
+        NSLayoutConstraint.activate([
+            hostedView.leadingAnchor.constraint(equalTo: motionView.leadingAnchor),
+            hostedView.trailingAnchor.constraint(equalTo: motionView.trailingAnchor),
+            hostedView.topAnchor.constraint(equalTo: motionView.topAnchor),
+            hostedView.bottomAnchor.constraint(equalTo: motionView.bottomAnchor)
+        ])
+        hostingController.didMove(toParent: self)
+    }
+
+    func update(content: Content, isEnabled: Bool, environment: EnvironmentValues = EnvironmentValues()) {
+        // A new hosting root has its own environment; retain the caller's accessibility and display values.
+        hostingController.rootView = AnyView(content.environment(\.self, environment))
+        motionView.setMotionEnabled(isEnabled)
+    }
+
+    func stopMotionEffects() {
+        motionView.stopMotionEffects()
+    }
+}
+
+/// Isolates UIKit's declarative motion effects from the card's own transform.
+final class ScratchPostcardMotionEffectView: UIView {
+    static let maximumTiltRadians = CGFloat.pi / 45
+    static let perspective: CGFloat = -1 / 800
+
+    private var requestedMotion = false
+    private let tiltEffect: UIMotionEffectGroup = {
+        let horizontal = UIInterpolatingMotionEffect(keyPath: "layer.transform.rotation.y", type: .tiltAlongHorizontalAxis)
+        horizontal.minimumRelativeValue = -ScratchPostcardMotionEffectView.maximumTiltRadians
+        horizontal.maximumRelativeValue = ScratchPostcardMotionEffectView.maximumTiltRadians
+        let vertical = UIInterpolatingMotionEffect(keyPath: "layer.transform.rotation.x", type: .tiltAlongVerticalAxis)
+        vertical.minimumRelativeValue = ScratchPostcardMotionEffectView.maximumTiltRadians
+        vertical.maximumRelativeValue = -ScratchPostcardMotionEffectView.maximumTiltRadians
+        let group = UIMotionEffectGroup()
+        group.motionEffects = [horizontal, vertical]
+        return group
+    }()
+
+    init() {
+        super.init(frame: .zero)
+        backgroundColor = .clear
+        isOpaque = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { return nil }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        synchronizeMotionEffects()
+    }
+
+    func setMotionEnabled(_ enabled: Bool) {
+        requestedMotion = enabled
+        synchronizeMotionEffects()
+    }
+
+    func stopMotionEffects() {
+        requestedMotion = false
+        synchronizeMotionEffects()
+    }
+
+    private func synchronizeMotionEffects() {
+        let shouldRun = requestedMotion && window != nil
+        let isInstalled = motionEffects.contains { $0 === tiltEffect }
+        if shouldRun {
+            guard !isInstalled else { return }
+            var transform = CATransform3DIdentity
+            transform.m34 = Self.perspective
+            layer.transform = transform
+            addMotionEffect(tiltEffect)
+        } else {
+            guard isInstalled || !CATransform3DIsIdentity(layer.transform) else { return }
+            UIView.performWithoutAnimation {
+                if isInstalled { removeMotionEffect(tiltEffect) }
+                layer.removeAllAnimations()
+                layer.transform = CATransform3DIdentity
+            }
+        }
+    }
+}
 
 /// Inverse brush mask: opaque everywhere except where the user has scratched inside `scratchableArea`.
 struct ScratchMask: View {

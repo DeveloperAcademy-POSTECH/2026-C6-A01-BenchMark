@@ -13,6 +13,8 @@
     </array>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
+    <key>NSMotionUsageDescription</key>
+    <string>휴대폰 기울기에 따라 포토카드를 입체적으로 움직이는 데 사용해요.</string>
     <key>OI_SUPABASE_PUBLISHABLE_KEY</key>
     <string>$(OI_SUPABASE_PUBLISHABLE_KEY)</string>
 </dict>

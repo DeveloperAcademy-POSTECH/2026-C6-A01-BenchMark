@@ -834,6 +834,12 @@ AR 게임 시작 시 정규화된 캐릭터를 한 번 로드하여 카메라와
 2026-11-15 #351: App Clip 타깃에서 `Views/ARGame/*`, `AppClipStoryCardView`, `ARCollectionResultView`, 체험 화면(`OiSample*View`)과 `ARCollectionAssets`·`OiSampleAssets`, `Paperlogy-2ExtraLight`를 제외한다. 파일은 본 앱이 계속 사용하므로 삭제하지 않고 타깃 멤버십만 바꾼다. 이야기 상세의 카드 미리보기는 `AppClipCardPreview.swift`로 분리해 두 타깃이 공유한다. 공유 `AppClipExperienceView`는 AR 진입 없이 읽기 전용 이야기 상세를 표시한다. Release 기준 App Clip 번들은 약 16.3MB에서 8.9MB(축소 전)로 줄었다.
 
 
+### 2026-11-18 작업: 포토카드 기울기 효과 (#493)
+
+`OiStoryCompletionView`의 카드 외곽에만 Core Motion 기반 기울기를 적용한다. 화면을 열거나 다시 활성화한 자세를 기준으로 상대 기울기를 평활화하고 축별 최대 4°로 제한한다. App Clip의 `ScratchPostcardView`는 긁기가 끝난 뒤 UIKit `UIInterpolatingMotionEffect`를 별도 외곽 계층에 적용하며 기존 뒤집기 transform과 합성한다. 본 앱이 공유하는 수집 화면에는 이 UIKit 효과를 켜지 않는다.
+
+화면 이탈·비활성·동작 줄이기·가리는 시트에서 구독 또는 효과를 제거하고 정지 상태로 되돌린다. 센서 미지원·오류에서도 기존 카드 열람·뒤집기는 유지한다. 카드 파일·서버·공개·수집 계약은 변경하지 않는다. App Clip의 Core Motion은 [공식 지원 대상이 아니며](https://developer.apple.com/documentation/appclip/choosing-the-right-functionality-for-your-app-clip), UIKit 모션 효과의 실제 App Clip 동작과 두 방식의 물리 센서 반응은 시뮬레이터 빌드·합성 입력 검사만으로 확정하지 않는다.
+
 ### 2026-11-16 적용: 앱 내부 기능 사용 설정 (#379)
 
 - 사용자 확정 범위: 시스템 권한과 별개로 이 기기의 알림·위치·카메라·사진 저장 사용 여부를 유지한다.

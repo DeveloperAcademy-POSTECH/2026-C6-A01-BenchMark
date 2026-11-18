@@ -77,6 +77,20 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testPostcardMotionCompletionCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let figure = try XCTUnwrap(UIImage(named: "OiCatsPortrait"))
+        for variant in variants.prefix(3) {
+            let view = OiStoryCompletionView(draft: Self.draft, customization: Self.customization,
+                donorName: "가상 작성자", location: "포항공과대학교 지곡회관 옆 연못길",
+                onDone: {}, initialFigure: figure)
+                .environment(\.scenePhase, .active)
+            try await capture(view, name: "postcard-motion-completion", variant: variant,
+                              defaults: fixture.defaults, attach: true)
+        }
+    }
+
     func testPostcardRefreshCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }

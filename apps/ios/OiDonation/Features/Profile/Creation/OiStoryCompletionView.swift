@@ -18,6 +18,7 @@ struct OiStoryCompletionView: View {
     /// The trimmed cucumber prepared before this screen appears, so it never pops in afterwards.
     var initialFigure: UIImage? = nil
     @State private var showingBack = false
+    @State private var cardMotion = OiPostcardMotionController()
     /// 공유 opens the system share sheet with both card faces; its own 이미지 저장 action saves them to Photos.
     @State private var sharedCard: SharedCard?
     @State private var preparingShare = false
@@ -53,6 +54,8 @@ struct OiStoryCompletionView: View {
                     .frame(width: 362, height: 502)
             }
             .frame(maxWidth: 292)
+            .modifier(OiPostcardMotion(controller: cardMotion,
+                                      isEnabled: !preparingShare && sharedCard == nil && shareError == nil))
             .padding(.top, 37)
             .layoutPriority(-1)
             Text("탭하거나 옆으로 밀어서 뒤집기")
@@ -99,6 +102,7 @@ struct OiStoryCompletionView: View {
     /// Renders the front and back and opens the share sheet straight away (no extra picker sheet).
     private func shareCard() {
         guard !preparingShare else { return }
+        cardMotion.stop()
         preparingShare = true
         defer { preparingShare = false }
         do {
