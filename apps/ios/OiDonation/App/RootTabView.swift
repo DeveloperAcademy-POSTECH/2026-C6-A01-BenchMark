@@ -187,7 +187,9 @@ struct RootTabView: View {
             NavigationStack {
                 OiStoryListView(state: .content(selection.items), minimumVisibleSlotCount: 0,
                     reviewState: { _ in .approved }, onPlant: {}, canPlant: true,
-                    selectedPlantStoryID: selection.selectedID, onCancelPlant: {})
+                    selectedPlantStoryID: selection.selectedID, onCancelPlant: {},
+                    portraitAccountID: remote.account?.id,
+                    loadPortrait: { try await remote.cucumberImage($0) })
             }
             .opacity(plantedSelectionOpacity)
             .accessibilityHidden(true)

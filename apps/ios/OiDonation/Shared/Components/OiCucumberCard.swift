@@ -32,6 +32,7 @@ struct OiCucumberCard<Portrait: View>: View {
     var outline: Color?
     var selectionOutline: Color?
     var showsShadow = true
+    var portraitIsDecorative = true
     @ViewBuilder let portrait: () -> Portrait
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -117,6 +118,6 @@ struct OiCucumberCard<Portrait: View>: View {
             .frame(width: 50 * metrics.imageHeight / 86, height: 78 * metrics.imageHeight / 86)
             .frame(width: 66 * metrics.imageHeight / 86, height: metrics.imageHeight)
             .background(Color(red: 239 / 255, green: 239 / 255, blue: 239 / 255), in: RoundedRectangle(cornerRadius: 16))
-            .accessibilityHidden(true)
+            .accessibilityHidden(portraitIsDecorative)
     }
 }

@@ -149,7 +149,7 @@ struct OiCucumberCustomizationStep: View {
         .sheet(isPresented: $showsFaceEditor) {
             NavigationStack {
                 OiSeedCucumberCustomizationView(appearance: seedAppearance) { appearance in
-                    customization.seedAppearance = appearance == OiSeedCucumberAppearance() ? nil : appearance
+                    customization.seedAppearance = appearance
                 }
             }
         }

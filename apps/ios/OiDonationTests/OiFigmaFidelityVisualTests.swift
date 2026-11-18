@@ -1818,6 +1818,175 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                           defaults: fixture.defaults, attach: true)
     }
 
+    func testStoryListPortraitUsesCurrentLookInsteadOfCardComposition() throws {
+        var style = OiDraftCustomization()
+        style.seedAppearance = .init()
+        style.selectSeedTop(.hoodie)
+        let original = OiStoryListPortraitSource.local(customization: style, asset: "OiCats")
+        style.card = OiCardDesign()
+        style.card?.characterOrientation = .init(yaw: 1.5, pitch: 0.3)
+        style.card?.portraitPNG = Data([0, 1, 2])
+        style.showsCharacter = false
+        XCTAssertEqual(original, .local(customization: style, asset: "OiCats"),
+            "Card angle, visibility and cached images must not change the list's cucumber")
+        style.seedAppearance?.stemAngle = 60
+        XCTAssertNotEqual(original, .local(customization: style, asset: "OiCats"))
+        style.selectSeedTop(.cardigan)
+        XCTAssertNotEqual(original, .local(customization: style, asset: "OiCats"))
+        let seed = try XCTUnwrap(style.seedSnapshot)
+        XCTAssertEqual(OiStoryListPortraitSource.local(customization: nil, asset: "OiCats",
+            serverPath: "owner/story/portrait.png", serverSeed: seed), .seed(seed),
+            "A restored seed must use the same front-facing renderer as a local draft")
+        XCTAssertEqual(OiStoryListPortraitSource.local(customization: .init(), asset: "OiCats",
+            serverPath: "owner/story/portrait.png", serverSeed: seed), .seed(seed),
+            "Opening and saving a server draft without editing its appearance must preserve its outfit")
+        var undressed = OiDraftCustomization()
+        undressed.selectSeedTop(.hoodie)
+        undressed.selectSeedTop(.hoodie)
+        XCTAssertNotNil(undressed.seedSnapshot)
+        XCTAssertEqual(OiStoryListPortraitSource.local(customization: undressed, asset: "OiCats",
+            serverPath: "owner/story/portrait.png", serverSeed: seed),
+            .seed(.init(appearance: .init(), garments: [])),
+            "Removing the last local garment must not restore the older server outfit")
+        XCTAssertEqual(OiStoryListPortraitSource.local(customization: nil, asset: "OiCats",
+            serverPath: "owner/story/portrait.png"), .remote("owner/story/portrait.png"))
+        XCTAssertEqual(OiStoryListPortraitSource.local(customization: nil, asset: "OiCats"),
+            .seed(.init(appearance: .init(), garments: [])), "An untouched new draft is the bare STEP 3 seed")
+    }
+
+    func testStoryListPortraitNormalizesTransparentMargins() throws {
+        func source(margin: CGFloat) -> UIImage {
+            let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = false
+            return UIGraphicsImageRenderer(size: CGSize(width: 20 + margin * 2, height: 40 + margin * 2),
+                format: format).image { context in
+                    UIColor.green.setFill()
+                    context.fill(CGRect(x: margin, y: margin, width: 20, height: 40))
+                }
+        }
+        let tight = OiStoryListPortraitPixels.normalized(source(margin: 0))
+        let padded = OiStoryListPortraitPixels.normalized(source(margin: 40))
+        XCTAssertEqual(tight.size, CGSize(width: 50, height: 78))
+        XCTAssertEqual(tight.pngData(), padded.pngData(),
+            "Equal visible figures must occupy the same pixels regardless of source canvas margins")
+        XCTAssertTrue(OiPortraitMatte.hasTransparentBackground(padded))
+    }
+
+    func testStoryListPortraitLoadingCachesRetriesAndRejectsStaleAccounts() async throws {
+        let owner = UUID(), nextOwner = UUID(), id = UUID()
+        let portraits = OiStoryListPortraits()
+        let request = OiStoryListPortraits.Request(id: id, source: .remote("virtual/portrait.png"))
+        let input = OiStoryListPortraits.Input(owner: owner, requests: [request], isActive: true, retry: 0)
+        let image = try XCTUnwrap(UIImage(named: "StoryListJacketCucumber"))
+        var reads = 0
+        await portraits.load(input) { _ in reads += 1; throw URLError(.notConnectedToInternet) }
+        guard case .failed = portraits.result(for: request, owner: owner) else {
+            return XCTFail("A failed custom portrait must not turn into another cucumber asset")
+        }
+        portraits.retry(id)
+        await portraits.load(.init(owner: owner, requests: [request], isActive: true, retry: 1)) { path in
+            XCTAssertEqual(path, "virtual/portrait.png"); reads += 1; return image
+        }
+        guard case .ready = portraits.result(for: request, owner: owner) else { return XCTFail("Retry must recover") }
+        await portraits.load(input) { _ in reads += 1; return image }
+        XCTAssertEqual(reads, 2, "An unchanged loaded source must not download again")
+
+        let started = expectation(description: "An old account's image request is pending")
+        var held: CheckedContinuation<UIImage, Never>?
+        let changed = OiStoryListPortraits.Request(id: id, source: .remote("virtual/changed.png"))
+        let oldLoad = Task { @MainActor in
+            await portraits.load(.init(owner: owner, requests: [changed], isActive: true, retry: 0)) { _ in
+                await withCheckedContinuation { continuation in held = continuation; started.fulfill() }
+            }
+        }
+        await fulfillment(of: [started], timeout: 2)
+        await portraits.load(.init(owner: nextOwner, requests: [], isActive: true, retry: 0), remote: nil)
+        held?.resume(returning: image)
+        await oldLoad.value
+        XCTAssertNil(portraits.result(for: changed, owner: owner))
+        XCTAssertNil(portraits.result(for: changed, owner: nextOwner))
+        XCTAssertNil(portraits.capture)
+
+        let rendering = OiStoryListPortraits.Request(id: UUID(), source: .seed(.init(appearance: .init(), garments: [])))
+        let pending = Task { @MainActor in
+            await portraits.load(.init(owner: nextOwner, requests: [rendering], isActive: true, retry: 0), remote: nil)
+        }
+        for _ in 0..<100 where portraits.capture == nil { try await Task.sleep(for: .milliseconds(1)) }
+        XCTAssertNotNil(portraits.capture)
+        pending.cancel()
+        await pending.value
+        XCTAssertNil(portraits.capture, "Cancellation must release the pending capture surface")
+    }
+
+    func testStoryListPortraitCacheReusesPixelsAcrossScreensAndIsBounded() async throws {
+        let owner = UUID(), id = UUID(), portraits = OiStoryListPortraits()
+        let request = OiStoryListPortraits.Request(id: id, source: .remote("virtual/shared.png"))
+        let image = try XCTUnwrap(UIImage(named: "StoryListJacketCucumber"))
+        await portraits.load(.init(owner: owner, requests: [request], isActive: true, retry: 0)) { _ in image }
+        let overlay = OiStoryListPortraits()
+        guard case .ready = overlay.result(for: request, owner: owner) else {
+            return XCTFail("The planting fade must retain its portrait from the very first frame")
+        }
+        await overlay.load(.init(owner: owner, requests: [request], isActive: true, retry: 0)) { _ in
+            XCTFail("A second screen must reuse normalized pixels without another download"); return image
+        }
+        XCTAssertNil(overlay.capture, "The planting fade must not mount another renderer")
+        let cache = OiStoryListPortraitCache(observePressure: false)
+        for index in 0..<12 { cache.store(image, source: .remote("virtual/\(index).png"), owner: owner) }
+        XCTAssertEqual(cache.count, 8)
+        XCTAssertNil(cache.image(for: .remote("virtual/0.png"), owner: owner))
+        XCTAssertNotNil(cache.image(for: .remote("virtual/11.png"), owner: owner))
+        cache.useOwner(UUID())
+        XCTAssertEqual(cache.count, 0)
+        XCTAssertNil(cache.image(for: .remote("virtual/11.png"), owner: owner))
+    }
+
+    func testStoryListCurrentSeedPortraitsCaptureSeriallyAndReleaseRenderers() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        var hoodie = OiDraftCustomization(); hoodie.seedAppearance = .init(); hoodie.selectSeedTop(.hoodie)
+        let items = [OiSeedCucumberSnapshot(appearance: .init(), garments: []), try XCTUnwrap(hoodie.seedSnapshot)]
+            .enumerated().map { index, seed in
+                OiStoryListItem(id: UUID(), cucumberName: index == 0 ? "정면오이" : "후드오이", title: "프리뷰 검증",
+                    cucumberAsset: "OiCats", portraitSource: .seed(seed), donorDisplayName: "가상 작성자",
+                    locationDisplayName: "", tags: ["행복함"], dateLabel: "")
+            }
+        try await capture(NavigationStack {
+            OiStoryListView(state: .content(items), onSelectStory: { _ in }, portraitAccountID: UUID())
+                .environment(\.scenePhase, .active)
+        }, name: "story-list-current-front-portraits", variant: variants[0], defaults: fixture.defaults, attach: true,
+            validateRender: { png, size in
+                let bitmap = try self.renderedBitmap(png, size: size)
+                let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self,
+                    capacity: bitmap.width * bitmap.height * 4)
+                var cucumberPixels = 0
+                for y in 80..<450 {
+                    for x in 290..<375 {
+                        let offset = (y * bitmap.width + x) * 4
+                        if Int(pixels[offset + 1]) > Int(pixels[offset]) + 15 &&
+                            Int(pixels[offset + 1]) > Int(pixels[offset + 2]) + 15 { cucumberPixels += 1 }
+                    }
+                }
+                XCTAssertGreaterThan(cucumberPixels, 100, "The list must contain the rendered green seed portraits")
+            },
+            prepareRealityCapture: { view in
+                func surfaces(_ view: UIView) -> [RealityKit.ARView] {
+                    if let surface = view as? RealityKit.ARView { return [surface] }
+                    return view.subviews.flatMap(surfaces)
+                }
+                var observedCapture = false
+                for _ in 0..<400 {
+                    let active = surfaces(view)
+                    XCTAssertLessThanOrEqual(active.count, 1, "The entire list must share one capture renderer")
+                    observedCapture = observedCapture || !active.isEmpty
+                    if observedCapture && active.isEmpty { break }
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                XCTAssertTrue(observedCapture)
+                XCTAssertTrue(surfaces(view).isEmpty, "Finished portraits must leave no hidden ARView mounted")
+                return nil
+            })
+    }
+
     func testStoryListCardShadowDoesNotAffectItsContents() throws {
         let size = CGSize(width: 386, height: 134)
         func render(shadow: Bool) throws -> Data {
