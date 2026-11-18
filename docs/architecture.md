@@ -429,6 +429,8 @@ STEP 3 옷장 확장(#299)은 흰 운동화와 목록의 세트 18종을 같은 
 
 STEP 3 후드 비침 수정(#299)은 착용 중 잘린 피부의 경계를 후드 안쪽에서 연결해 닫힌 메시를 만든다. 후드·헬멧 개구부에는 원본 테두리 안쪽에 불투명 안감을 이어 붙인다. RealityKit은 로드한 후드의 불투명 재질을 양면으로 그리고 피부 재질의 불투명도를 고정한다. 연구원은 원본 가운과 플라스크·손의 정점을 사용하고 씨앗 목 부분만 원본 목둘레에 맞춰 잘라낸다. 눈·입·꼭지 편집과 투명 보안경은 유지한다. [후드 안쪽 비교](images/seed-cucumber-customization/step3-hood-interior-closure.jpg) · [연구원 비교](images/seed-cucumber-customization/step3-scientist-original-fit.jpg)
 
+2026-11-18 상의 사진 연결(#490)은 기존 `OiWardrobePhotoEditor`·로컬 `OiWardrobeArtwork`를 새 seed 상의에도 사용한다. 의상 4종의 원본 UV로 만든 전용 좌표맵에서 사진을 합성해 추가 메시 없이 baseColor만 교체하고 피부·법선·주름·형상은 유지한다. 옷감에만 선택 색을 적용한 후 사진을 합성해 사진 자체를 물들이지 않는다. seed snapshot에는 디자인 버전·상의 색만 추가하고, 공개 검토·지도·AR은 기존 합성 상의 PNG 계약을 사용한다. 변경한 사진은 STEP 3·카드·목록의 캐시 키에 반영하며 취소·삭제·되돌리기에서는 원재질을 복원한다. [디자인·재생성·검증·서버 적용 순서](seed-top-photos-490.md).
+
 실기기 의상 비교용 #299 작업 브랜치는 우주복·곰돌이 고양이·남색 우주복·노란 우비·과잠 셀카에 1번 모델을 사용하고 연구원을 세트 목록에서 제외한다. 기기 초안의 기존 세트 ID를 유지하며 번호가 없거나 제거된 번호가 저장된 경우 1번으로 복원한다. 이전 연구원 선택은 착용을 해제한 상태로 표시한다.
 
 노란 우비 1번은 `tools/wardrobe/seed_catalog/prepare_raincoat_proposals.py`에서 기준 오이의 얼굴 표면·텍스처·법선을 사용한다. 얼굴 옆면을 후드 안까지 이어 보이는 가장자리에서 닫힘 면을 분리한다. 과잠 셀카 1번은 `tools/wardrobe/seed_catalog/prepare_postech_selfie_proposals.py`에서 손에 든 휴대폰의 본체와 앞뒤 면을 닫힌 형태로 구성한다. 기존 옷 좌표와 바지 UV를 사용한다.

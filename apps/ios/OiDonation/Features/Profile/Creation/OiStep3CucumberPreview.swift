@@ -13,6 +13,7 @@ struct OiStep3CucumberPreview: View {
     let appearance: OiSeedCucumberAppearance
     var garments: Set<OiSeedCucumberGarment> = []
     var garmentColors: [OiSeedCucumberGarment.Slot: UInt32] = [:]
+    var photoLook: OiWardrobeLook?
     var isActive = true
 
     @Environment(\.scenePhase) private var scenePhase
@@ -20,7 +21,7 @@ struct OiStep3CucumberPreview: View {
 
     var body: some View {
         if isActive && scenePhase != .background {
-            OiStep3CucumberStage(appearance: appearance, garments: garments, garmentColors: garmentColors, orbit: orbit)
+            OiStep3CucumberStage(appearance: appearance, garments: garments, garmentColors: garmentColors, photoLook: photoLook, orbit: orbit)
         } else {
             OiSeedCucumberFrontArtwork(appearance: appearance)
         }
@@ -55,6 +56,7 @@ private struct OiStep3CucumberStage: View {
     let appearance: OiSeedCucumberAppearance
     let garments: Set<OiSeedCucumberGarment>
     let garmentColors: [OiSeedCucumberGarment.Slot: UInt32]
+    let photoLook: OiWardrobeLook?
     let orbit: OiStep3CucumberOrbit
 
     @State private var presentation: (appearance: OiSeedCucumberAppearance, value: OiStep3CucumberPresentation)?
@@ -68,7 +70,7 @@ private struct OiStep3CucumberStage: View {
     var body: some View {
         ZStack {
             OiStep3CucumberSurface(appearance: appearance, garments: garments, garmentColors: garmentColors,
-                                   orbit: orbit, retry: retry) { value in
+                                   photoLook: photoLook, orbit: orbit, retry: retry) { value in
                 presentation = (appearance, value)
             }
             if !currentPresentation.shows3D {
@@ -116,6 +118,7 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
     let appearance: OiSeedCucumberAppearance
     let garments: Set<OiSeedCucumberGarment>
     let garmentColors: [OiSeedCucumberGarment.Slot: UInt32]
+    let photoLook: OiWardrobeLook?
     let orbit: OiStep3CucumberOrbit
     let retry: Int
     let onPresentationChange: (OiStep3CucumberPresentation) -> Void
@@ -134,7 +137,7 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
         let traits = UITraitCollection(userInterfaceStyle: colorScheme == .dark ? .dark : .light)
         host.renderer.environment.background = .color(UIColor.systemBackground.resolvedColor(with: traits))
         context.coordinator.update(appearance: appearance, garments: garments, garmentColors: garmentColors,
-                                   retry: retry, onPresentationChange: onPresentationChange)
+                                   photoLook: photoLook, retry: retry, onPresentationChange: onPresentationChange)
     }
 
     static func dismantleUIView(_ host: OiStep3CucumberRenderHost, coordinator: Coordinator) {
@@ -172,6 +175,15 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
                 originalMaterials = surface?.components[ModelComponent.self]?.materials ?? []
             }
 
+            func resetMaterials() {
+                OiSeedGarmentPhotoMaterial.restore(asset)
+                if let tintSurface, var model = tintSurface.components[ModelComponent.self] {
+                    model.materials = originalMaterials
+                    tintSurface.components.set(model)
+                }
+                appliedColor = nil
+            }
+
             func applyColor(_ color: UInt32?) -> Bool {
                 guard color != appliedColor, let tintSurface, var model = tintSurface.components[ModelComponent.self] else {
                     return false
@@ -196,6 +208,17 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
                 return true
             }
         }
+
+        private struct PhotoRequest: Equatable {
+            let garment: OiSeedCucumberGarment
+            let version: String
+            let color: UInt32
+        }
+
+        private var selectedPhotoLook: OiWardrobeLook?
+        private var photoRequest: PhotoRequest?
+        private var photoTask: Task<Void, Never>?
+        private var photoFailure: OiSeedCucumberGarment?
 
         private enum PanDirection {
             case rotate, vertical
@@ -276,13 +299,16 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
         }
 
         func update(appearance: OiSeedCucumberAppearance, garments: Set<OiSeedCucumberGarment>,
-                    garmentColors: [OiSeedCucumberGarment.Slot: UInt32], retry: Int,
+                    garmentColors: [OiSeedCucumberGarment.Slot: UInt32], photoLook: OiWardrobeLook?, retry: Int,
                     onPresentationChange: @escaping (OiStep3CucumberPresentation) -> Void) {
             self.onPresentationChange = onPresentationChange
             let retryRequested = retry != lastRetry
             let previousSelection = selectedGarments
             let selectionChanged = previousSelection != garments
             let colorsChanged = selectedGarmentColors != garmentColors
+            let photosChanged = selectedPhotoLook != photoLook
+            selectedPhotoLook = photoLook
+            if retryRequested { photoRequest = nil; photoFailure = nil }
             lastRetry = retry
             selectedGarments = garments
             selectedGarmentColors = garmentColors
@@ -306,7 +332,7 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
                     break
                 }
             }
-            if selectionChanged || colorsChanged { updateMountedGarments() }
+            if selectionChanged || colorsChanged || photosChanged || retryRequested { updateMountedGarments() }
             discardInactiveCostumes()
             if selectionChanged || retryRequested || lastPresentation == nil { schedulePresentation() }
         }
@@ -370,7 +396,10 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
                 let replacement: Entity?
                 if let selected {
                     guard case let .ready(garment) = garmentLoads[selected] else { continue }
-                    if garment.applyColor(selectedGarmentColors[slot]) { colorsChanged = true }
+                    let hasPhoto = slot == .top && selectedPhotoLook.map {
+                        $0.artwork.designs[OiPhotoSlot.top.itemID(in: $0)] != nil
+                    } == true
+                    if !hasPhoto, garment.applyColor(selectedGarmentColors[slot]) { colorsChanged = true }
                     replacement = garment.asset
                 } else {
                     replacement = nil
@@ -391,6 +420,7 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
                     if let selected { garmentLoads[selected] = .failed }
                 }
             }
+            updateTopPhoto()
             guard changed || colorsChanged else { return }
             if changed {
                 discardInactiveCostumes()
@@ -402,6 +432,46 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
                 loadState = .awaitingFrame
                 layoutChanged()
             }
+        }
+
+        private func updateTopPhoto() {
+            let selected = mountedGarments.keys.first { $0.slot == .top }
+            let look = selectedPhotoLook
+            let next: PhotoRequest?
+            if let selected, let look, let design = look.artwork.designs[OiPhotoSlot.top.itemID(in: look)] {
+                next = PhotoRequest(garment: selected, version: design.version, color: look.topColor)
+            } else { next = nil }
+            guard next != photoRequest else { return }
+            photoTask?.cancel()
+            photoTask = nil
+            photoFailure = nil
+            let previous = photoRequest
+            photoRequest = next
+            if let previous, case .ready(let loaded) = garmentLoads[previous.garment] {
+                loaded.resetMaterials()
+                _ = loaded.applyColor(selectedGarmentColors[previous.garment.slot])
+            }
+            guard let next, let look, case .ready(let loaded) = garmentLoads[next.garment] else { return }
+            let asset = loaded.asset
+            photoTask = Task { @MainActor [weak self, weak asset] in
+                guard let self, let asset else { return }
+                defer {
+                    if photoRequest == next { photoTask = nil; publishPresentation() }
+                }
+                do {
+                    let atlas = try OiSeedGarmentPhotoMaterial.atlas(for: look)
+                    let prepared = try await OiSeedGarmentPhotoMaterial.prepare(atlas, top: look.top, color: look.topColor)
+                    try Task.checkCancellation()
+                    guard photoRequest == next, mountedGarments[next.garment] === asset else { return }
+                    loaded.resetMaterials()
+                    try OiSeedGarmentPhotoMaterial.apply(prepared, to: asset)
+                } catch is CancellationError { }
+                catch {
+                    guard photoRequest == next, !Task.isCancelled else { return }
+                    photoFailure = next.garment
+                }
+            }
+            schedulePresentation()
         }
 
         private func discardInactiveCostumes() {
@@ -489,6 +559,11 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
         }
 
         private func clearScene() {
+            photoTask?.cancel()
+            photoTask = nil
+            photoRequest = nil
+            photoFailure = nil
+            for case .ready(let garment) in garmentLoads.values { garment.resetMaterials() }
             for asset in mountedGarments.values { asset.removeFromParent() }
             mountedGarments.removeAll()
             model = nil
@@ -637,7 +712,7 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
             guard let host else { return }
             let selected = OiSeedCucumberGarment.allCases.filter(selectedGarments.contains)
             let missing = selected.first { mountedGarments[$0] == nil }
-            let failed = selected.first {
+            let failed = photoFailure ?? selected.first {
                 if case .failed = garmentLoads[$0] { return true }
                 return false
             }
@@ -647,7 +722,7 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
                 presentation = .failed
             } else if let failed {
                 presentation = .garmentFailed(failed, shows3D: shows3D)
-            } else if let preparing = missing ?? (shows3D ? nil : selected.first) {
+            } else if let preparing = missing ?? (photoTask != nil ? photoRequest?.garment : nil) ?? (shows3D ? nil : selected.first) {
                 presentation = .waitingForGarment(preparing, shows3D: shows3D)
             } else if shows3D {
                 presentation = .preview3D
