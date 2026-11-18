@@ -63,10 +63,11 @@ struct OiStoryListScreen: View {
         let id = UUID()
         let storyID: UUID
         let authorizesAIReview: Bool
+        var showcaseSelection: OiStoryPlantSelection? = nil
         let stage: Stage
 
         func advancing(to stage: Stage) -> Self {
-            Self(storyID: storyID, authorizesAIReview: authorizesAIReview, stage: stage)
+            Self(storyID: storyID, authorizesAIReview: authorizesAIReview, showcaseSelection: showcaseSelection, stage: stage)
         }
     }
 
@@ -100,7 +101,7 @@ struct OiStoryListScreen: View {
             onRequestReview: { requestReview($0, offersAIReview: offersAIReview) },
             reviewMessage: reviewMessage,
             onPlant: handlePlantTap,
-            canPlant: remote.autoStoryModeration && canPlant(in: currentState),
+            canPlant: (remote.allowsShowcasePublication || remote.autoStoryModeration) && canPlant(in: currentState),
             selectedPlantStoryID: plantSelection?.selectedID,
             onCancelPlant: cancelPlantAction,
             portraitAccountID: remote.account?.id,
@@ -227,7 +228,8 @@ struct OiStoryListScreen: View {
             }
         } catch {
             guard !Task.isCancelled, reviewWork?.id == work.id, remote.account?.id == owner else { return }
-            reviewFailure = (work.storyID, error.localizedDescription)
+            if work.showcaseSelection != nil { publicationMessage = error.localizedDescription }
+            else { reviewFailure = (work.storyID, error.localizedDescription) }
             await loadLocalDrafts()
             if reviewWork?.id == work.id { reviewWork = nil }
         }
@@ -242,7 +244,8 @@ struct OiStoryListScreen: View {
         let local = try await remote.localDraft(id: work.storyID, owner: owner)
         try Task.checkCancellation()
         guard reviewWork?.id == work.id else { return }
-        if work.authorizesAIReview, remote.autoStoryModeration, let story, story.status == "pending" {
+        if (work.showcaseSelection != nil || (work.authorizesAIReview && remote.autoStoryModeration)),
+           let story, story.status == "pending" {
             try await submitLegacyReview(work, story: story, owner: owner, originalLocal: local)
             return
         }
@@ -290,7 +293,13 @@ struct OiStoryListScreen: View {
             : nil
         try Task.checkCancellation()
         guard reviewWork?.id == work.id, remote.account?.id == owner else { return }
-        let receipt = await remote.submitStory(story, card: card, agreesToAIReview: work.authorizesAIReview)
+        let receipt = await remote.submitStory(story, card: card, agreesToAIReview: work.authorizesAIReview,
+                                               publishForShowcase: work.showcaseSelection != nil)
+        if let selection = work.showcaseSelection {
+            guard receipt?.status == "published" else { throw OiServiceError.server(remote.error ?? "등록하지 못했어요. 다시 시도해 주세요.") }
+            await finishShowcasePlant(selection, owner: owner)
+            return
+        }
         try Task.checkCancellation()
         guard reviewWork?.id == work.id, remote.account?.id == owner else { return }
         let current = receipt ?? remote.ownStories.first(where: { $0.id == story.id })
@@ -317,7 +326,8 @@ struct OiStoryListScreen: View {
                 reviewWork = work.advancing(to: .submit(owner: owner, draft: draft, portrait: bytes))
             }, onFailure: {
                 guard reviewWork?.id == work.id else { return }
-                reviewFailure = (work.storyID, "꾸민 오이의 이미지를 준비하지 못했어요. 다시 검토를 요청해 주세요.")
+                if work.showcaseSelection != nil { publicationMessage = "꾸민 오이의 이미지를 준비하지 못했어요. 다시 시도해 주세요." }
+                else { reviewFailure = (work.storyID, "꾸민 오이의 이미지를 준비하지 못했어요. 다시 검토를 요청해 주세요.") }
                 reviewWork = nil
             })
             .frame(width: 112, height: 142)
@@ -353,7 +363,13 @@ struct OiStoryListScreen: View {
         }
         try Task.checkCancellation()
         guard reviewWork?.id == work.id, remote.account?.id == owner else { return }
-        let receipt = await remote.submitStory(saved, cucumber: cucumber, card: card, agreesToAIReview: work.authorizesAIReview)
+        let receipt = await remote.submitStory(saved, cucumber: cucumber, card: card, agreesToAIReview: work.authorizesAIReview,
+                                               publishForShowcase: work.showcaseSelection != nil)
+        if let selection = work.showcaseSelection {
+            guard receipt?.status == "published" else { throw OiServiceError.server(remote.error ?? "등록하지 못했어요. 다시 시도해 주세요.") }
+            await finishShowcasePlant(selection, owner: owner)
+            return
+        }
         try Task.checkCancellation()
         guard reviewWork?.id == work.id, remote.account?.id == owner else { return }
         if let receipt {
@@ -368,6 +384,16 @@ struct OiStoryListScreen: View {
         try await remote.saveLocalDraft(draft, owner: owner)
         await loadLocalDrafts()
         if reviewWork?.id == work.id { reviewWork = nil }
+    }
+
+    private func finishShowcasePlant(_ selection: OiStoryPlantSelection, owner: UUID) async {
+        guard remote.account?.id == owner else { return }
+        reviewWork = nil
+        plantSelection = nil
+        await loadLocalDrafts()
+        guard remote.account?.id == owner else { return }
+        if let revealPlantedStory { revealPlantedStory(selection) }
+        else { publicationMessage = "이야기가 등록됐어요" }
     }
 
     private func reviewCard(for draft: OiStoryDraft, customization: OiDraftCustomization, portrait: Data?,
@@ -431,7 +457,7 @@ struct OiStoryListScreen: View {
     }
 
     private func reviewState(for id: UUID) -> OiStoryListReviewState {
-        if reviewWork?.storyID == id || remote.reviewingStoryID == id { return .reviewing }
+        if (reviewWork?.storyID == id && reviewWork?.showcaseSelection == nil) || remote.reviewingStoryID == id { return .reviewing }
         guard let story = remote.ownStories.first(where: { $0.id == id }) else { return .unreviewed }
         if story.status == "pending" { return .unreviewed }
         guard let review = remote.moderationResult(for: story) else {
@@ -455,6 +481,7 @@ struct OiStoryListScreen: View {
     }
 
     private func canPlant(in state: OiStoryListState) -> Bool {
+        if remote.allowsShowcasePublication { return plantSelection != nil || !state.items.isEmpty }
         if let selection = plantSelection { return reviewState(for: selection.selectedID) == .approved }
         return state.items.contains { reviewState(for: $0.id) == .approved }
     }
@@ -475,8 +502,8 @@ struct OiStoryListScreen: View {
     }
 
     private func selectStoryToPlant() {
-        guard remote.autoStoryModeration, plantSelection == nil, !remote.isBusy, reviewWork == nil else { return }
-        let items = state.items.filter { reviewState(for: $0.id) == .approved }
+        guard remote.allowsShowcasePublication || remote.autoStoryModeration, plantSelection == nil, !remote.isBusy, reviewWork == nil else { return }
+        let items = state.items.filter { remote.allowsShowcasePublication || reviewState(for: $0.id) == .approved }
         guard let first = items.first else { return }
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.1)) {
             plantSelection = OiStoryPlantSelection(items: items, selectedID: first.id)
@@ -485,7 +512,8 @@ struct OiStoryListScreen: View {
 
     private func selectPlantCard(_ id: UUID) {
         guard plantingStoryID == nil, let selection = plantSelection, selection.selectedID != id,
-              selection.items.contains(where: { $0.id == id }), reviewState(for: id) == .approved else { return }
+              selection.items.contains(where: { $0.id == id }),
+              remote.allowsShowcasePublication || reviewState(for: id) == .approved else { return }
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.3)) {
             plantSelection?.selectedID = id
         }
@@ -497,6 +525,13 @@ struct OiStoryListScreen: View {
     }
 
     private func confirmPlant() {
+        if remote.allowsShowcasePublication {
+            guard !remote.isBusy, reviewWork == nil, plantingStoryID == nil, let selection = plantSelection else { return }
+            reviewFailure = nil
+            reviewWork = ReviewWork(storyID: selection.selectedID, authorizesAIReview: false,
+                                    showcaseSelection: selection, stage: .prepare)
+            return
+        }
         guard remote.autoStoryModeration, !remote.isBusy, plantingStoryID == nil, let selection = plantSelection,
               reviewState(for: selection.selectedID) == .approved,
               let story = remote.ownStories.first(where: { $0.id == selection.selectedID }) else { return }
