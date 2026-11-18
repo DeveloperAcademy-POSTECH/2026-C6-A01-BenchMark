@@ -116,7 +116,8 @@ struct OiCardCustomizationStep: View {
             }
         }
         .onAppear {
-            prepareBackground()
+            customization.prepareCardForEditing()
+            customBackground = style.middleColor != nil || style.endColor != nil
             refreshPortrait(); onSizeEditingChanged?(isSizeEditing)
         }
         .onChange(of: customization.wardrobe) { _, _ in refreshPortrait() }
@@ -161,19 +162,25 @@ struct OiCardCustomizationStep: View {
                     }.padding(2).background(Color(white: 0.85), in: Capsule())
                 }
                 Spacer()
-                if let onContinue {
-                    Button { editingCaption = false; onContinue() } label: {
-                        // Figma `5919:12077`: 61×32 pill whose bottom lines up with the card's bottom edge;
-                        // the 44pt hit area extends past it without moving the pill.
-                        Text(isFinished ? "다시 꾸미기" : "완료").font(CampusStyle.body(16)).tracking(0.32)
-                            .opacity(isCompleting ? 0 : 1)
-                            .overlay { if isCompleting { ProgressView().controlSize(.small).tint(.black) } }
-                            .frame(height: 20)
-                            .padding(.horizontal, 16).padding(.vertical, 6).background(Color("OiBorder"), in: Capsule())
-                            .frame(minHeight: 44).contentShape(Rectangle())
-                    }.buttonStyle(OiCreationPressStyle()).foregroundStyle(.black)
-                        .padding(.vertical, -6)
-                        .disabled(!canContinue || needsPortrait || isCompleting).accessibilityIdentifier("oi.customization.done")
+                VStack(alignment: .trailing, spacing: 8) {
+                    if !isFinished {
+                        OiCustomizationResetButton(action: resetAppearance)
+                            .disabled(isCompleting).accessibilityIdentifier("oi.card.reset")
+                    }
+                    if let onContinue {
+                        Button { editingCaption = false; onContinue() } label: {
+                            // Figma `5919:12077`: 61×32 pill whose bottom lines up with the card's bottom edge;
+                            // the 44pt hit area extends past it without moving the pill.
+                            Text(isFinished ? "다시 꾸미기" : "완료").font(CampusStyle.body(16)).tracking(0.32)
+                                .opacity(isCompleting ? 0 : 1)
+                                .overlay { if isCompleting { ProgressView().controlSize(.small).tint(.black) } }
+                                .frame(height: 20)
+                                .padding(.horizontal, 16).padding(.vertical, 6).background(Color("OiBorder"), in: Capsule())
+                                .frame(minHeight: 44).contentShape(Rectangle())
+                        }.buttonStyle(OiCreationPressStyle()).foregroundStyle(.black)
+                            .padding(.vertical, -6)
+                            .disabled(!canContinue || needsPortrait || isCompleting).accessibilityIdentifier("oi.customization.done")
+                    }
                 }
             }
         }.frame(maxWidth: .infinity).frame(height: height)
@@ -321,19 +328,19 @@ struct OiCardCustomizationStep: View {
                 || mode == "name" && donorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .accessibilityIdentifier("oi.card.author.\(mode)")
     }
-    private func prepareBackground() {
-        if customization.card == nil {
-            var value = OiCardDesign()
-            value.postcardLayoutVersion = 2
-            value.postcardBackground = .init(color: 0xD9D9D9, fill: .solid)
-            customization.card = value
-        } else if design.postcardBackground == nil {
-            change { card in
-                card.postcardBackground = .init(color: card.borderFirst, fill: card.borderFill,
-                    authorMode: card.postcardAuthorMode)
-            }
-        }
-        customBackground = style.middleColor != nil || style.endColor != nil
+    private func resetAppearance() {
+        editingCaption = false
+        portraitRestoreTask?.cancel(); portraitAcceptTask?.cancel()
+        customization.resetCardAppearance()
+        customBackground = false
+        orientation = OiCardOrientation()
+        captureAttempt += 1
+        refreshPortrait()
+    }
+    func selectStamp(_ number: Int) {
+        guard (1...12).contains(number) else { return }
+        customization.prepareCardForEditing()
+        change { $0.postcardLayoutVersion = 2; $0.postcardStamp = number }
     }
     private func updateBackground(_ edit: (inout OiPostcardBackgroundStyle) -> Void) {
         var value = style; edit(&value)
@@ -481,8 +488,6 @@ struct OiCardCustomizationStep: View {
                         .accessibilityAddTraits(design.effectivePostcardLogo == logo ? .isSelected : [])
                 }
             }.padding(.top, 16)
-            OiPostcardOpacityControl(opacity: opacityBinding(\.postcardLogoOpacity))
-                .accessibilityIdentifier("oi.card.front.logo.opacity")
         }
     }
     private var stampEditor: some View {
@@ -490,7 +495,7 @@ struct OiCardCustomizationStep: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
                 ForEach(1...12, id: \.self) { number in
                     let variant = (number - 1) % 6 + 1
-                    Button { change { $0.postcardLayoutVersion = 2; $0.postcardStamp = $0.postcardStamp == number ? nil : number } } label: {
+                    Button { selectStamp(number) } label: {
                         Image("OiPostcardStamp-\(number <= 6 ? "white" : "black")\(variant)")
                             .resizable().scaledToFit()
                             .frame(height: variant == 5 ? 32 : 38)
@@ -499,6 +504,8 @@ struct OiCardCustomizationStep: View {
                             .background(Color(white: number <= 6 ? 0.2 : 0.96), in: RoundedRectangle(cornerRadius: 8))
                             .overlay(RoundedRectangle(cornerRadius: 8).stroke(design.postcardStamp == number ? Color("OiGreen") : .clear, lineWidth: 2))
                     }.buttonStyle(.plain).accessibilityLabel("\(number <= 6 ? "흰색" : "검정색") 스탬프 \((number-1)%6+1)")
+                        .accessibilityIdentifier("oi.card.stamp.\(number)")
+                        .accessibilityAddTraits(design.postcardStamp == number ? .isSelected : [])
                 }
             }
             Text("택 1").font(CampusStyle.body(12)).foregroundStyle(Color(white: 0.19))
@@ -603,10 +610,6 @@ struct OiCardCustomizationStep: View {
     }
     private func designBinding<Value>(_ key: WritableKeyPath<OiCardDesign, Value>) -> Binding<Value> {
         Binding(get: { design[keyPath: key] }, set: { value in change { $0[keyPath: key] = value } })
-    }
-    private func opacityBinding(_ key: WritableKeyPath<OiCardDesign, Double?>) -> Binding<Double> {
-        Binding(get: { OiCardOpacity.normalized(design[keyPath: key]) },
-            set: { value in change { $0[keyPath: key] = OiCardOpacity.normalized(value) } })
     }
 }
 
