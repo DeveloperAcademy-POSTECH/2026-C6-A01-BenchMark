@@ -58,7 +58,7 @@ struct MYWorkshopView: View {
                         tabs
                         if isSignedIn {
                             MYWorkshopContent(tab: selectedTab, demo: demo, remote: remote,
-                                emptyTopPadding: max(32, 173 + (panelHeight - 549) / 2),
+                                emptyTopPadding: max(32, 175 + (panelHeight - 549) / 2),
                                 onExploreMap: { dismiss() }, storyRepository: storyRepository)
                         }
                     }
@@ -320,7 +320,13 @@ struct MYWorkshopView: View {
                     .foregroundStyle(displayedTab == tab ? Color(white: 35 / 255) : Color(white: 157 / 255))
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .overlay(alignment: .bottom) {
-                        if displayedTab == tab { Rectangle().fill(Color(white: 0.5)).frame(height: 0.5).padding(.bottom, 6) }
+                        if displayedTab == tab {
+                            Color.clear.frame(height: 0)
+                                .overlay {
+                                    Rectangle().fill(Color(white: 0.13916015625)).frame(height: 0.5)
+                                }
+                                .padding(.bottom, 6)
+                        }
                     }
                     .contentShape(Rectangle())
             }

@@ -3566,6 +3566,9 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let collectedEmpty = try await capture(NavigationStack {
             MYWorkshopView(demo: library, remote: remote, initialTab: .collected)
         }, name: "my-v4-collected-empty", variant: reference, defaults: fixture.defaults, attach: true)
+        try assertMYEmptyPanelMatchesOriginal(empty, tab: .authored)
+        try assertMYEmptyPanelMatchesOriginal(connectedEmpty, tab: .connected)
+        try assertMYEmptyPanelMatchesOriginal(collectedEmpty, tab: .collected)
         XCTAssertNotEqual(empty, connectedEmpty)
         XCTAssertNotEqual(connectedEmpty, collectedEmpty)
         for variant in variants where variant.name == "375x667" || variant.name == "440x956" {
@@ -3829,6 +3832,66 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             defaults: fixture.defaults, delay: .seconds(1), attach: true)
         XCTAssertEqual(backend.snapshot().artworkUploadAttempts, 0)
         XCTAssertTrue(backend.snapshot().retiredEvidenceRequests.isEmpty)
+    }
+
+    private func assertMYEmptyPanelMatchesOriginal(_ data: Data, tab: MYWorkshopTab) throws {
+        let name = switch tab {
+        case .authored: "empty-authored"
+        case .connected: "empty-connected"
+        case .collected: "empty-collected"
+        }
+        let bundle = Bundle(for: Self.self)
+        let path = try XCTUnwrap(bundle.url(forResource: name, withExtension: "png", subdirectory: "MYV4Figma"))
+        let original = try Data(contentsOf: path)
+        let screen = try XCTUnwrap(UIImage(data: data)?.cgImage)
+        XCTAssertEqual(screen.width, 402)
+        XCTAssertEqual(screen.height, 874)
+        let panel = try XCTUnwrap(screen.cropping(to: CGRect(x: 0, y: 325, width: 402, height: 549)))
+        let actual = try XCTUnwrap(UIImage(cgImage: panel).pngData())
+
+        func bounds(_ image: Data, region: CGRect, matches: (Int, Int, Int) -> Bool) throws -> CGRect {
+            let source = try XCTUnwrap(UIImage(data: image)?.cgImage)
+            XCTAssertEqual(source.width, 402)
+            XCTAssertEqual(source.height, 549)
+            let crop = try XCTUnwrap(source.cropping(to: region))
+            let bitmap = try renderedBitmap(XCTUnwrap(UIImage(cgImage: crop).pngData()), size: region.size)
+            let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: bitmap.width * bitmap.height * 4)
+            var minX = bitmap.width, minY = bitmap.height, maxX = -1, maxY = -1
+            for y in 0..<bitmap.height {
+                for x in 0..<bitmap.width {
+                    let offset = (y * bitmap.width + x) * 4
+                    if matches(Int(pixels[offset]), Int(pixels[offset + 1]), Int(pixels[offset + 2])) {
+                        minX = min(minX, x); minY = min(minY, y)
+                        maxX = max(maxX, x); maxY = max(maxY, y)
+                    }
+                }
+            }
+            XCTAssertGreaterThanOrEqual(maxX, 0, "The original \(name) design slot must contain matching ink")
+            return CGRect(x: region.minX + CGFloat(minX), y: region.minY + CGFloat(minY),
+                          width: CGFloat(maxX - minX + 1), height: CGFloat(maxY - minY + 1))
+        }
+        let slots: [(String, CGRect, (Int, Int, Int) -> Bool)] = [
+            ("green empty message", CGRect(x: 0, y: 200, width: 402, height: 70),
+                { r, g, b in g > r + 10 && g > b + 25 && r < 190 }),
+            ("white action capsule", CGRect(x: 0, y: 270, width: 402, height: 80),
+                { r, g, b in min(r, g, b) > 250 }),
+            ("black action text", CGRect(x: 0, y: 270, width: 402, height: 80),
+                { r, g, b in max(r, g, b) < 100 }),
+            ("selected tab underline", CGRect(x: 0, y: 40, width: 402, height: 8),
+                { r, g, b in max(r, g, b) < 210 })
+        ]
+        for (slot, region, matches) in slots {
+            let target = try bounds(original, region: region, matches: matches)
+            let rendered = try bounds(actual, region: region, matches: matches)
+            print("MY original \(name) \(slot): target=\(target), rendered=\(rendered)")
+            for (edge, actualValue, targetValue) in [("left", rendered.minX, target.minX),
+                                                    ("top", rendered.minY, target.minY),
+                                                    ("right", rendered.maxX, target.maxX),
+                                                    ("bottom", rendered.maxY, target.maxY)] {
+                XCTAssertEqual(actualValue, targetValue, accuracy: 1,
+                    "\(name) \(slot) \(edge) must match the original Figma screenshot within native antialiasing tolerance")
+            }
+        }
     }
 
     private func assertMYGuestRender(_ data: Data, size: CGSize) throws {
