@@ -324,7 +324,7 @@ struct OiServiceChecks {
         precondition(oldCapabilities.unapprovedDraftsEnabled != true)
         precondition(oldCapabilities.independentStoryCreation != true)
         precondition(OiCreationStep.allCases.allSatisfy { $0.canContinue(draft: draft) })
-        precondition(OiCreationStep.consent.previous == nil && OiCreationStep.story.previous == .consent && OiCreationStep.card.next == nil)
+        precondition(OiCreationStep.consent.previous == nil && OiCreationStep.story.previous == nil && OiCreationStep.card.next == nil)
         var invalid = draft; invalid.title = String(repeating: "가", count: 101)
         precondition(!OiCreationStep.story.canContinue(draft: invalid))
         invalid = draft; invalid.emotion = "   "

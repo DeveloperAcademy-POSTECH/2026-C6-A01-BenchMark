@@ -73,7 +73,7 @@ struct OiStoryEditor: View {
     @State private var publishing = false
     @State private var showingPreview = false
     @State private var openingPhotosAfterReview = false
-    @State private var consentState = OiStoryConsentState()
+    @State private var consentState = OiStoryConsentState.acceptedForStoryCreation
     @State private var supplementaryScreen: SupplementaryScreen?
     @State private var choosingExit = false
     /// STEP 1 exit alert, Figma `5400:8313` (#370).
@@ -108,7 +108,7 @@ struct OiStoryEditor: View {
         else { value = OiStoryDraft() }
         if let localID { value.id = localID }
         _draft = State(initialValue: value)
-        _step = State(initialValue: initialStep)
+        _step = State(initialValue: initialStep == .consent ? .story : initialStep)
     }
 
     #if DEBUG
@@ -609,7 +609,7 @@ struct OiStoryEditor: View {
     }
 
     private func canSelectProgressStage(_ stage: Int) -> Bool {
-        guard !wardrobePhotoEditing else { return false }
+        guard stage > OiCreationStep.consent.progress, !wardrobePhotoEditing else { return false }
         if step == .consent, stage == OiCreationStep.cucumber.progress,
            ProcessInfo.processInfo.arguments.contains("-oi-test-step3") {
             return true
@@ -642,6 +642,7 @@ struct OiStoryEditor: View {
     }
 
     private func navigate(to destination: OiCreationStep) {
+        let destination: OiCreationStep = destination == .consent ? .story : destination
         if destination == .location { locationOrigin = step }
         // STEP 1 ↔ STEP 2 switch at once, without a slide or fade (#373); other steps keep the short fade.
         let switchesAtOnce = Set([step, destination]) == [.consent, .story]
@@ -862,7 +863,8 @@ struct OiStoryEditor: View {
                 draft = record.draftWithSavedLocation; photos = record.photos; uploadedPhotos = Set(record.uploadedPhotos)
                 localVersion = record.version; submitted = record.submitted
                 reviewedContentFingerprint = record.reviewedContentFingerprint
-                step = record.creationStep.flatMap(OiCreationStep.init(rawValue:)) ?? .story
+                let savedStep = record.creationStep.flatMap(OiCreationStep.init(rawValue:)) ?? .story
+                step = savedStep == .consent ? .story : savedStep
                 customization = record.customization ?? OiDraftCustomization()
                 if customization.connectedStorySelectionEdited != true, customization.connectedStoryID == nil {
                     customization.connectedStoryID = currentStory?.continuedFromStoryId?.uuidString
@@ -870,7 +872,7 @@ struct OiStoryEditor: View {
                 personalPlacement = record.personalPlacement
                 customizationReady = personalPlacement != nil && step == .card
                 cardPlacementReady = customizationReady
-                consentState = OiStoryConsentState(savedIDs: record.agreedConsentClauseIDs ?? [])
+                consentState = .acceptedForStoryCreation
                 removedMediaPaths = record.removedMediaPaths ?? []
                 removedPhotoIDs = record.removedPhotoIDs ?? []
                 photoOrder = record.photoOrder
@@ -894,6 +896,10 @@ struct OiStoryEditor: View {
             if step == .photos {
                 // Older drafts stored the photo editor as a step. Resume over the writing form.
                 step = .story
+            }
+            if record == nil || record?.creationStep == OiCreationStep.consent.rawValue
+                || record?.agreedConsentClauseIDs != consentState.savedIDs {
+                scheduleSave()
             }
         } catch let error as OiDraftDiscardCleanupError {
             discardCleanupError = error.localizedDescription

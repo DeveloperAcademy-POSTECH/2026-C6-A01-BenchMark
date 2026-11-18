@@ -144,6 +144,11 @@ struct MYDemoChecks {
         consent.setAgreed(false, to: .moderation)
         precondition(!consent.allRequiredClausesAreAgreed)
 
+        let accepted = OiStoryConsentState.acceptedForStoryCreation
+        precondition(accepted.allRequiredClausesAreAgreed)
+        precondition(accepted.savedIDs == Set(OiStoryConsentClause.writingClauses.map(\.id.rawValue)))
+        precondition(OiStoryConsentState(savedIDs: accepted.savedIDs) == accepted)
+
         let suite = "MYDemoChecks.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
