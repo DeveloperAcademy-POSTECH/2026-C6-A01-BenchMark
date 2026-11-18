@@ -216,6 +216,25 @@ actor OiDraftVault {
         var unresolved = 0
         for owner in owners where owner != target {
             do {
+                if let operation = try coinEvidenceUpload(owner: owner) {
+                    guard operation.owner == owner else { throw OiServiceError.accountChanged }
+                    let markerURL = try ownerDirectory(owner).appending(path: "adopted-coin-evidence-\(target.uuidString).json")
+                    let identity = "\(operation.id.uuidString)/\(operation.uploadID.uuidString)"
+                    let adopted = FileManager.default.fileExists(atPath: markerURL.path)
+                        ? try JSONDecoder().decode(String.self, from: Data(contentsOf: markerURL)) : nil
+                    if adopted != identity {
+                        let canonical = OiCoinEvidenceUpload(id: operation.id, uploadID: operation.uploadID,
+                            owner: target, data: operation.data, contentType: operation.contentType, name: operation.name,
+                            storageOwner: operation.storageOwner ?? owner, submitted: operation.submitted)
+                        if let current = try coinEvidenceUpload(owner: target), current != canonical {
+                            throw OiServiceError.conflict
+                        }
+                        try saveCoinEvidenceUpload(canonical, owner: target)
+                        try write(JSONEncoder().encode(identity), to: markerURL)
+                    }
+                }
+            } catch { unresolved += 1 }
+            do {
                 if var operation = try evidence(owner: owner), ["failed", "prepared", "uploading", "submitting"].contains(operation.phase) {
                     if let current = try evidence(owner: target) {
                         if current.uploadID != operation.uploadID { unresolved += 1 }
@@ -376,6 +395,22 @@ actor OiDraftVault {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         let saved = try JSONDecoder().decode(PendingBuildingNote.self, from: Data(contentsOf: url))
         if saved.id == id { try FileManager.default.removeItem(at: url) }
+    }
+
+    func coinEvidenceUpload(owner: UUID) throws -> OiCoinEvidenceUpload? {
+        let url = try ownerDirectory(owner).appending(path: "coin-evidence-upload.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try JSONDecoder().decode(OiCoinEvidenceUpload.self, from: Data(contentsOf: url))
+    }
+
+    func saveCoinEvidenceUpload(_ upload: OiCoinEvidenceUpload, owner: UUID) throws {
+        guard upload.owner == owner else { throw OiServiceError.accountChanged }
+        try write(JSONEncoder().encode(upload), to: ownerDirectory(owner).appending(path: "coin-evidence-upload.json"))
+    }
+
+    func clearCoinEvidenceUpload(id: UUID, owner: UUID) throws {
+        guard try coinEvidenceUpload(owner: owner)?.id == id else { return }
+        try FileManager.default.removeItem(at: ownerDirectory(owner).appending(path: "coin-evidence-upload.json"))
     }
 
     func schoolEvidenceReview(owner: UUID) throws -> OiSavedSchoolEvidenceReview? {

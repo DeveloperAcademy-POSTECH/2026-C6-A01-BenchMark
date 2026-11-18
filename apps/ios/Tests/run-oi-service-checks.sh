@@ -7,6 +7,7 @@ xcrun swiftc -parse-as-library -module-cache-path "$CHECK_DIR/modules" \
   "$IOS_ROOT/OiDonation/Domain/Models/StoryCard.swift" \
   "$IOS_ROOT/OiDonation/Data/Networking/APIClient.swift" \
   "$IOS_ROOT/OiDonation/Data/Networking/OiServiceModels.swift" \
+  "$IOS_ROOT/OiDonation/Data/Networking/OiPickleCoins.swift" \
   "$IOS_ROOT/OiDonation/Data/Networking/OiDraftVault.swift" \
   "$IOS_ROOT/OiDonation/Features/Profile/Creation/OiSeedCucumberAppearance.swift" \
   "$IOS_ROOT/OiDonation/Data/Networking/OiWardrobeFieldTrial.swift" \

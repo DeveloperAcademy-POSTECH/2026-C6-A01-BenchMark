@@ -36,6 +36,93 @@ def run(command, **options):
         raise RuntimeError(f'Check failed (exit {result.returncode}): {command[0]}\n{log_path.read_text()[-3000:]}')
     return result
 
+def check_pickle_coin_drift(connection, migration):
+    signature = 'benchmark_private.oi_mutate_internal(text,jsonb,text)'
+    def query(sql):
+        return subprocess.run(connection + ['-qAtc', sql], capture_output=True, text=True, check=True, timeout=20).stdout.strip()
+    original = query(f"select pg_get_functiondef('{signature}'::regprocedure);")
+    edited = original.replace('AS $function$', 'AS $function$\n-- unknown coin mutation drift\n', 1)
+    try:
+        run(connection, input=edited, text=True)
+        rejected = subprocess.run(connection + ['-f', str(migration)], capture_output=True, text=True, timeout=20)
+        assert rejected.returncode != 0 and 'Pickle coin mutation drift requires review' in rejected.stderr, rejected.stderr
+        assert query("select to_regclass('benchmark_private.oi_pickle_wallets') is null;") == 't'
+        assert query(f"select pg_get_functiondef('{signature}'::regprocedure);") == edited
+    finally:
+        run(connection, input=original, text=True)
+    print('PASS: unknown coin wrapper drift rolls back balances, ownership and schema')
+
+
+def check_coin_evidence_backfill_guard(connection, migration):
+    request = 'f5060000-0000-4000-8000-000000000209'
+    run(connection, input=f"insert into public.oi_evidence_requests(id,user_id,storage_owner_id,status) values('{request}','f5060000-0000-4000-8000-000000000001','f5060000-0000-4000-8000-000000000001','approved');", text=True)
+    try:
+        rejected = subprocess.run(connection + ['-f', str(migration)], capture_output=True, text=True, timeout=20)
+        assert rejected.returncode != 0 and 'Approved evidence needs verified fingerprints' in rejected.stderr, rejected.stderr
+        absent = subprocess.run(connection + ['-qAtc', "select not exists(select 1 from information_schema.columns where table_schema='public' and table_name='oi_evidence_requests' and column_name='coin_verification');"], capture_output=True, text=True, check=True, timeout=20).stdout.strip()
+        assert absent == 't', 'Unknown certificate backfill must roll back new intake'
+        wallet_absent = subprocess.run(connection + ['-qAtc', "select to_regclass('benchmark_private.oi_pickle_wallets') is null;"], capture_output=True, text=True, check=True, timeout=20).stdout.strip()
+        assert wallet_absent == 't', 'Unknown certificate backfill must roll back wallet schema too'
+    finally:
+        run(connection, input=f"delete from public.oi_evidence_requests where id='{request}';", text=True)
+    print('PASS: historical approvals without verified fingerprints stop rollout without opening new intake')
+
+
+def check_pickle_coin_races(connection):
+    def parallel(commands):
+        clients = []
+        try:
+            for sql in commands:
+                clients.append(subprocess.Popen(connection + ['-qAtc', sql], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True))
+            registry['resources'][0]['clientPIDs'] = [client.pid for client in clients]
+            registry_path.write_text(json.dumps(registry, indent=2))
+            results = [client.communicate(timeout=20) for client in clients]
+            return [(client.returncode, stdout, stderr) for client, (stdout, stderr) in zip(clients, results)]
+        finally:
+            for client in clients:
+                if client.poll() is None:
+                    client.terminate()
+                    try: client.wait(timeout=3)
+                    except subprocess.TimeoutExpired: client.kill(); client.wait()
+            registry['resources'][0]['clientPIDs'] = []
+            registry_path.write_text(json.dumps(registry, indent=2))
+    def query(sql):
+        return subprocess.run(connection + ['-qAtc', sql], capture_output=True, text=True, check=True, timeout=20).stdout.strip()
+    users = [f'f5060000-0000-4000-8000-{n:012d}' for n in range(901,905)]
+    sessions = [f'f5060000-0000-4000-8000-{n:012d}' for n in range(911,915)]
+    run(connection, input='insert into auth.users(id) values'+','.join(f"('{user}')" for user in users)+';\n'+
+        'insert into auth.sessions(id,user_id) values'+','.join(f"('{session}','{user}')" for user,session in zip(users,sessions))+';', text=True)
+    signup = f"begin; set local role authenticated; select set_config('request.jwt.claim.sub','{users[3]}',true); select public.oi_pickle_wallet(); select pg_sleep(0.2); commit;"
+    results = parallel([signup,signup])
+    assert all(code == 0 for code,_,_ in results), results
+    assert query(f"select count(*)=1 from benchmark_private.oi_pickle_ledger where account_id='{users[3]}' and reason='signup';") == 't'
+    setup = f"set role authenticated; select set_config('request.jwt.claim.sub','{users[0]}',false);"
+    for index,item in enumerate(['kyu-3916-2673','kyu-3916-2718']):
+        setup += f"select public.oi_purchase_farmer_item('kyu:top:{item}','f5060000-0000-4000-8000-{921+index:012d}');"
+    run(connection,input=setup,text=True)
+    commands=[]
+    for index,item in enumerate(['kyu-3916-2693','kyu-3916-2703']):
+        commands.append(f"begin; set local role authenticated; select set_config('request.jwt.claim.sub','{users[0]}',true); select public.oi_purchase_farmer_item('kyu:top:{item}','f5060000-0000-4000-8000-{923+index:012d}'); select pg_sleep(0.2); commit;")
+    results=parallel(commands)
+    assert sorted(code for code,_,_ in results)==[0,1],results
+    assert 'pickle_coins_insufficient' in next(stderr for code,_,stderr in results if code),results
+    assert query(f"select balance=1 from benchmark_private.oi_pickle_wallets where account_id='{users[0]}';")=='t'
+    assert query(f"select count(*)=3 from benchmark_private.oi_farmer_owned_items where account_id='{users[0]}';")=='t'
+    commands=[]
+    for index in range(2):
+        actor=users[index+1]; session=sessions[index+1]; request=f'f5060000-0000-4000-8000-{931+index:012d}'
+        path=f'{actor}/{request}/certificate.pdf'
+        run(connection,input=f"insert into public.oi_evidence_requests(id,user_id,storage_owner_id,status,object_path,submitted_at,coin_verification,coin_consent_version) values('{request}','{actor}','{actor}','pending','{path}','2026-11-18',true,1);",text=True)
+        commands.append(f"begin; set local role service_role; select public.oi_coin_evidence_review('{actor}','{session}','{request}','{path}','2026-11-18','{str(index+1)*64}','{'9'*64}','approved',null,'{'a'*64}'); select pg_sleep(0.2); commit;")
+    results=parallel(commands)
+    assert all(code==0 for code,_,_ in results),results
+    receipts=[json.loads(next(line for line in stdout.splitlines() if line.startswith('{'))) for _,stdout,_ in results]
+    assert sorted(receipt['credited'] for receipt in receipts)==[False,True],receipts
+    assert sorted(receipt['duplicate'] for receipt in receipts)==[False,True],receipts
+    assert query("select count(*)=1 from benchmark_private.oi_coin_certificate_claims where reference_digest=repeat('a',64);")=='t'
+    print('PASS: concurrent welcome reads mint once; concurrent purchases cannot overspend; cross-account certificate races pay once')
+
+
 def check_manual_review_drift(connection, migration):
     signatures = ['benchmark_private.oi_mutate_continuation_base(text,jsonb,text)', 'public.oi_capabilities()']
     def query(sql):
@@ -494,8 +581,10 @@ grant execute on function auth.jwt() to anon,authenticated;
         for database in (connection, remote_connection):
             ai_only_migrations = [m for m in post_retirement if m.name.endswith(
                 ('_oi_story_ai_only_review.sql', '_oi_education_ai_review.sql'))]
+            coin_migrations = [m for m in post_retirement if m.name.endswith(
+                ('_oi_pickle_coins.sql',))]
             for migration in post_retirement:
-                if migration in ai_only_migrations:
+                if migration in ai_only_migrations or migration in coin_migrations:
                     continue
                 if database is connection and migration.name.endswith('_oi_postcard_cover.sql'):
                     check_postcard_cover_drift(database, migration)
@@ -533,11 +622,32 @@ grant execute on function auth.jwt() to anon,authenticated;
             run(database + ['-f', 'supabase/tests/oi-building-notes.sql'])
             run(database + ['-f', 'supabase/tests/oi-building-note-moderation.sql'])
             run(database + ['-f', 'supabase/tests/oi-story-likes.sql'])
+            if database is remote_connection:
+                # Production still advertises manual review, with automatic review
+                # active. Replay its actual captured wrapper before applying coins.
+                run(connection + ['-c', 'create database live_pickle_compatibility template remote_compatibility'])
+                live_connection = connection.copy()
+                live_connection[live_connection.index('-d') + 1] = 'live_pickle_compatibility'
+                run(live_connection + ['-f', 'supabase/tests/fixtures/deployed-pickle-mutator.sql'])
+                run(live_connection, input='update benchmark_private.oi_story_creation_settings set auto_moderation_enabled=true where singleton;', text=True)
+                run(live_connection + ['-f', 'supabase/tests/fixtures/pickle-coins-before.sql'])
+                for coin_migration in coin_migrations:
+                    run(live_connection + ['-f', str(coin_migration)])
+                run(live_connection + ['-f', 'supabase/tests/oi-pickle-coins.sql'])
+                print('PASS: captured production mutator and live manual-review capability remain compatible; only the author can spend to plant')
             for migration in ai_only_migrations:
                 run(database + ['-f', str(migration)])
             run(database + ['-f', 'supabase/tests/oi-story-ai-only-review.sql'])
             run(database + ['-f', 'supabase/tests/oi-showcase-publication.sql'])
             run(database + ['-f', 'supabase/tests/oi-education-stories.sql'])
+            run(database + ['-f', 'supabase/tests/fixtures/pickle-coins-before.sql'])
+            for migration in coin_migrations:
+                check_pickle_coin_drift(database, migration)
+                check_coin_evidence_backfill_guard(database, migration)
+                run(database + ['-f', str(migration)])
+            run(database + ['-f', 'supabase/tests/oi-pickle-coins.sql'])
+            check_pickle_coin_races(database)
+        print('PASS: PickleCoin signup/backfill, certificate identities, collection/plant idempotency, outfit ownership, merge and deletion on both histories')
         print('PASS: card formats 1/2/3, PNG/JPEG cover validation/access/review, and deletion on both histories')
         print('PASS: building notes writes, reports, AI/operator review, pagination, merge and deletion on both histories')
         print('PASS: retired evidence RPCs and uploads, retained private records and deletion, story moderation on both histories')

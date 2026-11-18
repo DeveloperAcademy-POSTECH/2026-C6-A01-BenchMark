@@ -297,6 +297,8 @@ struct OiAccountDeletionReceipt: Codable {
 struct OiCapabilities: Decodable {
     let `operator`: Bool
     let coinsEnabled: Bool
+    var pickleCoinEvidence: Bool? = nil
+    var pickleFarmerShop: Bool? = nil
     let unapprovedDraftsEnabled: Bool?
     let independentStoryCreation: Bool?
     let accountId: UUID?
@@ -559,4 +561,132 @@ struct OiContentReportReceipt: Decodable { let id: UUID; let status: String }
 enum CampusBuildingNoteError: LocalizedError {
     case notDeployed
     var errorDescription: String? { "건물 글 서비스를 아직 사용할 수 없어요. 잠시 후 다시 시도해 주세요." }
+}
+
+nonisolated struct OiPickleWallet: Decodable, Equatable, Sendable {
+    let accountId: UUID
+    let balance: Int64
+    let unlimited: Bool
+    let plantCost: Int64
+    let outfitCost: Int64
+    let ownedItems: [String]
+
+    var isValid: Bool { balance >= 0 && plantCost == 30 && outfitCost == 3 }
+    var balanceLabel: String { unlimited ? "∞pc" : "\(balance)pc" }
+    func canSpend(_ amount: Int64) -> Bool { unlimited || balance >= amount }
+    func owns(character: String, slot: String, item: String) -> Bool {
+        item.hasPrefix("legacy-") || ownedItems.contains("\(character):\(slot):\(item)")
+    }
+}
+
+struct OiPlantStoryReceipt: Decodable {
+    let story: OiLiveStory
+    let wallet: OiPickleWallet?
+    init(from decoder: any Decoder) throws {
+        story = try OiLiveStory(from: decoder)
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        wallet = try fields.decodeIfPresent(OiPickleWallet.self, forKey: .wallet)
+    }
+    private enum CodingKeys: String, CodingKey { case wallet }
+}
+
+nonisolated struct OiCoinAward: Identifiable, Equatable, Sendable {
+    let id = UUID()
+    let amount: Int
+}
+
+nonisolated struct OiFarmerPurchaseReceipt: Decodable, Sendable {
+    let item: String
+    let purchased: Bool
+    let wallet: OiPickleWallet
+}
+
+nonisolated struct OiCoinEvidence: Decodable, Identifiable, Equatable, Sendable {
+    let id: UUID
+    let userId: UUID
+    let storageOwnerId: UUID?
+    let status: String
+    let objectPath: String?
+    let createdAt: String
+    let submittedAt: String?
+    let reviewNote: String?
+    let coinVerification: Bool?
+    let coinConsentVersion: Int?
+
+    var canRetryAnalysis: Bool { coinVerification == true && status == "pending" && coinConsentVersion == 1 }
+    var detail: String? {
+        switch reviewNote {
+        case "certificate_cancelled": "직접 중단한 인증이에요. 다른 자료를 첨부해 새로 인증할 수 있어요."
+        case "duplicate_certificate": "이미 지급된 기부 증서예요. 같은 기부에는 코인이 다시 지급되지 않아요."
+        case "certificate_rejected": "기부 증서의 필수 정보를 확인하지 못했어요. 다른 자료를 첨부해 주세요."
+        case "certificate_needs_review": "AI가 기부 내역을 확정하지 못했어요. 명확한 자료로 다시 인증해 주세요."
+        default: nil
+        }
+    }
+    var statusLabel: String {
+        if reviewNote == "certificate_cancelled" { return "인증 중단" }
+        return switch status {
+        case "approved": "30pc"
+        case "pending": "인증 확인 중"
+        case "changes_requested": "자료 보완 필요"
+        case "rejected": "미충족"
+        case "revoked": "인증 철회"
+        default: "첨부 준비 중"
+        }
+    }
+    var dateLabel: String {
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let date = parser.date(from: submittedAt ?? createdAt)
+                ?? ISO8601DateFormatter().date(from: submittedAt ?? createdAt) else { return "날짜 확인 중" }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.timeZone = TimeZone(identifier: "Asia/Seoul")
+        formatter.dateFormat = "yyyy년 M월 d일 EEEE HH:mm"
+        return formatter.string(from: date)
+    }
+}
+
+nonisolated struct OiCoinEvidenceCancellation: Decodable, Sendable {
+    let request: OiCoinEvidence
+    let wallet: OiPickleWallet
+    let duplicate: Bool
+    let credited: Bool
+}
+
+nonisolated struct OiCoinEvidenceReceipt: Decodable, Sendable {
+    let request: OiCoinEvidence
+    let wallet: OiPickleWallet
+    let duplicate: Bool
+    let credited: Bool
+    let reviewType: String
+    let authenticityVerified: Bool
+    let holderVerified: Bool
+}
+
+/// The same identifiers and bytes are retried after interruption; a retry never creates another grant.
+nonisolated struct OiCoinEvidenceUpload: Codable, Equatable, Sendable {
+    let id: UUID
+    let uploadID: UUID
+    let owner: UUID
+    let data: Data
+    let contentType: String
+    let name: String
+    var storageOwner: UUID?
+    var submitted = false
+
+    var objectPath: String {
+        let ext = contentType == "application/pdf" ? "pdf" : contentType == "image/png" ? "png" : "jpg"
+        return "\((storageOwner ?? owner).uuidString.lowercased())/\(id.uuidString.lowercased())/\(uploadID.uuidString.lowercased()).\(ext)"
+    }
+}
+
+nonisolated enum OiPickleCoinError: LocalizedError {
+    case insufficient, unavailable
+    var errorDescription: String? {
+        switch self {
+        case .insufficient: "피클코인이 부족해요. 기부 인증이나 다른 오이 수집으로 코인을 모아 주세요."
+        case .unavailable: "피클코인을 확인하지 못했어요. 연결을 확인한 뒤 다시 시도해 주세요."
+        }
+    }
 }

@@ -25,6 +25,7 @@ struct OiStoryListView: View {
     var onCancelPlant: (() -> Void)?
     var portraitAccountID: UUID? = nil
     var loadPortrait: ((String) async throws -> UIImage)? = nil
+    var coinRemote: OiRemoteStore? = nil
 
     @State private var showsProductionRules = false
     @State private var portraits = OiStoryListPortraits()
@@ -67,7 +68,9 @@ struct OiStoryListView: View {
             .sharedBackgroundVisibility(.hidden)
 
             ToolbarItem(placement: .topBarTrailing) {
-                if let onAddSeed {
+                if let coinRemote {
+                    OiPickleCoinLink(remote: coinRemote)
+                } else if let onAddSeed {
                     Button(action: onAddSeed) { OiSeedBalanceLabel(count: seedCount) }
                         .accessibilityIdentifier("storyList.seedBalance")
                 }

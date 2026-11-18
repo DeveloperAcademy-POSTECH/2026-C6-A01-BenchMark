@@ -160,7 +160,7 @@ struct MYWorkshopView: View {
             .frame(width: 211 * scale, alignment: .leading)
             .padding(.leading, 28 * scale)
             .padding(.top, 90 * scale)
-            inactiveCoin
+            coinBalance
                 .position(x: 80.875 * scale, y: 277.771 * scale)
             if isSignedIn {
                 Text("캐릭터를 눌러\n농부를 꾸며주세요!")
@@ -195,7 +195,7 @@ struct MYWorkshopView: View {
                 Text("캐릭터를 눌러 농부를 꾸며주세요!")
                     .font(CampusStyle.body(16)).foregroundStyle(profileBrown)
             }
-            inactiveCoin
+            coinBalance
         }
         .padding(.horizontal, 28).padding(.top, 64).padding(.bottom, 24)
         .background(alignment: .top) {
@@ -276,25 +276,8 @@ struct MYWorkshopView: View {
         .accessibilityIdentifier("my.farmer.customize")
     }
 
-    private var inactiveCoin: some View {
-        HStack(spacing: 8.203) {
-            Text("+").font(CampusStyle.characterTitle(20.508)).foregroundStyle(.white)
-                .frame(width: 24.609, height: 24.609)
-                .background(Color(red: 163 / 255, green: 140 / 255, blue: 33 / 255), in: Circle())
-            HStack(spacing: 3.281) {
-                Image("MYProfileCoin").resizable().scaledToFit().frame(width: 24.609, height: 24.609)
-                Text("—pc").font(CampusStyle.medium(13.125)).tracking(0.2625)
-                    .foregroundStyle(.black).lineLimit(1).minimumScaleFactor(0.8)
-                    .frame(width: usesExpandedLayout ? nil : 26.8)
-            }
-        }
-        .padding(.leading, 5.742).padding(.trailing, 12.305).padding(.vertical, 4.922)
-        .background(Color(red: 1, green: 249 / 255, blue: 223 / 255), in: Capsule())
-        .overlay { Capsule().strokeBorder(Color(red: 163 / 255, green: 140 / 255, blue: 33 / 255), lineWidth: 0.82) }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("피클코인").accessibilityValue("사용 불가")
-        .accessibilityHint("코인 구매와 적립은 제공하지 않습니다")
-        .accessibilityIdentifier("my.coin.unavailable")
+    private var coinBalance: some View {
+        OiPickleCoinLink(remote: remote, compact: true)
     }
 
     private var settingsButton: some View {

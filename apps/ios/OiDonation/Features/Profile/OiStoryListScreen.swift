@@ -34,6 +34,8 @@ struct OiStoryListScreen: View {
     @State private var plantSelection: OiStoryPlantSelection?
     @State private var plantingStoryID: UUID?
     @State private var publicationMessage: String?
+    @State private var confirmingCoinPlant = false
+    @State private var showingCoinWallet = false
 
     #if DEBUG
     struct ReviewTestActions {
@@ -105,7 +107,8 @@ struct OiStoryListScreen: View {
             selectedPlantStoryID: plantSelection?.selectedID,
             onCancelPlant: cancelPlantAction,
             portraitAccountID: remote.account?.id,
-            loadPortrait: { try await remote.cucumberImage($0) }
+            loadPortrait: { try await remote.cucumberImage($0) },
+            coinRemote: remote
         )
     }
 
@@ -115,7 +118,15 @@ struct OiStoryListScreen: View {
                 get: { publicationMessage != nil }, set: { if !$0 { publicationMessage = nil } }
             )) {
                 Button("확인", role: .cancel) {}
+                if remote.coinsEnabled { Button("코인 모으기") { showingCoinWallet = true } }
             }
+            .alert("농장에 오이를 심을까요?", isPresented: $confirmingCoinPlant) {
+                Button("취소", role: .cancel) {}
+                Button("심기") { performConfirmedPlant() }
+            } message: {
+                Text("처음 심는 오이는 30pc를 사용해요. 이미 심었던 오이를 다시 공개하거나 위치를 수정할 때는 추가로 사용하지 않아요.")
+            }
+            .navigationDestination(isPresented: $showingCoinWallet) { OiPickleWalletView(remote: remote) }
             .task(id: reviewWork?.id) {
                 if let work = reviewWork { await performReview(work) }
             }
@@ -532,6 +543,11 @@ struct OiStoryListScreen: View {
                                     showcaseSelection: selection, stage: .prepare)
             return
         }
+        if remote.coinsEnabled && remote.pickleWallet?.unlimited != true { confirmingCoinPlant = true }
+        else { performConfirmedPlant() }
+    }
+
+    private func performConfirmedPlant() {
         guard remote.autoStoryModeration, !remote.isBusy, plantingStoryID == nil, let selection = plantSelection,
               reviewState(for: selection.selectedID) == .approved,
               let story = remote.ownStories.first(where: { $0.id == selection.selectedID }) else { return }

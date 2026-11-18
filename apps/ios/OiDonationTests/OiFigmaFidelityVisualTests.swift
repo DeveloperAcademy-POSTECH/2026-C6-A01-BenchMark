@@ -33,6 +33,60 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         ]
     }
 
+    func testPickleCoinScreenCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        let previousHandler = OiStoreURLProtocol.handle
+        let backend = OiTestBackend()
+        backend.configure { $0.farmerOutfitEnabled = true }
+        backend.install()
+        let baseHandler = OiStoreURLProtocol.handle
+        OiStoreURLProtocol.handle = { request, client in
+            let path = request.url?.path ?? ""
+            if path.hasSuffix("/rpc/oi_capabilities") {
+                let value: [String: Any] = ["operator": false, "coins_enabled": true,
+                    "pickle_coin_evidence": true, "pickle_farmer_shop": true,
+                    "independent_story_creation": true, "farmer_outfit_enabled": true,
+                    "auto_story_moderation": true]
+                client.respond(200, (try? JSONSerialization.data(withJSONObject: value)) ?? Data())
+            } else if path.hasSuffix("/rpc/oi_pickle_wallet") {
+                let value: [String: Any] = ["account_id": OiTestBackend.owner.uuidString,
+                    "balance": 33, "unlimited": false, "plant_cost": 30, "outfit_cost": 3,
+                    "owned_items": ["kyu:set:legacy-classic", "kyu:set:legacy-casual"]]
+                client.respond(200, (try? JSONSerialization.data(withJSONObject: value)) ?? Data())
+            } else if path.hasSuffix("/oi_evidence_requests") {
+                client.respond(200, Data("[]".utf8))
+            } else { baseHandler?(request, client) }
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PickleCoins-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            session.invalidateAndCancel()
+            OiStoreURLProtocol.handle = previousHandler
+            fixture.defaults.removePersistentDomain(forName: fixture.name)
+            if FileManager.default.fileExists(atPath: directory.path) {
+                XCTAssertNoThrow(try FileManager.default.removeItem(at: directory))
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+        }
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let remote = OiRemoteStore(api: api, drafts: OiDraftVault(directory: directory), vault: OiMemorySession())
+        await remote.start()
+        XCTAssertNil(remote.loadError)
+        XCTAssertEqual(remote.pickleWallet?.balance, 33)
+        XCTAssertTrue(remote.canVerifyCoinEvidence)
+        for variant in variants {
+            try await capture(NavigationStack { OiPickleWalletView(remote: remote) },
+                name: "pickle-wallet", variant: variant, defaults: fixture.defaults, attach: true)
+            try await capture(NavigationStack { OiCoinEvidenceView(remote: remote) },
+                name: "pickle-evidence-empty", variant: variant, defaults: fixture.defaults, attach: true)
+            try await capture(NavigationStack { MYFarmerCustomizationView(remote: remote) },
+                name: "pickle-farmer-shop", variant: variant, defaults: fixture.defaults, attach: true)
+        }
+    }
+
     func testCampusMapPolishCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
