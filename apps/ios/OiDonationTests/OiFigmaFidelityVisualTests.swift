@@ -2775,6 +2775,68 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         })
     }
 
+    func testStep3TopPhotosAndEditorMatchFigma() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let photo = UIGraphicsImageRenderer(size: CGSize(width: 160, height: 100)).image { context in
+            UIColor.systemOrange.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 160, height: 100))
+            UIColor.systemBlue.setFill()
+            context.fill(CGRect(x: 80, y: 0, width: 80, height: 100))
+            NSString(string: "OI").draw(at: CGPoint(x: 50, y: 28), withAttributes: [
+                .font: UIFont.boldSystemFont(ofSize: 32), .foregroundColor: UIColor.white
+            ])
+        }
+        let asset = try OiPhotoRenderer.asset(photo)
+        let design = OiPhotoDesign(layers: [
+            OiPhotoLayer(source: asset.id, side: .back, placement: .init(width: 0.48, rotation: -12)),
+            OiPhotoLayer(source: asset.id, side: .front, placement: .init(width: 0.55))
+        ])
+        var original = OiDraftCustomization()
+        original.seedAppearance = .init()
+        original.seedTop = OiWardrobeLook.Top.tshirt.rawValue
+        var look = OiWardrobeLook()
+        try look.artwork.set(design, sources: [asset.id: asset.data], for: "top-tshirt")
+        original.wardrobe = look
+        let draft = Step3DraftFixture(original)
+        let binding = Binding(get: { draft.value }, set: { draft.value = $0 })
+        for variant in variants.prefix(3) {
+            let screen = CreationCapturePage(step: 3) {
+                OiCucumberCustomizationStep(customization: binding, onContinue: {}, initialTabTitle: "상의")
+            }.environment(\.scenePhase, .active)
+            try await capture(screen, name: "step3-top-photo", variant: variant, defaults: fixture.defaults,
+                              attach: true, prepareRealityCapture: { host in
+                let surface = try await self.step3Surface(in: host)
+                try await self.waitForStep3 {
+                    surface.accessibilityValue == "3D 미리보기" &&
+                    surface.scene.findEntity(named: "WhiteTshirt")?.components[ModelComponent.self] != nil
+                }
+                try await Task.sleep(for: .milliseconds(250))
+                return surface
+            })
+        }
+        let scene = OiWardrobeScene()
+        let seed = try XCTUnwrap(original.seedSnapshot)
+        let photoLook = original.seedPhotoLook
+        scene.editPhotos(in: .top, look: photoLook, seed: seed)
+        let editor = CreationCapturePage(step: 3) {
+            VStack(spacing: 0) {
+                OiWardrobePreview(look: photoLook, controls: false, scene: scene, seed: seed)
+                    .frame(maxHeight: .infinity)
+                OiWardrobePhotoEditor(slot: .top, look: photoLook, scene: scene, onClose: {},
+                    seed: seed, photoResource: OiSeedGarmentPhotoMaterial.resource(for: .tshirt)) { _ in }
+                    .frame(height: 462)
+                    .background(Color(red: 234 / 255, green: 238 / 255, blue: 226 / 255),
+                        in: UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35))
+            }
+        }.environment(\.scenePhase, .active)
+        try await capture(editor, name: "step3-top-photo-editor", variant: variants[0], defaults: fixture.defaults,
+                          attach: true, includesRealityKit: true, prepareView: { _ in
+            try await self.waitForStep3 { !scene.loading && scene.error == nil && scene.photoPreviewError == nil }
+        })
+        XCTAssertEqual(draft.value, original)
+    }
+
     func testStep3CatalogGarmentsLoadFromAppBundle() async throws {
         @MainActor func verifyGarment(_ garment: OiSeedCucumberGarment) async throws {
             let asset = try await OiSeedCucumberModel.loadGarment(garment)

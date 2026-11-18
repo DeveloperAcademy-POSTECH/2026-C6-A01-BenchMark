@@ -286,4 +286,7 @@ struct OiSeedCucumberViewport {
 nonisolated struct OiSeedCucumberSnapshot: Codable, Hashable, Sendable {
     let appearance: OiSeedCucumberAppearance
     let garments: [String]
+    /// Identifies the applied print without publishing its editable source photos.
+    var topPhotoVersion: String? = nil
+    var topColor: UInt32? = nil
 }

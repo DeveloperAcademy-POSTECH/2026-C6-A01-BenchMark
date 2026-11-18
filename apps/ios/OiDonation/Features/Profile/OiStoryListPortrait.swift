@@ -11,9 +11,12 @@ import SwiftUI
 extension OiStoryListPortraitSource {
     static func local(customization: OiDraftCustomization?, asset: String, serverPath: String? = nil,
                       serverSeed: OiSeedCucumberSnapshot? = nil) -> Self {
-        if let seed = customization?.seedSnapshot { return .seed(seed) }
+        if let seed = customization?.seedSnapshot {
+            if seed.topPhotoVersion != nil, let look = customization?.seedPhotoLook { return .seedWithPhotos(seed, look) }
+            return .seed(seed)
+        }
         if let look = customization?.wardrobe { return .wardrobe(look) }
-        if let serverSeed { return .seed(serverSeed) }
+        if let serverSeed, serverSeed.topPhotoVersion == nil { return .seed(serverSeed) }
         if let serverPath { return .remote(serverPath) }
         // New drafts start with the same bare seed shown by STEP 3, including an untouched look.
         if asset == "OiCats" { return .seed(.init(appearance: .init(), garments: [])) }
@@ -92,10 +95,12 @@ final class OiStoryListPortraits {
 
         var look: OiWardrobeLook {
             if case .wardrobe(let look) = source { return look }
+            if case .seedWithPhotos(_, let look) = source { return look }
             return OiWardrobeLook()
         }
         var seed: OiSeedCucumberSnapshot? {
             if case .seed(let seed) = source { return seed }
+            if case .seedWithPhotos(let seed, _) = source { return seed }
             return nil
         }
     }
@@ -164,7 +169,7 @@ final class OiStoryListPortraits {
             do {
                 let image: UIImage
                 switch request.source {
-                case .seed, .wardrobe:
+                case .seed, .seedWithPhotos, .wardrobe:
                     let bytes = try await render(request.source, generation: started)
                     guard let decoded = UIImage(data: bytes) else { throw PortraitError.unavailable }
                     image = decoded

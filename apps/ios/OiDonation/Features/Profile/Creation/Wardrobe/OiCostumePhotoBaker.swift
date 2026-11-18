@@ -64,7 +64,7 @@ actor OiCostumePhotoBaker {
         return texture
     }
 
-    func bake(_ image: CGImage, resource name: String) throws -> [Result] {
+    func bake(_ image: CGImage, resource name: String, baseTint: UInt32 = 0xFFFFFF) throws -> [Result] {
         try Task.checkCancellation()
         if device == nil {
             guard let gpu = MTLCreateSystemDefaultDevice(), let queue = gpu.makeCommandQueue() else {
@@ -114,6 +114,10 @@ actor OiCostumePhotoBaker {
             encoder.setComputePipelineState(pipeline)
             encoder.setTexture(input.base, index: 0); encoder.setTexture(photo, index: 1); encoder.setTexture(output, index: 2)
             encoder.setBuffer(input.coordinates, offset: 0, index: 0)
+            var tint = SIMD4<Float>(Float((baseTint >> 16) & 255) / 255,
+                                    Float((baseTint >> 8) & 255) / 255,
+                                    Float(baseTint & 255) / 255, 1)
+            encoder.setBytes(&tint, length: MemoryLayout<SIMD4<Float>>.stride, index: 1)
             let width = pipeline.threadExecutionWidth
             encoder.dispatchThreads(MTLSize(width: size, height: size, depth: 1),
                 threadsPerThreadgroup: MTLSize(width: width, height: max(1, pipeline.maxTotalThreadsPerThreadgroup / width), depth: 1))
@@ -143,8 +147,8 @@ private struct OiCostumeOriginalMaterials: Component {
         let paths: [[String]]
         let texture: TextureResource
     }
-    static func prepare(_ image: CGImage, resource: String) async throws -> [Prepared] {
-        let results = try await OiCostumePhotoBaker.shared.bake(image, resource: resource)
+    static func prepare(_ image: CGImage, resource: String, baseTint: UInt32 = 0xFFFFFF) async throws -> [Prepared] {
+        let results = try await OiCostumePhotoBaker.shared.bake(image, resource: resource, baseTint: baseTint)
         var output: [Prepared] = []
         for result in results {
             try Task.checkCancellation()
@@ -159,7 +163,7 @@ private struct OiCostumeOriginalMaterials: Component {
         }
         for child in root.children { restore(child) }
     }
-    static func apply(_ prepared: [Prepared], to root: Entity) throws {
+    static func apply(_ prepared: [Prepared], to root: Entity, resetBaseTint: Bool = false) throws {
         var targets: [(Entity, TextureResource)] = []
         func find(_ node: Entity, path: [String], suffix: [String]) -> [Entity] {
             let path = path + [node.name]
@@ -182,6 +186,7 @@ private struct OiCostumeOriginalMaterials: Component {
                 node.components.set(OiCostumeOriginalMaterials(materials: model.materials))
             }
             material.baseColor.texture = .init(texture)
+            if resetBaseTint { material.baseColor.tint = .white }
             model.materials = [material]; node.components.set(model)
         }
     }

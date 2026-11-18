@@ -37,6 +37,7 @@ struct CampusAuthoredPlacement: Identifiable, Equatable {
     let title: String
     let visibility: Visibility
     let wardrobe: OiWardrobeLook?
+    let seed: OiSeedCucumberSnapshot?
     let submittedArtwork: OiCucumberArtworkReference?
     var id: String { placement.storyID }
 
@@ -45,15 +46,18 @@ struct CampusAuthoredPlacement: Identifiable, Equatable {
               let placement = story.campusPlacement else { return nil }
 
         // The private look belongs to the story ID, even if server normalization changes a field.
-        let wardrobe = localDraft?.id == story.id ? localDraft?.customization?.wardrobe : nil
+        let customization = localDraft?.id == story.id ? localDraft?.customization : nil
+        let seed = customization?.seedSnapshot
+        let wardrobe = seed == nil ? customization?.wardrobe : customization?.seedPhotoLook
         let visibility = Visibility(story: story)
-        let artwork = visibility == .published || wardrobe == nil ? story.cucumberArtwork : nil
-        guard visibility == .pending || wardrobe != nil || artwork != nil else { return nil }
+        let artwork = visibility == .published || (wardrobe == nil && seed == nil) ? story.cucumberArtwork : nil
+        guard visibility == .pending || wardrobe != nil || seed != nil || artwork != nil else { return nil }
         self.placement = placement
         self.regionID = story.regionId
         self.title = story.cucumberName
         self.visibility = visibility
         self.wardrobe = artwork == nil ? wardrobe : nil
+        self.seed = artwork == nil ? seed : nil
         self.submittedArtwork = artwork
     }
 
@@ -67,8 +71,9 @@ struct CampusAuthoredPlacement: Identifiable, Equatable {
         self.regionID = saved.regionID
         self.title = saved.name
         self.visibility = Visibility(story: story)
-        self.wardrobe = record.customization?.wardrobe
-        self.submittedArtwork = self.wardrobe == nil ? story?.cucumberArtwork : nil
+        self.seed = record.customization?.seedSnapshot
+        self.wardrobe = self.seed == nil ? record.customization?.wardrobe : record.customization?.seedPhotoLook
+        self.submittedArtwork = self.wardrobe == nil && self.seed == nil ? story?.cucumberArtwork : nil
     }
 }
 
@@ -783,7 +788,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         let updated = placements.reduce(into: [String: CampusAuthoredPlacement]()) { $0[$1.id] = $1 }
         guard authoredPlacements != updated else { return }
         authoredModelTask?.cancel(); authoredModelTask = nil
-        for (id, previous) in authoredPlacements where updated[id] == nil || updated[id]?.wardrobe != previous.wardrobe || updated[id]?.submittedArtwork != previous.submittedArtwork {
+        for (id, previous) in authoredPlacements where updated[id] == nil || updated[id]?.wardrobe != previous.wardrobe || updated[id]?.seed != previous.seed || updated[id]?.submittedArtwork != previous.submittedArtwork {
             authoredModels.removeObject(forKey: id as NSString)
         }
         if updated.isEmpty { authoredModels.removeAllObjects() }
@@ -831,11 +836,14 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                 if let artwork = item.submittedArtwork {
                     guard let loadCucumberModel else { continue }
                     model = try await loadCucumberModel(artwork)
+                } else if let seed = item.seed {
+                    model = try await OiSeedCucumberModel.make(snapshot: seed, look: item.wardrobe)
                 } else if let wardrobe = item.wardrobe { model = try await OiWardrobeAsset.loadForPlacement(wardrobe) }
                 else { model = try await CampusOiAsset.load() }
                 try Task.checkCancellation()
                 guard authoredPlacements[item.id] == item, authoredItemIsVisible(item) else { continue }
                 let bounds = model.visualBounds(relativeTo: model)
+                guard bounds.extents.y.isFinite, bounds.extents.y > 0.001 else { throw OiPhotoDataError.unreadable }
                 let size = simd_max(bounds.extents, SIMD3(repeating: 0.05))
                 model.components.set(CollisionComponent(shapes: [
                     .generateBox(size: size).offsetBy(translation: bounds.center)
@@ -881,7 +889,9 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         let entity = model.template.clone(recursive: true)
         entity.name = "authored:" + item.id
         entity.position = data.world(latitude: placement.latitude, longitude: placement.longitude)
-        let templateHeight: Float = item.wardrobe == nil && item.submittedArtwork == nil ? 1 : OiWardrobeAsset.placementHeight
+        let usesSeedHeight = item.seed != nil || item.submittedArtwork?.appearance.seed != nil
+        let templateHeight: Float = usesSeedHeight ? model.bounds.extents.y
+            : item.wardrobe == nil && item.submittedArtwork == nil ? 1 : OiWardrobeAsset.placementHeight
         entity.scale = SIMD3(repeating: CampusPlacementGeometry.mapScale(unitsPerMeter: data.unitsPerMeter, editing: false)
                             * Float(placement.heightMeters) / templateHeight)
         entity.orientation = CampusOiAsset.heading(placement.headingDegrees)
@@ -901,15 +911,18 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         }
     }
 
-    func preparePlacements(wardrobe: OiWardrobeLook? = nil) async {
+    func preparePlacements(wardrobe: OiWardrobeLook? = nil, seed: OiSeedCucumberSnapshot? = nil) async {
         guard !placementReady, !placementLoading else { return }
         placementLoading = true; placementError = nil
         defer { placementLoading = false }
         do {
-            if let wardrobe { oiTemplate = try await OiWardrobeAsset.loadForPlacement(wardrobe) }
+            if let seed { oiTemplate = try await OiSeedCucumberModel.make(snapshot: seed, look: wardrobe) }
+            else if let wardrobe { oiTemplate = try await OiWardrobeAsset.loadForPlacement(wardrobe) }
             else { oiTemplate = try await CampusOiAsset.load() }
             try Task.checkCancellation()
-            oiTemplateHeight = wardrobe == nil ? 1 : 1.5
+            oiTemplateHeight = seed == nil ? (wardrobe == nil ? 1 : 1.5)
+                : oiTemplate?.visualBounds(relativeTo: oiTemplate).extents.y ?? 1.5
+            guard oiTemplateHeight.isFinite, oiTemplateHeight > 0.001 else { throw OiPhotoDataError.unreadable }
             root.addChild(placementLayer)
             placementReady = true
             syncPlacements(records: savedPlacements)

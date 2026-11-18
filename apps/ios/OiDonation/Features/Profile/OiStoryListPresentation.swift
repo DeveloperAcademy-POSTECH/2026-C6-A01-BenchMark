@@ -6,6 +6,7 @@ enum OiStoryReviewRequest {
 
 enum OiStoryListPortraitSource: Equatable, Sendable {
     case seed(OiSeedCucumberSnapshot)
+    case seedWithPhotos(OiSeedCucumberSnapshot, OiWardrobeLook)
     case wardrobe(OiWardrobeLook)
     case remote(String)
     case image(Data)

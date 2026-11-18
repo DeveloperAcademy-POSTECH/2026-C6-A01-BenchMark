@@ -22,6 +22,7 @@ final class OiWardrobeScene {
     @ObservationIgnored private var loadedName: String?
     @ObservationIgnored private var request: OiWardrobeLook?
     @ObservationIgnored private var seedRequest: OiSeedCucumberSnapshot?
+    @ObservationIgnored private var loadedSeed: OiSeedCucumberSnapshot?
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var yaw: Float = 0
@@ -67,14 +68,17 @@ final class OiWardrobeScene {
             defer { if generation == token { loading = false } }
             do {
                 if let seed {
-                    let prepared = try await OiSeedCucumberModel.make(snapshot: seed)
+                    let prepared = try await OiSeedCucumberModel.make(snapshot: seed, look: look)
                     try Task.checkCancellation()
                     guard generation == token, seedRequest == seed else { return }
                     model?.removeFromParent()
                     anchor.addChild(prepared)
-                    model = prepared; loadedName = nil; photoNodes = [:]
+                    model = prepared; loadedName = nil; loadedSeed = seed; photoNodes = [:]
                     height = prepared.visualBounds(relativeTo: prepared).extents.y
                     updateCamera()
+                    if editingSlot == .top, let image = previewImage {
+                        await setPhotoPreview(image)
+                    }
                     return
                 }
                 let (prepared, overlays) = try await OiWardrobeAsset.prepare(look,
@@ -90,7 +94,7 @@ final class OiWardrobeScene {
                 }
                 if model !== prepared { model?.removeFromParent(); anchor.addChild(prepared) }
                 photoNodes = overlays
-                model = prepared; loadedName = look.modelName
+                model = prepared; loadedName = look.modelName; loadedSeed = nil
                 height = prepared.visualBounds(relativeTo: prepared).extents.y
                 if let slot = editingSlot, slot.preservesOriginalMaterial(in: look), let image = previewImage {
                     await setPhotoPreview(image)
@@ -105,11 +109,12 @@ final class OiWardrobeScene {
         }
     }
 
-    func editPhotos(in slot: OiPhotoSlot?, look: OiWardrobeLook) {
+    func editPhotos(in slot: OiPhotoSlot?, look: OiWardrobeLook, seed: OiSeedCucumberSnapshot? = nil) {
         editingSlot = slot
         previewTexture = nil; previewImage = nil; previewVersion += 1
+        photoPreviewError = nil
         request = nil
-        update(look)
+        update(look, seed: seed)
     }
 
     func setPhotoPreview(_ image: CGImage) async {
@@ -120,6 +125,17 @@ final class OiWardrobeScene {
         let version = previewVersion
         let token = generation
         do {
+            if let seed = seedRequest {
+                guard editingSlot == .top, loadedSeed == seed, model != nil,
+                      seed.garments.contains(OiSeedCucumberGarment(top: look.top).rawValue) else { return }
+                let prepared = try await OiSeedGarmentPhotoMaterial.prepare(image, top: look.top, color: look.topColor)
+                try Task.checkCancellation()
+                guard version == previewVersion, token == generation, loadedSeed == seed,
+                      let asset = model?.findEntity(named: OiSeedCucumberGarment(top: look.top).rawValue) else { return }
+                try OiSeedGarmentPhotoMaterial.apply(prepared, to: asset)
+                photoPreviewError = nil
+                return
+            }
             if editingSlot.preservesOriginalMaterial(in: look) {
                 // Keep the latest image while the selected model is loading; update()
                 // reapplies it after publishing that model, never onto the previous set.
@@ -230,7 +246,7 @@ final class OiWardrobeScene {
     func uninstall(_ view: RealityKit.ARView) {
         guard isInstalled(view) else { return }
         generation += 1; task?.cancel(); task = nil
-        model = nil; loadedName = nil; request = nil; seedRequest = nil
+        model = nil; loadedName = nil; request = nil; seedRequest = nil; loadedSeed = nil
         // Keep the editor's latest image so a new view can recreate its texture.
         photoNodes.removeAll(); previewTexture = nil; previewVersion += 1
         view.scene.removeAnchor(anchor)
@@ -243,6 +259,7 @@ struct OiWardrobeSurface: UIViewRepresentable {
     let scene: OiWardrobeScene
     let look: OiWardrobeLook
     var backgroundColor: UIColor = .white
+    var seed: OiSeedCucumberSnapshot? = nil
     func makeCoordinator() -> Coordinator { Coordinator(scene: scene) }
     func makeUIView(context: Context) -> RealityKit.ARView {
         let view = scene.install()
@@ -254,12 +271,12 @@ struct OiWardrobeSurface: UIViewRepresentable {
         let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pinch(_:)))
         pinch.delegate = context.coordinator
         view.addGestureRecognizer(pan); view.addGestureRecognizer(pinch)
-        scene.update(look)
+        scene.update(look, seed: seed)
         return view
     }
     func updateUIView(_ view: RealityKit.ARView, context: Context) {
         guard scene.isInstalled(view) else { return }
-        scene.update(look)
+        scene.update(look, seed: seed)
     }
     static func dismantleUIView(_ view: RealityKit.ARView, coordinator: Coordinator) {
         coordinator.scene.uninstall(view)
@@ -287,6 +304,7 @@ struct OiWardrobeSurface: UIViewRepresentable {
 
 struct OiWardrobePreview: View {
     let look: OiWardrobeLook
+    private let seed: OiSeedCucumberSnapshot?
     var controls = true
     private let backgroundColor: UIColor
     private let savedPortrait: (key: String?, data: Data?)
@@ -294,8 +312,9 @@ struct OiWardrobePreview: View {
     @State private var loadingPreview: (look: OiWardrobeLook, image: UIImage)?
     @State private var scene: OiWardrobeScene
     init(look: OiWardrobeLook, controls: Bool = true, scene: OiWardrobeScene? = nil, backgroundColor: UIColor = .white,
-         portraitKey: String? = nil, portraitPNG: Data? = nil) {
+         portraitKey: String? = nil, portraitPNG: Data? = nil, seed: OiSeedCucumberSnapshot? = nil) {
         self.look = look; self.controls = controls; self.backgroundColor = backgroundColor
+        self.seed = seed
         savedPortrait = (portraitKey, portraitPNG)
         _scene = State(initialValue: scene ?? OiWardrobeScene())
     }
@@ -304,7 +323,7 @@ struct OiWardrobePreview: View {
         ZStack(alignment: .leading) {
             ZStack {
                 if scenePhase != .background {
-                    OiWardrobeSurface(scene: scene, look: look, backgroundColor: backgroundColor)
+                    OiWardrobeSurface(scene: scene, look: look, backgroundColor: backgroundColor, seed: seed)
                 }
                 if scene.loading {
                     if let loadingPreview, loadingPreview.look == look {
@@ -314,7 +333,7 @@ struct OiWardrobePreview: View {
                     ProgressView().accessibilityLabel("옷 입는 중")
                 }
                 if let error = scene.error {
-                    VStack { Text(error).font(.caption); Button("다시 시도") { scene.update(look, retry: true) } }
+                    VStack { Text(error).font(.caption); Button("다시 시도") { scene.update(look, retry: true, seed: seed) } }
                         .padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
             }.clipped()
@@ -327,8 +346,11 @@ struct OiWardrobePreview: View {
             }
         }
         .onChange(of: look) { _, _ in previewRevision += 1 }
+        .onChange(of: seed) { _, _ in previewRevision += 1 }
         .task(id: previewRevision) {
             loadingPreview = nil
+            // A legacy wardrobe thumbnail has a different body and must never cover the seed model.
+            guard seed == nil else { return }
             let key = OiCardPortrait.key(for: look) + "-angle-" + OiCardOrientation().cacheIdentity
             var image = await OiPortraitImages.shared.cached(key: key)
             if image == nil, savedPortrait.key == key, let data = savedPortrait.data {
