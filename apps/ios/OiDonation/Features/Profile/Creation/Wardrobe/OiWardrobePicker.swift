@@ -45,6 +45,9 @@ struct OiCucumberCustomizationStep: View {
     private var allowsWardrobeEditing: Bool { previewMode == .wardrobe }
     private var seedAppearance: OiSeedCucumberAppearance { customization.seedAppearance ?? .init() }
     private var look: OiWardrobeLook { customization.wardrobe ?? OiWardrobeLook() }
+    private var photoLook: OiWardrobeLook { allowsWardrobeEditing ? look : customization.seedPhotoLook }
+    private var hasSeedPhotoTop: Bool { customization.seedGarments.contains { $0.photoTop != nil } }
+    private var photoSeed: OiSeedCucumberSnapshot? { allowsWardrobeEditing ? nil : customization.seedSnapshot }
     private var seedGarmentColors: [OiSeedCucumberGarment.Slot: UInt32] {
         guard customization.selectedSeedSet == nil else { return [:] }
         var result: [OiSeedCucumberGarment.Slot: UInt32] = [:]
@@ -72,7 +75,7 @@ struct OiCucumberCustomizationStep: View {
             let panelHeight = min(462.0, max(300.0, geometry.size.height - 180))
             let scrollsItemTray = !allowsWardrobeEditing && verticalSizeClass == .compact
             VStack(spacing: 0) {
-                // Keep one RealityKit surface mounted while opening/closing the tools.
+                // Each active preview owns one RealityKit surface, including photo editing.
                 // Figma `5719:9790`: the cucumber area ends about 14pt above the tabs at y=491.
                 let fullHeight = photoSlot != nil ? max(160, geometry.size.height - panelHeight)
                     : min(320, geometry.size.height * 0.5)
@@ -81,9 +84,10 @@ struct OiCucumberCustomizationStep: View {
                     // While the image sheet is open, a tap above it closes the sheet without saving (#377).
                     .contentShape(Rectangle())
                     .simultaneousGesture(TapGesture().onEnded { if photoSlot != nil { closePhotoEditor() } })
-                if allowsWardrobeEditing, let slot = photoSlot, let photoScene {
-                    OiWardrobePhotoEditor(slot: slot, look: look, scene: photoScene,
-                        onClose: closePhotoEditor) { artwork in
+                if let slot = photoSlot, let photoScene {
+                    OiWardrobePhotoEditor(slot: slot, look: photoLook, scene: photoScene,
+                        onClose: closePhotoEditor, seed: photoSeed,
+                        photoResource: allowsWardrobeEditing ? nil : OiSeedGarmentPhotoMaterial.resource(for: photoLook.top)) { artwork in
                             change { $0.artwork = artwork }
                         }
                         .frame(height: panelHeight)
@@ -149,7 +153,7 @@ struct OiCucumberCustomizationStep: View {
         .sheet(isPresented: $showsFaceEditor) {
             NavigationStack {
                 OiSeedCucumberCustomizationView(appearance: seedAppearance) { appearance in
-                    customization.seedAppearance = appearance == OiSeedCucumberAppearance() ? nil : appearance
+                    customization.seedAppearance = appearance
                 }
             }
         }
@@ -166,10 +170,10 @@ struct OiCucumberCustomizationStep: View {
 
     private func preview(height: CGFloat, fullHeight: CGFloat) -> some View {
         ZStack(alignment: .bottomTrailing) {
-            if allowsWardrobeEditing, let photoScene {
-                OiWardrobePreview(look: look, controls: false, scene: photoScene,
+            if (allowsWardrobeEditing || photoSlot != nil), let photoScene {
+                OiWardrobePreview(look: photoLook, controls: false, scene: photoScene,
                                   backgroundColor: .white, portraitKey: customization.card?.portraitKey,
-                                  portraitPNG: customization.card?.portraitPNG)
+                                  portraitPNG: customization.card?.portraitPNG, seed: photoSeed)
                     .frame(height: fullHeight)
                     .scaleEffect(fullHeight > 0 ? min(1, height / fullHeight) : 1)
                     .frame(height: height)
@@ -183,6 +187,7 @@ struct OiCucumberCustomizationStep: View {
             } else {
                 OiStep3CucumberPreview(appearance: seedAppearance, garments: customization.seedGarments,
                                        garmentColors: seedGarmentColors,
+                                      photoLook: customization.seedPhotoLook,
                                       isActive: !showsFaceEditor)
                     .frame(height: fullHeight)
                     .scaleEffect(fullHeight > 0 ? min(1, height / fullHeight) : 1)
@@ -203,6 +208,9 @@ struct OiCucumberCustomizationStep: View {
                 .allowsHitTesting(false)
                 VStack(alignment: .trailing, spacing: 8) {
                     if !allowsWardrobeEditing && !isFinished {
+                        OiCustomizationResetButton {
+                            customization.resetCucumberAppearance()
+                        }.accessibilityIdentifier("oi.wardrobe.reset")
                         OiCreationDoneButton(title: "얼굴") { showsFaceEditor = true }
                             .accessibilityIdentifier("oi.customization.face")
                             .accessibilityHint("오이 얼굴과 몸체를 편집해요")
@@ -218,9 +226,18 @@ struct OiCucumberCustomizationStep: View {
     }
 
     private func closePhotoEditor() {
-        photoScene?.editPhotos(in: nil, look: look)
+        if allowsWardrobeEditing { photoScene?.editPhotos(in: nil, look: look) }
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { photoSlot = nil }
         onPhotoEditingChanged(false)
+    }
+
+    private func openPhotoEditor(_ slot: OiPhotoSlot) {
+        guard allowsWardrobeEditing || hasSeedPhotoTop else { return }
+        let scene = photoScene ?? OiWardrobeScene()
+        photoScene = scene
+        scene.editPhotos(in: slot, look: photoLook, seed: photoSeed)
+        onPhotoEditingChanged(true)
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { photoSlot = slot }
     }
 
     /// Figma `5719:9606`: tabs spread across the width; the selected one is bold green with a 39pt underline.
@@ -275,19 +292,19 @@ struct OiCucumberCustomizationStep: View {
             // Same #D9D9D9 tray as 상의·하의 (#377).
             items.id(tab).padding(12).frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color(white: 217 / 255), in: RoundedRectangle(cornerRadius: 10))
-            if allowsWardrobeEditing, let slot = selectedPhotoSlot { photoControls(slot) }
+            if let slot = selectedPhotoSlot { photoControls(slot) }
         } else {
             // Figma `5719:9981` 상의 (also 하의·신발): the fixed item tray above, then custom color/image, colors and denim.
             VStack(alignment: .leading, spacing: 20) {
-                // The postech jacket keeps its own colors and print, so neither option is offered.
-                if showsColors {
+                // The postech jacket keeps its colors while still accepting a photo print.
+                if showsColors || selectedPhotoSlot != nil {
                     HStack(spacing: 21) {
-                        customColorButton
+                        if showsColors { customColorButton }
                         if let slot = selectedPhotoSlot { addImageButton(slot) }
                     }
                 }
                 if showsColors { colorRows }
-                if let slot = selectedPhotoSlot, showsColors { denimRow(slot) }
+                if allowsWardrobeEditing, let slot = selectedPhotoSlot, showsColors { denimRow(slot) }
             }
             .padding(.horizontal, 8).padding(.top, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -396,12 +413,9 @@ struct OiCucumberCustomizationStep: View {
 
     /// Figma `5719:9991`: opens the photo editor for the selected garment.
     private func addImageButton(_ slot: OiPhotoSlot) -> some View {
-        let design = look.artwork.designs[slot.itemID(in: look)]
+        let design = photoLook.artwork.designs[slot.itemID(in: photoLook)]
         return Button {
-            guard let photoScene else { return }
-            photoScene.editPhotos(in: slot, look: look)
-            onPhotoEditingChanged(true)
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { photoSlot = slot }
+            openPhotoEditor(slot)
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: "photo.badge.plus").font(.system(size: 14))
@@ -417,6 +431,8 @@ struct OiCucumberCustomizationStep: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("oi.wardrobe.photo.edit")
+        .disabled(!allowsWardrobeEditing && !hasSeedPhotoTop)
+        .accessibilityHint(!allowsWardrobeEditing && !hasSeedPhotoTop ? "상의를 먼저 선택해 주세요" : "상의 앞면과 뒷면에 사진을 배치해요")
     }
 
     /// Figma `5719:9997`: two rows of six 40pt swatches, 21pt apart.
@@ -486,26 +502,26 @@ struct OiCucumberCustomizationStep: View {
     }
 
     private var selectedPhotoSlot: OiPhotoSlot? {
-        guard allowsWardrobeEditing else { return nil }
+        if !allowsWardrobeEditing {
+            if tab == .top { return .top }
+            return tab == .set && customization.selectedSeedSet == .postech ? .top : nil
+        }
         let slot: OiPhotoSlot? = tab == .top ? .top : tab == .bottom ? .bottom : tab == .set && look.costume != nil ? .top : nil
         return slot?.supports(look) == true ? slot : nil
     }
     private func photoControls(_ slot: OiPhotoSlot) -> some View {
-        let design = look.artwork.designs[slot.itemID(in: look)]
+        let design = photoLook.artwork.designs[slot.itemID(in: photoLook)]
         return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Button {
-                    guard let photoScene else { return }
-                    photoScene.editPhotos(in: slot, look: look)
-                    onPhotoEditingChanged(true)
-                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) { photoSlot = slot }
+                    openPhotoEditor(slot)
                 } label: {
                     Label(design == nil ? "사진으로 옷 꾸미기" : "사진 디자인 수정 · \(design?.layers.count ?? 0)장", systemImage: "photo.badge.plus")
                         .font(CampusStyle.semibold(15)).frame(maxWidth: .infinity, minHeight: 36)
                 }.buttonStyle(.borderedProminent).tint(Color("OiGreen")).accessibilityIdentifier("oi.wardrobe.photo.edit")
                 if design != nil {
                     Button("지우기", role: .destructive) {
-                        change { try? $0.artwork.set(nil, for: slot.itemID(in: look)) }
+                        change { try? $0.artwork.set(nil, for: slot.itemID(in: photoLook)) }
                     }.font(.caption).accessibilityIdentifier("oi.wardrobe.photo.remove")
                 }
             }

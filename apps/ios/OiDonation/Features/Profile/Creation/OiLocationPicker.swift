@@ -195,6 +195,7 @@ struct OiLocationPicker: View {
 struct OiDraftPlacementPreview: View {
     let draft: OiStoryDraft
     let wardrobe: OiWardrobeLook?
+    var seed: OiSeedCucumberSnapshot? = nil
     let isShowingReview: Bool
     let savedPlacement: OiPersonalPlacement?
     let error: String?
@@ -330,7 +331,7 @@ struct OiDraftPlacementPreview: View {
         }
         scene.onPreviewChange = onPlacementChange
         scene.beginPlacementPreview(placement)
-        await scene.preparePlacements(wardrobe: wardrobe)
+        await scene.preparePlacements(wardrobe: wardrobe, seed: seed)
     }
 
     private func updateVisibility() {

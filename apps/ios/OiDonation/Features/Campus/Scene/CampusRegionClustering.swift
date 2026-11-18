@@ -38,43 +38,52 @@ struct CampusRegionClustering {
     private static let splitEnd: Float = 0.88
 
     init(sites: [Site]) {
-        let unique = Dictionary(sites.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        var nodes = unique.values.sorted { $0.id < $1.id }.map { site in
-            Node(id: "site:\(site.id)", anchor: site.anchor, sites: [site], children: [])
+        let valid = sites.filter { $0.anchor.x.isFinite && $0.anchor.y.isFinite && $0.anchor.z.isFinite }
+        let unique = Dictionary(valid.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let positions = Dictionary(grouping: unique.values) { SIMD2($0.anchor.x, $0.anchor.z) }
+        let groups = positions.values.map { $0.sorted { $0.id < $1.id } }.sorted { $0[0].id < $1[0].id }
+        var nodes = groups.map { members in
+            let key = members.map { "\($0.id.utf8.count):\($0.id)" }.joined()
+            return Node(id: members.count == 1 ? "site:\(members[0].id)" : "group:\(key)",
+                        anchor: members.reduce(SIMD3<Float>.zero) { $0 + $1.anchor / Float(members.count) },
+                        sites: members, children: [])
         }
-        var candidates = Array(nodes.indices)
-        while candidates.count > 1 {
-            var nearest = (left: 0, right: 1, distance: Float.infinity)
-            // Complete-link distance avoids joining far-apart places through a chain of neighbors.
-            for i in candidates.indices {
-                for j in candidates.indices.dropFirst(i + 1) {
-                    let left = nodes[candidates[i]]
-                    let right = nodes[candidates[j]]
-                    var distance: Float = 0
-                    for a in left.sites {
-                        for b in right.sites {
-                            distance = max(distance, Self.distance(a.anchor, b.anchor))
-                        }
-                    }
-                    if distance < nearest.distance {
-                        nearest = (i, j, distance)
-                    }
+        var lows = groups.map { SIMD2($0[0].anchor.x, $0[0].anchor.z) }
+        var highs = lows
+        var active = Set(nodes.indices)
+        var chain: [Int] = []
+        // Complete-link distance in the map plane is the farthest axis separation.
+        // Bounds make it constant-time; a nearest-neighbor chain avoids a distance matrix
+        // and never separates close neighbors merely because they cross a spatial median.
+        func distance(_ a: Int, _ b: Int) -> Float {
+            let span = simd_max(simd_abs(lows[a] - highs[b]), simd_abs(highs[a] - lows[b]))
+            return max(span.x, span.y)
+        }
+        while active.count > 1 {
+            if chain.isEmpty, let first = active.min() { chain.append(first) }
+            guard let current = chain.last else { break }
+            let previous = chain.dropLast().last
+            var nearest: Int?
+            var best = Float.infinity
+            for candidate in active where candidate != current {
+                let value = distance(current, candidate)
+                if value < best || (value == best && (candidate == previous ||
+                    (nearest != previous && nodes[candidate].sites[0].id < nodes[nearest ?? candidate].sites[0].id))) {
+                    nearest = candidate; best = value
                 }
             }
-
-            let leftIndex = candidates[nearest.left]
-            let rightIndex = candidates[nearest.right]
-            let left = nodes[leftIndex]
-            let right = nodes[rightIndex]
+            guard let next = nearest else { break }
+            guard next == previous else { chain.append(next); continue }
+            let left = nodes[current], right = nodes[next]
             let members = (left.sites + right.sites).sorted { $0.id < $1.id }
-            let anchor = (left.anchor * Float(left.sites.count) + right.anchor * Float(right.sites.count))
-                / Float(members.count)
             let key = members.map { "\($0.id.utf8.count):\($0.id)" }.joined()
-            nodes.append(Node(id: "group:\(key)", anchor: anchor, sites: members,
-                              children: [leftIndex, rightIndex]))
-            candidates.remove(at: nearest.right)
-            candidates.remove(at: nearest.left)
-            candidates.append(nodes.count - 1)
+            let anchor = left.anchor * (Float(left.sites.count) / Float(members.count))
+                + right.anchor * (Float(right.sites.count) / Float(members.count))
+            nodes.append(Node(id: "group:\(key)", anchor: anchor, sites: members, children: [current, next]))
+            lows.append(simd_min(lows[current], lows[next]))
+            highs.append(simd_max(highs[current], highs[next]))
+            active.remove(current); active.remove(next); active.insert(nodes.count - 1)
+            chain.removeLast(2)
         }
         self.nodes = nodes
     }

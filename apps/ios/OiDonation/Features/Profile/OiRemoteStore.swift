@@ -124,12 +124,21 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     private(set) var needsReauthentication = false
     private(set) var loadError: String?
     private(set) var syncWarning: String?
+    private(set) var collectionMetricsWarning: String?
     private(set) var revision = 0
     private(set) var localPlacementRevision = 0
     private(set) var isConfigured = false
     private(set) var isAccountMergeAvailable = false
     private(set) var isSchoolProfileAvailable = false
     private(set) var isFarmerOutfitAvailable = false
+    private(set) var coinsEnabled = false
+    private(set) var canVerifyCoinEvidence = false
+    private(set) var canPurchaseFarmerItems = false
+    private(set) var pickleWallet: OiPickleWallet?
+    private(set) var walletError: String?
+    private(set) var isWalletRefreshing = false
+    private(set) var coinAward: OiCoinAward?
+    private var walletSequence = 0
     private(set) var farmerOutfit: OiFarmerOutfit?
     private(set) var accountMemberIDs: Set<UUID> = []
     private(set) var isAccountDeletionPending = false
@@ -152,13 +161,27 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     private let drafts: OiDraftVault
     private let vault: any OiSessionStorage
 
+    @ObservationIgnored private let showcaseTransaction: (() async throws -> String)?
+    private(set) var allowsShowcasePublication = false
+
     init(api: OiServiceAPI? = nil, drafts: OiDraftVault = OiDraftVault(), vault: (any OiSessionStorage)? = nil,
-         authentication: (any OiAuthenticating)? = nil) {
+         authentication: (any OiAuthenticating)? = nil,
+         showcaseTransaction: (() async throws -> String)? = OiTestFlightShowcase.transactionProvider) {
+        self.showcaseTransaction = showcaseTransaction
         self.api = api; self.drafts = drafts; self.vault = vault ?? OiSessionVault()
         self.authentication = authentication ?? OiGoogleAuthentication()
     }
 
     func start() async {
+        if let showcaseTransaction {
+            do {
+                _ = try await showcaseTransaction()
+                allowsShowcasePublication = true
+            } catch {
+                // Production installs and unverified transactions keep the regular AI review flow.
+                allowsShowcasePublication = false
+            }
+        }
         var started = generation
         do {
             if api == nil { api = try OiServiceAPI.configured() }
@@ -372,6 +395,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         isAccountDeletionPending = false; isOperator = false; hasLoadedRemote = false; needsReauthentication = false; isRefreshing = false
         isAccountMergeAvailable = false; accountMemberIDs = []; accountProviders = []; localRecoveryWarning = nil
         isSchoolProfileAvailable = false; isFarmerOutfitAvailable = false; farmerOutfit = nil
+        coinsEnabled = false; canVerifyCoinEvidence = false; canPurchaseFarmerItems = false
+        pickleWallet = nil; walletError = nil; isWalletRefreshing = false; coinAward = nil; walletSequence += 1
         canPublishCucumberAppearance = false
         canPublishStoryCard = false
         canPublishDuplexCard = false
@@ -379,7 +404,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         canPublishStoryCardCoverJPEG = false
         autoStoryModeration = false
         reviewingStoryID = nil; storyModerationResults = [:]; storyReviewLookupFailed = false; isBusy = false
-        localSignOutWarning = nil; loadError = nil; syncWarning = nil; error = nil; revision += 1
+        localSignOutWarning = nil; loadError = nil; syncWarning = nil; collectionMetricsWarning = nil; error = nil; revision += 1
     }
 
     private func noteAuthenticationFailure(_ error: Error) {
@@ -619,7 +644,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         var story = CampusStory(id: item.id.uuidString, regionID: item.regionId, title: item.cucumberName,
             image: item.cucumberAsset, tags: [item.theme, item.emotion],
             donor: author?.publicDonorLine ?? "작성자 정보 확인 중",
-            location: regions.first { $0.id == item.regionId }?.name ?? "POSTECH",
+            location: CampusStoryLocation.name(latitude: item.latitude, longitude: item.longitude,
+                fallback: regions.first { $0.id == item.regionId }?.name ?? "POSTECH"),
             date: item.createdDateLabel, order: order, popularity: collectionCounts[item.id] ?? 0, palette: 0)
         story.authorID = item.userId
         story.donorFarmerAsset = author?.farmerAsset
@@ -669,6 +695,20 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         }
         let resolvedOwner = capabilities?.accountId ?? account?.id
         let members = Set(capabilities?.accountMemberIds ?? resolvedOwner.map { [$0] } ?? [])
+        var walletVersion = walletSequence
+        var fetchedWallet: OiPickleWallet?
+        var fetchedWalletError: String?
+        if capabilities?.coinsEnabled == true, let accessToken {
+            do {
+                let value = try await api.pickleWallet(token: accessToken)
+                guard value.accountId == resolvedOwner else { throw OiServiceError.accountChanged }
+                fetchedWallet = value
+            } catch OiServiceError.signInRequired { throw OiServiceError.signInRequired }
+            catch {
+                if Task.isCancelled || OiServiceFailure.isCancellation(error) { throw error }
+                fetchedWalletError = error.localizedDescription
+            }
+        }
         // Only public reference data is cached for timer-driven refreshes.
         let catalogIsFresh = reuseCatalog && catalogLoadedAt.map { $0.duration(to: .now) < .seconds(300) } == true
         let fetchedSchools = catalogIsFresh ? schools : try await api.rows("oi_schools", query: "order=id.asc", as: OiSchool.self)
@@ -737,6 +777,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             current.appAccount = resolved
             try vault.write(current)
             resetAccountState(); session = current; account = resolved
+            walletVersion = walletSequence
         }
         let owned = fetched.filter { $0.userId == account?.id && $0.status != "deleted" }
         let starredIDs = Set(starred.map(\.storyId))
@@ -756,6 +797,14 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         profile = ownProfile
         profiles = fetchedProfiles; media = fetchedMedia; committedMediaPaths = [:]
         collections = collected; favorites = starredIDs; isOperator = capabilities?.operator == true
+        coinsEnabled = capabilities?.coinsEnabled == true
+        canVerifyCoinEvidence = coinsEnabled && capabilities?.pickleCoinEvidence == true
+        canPurchaseFarmerItems = coinsEnabled && capabilities?.pickleFarmerShop == true
+        if walletVersion == walletSequence {
+            if let fetchedWallet { pickleWallet = fetchedWallet }
+            else if !coinsEnabled { pickleWallet = nil }
+            walletError = fetchedWalletError
+        }
         unapprovedDraftsEnabled = capabilities?.independentStoryCreation == true && capabilities?.unapprovedDraftsEnabled == true
         canPublishCucumberAppearance = capabilities?.publicCucumberAppearance == true
         canPublishStoryCard = capabilities?.publicStoryCard == true
@@ -771,7 +820,9 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         accountProviders = capabilities?.accountProviders ?? []
         localRecoveryWarning = recoveryWarning
         collectionCounts = counts
-        hasLoadedRemote = true; needsReauthentication = false; loadError = nil; syncWarning = localSignOutWarning ?? deletionWarning ?? metricsWarning
+        hasLoadedRemote = true; needsReauthentication = false; loadError = nil
+        syncWarning = localSignOutWarning ?? deletionWarning
+        collectionMetricsWarning = metricsWarning
         prepareContinuationMetrics()
         if contentChanged { revision += 1 }
     }
@@ -800,7 +851,11 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         }
     }
 
-    private struct OiMutationID: Decodable { let id: UUID }
+    private struct OiMutationID: Decodable {
+        let id: UUID
+        var wallet: OiPickleWallet? = nil
+        var coinReward: Int? = nil
+    }
 
     private func applyReceipt<Value>(_ value: Value, action: String, payload: [String: Any]) {
         loadSequence += 1
@@ -811,6 +866,10 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             if isOperator && ["pending","published","hidden"].contains(story.status) { reviewStories.insert(story, at: 0) }
         }
         if let receipt = value as? OiMutationID {
+            if let wallet = receipt.wallet { applyPickleWallet(wallet) }
+            if action == "collect", receipt.coinReward == 1, receipt.wallet?.accountId == account?.id {
+                coinAward = OiCoinAward(amount: 1)
+            }
             if action == "collect", !collections.contains(where: { $0.storyId == receipt.id }) {
                 collections.insert(OiOwnedStory(storyId: receipt.id, createdAt: nil), at: 0)
             } else if action == "remove_collection" {
@@ -1063,7 +1122,11 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     }
 
     func submitStory(_ story: OiLiveStory, cucumber: OiCucumberPublication? = nil,
-                     card proposedCard: OiStoryCardPublication? = nil, agreesToAIReview: Bool = false) async -> OiLiveStory? {
+                     card proposedCard: OiStoryCardPublication? = nil, agreesToAIReview: Bool = false,
+                     publishForShowcase: Bool = false) async -> OiLiveStory? {
+        guard !publishForShowcase || allowsShowcasePublication else {
+            error = OiServiceError.unavailable.localizedDescription; return nil
+        }
         guard canStartStory else { error = OiServiceError.storyCreationUnavailable.localizedDescription; return nil }
         let card: OiStoryCardPublication?
         do {
@@ -1087,22 +1150,22 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         }
         guard !isBusy, let api, account?.id == story.userId else { return nil }
         let started = generation
-        guard autoStoryModeration else {
+        guard publishForShowcase || autoStoryModeration else {
             error = "지금은 자동검수를 사용할 수 없어요. 초안은 보존돼 있어요. 잠시 후 다시 시도해 주세요."
             return nil
         }
-        guard agreesToAIReview else {
+        guard publishForShowcase || agreesToAIReview else {
             error = "자동검수 안내를 확인하고 다시 요청해 주세요."
             return nil
         }
-        payload["ai_review_consent_version"] = 1
+        if !publishForShowcase { payload["ai_review_consent_version"] = 1 }
         let expectedAppearance = cucumber?.appearance ?? story.cucumberAppearance
         let expectedCard = card?.id ?? story.cardSnapshotId
         let expectedFormat = card?.format ?? story.cardSnapshotFormat ?? 1
         let expectedCoverType = card.map { $0.coverType } ?? story.resolvedCardCoverType
         guard story.hasSupportedCardArtwork else { error = OiServiceError.invalidInput.localizedDescription; return nil }
         func confirmsSubmission(_ result: OiLiveStory) -> Bool {
-            result.id == story.id && result.userId == story.userId && result.status == "draft" &&
+            result.id == story.id && result.userId == story.userId && result.status == (publishForShowcase ? "published" : "draft") &&
             result.revision == story.revision + 1 && result.cucumberAppearance == expectedAppearance &&
             result.cardSnapshotId == expectedCard && (result.cardSnapshotFormat ?? 1) == expectedFormat &&
             result.resolvedCardCoverType == expectedCoverType
@@ -1126,7 +1189,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             return false
         }
         isBusy = true; error = nil
-        reviewingStoryID = story.id
+        if !publishForShowcase { reviewingStoryID = story.id }
         defer {
             if started == generation { isBusy = false; reviewingStoryID = nil }
         }
@@ -1163,34 +1226,48 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             guard started == generation else { throw OiServiceError.accountChanged }
             let receipt: OiLiveStory
             do {
-                let result = try await api.moderateStory(payload, token: accessToken)
-                guard started == generation, result.storyId == story.id else { throw OiServiceError.accountChanged }
-                try applyRejection(result, current: result.story)
-                guard let reviewed = result.story, result.revision == reviewed.revision,
-                      confirmsSubmission(reviewed) else { throw OiServiceError.unavailable }
-                storyModerationResults[story.id] = result
-                receipt = reviewed
+                if publishForShowcase, let showcaseTransaction {
+                    let signedTransaction = try await showcaseTransaction()
+                    try Task.checkCancellation()
+                    guard started == generation else { throw OiServiceError.accountChanged }
+                    receipt = try await api.publishShowcaseStory(payload, transaction: signedTransaction, token: accessToken)
+                } else {
+                    let result = try await api.moderateStory(payload, token: accessToken)
+                    guard started == generation, result.storyId == story.id else { throw OiServiceError.accountChanged }
+                    try applyRejection(result, current: result.story)
+                    guard let reviewed = result.story, result.revision == reviewed.revision,
+                          confirmsSubmission(reviewed) else { throw OiServiceError.unavailable }
+                    storyModerationResults[story.id] = result
+                    receipt = reviewed
+                }
             } catch let failure where (failure as? URLError)?.code == .timedOut
-                || (failure as? URLError)?.code == .networkConnectionLost || isUnavailable(failure) {
+                || (failure as? URLError)?.code == .networkConnectionLost || isUnavailable(failure) || publishForShowcase {
                 let rows = try? await api.rows("oi_stories", query: "id=eq.\(story.id.uuidString)&user_id=eq.\(story.userId.uuidString)",
                                               token: accessToken, as: OiLiveStory.self)
                 try Task.checkCancellation()
-                let results = try? await api.storyModerationResults(token: accessToken)
                 guard started == generation else { throw OiServiceError.accountChanged }
-                guard let result = results?.first(where: { $0.storyId == story.id }) else {
-                    throw OiServiceError.server("검수 결과를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.")
+                if publishForShowcase {
+                    guard let confirmed = rows?.first, confirmsSubmission(confirmed) else { throw failure }
+                    receipt = confirmed
+                } else {
+                    let results = try? await api.storyModerationResults(token: accessToken)
+                    guard started == generation else { throw OiServiceError.accountChanged }
+                    guard let result = results?.first(where: { $0.storyId == story.id }) else {
+                        throw OiServiceError.server("검수 결과를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.")
+                    }
+                    try applyRejection(result, current: rows?.first)
+                    guard let confirmed = rows?.first, confirmsSubmission(confirmed),
+                          result.status == .approved, result.revision == confirmed.revision else {
+                        throw OiServiceError.server("검수 결과를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.")
+                    }
+                    storyModerationResults[story.id] = result
+                    receipt = confirmed
                 }
-                try applyRejection(result, current: rows?.first)
-                guard let confirmed = rows?.first, confirmsSubmission(confirmed),
-                      result.status == .approved, result.revision == confirmed.revision else {
-                    throw OiServiceError.server("검수 결과를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.")
-                }
-                storyModerationResults[story.id] = result
-                receipt = confirmed
             }
             guard started == generation else { throw OiServiceError.accountChanged }
             guard confirmsSubmission(receipt) else { throw OiServiceError.unavailable }
-            applyReceipt(receipt, action: "submit_story", payload: payload)
+            if publishForShowcase { storyModerationResults[story.id] = nil }
+            applyReceipt(receipt, action: publishForShowcase ? "plant_story" : "submit_story", payload: payload)
             await refreshAfterCommit()
             guard started == generation else { return nil }
             return receipt
@@ -1216,7 +1293,13 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             let accessToken = try await token()
             let published: OiLiveStory
             do {
-                published = try await api.plantStory(story, token: accessToken)
+                let receipt = try await api.plantStory(story, token: accessToken)
+                guard started == generation else { throw OiServiceError.accountChanged }
+                if let wallet = receipt.wallet {
+                    guard wallet.accountId == account?.id, wallet.isValid else { throw OiPickleCoinError.unavailable }
+                    applyPickleWallet(wallet)
+                }
+                published = receipt.story
             } catch {
                 let rows = try? await api.rows("oi_stories", query: "id=eq.\(story.id.uuidString)",
                                               token: accessToken, as: OiLiveStory.self)
@@ -1236,6 +1319,148 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             if started == generation { noteAuthenticationFailure(error); self.error = error.localizedDescription }
             return false
         }
+    }
+
+    private func applyPickleWallet(_ wallet: OiPickleWallet) {
+        guard wallet.accountId == account?.id, wallet.isValid else { return }
+        walletSequence += 1
+        pickleWallet = wallet; walletError = nil
+    }
+
+    func clearCoinAward(_ id: UUID) {
+        if coinAward?.id == id { coinAward = nil }
+    }
+
+    func refreshPickleWallet() async {
+        guard coinsEnabled, let api, let owner = account?.id, !needsReauthentication, !isWalletRefreshing else { return }
+        let started = generation
+        walletSequence += 1
+        let sequence = walletSequence
+        isWalletRefreshing = true
+        defer { if started == generation { isWalletRefreshing = false } }
+        do {
+            let wallet = try await api.pickleWallet(token: token())
+            guard started == generation, sequence == walletSequence, wallet.accountId == owner else { return }
+            applyPickleWallet(wallet)
+        } catch {
+            if started == generation, sequence == walletSequence, !Task.isCancelled {
+                noteAuthenticationFailure(error); walletError = error.localizedDescription
+            }
+        }
+    }
+
+    func ownsFarmerItem(_ item: MYFarmerWardrobeItem) -> Bool {
+        pickleWallet?.owns(character: item.character, slot: item.slot.rawValue, item: item.id) == true
+    }
+
+    func purchaseFarmerItem(_ item: MYFarmerWardrobeItem, operation: UUID) async -> Bool {
+        guard canPurchaseFarmerItems, let api, let owner = account?.id, !needsReauthentication, !isBusy else { return false }
+        let started = generation
+        isBusy = true; error = nil
+        defer { if started == generation { isBusy = false } }
+        do {
+            let key = "\(item.character):\(item.slot.rawValue):\(item.id)"
+            let receipt = try await api.purchaseFarmerItem(key, operation: operation, token: token())
+            guard started == generation, receipt.wallet.accountId == owner else { return false }
+            loadSequence += 1
+            applyPickleWallet(receipt.wallet); revision += 1
+            return true
+        } catch {
+            guard started == generation else { return false }
+            noteAuthenticationFailure(error); self.error = error.localizedDescription
+            // A lost purchase receipt must be reconciled before offering another charge.
+            await refreshPickleWallet()
+            let confirmed = started == generation && ownsFarmerItem(item)
+            if confirmed { self.error = nil }
+            return confirmed
+        }
+    }
+
+    func pendingCoinEvidenceUpload() async throws -> OiCoinEvidenceUpload? {
+        guard let owner = account?.id else { throw OiServiceError.signInRequired }
+        let upload = try await drafts.coinEvidenceUpload(owner: owner)
+        guard account?.id == owner else { throw OiServiceError.accountChanged }
+        return upload
+    }
+
+    func coinEvidenceHistory() async throws -> [OiCoinEvidence] {
+        guard let api, let owner = account?.id, !needsReauthentication, canVerifyCoinEvidence else { throw OiServiceError.signInRequired }
+        let started = generation
+        let rows = try await api.rows("oi_evidence_requests", query: "order=created_at.desc,id.asc", token: token(), as: OiCoinEvidence.self)
+        guard generation == started, account?.id == owner else { throw OiServiceError.accountChanged }
+        return rows.filter { $0.userId == owner && ($0.coinVerification == true || $0.status == "approved") }
+    }
+
+    func verifyCoinEvidence(_ upload: OiCoinEvidenceUpload) async throws -> OiCoinEvidenceReceipt {
+        guard canVerifyCoinEvidence, let api, let owner = account?.id, owner == upload.owner,
+              !needsReauthentication, !isBusy else { throw OiServiceError.signInRequired }
+        let started = generation
+        isBusy = true
+        defer { if generation == started { isBusy = false } }
+        var operation = upload
+        try await drafts.saveCoinEvidenceUpload(operation, owner: owner)
+        let accessToken = try await token()
+        let request = try await api.startCoinEvidence(operation.id, token: accessToken)
+        guard generation == started, request.id == operation.id, request.userId == owner,
+              request.coinVerification == true else { throw OiServiceError.accountChanged }
+        operation.storageOwner = request.storageOwnerId ?? owner
+        try await drafts.saveCoinEvidenceUpload(operation, owner: owner)
+        if request.status == "draft" {
+            try await api.upload(bucket: "oi-evidence", path: operation.objectPath, data: operation.data,
+                                 contentType: operation.contentType, token: accessToken)
+            guard started == generation else { throw OiServiceError.accountChanged }
+            let submitted = try await api.submitCoinEvidence(operation.id, path: operation.objectPath, token: accessToken)
+            guard submitted.id == operation.id, submitted.userId == owner, submitted.status == "pending",
+                  submitted.objectPath == operation.objectPath, submitted.coinConsentVersion == 1 else { throw OiServiceError.unavailable }
+        }
+        guard started == generation else { throw OiServiceError.accountChanged }
+        operation.submitted = true
+        try await drafts.saveCoinEvidenceUpload(operation, owner: owner)
+        let receipt = try await analyzeCoinEvidence(operation.id)
+        try await drafts.clearCoinEvidenceUpload(id: operation.id, owner: owner)
+        return receipt
+    }
+
+    func retryCoinEvidence(_ id: UUID) async throws -> OiCoinEvidenceReceipt {
+        guard !isBusy else { throw OiServiceError.unavailable }
+        let started = generation
+        isBusy = true
+        defer { if started == generation { isBusy = false } }
+        guard let owner = account?.id else { throw OiServiceError.signInRequired }
+        let receipt = try await analyzeCoinEvidence(id)
+        guard started == generation, account?.id == owner else { throw OiServiceError.accountChanged }
+        try await drafts.clearCoinEvidenceUpload(id: id, owner: owner)
+        guard started == generation, account?.id == owner else { throw OiServiceError.accountChanged }
+        return receipt
+    }
+
+    func cancelCoinEvidence(_ id: UUID) async throws -> OiCoinEvidenceCancellation {
+        guard canVerifyCoinEvidence, let api, let owner = account?.id,
+              !needsReauthentication, !isBusy else { throw OiServiceError.signInRequired }
+        let started = generation
+        isBusy = true
+        defer { if started == generation { isBusy = false } }
+        let receipt = try await api.cancelCoinEvidence(id, token: token())
+        guard started == generation, receipt.request.userId == owner, receipt.wallet.accountId == owner else {
+            throw OiServiceError.accountChanged
+        }
+        loadSequence += 1
+        applyPickleWallet(receipt.wallet); revision += 1
+        try await drafts.clearCoinEvidenceUpload(id: id, owner: owner)
+        guard started == generation, account?.id == owner else { throw OiServiceError.accountChanged }
+        return receipt
+    }
+
+    private func analyzeCoinEvidence(_ id: UUID) async throws -> OiCoinEvidenceReceipt {
+        guard canVerifyCoinEvidence, let api, let owner = account?.id, !needsReauthentication else { throw OiServiceError.signInRequired }
+        let started = generation
+        let receipt = try await api.analyzeCoinEvidence(id, token: token())
+        guard started == generation, receipt.request.userId == owner, receipt.wallet.accountId == owner else {
+            throw OiServiceError.accountChanged
+        }
+        loadSequence += 1
+        applyPickleWallet(receipt.wallet); revision += 1
+        return receipt
     }
 
     func updateProfile(nickname: String? = nil, schoolID: String? = nil, academicInfo: OiPublicAcademicInfo? = nil) async {
@@ -1662,6 +1887,27 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     }
 }
 
+
+extension OiRemoteStore {
+    /// Count for everyone; `liked` only when an account is signed in.
+    func storyLike(_ story: UUID) async throws -> OiStoryLike? {
+        guard let api else { throw OiServiceError.configuration }
+        let started = generation
+        let accessToken: String? = (account != nil && !needsReauthentication) ? try await token() : nil
+        let rows = try await api.storyLikes([story], token: accessToken)
+        try Task.checkCancellation()
+        guard started == generation else { throw OiServiceError.accountChanged }
+        return rows.first { $0.storyId == story }
+    }
+
+    func setStoryLike(_ story: UUID, liked: Bool) async throws -> OiStoryLike {
+        let row = try await withCardRequestSession { api, token in
+            try await api.setStoryLike(story, liked: liked, token: token)
+        }
+        guard row.storyId == story, row.liked == liked else { throw OiServiceError.conflict }
+        return row
+    }
+}
 
 extension OiRemoteStore: CampusBuildingNoteServing {
     var buildingNoteAccountID: UUID? { account?.id }

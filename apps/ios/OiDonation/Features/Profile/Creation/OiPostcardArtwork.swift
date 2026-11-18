@@ -36,8 +36,10 @@ struct OiPostcardFront<Artwork: View>: View {
                 if let design, design.postcardLayoutVersion == 2 {
                     Rectangle().stroke(Color(white: 0.62), lineWidth: 0.6)
                         .frame(width: 296, height: 436).offset(x: 33, y: 33)
-                    OiPostcardDecorations(stamp: design.postcardStamp, logo: design.effectivePostcardLogo,
-                        logoOpacity: OiCardOpacity.normalized(design.postcardLogoOpacity))
+                    OiPostcardDecorations(stamp: design.postcardStamp, logo: design.effectivePostcardLogo)
+                } else if let design, let stamp = design.postcardStamp, (1...12).contains(stamp) {
+                    // Editing a legacy card adds its required stamp without changing its layout.
+                    OiPostcardDecorations(stamp: stamp, logo: design.effectivePostcardLogo)
                 } else {
                     ForEach(0..<3) { index in
                         Image("OiPostcardWave\(index + 1)").resizable()

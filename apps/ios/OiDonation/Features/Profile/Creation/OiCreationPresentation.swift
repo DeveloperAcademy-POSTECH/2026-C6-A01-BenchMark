@@ -41,7 +41,7 @@ nonisolated enum OiCreationStep: String, CaseIterable, Sendable {
     var previous: Self? {
         switch self {
         case .consent: nil
-        case .story: .consent
+        case .story: nil
         case .photos, .location, .cucumber: .story
         case .card: .cucumber
         }

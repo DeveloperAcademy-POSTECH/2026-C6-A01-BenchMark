@@ -84,6 +84,11 @@ struct RootTabView: View {
             }
         }
         .tint(.black)
+        .environment(\.exploreCampusForCoins, {
+            showingStoryList = false
+            path = NavigationPath()
+        })
+        .overlay(alignment: .top) { OiCoinAwardOverlay(remote: remote) }
         .overlay { plantedSelectionOverlay }
         .alert("이야기가 등록됐어요", isPresented: $showingPlantConfirmation) {
             Button("확인", role: .cancel) {}
@@ -187,7 +192,9 @@ struct RootTabView: View {
             NavigationStack {
                 OiStoryListView(state: .content(selection.items), minimumVisibleSlotCount: 0,
                     reviewState: { _ in .approved }, onPlant: {}, canPlant: true,
-                    selectedPlantStoryID: selection.selectedID, onCancelPlant: {})
+                    selectedPlantStoryID: selection.selectedID, onCancelPlant: {},
+                    portraitAccountID: remote.account?.id,
+                    loadPortrait: { try await remote.cucumberImage($0) })
             }
             .opacity(plantedSelectionOpacity)
             .accessibilityHidden(true)

@@ -1,0 +1,5 @@
+{
+  "imports": {
+    "@apple/app-store-server-library": "npm:@apple/app-store-server-library@3.1.0"
+  }
+}

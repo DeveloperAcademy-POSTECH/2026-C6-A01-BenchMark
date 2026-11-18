@@ -13,6 +13,9 @@ xcrun swiftc -parse-as-library \
   "$IOS_ROOT/OiDonation/Domain/Repositories/StoryRepository.swift" \
   "$IOS_ROOT/OiDonation/Domain/Routing/AppClipLink.swift" \
   "$IOS_ROOT/OiDonation/Data/Networking/OiServiceModels.swift" \
+  "$IOS_ROOT/OiDonation/Data/Networking/OiDraftVault.swift" \
+  "$IOS_ROOT/OiDonation/Features/Profile/Creation/OiCreationPresentation.swift" \
+  "$IOS_ROOT/OiDonation/Features/Profile/Creation/OiSeedCucumberAppearance.swift" \
   "$IOS_ROOT/OiDonation/Features/Campus/CampusStory.swift" \
   "$IOS_ROOT/OiDonation/Features/Campus/CampusStoryExamples.swift" \
   "$IOS_ROOT/OiDonation/Features/Profile/MYLibraryStore.swift" \

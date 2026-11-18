@@ -22,9 +22,17 @@ struct OiCucumberPublication {
         _ = try OiPublishedCucumberImage.decode(portrait, part: .portrait)
         var images: [Part: Data] = [.portrait: portrait]
         for slot in OiPhotoSlot.allCases where slot.supports(look) {
+            if let seed {
+                guard slot == .top, let version = seed.topPhotoVersion else { continue }
+                guard seed.garments.contains(OiSeedCucumberGarment(top: look.top).rawValue),
+                      look.artwork.designs[slot.itemID(in: look)]?.version == version else {
+                    throw OiPhotoDataError.unreadable
+                }
+            }
             guard look.artwork.designs[slot.itemID(in: look)] != nil || slot.fabric(in: look) != nil else { continue }
             let part: Part = slot == .top ? .top : .bottom
-            let atlas = try OiWardrobeAsset.atlas(for: slot, in: look)
+            let atlas = try seed == nil ? OiWardrobeAsset.atlas(for: slot, in: look)
+                : OiSeedGarmentPhotoMaterial.atlas(for: look)
             guard let bytes = UIImage(cgImage: atlas).pngData() else { throw OiPhotoDataError.unreadable }
             _ = try OiPublishedCucumberImage.decode(bytes, part: part)
             images[part] = bytes
@@ -138,7 +146,6 @@ extension OiRemoteStore {
     /// The public AR never reads wardrobe data from the current device's draft vault.
     func cucumberModel(_ reference: OiCucumberArtworkReference) async throws -> Entity {
         let appearance = reference.appearance
-        if let seed = appearance.seed { return try await OiSeedCucumberModel.make(snapshot: seed) }
         guard let top = OiWardrobeLook.Top(rawValue: appearance.top),
               let bottom = OiWardrobeLook.Bottom(rawValue: appearance.bottom) else { throw OiServiceError.invalidInput }
         var look = OiWardrobeLook()
@@ -155,6 +162,9 @@ extension OiRemoteStore {
             textures[part == .top ? .top : .bottom] = cgImage
         }
         try Task.checkCancellation()
+        if let seed = appearance.seed {
+            return try await OiSeedCucumberModel.make(snapshot: seed, look: look, publishedTopTexture: textures[.top])
+        }
         return try await OiWardrobeAsset.loadForPlacement(look, textures: textures)
     }
 }

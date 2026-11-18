@@ -87,6 +87,7 @@ struct OiServiceAPI {
         catch APIError.httpStatus(let status) {
             switch status {
             case 401: throw OiServiceError.signInRequired
+            case 402: throw OiPickleCoinError.insufficient
             case 403: throw OiServiceError.server("현재 계정에서 이 요청을 처리할 수 없어요. 새로고침해 상태를 다시 확인해 주세요.")
             case 404 where path == "rest/v1/rpc/\(Self.resolveCardRequestRPC)": throw OiServiceError.conflict
             case 404 where path == "rest/v1/rpc/\(Self.cardRequestPageRPC)": throw CardRequestPageError.notDeployed
@@ -94,6 +95,8 @@ struct OiServiceAPI {
             case 404 where path == "rest/v1/rpc/oi_operator_audit": throw OiAuditError.notDeployed
             case 404 where path.hasPrefix("rest/v1/rpc/oi_story_continuation") || path == "rest/v1/rpc/oi_my_story_continuation_targets" || path == "rest/v1/rpc/oi_read_story_continuation":
                 throw OiContinuationError.notSupported
+            case 404 where path == "rest/v1/rpc/oi_story_likes" || path == "rest/v1/rpc/oi_set_story_like":
+                throw OiStoryLikeError.notSupported
             case 404 where OiNFCTagError.rpcPaths.contains(path): throw OiNFCTagError.notDeployed
             case 404 where path.contains("building_note"): throw CampusBuildingNoteError.notDeployed
             case 409: throw OiServiceError.conflict
@@ -256,10 +259,16 @@ struct OiServiceAPI {
         return try decoder.decode([OiStoryModerationResult].self, from: data)
     }
 
-    func plantStory(_ story: OiLiveStory, token: String) async throws -> OiLiveStory {
+    func publishShowcaseStory(_ submission: [String: Any], transaction: String, token: String) async throws -> OiLiveStory {
+        let body = try JSONSerialization.data(withJSONObject: ["submission": submission, "app_transaction": transaction])
+        let data = try await request("functions/v1/publish-showcase-story", method: "POST", token: token, body: body)
+        return try decoder.decode(OiLiveStory.self, from: data)
+    }
+
+    func plantStory(_ story: OiLiveStory, token: String) async throws -> OiPlantStoryReceipt {
         let body = try JSONSerialization.data(withJSONObject: ["p_story": story.id.uuidString, "p_revision": story.revision])
         let data = try await request("rest/v1/rpc/oi_plant_story", method: "POST", token: token, body: body)
-        return try decoder.decode(OiLiveStory.self, from: data)
+        return try decoder.decode(OiPlantStoryReceipt.self, from: data)
     }
 
     func cardRequests(token: String) async throws -> [OiCardRequest] {

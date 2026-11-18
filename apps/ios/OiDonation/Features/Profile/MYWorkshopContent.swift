@@ -20,7 +20,7 @@ struct MYWorkshopContent: View {
     let tab: MYWorkshopTab
     let demo: MYLibraryStore
     var remote: OiRemoteStore?
-    var emptyTopPadding: CGFloat = 173
+    var emptyTopPadding: CGFloat = 175
     var onExploreMap: () -> Void = {}
     var storyRepository: any StoryRepository = AppContainer.pilot.storyRepository
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -48,8 +48,8 @@ struct MYWorkshopContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if tab == .collected, remote?.account != nil, !demo.cards.isEmpty { sortChoices.padding(.bottom, 7) }
-            if let remote, remote.loadError != nil || remote.syncWarning != nil || remote.needsReauthentication {
-                OiConnectionStatus(remote: remote, showsInitialProgress: false)
+            if let remote, remote.syncWarning != nil || remote.needsReauthentication {
+                OiConnectionStatus(remote: remote, showsInitialProgress: false, showsReadFailures: false)
                     .padding(.bottom, 16)
             }
             if remote?.account == nil || remote?.needsReauthentication == true {
@@ -60,12 +60,10 @@ struct MYWorkshopContent: View {
                         Button(action: onExploreMap) { emptyActionLabel("다른 오이 구경하기 →") }
                     })
                 })
-            } else if let remote, !remote.hasLoadedRemote {
-                if remote.loadError == nil || remote.isRefreshing {
-                    ProgressView().frame(maxWidth: .infinity).padding(.vertical, 40)
-                        .accessibilityLabel("MY 목록을 불러오는 중")
-                        .accessibilityIdentifier("my.v4.loading")
-                }
+            } else if let remote, !remote.hasLoadedRemote, remote.loadError == nil || remote.isRefreshing {
+                ProgressView().frame(maxWidth: .infinity).padding(.vertical, 40)
+                    .accessibilityLabel("MY 목록을 불러오는 중")
+                    .accessibilityIdentifier("my.v4.loading")
             } else if tab == .authored {
                 authoredContent
             } else {
@@ -129,12 +127,10 @@ struct MYWorkshopContent: View {
 
     @ViewBuilder private var authoredContent: some View {
         if authoredStories.isEmpty {
-            if remote?.loadError == nil && remote?.needsReauthentication != true {
-                emptyState(for: .authored) {
-                    if let remote {
-                        NavigationLink { OiStoryListScreen(remote: remote) } label: {
-                            emptyActionLabel("오이 만들기 →")
-                        }
+            emptyState(for: .authored) {
+                if let remote {
+                    NavigationLink { OiStoryListScreen(remote: remote) } label: {
+                        emptyActionLabel("오이 만들기 →")
                     }
                 }
             }
@@ -155,14 +151,12 @@ struct MYWorkshopContent: View {
             Text(error).font(.caption).foregroundStyle(.secondary).padding(.bottom, 12)
         }
         if cards.isEmpty {
-            if remote?.loadError == nil && remote?.needsReauthentication != true {
-                if demo.pinnedOnly, !demo.cards.isEmpty {
-                    ContentUnavailableView("고정한 카드가 없어요", systemImage: "pin",
-                        description: Text("카드 확대 화면에서 카드를 고정할 수 있어요."))
-                } else if demo.clipCollection.persistenceError == nil {
-                    emptyState(for: .collected) {
-                        Button(action: onExploreMap) { emptyActionLabel("수집하러 가기 →") }
-                    }
+            if demo.pinnedOnly, !demo.cards.isEmpty {
+                ContentUnavailableView("고정한 카드가 없어요", systemImage: "pin",
+                    description: Text("카드 확대 화면에서 카드를 고정할 수 있어요."))
+            } else if demo.clipCollection.persistenceError == nil {
+                emptyState(for: .collected) {
+                    Button(action: onExploreMap) { emptyActionLabel("수집하러 가기 →") }
                 }
             }
         } else {
@@ -181,24 +175,35 @@ struct MYWorkshopContent: View {
         case .connected: "이어진 기부가 없습니다"
         case .collected: "수집한 기부가 없습니다"
         }
-        return VStack(spacing: 23) {
+        return VStack(spacing: 27) {
             Text(message)
                 .font(CampusStyle.medium(22)).tracking(0.44)
                 .foregroundStyle(Color("OiGreen"))
                 .multilineTextAlignment(.center)
+                .frame(width: dynamicTypeSize <= .large ? 209 : nil,
+                       height: dynamicTypeSize <= .large ? 20 : nil)
                 .accessibilityAddTraits(.isHeader)
             action().buttonStyle(.plain)
+                .padding(.trailing, tab == .connected ? 1 : 0)
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, emptyTopPadding)
+        .padding(.trailing, 1)
+        .padding(.top, max(0, emptyTopPadding - (tab == .collected ? 1 : 0)))
         .accessibilityIdentifier("my.v4.\(tab == .authored ? "authored" : tab == .connected ? "connected" : "collected").empty")
     }
 
     private func emptyActionLabel(_ title: String) -> some View {
-        Text(title)
+        let textWidth: CGFloat = switch tab {
+        case .authored: 113
+        case .connected: 172
+        case .collected: 131
+        }
+        return Text(title)
             .font(CampusStyle.body(20)).tracking(0.4)
             .foregroundStyle(.black).multilineTextAlignment(.center)
-            .padding(.horizontal, 30).padding(.vertical, 10)
+            .frame(width: dynamicTypeSize <= .large ? textWidth : nil,
+                   height: dynamicTypeSize <= .large ? 20 : nil)
+            .padding(.horizontal, 30).padding(.vertical, 15)
             .frame(minHeight: 50)
             .background(.white, in: Capsule())
     }
@@ -342,12 +347,15 @@ struct MYWorkshopCardArtwork: View {
                     .allowsHitTesting(false)
                 Group {
                     if let path = card.cucumberPortraitPath {
-                        OiCucumberPortraitImage(path: path) { path in
+                        OiCucumberPortraitImage(path: path, requiresTransparentBackground: true) { path in
                             guard let remote else { throw OiServiceError.unavailable }
                             return try await remote.cucumberImage(path)
                         }
                     } else {
-                        Image(card.image).resizable().scaledToFit()
+                        OiCucumberPortraitImage(path: "asset/\(card.image)", requiresTransparentBackground: true) { _ in
+                            guard let image = UIImage(named: card.image) else { throw OiCharacterPortraitCutout.Failure.unreadable }
+                            return image
+                        }
                     }
                 }
                 .frame(width: 43 * scale, height: 85 * scale)

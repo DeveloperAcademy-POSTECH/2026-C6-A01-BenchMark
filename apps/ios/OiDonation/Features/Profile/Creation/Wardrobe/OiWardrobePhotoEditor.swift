@@ -10,6 +10,8 @@ struct OiWardrobePhotoEditor: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var phase
     let scene: OiWardrobeScene
+    private let seed: OiSeedCucumberSnapshot?
+    private let photoResource: String?
     @State private var draft = OiPhotoDraft()
     @State private var selection: [PHPickerResult] = []
     @State private var importID = UUID()
@@ -32,11 +34,14 @@ struct OiWardrobePhotoEditor: View {
     @State private var guideEdges: [OiPhotoSide: [[[Double]]]] = [:]
 
     private var usesCostumeFrame: Bool { look.costume != nil }
+    private var preservesMaterial: Bool { seed != nil || slot.preservesOriginalMaterial(in: look) }
 
     init(slot: OiPhotoSlot, look: OiWardrobeLook, scene: OiWardrobeScene, onClose: (() -> Void)? = nil,
+         seed: OiSeedCucumberSnapshot? = nil, photoResource: String? = nil,
          onSave: @escaping (OiWardrobeArtwork) -> Void) {
         self.slot = slot; self.look = look; self.onSave = onSave
         self.scene = scene; self.onClose = onClose
+        self.seed = seed; self.photoResource = photoResource
         self.layout = try? OiPhotoPrintLayout.load(for: slot, in: look)
         if let design = look.artwork.designs[slot.itemID(in: look)] {
             do {
@@ -91,7 +96,7 @@ struct OiWardrobePhotoEditor: View {
             }
             if !restoreFailed && (scene.error != nil || scene.photoPreviewError != nil) {
                 Button("미리보기 다시 시도") {
-                    if scene.error != nil { scene.update(look, retry: true) }
+                    if scene.error != nil { scene.update(look, retry: true, seed: seed) }
                     requestPreview()
                 }.disabled(scene.loading || renderTask != nil)
             }
@@ -239,7 +244,7 @@ struct OiWardrobePhotoEditor: View {
 
     private func loadUVGuide() {
         for face in OiPhotoSide.allCases {
-            let name = slot.resource(in: look) + "-" + face.rawValue
+            let name = (photoResource ?? slot.resource(in: look)) + "-" + face.rawValue
             if let url = Bundle.main.url(forResource: name, withExtension: "json", subdirectory: "WardrobePhotoUV")
                 ?? Bundle.main.url(forResource: name, withExtension: "json"),
                let data = try? Data(contentsOf: url),
@@ -395,7 +400,7 @@ struct OiWardrobePhotoEditor: View {
             defer { if renderGeneration == generation { renderTask = nil } }
             while renderPending && !Task.isCancelled {
                 renderPending = false
-                let image = OiPhotoRenderer.atlas(layers: draft.layers, assets: draft.assets, panelSize: 512, color: slot.color(in: look), fabric: slot.fabric(in: look), transparent: slot.preservesOriginalMaterial(in: look), layout: layout)
+                let image = OiPhotoRenderer.atlas(layers: draft.layers, assets: draft.assets, panelSize: 512, color: slot.color(in: look), fabric: slot.fabric(in: look), transparent: preservesMaterial, layout: layout)
                 if let cg = image.cgImage { await scene.setPhotoPreview(cg) }
                 try? await Task.sleep(for: .milliseconds(50))
             }

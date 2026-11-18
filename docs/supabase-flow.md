@@ -206,6 +206,14 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project app
 
 ## 이어진 이야기와 앱 내 알림 — #418
 
+### 2026-11-18 수신 목록 트랜잭션 모드 수정 — #499
+
+운영 로그에서 수신 목록의 HTTP 405 / SQLSTATE 25006을 확인했다. STABLE이던 `oi_story_continuations`가 READ ONLY 트랜잭션에서 `oi_actor()`의 계정 멤버십 `FOR SHARE` 잠금을 호출한 것이 원인이다. `20261118081159_oi_continuation_rpc_transaction_mode.sql`은 본문·속성 drift를 확인하고 이 RPC만 VOLATILE로 변경해 POST를 READ WRITE로 실행한다. 사용자 승인 후 운영 52gibu에 Supabase MCP `apply_migration`으로 적용했으며 저장소 파일명은 운영 이력 버전 `20261118081159`와 일치한다. 적용 전후 `pg_proc`에서 RPC의 `provolatile`만 `s`→`v`로 변경됐고 `oi_actor()`의 전체 행은 같았다. 본문·권한·계정 잠금·검색 경로는 유지한다.
+
+운영의 기존 유효 계정 멤버와 transaction-local claims·인증 역할로 수신 목록 SQL 호출의 응답 형식을 확인한 뒤 `ROLLBACK`했다. 사용자 데이터나 읽음 기록은 변경하지 않았다. 실제 익명 HTTP POST의 미존재 부모 조회도 HTTP 200 / 빈 목록으로 성공했다. 최종 파일명으로 실행한 로컬 양쪽 스키마 이력의 전체 DB 회귀 검사도 통과했다. 실제 사용자 JWT의 HTTP 수신 목록·실기기 검증은 미완료다.
+
+같은 날 사용자 결정에 따라 MY·다른 이용자의 MY·이야기 목록·농장·검색·알림·카드 요청·지도 구역 목록·건물 쪽지의 조회 실패에는 각 화면의 기존 빈 상태를 재사용한다. 내부 실패·미확정 개수·캐시 행은 유지하며 인증·저장·삭제·요청 수락 및 거절의 안전장치는 보존한다. 별도 조회 오류 UI를 제거하는 앱 변경의 최종 통합 검사 41개와 마지막 이어진 기부 회귀 13개가 통과했다. 새 앱 배포가 필요하다. [원인·운영 적용·화면 정책과 검증 상태](../apps/ios/docs/continuation-failure-499.md).
+
 2026-11-17 사용자 합의, 작업 브랜치 `feat/#418-story-continuations`. PR #415의 선택 UI를 통합한 서버·앱 후속이다. **PR #425를 develop에 병합하고 2026-11-17 운영 52gibu에 적용했다.** 원래 mutator delegate 해시·적용 SQL SHA256 일치와 가상 자료 롤백 검증을 확인했다.
 
 ### 저장·검수·개인정보 계약
@@ -273,3 +281,19 @@ PR #425 적용 후 추가 점검에서 기존 `oi_hide_deleting_stories` RLS와 
 - STEP 3에서 편집한 얼굴·몸체와 의상 선택은 기존 공개 오이 외형의 선택적 `seed` 필드로 전달한다. 동일한 3D 모델을 카드용 이미지와 공개 지도·촬영에 사용한다. 얼굴 수치와 앱 번들 의상 이름을 서버에서 검증하고, 등록되는 이미지는 기존 승인 스냅샷 경로를 사용한다. 기존 외형 레코드와 앱의 읽기 계약을 유지한다.
 - 지도 알림은 받은 대기 요청을 `oi_card_request_page`에서 100개 단위로 읽는다. 날짜 정밀도를 보존한 서버 커서와 UUID를 함께 쓰며, 새 RPC가 아직 없는 환경은 기존 조회를 사용한다. 기존 요청의 수락·거절과 보관 정책을 유지한다.
 - 적용은 격리 DB 검증 후 마이그레이션 두 개를 먼저 적용하고 새 앱을 배포하는 순서다. 운영 DB와 배포 환경 변경은 이번 PR에 포함되지 않는다.
+
+### STEP 3 상의 사진 — #490
+
+- `20261118055730_oi_seed_top_photo_appearance.sql`은 기존 private 외형 검증 함수만 확장한다. 반팔티·후드티·가디건·포스텍 과잠을 착용한 seed의 `topTexture=true`와 선택적 `seed.topPhotoVersion` UUID, `seed.topColor` 정수(0–16777215)를 함께 검증한다. 상의 ID와 색상은 기존 외형 필드와 같아야 한다. 사진이 없는 구형 seed JSON은 그대로 허용한다.
+- 원본 사진·편집 레이어는 기기의 계정별 초안에만 남고 공개 제출에는 기존 버전별 `top.png` 합성 아틀라스만 포함한다. seed 내부의 원본 데이터·알 수 없는 키, 지원하지 않는 완성 의상·미착용 상의의 사진, 하의 텍스처, 누락된 합성 파일은 계속 거절한다. 기존 Storage 경로·비공개 정책·AI 검수 및 공개 조건은 바꾸지 않는다.
+- migration은 알려진 이전/새 함수 본문만 허용하고 알 수 없는 drift에서는 전체 롤백한다. 격리 DB의 canonical/운영 호환 이력에서 상의 네 종류·구형 외형·UUID/색/상의 불일치·원본 주입·파일 누락·private 권한·drift 롤백과 기존 전체 회귀 검사를 통과했다.
+- **배포 순서: 이 migration 적용 → 새 앱 배포.** 이전 서버는 seed 상의 사진 제출을 거절한다. 운영 DB 적용과 실기기 사진 선택·공개 확인은 이 로컬 검증에 포함하지 않는다.
+
+## 오이 좋아요 — #504
+
+- 마이그레이션 `20261118070000_oi_story_likes.sql`: 비공개 `benchmark_private.oi_story_likes(story_id, account_id)`의 복합 기본키가 계정당 한 번을 보장한다. 이야기 삭제·계정 삭제 시 함께 삭제된다. 직접 권한은 열지 않는다.
+- `oi_story_likes(p_stories uuid[])`(anon·authenticated, 최대 200개): 공개 중이고 작성자 제한이 없는 이야기의 개수와 로그인 계정의 `liked`만 반환한다. 숨김·삭제 이야기는 행을 반환하지 않는다.
+- `oi_set_story_like(p_story, p_liked)`(authenticated): 대표 계정 기준 멱등 설정·해제이며 비공개 이야기는 `22023`으로 거절한다. 재시도·연타해도 한 번만 집계한다.
+- 앱은 두 RPC가 404이면 `OiStoryLikeError.notSupported`로 버튼을 숨기므로 DB → 새 앱 순서가 아니어도 안전하다. `oi_capabilities`는 변경하지 않았다.
+- 한계: 차단한 작성자의 이야기 개수 필터는 적용하지 않는다. 계정 통합은 통합되는 계정의 좋아요를 옮기지 않고 삭제한다.
+- 검증: `supabase/tests/oi-story-likes.sql`(두 DB 이력, `run-account-merge-db-checks.py`)와 `OiStoryLikeTests`. 운영 DB 적용·실기기 좋아요 확인은 PR 리뷰 이후 별도다.

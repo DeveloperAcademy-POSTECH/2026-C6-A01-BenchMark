@@ -33,6 +33,60 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         ]
     }
 
+    func testPickleCoinScreenCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        let previousHandler = OiStoreURLProtocol.handle
+        let backend = OiTestBackend()
+        backend.configure { $0.farmerOutfitEnabled = true }
+        backend.install()
+        let baseHandler = OiStoreURLProtocol.handle
+        OiStoreURLProtocol.handle = { request, client in
+            let path = request.url?.path ?? ""
+            if path.hasSuffix("/rpc/oi_capabilities") {
+                let value: [String: Any] = ["operator": false, "coins_enabled": true,
+                    "pickle_coin_evidence": true, "pickle_farmer_shop": true,
+                    "independent_story_creation": true, "farmer_outfit_enabled": true,
+                    "auto_story_moderation": true]
+                client.respond(200, (try? JSONSerialization.data(withJSONObject: value)) ?? Data())
+            } else if path.hasSuffix("/rpc/oi_pickle_wallet") {
+                let value: [String: Any] = ["account_id": OiTestBackend.owner.uuidString,
+                    "balance": 33, "unlimited": false, "plant_cost": 30, "outfit_cost": 3,
+                    "owned_items": ["kyu:set:legacy-classic", "kyu:set:legacy-casual"]]
+                client.respond(200, (try? JSONSerialization.data(withJSONObject: value)) ?? Data())
+            } else if path.hasSuffix("/oi_evidence_requests") {
+                client.respond(200, Data("[]".utf8))
+            } else { baseHandler?(request, client) }
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PickleCoins-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            session.invalidateAndCancel()
+            OiStoreURLProtocol.handle = previousHandler
+            fixture.defaults.removePersistentDomain(forName: fixture.name)
+            if FileManager.default.fileExists(atPath: directory.path) {
+                XCTAssertNoThrow(try FileManager.default.removeItem(at: directory))
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+        }
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let remote = OiRemoteStore(api: api, drafts: OiDraftVault(directory: directory), vault: OiMemorySession())
+        await remote.start()
+        XCTAssertNil(remote.loadError)
+        XCTAssertEqual(remote.pickleWallet?.balance, 33)
+        XCTAssertTrue(remote.canVerifyCoinEvidence)
+        for variant in variants {
+            try await capture(NavigationStack { OiPickleWalletView(remote: remote) },
+                name: "pickle-wallet", variant: variant, defaults: fixture.defaults, attach: true)
+            try await capture(NavigationStack { OiCoinEvidenceView(remote: remote) },
+                name: "pickle-evidence-empty", variant: variant, defaults: fixture.defaults, attach: true)
+            try await capture(NavigationStack { MYFarmerCustomizationView(remote: remote) },
+                name: "pickle-farmer-shop", variant: variant, defaults: fixture.defaults, attach: true)
+        }
+    }
+
     func testCampusMapPolishCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
@@ -77,6 +131,20 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testPostcardMotionCompletionCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let figure = try XCTUnwrap(UIImage(named: "OiCatsPortrait"))
+        for variant in variants.prefix(3) {
+            let view = OiStoryCompletionView(draft: Self.draft, customization: Self.customization,
+                donorName: "가상 작성자", location: "포항공과대학교 지곡회관 옆 연못길",
+                onDone: {}, initialFigure: figure)
+                .environment(\.scenePhase, .active)
+            try await capture(view, name: "postcard-motion-completion", variant: variant,
+                              defaults: fixture.defaults, attach: true)
+        }
+    }
+
     func testPostcardRefreshCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
@@ -105,6 +173,192 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testCustomizationStampDefaultsPersistAndRepair() throws {
+        for _ in 0..<12 {
+            var value = OiDraftCustomization()
+            value.prepareCardForEditing()
+            let first = try XCTUnwrap(value.card?.postcardStamp)
+            XCTAssertTrue((1...12).contains(first))
+            XCTAssertEqual(value.card?.initialPostcardStamp, first)
+            value.prepareCardForEditing()
+            XCTAssertEqual(value.card?.postcardStamp, first, "Re-entering the editor must retain its first random choice")
+            value = try JSONDecoder().decode(OiDraftCustomization.self, from: JSONEncoder().encode(value))
+            value.prepareCardForEditing()
+            XCTAssertEqual(value.card?.postcardStamp, first, "Saving and reopening must not reroll the stamp")
+            value.card?.postcardStamp = first == 12 ? 1 : first + 1
+            value.resetCardAppearance()
+            XCTAssertEqual(value.card?.postcardStamp, first, "Reset restores the initial mandatory stamp")
+        }
+        for saved in [Int?.none, 0, 13] {
+            var legacy = OiDraftCustomization()
+            legacy.card = OiCardDesign()
+            legacy.card?.postcardStamp = saved
+            legacy.prepareCardForEditing()
+            XCTAssertTrue((1...12).contains(try XCTUnwrap(legacy.card?.postcardStamp)))
+            XCTAssertEqual(legacy.card?.initialPostcardStamp, legacy.card?.postcardStamp)
+        }
+        var selected = OiDraftCustomization()
+        selected.card = OiCardDesign()
+        selected.card?.postcardStamp = 9
+        selected.prepareCardForEditing()
+        XCTAssertEqual(selected.card?.postcardStamp, 9, "An existing valid choice is already the draft's initial stamp")
+        XCTAssertEqual(selected.card?.initialPostcardStamp, 9)
+    }
+
+    func testCustomizationStampRetapKeepsOneSelection() throws {
+        var value = OiDraftCustomization()
+        value.prepareCardForEditing()
+        let initial = try XCTUnwrap(value.card?.postcardStamp)
+        let selection = initial == 12 ? 1 : initial + 1
+        let editor = OiCardCustomizationStep(draft: .constant(Self.draft),
+            customization: Binding(get: { value }, set: { value = $0 }), onContinue: nil)
+        editor.selectStamp(selection)
+        editor.selectStamp(selection)
+        XCTAssertEqual(value.card?.postcardStamp, selection, "A selected stamp cannot be deselected")
+        XCTAssertEqual(value.card?.initialPostcardStamp, initial)
+        value.resetCardAppearance()
+        XCTAssertEqual(value.card?.postcardStamp, initial)
+    }
+
+    func testCustomizationCardResetKeepsContentAndRestoresDefaults() throws {
+        var value = OiDraftCustomization()
+        value.prepareCardForEditing()
+        let initial = try XCTUnwrap(value.card?.postcardStamp)
+        let photo = try XCTUnwrap(UIImage(named: "OiCatsPortrait")?.pngData())
+        let date = Date(timeIntervalSince1970: 1_799_779_200)
+        value.showsCharacter = false
+        value.connectedStoryID = UUID().uuidString
+        value.seedAppearance = editedSeedCucumber3DAppearance()
+        value.card?.postcardBackground = .init(color: 0xFF0000, fill: .gradient,
+            middleColor: 0x00FF00, endColor: 0x0000FF, authorMode: "academic", backLogoColor: 0x246BA0)
+        value.card?.backgroundPhoto = photo
+        value.card?.postcardAcademicAuthor = "컴퓨터공학과 23학번"
+        value.card?.postcardDate = date
+        value.card?.photoMonochrome = true
+        value.card?.caption = "보관 중인 내용"
+        value.card?.anonymous = true
+        value.card?.postcardLogo = "black"
+        value.card?.postcardStamp = initial == 12 ? 1 : initial + 1
+        value.card?.postcardLogoOpacity = 0.2
+        value.card?.characterBackdropEnabled = true
+        value.card?.characterBackdropColor = 0x123456
+        value.card?.characterBackdropOpacity = 0.4
+        value.card?.characterPlacement = .init(x: 0.2, y: 0.8, scale: 2)
+        value.card?.backgroundPlacement = .init(x: 0.8, y: 0.2, scale: 3)
+        value.card?.characterOrientation = .init(yaw: 1, pitch: 0.5)
+        value.card?.portraitPNG = photo
+        value.card?.portraitKey = "previous-angle"
+        let before = value
+        value.resetCardAppearance()
+        let card = try XCTUnwrap(value.card)
+        XCTAssertEqual(card.postcardBackground?.color, 0xD9D9D9)
+        XCTAssertEqual(card.postcardBackground?.fill, .solid)
+        XCTAssertNil(card.postcardBackground?.preset)
+        XCTAssertNil(card.postcardBackground?.middleColor)
+        XCTAssertNil(card.postcardBackground?.endColor)
+        XCTAssertNil(card.postcardBackground?.backLogoColor)
+        XCTAssertEqual(card.postcardLayoutVersion, 2)
+        XCTAssertEqual(card.postcardStamp, initial)
+        XCTAssertNil(card.postcardLogo)
+        XCTAssertNil(card.postcardLogoOpacity)
+        XCTAssertEqual(card.characterPlacement, OiCardPlacement())
+        XCTAssertEqual(card.backgroundPlacement, OiCardPlacement())
+        XCTAssertEqual(card.characterOrientation ?? OiCardOrientation(), OiCardOrientation())
+        XCTAssertFalse(card.usesCharacterBackdrop)
+        XCTAssertNil(card.characterBackdropColor)
+        XCTAssertNil(card.characterBackdropOpacity)
+        XCTAssertNil(card.portraitPNG)
+        XCTAssertNil(card.portraitKey)
+        XCTAssertEqual(card.backgroundPhoto, photo, "The content tab's chosen image must survive presentation reset")
+        XCTAssertEqual(card.postcardBackground?.authorMode, "academic")
+        XCTAssertEqual(card.postcardAcademicAuthor, "컴퓨터공학과 23학번")
+        XCTAssertEqual(card.postcardDate, date)
+        XCTAssertEqual(card.photoMonochrome, true)
+        XCTAssertEqual(card.caption, "보관 중인 내용")
+        XCTAssertTrue(card.anonymous)
+        XCTAssertFalse(value.showsCharacter)
+        XCTAssertEqual(value.seedAppearance, before.seedAppearance)
+        XCTAssertEqual(value.connectedStoryID, before.connectedStoryID)
+        let once = value
+        value.resetCardAppearance()
+        XCTAssertEqual(value, once, "Repeated reset must not reroll or lose preserved content")
+    }
+
+    func testCustomizationCucumberResetClearsAllOutfitsAndKeepsCard() throws {
+        var value = OiDraftCustomization()
+        value.prepareCardForEditing()
+        value.seedAppearance = editedSeedCucumber3DAppearance()
+        value.seedWhiteTshirt = true
+        value.seedLongPants = true
+        value.seedTop = "hoodie"
+        value.seedBottom = "shorts"
+        value.seedSneakers = true
+        value.seedSet = "raincoat"
+        value.seedProposal = 1
+        value.wardrobe = OiWardrobeLook()
+        value.garmentColors = ["상의": 0xFF0000, "하의": 0x00FF00, "신발": 0x0000FF]
+        value.connectedStoryID = UUID().uuidString
+        value.connectedStorySelectionEdited = true
+        value.showsCharacter = false
+        value.card?.backgroundPhoto = try XCTUnwrap(UIImage(named: "OiCatsPortrait")?.pngData())
+        value.card?.postcardLogo = "black"
+        value.card?.postcardBackground = .init(color: 0x246BA0, fill: .solid, authorMode: "anonymous")
+        value.card?.characterOrientation = .init(yaw: 1, pitch: 0.2)
+        value.card?.portraitPNG = Data([1, 2, 3])
+        value.card?.portraitKey = "previous-outfit"
+        var expected = value.card
+        expected?.portraitPNG = nil
+        expected?.portraitKey = nil
+        let link = value.connectedStoryID
+        value.resetCucumberAppearance()
+        XCTAssertEqual(value.seedAppearance ?? OiSeedCucumberAppearance(), OiSeedCucumberAppearance())
+        XCTAssertNotNil(value.seedSnapshot, "The default cucumber must remain the card's portrait source")
+        XCTAssertEqual(value.seedSnapshot?.appearance, OiSeedCucumberAppearance())
+        XCTAssertTrue(value.seedGarments.isEmpty)
+        XCTAssertNil(value.seedWhiteTshirt)
+        XCTAssertNil(value.seedLongPants)
+        XCTAssertNil(value.seedTop)
+        XCTAssertNil(value.seedBottom)
+        XCTAssertNil(value.seedSneakers)
+        XCTAssertNil(value.seedSet)
+        XCTAssertNil(value.seedProposal)
+        XCTAssertNil(value.wardrobe)
+        XCTAssertTrue(value.garmentColors.isEmpty)
+        XCTAssertEqual(value.card, expected, "Only the derived cucumber portrait may change in the card")
+        XCTAssertFalse(value.showsCharacter)
+        XCTAssertEqual(value.connectedStoryID, link)
+        XCTAssertEqual(value.connectedStorySelectionEdited, true)
+        let once = value
+        value.resetCucumberAppearance()
+        XCTAssertEqual(value, once)
+    }
+
+    func testCustomizationResetButtonsAndLogoCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        var value = OiDraftCustomization()
+        value.prepareCardForEditing()
+        value.card?.postcardLogo = "black"
+        value.card?.postcardLogoOpacity = 0
+        value.card?.postcardDate = Date(timeIntervalSince1970: 1_799_779_200)
+        for variant in variants.prefix(3) {
+            for title in ["로고", "스탬프"] {
+                let screen = CreationCapturePage(step: 4) {
+                    OiCardCustomizationStep(draft: .constant(Self.draft), customization: .constant(value),
+                        donorName: "가상 작성자", onContinue: {}).tabForTest(title)
+                }
+                try await capture(screen, name: "customization-reset-card-\(title)", variant: variant,
+                    defaults: fixture.defaults, attach: true)
+            }
+            let cucumber = CreationCapturePage(step: 3) {
+                OiCucumberCustomizationStep(customization: .constant(.init()),
+                    cucumberName: .constant("검증용오이"), onContinue: {})
+            }.environment(\.scenePhase, .active)
+            try await capture(cucumber, name: "customization-reset-cucumber", variant: variant,
+                defaults: fixture.defaults, attach: true)
+        }
+    }
+
     func testPostcardRefreshPersistenceAndPrivacy() throws {
         var value = Self.customization
         value.showsCharacter = false
@@ -127,7 +381,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(metadata.preset, "lime")
         XCTAssertEqual(metadata.authorMode, "anonymous")
         XCTAssertFalse(String(decoding: try JSONEncoder().encode(metadata), as: UTF8.self).contains("비공개 이름"))
-        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "다른 계정 이름", tags: [Self.draft.emotion, Self.draft.theme])
+        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "다른 계정 이름", tags: Self.draft.postcardTags)
         XCTAssertEqual(anonymous.parts[.back], restored.parts[.back], "Reopening a remote card must retain anonymous attribution")
         XCTAssertEqual(OiPostcardAuthor.text(mode: "academic", name: "비공개 이름", academic: ""), "익명")
         XCTAssertEqual(OiPostcardAuthor.text(mode: "academic", name: "이름", academic: "컴퓨터공학과 23학번"), "컴퓨터공학과 23학번")
@@ -361,7 +615,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let front = try XCTUnwrap(UIImage(data: publication.png))
         OiPostcardBackgroundMetadata.remember(png: publication.png, image: front)
         XCTAssertEqual(OiPostcardBackgroundMetadata.style(for: front)?.backLogoColor, 0x246BA0)
-        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "가상 작성자", tags: [Self.draft.emotion, Self.draft.theme])
+        let restored = try OiCardImageExport.publication(front: front, message: Self.draft.body, author: "가상 작성자", tags: Self.draft.postcardTags)
         XCTAssertEqual(publication.parts[.back], restored.parts[.back], "A reused server front must retain the selected back logo color")
         XCTAssertEqual(publication.parts.count, 4)
         var invalid = style; invalid.backLogoColor = 0x1000000
@@ -468,12 +722,12 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
         for character in [false, true] {
             value.showsCharacter = character
-            // An unset logo color means white. Use transparent ink for the unmarked reference.
-            value.card?.postcardLogoOpacity = 0
-            let original = try renderedBitmap(render(value), size: CGSize(width: 362, height: 502))
-            let before = try XCTUnwrap(original.data).bindMemory(to: UInt8.self, capacity: 362 * 502 * 4)
-            value.card?.postcardLogoOpacity = 1
             for logo in ["white", "black"] {
+                // Compare opposite ink colors; neither can hide the logo through legacy alpha.
+                value.card?.postcardLogo = logo == "white" ? "black" : "white"
+                value.card?.postcardLogoOpacity = 0
+                let original = try renderedBitmap(render(value), size: CGSize(width: 362, height: 502))
+                let before = try XCTUnwrap(original.data).bindMemory(to: UInt8.self, capacity: 362 * 502 * 4)
                 value.card?.postcardLogo = logo
                 let png = try render(value)
                 let result = try renderedBitmap(png, size: CGSize(width: 362, height: 502))
@@ -1100,13 +1354,14 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         value.card?.postcardBackground?.middleOpacity = 0.5
         let half = try sample(render(value))
         for shift in [16, 8, 0] { XCTAssertEqual(Double((half >> shift) & 255), 102, accuracy: 2) }
-        value.card?.postcardLogoOpacity = 0
-        let plain = try render(value).pngData()
         value.card?.postcardLogo = "black"
-        value.card?.postcardLogoOpacity = 0
-        XCTAssertEqual(try render(value).pngData(), plain, "A transparent front logo must not cover the artwork")
-        value.card?.postcardLogoOpacity = 0.5
-        XCTAssertNotEqual(try render(value).pngData(), plain)
+        value.card?.postcardLogoOpacity = 1
+        let opaqueLogo = try render(value).pngData()
+        for savedOpacity in [0.0, 0.5] {
+            value.card?.postcardLogoOpacity = savedOpacity
+            XCTAssertEqual(try render(value).pngData(), opaqueLogo,
+                           "Removed front-logo opacity must not survive through an older saved draft")
+        }
         value.card?.postcardBackground?.backLogoColor = 0x246BA0
         value.card?.postcardBackground?.backLogoOpacity = 0.3
         let frontBefore = try render(value).pngData()
@@ -1283,7 +1538,9 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
 
     func testPostcardAutomaticShadeMatchesFigmaPaperAndExports() throws {
         let clear = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { _ in }
-        let points = [CGPoint(x: 50, y: 180), CGPoint(x: 310, y: 60), CGPoint(x: 60, y: 440)]
+        // The date ends at y 59.68 and casts a 1pt shadow. Sample the paper below
+        // that decoration so changing the printed digits cannot alter this shade check.
+        let points = [CGPoint(x: 50, y: 180), CGPoint(x: 310, y: 100), CGPoint(x: 60, y: 440)]
         let custom = OiPostcardBackgroundStyle(color: 0xEEAD56, fill: .gradient,
             middleColor: 0xA1C8DB, endColor: 0xDA85A8)
         let styles = OiPostcardPreset.allCases.map {
@@ -1301,6 +1558,9 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             value.card = OiCardDesign()
             value.card?.postcardLayoutVersion = 2
             value.card?.postcardBackground = style
+            value.card?.postcardDate = Date(timeIntervalSince1970: 1_799_779_200)
+            value.card?.postcardStamp = 1
+            value.card?.initialPostcardStamp = 1
             let paperRenderer = ImageRenderer(content: OiPostcardBackground(style: style).frame(width: 362, height: 502))
             paperRenderer.scale = 1
             let paper = try XCTUnwrap(paperRenderer.uiImage)
@@ -1544,6 +1804,180 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let renderer = ImageRenderer(content: sheet)
         let shot = XCTAttachment(data: try XCTUnwrap(renderer.uiImage?.pngData()), uniformTypeIdentifier: "public.png")
         shot.name = "unified-postcard-gradients"; shot.lifetime = .keepAlways; add(shot)
+    }
+
+    #if !targetEnvironment(simulator)
+    // Vision foreground inference returns Code 9 on Simulator. The same core also runs in the macOS validator.
+    func testCharacterCutoutUsesNativeMaskAndPreservesWhiteClothing() async throws {
+        let transparent = try cutoutReference()
+        let opaque = cutoutWhiteBackdrop(transparent)
+        XCTAssertFalse(OiOpaqueImageTrim.hasTransparentBackground(opaque))
+        let paddedFormat = UIGraphicsImageRendererFormat(); paddedFormat.scale = 1; paddedFormat.opaque = false
+        let padded = UIGraphicsImageRenderer(size: CGSize(width: 264, height: 392), format: paddedFormat).image { _ in
+            opaque.draw(at: CGPoint(x: 4, y: 4))
+        }
+        XCTAssertFalse(OiOpaqueImageTrim.hasTransparentBackground(padded), "Transparent outer padding must not hide an opaque rectangular matte")
+        let cacheKey = "native-cutout-\(UUID())"
+        let result = try await OiCharacterPortraitCutout.shared.image(opaque, key: cacheKey)
+        let cached = try await OiCharacterPortraitCutout.shared.image(opaque, key: cacheKey)
+        XCTAssertTrue(result === cached, "Repeated immutable portrait paths reuse the prepared character")
+        XCTAssertTrue(OiOpaqueImageTrim.hasTransparentBackground(result))
+        XCTAssertEqual(result.size, transparent.size, "Removing the matte must not change the character placement")
+        let original = try cutoutPixels(transparent), prepared = try cutoutPixels(result)
+        var background = 0, removed = 0, whiteClothing = 0, preservedWhite = 0, foreground = 0, preserved = 0
+        var colorDifference = 0, colorSamples = 0
+        for offset in stride(from: 0, to: original.count, by: 4) {
+            if original[offset + 3] == 0 {
+                background += 1
+                if prepared[offset + 3] < 16 { removed += 1 }
+            }
+            if original[offset + 3] > 250 {
+                foreground += 1
+                if prepared[offset + 3] > 200 { preserved += 1 }
+                if prepared[offset + 3] > 250 {
+                    for channel in 0..<3 { colorDifference += abs(Int(prepared[offset + channel]) - Int(original[offset + channel])) }
+                    colorSamples += 3
+                }
+                if min(original[offset], original[offset + 1], original[offset + 2]) > 225 {
+                    whiteClothing += 1
+                    if prepared[offset + 3] > 200 { preservedWhite += 1 }
+                }
+            }
+        }
+        XCTAssertGreaterThan(whiteClothing, 100, "The real fixture must contain white shoes, socks and garment trim")
+        XCTAssertGreaterThan(Double(removed) / Double(background), 0.95)
+        XCTAssertGreaterThan(Double(preserved) / Double(foreground), 0.95, "The mask must retain the face, costume and props")
+        XCTAssertGreaterThan(Double(preservedWhite) / Double(whiteClothing), 0.95, "White garments must not be erased as background")
+        XCTAssertLessThan(Double(colorDifference) / Double(max(1, colorSamples)), 4, "Masking must preserve the actual face and costume colors")
+        print("Native cutout background=\(removed)/\(background), foreground=\(preserved)/\(foreground), white clothes=\(preservedWhite)/\(whiteClothing)")
+        for (name, image) in [("legacy-opaque-character", opaque), ("native-character-cutout", result)] {
+            let attachment = XCTAttachment(image: image); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+        }
+    }
+
+    #endif
+
+    func testCharacterCutoutPreservesTransparentPixelsAndCancellation() async throws {
+        let transparent = try cutoutReference()
+        let result = try await OiCharacterPortraitCutout.shared.image(transparent, key: "transparent-\(UUID())")
+        XCTAssertTrue(result === transparent, "Existing alpha, colors, resolution and edge pixels must pass through unchanged")
+        let task = Task {
+            try await OiCharacterPortraitCutout.shared.image(transparent, key: "cancelled-\(UUID())")
+        }
+        task.cancel()
+        do { _ = try await task.value; XCTFail("Cancelled cutouts must not publish a result") }
+        catch { XCTAssertTrue(error is CancellationError) }
+    }
+
+    func testCharacterCutoutRejectsUnreadableSourcesWithoutPoisoningCache() async throws {
+        let key = "unreadable-\(UUID())"
+        do {
+            _ = try await OiCharacterPortraitCutout.shared.image(UIImage(), key: key)
+            XCTFail("Unreadable portraits must report a failure")
+        } catch { XCTAssertTrue(error is OiCharacterPortraitCutout.Failure) }
+        let transparent = try cutoutReference()
+        let recovered = try await OiCharacterPortraitCutout.shared.image(transparent, key: key)
+        XCTAssertTrue(transparent === recovered, "A failed portrait must not poison later loads")
+    }
+
+    #if !targetEnvironment(simulator)
+    func testMYLegacyOpaquePortraitsRenderWithoutWhiteBoxes() async throws {
+        try await verifyMYCharacterOverlay(cutoutWhiteBackdrop(try cutoutReference()), legacy: true)
+    }
+    #endif
+
+    func testMYTransparentPortraitsRenderWithoutWhiteBoxes() async throws {
+        try await verifyMYCharacterOverlay(try cutoutReference(), legacy: false)
+    }
+
+    private func verifyMYCharacterOverlay(_ character: UIImage, legacy: Bool) async throws {
+        let fixture = try isolatedDefaults()
+        let previousHandler = OiStoreURLProtocol.handle, backend = OiTestBackend()
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("MYCutout-\(UUID())")
+        defer {
+            withExtendedLifetime(backend) {}; session.invalidateAndCancel(); OiStoreURLProtocol.handle = previousHandler
+            fixture.defaults.removePersistentDomain(forName: fixture.name)
+            if FileManager.default.fileExists(atPath: directory.path) { try? FileManager.default.removeItem(at: directory) }
+        }
+        let characterData = try XCTUnwrap(character.pngData())
+        let cardURL = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "first-card", withExtension: "png", subdirectory: "MYV4Figma"))
+        let cardData = try Data(contentsOf: cardURL)
+        var draft = Self.draft; draft.latitude = 36.0126; draft.longitude = 129.3197
+        let look = OiWardrobeLook()
+        let appearance = OiCucumberAppearance(id: UUID(), top: look.top.rawValue, bottom: look.bottom.rawValue,
+            costume: nil, topColor: look.topColor, bottomColor: look.bottomColor, shoeColor: look.shoeColor,
+            topTexture: false, bottomTexture: false)
+        let portraitPath = OiCucumberArtworkReference(ownerID: OiTestBackend.owner, storyID: draft.id, appearance: appearance).path(.portrait)
+        let snapshot = UUID()
+        let cardPath = StoryCard.artworkPath(owner: OiTestBackend.owner, story: draft.id, snapshot: snapshot)
+        var row = try draft.payload(); row["user_id"] = OiTestBackend.owner.uuidString; row["status"] = "published"
+        row["created_at"] = "2026-11-18T00:00:00Z"; row["cucumber_appearance"] = appearance.payload
+        row["card_snapshot_id"] = snapshot.uuidString; row["card_snapshot_format"] = 1
+        backend.configure { $0.story = row; $0.publicCucumberAppearance = true; $0.publicStoryCard = true
+            $0.uploads = ["oi-story-media/" + portraitPath: characterData, "oi-story-media/" + cardPath: cardData] }
+        backend.install()
+        let remote = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: OiMemorySession())
+        await remote.start(); XCTAssertTrue(remote.hasLoadedRemote)
+        let downloaded = try await remote.cucumberImage(portraitPath)
+        XCTAssertEqual(OiOpaqueImageTrim.hasTransparentBackground(downloaded), !legacy,
+            "The remote fixture must exercise the requested opaque or transparent PNG path")
+        let prepared = try await OiCharacterPortraitCutout.shared.image(downloaded, key: portraitPath)
+        XCTAssertTrue(OiOpaqueImageTrim.hasTransparentBackground(prepared))
+        let untouchedCard = try await remote.cucumberImage(cardPath)
+        XCTAssertEqual(try cutoutPixels(untouchedCard), try cutoutPixels(XCTUnwrap(UIImage(data: cardData))), "The approved card photo must stay unchanged")
+        let card = MYCard(id: draft.id.uuidString, title: draft.cucumberName, image: "OiPoka", school: .postech,
+            order: 0, body: draft.body, donor: "가상 작성자", date: "2026.11.18", storyID: draft.id.uuidString,
+            cucumberPortraitPath: portraitPath, cardArtworkPath: cardPath)
+        let view = MYWorkshopCardArtwork(card: card, remote: remote).environment(remote).environment(\.scenePhase, .active)
+            .frame(width: 230, height: 344).padding(30).background(Color(oiRGB: 0xD9D5CA))
+        let variant = Variant(name: "290x404", size: CGSize(width: 290, height: 404), dynamicTypeSize: .large)
+        let png = try await capture(view, name: "my-\(legacy ? "legacy" : "transparent")-cutout-card", variant: variant, defaults: fixture.defaults,
+            includesSafeArea: false, delay: .seconds(1), attach: true)
+        let bitmap = try renderedBitmap(png, size: variant.size)
+        let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: bitmap.width * bitmap.height * 4)
+        // Character slot begins at x46,y204. The source's empty top-left corner must reveal the card.
+        var white = 0
+        for y in 205..<215 { for x in 47..<55 {
+            let i = (y * bitmap.width + x) * 4
+            if min(pixels[i], pixels[i + 1], pixels[i + 2]) > 245 { white += 1 }
+        } }
+        XCTAssertLessThan(white, 4, "The MY character must reveal the approved postcard instead of a white rectangle")
+        for tab in [MYWorkshopTab.authored, .collected] {
+            let library = MYLibraryStore(); library.synchronize(nickname: "가상 농부", cards: [card], favorites: [])
+            try await capture(NavigationStack {
+                MYWorkshopView(demo: library, remote: remote, initialTab: tab).environment(remote).environment(\.scenePhase, .active)
+            }, name: "my-\(tab)-\(legacy ? "legacy" : "transparent")-cutout", variant: variants[0], defaults: fixture.defaults,
+                delay: .seconds(1), attach: true)
+        }
+    }
+
+    private func cutoutReference() throws -> UIImage {
+        let original = try XCTUnwrap(UIImage(named: "OiPoka"))
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = false
+        return UIGraphicsImageRenderer(size: CGSize(width: 256, height: 384), format: format).image { _ in
+            original.draw(in: CGRect(x: 0, y: 0, width: 256, height: 384))
+        }
+    }
+
+    private func cutoutWhiteBackdrop(_ image: UIImage) -> UIImage {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
+        return UIGraphicsImageRenderer(size: image.size, format: format).image { context in
+            context.cgContext.setFillColor(UIColor.white.cgColor); context.cgContext.fill(CGRect(origin: .zero, size: image.size))
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+    }
+
+    private func cutoutPixels(_ image: UIImage) throws -> [UInt8] {
+        let cg = try XCTUnwrap(image.cgImage)
+        let bitmap = try XCTUnwrap(CGContext(data: nil, width: cg.width, height: cg.height, bitsPerComponent: 8,
+            bytesPerRow: cg.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+        bitmap.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+        let pointer = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: cg.width * cg.height * 4)
+        return Array(UnsafeBufferPointer(start: pointer, count: cg.width * cg.height * 4))
     }
 
     func testPortraitMattePreservesBlackWhiteAndTranslucentEdges() throws {
@@ -1816,6 +2250,203 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             .tint(.black).environment(\.colorScheme, .light)
         try await capture(crop, name: "crop-toolbar-contrast", variant: variants[0],
                           defaults: fixture.defaults, attach: true)
+    }
+
+    func testStoryListPortraitUsesCurrentLookInsteadOfCardComposition() throws {
+        var style = OiDraftCustomization()
+        style.seedAppearance = .init()
+        style.selectSeedTop(.hoodie)
+        let original = OiStoryListPortraitSource.local(customization: style, asset: "OiCats")
+        style.card = OiCardDesign()
+        style.card?.characterOrientation = .init(yaw: 1.5, pitch: 0.3)
+        style.card?.portraitPNG = Data([0, 1, 2])
+        style.showsCharacter = false
+        XCTAssertEqual(original, .local(customization: style, asset: "OiCats"),
+            "Card angle, visibility and cached images must not change the list's cucumber")
+        style.seedAppearance?.stemAngle = 60
+        XCTAssertNotEqual(original, .local(customization: style, asset: "OiCats"))
+        style.selectSeedTop(.cardigan)
+        XCTAssertNotEqual(original, .local(customization: style, asset: "OiCats"))
+        let seed = try XCTUnwrap(style.seedSnapshot)
+        XCTAssertEqual(OiStoryListPortraitSource.local(customization: nil, asset: "OiCats",
+            serverPath: "owner/story/portrait.png", serverSeed: seed), .seed(seed),
+            "A restored seed must use the same front-facing renderer as a local draft")
+        XCTAssertEqual(OiStoryListPortraitSource.local(customization: .init(), asset: "OiCats",
+            serverPath: "owner/story/portrait.png", serverSeed: seed), .seed(seed),
+            "Opening and saving a server draft without editing its appearance must preserve its outfit")
+        var undressed = OiDraftCustomization()
+        undressed.selectSeedTop(.hoodie)
+        undressed.selectSeedTop(.hoodie)
+        XCTAssertNotNil(undressed.seedSnapshot)
+        XCTAssertEqual(OiStoryListPortraitSource.local(customization: undressed, asset: "OiCats",
+            serverPath: "owner/story/portrait.png", serverSeed: seed),
+            .seed(.init(appearance: .init(), garments: [])),
+            "Removing the last local garment must not restore the older server outfit")
+        XCTAssertEqual(OiStoryListPortraitSource.local(customization: nil, asset: "OiCats",
+            serverPath: "owner/story/portrait.png"), .remote("owner/story/portrait.png"))
+        XCTAssertEqual(OiStoryListPortraitSource.local(customization: nil, asset: "OiCats"),
+            .seed(.init(appearance: .init(), garments: [])), "An untouched new draft is the bare STEP 3 seed")
+    }
+
+    func testStoryListPortraitNormalizesTransparentMargins() throws {
+        func source(margin: CGFloat) -> UIImage {
+            let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = false
+            return UIGraphicsImageRenderer(size: CGSize(width: 20 + margin * 2, height: 40 + margin * 2),
+                format: format).image { context in
+                    UIColor.green.setFill()
+                    context.fill(CGRect(x: margin, y: margin, width: 20, height: 40))
+                }
+        }
+        let tight = OiStoryListPortraitPixels.normalized(source(margin: 0))
+        let padded = OiStoryListPortraitPixels.normalized(source(margin: 40))
+        XCTAssertEqual(tight.size, CGSize(width: 50, height: 78))
+        XCTAssertEqual(tight.pngData(), padded.pngData(),
+            "Equal visible figures must occupy the same pixels regardless of source canvas margins")
+        XCTAssertTrue(OiPortraitMatte.hasTransparentBackground(padded))
+    }
+
+    func testStoryListPortraitLoadingCachesRetriesAndRejectsStaleAccounts() async throws {
+        let owner = UUID(), nextOwner = UUID(), id = UUID()
+        let portraits = OiStoryListPortraits()
+        let request = OiStoryListPortraits.Request(id: id, source: .remote("virtual/portrait.png"))
+        let input = OiStoryListPortraits.Input(owner: owner, requests: [request], isActive: true, retry: 0)
+        let image = try XCTUnwrap(UIImage(named: "StoryListJacketCucumber"))
+        var reads = 0
+        await portraits.load(input) { _ in reads += 1; throw URLError(.notConnectedToInternet) }
+        guard case .failed = portraits.result(for: request, owner: owner) else {
+            return XCTFail("A failed custom portrait must not turn into another cucumber asset")
+        }
+        portraits.retry(id)
+        await portraits.load(.init(owner: owner, requests: [request], isActive: true, retry: 1)) { path in
+            XCTAssertEqual(path, "virtual/portrait.png"); reads += 1; return image
+        }
+        guard case .ready = portraits.result(for: request, owner: owner) else { return XCTFail("Retry must recover") }
+        await portraits.load(input) { _ in reads += 1; return image }
+        XCTAssertEqual(reads, 2, "An unchanged loaded source must not download again")
+
+        let started = expectation(description: "An old account's image request is pending")
+        var held: CheckedContinuation<UIImage, Never>?
+        let changed = OiStoryListPortraits.Request(id: id, source: .remote("virtual/changed.png"))
+        let oldLoad = Task { @MainActor in
+            await portraits.load(.init(owner: owner, requests: [changed], isActive: true, retry: 0)) { _ in
+                await withCheckedContinuation { continuation in held = continuation; started.fulfill() }
+            }
+        }
+        await fulfillment(of: [started], timeout: 2)
+        await portraits.load(.init(owner: nextOwner, requests: [], isActive: true, retry: 0), remote: nil)
+        held?.resume(returning: image)
+        await oldLoad.value
+        XCTAssertNil(portraits.result(for: changed, owner: owner))
+        XCTAssertNil(portraits.result(for: changed, owner: nextOwner))
+        XCTAssertNil(portraits.capture)
+
+        let rendering = OiStoryListPortraits.Request(id: UUID(), source: .seed(.init(appearance: .init(), garments: [])))
+        let pending = Task { @MainActor in
+            await portraits.load(.init(owner: nextOwner, requests: [rendering], isActive: true, retry: 0), remote: nil)
+        }
+        for _ in 0..<100 where portraits.capture == nil { try await Task.sleep(for: .milliseconds(1)) }
+        XCTAssertNotNil(portraits.capture)
+        pending.cancel()
+        await pending.value
+        XCTAssertNil(portraits.capture, "Cancellation must release the pending capture surface")
+    }
+
+    func testStoryListPortraitCacheReusesPixelsAcrossScreensAndIsBounded() async throws {
+        let owner = UUID(), id = UUID(), portraits = OiStoryListPortraits()
+        let request = OiStoryListPortraits.Request(id: id, source: .remote("virtual/shared.png"))
+        let image = try XCTUnwrap(UIImage(named: "StoryListJacketCucumber"))
+        await portraits.load(.init(owner: owner, requests: [request], isActive: true, retry: 0)) { _ in image }
+        let overlay = OiStoryListPortraits()
+        guard case .ready = overlay.result(for: request, owner: owner) else {
+            return XCTFail("The planting fade must retain its portrait from the very first frame")
+        }
+        await overlay.load(.init(owner: owner, requests: [request], isActive: true, retry: 0)) { _ in
+            XCTFail("A second screen must reuse normalized pixels without another download"); return image
+        }
+        XCTAssertNil(overlay.capture, "The planting fade must not mount another renderer")
+        let cache = OiStoryListPortraitCache(observePressure: false)
+        for index in 0..<12 { cache.store(image, source: .remote("virtual/\(index).png"), owner: owner) }
+        XCTAssertEqual(cache.count, 8)
+        XCTAssertNil(cache.image(for: .remote("virtual/0.png"), owner: owner))
+        XCTAssertNotNil(cache.image(for: .remote("virtual/11.png"), owner: owner))
+        cache.useOwner(UUID())
+        XCTAssertEqual(cache.count, 0)
+        XCTAssertNil(cache.image(for: .remote("virtual/11.png"), owner: owner))
+    }
+
+    func testStoryListCurrentSeedPortraitsCaptureSeriallyAndReleaseRenderers() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        var hoodie = OiDraftCustomization(); hoodie.seedAppearance = .init(); hoodie.selectSeedTop(.hoodie)
+        let items = [OiSeedCucumberSnapshot(appearance: .init(), garments: []), try XCTUnwrap(hoodie.seedSnapshot)]
+            .enumerated().map { index, seed in
+                OiStoryListItem(id: UUID(), cucumberName: index == 0 ? "정면오이" : "후드오이", title: "프리뷰 검증",
+                    cucumberAsset: "OiCats", portraitSource: .seed(seed), donorDisplayName: "가상 작성자",
+                    locationDisplayName: "", tags: ["행복함"], dateLabel: "")
+            }
+        try await capture(NavigationStack {
+            OiStoryListView(state: .content(items), onSelectStory: { _ in }, portraitAccountID: UUID())
+                .environment(\.scenePhase, .active)
+        }, name: "story-list-current-front-portraits", variant: variants[0], defaults: fixture.defaults, attach: true,
+            validateRender: { png, size in
+                let bitmap = try self.renderedBitmap(png, size: size)
+                let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self,
+                    capacity: bitmap.width * bitmap.height * 4)
+                var cucumberPixels = 0
+                for y in 80..<450 {
+                    for x in 290..<375 {
+                        let offset = (y * bitmap.width + x) * 4
+                        if Int(pixels[offset + 1]) > Int(pixels[offset]) + 15 &&
+                            Int(pixels[offset + 1]) > Int(pixels[offset + 2]) + 15 { cucumberPixels += 1 }
+                    }
+                }
+                XCTAssertGreaterThan(cucumberPixels, 100, "The list must contain the rendered green seed portraits")
+            },
+            prepareRealityCapture: { view in
+                func surfaces(_ view: UIView) -> [RealityKit.ARView] {
+                    if let surface = view as? RealityKit.ARView { return [surface] }
+                    return view.subviews.flatMap(surfaces)
+                }
+                var observedCapture = false
+                for _ in 0..<400 {
+                    let active = surfaces(view)
+                    XCTAssertLessThanOrEqual(active.count, 1, "The entire list must share one capture renderer")
+                    observedCapture = observedCapture || !active.isEmpty
+                    if observedCapture && active.isEmpty { break }
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                XCTAssertTrue(observedCapture)
+                XCTAssertTrue(surfaces(view).isEmpty, "Finished portraits must leave no hidden ARView mounted")
+                return nil
+            })
+    }
+
+    func testStoryListCardShadowDoesNotAffectItsContents() throws {
+        let size = CGSize(width: 386, height: 134)
+        func render(shadow: Bool) throws -> Data {
+            let card = OiCucumberCard(name: "HINT펩오이", tags: ["즐거움", "연구"],
+                donor: "가상 작성자", title: "반도체 HINT 연구실의 추억", showsShadow: shadow) {
+                    Image("StoryListJacketCucumber").resizable().scaledToFit()
+                }
+                .frame(width: 362).padding(12)
+                .background(Color(white: 0.95))
+                .environment(\.colorScheme, .light)
+            let renderer = ImageRenderer(content: card)
+            renderer.scale = 1
+            return try XCTUnwrap(renderer.uiImage?.pngData())
+        }
+        let withShadow = try render(shadow: true)
+        let withoutShadow = try render(shadow: false)
+        XCTAssertEqual(try myV4ChangedPixels(withShadow, withoutShadow, size: size,
+            rect: CGRect(x: 28, y: 26, width: 330, height: 80)), 0,
+            "The card shadow must never darken the name, tags, title or portrait")
+        XCTAssertGreaterThan(try myV4ChangedPixels(withShadow, withoutShadow, size: size,
+            rect: CGRect(x: 7, y: 35, width: 5, height: 60)), 0,
+            "The background must retain the card's exterior shadow")
+        for (name, png) in [("story-list-card-shadow", withShadow), ("story-list-card-no-shadow", withoutShadow)] {
+            let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+            attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+        }
     }
 
     func testStoryListSeedUICaptures() async throws {
@@ -2375,6 +3006,68 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), viewpoint), 0, accuracy: 0.001)
             return surface
         })
+    }
+
+    func testStep3TopPhotosAndEditorMatchFigma() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let photo = UIGraphicsImageRenderer(size: CGSize(width: 160, height: 100)).image { context in
+            UIColor.systemOrange.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 160, height: 100))
+            UIColor.systemBlue.setFill()
+            context.fill(CGRect(x: 80, y: 0, width: 80, height: 100))
+            NSString(string: "OI").draw(at: CGPoint(x: 50, y: 28), withAttributes: [
+                .font: UIFont.boldSystemFont(ofSize: 32), .foregroundColor: UIColor.white
+            ])
+        }
+        let asset = try OiPhotoRenderer.asset(photo)
+        let design = OiPhotoDesign(layers: [
+            OiPhotoLayer(source: asset.id, side: .back, placement: .init(width: 0.48, rotation: -12)),
+            OiPhotoLayer(source: asset.id, side: .front, placement: .init(width: 0.55))
+        ])
+        var original = OiDraftCustomization()
+        original.seedAppearance = .init()
+        original.seedTop = OiWardrobeLook.Top.tshirt.rawValue
+        var look = OiWardrobeLook()
+        try look.artwork.set(design, sources: [asset.id: asset.data], for: "top-tshirt")
+        original.wardrobe = look
+        let draft = Step3DraftFixture(original)
+        let binding = Binding(get: { draft.value }, set: { draft.value = $0 })
+        for variant in variants.prefix(3) {
+            let screen = CreationCapturePage(step: 3) {
+                OiCucumberCustomizationStep(customization: binding, onContinue: {}, initialTabTitle: "상의")
+            }.environment(\.scenePhase, .active)
+            try await capture(screen, name: "step3-top-photo", variant: variant, defaults: fixture.defaults,
+                              attach: true, prepareRealityCapture: { host in
+                let surface = try await self.step3Surface(in: host)
+                try await self.waitForStep3 {
+                    surface.accessibilityValue == "3D 미리보기" &&
+                    surface.scene.findEntity(named: "WhiteTshirt")?.components[ModelComponent.self] != nil
+                }
+                try await Task.sleep(for: .milliseconds(250))
+                return surface
+            })
+        }
+        let scene = OiWardrobeScene()
+        let seed = try XCTUnwrap(original.seedSnapshot)
+        let photoLook = original.seedPhotoLook
+        scene.editPhotos(in: .top, look: photoLook, seed: seed)
+        let editor = CreationCapturePage(step: 3) {
+            VStack(spacing: 0) {
+                OiWardrobePreview(look: photoLook, controls: false, scene: scene, seed: seed)
+                    .frame(maxHeight: .infinity)
+                OiWardrobePhotoEditor(slot: .top, look: photoLook, scene: scene, onClose: {},
+                    seed: seed, photoResource: OiSeedGarmentPhotoMaterial.resource(for: .tshirt)) { _ in }
+                    .frame(height: 462)
+                    .background(Color(red: 234 / 255, green: 238 / 255, blue: 226 / 255),
+                        in: UnevenRoundedRectangle(topLeadingRadius: 35, topTrailingRadius: 35))
+            }
+        }.environment(\.scenePhase, .active)
+        try await capture(editor, name: "step3-top-photo-editor", variant: variants[0], defaults: fixture.defaults,
+                          attach: true, includesRealityKit: true, prepareView: { _ in
+            try await self.waitForStep3 { !scene.loading && scene.error == nil && scene.photoPreviewError == nil }
+        })
+        XCTAssertEqual(draft.value, original)
     }
 
     func testStep3CatalogGarmentsLoadFromAppBundle() async throws {
@@ -3114,9 +3807,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let inbox = CampusNotificationInboxView(requests: rows, isLoading: false,
             onOpenRequest: { _ in })
             .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
+        var loadedRowsImage: Data?
         for variant in [reference, small, large, accessibility] {
-            try await capture(inbox, name: "campus-notifications-inbox", variant: variant,
+            let image = try await capture(inbox, name: "campus-notifications-inbox", variant: variant,
                 defaults: fixture.defaults, includesSafeArea: false, attach: true)
+            if variant.name == reference.name { loadedRowsImage = image }
         }
 
         let empty = CampusNotificationInboxView(requests: [], isLoading: false,
@@ -3136,14 +3831,24 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             variant: reference, defaults: fixture.defaults, includesSafeArea: false, attach: true)
         XCTAssertGreaterThan(try myV4ChangedPixels(failedImage, failedWithoutRowsImage, size: reference.size,
             rect: CGRect(x: 20, y: 150, width: 362, height: 350)), 1000,
-            "A partial failure must keep the successfully loaded card rows visible under the retry banner")
-        XCTAssertNotEqual(emptyImage, failedWithoutRowsImage, "An error must never be mistaken for zero notifications")
+            "A partial failure must keep the successfully loaded card rows visible")
+        XCTAssertEqual(try myV4ChangedPixels(emptyImage, failedWithoutRowsImage, size: reference.size,
+            rect: CGRect(origin: .zero, size: reference.size)), 0,
+            "An empty failed read must reuse the existing notification empty artwork")
+        XCTAssertEqual(try myV4ChangedPixels(XCTUnwrap(loadedRowsImage), failedImage, size: reference.size,
+            rect: CGRect(origin: .zero, size: reference.size)), 0,
+            "A failed refresh must preserve cached notification rows without a new error banner")
         let partial = CampusNotificationInboxView(requests: rows, isLoading: true, isInitialLoading: true,
             unconfirmedRequestID: UUID(), onOpenRequest: { _ in })
             .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
         _ = try await capture(partial, name: "campus-notifications-initial-partial", variant: reference,
             defaults: fixture.defaults, includesSafeArea: false, validateRender: assertSpinnerOnlyRender)
-        XCTAssertNotEqual(failedImage, emptyImage, "A failed load must render differently from an empty inbox")
+        let retrying = CampusNotificationInboxView(requests: [], isLoading: true,
+            loadFailed: true, onRetry: {}, onOpenRequest: { _ in })
+            .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
+        _ = try await capture(retrying, name: "campus-notifications-retrying-failed-read", variant: reference,
+            defaults: fixture.defaults, includesSafeArea: false, validateRender: assertSpinnerOnlyRender)
+        XCTAssertNotEqual(failedImage, emptyImage, "Cached rows must remain distinguishable from an empty inbox")
     }
 
     func testCampusNotificationsExpireAtThirtyDays() {
@@ -3163,12 +3868,20 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             ("card-requests-empty", [], nil),
             ("card-requests-error", [], "연결을 확인한 뒤 다시 시도해 주세요.")
         ]
+        var referenceEmpty: Data?
         for variant in variants {
+            var images: [String: Data] = [:]
             for state in states {
                 let inbox = OiCardRequestInboxView(requests: state.rows, isLoading: false, loadError: state.error,
                     pendingRequestID: nil, actionError: nil, onReload: {}, onDecision: { _, _ in })
-                try await capture(inbox, name: state.name, variant: variant, defaults: fixture.defaults, attach: true)
+                images[state.name] = try await capture(inbox, name: state.name, variant: variant, defaults: fixture.defaults, attach: true)
             }
+            let empty = try XCTUnwrap(images["card-requests-empty"])
+            let failed = try XCTUnwrap(images["card-requests-error"])
+            XCTAssertEqual(try myV4ChangedPixels(empty, failed, size: variant.size,
+                rect: CGRect(origin: .zero, size: variant.size)), 0,
+                "A failed read with no requests must reuse the existing request empty artwork")
+            if variant.name == variants[0].name { referenceEmpty = empty }
         }
         // Content-only capture; the overlay test below verifies the actual backdrop.
         let sheetVariant = Variant(name: "402x803-sheet", size: CGSize(width: 402, height: 803), dynamicTypeSize: .large)
@@ -3181,8 +3894,18 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let unconfirmed = OiCardRequestInboxView(requests: [], isLoading: false, loadError: nil,
             pendingRequestID: nil, actionError: "처리 결과를 확인하지 못했어요. 같은 응답을 다시 확인해 주세요.",
             onReload: {}, onDecision: { _, _ in }, onRetryDecision: {})
-        try await capture(unconfirmed, name: "card-requests-unconfirmed-decision",
+        let unresolved = try await capture(unconfirmed, name: "card-requests-unconfirmed-decision",
             variant: reference, defaults: fixture.defaults, attach: true)
+        XCTAssertGreaterThan(try myV4ChangedPixels(XCTUnwrap(referenceEmpty), unresolved, size: reference.size,
+            rect: CGRect(origin: .zero, size: reference.size)), 100,
+            "An unconfirmed mutation must keep its decision recovery controls instead of looking like a read failure")
+        let cachedFailure = OiCardRequestInboxView(requests: rows, isLoading: false, loadError: "Read unavailable",
+            pendingRequestID: nil, actionError: nil, onReload: {}, onDecision: { _, _ in XCTFail("Rendering must not decide a request") })
+        let cached = try await capture(cachedFailure, name: "card-requests-cached-read-failure",
+            variant: reference, defaults: fixture.defaults, attach: true)
+        XCTAssertGreaterThan(try myV4ChangedPixels(XCTUnwrap(referenceEmpty), cached, size: reference.size,
+            rect: CGRect(x: 20, y: 150, width: 362, height: 350)), 1000,
+            "Cached requests must remain visible while the existing decision guards handle the failed refresh")
     }
 
     func testCampusNotificationSheetOpensAtFullHeight() async throws {
@@ -3388,6 +4111,97 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testStoryListReadFailureReusesEmptySlotsWithoutResolvingSeedBalance() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let failed = OiStoryListState.failure("The virtual read is unavailable")
+        for variant in variants.prefix(2) {
+            let emptyImage = try await capture(NavigationStack {
+                OiStoryListView(state: .empty, seedCount: nil,
+                    onAddSeed: {}, onCreateStory: { XCTFail("A capture must not create a story") })
+            }, name: "story-list-empty-read-baseline", variant: variant, defaults: fixture.defaults, attach: true)
+            let failedImage = try await capture(NavigationStack {
+                OiStoryListView(state: failed, seedCount: nil,
+                    onAddSeed: {}, onCreateStory: { XCTFail("A failed read must not create a story while rendering") })
+            }, name: "story-list-read-failure-empty-slots", variant: variant, defaults: fixture.defaults, attach: true)
+            XCTAssertEqual(try myV4ChangedPixels(emptyImage, failedImage, size: variant.size,
+                rect: CGRect(origin: .zero, size: variant.size)), 0,
+                "Read failure must reuse the original empty slots, unknown seed balance, footer, and toolbar")
+        }
+        guard case .failure = failed else { return XCTFail("The visual fallback must not replace the failed internal state") }
+    }
+
+    func testCampusSearchReadFailureReusesNoMatchesArtwork() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let previous = OiStoreURLProtocol.handle
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel(); OiStoreURLProtocol.handle = previous }
+        OiStoreURLProtocol.handle = { _, client in client.respond(503, Data("{}".utf8)) }
+        let failed = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            vault: OiMemorySession())
+        await failed.start()
+        XCTAssertNotNil(failed.loadError)
+        XCTAssertFalse(failed.hasLoadedRemote)
+        let reference = try XCTUnwrap(variants.first)
+        let query = CampusSearchQuery(text: "없는 오이", name: "없는 농부")
+        for mode in CampusSearchMode.allCases {
+            let emptyImage = try await capture(CampusSearchView(mode: mode, entries: [], isExample: false,
+                initialQuery: query, onSelect: { _ in XCTFail("An empty search must not select an entry") }),
+                name: "search-\(mode.rawValue)-read-baseline", variant: reference, defaults: fixture.defaults, attach: true)
+            let failedImage = try await capture(CampusSearchView(mode: mode, entries: [], isExample: false,
+                remote: failed, initialQuery: query, onSelect: { _ in XCTFail("A failed search must not select an entry") }),
+                name: "search-\(mode.rawValue)-read-failure-empty", variant: reference, defaults: fixture.defaults, attach: true)
+            XCTAssertEqual(try myV4ChangedPixels(emptyImage, failedImage, size: reference.size,
+                rect: CGRect(origin: .zero, size: reference.size)), 0,
+                "Search read failure must reuse the same no-matches image, text, and layout")
+        }
+        XCTAssertFalse(failed.hasLoadedRemote, "Shared empty artwork must not mark a failed catalog as loaded")
+    }
+
+    func testPublicMYReadFailureReusesUnavailableArtwork() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let reference = try XCTUnwrap(variants.first)
+        let author = UUID()
+        var snapshots: [Data] = []
+        for status in [200, 503] {
+            let previous = OiStoreURLProtocol.handle
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [OiStoreURLProtocol.self]
+            let session = URLSession(configuration: configuration)
+            defer { session.invalidateAndCancel(); OiStoreURLProtocol.handle = previous }
+            let requested = expectation(description: "The public author is read with status \(status)")
+            OiStoreURLProtocol.handle = { request, client in
+                XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+                switch request.url?.lastPathComponent {
+                case "oi_profiles":
+                    requested.fulfill()
+                    client.respond(status, status == 200 ? Data("[]".utf8) : Data("{}".utf8))
+                case "oi_stories":
+                    client.respond(status, status == 200 ? Data("[]".utf8) : Data("{}".utf8))
+                default:
+                    XCTFail("Public MY used an unexpected endpoint")
+                    client.respond(404, Data("{}".utf8))
+                }
+            }
+            let remote = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session))
+            let screen = NavigationStack {
+                MYPublicWorkshopView(authorID: author, remote: remote,
+                    store: CampusStoryStore(defaults: fixture.defaults))
+                    .environment(\.scenePhase, .active)
+            }
+            snapshots.append(try await capture(screen, name: "public-my-unavailable-\(status)", variant: reference,
+                defaults: fixture.defaults, delay: .milliseconds(400), attach: true))
+            await fulfillment(of: [requested], timeout: 1)
+        }
+        XCTAssertEqual(try myV4ChangedPixels(snapshots[0], snapshots[1], size: reference.size,
+            rect: CGRect(origin: .zero, size: reference.size)), 0,
+            "A failed public read must use the existing unavailable artwork without a new error screen")
+    }
+
     func testCampusSearchStatesDoNotConfusePromptFailureAndEmptyResults() {
         for hasMatches in [false, true] {
             XCTAssertEqual(CampusSearchContentState(hasSearched: false, hasMatches: hasMatches,
@@ -3566,6 +4380,9 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let collectedEmpty = try await capture(NavigationStack {
             MYWorkshopView(demo: library, remote: remote, initialTab: .collected)
         }, name: "my-v4-collected-empty", variant: reference, defaults: fixture.defaults, attach: true)
+        try assertMYEmptyPanelMatchesOriginal(empty, tab: .authored)
+        try assertMYEmptyPanelMatchesOriginal(connectedEmpty, tab: .connected)
+        try assertMYEmptyPanelMatchesOriginal(collectedEmpty, tab: .collected)
         XCTAssertNotEqual(empty, connectedEmpty)
         XCTAssertNotEqual(connectedEmpty, collectedEmpty)
         for variant in variants where variant.name == "375x667" || variant.name == "440x956" {
@@ -3643,6 +4460,44 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertEqual(try myV4ChangedPixels(guestWithStaleCards, guestWithEmptyCards, size: reference.size,
             rect: CGRect(x: 0, y: 325, width: 402, height: 400)), 0,
             "Signing out must hide a previous account's collection even before its library is synchronized")
+        let guestFromAuthoredTab = try await capture(NavigationStack {
+            MYWorkshopView(demo: library, remote: signedOut, initialTab: .authored)
+        }, name: "my-v4-signed-out-authored-entry", variant: reference, defaults: fixture.defaults)
+        XCTAssertEqual(try myV4ChangedPixels(guestWithStaleCards, guestFromAuthoredTab, size: reference.size,
+            rect: CGRect(x: 21, y: 337, width: 360, height: 38)), 0,
+            "Every signed-out entry must show Figma's authored selection, including a previous collected-tab route")
+        try assertMYGuestRender(guestWithStaleCards, size: reference.size)
+        for variant in variants.dropFirst() {
+            let guest = try await capture(NavigationStack {
+                MYWorkshopView(demo: library, remote: signedOut, initialTab: .collected)
+            }, name: "my-v4-signed-out", variant: variant, defaults: fixture.defaults, attach: true)
+            try assertMYGuestRender(guest, size: variant.size)
+        }
+
+        // The same store must restore account content after login and conceal it again after logout.
+        struct ExistingAccountAuthentication: OiAuthenticating {
+            func signIn(api: OiServiceAPI) async throws -> OiSession {
+                try XCTUnwrap(OiMemorySession().read())
+            }
+        }
+        await signedOut.signIn(using: ExistingAccountAuthentication())
+        XCTAssertEqual(signedOut.account?.id, OiTestBackend.owner)
+        XCTAssertTrue(signedOut.hasLoadedRemote)
+        let signedBackIn = try await capture(NavigationStack {
+            MYWorkshopView(demo: library, remote: signedOut)
+        }, name: "my-v4-signed-back-in", variant: reference, defaults: fixture.defaults, attach: true)
+        XCTAssertGreaterThan(try myV4ChangedPixels(guestWithStaleCards, signedBackIn, size: reference.size,
+            rect: CGRect(x: 0, y: 80, width: 402, height: 230)), 1_000,
+            "Successful login must replace the dim empty room with the account profile and farmer")
+        await signedOut.signOut()
+        XCTAssertNil(signedOut.account)
+        let signedOutAgain = try await capture(NavigationStack {
+            MYWorkshopView(demo: library, remote: signedOut, initialTab: .collected)
+        }, name: "my-v4-signed-out-again", variant: reference, defaults: fixture.defaults, attach: true)
+        try assertMYGuestRender(signedOutAgain, size: reference.size)
+        XCTAssertEqual(try myV4ChangedPixels(guestWithStaleCards, signedOutAgain, size: reference.size,
+            rect: CGRect(x: 0, y: 80, width: 402, height: 230)), 0,
+            "Logout must remove the account profile rather than leave it visible behind the scrim")
 
         installMYBackend()
         let held = expectation(description: "The virtual service holds the first story read")
@@ -3668,9 +4523,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertFalse(failed.hasLoadedRemote)
         let errorPNG = try await capture(NavigationStack { MYWorkshopView(demo: MYLibraryStore(), remote: failed) },
             name: "my-v4-error", variant: reference, defaults: fixture.defaults, attach: true)
-        XCTAssertGreaterThan(try myV4ChangedPixels(empty, errorPNG, size: reference.size,
-            rect: CGRect(x: 0, y: 369, width: 402, height: 350)), 100,
-            "A failed request must not imply that the owner's list is empty")
+        XCTAssertEqual(try myV4ChangedPixels(empty, errorPNG, size: reference.size,
+            rect: CGRect(x: 0, y: 369, width: 402, height: 350)), 0,
+            "A failed authored read must reuse the same Figma empty panel")
+        XCTAssertFalse(failed.hasLoadedRemote)
+        XCTAssertFalse(failed.canStartStory, "Empty artwork must not grant story creation before the account state loads")
         backend.configure { $0.failReads = false }
         await failed.refresh()
         XCTAssertTrue(failed.hasLoadedRemote)
@@ -3793,6 +4650,130 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertTrue(backend.snapshot().retiredEvidenceRequests.isEmpty)
     }
 
+    private func assertMYEmptyPanelMatchesOriginal(_ data: Data, tab: MYWorkshopTab) throws {
+        let name = switch tab {
+        case .authored: "empty-authored"
+        case .connected: "empty-connected"
+        case .collected: "empty-collected"
+        }
+        let bundle = Bundle(for: Self.self)
+        let path = try XCTUnwrap(bundle.url(forResource: name, withExtension: "png", subdirectory: "MYV4Figma"))
+        let original = try Data(contentsOf: path)
+        let screen = try XCTUnwrap(UIImage(data: data)?.cgImage)
+        XCTAssertEqual(screen.width, 402)
+        XCTAssertEqual(screen.height, 874)
+        let panel = try XCTUnwrap(screen.cropping(to: CGRect(x: 0, y: 325, width: 402, height: 549)))
+        let actual = try XCTUnwrap(UIImage(cgImage: panel).pngData())
+
+        func bounds(_ image: Data, region: CGRect, matches: (Int, Int, Int) -> Bool) throws -> CGRect {
+            let source = try XCTUnwrap(UIImage(data: image)?.cgImage)
+            XCTAssertEqual(source.width, 402)
+            XCTAssertEqual(source.height, 549)
+            let crop = try XCTUnwrap(source.cropping(to: region))
+            let bitmap = try renderedBitmap(XCTUnwrap(UIImage(cgImage: crop).pngData()), size: region.size)
+            let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: bitmap.width * bitmap.height * 4)
+            var minX = bitmap.width, minY = bitmap.height, maxX = -1, maxY = -1
+            for y in 0..<bitmap.height {
+                for x in 0..<bitmap.width {
+                    let offset = (y * bitmap.width + x) * 4
+                    if matches(Int(pixels[offset]), Int(pixels[offset + 1]), Int(pixels[offset + 2])) {
+                        minX = min(minX, x); minY = min(minY, y)
+                        maxX = max(maxX, x); maxY = max(maxY, y)
+                    }
+                }
+            }
+            XCTAssertGreaterThanOrEqual(maxX, 0, "The original \(name) design slot must contain matching ink")
+            return CGRect(x: region.minX + CGFloat(minX), y: region.minY + CGFloat(minY),
+                          width: CGFloat(maxX - minX + 1), height: CGFloat(maxY - minY + 1))
+        }
+        let slots: [(String, CGRect, (Int, Int, Int) -> Bool)] = [
+            ("green empty message", CGRect(x: 0, y: 200, width: 402, height: 70),
+                { r, g, b in g > r + 10 && g > b + 25 && r < 190 }),
+            ("white action capsule", CGRect(x: 0, y: 270, width: 402, height: 80),
+                { r, g, b in min(r, g, b) > 250 }),
+            ("black action text", CGRect(x: 0, y: 270, width: 402, height: 80),
+                { r, g, b in max(r, g, b) < 100 }),
+            ("selected tab underline", CGRect(x: 0, y: 40, width: 402, height: 8),
+                { r, g, b in max(r, g, b) < 210 })
+        ]
+        for (slot, region, matches) in slots {
+            let target = try bounds(original, region: region, matches: matches)
+            let rendered = try bounds(actual, region: region, matches: matches)
+            print("MY original \(name) \(slot): target=\(target), rendered=\(rendered)")
+            for (edge, actualValue, targetValue) in [("left", rendered.minX, target.minX),
+                                                    ("top", rendered.minY, target.minY),
+                                                    ("right", rendered.maxX, target.maxX),
+                                                    ("bottom", rendered.maxY, target.maxY)] {
+                XCTAssertEqual(actualValue, targetValue, accuracy: 1,
+                    "\(name) \(slot) \(edge) must match the original Figma screenshot within native antialiasing tolerance")
+            }
+        }
+    }
+
+    private func assertMYGuestRender(_ data: Data, size: CGSize) throws {
+        let actual = try XCTUnwrap(UIImage(data: data)?.cgImage)
+        let room = try XCTUnwrap(UIImage(named: "MYProfileRoom"))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let expectedRoom = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            room.draw(in: CGRect(x: 0, y: 0, width: size.width, height: 356 * size.width / 402))
+            UIColor(white: 35 / 255, alpha: 0.8).setFill()
+            context.cgContext.setBlendMode(.normal)
+            context.cgContext.fill(CGRect(origin: .zero, size: size))
+        }
+        let expected = try XCTUnwrap(expectedRoom.cgImage)
+
+        func regionPixels(_ image: CGImage, _ rect: CGRect) throws -> [UInt8] {
+            let crop = try XCTUnwrap(image.cropping(to: rect.integral))
+            let bitmap = try XCTUnwrap(CGContext(data: nil, width: crop.width, height: crop.height,
+                bitsPerComponent: 8, bytesPerRow: crop.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+            bitmap.draw(crop, in: CGRect(x: 0, y: 0, width: crop.width, height: crop.height))
+            let pointer = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: crop.width * crop.height * 4)
+            return Array(UnsafeBufferPointer(start: pointer, count: crop.width * crop.height * 4))
+        }
+
+        // These design slots are empty in the guest frame: no name, counts, settings, or farmer.
+        let scale = size.width / 402
+        for rect in [CGRect(x: 28, y: 90, width: 180, height: 140),
+                     CGRect(x: 240, y: 100, width: 140, height: 130)] {
+            let slot = CGRect(x: rect.minX * scale, y: rect.minY * scale,
+                              width: rect.width * scale, height: rect.height * scale)
+            let rendered = try regionPixels(actual, slot)
+            let target = try regionPixels(expected, slot)
+            var totalDifference = 0
+            for offset in stride(from: 0, to: rendered.count, by: 4) {
+                for channel in 0..<3 { totalDifference += abs(Int(rendered[offset + channel]) - Int(target[offset + channel])) }
+            }
+            XCTAssertLessThan(Double(totalDifference) / Double(rendered.count / 4 * 3), 2,
+                "The guest room must match its source artwork under the 80% #232323 scrim, without account content")
+        }
+
+        let center = CGRect(x: size.width / 2 - 160, y: size.height / 2 - 110, width: 320, height: 220)
+        let login = try regionPixels(actual, center)
+        var green = 0
+        var lightText = 0
+        for offset in stride(from: 0, to: login.count, by: 4) {
+            let red = Int(login[offset]), greenValue = Int(login[offset + 1]), blue = Int(login[offset + 2])
+            if greenValue > 90, greenValue > red + 12, greenValue > blue + 18 { green += 1 }
+            if min(red, greenValue, blue) > 200 { lightText += 1 }
+        }
+        XCTAssertGreaterThan(green, 1_000, "The centered login capsule must remain green above the scrim")
+        XCTAssertGreaterThan(lightText, 40, "The login action must have readable light text")
+
+        let exit = try regionPixels(actual, CGRect(x: 21, y: size.height - 100, width: 66, height: 66))
+        let brightExit = stride(from: 0, to: exit.count, by: 4).filter { offset in
+            max(exit[offset], exit[offset + 1], exit[offset + 2]) > 150
+        }.count
+        XCTAssertGreaterThan(brightExit, 500, "The exit button must remain visible above the guest scrim")
+        let paper = try regionPixels(actual, CGRect(x: size.width / 2 + 80, y: size.height - 150, width: 40, height: 40))
+        let brightPaper = stride(from: 0, to: paper.count, by: 4).filter { offset in
+            max(paper[offset], paper[offset + 1], paper[offset + 2]) > 100
+        }.count
+        XCTAssertEqual(brightPaper, 0, "The paper panel must be dimmed while the login and exit actions stay visible")
+    }
+
     private func myV4ChangedPixels(_ first: Data, _ second: Data, size: CGSize, rect: CGRect) throws -> Int {
         func region(_ data: Data) throws -> CGContext {
             let image = try XCTUnwrap(UIImage(data: data)?.cgImage)
@@ -3816,6 +4797,92 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             }
         }
         return changed
+    }
+
+    func testSettingsSwitchNativeInteractionAndPalette() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let usage = OiFeatureUsage(defaults: fixture.defaults)
+        let binding = Binding(get: { usage.isEnabled(.camera) },
+                              set: { usage.setEnabled($0, for: .camera) })
+        let size = CGSize(width: 160, height: 80)
+        let variant = Variant(name: "160x80", size: size, dynamicTypeSize: .large)
+        func trackPixel(_ data: Data, isOn: Bool) throws -> [UInt8] {
+            let bitmap = try renderedBitmap(data, size: size)
+            let bytes = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: 160 * 80 * 4)
+            let offset = (40 * 160 + (isOn ? 56 : 104)) * 4
+            let pixel = Array(UnsafeBufferPointer(start: bytes + offset, count: 4))
+            XCTAssertNotEqual(Array(pixel.prefix(3)), [255, 255, 255], "The sample must contain the visible switch track")
+            return pixel
+        }
+        for enabled in [false, true] {
+            usage.setEnabled(enabled, for: .camera)
+            let previousIndicator = Capsule().fill(enabled ? CampusStyle.green : Color(uiColor: .tertiaryLabel))
+                .overlay(alignment: enabled ? .trailing : .leading) {
+                    Capsule().fill(.white).frame(width: 38, height: 24).padding(.horizontal, 2)
+                }
+                .frame(width: 64, height: 28)
+                .frame(maxWidth: .infinity, maxHeight: .infinity).background(.white)
+            let previousPNG = try await capture(previousIndicator, name: "settings-previous-\(enabled ? "on" : "off")",
+                                                variant: variant, defaults: fixture.defaults, includesSafeArea: false,
+                                                attach: true, validateRender: { data, _ in _ = try trackPixel(data, isOn: enabled) })
+            let expectedPixel = try trackPixel(previousPNG, isOn: enabled)
+            let switchView = MYSettingsSwitch(isOn: binding)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(.white)
+            try await capture(switchView, name: "settings-switch-\(enabled ? "on" : "off")",
+                              variant: variant, defaults: fixture.defaults, includesSafeArea: false, attach: true,
+                              validateRender: { data, _ in
+                let actualPixel = try trackPixel(data, isOn: enabled)
+                for (actual, expected) in zip(actualPixel, expectedPixel) {
+                    XCTAssertEqual(Int(actual), Int(expected), accuracy: 1, "Native track must retain the existing rendered color")
+                }
+            }, prepareView: { view in
+                @MainActor func switches(_ view: UIView) -> [UISwitch] {
+                    (view as? UISwitch).map { [$0] } ?? view.subviews.flatMap(switches)
+                }
+                let control = try XCTUnwrap(switches(view).first)
+                XCTAssertEqual(switches(view).count, 1)
+                XCTAssertEqual(control.isOn, enabled)
+                XCTAssertEqual(control.onTintColor, UIColor(CampusStyle.green))
+                XCTAssertEqual(control.tintColor, .tertiaryLabel)
+                XCTAssertEqual(control.thumbTintColor, .white)
+                for value in [!enabled, enabled, !enabled, enabled] {
+                    control.setOn(value, animated: false)
+                    control.sendActions(for: .valueChanged)
+                    XCTAssertEqual(usage.isEnabled(.camera), value, "Native events must update the stored choice immediately")
+                    XCTAssertEqual(control.isOn, value)
+                }
+                XCTAssertEqual(OiFeatureUsage(defaults: fixture.defaults).isEnabled(.camera), enabled)
+            })
+        }
+        var permissionRequests = 0
+        let denied = MYSettingsSwitch(isOn: Binding(get: { false }, set: { if $0 { permissionRequests += 1 } }))
+            .frame(maxWidth: .infinity, maxHeight: .infinity).background(.white)
+        try await capture(denied, name: "settings-switch-permission-required",
+                          variant: variant, defaults: fixture.defaults, includesSafeArea: false,
+                          validateRender: { data, _ in _ = try trackPixel(data, isOn: false) }, prepareView: { view in
+            @MainActor func findSwitch(_ view: UIView) -> UISwitch? {
+                (view as? UISwitch) ?? view.subviews.lazy.compactMap(findSwitch).first
+            }
+            let control = try XCTUnwrap(findSwitch(view))
+            control.setOn(true, animated: false)
+            control.sendActions(for: .valueChanged)
+            XCTAssertEqual(permissionRequests, 1)
+            XCTAssertFalse(control.isOn, "An ungranted permission must not appear enabled")
+            try await Task.sleep(for: .milliseconds(400))
+        })
+    }
+
+    func testSettingsSwitchLayoutCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        for variant in variants {
+            try await capture(NavigationStack {
+                MYSettingsView(demo: MYLibraryStore(), remote: nil).environment(\.scenePhase, .active)
+            }, name: "settings-native-switches", variant: variant, defaults: fixture.defaults,
+                delay: .milliseconds(450), attach: true)
+        }
     }
 
     func testMYSettingsCapturesWithOfflineAccounts() async throws {
@@ -4285,10 +5352,28 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertTrue(remote.hasLoadedRemote)
         XCTAssertEqual(remote.account?.id, OiTestBackend.owner)
         XCTAssertTrue(remote.ownStories.isEmpty)
+        var emptyReference: Data?
         for variant in variants {
             let empty = NavigationStack { MYFarmView(remote: remote) }
-            try await capture(empty, name: "my-farm-empty", variant: variant, defaults: fixture.defaults)
+            let image = try await capture(empty, name: "my-farm-empty", variant: variant, defaults: fixture.defaults)
+            if variant.name == variants[0].name { emptyReference = image }
         }
+        backend.configure { $0.failReads = true }
+        let failed = OiRemoteStore(api: api,
+            drafts: OiDraftVault(directory: directory.appendingPathComponent("failed-read")), vault: OiMemorySession())
+        await failed.start()
+        XCTAssertNotNil(failed.loadError)
+        XCTAssertNotNil(failed.account)
+        XCTAssertFalse(failed.hasLoadedRemote)
+        XCTAssertFalse(failed.canStartStory)
+        let reference = try XCTUnwrap(variants.first)
+        let failedImage = try await capture(NavigationStack { MYFarmView(remote: failed) },
+            name: "my-farm-initial-read-failure-empty", variant: reference, defaults: fixture.defaults, attach: true)
+        XCTAssertEqual(try myV4ChangedPixels(XCTUnwrap(emptyReference), failedImage, size: reference.size,
+            rect: CGRect(origin: .zero, size: reference.size)), 0,
+            "An authenticated initial read failure must reuse the existing farm empty artwork")
+        XCTAssertFalse(failed.hasLoadedRemote, "Empty farm artwork must not mark the server read as complete")
+        backend.configure { $0.failReads = false }
         var draft = Self.draft
         draft.grantId = OiTestBackend.grant
         draft.latitude = 36.01261057021347
@@ -4329,7 +5414,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                                  includesRealityKit: Bool = false, waitsForStillMap: Bool = false,
                                  sheetDetent: UISheetPresentationController.Detent.Identifier? = nil,
                                  validateRender: ((Data, CGSize) throws -> Void)? = nil,
-                                 prepareRealityCapture: ((UIView) async throws -> RealityKit.ARView?)? = nil) async throws -> Data {
+                                 prepareRealityCapture: ((UIView) async throws -> RealityKit.ARView?)? = nil,
+                                 prepareView: ((UIView) async throws -> Void)? = nil) async throws -> Data {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first, "The isolated simulator test host must have a window scene")
@@ -4375,6 +5461,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         host.view.setNeedsLayout()
         try await Task.sleep(for: delay)
         host.view.layoutIfNeeded()
+        try await prepareView?(host.view)
         if checksBottomSheet {
             let presented = try XCTUnwrap(root.presentedViewController ?? host.presentedViewController)
             let sheet = try XCTUnwrap(presented.presentationController)

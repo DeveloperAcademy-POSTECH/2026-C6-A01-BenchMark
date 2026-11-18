@@ -30,6 +30,11 @@ struct OiStoryConsentClause: Identifiable, Equatable, Sendable {
 struct OiStoryConsentState: Equatable, Sendable {
     private(set) var agreedClauseIDs: Set<OiStoryConsentClause.ID> = []
 
+    /// Story creation skips STEP 1 and records all required clauses as accepted (#503).
+    static var acceptedForStoryCreation: Self {
+        Self(savedIDs: Set(OiStoryConsentClause.writingClauses.map(\.id.rawValue)))
+    }
+
     init(savedIDs: Set<String> = []) {
         agreedClauseIDs = Set(savedIDs.compactMap(OiStoryConsentClause.ID.init(rawValue:)))
     }

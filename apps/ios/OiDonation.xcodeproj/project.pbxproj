@@ -20,6 +20,7 @@
 		C59111160000000000000001 /* CampusBuildingNotesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59111160000000000000002; };
 		C43811170000000000000001 /* ARCameraMascotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C43811170000000000000002; };
 		C41811170000000000000001 /* OiStoryContinuationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41811170000000000000002; };
+		C49011180000000000000001 /* OiSeedTopPhotoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C49011180000000000000002; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -70,6 +71,7 @@
 		C59111160000000000000002 /* CampusBuildingNotesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/CampusBuildingNotesTests.swift; sourceTree = SOURCE_ROOT; };
 		C43811170000000000000002 /* ARCameraMascotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/ARCameraMascotTests.swift; sourceTree = SOURCE_ROOT; };
 		C41811170000000000000002 /* OiStoryContinuationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiStoryContinuationTests.swift; sourceTree = SOURCE_ROOT; };
+		C49011180000000000000002 /* OiSeedTopPhotoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OiDonationTests/OiSeedTopPhotoTests.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -116,6 +118,7 @@
 				"Resources/Fonts/Paperlogy-OFL.txt",
 				Resources/OiStoryCardAssets.xcassets,
 				Shared/Components/OiContentSafetyView.swift,
+				Shared/Components/OiCharacterForegroundMask.swift,
 				Shared/Components/OiStoryCardArtwork.swift,
 				Shared/Components/OiSupportView.swift,
 			);
@@ -225,6 +228,7 @@
 			isa = PBXGroup;
 			children = (
 				C41811170000000000000002 /* OiStoryContinuationTests.swift */,
+				C49011180000000000000002 /* OiSeedTopPhotoTests.swift */,
 				C59111160000000000000002 /* CampusBuildingNotesTests.swift */,
 				B10000000000000000000008 /* OiDonationTests/OiRemoteStoreTests.swift */,
 				C43811170000000000000002 /* ARCameraMascotTests.swift */,
@@ -457,6 +461,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C41811170000000000000001 /* OiStoryContinuationTests.swift in Sources */,
+				C49011180000000000000001 /* OiSeedTopPhotoTests.swift in Sources */,
 				C59111160000000000000001 /* CampusBuildingNotesTests.swift in Sources */,
 				B10000000000000000000009 /* OiDonationTests/OiRemoteStoreTests.swift in Sources */,
 				C43811170000000000000001 /* ARCameraMascotTests.swift in Sources */,
@@ -500,8 +505,8 @@
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -538,8 +543,8 @@
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -701,8 +706,8 @@
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -740,8 +745,8 @@
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

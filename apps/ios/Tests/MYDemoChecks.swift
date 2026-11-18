@@ -36,7 +36,7 @@ private struct LibraryCheckRepository: StoryRepository {
 
 @main
 struct MYDemoChecks {
-    @MainActor static func main() async {
+    @MainActor static func main() async throws {
         let libraryStore = MYLibraryStore()
         precondition(libraryStore.cards.isEmpty && libraryStore.favorites.isEmpty)
         let school = MYSchool(id: "school-b", name: "School B")
@@ -80,7 +80,19 @@ struct MYDemoChecks {
         let fullSlots = OiStoryListState.content(Array(fullItems.prefix(4))).slots()
         precondition(fullSlots.count == 4 && fullSlots.allSatisfy { $0.item != nil })
         precondition(OiStoryListState.content(Array(fullItems.prefix(4))).isFull)
-        precondition(OiStoryListState.content(fullItems).slots().count == 4)
+        // Submitted stories stay visible even while four editable slots are occupied.
+        let overflowSlots = OiStoryListState.content(fullItems).slots()
+        precondition(overflowSlots.count == fullItems.count)
+        precondition(overflowSlots.compactMap(\.item).map(\.id) == fullItems.map(\.id))
+
+        var undressed = OiDraftCustomization()
+        undressed.selectSeedTop(.hoodie)
+        undressed.selectSeedTop(.hoodie)
+        precondition(undressed.selectedSeedTop == nil)
+        precondition(undressed.seedAppearance == OiSeedCucumberAppearance())
+        let restoredLook = try JSONDecoder().decode(OiDraftCustomization.self, from: JSONEncoder().encode(undressed))
+        precondition(restoredLook.seedAppearance == undressed.seedAppearance)
+        precondition(restoredLook.selectedSeedTop == nil)
 
         let remoteStory = OiLiveStory(
             id: UUID(),
@@ -131,6 +143,11 @@ struct MYDemoChecks {
         precondition(OiStoryConsentState(savedIDs: consent.savedIDs) == consent)
         consent.setAgreed(false, to: .moderation)
         precondition(!consent.allRequiredClausesAreAgreed)
+
+        let accepted = OiStoryConsentState.acceptedForStoryCreation
+        precondition(accepted.allRequiredClausesAreAgreed)
+        precondition(accepted.savedIDs == Set(OiStoryConsentClause.writingClauses.map(\.id.rawValue)))
+        precondition(OiStoryConsentState(savedIDs: accepted.savedIDs) == accepted)
 
         let suite = "MYDemoChecks.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

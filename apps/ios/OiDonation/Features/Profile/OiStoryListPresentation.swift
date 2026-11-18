@@ -4,6 +4,15 @@ enum OiStoryReviewRequest {
     static let title = "내용 검토 요청하기"
 }
 
+enum OiStoryListPortraitSource: Equatable, Sendable {
+    case seed(OiSeedCucumberSnapshot)
+    case seedWithPhotos(OiSeedCucumberSnapshot, OiWardrobeLook)
+    case wardrobe(OiWardrobeLook)
+    case remote(String)
+    case image(Data)
+    case asset(String)
+}
+
 struct OiStoryListItem: Identifiable, Equatable, Sendable {
     let id: UUID
     let cucumberName: String
@@ -12,6 +21,8 @@ struct OiStoryListItem: Identifiable, Equatable, Sendable {
     let cucumberAsset: String
     /// The draft's customised cucumber, when the card step has rendered one.
     let portraitPNG: Data?
+    /// List portraits use the current look, independently of card composition and orientation.
+    let portraitSource: OiStoryListPortraitSource
     let donorDisplayName: String
     let locationDisplayName: String
     let tags: [String]
@@ -23,6 +34,7 @@ struct OiStoryListItem: Identifiable, Equatable, Sendable {
         title: String = "",
         cucumberAsset: String,
         portraitPNG: Data? = nil,
+        portraitSource: OiStoryListPortraitSource? = nil,
         donorDisplayName: String,
         locationDisplayName: String,
         tags: [String],
@@ -33,19 +45,26 @@ struct OiStoryListItem: Identifiable, Equatable, Sendable {
         self.title = title
         self.cucumberAsset = cucumberAsset
         self.portraitPNG = portraitPNG
+        self.portraitSource = portraitSource ?? portraitPNG.map(OiStoryListPortraitSource.image) ?? .asset(cucumberAsset)
         self.donorDisplayName = donorDisplayName
         self.locationDisplayName = locationDisplayName
         self.tags = Array(tags.prefix(2))
         self.dateLabel = dateLabel
     }
 
-    init(story: OiLiveStory, portraitPNG: Data? = nil, donorDisplayName: String, locationDisplayName: String) {
+    init(story: OiLiveStory, portraitPNG: Data? = nil, portraitSource: OiStoryListPortraitSource? = nil,
+         donorDisplayName: String, locationDisplayName: String) {
         self.init(
             id: story.id,
             cucumberName: story.cucumberName,
             title: story.title,
             cucumberAsset: story.cucumberAsset,
             portraitPNG: portraitPNG,
+            portraitSource: portraitSource ?? portraitPNG.map(OiStoryListPortraitSource.image)
+                ?? story.cucumberAppearance?.seed.flatMap { seed -> OiStoryListPortraitSource? in
+                    seed.topPhotoVersion == nil ? .seed(seed) : nil
+                }
+                ?? story.cucumberArtwork.map { .remote($0.path(.portrait)) },
             donorDisplayName: donorDisplayName,
             locationDisplayName: locationDisplayName,
             tags: [story.emotion, story.theme].filter { !$0.isEmpty },
