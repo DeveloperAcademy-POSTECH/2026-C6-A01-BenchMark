@@ -75,6 +75,8 @@ struct CampusSearchView: View {
         let state = CampusSearchContentState(hasSearched: hasSearched, hasMatches: !matches.isEmpty,
             hasLoaded: remote?.hasLoadedRemote != false, isLoading: remote?.isRefreshing == true,
             hasError: remote?.loadError != nil)
+        let showsAccountStatus = remote.map { $0.needsReauthentication || $0.syncWarning != nil } ?? false
+        let showsIllustration = state.showsIllustration && !(state == .failed && showsAccountStatus)
 
         NavigationStack {
             GeometryReader { viewport in
@@ -88,7 +90,12 @@ struct CampusSearchView: View {
                         case .loading:
                             ProgressView().accessibilityLabel("이야기 불러오는 중")
                         case .failed:
-                            if let remote { OiConnectionStatus(remote: remote, showsInitialProgress: false) }
+                            if showsAccountStatus, let remote {
+                                OiConnectionStatus(remote: remote, showsInitialProgress: false, showsReadFailures: false)
+                            } else {
+                                CampusSearchEmptyResult(mode: mode, isPrompt: false)
+                                    .frame(maxHeight: .infinity)
+                            }
                         case .results:
                             searchResults(matches)
                         }
@@ -99,10 +106,13 @@ struct CampusSearchView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
                     // Figma centers the horizontal donor artwork lower than the name/code illustration.
-                    .padding(.bottom, state.showsIllustration ? (mode == .donor ? 12 : 64) : 24)
-                    .frame(minHeight: state.showsIllustration ? viewport.size.height : nil)
+                    .padding(.bottom, showsIllustration ? (mode == .donor ? 12 : 64) : 24)
+                    .frame(minHeight: showsIllustration ? viewport.size.height : nil)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .refreshable {
+                    if let remote { await remote.refresh() }
+                }
             }
             .background(.white)
             .navigationTitle(mode.title).navigationBarTitleDisplayMode(.inline)

@@ -124,6 +124,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     private(set) var needsReauthentication = false
     private(set) var loadError: String?
     private(set) var syncWarning: String?
+    private(set) var collectionMetricsWarning: String?
     private(set) var revision = 0
     private(set) var localPlacementRevision = 0
     private(set) var isConfigured = false
@@ -379,7 +380,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         canPublishStoryCardCoverJPEG = false
         autoStoryModeration = false
         reviewingStoryID = nil; storyModerationResults = [:]; storyReviewLookupFailed = false; isBusy = false
-        localSignOutWarning = nil; loadError = nil; syncWarning = nil; error = nil; revision += 1
+        localSignOutWarning = nil; loadError = nil; syncWarning = nil; collectionMetricsWarning = nil; error = nil; revision += 1
     }
 
     private func noteAuthenticationFailure(_ error: Error) {
@@ -772,7 +773,9 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         accountProviders = capabilities?.accountProviders ?? []
         localRecoveryWarning = recoveryWarning
         collectionCounts = counts
-        hasLoadedRemote = true; needsReauthentication = false; loadError = nil; syncWarning = localSignOutWarning ?? deletionWarning ?? metricsWarning
+        hasLoadedRemote = true; needsReauthentication = false; loadError = nil
+        syncWarning = localSignOutWarning ?? deletionWarning
+        collectionMetricsWarning = metricsWarning
         prepareContinuationMetrics()
         if contentChanged { revision += 1 }
     }

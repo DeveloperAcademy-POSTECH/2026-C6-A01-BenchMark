@@ -53,6 +53,12 @@ struct CampusNotificationOverlay: View {
         }
     }
 
+    private struct ReadRetryContext: Equatable {
+        let failure: FailedLoad?
+        let active: Bool
+        let privacy: String
+    }
+
     private enum FailedLoad: Equatable {
         case inbox
         case continuationPage
@@ -111,6 +117,17 @@ struct CampusNotificationOverlay: View {
         .task(id: retryAttempt) {
             guard retryAttempt > 0 else { return }
             await retryLoad()
+        }
+        .task(id: ReadRetryContext(failure: failedLoad, active: scenePhase == .active,
+                                  privacy: remote.continuationPrivacyKey)) {
+            guard scenePhase == .active else { return }
+            var delay: Double = 2
+            while failedLoad != nil && !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+                guard scenePhase == .active else { return }
+                await retryLoad()
+                delay = min(delay * 2, 30)
+            }
         }
         .alert("이어진 이야기를 열지 못했어요", isPresented: Binding(
             get: { continuationError != nil }, set: { if !$0 { continuationError = nil } })) {

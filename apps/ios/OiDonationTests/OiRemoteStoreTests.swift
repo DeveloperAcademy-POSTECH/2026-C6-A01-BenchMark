@@ -749,7 +749,8 @@ final class OiRemoteStoreTests: XCTestCase {
         backend.configure { $0.story?["status"] = "published"; $0.boundedMetricsStatus = 503 }
         await store.refresh()
         XCTAssertNil(store.loadError)
-        XCTAssertNotNil(store.syncWarning)
+        XCTAssertNil(store.syncWarning)
+        XCTAssertNotNil(store.collectionMetricsWarning)
         XCTAssertEqual(store.stories.map(\.id), [id])
         XCTAssertEqual(backend.snapshot().legacyMetricsReads, 0)
 
@@ -757,6 +758,7 @@ final class OiRemoteStoreTests: XCTestCase {
         await store.refresh()
         XCTAssertNil(store.loadError)
         XCTAssertNil(store.syncWarning)
+        XCTAssertNil(store.collectionMetricsWarning)
         XCTAssertEqual(store.collectionCounts[id], 3)
         XCTAssertEqual(backend.snapshot().boundedMetricsIDs.last, [id.uuidString])
 
@@ -2018,14 +2020,14 @@ final class OiRemoteStoreTests: XCTestCase {
         attachment.lifetime = .keepAlways; add(attachment)
     }
 
-    /// STEP 1 ↔ STEP 2 switch both ways without a slide; pauses leave room for a screen recording (#373).
-    @MainActor func testConsentStoryTransitionGoesBothWays() async throws {
+    /// Legacy STEP 1 drafts resume at STEP 2 with the current creation policy (#503).
+    @MainActor func testLegacyConsentDraftSkipsToStoryAndCannotReopenConsent() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
         await store.start()
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let local = OiLocalDraft(draft: draft(title: "전환 확인"), version: 1, creationStep: OiCreationStep.consent.rawValue,
-            agreedConsentClauseIDs: Set(OiStoryConsentClause.ID.allCases.map(\.rawValue)))
+            agreedConsentClauseIDs: ["storyWriting"])
         try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
         var actions: OiStoryEditor.NavigationTestActions?
         let controller = UIHostingController(rootView: NavigationStack {
@@ -2033,19 +2035,105 @@ final class OiRemoteStoreTests: XCTestCase {
         })
         let window = UIWindow(windowScene: scene)
         window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
-        window.rootViewController = controller; window.makeKeyAndVisible()
-        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
-        try await Task.sleep(for: .seconds(5)) // past the launch splash
-        // Pauses let a screen recording show forward, backward and the next step separately.
+        window.rootViewController = controller; window.isHidden = false
+        defer {
+            window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+            XCTAssertFalse(scene.windows.contains { $0 === window }, "Detach the owned window, including hidden windows")
+        }
+        let saved = try await waitForCreationPolicySave(store, id: local.id, step: .story)
+        XCTAssertEqual(saved.draft, local.draft, "Skipping consent must preserve the story")
+        XCTAssertGreaterThan(saved.version, local.version)
+        XCTAssertEqual(try XCTUnwrap(actions).currentStep(), .story)
         try XCTUnwrap(actions).next()
-        try await Task.sleep(for: .seconds(1.5))
+        try await Task.sleep(for: .milliseconds(200))
         XCTAssertEqual(try XCTUnwrap(actions).currentStep(), .story)
         try XCTUnwrap(actions).editFromReview(.consent)
-        try await Task.sleep(for: .seconds(1.5))
-        XCTAssertEqual(try XCTUnwrap(actions).currentStep(), .consent)
-        try XCTUnwrap(actions).next()
-        try await Task.sleep(for: .seconds(1.5))
+        try await Task.sleep(for: .milliseconds(200))
         XCTAssertEqual(try XCTUnwrap(actions).currentStep(), .story)
+        XCTAssertNil(backend.snapshot().story, "Accepting creation terms must not submit a story")
+    }
+
+    @MainActor func testNewStoryStartsAtStoryWithAcceptedConsentSaved() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let id = UUID()
+        var actions: OiStoryEditor.NavigationTestActions?
+        let controller = UIHostingController(rootView: NavigationStack {
+            OiStoryEditor(remote: store, localID: id, initialStep: .consent)
+                .observeNavigationForTest({ _ in }, actions: { actions = $0 })
+        })
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = controller; window.isHidden = false
+        defer {
+            window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+            XCTAssertFalse(scene.windows.contains { $0 === window })
+        }
+        let saved = try await waitForCreationPolicySave(store, id: id, step: .story)
+        XCTAssertEqual(try XCTUnwrap(actions).currentStep(), .story)
+        XCTAssertTrue(saved.draft.title.isEmpty && saved.draft.body.isEmpty)
+        XCTAssertTrue(saved.photos.isEmpty)
+        XCTAssertFalse(saved.submitted)
+        XCTAssertNil(backend.snapshot().story)
+        try await Task.sleep(for: .milliseconds(200))
+        window.layoutIfNeeded()
+        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "story-creation-direct-step2"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor func testLaterStoryDraftKeepsStepAndContentWhenConsentIsAccepted() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        var customization = OiDraftCustomization()
+        customization.firstColor = 0x123456
+        customization.showsCharacter = false
+        let local = OiLocalDraft(draft: draft(title: "이어서 꾸밀 이야기"), version: 4,
+            creationStep: OiCreationStep.cucumber.rawValue, customization: customization,
+            agreedConsentClauseIDs: ["moderation"])
+        try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+        var actions: OiStoryEditor.NavigationTestActions?
+        let controller = UIHostingController(rootView: NavigationStack {
+            OiStoryEditor(remote: store, localID: local.id)
+                .observeNavigationForTest({ _ in }, actions: { actions = $0 })
+        })
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = controller; window.isHidden = false
+        defer {
+            window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+            XCTAssertFalse(scene.windows.contains { $0 === window })
+        }
+        let saved = try await waitForCreationPolicySave(store, id: local.id, step: .cucumber)
+        XCTAssertEqual(try XCTUnwrap(actions).currentStep(), .cucumber)
+        XCTAssertEqual(saved.draft, local.draft)
+        XCTAssertEqual(saved.customization?.firstColor, customization.firstColor)
+        XCTAssertEqual(saved.customization?.showsCharacter, customization.showsCharacter)
+        XCTAssertEqual(saved.photos, local.photos)
+        XCTAssertNil(backend.snapshot().story)
+    }
+
+    @MainActor private func waitForCreationPolicySave(_ store: OiRemoteStore, id: UUID,
+                                                     step: OiCreationStep) async throws -> OiLocalDraft {
+        for _ in 0..<50 {
+            if let saved = try await store.localDraft(id: id, owner: OiTestBackend.owner),
+               saved.creationStep == step.rawValue,
+               saved.agreedConsentClauseIDs == OiStoryConsentState.acceptedForStoryCreation.savedIDs {
+                return saved
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTFail("The hosted editor must persist the active step and accepted creation terms")
+        let saved = try await store.localDraft(id: id, owner: OiTestBackend.owner)
+        return try XCTUnwrap(saved)
     }
 
     /// Opening the photo editor while typing must not leave the story keyboard over it (#373).
@@ -2381,8 +2469,8 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(depth(), editorDepth - 1, "Completion Done must return to the story list (editor \(editorDepth), completion \(completionDepth))")
     }
 
-    /// #473: 접수 완료 화면의 완료 버튼은 이야기 목록(편집 화면을 연 화면)으로 돌아가야 한다.
-    @MainActor func testStepOneExitSavesDraftAndKeepsItOnSaveFailure() async throws {
+    /// Legacy consent drafts still save safely when exiting STEP 2, including storage failure (#503).
+    @MainActor func testLegacyConsentDraftExitSavesAndKeepsItOnSaveFailure() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
         await store.start()
@@ -2402,7 +2490,7 @@ final class OiRemoteStoreTests: XCTestCase {
             let window = UIWindow(windowScene: scene); window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
             window.rootViewController = controller; window.isHidden = false
             defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
-            try await Task.sleep(for: .seconds(1))
+            _ = try await waitForCreationPolicySave(store, id: local.id, step: .story)
             let backup = directory.appendingPathExtension("backup")
             if fails {
                 try FileManager.default.moveItem(at: directory, to: backup)
@@ -2419,7 +2507,8 @@ final class OiRemoteStoreTests: XCTestCase {
             let restored = try XCTUnwrap(loaded)
             XCTAssertEqual(restored.draft, local.draft)
             XCTAssertEqual(restored.personalPlacement, local.personalPlacement, "Exit must not delete a map placement")
-            XCTAssertEqual(restored.creationStep, OiCreationStep.consent.rawValue)
+            XCTAssertEqual(restored.creationStep, OiCreationStep.story.rawValue)
+            XCTAssertEqual(restored.agreedConsentClauseIDs, OiStoryConsentState.acceptedForStoryCreation.savedIDs)
             XCTAssertNil(backend.snapshot().story, "Exit saves locally and must not submit a story")
         }
     }
@@ -2831,7 +2920,7 @@ final class OiRemoteStoreTests: XCTestCase {
                     XCTAssertEqual(saved?.customization?.wardrobe, look.wardrobe)
                     XCTAssertEqual(saved?.photos, [])
                     XCTAssertNotNil(saved?.personalPlacement)
-                    XCTAssertTrue(saved?.agreedConsentClauseIDs?.isEmpty == true)
+                    XCTAssertEqual(saved?.agreedConsentClauseIDs, OiStoryConsentState.acceptedForStoryCreation.savedIDs)
                     XCTAssertTrue(backendState.uploads.isEmpty)
                     sawPersonalMap = true
                 }
@@ -2852,10 +2941,11 @@ final class OiRemoteStoreTests: XCTestCase {
             let saved = try await store.localDraft(id: local.id, owner: OiTestBackend.owner)
             if freelyExplore {
                 if let step = saved?.creationStep { visited.insert(step) }
-                XCTAssertFalse(OiStoryConsentState(savedIDs: saved?.agreedConsentClauseIDs ?? []).allRequiredClausesAreAgreed,
-                               "Visiting screens never accepts terms")
+                XCTAssertTrue(OiStoryConsentState(savedIDs: saved?.agreedConsentClauseIDs ?? []).allRequiredClausesAreAgreed,
+                              "The creation flow applies accepted terms without showing STEP 1")
                 XCTAssertNil(backend.snapshot().story, "Previewing screens never creates a server story")
-                if visited.count == OiCreationStep.allCases.count && saved?.creationStep == OiCreationStep.consent.rawValue {
+                let activeSteps = Set([OiCreationStep.story, .location, .cucumber, .card].map(\.rawValue))
+                if activeSteps.isSubset(of: visited), saved?.creationStep == OiCreationStep.story.rawValue {
                     XCTAssertEqual(saved?.draft, input)
                     XCTAssertEqual(saved?.customization?.wardrobe, look.wardrobe)
                     return
@@ -3421,7 +3511,7 @@ final class OiRemoteStoreTests: XCTestCase {
         incompleteDraft.latitude = nil
         incompleteDraft.longitude = nil
         var record = OiLocalDraft(draft: incompleteDraft, photos: [photo], version: 1,
-            agreedConsentClauseIDs: Set(OiStoryConsentClause.writingClauses.map { $0.id.rawValue }),
+            creationStep: OiCreationStep.consent.rawValue, agreedConsentClauseIDs: ["storyWriting"],
             personalPlacement: .init(regionID: completeDraft.regionId, name: completeDraft.cucumberName,
                 latitude: try XCTUnwrap(completeDraft.latitude), longitude: try XCTUnwrap(completeDraft.longitude),
                 heightMeters: 0, headingDegrees: 0))
@@ -3453,6 +3543,17 @@ final class OiRemoteStoreTests: XCTestCase {
         for _ in 0..<60 where buttons.message(record.id) == nil { try await Task.sleep(for: .milliseconds(50)) }
         XCTAssertEqual(buttons.message(record.id), "오이 커스텀의 내용 탭에서 오이 이름을 입력해 주세요.")
         XCTAssertEqual(backend.snapshot().moderationCount, 0)
+        let normalizedRecord = try await store.localDraft(id: record.id, owner: owner)
+        let normalized = try XCTUnwrap(normalizedRecord)
+        XCTAssertEqual(normalized.creationStep, OiCreationStep.story.rawValue)
+        XCTAssertEqual(normalized.agreedConsentClauseIDs, OiStoryConsentState.acceptedForStoryCreation.savedIDs)
+        XCTAssertEqual(normalized.version, record.version + 1)
+        XCTAssertEqual(normalized.draft, record.draft)
+        XCTAssertEqual(normalized.photos, record.photos)
+        XCTAssertEqual(normalized.personalPlacement, record.personalPlacement)
+        XCTAssertEqual(normalized.contentFingerprint, record.contentFingerprint,
+            "Automatically accepting legacy clauses must not change the reviewed story content")
+        record = normalized
         record.draft.cucumberName = completeDraft.cucumberName
         record.version += 1
         try await store.saveLocalDraft(record, owner: owner)

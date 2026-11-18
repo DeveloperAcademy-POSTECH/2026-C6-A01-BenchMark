@@ -113,8 +113,8 @@ struct HomeView: View {
                     mapHeader.padding(.horizontal, 20).padding(.top, region == nil && selectedBuilding == nil ? 9 : 4)
                     Spacer()
                     if region == nil && selectedBuilding == nil {
-                        if let remote, remote.loadError != nil || remote.syncWarning != nil || remote.needsReauthentication {
-                            OiConnectionStatus(remote: remote, showsInitialProgress: false)
+                        if let remote, remote.syncWarning != nil || remote.needsReauthentication {
+                            OiConnectionStatus(remote: remote, showsInitialProgress: false, showsReadFailures: false)
                                 .padding(10).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 20)
                         }
                         homeActions.padding(.leading, 22).padding(.trailing, 20).padding(.bottom, 0)
@@ -592,10 +592,10 @@ struct HomeView: View {
                     Text(sort == .distance ? "지도 중심에서 가까운 순서" : "인기순")
                         .font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if let remote { OiConnectionStatus(remote: remote) }
+                if let remote { OiConnectionStatus(remote: remote, showsReadFailures: false) }
                 ScrollView {
                     LazyVStack(spacing: 10) {
-                        if items.isEmpty, remote == nil || remote?.hasLoadedRemote == true {
+                        if items.isEmpty, remote == nil || remote?.hasLoadedRemote == true || (remote?.loadError != nil && remote?.isRefreshing != true) {
                             Text("이 화면에는 공개된 오이가 없어요. 지도를 움직여 다시 검색해 주세요.")
                                 .font(CampusStyle.body(14)).foregroundStyle(.secondary).padding()
                         }

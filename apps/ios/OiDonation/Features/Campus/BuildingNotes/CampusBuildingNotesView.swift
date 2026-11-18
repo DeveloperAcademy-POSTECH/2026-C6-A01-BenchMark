@@ -42,7 +42,7 @@ struct CampusBuildingNotesView: View {
                                 .font(CampusStyle.body(12)).frame(maxWidth: .infinity, minHeight: 44).disabled(model.loading)
                         }
                         if model.loading && !model.hasLoaded { ProgressView("글을 불러오는 중").frame(maxWidth: .infinity).padding() }
-                        if model.hasLoaded && visibleNotes.isEmpty {
+                        if (model.hasLoaded || model.loadError != nil) && visibleNotes.isEmpty {
                             Text("이 건물의 첫 이야기를 남겨 주세요.")
                                 .font(CampusStyle.body(14)).foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, minHeight: 150)

@@ -10,15 +10,20 @@ import SwiftUI
 struct OiConnectionStatus: View {
     let remote: OiRemoteStore
     var showsInitialProgress = true
+    var showsReadFailures = true
     @State private var appleAuthentication = OiAppleAuthentication()
 
     var body: some View {
         let isLoading = showsInitialProgress && remote.isRefreshing && !remote.hasLoadedRemote
-        if isLoading || remote.syncWarning != nil || remote.loadError != nil || remote.needsReauthentication {
+        let showsReadWarning = showsReadFailures && (remote.loadError != nil || remote.collectionMetricsWarning != nil)
+        if isLoading || remote.syncWarning != nil || showsReadWarning || remote.needsReauthentication {
             VStack(alignment: .leading, spacing: 8) {
                 if isLoading { ProgressView().accessibilityLabel("서버에서 불러오는 중") }
                 if let warning = remote.syncWarning { Label(warning, systemImage: "checkmark.icloud").font(.footnote).accessibilityIdentifier("oi.sync.warning") }
-                if let error = remote.loadError {
+                if showsReadFailures, let warning = remote.collectionMetricsWarning {
+                    Text(warning).font(.footnote).foregroundStyle(.secondary)
+                }
+                if showsReadFailures, let error = remote.loadError {
                     Text(remote.hasLoadedRemote ? "연결을 확인하지 못해 마지막으로 불러온 내용을 표시합니다. \(error)" : "아직 목록을 불러오지 못했습니다. \(error)")
                         .font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("oi.load.error")
                     Button("다시 불러오기") { Task { await remote.refresh() } }.disabled(remote.isBusy || remote.isRefreshing)
