@@ -92,3 +92,11 @@ html,body{margin:0;overflow:hidden;overscroll-behavior:none;background:#d5ebf5}
 @media(prefers-reduced-transparency:reduce),(prefers-contrast:more){.reference-live.native-viewer.is-scattered #viewerAimStory{background:#1c3024;backdrop-filter:none;-webkit-backdrop-filter:none}}
 @media(prefers-reduced-motion:reduce){.native-viewer #viewerAim{transition:none}}
 @media(prefers-reduced-motion:reduce){.native-viewer .aim-story-photo img{transition:none}}
+
+/* Story dialogs are body siblings of the viewer, not children of it.
+   Extend the sheet surface to the screen edges; inset only its content. */
+body:has(.native-viewer) .education-dialog{position:fixed;inset:auto 0 0;width:100%;max-width:none;max-height:calc(100dvh - max(12px,env(safe-area-inset-top)) - 12px);margin:0;padding:0;border:0;border-radius:26px 26px 0 0;overflow:hidden}
+body:has(.native-viewer) .education-dialog[open]{display:flex;flex-direction:column}
+body:has(.native-viewer) .education-dialog>.close-button{position:static;align-self:flex-end;flex:0 0 44px;width:44px;min-height:44px;margin:8px max(12px,env(safe-area-inset-right)) 0 0;padding:0;border:0;border-radius:50%;background:#e8ecdf;color:#344329;font:400 28px/1 -apple-system,BlinkMacSystemFont,sans-serif}
+body:has(.native-viewer) .education-dialog>.education-content{min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 max(20px,env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left));scroll-padding-block:20px;overflow-wrap:anywhere}
+body:has(.native-viewer) .education-dialog h2{margin-right:0}
