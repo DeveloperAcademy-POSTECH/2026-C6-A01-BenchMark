@@ -3574,9 +3574,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let inbox = CampusNotificationInboxView(requests: rows, isLoading: false,
             onOpenRequest: { _ in })
             .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
+        var loadedRowsImage: Data?
         for variant in [reference, small, large, accessibility] {
-            try await capture(inbox, name: "campus-notifications-inbox", variant: variant,
+            let image = try await capture(inbox, name: "campus-notifications-inbox", variant: variant,
                 defaults: fixture.defaults, includesSafeArea: false, attach: true)
+            if variant.name == reference.name { loadedRowsImage = image }
         }
 
         let empty = CampusNotificationInboxView(requests: [], isLoading: false,
@@ -3596,14 +3598,24 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             variant: reference, defaults: fixture.defaults, includesSafeArea: false, attach: true)
         XCTAssertGreaterThan(try myV4ChangedPixels(failedImage, failedWithoutRowsImage, size: reference.size,
             rect: CGRect(x: 20, y: 150, width: 362, height: 350)), 1000,
-            "A partial failure must keep the successfully loaded card rows visible under the retry banner")
-        XCTAssertNotEqual(emptyImage, failedWithoutRowsImage, "An error must never be mistaken for zero notifications")
+            "A partial failure must keep the successfully loaded card rows visible")
+        XCTAssertEqual(try myV4ChangedPixels(emptyImage, failedWithoutRowsImage, size: reference.size,
+            rect: CGRect(origin: .zero, size: reference.size)), 0,
+            "An empty failed read must reuse the existing notification empty artwork")
+        XCTAssertEqual(try myV4ChangedPixels(XCTUnwrap(loadedRowsImage), failedImage, size: reference.size,
+            rect: CGRect(origin: .zero, size: reference.size)), 0,
+            "A failed refresh must preserve cached notification rows without a new error banner")
         let partial = CampusNotificationInboxView(requests: rows, isLoading: true, isInitialLoading: true,
             unconfirmedRequestID: UUID(), onOpenRequest: { _ in })
             .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
         _ = try await capture(partial, name: "campus-notifications-initial-partial", variant: reference,
             defaults: fixture.defaults, includesSafeArea: false, validateRender: assertSpinnerOnlyRender)
-        XCTAssertNotEqual(failedImage, emptyImage, "A failed load must render differently from an empty inbox")
+        let retrying = CampusNotificationInboxView(requests: [], isLoading: true,
+            loadFailed: true, onRetry: {}, onOpenRequest: { _ in })
+            .background(CampusStyle.mapSheet.opacity(0.7).background(Color(white: 0.82)))
+        _ = try await capture(retrying, name: "campus-notifications-retrying-failed-read", variant: reference,
+            defaults: fixture.defaults, includesSafeArea: false, validateRender: assertSpinnerOnlyRender)
+        XCTAssertNotEqual(failedImage, emptyImage, "Cached rows must remain distinguishable from an empty inbox")
     }
 
     func testCampusNotificationsExpireAtThirtyDays() {
@@ -3623,12 +3635,20 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
             ("card-requests-empty", [], nil),
             ("card-requests-error", [], "연결을 확인한 뒤 다시 시도해 주세요.")
         ]
+        var referenceEmpty: Data?
         for variant in variants {
+            var images: [String: Data] = [:]
             for state in states {
                 let inbox = OiCardRequestInboxView(requests: state.rows, isLoading: false, loadError: state.error,
                     pendingRequestID: nil, actionError: nil, onReload: {}, onDecision: { _, _ in })
-                try await capture(inbox, name: state.name, variant: variant, defaults: fixture.defaults, attach: true)
+                images[state.name] = try await capture(inbox, name: state.name, variant: variant, defaults: fixture.defaults, attach: true)
             }
+            let empty = try XCTUnwrap(images["card-requests-empty"])
+            let failed = try XCTUnwrap(images["card-requests-error"])
+            XCTAssertEqual(try myV4ChangedPixels(empty, failed, size: variant.size,
+                rect: CGRect(origin: .zero, size: variant.size)), 0,
+                "A failed read with no requests must reuse the existing request empty artwork")
+            if variant.name == variants[0].name { referenceEmpty = empty }
         }
         // Content-only capture; the overlay test below verifies the actual backdrop.
         let sheetVariant = Variant(name: "402x803-sheet", size: CGSize(width: 402, height: 803), dynamicTypeSize: .large)
@@ -3641,8 +3661,18 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         let unconfirmed = OiCardRequestInboxView(requests: [], isLoading: false, loadError: nil,
             pendingRequestID: nil, actionError: "처리 결과를 확인하지 못했어요. 같은 응답을 다시 확인해 주세요.",
             onReload: {}, onDecision: { _, _ in }, onRetryDecision: {})
-        try await capture(unconfirmed, name: "card-requests-unconfirmed-decision",
+        let unresolved = try await capture(unconfirmed, name: "card-requests-unconfirmed-decision",
             variant: reference, defaults: fixture.defaults, attach: true)
+        XCTAssertGreaterThan(try myV4ChangedPixels(XCTUnwrap(referenceEmpty), unresolved, size: reference.size,
+            rect: CGRect(origin: .zero, size: reference.size)), 100,
+            "An unconfirmed mutation must keep its decision recovery controls instead of looking like a read failure")
+        let cachedFailure = OiCardRequestInboxView(requests: rows, isLoading: false, loadError: "Read unavailable",
+            pendingRequestID: nil, actionError: nil, onReload: {}, onDecision: { _, _ in XCTFail("Rendering must not decide a request") })
+        let cached = try await capture(cachedFailure, name: "card-requests-cached-read-failure",
+            variant: reference, defaults: fixture.defaults, attach: true)
+        XCTAssertGreaterThan(try myV4ChangedPixels(XCTUnwrap(referenceEmpty), cached, size: reference.size,
+            rect: CGRect(x: 20, y: 150, width: 362, height: 350)), 1000,
+            "Cached requests must remain visible while the existing decision guards handle the failed refresh")
     }
 
     func testCampusNotificationSheetOpensAtFullHeight() async throws {
@@ -3846,6 +3876,97 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                 .padding(20).offset(y: -520).frame(maxHeight: .infinity, alignment: .top).clipped()
             try await capture(section, name: name, variant: variants[0], defaults: fixture.defaults, delay: .seconds(2), attach: true)
         }
+    }
+
+    func testStoryListReadFailureReusesEmptySlotsWithoutResolvingSeedBalance() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let failed = OiStoryListState.failure("The virtual read is unavailable")
+        for variant in variants.prefix(2) {
+            let emptyImage = try await capture(NavigationStack {
+                OiStoryListView(state: .empty, seedCount: nil,
+                    onAddSeed: {}, onCreateStory: { XCTFail("A capture must not create a story") })
+            }, name: "story-list-empty-read-baseline", variant: variant, defaults: fixture.defaults, attach: true)
+            let failedImage = try await capture(NavigationStack {
+                OiStoryListView(state: failed, seedCount: nil,
+                    onAddSeed: {}, onCreateStory: { XCTFail("A failed read must not create a story while rendering") })
+            }, name: "story-list-read-failure-empty-slots", variant: variant, defaults: fixture.defaults, attach: true)
+            XCTAssertEqual(try myV4ChangedPixels(emptyImage, failedImage, size: variant.size,
+                rect: CGRect(origin: .zero, size: variant.size)), 0,
+                "Read failure must reuse the original empty slots, unknown seed balance, footer, and toolbar")
+        }
+        guard case .failure = failed else { return XCTFail("The visual fallback must not replace the failed internal state") }
+    }
+
+    func testCampusSearchReadFailureReusesNoMatchesArtwork() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let previous = OiStoreURLProtocol.handle
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel(); OiStoreURLProtocol.handle = previous }
+        OiStoreURLProtocol.handle = { _, client in client.respond(503, Data("{}".utf8)) }
+        let failed = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            vault: OiMemorySession())
+        await failed.start()
+        XCTAssertNotNil(failed.loadError)
+        XCTAssertFalse(failed.hasLoadedRemote)
+        let reference = try XCTUnwrap(variants.first)
+        let query = CampusSearchQuery(text: "없는 오이", name: "없는 농부")
+        for mode in CampusSearchMode.allCases {
+            let emptyImage = try await capture(CampusSearchView(mode: mode, entries: [], isExample: false,
+                initialQuery: query, onSelect: { _ in XCTFail("An empty search must not select an entry") }),
+                name: "search-\(mode.rawValue)-read-baseline", variant: reference, defaults: fixture.defaults, attach: true)
+            let failedImage = try await capture(CampusSearchView(mode: mode, entries: [], isExample: false,
+                remote: failed, initialQuery: query, onSelect: { _ in XCTFail("A failed search must not select an entry") }),
+                name: "search-\(mode.rawValue)-read-failure-empty", variant: reference, defaults: fixture.defaults, attach: true)
+            XCTAssertEqual(try myV4ChangedPixels(emptyImage, failedImage, size: reference.size,
+                rect: CGRect(origin: .zero, size: reference.size)), 0,
+                "Search read failure must reuse the same no-matches image, text, and layout")
+        }
+        XCTAssertFalse(failed.hasLoadedRemote, "Shared empty artwork must not mark a failed catalog as loaded")
+    }
+
+    func testPublicMYReadFailureReusesUnavailableArtwork() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let reference = try XCTUnwrap(variants.first)
+        let author = UUID()
+        var snapshots: [Data] = []
+        for status in [200, 503] {
+            let previous = OiStoreURLProtocol.handle
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [OiStoreURLProtocol.self]
+            let session = URLSession(configuration: configuration)
+            defer { session.invalidateAndCancel(); OiStoreURLProtocol.handle = previous }
+            let requested = expectation(description: "The public author is read with status \(status)")
+            OiStoreURLProtocol.handle = { request, client in
+                XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+                switch request.url?.lastPathComponent {
+                case "oi_profiles":
+                    requested.fulfill()
+                    client.respond(status, status == 200 ? Data("[]".utf8) : Data("{}".utf8))
+                case "oi_stories":
+                    client.respond(status, status == 200 ? Data("[]".utf8) : Data("{}".utf8))
+                default:
+                    XCTFail("Public MY used an unexpected endpoint")
+                    client.respond(404, Data("{}".utf8))
+                }
+            }
+            let remote = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session))
+            let screen = NavigationStack {
+                MYPublicWorkshopView(authorID: author, remote: remote,
+                    store: CampusStoryStore(defaults: fixture.defaults))
+                    .environment(\.scenePhase, .active)
+            }
+            snapshots.append(try await capture(screen, name: "public-my-unavailable-\(status)", variant: reference,
+                defaults: fixture.defaults, delay: .milliseconds(400), attach: true))
+            await fulfillment(of: [requested], timeout: 1)
+        }
+        XCTAssertEqual(try myV4ChangedPixels(snapshots[0], snapshots[1], size: reference.size,
+            rect: CGRect(origin: .zero, size: reference.size)), 0,
+            "A failed public read must use the existing unavailable artwork without a new error screen")
     }
 
     func testCampusSearchStatesDoNotConfusePromptFailureAndEmptyResults() {
@@ -4169,9 +4290,11 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertFalse(failed.hasLoadedRemote)
         let errorPNG = try await capture(NavigationStack { MYWorkshopView(demo: MYLibraryStore(), remote: failed) },
             name: "my-v4-error", variant: reference, defaults: fixture.defaults, attach: true)
-        XCTAssertGreaterThan(try myV4ChangedPixels(empty, errorPNG, size: reference.size,
-            rect: CGRect(x: 0, y: 369, width: 402, height: 350)), 100,
-            "A failed request must not imply that the owner's list is empty")
+        XCTAssertEqual(try myV4ChangedPixels(empty, errorPNG, size: reference.size,
+            rect: CGRect(x: 0, y: 369, width: 402, height: 350)), 0,
+            "A failed authored read must reuse the same Figma empty panel")
+        XCTAssertFalse(failed.hasLoadedRemote)
+        XCTAssertFalse(failed.canStartStory, "Empty artwork must not grant story creation before the account state loads")
         backend.configure { $0.failReads = false }
         await failed.refresh()
         XCTAssertTrue(failed.hasLoadedRemote)
@@ -4996,10 +5119,28 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         XCTAssertTrue(remote.hasLoadedRemote)
         XCTAssertEqual(remote.account?.id, OiTestBackend.owner)
         XCTAssertTrue(remote.ownStories.isEmpty)
+        var emptyReference: Data?
         for variant in variants {
             let empty = NavigationStack { MYFarmView(remote: remote) }
-            try await capture(empty, name: "my-farm-empty", variant: variant, defaults: fixture.defaults)
+            let image = try await capture(empty, name: "my-farm-empty", variant: variant, defaults: fixture.defaults)
+            if variant.name == variants[0].name { emptyReference = image }
         }
+        backend.configure { $0.failReads = true }
+        let failed = OiRemoteStore(api: api,
+            drafts: OiDraftVault(directory: directory.appendingPathComponent("failed-read")), vault: OiMemorySession())
+        await failed.start()
+        XCTAssertNotNil(failed.loadError)
+        XCTAssertNotNil(failed.account)
+        XCTAssertFalse(failed.hasLoadedRemote)
+        XCTAssertFalse(failed.canStartStory)
+        let reference = try XCTUnwrap(variants.first)
+        let failedImage = try await capture(NavigationStack { MYFarmView(remote: failed) },
+            name: "my-farm-initial-read-failure-empty", variant: reference, defaults: fixture.defaults, attach: true)
+        XCTAssertEqual(try myV4ChangedPixels(XCTUnwrap(emptyReference), failedImage, size: reference.size,
+            rect: CGRect(origin: .zero, size: reference.size)), 0,
+            "An authenticated initial read failure must reuse the existing farm empty artwork")
+        XCTAssertFalse(failed.hasLoadedRemote, "Empty farm artwork must not mark the server read as complete")
+        backend.configure { $0.failReads = false }
         var draft = Self.draft
         draft.grantId = OiTestBackend.grant
         draft.latitude = 36.01261057021347

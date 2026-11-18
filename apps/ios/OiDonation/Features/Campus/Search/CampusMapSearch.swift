@@ -27,7 +27,7 @@ struct CampusSearchQuery: Equatable {
 }
 
 /// Search has not run until a query is entered (or the donor form is submitted).
-/// Cached matches remain useful during refresh; a failed lookup is never a zero result.
+/// Cached matches remain useful during refresh; read failures keep their own state while sharing the empty presentation.
 enum CampusSearchContentState: Equatable {
     case prompt, loading, failed, results, noMatches
 
@@ -40,7 +40,7 @@ enum CampusSearchContentState: Equatable {
         else { self = .noMatches }
     }
 
-    var showsIllustration: Bool { self == .prompt || self == .noMatches }
+    var showsIllustration: Bool { self == .prompt || self == .noMatches || self == .failed }
 }
 
 struct CampusSearchEntry: Identifiable {

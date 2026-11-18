@@ -64,6 +64,7 @@ extension CampusBuildingNoteServing {
     private(set) var hasLoaded = false
     private(set) var hasMore = false
     private(set) var hasLoadedOlderNotes = false
+    private(set) var loadError: String?
     private(set) var error: String?
     private(set) var failedSend = false
     private(set) var sentID: UUID?
@@ -92,7 +93,7 @@ extension CampusBuildingNoteServing {
         if owner != service.buildingNoteAccountID {
             text = ""; pending = nil; sentID = nil; notes = []; cursor = nil; hasLoaded = false; hasMore = false
             hasLoadedOlderNotes = false
-            failedSend = false; error = nil
+            failedSend = false; error = nil; loadError = nil
         }
         owner = service.buildingNoteAccountID
     }
@@ -101,7 +102,7 @@ extension CampusBuildingNoteServing {
         guard !loading, !older || hasMore else { return }
         let request = generation, account = service.buildingNoteAccountID, revision = contentRevision
         loading = true
-        if !failedSend { error = nil }
+        loadError = nil
         defer { if request == generation { loading = false } }
         do {
             let page = try await service.buildingNotes(building: buildingID, before: older ? cursor : nil)
@@ -116,7 +117,7 @@ extension CampusBuildingNoteServing {
             hasLoaded = true
         } catch {
             guard request == generation, account == service.buildingNoteAccountID, !OiServiceFailure.isCancellation(error) else { return }
-            self.error = error.localizedDescription
+            loadError = error.localizedDescription
         }
     }
 
@@ -164,6 +165,8 @@ extension CampusBuildingNoteServing {
                 failedSend = false; error = nil
             }
             try await service.clearPreparedBuildingNote(id: note.id, building: buildingID, owner: account)
+            guard request == generation, account == service.buildingNoteAccountID, !Task.isCancelled else { return }
+            if !failedSend { error = nil }
         } catch {
             guard request == generation, account == service.buildingNoteAccountID, !OiServiceFailure.isCancellation(error) else { return }
             self.error = error.localizedDescription

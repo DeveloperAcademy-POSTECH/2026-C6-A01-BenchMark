@@ -16,6 +16,8 @@ import RealityKit
     var page: [CampusBuildingNote] = []
     var attempts: [UUID] = []
     var failFirstSend = false
+    var failLoad = false
+    var failDelete = false
     var holdLoad = false
     var holdSend = false
     var loadContinuation: CheckedContinuation<[CampusBuildingNote], Error>?
@@ -26,6 +28,7 @@ import RealityKit
     func buildingNotes(building: String, before: CampusBuildingNote?) async throws -> [CampusBuildingNote] {
         self.before = before
         if holdLoad { return try await withCheckedThrowingContinuation { loadContinuation = $0 } }
+        if failLoad { throw URLError(.notConnectedToInternet) }
         return page
     }
     func postBuildingNote(id: UUID, building: String, body: String) async throws -> CampusBuildingNote {
@@ -40,7 +43,10 @@ import RealityKit
         if failFirstSend && attempts.count == 1 { throw URLError(.timedOut) }
         return receipt
     }
-    func deleteBuildingNote(id: UUID) async throws { page.removeAll { $0.id == id } }
+    func deleteBuildingNote(id: UUID) async throws {
+        if failDelete { throw URLError(.cannotConnectToHost) }
+        page.removeAll { $0.id == id }
+    }
     func waitForHeldSend() async {
         if sendContinuation == nil { await withCheckedContinuation { sendStarted = $0 } }
     }
@@ -51,6 +57,95 @@ import RealityKit
 }
 
 @MainActor final class CampusBuildingNotesTests: XCTestCase {
+    func testInitialReadFailureKeepsUnknownStateAndDraftUntilRecovery() async {
+        let service = BuildingNoteServiceFixture(); service.failLoad = true
+        let model = CampusBuildingNotesModel(buildingID: "136182168", service: service)
+        model.text = "작성 중인 글"
+
+        await model.load()
+        XCTAssertFalse(model.hasLoaded, "A failed initial read must not claim an authoritative empty result")
+        XCTAssertTrue(model.notes.isEmpty); XCTAssertFalse(model.loading); XCTAssertFalse(model.hasMore)
+        XCTAssertNotNil(model.loadError); XCTAssertNil(model.error)
+        XCTAssertEqual(model.text, "작성 중인 글")
+
+        service.failLoad = false; service.page = [service.note()]
+        await model.load()
+        XCTAssertTrue(model.hasLoaded); XCTAssertEqual(model.notes, service.page)
+        XCTAssertNil(model.loadError); XCTAssertNil(model.error)
+        XCTAssertEqual(model.text, "작성 중인 글")
+    }
+
+    func testReadFailuresPreserveCachedNotesAndOlderPageCursor() async {
+        let service = BuildingNoteServiceFixture()
+        service.page = (0..<50).map { service.note(body: "글 \($0)") }
+        let cursor = service.page.last
+        let model = CampusBuildingNotesModel(buildingID: "136182168", service: service)
+        await model.load()
+        let firstPage = model.notes
+
+        service.failLoad = true
+        await model.load(older: true)
+        XCTAssertEqual(service.before, cursor); XCTAssertEqual(model.notes, firstPage)
+        XCTAssertTrue(model.hasLoaded); XCTAssertTrue(model.hasMore); XCTAssertFalse(model.hasLoadedOlderNotes)
+        XCTAssertNotNil(model.loadError); XCTAssertNil(model.error)
+
+        service.failLoad = false; service.page = [service.note(body: "이전 글")]
+        await model.load(older: true)
+        XCTAssertEqual(service.before, cursor); XCTAssertEqual(model.notes.count, 51)
+        XCTAssertTrue(model.hasLoadedOlderNotes); XCTAssertFalse(model.hasMore); XCTAssertNil(model.loadError)
+        let allNotes = model.notes
+        service.failLoad = true
+        await model.load()
+        XCTAssertEqual(model.notes, allNotes); XCTAssertTrue(model.hasLoadedOlderNotes)
+        XCTAssertNotNil(model.loadError); XCTAssertNil(model.error)
+    }
+
+    func testReadRetriesPreserveUncertainSendErrorAndSubmissionID() async throws {
+        let service = BuildingNoteServiceFixture(); service.failFirstSend = true
+        let model = CampusBuildingNotesModel(buildingID: "136182168", service: service)
+        model.text = "재전송할 글"
+        await model.send()
+        let actionError = try XCTUnwrap(model.error), submissionID = try XCTUnwrap(service.attempts.first)
+
+        service.failLoad = true
+        await model.load()
+        XCTAssertEqual(model.error, actionError); XCTAssertNotNil(model.loadError); XCTAssertTrue(model.failedSend)
+        XCTAssertEqual(model.text, "재전송할 글"); XCTAssertFalse(model.hasLoaded)
+        service.failLoad = false
+        await model.load()
+        XCTAssertEqual(model.error, actionError); XCTAssertNil(model.loadError); XCTAssertTrue(model.failedSend)
+        XCTAssertEqual(model.text, "재전송할 글")
+
+        await model.send()
+        XCTAssertEqual(service.attempts, [submissionID, submissionID])
+        XCTAssertEqual(model.notes.map(\.body), ["재전송할 글"])
+        XCTAssertTrue(model.text.isEmpty); XCTAssertNil(model.error); XCTAssertFalse(model.failedSend)
+    }
+
+    func testReadRetriesPreserveDeleteFailureAndCachedNote() async throws {
+        let service = BuildingNoteServiceFixture()
+        let note = service.note(); service.page = [note]
+        let model = CampusBuildingNotesModel(buildingID: "136182168", service: service)
+        await model.load()
+        model.text = "다음에 등록할 글"
+        service.failDelete = true
+        await model.delete(note)
+        let actionError = try XCTUnwrap(model.error)
+
+        service.failLoad = true
+        await model.load()
+        XCTAssertEqual(model.error, actionError); XCTAssertNotNil(model.loadError)
+        XCTAssertEqual(model.notes, [note]); XCTAssertFalse(model.failedSend)
+        service.failLoad = false
+        await model.load()
+        XCTAssertEqual(model.error, actionError); XCTAssertNil(model.loadError)
+        XCTAssertEqual(model.notes, [note]); XCTAssertEqual(model.text, "다음에 등록할 글")
+        service.failDelete = false
+        await model.delete(note)
+        XCTAssertTrue(model.notes.isEmpty); XCTAssertNil(model.error)
+        XCTAssertEqual(model.text, "다음에 등록할 글")
+    }
+
     func testUncertainSendRetriesSameIDAndPreservesDraft() async {
         let service = BuildingNoteServiceFixture(); service.failFirstSend = true
         let model = CampusBuildingNotesModel(buildingID: "136182168", service: service)
@@ -268,8 +363,10 @@ import RealityKit
         let defaultsName = "building-notes-tests-" + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
         defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let publicStories = CampusStoryStore(defaults: defaults)
+        publicStories.synchronize(stories: try overviewStoryFixtures(), collected: [])
         let host = UIHostingController(rootView: NavigationStack {
-            HomeView(container: .pilot, store: CampusStoryStore(defaults: defaults), myDemo: MYLibraryStore(),
+            HomeView(container: .pilot, store: publicStories, myDemo: MYLibraryStore(),
                 isCameraCoverActive: false, onOpenProfile: {}, onOpenStory: { _ in }, remote: remote)
                 .environment(\.scenePhase, .active)
         })
@@ -288,12 +385,15 @@ import RealityKit
         let map = try XCTUnwrap(canvas.map)
         let camera = try XCTUnwrap(map.scene.anchors.flatMap { Array($0.children) }.compactMap { $0 as? PerspectiveCamera }.first)
         let before = camera.position(relativeTo: nil)
+        let markersBefore = overviewMarkers(in: canvas)
+        XCTAssertFalse(markersBefore.isEmpty, "The public story fixtures must create overview bubbles before opening the building")
         let label = try XCTUnwrap(descendants(canvas).first { $0.accessibilityIdentifier == "campus.label.building.136182168" })
         XCTAssertTrue(label.accessibilityActivate())
         try await Task.sleep(for: .seconds(2))
         XCTAssertGreaterThan(simd_distance(camera.position(relativeTo: nil), before), 10)
-        let markers = descendants(canvas).filter { ($0.accessibilityIdentifier ?? "").hasPrefix("campus.region.") || ($0.accessibilityIdentifier ?? "").hasPrefix("campus.cluster.") }
-        XCTAssertFalse(markers.isEmpty); XCTAssertTrue(markers.allSatisfy(\.isHidden))
+        XCTAssertTrue(overviewMarkers(in: canvas).allSatisfy(\.isHidden))
+        XCTAssertTrue(markersBefore.allSatisfy { $0.window == nil || $0.isHidden },
+            "Opening a building must hide or detach every existing overview bubble")
         let mapFrame = canvas.convert(canvas.bounds, to: window)
         XCTAssertGreaterThanOrEqual(mapFrame.maxY, 359, "The map must continue underneath the panel's rounded edge")
         let image = await withCheckedContinuation { (continuation: CheckedContinuation<UIImage?, Never>) in
@@ -320,10 +420,11 @@ import RealityKit
         defer { scene.suspendRendering(); window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
         var selected: String?
         scene.onBuilding = { selected = $0.id }
+        scene.setOverviewStories(try overviewStoryFixtures())
         await scene.load(); canvas.layoutIfNeeded()
         let camera = try XCTUnwrap(canvas.map?.scene.anchors.flatMap { Array($0.children) }.compactMap { $0 as? PerspectiveCamera }.first)
         let position = camera.position(relativeTo: nil), orientation = camera.orientation(relativeTo: nil)
-        let markerViews = descendants(canvas).filter { ($0.accessibilityIdentifier ?? "").hasPrefix("campus.region.") || ($0.accessibilityIdentifier ?? "").hasPrefix("campus.cluster.") }
+        let markerViews = overviewMarkers(in: canvas)
         let visibleBefore = Set(markerViews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier))
         XCTAssertFalse(visibleBefore.isEmpty)
         let library = try XCTUnwrap(CampusBuildingTarget.catalog(try XCTUnwrap(scene.data)).first { $0.id == "136182168" })
@@ -331,14 +432,41 @@ import RealityKit
         let initialSize = canvas.bounds.size
         canvas.frame.size.height = 399; canvas.layoutIfNeeded()
         try await Task.sleep(for: .seconds(1))
-        XCTAssertEqual(selected, library.id); XCTAssertTrue(markerViews.allSatisfy(\.isHidden))
+        XCTAssertEqual(selected, library.id)
+        XCTAssertTrue(overviewMarkers(in: canvas).allSatisfy(\.isHidden))
+        XCTAssertTrue(markerViews.allSatisfy { $0.window == nil || $0.isHidden },
+            "The selected building must not leave an old overview bubble visible")
         XCTAssertGreaterThan(simd_distance(camera.position(relativeTo: nil), position), 10)
         scene.finishBuilding(); canvas.frame.size = initialSize; canvas.layoutIfNeeded()
         try await Task.sleep(for: .seconds(1))
         XCTAssertNil(scene.selectedBuilding)
         XCTAssertLessThan(simd_distance(camera.position(relativeTo: nil), position), 0.01)
         XCTAssertLessThan(simd_length(camera.orientation(relativeTo: nil).vector - orientation.vector), 0.001)
-        XCTAssertEqual(Set(markerViews.filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier)), visibleBefore)
+        XCTAssertEqual(Set(overviewMarkers(in: canvas).filter { !$0.isHidden }.compactMap(\.accessibilityIdentifier)), visibleBefore,
+            "Closing the building must recreate the same public story bubbles, independent of UIView identity")
+    }
+
+    /// Public overview bubbles are driven by story locations rather than fixed region markers (#478).
+    private func overviewStoryFixtures() throws -> [CampusStory] {
+        let data = try CampusMapData.load()
+        return try [("pond", "97", 2), ("dorm", "75", 3)].flatMap { regionID, placeID, count in
+            let place = try XCTUnwrap(data.pois.first { $0.id == placeID })
+            let coordinate = data.coordinate(data.world(place.p))
+            return (0..<count).map { index in
+                var story = CampusStory(id: "building-overview-\(regionID)-\(index)", regionID: regionID,
+                    title: "Synthetic public story", image: "OiCats", tags: [], donor: "Test",
+                    location: place.name, date: "", order: index, popularity: 0, palette: 0)
+                story.latitude = coordinate.latitude; story.longitude = coordinate.longitude
+                return story
+            }
+        }
+    }
+
+    private func overviewMarkers(in view: UIView) -> [UIView] {
+        descendants(view).filter {
+            let id = $0.accessibilityIdentifier ?? ""
+            return id.hasPrefix("campus.region.") || id.hasPrefix("campus.cluster.")
+        }
     }
 
     private func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(descendants) }
