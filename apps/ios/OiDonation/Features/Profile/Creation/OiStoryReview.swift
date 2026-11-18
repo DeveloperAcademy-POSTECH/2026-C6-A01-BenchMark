@@ -72,8 +72,13 @@ struct OiStoryReview<StoryPhoto: View>: View {
     }
 
     private var outfitPhotos: [OutfitPhoto] {
-        guard let look = customization.wardrobe else { return [] }
-        return OiPhotoSlot.allCases.filter { $0.supports(look) }.flatMap { slot in
+        guard let look = customization.portraitLook else { return [] }
+        let slots: [OiPhotoSlot]
+        if let seed = customization.seedSnapshot {
+            guard seed.topPhotoVersion != nil else { return [] }
+            slots = [.top]
+        } else { slots = OiPhotoSlot.allCases }
+        return slots.filter { $0.supports(look) }.flatMap { slot in
             let layers = look.artwork.designs[slot.itemID(in: look)]?.layers ?? []
             return OiPhotoSide.allCases.flatMap { side in
                 layers.filter { $0.side == side }.compactMap { layer -> OutfitPhoto? in
@@ -86,6 +91,14 @@ struct OiStoryReview<StoryPhoto: View>: View {
 
     private var characterName: String {
         draft.cucumberName.isEmpty ? "내 오이" : draft.cucumberName
+    }
+
+    private var outfitTitle: String? {
+        if customization.seedSnapshot != nil {
+            let garments = customization.seedGarments.sorted { $0.rawValue < $1.rawValue }
+            return garments.isEmpty ? nil : garments.map(\.title).joined(separator: " · ")
+        }
+        return customization.wardrobe?.title
     }
 
     var body: some View {
@@ -131,8 +144,8 @@ struct OiStoryReview<StoryPhoto: View>: View {
                 CampusArtworkOverlay(title: photo.label) { outfitImage(photo, mode: .fit) }
             case .character:
                 CampusArtworkOverlay(title: characterName) {
-                    if let look = customization.wardrobe {
-                        OiWardrobePreview(look: look)
+                    if let look = customization.portraitLook {
+                        OiWardrobePreview(look: look, seed: customization.seedSnapshot)
                             .frame(height: 410)
                             .clipShape(RoundedRectangle(cornerRadius: 24))
                     } else if let portrait {
@@ -190,7 +203,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
                 ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
                 : AnyLayout(HStackLayout(alignment: .center, spacing: 14))
             layout {
-                if customization.wardrobe == nil || portrait != nil {
+                if customization.portraitLook == nil || portrait != nil {
                     Button { selection = .character } label: { characterTile }
                         .buttonStyle(.plain)
                         .accessibilityLabel("\(characterName) 크게 보기")
@@ -201,8 +214,8 @@ struct OiStoryReview<StoryPhoto: View>: View {
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     Text(characterName).font(CampusStyle.characterTitle(21)).foregroundStyle(Color("OiDark"))
-                    if let look = customization.wardrobe {
-                        Text(look.title).font(CampusStyle.body(13)).foregroundStyle(.secondary)
+                    if let title = outfitTitle {
+                        Text(title).font(CampusStyle.body(13)).foregroundStyle(.secondary)
                     }
                     if let location {
                         Label(location, systemImage: "mappin").font(CampusStyle.body(13))
@@ -245,14 +258,14 @@ struct OiStoryReview<StoryPhoto: View>: View {
     @ViewBuilder private var characterArtwork: some View {
         if let portrait {
             Image(uiImage: portrait).resizable().scaledToFit().padding(4)
-        } else if let look = customization.wardrobe {
+        } else if let look = customization.portraitLook {
             if !checkedPortrait { ProgressView() }
             else if invalidCapture {
                 Button("이미지 다시 만들기") { invalidCapture = false }
                     .font(.caption).padding(8)
             } else {
                 let orientation = customization.card?.characterOrientation ?? OiCardOrientation()
-                OiCardPortraitCapture(look: look, cacheKey: portraitKey(for: look), orientation: orientation,
+                OiCardPortraitCapture(look: look, seed: customization.seedSnapshot, cacheKey: portraitKey(for: look), orientation: orientation,
                     onCapture: { bytes, _ in invalidCapture = !acceptPortrait(bytes) },
                     onFailure: { invalidCapture = true })
                     .opacity(0.001)
@@ -294,7 +307,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
     }
 
     private var artworkReady: Bool {
-        if customization.wardrobe != nil && portraitPNG == nil { return false }
+        if customization.portraitLook != nil && portraitPNG == nil { return false }
         if savedPortraitPath != nil && portrait == nil { return false }
         return (savedStory?.hasSupportedCardArtwork ?? true) && (savedCardPath == nil || savedCard != nil) && (savedCoverPath == nil || savedCoverData != nil)
     }
@@ -415,7 +428,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
     private func loadSavedArtwork() async {
         artworkLoadFailed = false
         do {
-            if let savedPortraitPath, portrait == nil {
+            if let savedPortraitPath, portrait == nil, customization.seedSnapshot == nil {
                 portrait = try await remote.cucumberImage(savedPortraitPath)
             }
             if let savedCardPath {
@@ -431,7 +444,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
     }
 
     private func restorePortrait() {
-        if let look = customization.wardrobe, let card = customization.card, let bytes = card.portraitPNG {
+        if let look = customization.portraitLook, let card = customization.card, let bytes = card.portraitPNG {
             if card.portraitKey == portraitKey(for: look) { _ = acceptPortrait(bytes) }
         }
         checkedPortrait = true
@@ -439,7 +452,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
 
     private func portraitKey(for look: OiWardrobeLook) -> String {
         let angle = customization.card?.characterOrientation ?? OiCardOrientation()
-        return OiCardPortrait.key(for: look) + "-angle-" + angle.cacheIdentity
+        return (customization.seedSnapshot?.portraitKey ?? OiCardPortrait.key(for: look)) + "-angle-" + angle.cacheIdentity
     }
 
     private func acceptPortrait(_ bytes: Data) -> Bool {

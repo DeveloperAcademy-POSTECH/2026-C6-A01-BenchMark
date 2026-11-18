@@ -77,6 +77,16 @@ enum OiSeedCucumberGarment: Hashable, CaseIterable {
         }
     }
 
+    var photoTop: OiWardrobeLook.Top? {
+        switch self {
+        case .whiteTshirt: .tshirt
+        case .hoodie: .hoodie
+        case .cardigan: .cardigan
+        case .postechJacket: .postech
+        default: nil
+        }
+    }
+
     var title: String {
         switch self {
         case .whiteTshirt: OiWardrobeLook.Top.tshirt.title
@@ -437,14 +447,32 @@ extension OiDraftCustomization {
     var seedSnapshot: OiSeedCucumberSnapshot? {
         let garments = seedGarments
         guard seedAppearance != nil || !garments.isEmpty else { return nil }
-        return OiSeedCucumberSnapshot(appearance: seedAppearance ?? .init(), garments: garments.map(\.rawValue).sorted())
+        let look = seedPhotoLook
+        let activeTop = garments.compactMap(\.photoTop).first
+        let design = activeTop.flatMap { look.artwork.designs["top-" + $0.rawValue] }
+        return OiSeedCucumberSnapshot(appearance: seedAppearance ?? .init(), garments: garments.map(\.rawValue).sorted(),
+            topPhotoVersion: design?.version, topColor: design == nil ? nil : look.topColor)
     }
 
-    var portraitLook: OiWardrobeLook? { seedSnapshot != nil ? OiWardrobeLook() : wardrobe }
+    /// Editable sources stay in the protected wardrobe; only the selected top is rendered.
+    var seedPhotoLook: OiWardrobeLook {
+        var look = wardrobe ?? OiWardrobeLook()
+        look.costume = nil
+        look.top = selectedSeedSet == .postech ? .postech : selectedSeedTop ?? .tshirt
+        look.bottom = selectedSeedBottom ?? .long
+        look.topColor = look.top == .postech ? 0xFFFFFF : (garmentColors["상의"] ?? 0xFFFFFF) & 0xFFFFFF
+        look.bottomColor = (garmentColors["하의"] ?? 0xFFFFFF) & 0xFFFFFF
+        look.shoeColor = (garmentColors["신발"] ?? 0xFFFFFF) & 0xFFFFFF
+        look.fabrics = [:]
+        return look
+    }
+
+    var portraitLook: OiWardrobeLook? { seedSnapshot != nil ? seedPhotoLook : wardrobe }
 }
 
 extension OiSeedCucumberModel {
-    static func make(snapshot: OiSeedCucumberSnapshot) async throws -> Entity {
+    static func make(snapshot: OiSeedCucumberSnapshot, look: OiWardrobeLook? = nil,
+                     publishedTopTexture: CGImage? = nil) async throws -> Entity {
         let supported = OiSeedCucumberGarment.allCases + OiWardrobeLook.Costume.allCases.flatMap { costume in
             OiSeedCostumeProposal.options(for: costume).map { OiSeedCucumberGarment.costumeProposal(costume, $0) }
         }
@@ -452,8 +480,29 @@ extension OiSeedCucumberModel {
         var selected: Set<OiSeedCucumberGarment> = []
         for name in snapshot.garments {
             guard let garment = supported.first(where: { $0.rawValue == name }) else { throw AssetError.invalidMesh(name) }
-            try await setGarment(garment, asset: loadGarment(garment), on: model)
+            let asset = try await loadGarment(garment)
+            if let top = garment.photoTop, let version = snapshot.topPhotoVersion {
+                guard UUID(uuidString: version) != nil else { throw OiPhotoDataError.unreadable }
+                let image: CGImage
+                if let publishedTopTexture {
+                    image = publishedTopTexture
+                } else {
+                    guard let look, look.top == top,
+                          look.artwork.designs["top-" + top.rawValue]?.version == version else {
+                        throw OiPhotoDataError.unreadable
+                    }
+                    image = try OiSeedGarmentPhotoMaterial.atlas(for: look)
+                }
+                let prepared = try await OiSeedGarmentPhotoMaterial.prepare(image, top: top,
+                    color: snapshot.topColor ?? look?.topColor ?? 0xFFFFFF)
+                try Task.checkCancellation()
+                try OiSeedGarmentPhotoMaterial.apply(prepared, to: asset)
+            }
+            try setGarment(garment, asset: asset, on: model)
             selected.insert(garment)
+        }
+        if snapshot.topPhotoVersion != nil, !selected.contains(where: { $0.photoTop != nil }) {
+            throw OiPhotoDataError.unreadable
         }
         updateCoverage(for: selected, on: model)
         return model

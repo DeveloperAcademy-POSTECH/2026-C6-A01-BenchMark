@@ -7,11 +7,14 @@ kernel void oiCostumePhotoComposite(texture2d<float, access::sample> base [[text
                                     texture2d<float, access::sample> photo [[texture(1)]],
                                     texture2d<float, access::write> output [[texture(2)]],
                                     const device ushort2 *coordinates [[buffer(0)]],
+                                    constant float4 &baseTint [[buffer(1)]],
                                     uint2 pixel [[thread_position_in_grid]]) {
     if (pixel.x >= output.get_width() || pixel.y >= output.get_height()) return;
     constexpr sampler linearSampler(coord::normalized, address::clamp_to_edge, filter::linear);
     float2 uv = (float2(pixel) + 0.5) / float2(output.get_width(), output.get_height());
     float4 original = base.sample(linearSampler, uv);
+    // Tint the fabric before printing so a colored shirt never recolors the photo.
+    original.rgb *= baseTint.rgb;
     ushort2 encoded = coordinates[pixel.y * output.get_width() + pixel.x];
     if (encoded.x == 65535) { output.write(original, pixel); return; }
     float4 ink = photo.sample(linearSampler, float2(encoded) / 65534.0);

@@ -223,7 +223,7 @@ struct OiStoryEditor: View {
     }
 
     private var placementPreview: some View {
-        OiDraftPlacementPreview(draft: draft, wardrobe: customization.wardrobe, isShowingReview: showingPreview,
+        OiDraftPlacementPreview(draft: draft, wardrobe: customization.portraitLook, seed: customization.seedSnapshot, isShowingReview: showingPreview,
             savedPlacement: personalPlacement, error: localError, autoStoryModeration: remote.autoStoryModeration,
             onEdit: { cardPlacementReady = false; customizationReady = false },
             onEditLocation: { navigate(to: .location) },
@@ -966,9 +966,9 @@ struct OiStoryEditor: View {
         defer { publishing = false }
         let publication: OiCucumberPublication?
         do {
-            if let look = customization.wardrobe {
+            if let look = customization.portraitLook {
                 guard let portrait else { throw OiPhotoDataError.unreadable }
-                publication = try OiCucumberPublication(look: look, portrait: portrait)
+                publication = try OiCucumberPublication(look: look, portrait: portrait, seed: customization.seedSnapshot)
             } else { publication = nil }
         } catch {
             localError = "꾸민 오이의 공개 이미지를 준비하지 못했어요. 의상과 사진을 확인해 주세요."
