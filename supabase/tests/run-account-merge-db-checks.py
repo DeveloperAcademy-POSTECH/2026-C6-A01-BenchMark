@@ -532,6 +532,7 @@ grant execute on function auth.jwt() to anon,authenticated;
             run(database + ['-f', 'supabase/tests/oi-public-cucumber-appearance.sql'])
             run(database + ['-f', 'supabase/tests/oi-building-notes.sql'])
             run(database + ['-f', 'supabase/tests/oi-building-note-moderation.sql'])
+            run(database + ['-f', 'supabase/tests/oi-story-likes.sql'])
             for migration in ai_only_migrations:
                 run(database + ['-f', str(migration)])
             run(database + ['-f', 'supabase/tests/oi-story-ai-only-review.sql'])

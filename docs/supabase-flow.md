@@ -288,3 +288,12 @@ PR #425 적용 후 추가 점검에서 기존 `oi_hide_deleting_stories` RLS와 
 - 원본 사진·편집 레이어는 기기의 계정별 초안에만 남고 공개 제출에는 기존 버전별 `top.png` 합성 아틀라스만 포함한다. seed 내부의 원본 데이터·알 수 없는 키, 지원하지 않는 완성 의상·미착용 상의의 사진, 하의 텍스처, 누락된 합성 파일은 계속 거절한다. 기존 Storage 경로·비공개 정책·AI 검수 및 공개 조건은 바꾸지 않는다.
 - migration은 알려진 이전/새 함수 본문만 허용하고 알 수 없는 drift에서는 전체 롤백한다. 격리 DB의 canonical/운영 호환 이력에서 상의 네 종류·구형 외형·UUID/색/상의 불일치·원본 주입·파일 누락·private 권한·drift 롤백과 기존 전체 회귀 검사를 통과했다.
 - **배포 순서: 이 migration 적용 → 새 앱 배포.** 이전 서버는 seed 상의 사진 제출을 거절한다. 운영 DB 적용과 실기기 사진 선택·공개 확인은 이 로컬 검증에 포함하지 않는다.
+
+## 오이 좋아요 — #504
+
+- 마이그레이션 `20261118070000_oi_story_likes.sql`: 비공개 `benchmark_private.oi_story_likes(story_id, account_id)`의 복합 기본키가 계정당 한 번을 보장한다. 이야기 삭제·계정 삭제 시 함께 삭제된다. 직접 권한은 열지 않는다.
+- `oi_story_likes(p_stories uuid[])`(anon·authenticated, 최대 200개): 공개 중이고 작성자 제한이 없는 이야기의 개수와 로그인 계정의 `liked`만 반환한다. 숨김·삭제 이야기는 행을 반환하지 않는다.
+- `oi_set_story_like(p_story, p_liked)`(authenticated): 대표 계정 기준 멱등 설정·해제이며 비공개 이야기는 `22023`으로 거절한다. 재시도·연타해도 한 번만 집계한다.
+- 앱은 두 RPC가 404이면 `OiStoryLikeError.notSupported`로 버튼을 숨기므로 DB → 새 앱 순서가 아니어도 안전하다. `oi_capabilities`는 변경하지 않았다.
+- 한계: 차단한 작성자의 이야기 개수 필터는 적용하지 않는다. 계정 통합은 통합되는 계정의 좋아요를 옮기지 않고 삭제한다.
+- 검증: `supabase/tests/oi-story-likes.sql`(두 DB 이력, `run-account-merge-db-checks.py`)와 `OiStoryLikeTests`. 운영 DB 적용·실기기 좋아요 확인은 PR 리뷰 이후 별도다.

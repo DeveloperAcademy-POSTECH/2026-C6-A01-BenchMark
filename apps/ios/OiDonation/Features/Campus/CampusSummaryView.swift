@@ -35,10 +35,10 @@ struct CampusSummaryView: View {
             }
     }
 
-    /// Figma `하단 버튼` (`5400:5165`): 93pt tall including the home indicator, two 175×46 buttons 20pt from the top.
+    /// Figma `하단 버튼` (`5400:5165`): 93pt tall including the home indicator, two flexible 139×46 buttons 20pt from the top, 8pt apart; the 68×46 like capsule (#504, Figma `6862:16046`) sits right of 수집하기.
     private var bottomBar: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: 8) {
                 // Continues to the story list (#399).
                 NavigationLink {
                     if let remote {
@@ -46,12 +46,13 @@ struct CampusSummaryView: View {
                             continuation: OiStoryContinuationIntent(story: story, requestedBy: remote.account?.id))
                     }
                 } label: {
-                    Text("이어서 기부하기").font(CampusStyle.medium(16)).tracking(0.32)
+                    Text("이어서 기부하기").font(CampusStyle.medium(14)).tracking(0.28)
                         .foregroundStyle(.black).frame(maxWidth: .infinity, minHeight: 46)
                         .background(.white, in: RoundedRectangle(cornerRadius: 20))
                 }.buttonStyle(.plain).disabled(remote == nil)
                     .accessibilityIdentifier("campus.summary.continue")
-                CampusCollectButton(story: story, store: store).frame(maxWidth: .infinity)
+                CampusCollectButton(story: story, store: store, fontSize: 14).frame(maxWidth: .infinity)
+                CampusStoryLikeButton(story: story, store: store)
             }.padding(.horizontal, 20).padding(.top, 20)
             Spacer(minLength: 0)
         }
