@@ -53,6 +53,8 @@ final class OiTestBackend {
         var operatorManualStoryReview = false
         var rejectModeration = false
         var moderationCount = 0
+        var showcaseCount = 0
+        var failShowcase = false
         var storyReview: [String: Any]?
         var corruptSubmittedCoverType = false
         var corruptReviewedCoverType = false
@@ -268,6 +270,26 @@ final class OiTestBackend {
                 if state.corruptReviewedCoverType { receipt["card_cover_type"] = "png" }
                 result = receipt
             } else { status = 409 }
+        } else if path.hasSuffix("/functions/v1/publish-showcase-story") {
+            state.showcaseCount += 1
+            let payload = body["submission"] as? [String: Any] ?? [:]
+            if state.failShowcase { status = 503 }
+            else if body["app_transaction"] as? String != "signed-testflight-fixture" ||
+                payload["id"] as? String != state.story?["id"] as? String ||
+                payload["revision"] as? Int != state.story?["revision"] as? Int { status = 409 }
+            else {
+                for key in ["cucumber_appearance", "card_snapshot_id", "card_snapshot_format", "card_cover_type"] {
+                    if let value = payload[key] { state.story?[key] = value }
+                }
+                state.story?["status"] = "published"
+                state.story?["revision"] = (payload["revision"] as? Int ?? 0) + 1
+                state.storyReview = nil
+                result = state.story ?? [:]
+                if state.timeOutSubmitAfterCommit {
+                    state.timeOutSubmitAfterCommit = false
+                    lock.unlock(); client.timeOut(); return
+                }
+            }
         } else if path.hasSuffix("/rpc/oi_mutate") || path.hasSuffix("/functions/v1/moderate-story") {
             let automated = path.hasSuffix("/functions/v1/moderate-story")
             let payload = automated ? body : (body["p_payload"] as? [String:Any] ?? [:])
@@ -2963,7 +2985,8 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTFail("The simulator UI check did not complete its requested navigation route")
     }
 
-    @MainActor private func context(expired: Bool = false, authentication: (any OiAuthenticating)? = nil) throws -> (OiRemoteStore, OiTestBackend, OiMemorySession, URLSession, URL) {
+    @MainActor private func context(expired: Bool = false, authentication: (any OiAuthenticating)? = nil,
+                                    showcaseTransaction: (() async throws -> String)? = nil) throws -> (OiRemoteStore, OiTestBackend, OiMemorySession, URLSession, URL) {
         let backend = OiTestBackend(); backend.install()
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [OiStoreURLProtocol.self]
@@ -2971,7 +2994,7 @@ final class OiRemoteStoreTests: XCTestCase {
         let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
         let vault = OiMemorySession(expired: expired)
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        return (OiRemoteStore(api: api, drafts: OiDraftVault(directory: directory), vault: vault, authentication: authentication),backend,vault,session,directory)
+        return (OiRemoteStore(api: api, drafts: OiDraftVault(directory: directory), vault: vault, authentication: authentication, showcaseTransaction: showcaseTransaction),backend,vault,session,directory)
     }
 
     private func clean(_ session: URLSession, directory: URL) {
@@ -3388,6 +3411,108 @@ final class OiRemoteStoreTests: XCTestCase {
         await oldRead.value
         XCTAssertEqual(store.account?.id, OiTestBackend.other)
         XCTAssertEqual(store.profile?.nickname, "Owner B")
+    }
+
+    @MainActor func testShowcasePublishesUnreviewedAndRejectedStoriesWithoutAI() async throws {
+        let (store, backend, _, session, directory) = try context(showcaseTransaction: { "signed-testflight-fixture" })
+        defer { clean(session, directory: directory) }
+        backend.configure { $0.autoStoryModeration = true; $0.rejectModeration = true }
+        await store.start()
+        for (index, hasRejection) in [false, true].enumerated() {
+            let result = await store.save(draft())
+            let saved = try XCTUnwrap(result)
+            if hasRejection {
+                let rejected = await store.submitStory(saved, agreesToAIReview: true)
+                XCTAssertNil(rejected)
+            }
+            let count = backend.snapshot().moderationCount
+            let published = await store.submitStory(saved, publishForShowcase: true)
+            XCTAssertEqual(published?.status, "published")
+            XCTAssertEqual(store.stories.first?.id, saved.id)
+            XCTAssertEqual(backend.snapshot().moderationCount, count)
+            XCTAssertEqual(backend.snapshot().showcaseCount, index + 1)
+            XCTAssertNil(store.moderationResult(for: saved))
+        }
+    }
+
+    @MainActor func testShowcaseFailureKeepsDraftAndLostReceiptRecoversWithoutAI() async throws {
+        let (store, backend, _, session, directory) = try context(showcaseTransaction: { "signed-testflight-fixture" })
+        defer { clean(session, directory: directory) }
+        await store.start()
+        let result = await store.save(draft())
+        let saved = try XCTUnwrap(result)
+        backend.configure { $0.failShowcase = true }
+        let failed = await store.submitStory(saved, publishForShowcase: true)
+        XCTAssertNil(failed)
+        XCTAssertEqual(store.ownStories.first?.status, "draft")
+        backend.configure { $0.failShowcase = false; $0.timeOutSubmitAfterCommit = true }
+        let recovered = await store.submitStory(saved, publishForShowcase: true)
+        XCTAssertEqual(recovered?.status, "published")
+        XCTAssertEqual(backend.snapshot().moderationCount, 0)
+        XCTAssertEqual(backend.snapshot().showcaseCount, 2)
+    }
+
+    @MainActor func testRegularBuildCannotPublishThroughShowcase() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { clean(session, directory: directory) }
+        await store.start()
+        let result = await store.save(draft())
+        let saved = try XCTUnwrap(result)
+        XCTAssertFalse(store.allowsShowcasePublication)
+        let published = await store.submitStory(saved, publishForShowcase: true)
+        XCTAssertNil(published)
+        XCTAssertEqual(store.ownStories.first?.status, "draft")
+        XCTAssertEqual(backend.snapshot().showcaseCount, 0)
+        XCTAssertNil(OiTestFlightShowcase.transactionProvider)
+    }
+
+    @MainActor func testShowcasePlantButtonPublishesLocalDraftWithUnchangedReviewLabels() async throws {
+        let (store, backend, _, session, directory) = try context(showcaseTransaction: { "signed-testflight-fixture" })
+        defer { clean(session, directory: directory) }
+        backend.configure { $0.publicStoryCard = true; $0.duplexStoryCard = true }
+        await store.start()
+        var local = OiLocalDraft(draft: draft())
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { ctx in
+            UIColor.green.setFill(); ctx.fill(CGRect(x: 0, y: 0, width: 20, height: 20))
+        }
+        let bytes = try XCTUnwrap(image.jpegData(compressionQuality: 0.8))
+        let photo = UUID()
+        try await store.saveLocalPhoto(bytes, id: photo, owner: OiTestBackend.owner)
+        local.photos = [photo]
+        try await store.saveLocalDraft(local, owner: OiTestBackend.owner)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        var actions: OiStoryListScreen.ReviewTestActions?
+        window.rootViewController = UIHostingController(rootView: NavigationStack {
+            OiStoryListScreen(remote: store, onReviewActionsForTest: { actions = $0 })
+        })
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil; window.windowScene = nil }
+        for _ in 0..<100 {
+            if actions?.visibleIDs().contains(local.id) == true { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let buttons = try XCTUnwrap(actions)
+        XCTAssertEqual(buttons.status(local.id).title, "검토 전")
+        XCTAssertEqual(OiStoryReviewRequest.title, "내용 검토 요청하기")
+        buttons.openPlantPicker()
+        XCTAssertTrue(buttons.showsPlantPicker())
+        try await Task.sleep(for: .milliseconds(200))
+        let screenshot = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: screenshot)
+        attachment.name = "showcase-unreviewed-plant-picker"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        buttons.confirmPlant()
+        for _ in 0..<200 {
+            if store.stories.contains(where: { $0.id == local.id }) { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(store.stories.first?.id, local.id, store.error ?? "No publication")
+        XCTAssertEqual(backend.snapshot().moderationCount, 0)
+        XCTAssertEqual(backend.snapshot().showcaseCount, 1)
     }
 
     @MainActor func testAutomaticReviewKeepsDraftPrivateUntilExplicitPlanting() async throws {
