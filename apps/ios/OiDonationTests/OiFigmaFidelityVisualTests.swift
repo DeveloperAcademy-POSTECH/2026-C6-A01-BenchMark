@@ -2449,6 +2449,127 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testStoryListAndPlantSelectionMatchFigmaFrames() async throws {
+        let fixture = try isolatedDefaults()
+        let previousHandler = OiStoreURLProtocol.handle
+        let backend = OiTestBackend()
+        backend.configure { $0.coinsEnabled = true; $0.coinBalance = 3 }
+        backend.install()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("StoryListFigma-\(UUID())")
+        defer {
+            session.invalidateAndCancel()
+            OiStoreURLProtocol.handle = previousHandler
+            OiStoryListPortraitCache.shared.clear()
+            fixture.defaults.removePersistentDomain(forName: fixture.name)
+            if FileManager.default.fileExists(atPath: directory.path) {
+                XCTAssertNoThrow(try FileManager.default.removeItem(at: directory))
+            }
+        }
+        let remote = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: OiMemorySession())
+        await remote.start()
+        XCTAssertEqual(remote.pickleWallet?.balance, 3)
+        let bundle = Bundle(for: Self.self)
+        let firstURL = try XCTUnwrap(bundle.url(forResource: "story-list-first", withExtension: "png", subdirectory: "MYV4Figma"))
+        let secondURL = try XCTUnwrap(bundle.url(forResource: "story-list-second", withExtension: "png", subdirectory: "MYV4Figma"))
+        let first = try Data(contentsOf: firstURL), second = try Data(contentsOf: secondURL)
+        let owner = UUID()
+        // Original Figma image fills are cache fixtures, isolated from production normalization and server data.
+        OiStoryListPortraitCache.shared.store(try XCTUnwrap(UIImage(data: first)), source: .image(first), owner: owner)
+        OiStoryListPortraitCache.shared.store(try XCTUnwrap(UIImage(data: second)), source: .image(second), owner: owner)
+        var items: [OiStoryListItem] = []
+        for index in 0..<4 {
+            items.append(OiStoryListItem(id: UUID(), cucumberName: index == 0 ? "HINT펩오이" : "기계이일구오이",
+                title: index == 0 ? "반도체 HINT 연구실의 추억" : "이일구 모임의 폭짜했던 추억",
+                cucumberAsset: "OiCats", portraitPNG: index == 0 ? first : second,
+                donorDisplayName: index == 0 ? "24학번 반도체공학과 서수리" : "19학번 기계공학과 신수리",
+                locationDisplayName: "", tags: index == 0 ? ["즐거움", "연구"] : ["고마움", "우정"], dateLabel: ""))
+        }
+        let states: [OiStoryListReviewState] = [.unreviewed, .reviewing, .approved, .rejected]
+        for variant in variants {
+            for selecting in [false, true] {
+                let shown = selecting ? Array(items.prefix(3)) : items
+                let view = NavigationStack {
+                    OiStoryListView(state: .content(shown), minimumVisibleSlotCount: selecting ? 0 : 4,
+                        onSelectStory: { _ in }, onCreateStory: {},
+                        reviewState: { id in states[items.firstIndex { $0.id == id } ?? 0] },
+                        onRequestReview: { _ in }, onPlant: {}, canPlant: true,
+                        selectedPlantStoryID: selecting ? items[0].id : nil,
+                        onCancelPlant: selecting ? {} : nil,
+                        portraitAccountID: owner, coinRemote: remote)
+                        .environment(\.scenePhase, .active)
+                }
+                let png = try await capture(view, name: selecting ? "figma-story-plant" : "figma-story-list", variant: variant,
+                    defaults: fixture.defaults, attach: true)
+                if variant.name == "402x874" {
+                    let referenceURL = try XCTUnwrap(bundle.url(forResource: selecting ? "story-plant-reference" : "story-list-reference",
+                        withExtension: "png", subdirectory: "MYV4Figma"))
+                    try assertStoryListReference(png, reference: Data(contentsOf: referenceURL), selecting: selecting)
+                }
+                if variant.dynamicTypeSize.isAccessibilitySize {
+                    try await capture(view, name: selecting ? "figma-story-plant-bottom" : "figma-story-list-bottom", variant: variant,
+                        defaults: fixture.defaults, attach: true, prepareView: { host in
+                            func lists(_ view: UIView) -> [UIScrollView] {
+                                if let list = view as? UICollectionView { return [list] }
+                                return view.subviews.flatMap(lists)
+                            }
+                            let list = try XCTUnwrap(lists(host).first)
+                            // List estimates off-screen Dynamic Type rows; settle their actual heights before the final capture.
+                            for _ in 0..<20 {
+                                host.layoutIfNeeded(); list.layoutIfNeeded()
+                                let bottom = max(0, list.contentSize.height - list.bounds.height + list.adjustedContentInset.bottom)
+                                list.setContentOffset(CGPoint(x: 0, y: bottom), animated: false)
+                                try await Task.sleep(for: .milliseconds(50))
+                            }
+                            host.layoutIfNeeded(); list.layoutIfNeeded()
+                            XCTAssertGreaterThanOrEqual(list.contentOffset.y,
+                                max(0, list.contentSize.height - list.bounds.height + list.adjustedContentInset.bottom) - 1)
+                        })
+                }
+            }
+        }
+    }
+
+    private func assertStoryListReference(_ png: Data, reference: Data, selecting: Bool) throws {
+        let size = CGSize(width: 402, height: 874)
+        let actual = try renderedBitmap(png, size: size), expected = try renderedBitmap(reference, size: size)
+        let a = try XCTUnwrap(actual.data).bindMemory(to: UInt8.self, capacity: 402 * 874 * 4)
+        let b = try XCTUnwrap(expected.data).bindMemory(to: UInt8.self, capacity: 402 * 874 * 4)
+        // System status/home regions are rendered by iOS; compare every app-owned pixel.
+        for (name, region, limit) in [("app", CGRect(x: 0, y: 62, width: 402, height: 778), 4.0),
+                                      ("button", CGRect(x: 20, y: 788, width: 362, height: 50), 3.0)] {
+            var difference = 0
+            for y in Int(region.minY)..<Int(region.maxY) {
+                for x in Int(region.minX)..<Int(region.maxX) {
+                    let offset = (y * 402 + x) * 4
+                    for channel in 0..<3 { difference += abs(Int(a[offset + channel]) - Int(b[offset + channel])) }
+                }
+            }
+            let mean = Double(difference) / (Double(region.width * region.height) * 3)
+            print("Story Figma \(selecting ? "selection" : "list") \(name) mean channel error: \(mean)/255")
+            XCTAssertLessThan(mean, limit, "Figma geometry, fonts and original assets must not regress; native rasterization has a small bounded difference")
+        }
+        // Wrong backgrounds or visible selection chrome must never hide inside a whole-screen average.
+        for point in [CGPoint(x: 201, y: 115), CGPoint(x: 201, y: 735)] {
+            let offset = (Int(point.y) * 402 + Int(point.x)) * 4
+            for channel in 0..<3 { XCTAssertLessThanOrEqual(abs(Int(a[offset + channel]) - Int(b[offset + channel])), 1) }
+        }
+        var ink = CGRect.null
+        for y in 140..<174 { for x in 38..<180 {
+            let offset = (y * 402 + x) * 4
+            if a[offset] < 55 && a[offset+1] < 55 && a[offset+2] < 55 {
+                ink = ink.union(CGRect(x: x, y: y, width: 1, height: 1))
+            }
+        }}
+        XCTAssertEqual(ink.minX, 40, accuracy: 1)
+        XCTAssertEqual(ink.minY, 150, accuracy: 1)
+        XCTAssertEqual(ink.maxX, 157, accuracy: 1)
+        XCTAssertEqual(ink.maxY, 171, accuracy: 1)
+    }
+
     func testStoryListSeedUICaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }

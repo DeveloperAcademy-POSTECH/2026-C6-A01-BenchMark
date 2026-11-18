@@ -3566,9 +3566,10 @@ final class OiRemoteStoreTests: XCTestCase {
             buttons.acceptCoinCost()
         }
         for _ in 0..<200 {
-            if store.stories.contains(where: { $0.id == local.id }) { break }
+            if store.stories.contains(where: { $0.id == local.id }) && !store.isBusy { break }
             try await Task.sleep(for: .milliseconds(50))
         }
+        XCTAssertFalse(store.isBusy, "Publication refresh must finish before the test invalidates its session")
         XCTAssertEqual(store.stories.first?.id, local.id, store.error ?? "No publication")
         XCTAssertEqual(backend.snapshot().moderationCount, 0)
         XCTAssertEqual(backend.snapshot().showcaseCount, 1)
