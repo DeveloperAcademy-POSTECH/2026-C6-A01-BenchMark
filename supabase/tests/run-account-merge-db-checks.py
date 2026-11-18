@@ -99,6 +99,24 @@ def check_continuation_visibility_drift(connection, migration):
     print('PASS: all five continuation deletion visibility drift guards roll back unchanged definitions')
 
 
+def check_seed_top_photo_drift(connection, migration):
+    signature = 'benchmark_private.oi_check_cucumber_appearance(public.oi_stories,jsonb)'
+    def query(sql):
+        return subprocess.run(connection + ['-qAtc', sql], capture_output=True, text=True, check=True, timeout=20).stdout.strip()
+    original = query(f"select pg_get_functiondef('{signature}'::regprocedure);")
+    privileges = query(f"select proacl::text from pg_proc where oid='{signature}'::regprocedure;")
+    edited = original.replace('AS $function$', 'AS $function$\n-- unknown seed top photo drift\n', 1)
+    try:
+        run(connection, input=edited, text=True)
+        rejected = subprocess.run(connection + ['-f', str(migration)], capture_output=True, text=True, timeout=20)
+        assert rejected.returncode != 0 and 'Seed top photo appearance drift requires review' in rejected.stderr, rejected.stderr
+        assert query(f"select pg_get_functiondef('{signature}'::regprocedure);") == edited
+        assert query(f"select proacl::text from pg_proc where oid='{signature}'::regprocedure;") == privileges
+    finally:
+        run(connection, input=original, text=True)
+    print('PASS: seed top photo migration rejects unknown validator drift and preserves private privileges')
+
+
 def check_postcard_cover_drift(connection, migration):
     def query(sql):
         return subprocess.run(connection + ['-qAtc', sql], capture_output=True, text=True, check=True, timeout=20).stdout.strip()
@@ -389,6 +407,8 @@ grant execute on function auth.jwt() to anon,authenticated;
                     check_continuation_visibility_drift(database, migration)
                 if migration.name.endswith('_oi_operator_manual_story_review.sql'):
                     check_manual_review_drift(database, migration)
+                if migration.name.endswith('_oi_seed_top_photo_appearance.sql'):
+                    check_seed_top_photo_drift(database, migration)
                 run(database + ['-f', str(migration)])
                 if migration.name.endswith('_oi_postcard_cover_jpeg.sql'):
                     check_jpeg_cover_backfill(database, backfill_before)
