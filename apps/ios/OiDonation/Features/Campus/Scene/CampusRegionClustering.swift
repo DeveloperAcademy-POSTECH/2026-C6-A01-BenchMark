@@ -40,33 +40,51 @@ struct CampusRegionClustering {
     init(sites: [Site]) {
         let valid = sites.filter { $0.anchor.x.isFinite && $0.anchor.y.isFinite && $0.anchor.z.isFinite }
         let unique = Dictionary(valid.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        var nodes: [Node] = []
-        // A balanced spatial hierarchy keeps construction bounded as the public feed grows.
-        // Equal positions stay together at every zoom; their bubble still opens every story.
-        @discardableResult func append(_ groups: [[Site]]) -> Int {
-            let members = groups.flatMap { $0 }.sorted { $0.id < $1.id }
-            let anchor = members.reduce(SIMD3<Float>.zero) { $0 + $1.anchor / Float(members.count) }
-            let key = members.map { "\($0.id.utf8.count):\($0.id)" }.joined()
-            var children: [Int] = []
-            let xs = groups.map { $0[0].anchor.x }, zs = groups.map { $0[0].anchor.z }
-            let dx = (xs.max() ?? 0) - (xs.min() ?? 0)
-            let dz = (zs.max() ?? 0) - (zs.min() ?? 0)
-            if groups.count > 1 {
-                let axis = dx >= dz ? 0 : 2
-                let ordered = groups.sorted {
-                    let a = $0[0], b = $1[0]
-                    return a.anchor[axis] == b.anchor[axis] ? a.id < b.id : a.anchor[axis] < b.anchor[axis]
-                }
-                let middle = ordered.count / 2
-                children = [append(Array(ordered[..<middle])), append(Array(ordered[middle...]))]
-            }
-            let id = members.count == 1 ? "site:\(members[0].id)" : "group:\(key)"
-            nodes.append(Node(id: id, anchor: anchor, sites: members, children: children))
-            return nodes.count - 1
-        }
         let positions = Dictionary(grouping: unique.values) { SIMD2($0.anchor.x, $0.anchor.z) }
-        let groups = positions.values.map { $0.sorted { $0.id < $1.id } }
-        if !groups.isEmpty { append(groups) }
+        let groups = positions.values.map { $0.sorted { $0.id < $1.id } }.sorted { $0[0].id < $1[0].id }
+        var nodes = groups.map { members in
+            let key = members.map { "\($0.id.utf8.count):\($0.id)" }.joined()
+            return Node(id: members.count == 1 ? "site:\(members[0].id)" : "group:\(key)",
+                        anchor: members.reduce(SIMD3<Float>.zero) { $0 + $1.anchor / Float(members.count) },
+                        sites: members, children: [])
+        }
+        var lows = groups.map { SIMD2($0[0].anchor.x, $0[0].anchor.z) }
+        var highs = lows
+        var active = Set(nodes.indices)
+        var chain: [Int] = []
+        // Complete-link distance in the map plane is the farthest axis separation.
+        // Bounds make it constant-time; a nearest-neighbor chain avoids a distance matrix
+        // and never separates close neighbors merely because they cross a spatial median.
+        func distance(_ a: Int, _ b: Int) -> Float {
+            let span = simd_max(simd_abs(lows[a] - highs[b]), simd_abs(highs[a] - lows[b]))
+            return max(span.x, span.y)
+        }
+        while active.count > 1 {
+            if chain.isEmpty, let first = active.min() { chain.append(first) }
+            guard let current = chain.last else { break }
+            let previous = chain.dropLast().last
+            var nearest: Int?
+            var best = Float.infinity
+            for candidate in active where candidate != current {
+                let value = distance(current, candidate)
+                if value < best || (value == best && (candidate == previous ||
+                    (nearest != previous && nodes[candidate].sites[0].id < nodes[nearest ?? candidate].sites[0].id))) {
+                    nearest = candidate; best = value
+                }
+            }
+            guard let next = nearest else { break }
+            guard next == previous else { chain.append(next); continue }
+            let left = nodes[current], right = nodes[next]
+            let members = (left.sites + right.sites).sorted { $0.id < $1.id }
+            let key = members.map { "\($0.id.utf8.count):\($0.id)" }.joined()
+            let anchor = left.anchor * (Float(left.sites.count) / Float(members.count))
+                + right.anchor * (Float(right.sites.count) / Float(members.count))
+            nodes.append(Node(id: "group:\(key)", anchor: anchor, sites: members, children: [current, next]))
+            lows.append(simd_min(lows[current], lows[next]))
+            highs.append(simd_max(highs[current], highs[next]))
+            active.remove(current); active.remove(next); active.insert(nodes.count - 1)
+            chain.removeLast(2)
+        }
         self.nodes = nodes
     }
 

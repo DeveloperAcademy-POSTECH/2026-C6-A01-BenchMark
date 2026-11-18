@@ -17,14 +17,14 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer CLANG_MODULE_CACHE_PATH
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer sh apps/ios/Tests/run-campus-label-checks.sh
 ```
 
-두 명령이 통과했다. 실제 좌표의 장소명, 빈 군집, 동일 좌표 병합, 2,000개 입력 집계, 역방향 핀치·연속 전환·Reduce Motion·카메라 관성 회귀를 포함한다. 기존 캠퍼스 검사 스크립트의 누락된 `OiContentSafetyStore` 소스 의존성도 포함했다.
+두 명령이 통과했다. 실제 좌표의 장소명, 빈 군집, 동일 좌표 병합, 군집 경계 양쪽의 가까운 이야기, 2,000개 입력 집계, 역방향 핀치·연속 전환·Reduce Motion·카메라 관성 회귀를 포함한다. 기존 캠퍼스 검사 스크립트의 누락된 `OiContentSafetyStore` 소스 의존성도 포함했다.
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
   -project apps/ios/OiDonation.xcodeproj -scheme OiFlowChecks \
-  -destination 'platform=iOS Simulator,id=ED67A555-0C6E-43E3-95FB-1FE3FDA1C6E9' \
+  -destination 'platform=iOS Simulator,id=457E0E6E-9BC7-4E91-A69B-22045948F577' \
   -derivedDataPath /private/tmp/oi-478-derived \
-  -resultBundlePath /private/tmp/oi-478-tests.xcresult \
+  -resultBundlePath /private/tmp/oi-478-final.xcresult \
   -parallel-testing-enabled NO \
   -only-testing:OiDonationTests/CampusMapInteractionTests/testStoryBubblesFollowCoordinatesRefreshAndOpenExactMembers \
   -only-testing:OiDonationTests/CampusMapInteractionTests/testOverviewPinchReversalAndTilt \
@@ -36,21 +36,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
   CODE_SIGNING_ALLOWED=NO
 ```
 
-최초 실행은 기존 회귀 5개와 위치명 검사 1개가 통과했다. 새 검사에서 교육지구 버튼까지 숫자 버블로 집계한 테스트 범위를 수정한 뒤 다음 명령으로 해당 검사 1개를 다시 실행해 통과했다. 제품 코드를 약화하거나 검사를 제거하지 않았다.
-
-```sh
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
-  -project apps/ios/OiDonation.xcodeproj -scheme OiFlowChecks \
-  -destination 'platform=iOS Simulator,id=ED67A555-0C6E-43E3-95FB-1FE3FDA1C6E9' \
-  -derivedDataPath /private/tmp/oi-478-derived \
-  -resultBundlePath /private/tmp/oi-478-verified.xcresult \
-  -parallel-testing-enabled NO \
-  -only-testing:OiDonationTests/CampusMapInteractionTests/testStoryBubblesFollowCoordinatesRefreshAndOpenExactMembers \
-  CODE_SIGNING_ALLOWED=NO
-```
-
-총 7개의 서로 다른 테스트가 최종적으로 통과했고, 본 앱·App Clip·테스트 타깃이 빌드됐다. 기존 Swift 6 언어 모드 전환 관련 경고와 시뮬레이터 그래픽 경고는 남아 있다. 실기기 설치·App Store 배포는 수행하지 않았다.
+최종 코드로 7개 테스트가 한 번에 모두 통과했고 본 앱·App Clip·테스트 타깃이 빌드됐다. 자체 리뷰에서 가까운 세 점과 멀리 떨어진 한 점의 경계 사례를 재현하고, 같은 버블로 묶이는 회귀 검사도 추가했다. 기존 Swift 6 언어 모드 전환 관련 경고와 시뮬레이터 그래픽 경고는 남아 있다. 실기기 설치·App Store 배포는 수행하지 않았다.
 
 ## 리소스 정리
 
-작업 전용 시뮬레이터 `ED67A555-0C6E-43E3-95FB-1FE3FDA1C6E9`는 테스트 직후 종료·삭제했고 해당 ID의 프로세스와 기기 목록 잔존이 없음을 확인했다. XCTest의 작업 창은 각 테스트의 `defer`에서 숨김뿐 아니라 root controller·window scene 연결까지 해제했다. GUI 자동화·브라우저·입력 장치 조작은 사용하지 않았다. 최대 동시 작업 리소스는 시뮬레이터·빌드/테스트·별도 네이티브 검사 3개 그룹이다.
+작업 전용 시뮬레이터 `ED67A555-0C6E-43E3-95FB-1FE3FDA1C6E9`와 최종 재검증용 `457E0E6E-9BC7-4E91-A69B-22045948F577`는 각각 테스트 직후 종료·삭제했고 해당 ID의 프로세스와 기기 목록 잔존이 없음을 확인했다. XCTest의 작업 창은 각 테스트의 `defer`에서 숨김뿐 아니라 root controller·window scene 연결까지 해제했다. GUI 자동화·브라우저·입력 장치 조작은 사용하지 않았다. 최대 동시 작업 리소스는 시뮬레이터·빌드/테스트·별도 네이티브 검사 3개 그룹이다.

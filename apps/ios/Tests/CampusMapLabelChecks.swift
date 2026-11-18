@@ -195,6 +195,13 @@ import simd
             if radius == 600 { precondition(active.count < campusSites.count, "Zooming out must consolidate nearby campus regions") }
         }
         precondition(Cluster(sites: []).markers(radius: 305, focalLength: focalLength, reduceMotion: false).isEmpty)
+        let boundary = Cluster(sites: [
+            .init(id: "a", anchor: SIMD3(0, 0, 0)), .init(id: "b", anchor: SIMD3(1, 0, 0)),
+            .init(id: "c", anchor: SIMD3(2, 0, 0)), .init(id: "d", anchor: SIMD3(100, 0, 0))
+        ])
+        let boundaryMarkers = boundary.markers(radius: 20, focalLength: focalLength, reduceMotion: true).filter(\.isInteractive)
+        precondition(boundaryMarkers.count == 2 && boundaryMarkers.contains { $0.node.siteIDs == ["a", "b", "c"] },
+                     "Close stories across a spatial partition must stay in the same bubble")
         let duplicates = Cluster(sites: [
             .init(id: "a", anchor: .zero), .init(id: "b", anchor: .zero),
             .init(id: "c", anchor: SIMD3(100, 0, 0))
