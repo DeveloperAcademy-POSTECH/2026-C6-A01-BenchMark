@@ -124,7 +124,7 @@ struct OiLocationPicker: View {
                             .accessibilityLabel("장소 검색으로 돌아가기")
                             .accessibilityIdentifier("oi.location.backToSearch")
                             Spacer()
-                            Text("드래그로 지도 이동\n두 손가락으로 오이 크기·방향 조절")
+                            Text("드래그로 지도 이동 · 빈 곳 핀치로 지도 확대\n오이 위에서 두 손가락으로 크기·방향 조절")
                                 .font(CampusStyle.body(12)).padding(10)
                                 .multilineTextAlignment(.center)
                                 .background(.regularMaterial, in: Capsule())
