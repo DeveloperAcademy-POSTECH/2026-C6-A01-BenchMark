@@ -141,7 +141,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var previewDragPoint: CGPoint?
     @ObservationIgnored private var previewTouchState = CampusPlacementGestureState()
     @ObservationIgnored private var previewRecognizer: OiTouchSequenceRecognizer?
-    @ObservationIgnored private var previewRotatesInPlace = false
+    @ObservationIgnored private var previewFollowsMapCenter = false
     @ObservationIgnored private var placementLayer = Entity()
     @ObservationIgnored private var authoredLayer = Entity()
     @ObservationIgnored private var storyLayer = Entity()
@@ -952,27 +952,47 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         entity.orientation = CampusOiAsset.heading(record.headingDegrees)
     }
 
-    func beginPlacementPreview(_ placement: CampusPlacement, rotatingInPlace: Bool = false) {
+    func beginPlacementPreview(_ placement: CampusPlacement) {
         guard let data else { return }
         stopNavigation()
         selectingCenterLocation = false
         previewTouchState = CampusPlacementGestureState()
         previewDragPoint = nil
         previewMovementError = nil
-        previewRotatesInPlace = rotatingInPlace
+        previewFollowsMapCenter = false
         placementPreview = placement
         if let canvas { installPreviewGestures(on: canvas) }
         let point = data.world(latitude: placement.latitude, longitude: placement.longitude)
-        if rotatingInPlace {
-            editingPlacement = true
-            camera.camera.near = 0.01
-            target = point + SIMD3(0, Float(placement.heightMeters * data.unitsPerMeter * 0.5), 0)
-            yaw = .pi - Float(placement.headingDegrees * .pi / 180)
-            pitch = 0.45
-            radius = Float(max(6, placement.heightMeters * 4.5) * data.unitsPerMeter)
-            updateCamera()
-        } else if let region = nearestRegion(to: point) { focus(region, stories: [], placement: placement) }
+        if let region = nearestRegion(to: point) { focus(region, stories: [], placement: placement) }
         syncPlacements(records: [placement])
+    }
+
+    /// STEP 2: one finger pans the map below the Oi; two fingers edit its size and heading.
+    func beginCenterPlacementPreview(id: UUID, height: Double?, heading: Double?) {
+        guard ready, placementReady, let data else { return }
+        // A POI can be at the middle of a building. Start on its nearest outdoor path.
+        let point = draftPoint ?? data.graph.values.map { data.world($0.p) }
+            .sorted { simd_distance_squared($0, target) < simd_distance_squared($1, target) }
+            .first { data.placementError(at: $0) == nil }
+        guard let point else { return }
+        let coordinate = data.coordinate(point)
+        guard let placement = CampusPlacement.story(id: id, latitude: coordinate.latitude,
+            longitude: coordinate.longitude, heightMeters: height, headingDegrees: heading ?? 180) else { return }
+        stopNavigation()
+        previewTouchState = CampusPlacementGestureState()
+        previewDragPoint = nil
+        previewFollowsMapCenter = true
+        placementPreview = placement
+        editingPlacement = true
+        selectingCenterLocation = true
+        camera.camera.near = 0.01
+        target = point
+        yaw = .pi - Float(placement.headingDegrees * .pi / 180)
+        pitch = 0.65
+        radius = Float(max(8, placement.heightMeters * 5) * data.unitsPerMeter)
+        if let canvas { installPreviewGestures(on: canvas) }
+        syncPlacements(records: [placement])
+        updateCamera()
     }
 
     func commitPlacementPreview() {
@@ -982,7 +1002,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     }
 
     func adjustLocationAppearance(scale: Double = 1, headingDelta: Double = 0) {
-        guard previewRotatesInPlace, let placement = placementPreview,
+        guard previewFollowsMapCenter, let placement = placementPreview,
               scale.isFinite, scale > 0, headingDelta.isFinite else { return }
         let range = CampusPlacement.heightRange
         updatePlacementPreview(placement, latitude: placement.latitude, longitude: placement.longitude,
@@ -1014,11 +1034,14 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         guard let change, let placement = placementPreview, let data, let view = canvas?.map else { return }
         switch change {
         case .move(let delta):
-            if previewRotatesInPlace {
-                guard view.bounds.width > 0 else { return }
-                let heading = CampusPlacement.wrappedHeading(placement.headingDegrees - 360 * Double(delta.x / view.bounds.width))
-                updatePlacementPreview(placement, latitude: placement.latitude, longitude: placement.longitude,
-                                       height: placement.heightMeters, heading: heading)
+            if previewFollowsMapCenter {
+                let right = SIMD3<Float>(cos(yaw), 0, -sin(yaw))
+                let forward = SIMD3<Float>(sin(yaw), 0, cos(yaw))
+                let stretch = CampusMapMotion.panStretch(radius: radius, target: target)
+                let input = CampusMapMotion.inputTarget(for: target, stretch: stretch)
+                target = CampusMapMotion.resistedTarget(input - (right * Float(delta.x) + forward * Float(delta.y)) * radius * 0.0012,
+                                                       stretch: stretch)
+                updateCamera()
             } else {
                 movePlacementPreview(placement, by: delta, data: data, viewport: view.bounds)
             }
@@ -1026,8 +1049,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             guard view.bounds.width > 0 else { return }
             let range = CampusPlacement.heightRange
             let height = min(range.upperBound, max(range.lowerBound, placement.heightMeters * Double(scale)))
-            // In STEP 2 a pinch changes only size, even if its centroid drifts.
-            let degrees = previewRotatesInPlace ? 0 : -360 * Double(horizontal / view.bounds.width) - rotation * 180 / .pi
+            let degrees = -360 * Double(horizontal / view.bounds.width) - rotation * 180 / .pi
             let heading = CampusPlacement.wrappedHeading(placement.headingDegrees + degrees)
             guard height != placement.heightMeters || heading != placement.headingDegrees else { return }
             updatePlacementPreview(placement, latitude: placement.latitude, longitude: placement.longitude,
@@ -1115,12 +1137,24 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         // its pose avoids the renderer's previous-frame ray during gestures.
         guard let hit = data.surface?.intersect(origin: eye, direction: simd_normalize(target - eye)) else {
             draftPoint = nil
+            if previewFollowsMapCenter { placementLayer.children.first?.isEnabled = false }
             centerLocationError = "지도를 움직여 캠퍼스 바닥에 핀을 맞춰 주세요."
             centerLocationName = "위치를 선택해 주세요"
             return
         }
         centerLocationError = data.placementError(at: hit)
         draftPoint = centerLocationError == nil ? hit : nil
+        if previewFollowsMapCenter, let placement = placementPreview {
+            placementLayer.children.first?.isEnabled = draftPoint != nil
+            if draftPoint != nil {
+                let coordinate = data.coordinate(hit)
+                let changed = CampusPlacement(id: placement.id, storyID: placement.storyID,
+                    latitude: coordinate.latitude, longitude: coordinate.longitude,
+                    heightMeters: placement.heightMeters, headingDegrees: placement.headingDegrees)
+                if changed != placement { placementPreview = changed; savedPlacements = [changed] }
+                if let entity = placementLayer.children.first { positionPlacement(entity, record: changed, data: data) }
+            }
+        }
         if let place = data.pois.min(by: {
             simd_distance_squared(data.world($0.p), hit) < simd_distance_squared(data.world($1.p), hit)
         }), simd_distance(data.world(place.p), hit) < Float(120 * data.unitsPerMeter) {
@@ -1166,7 +1200,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             if let previewRecognizer { canvas?.removeGestureRecognizer(previewRecognizer) }
             previewRecognizer = nil
             previewTouchState = CampusPlacementGestureState()
-            previewRotatesInPlace = false
+            previewFollowsMapCenter = false
             previewDragPoint = nil
             navigationGestures.forEach { $0.isEnabled = true }
         }
