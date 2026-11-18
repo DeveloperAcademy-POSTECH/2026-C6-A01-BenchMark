@@ -879,11 +879,16 @@ final class CampusMapInteractionTests: XCTestCase {
             XCTAssertNotEqual(camera.transform, cameraStart, "A one-finger drag moves the map below the Oi")
             scene.updatePlacementPreviewTouches([:])
             let transformedCamera = camera.transform
-            scene.updatePlacementPreviewTouches([0: CGPoint(x: 150, y: 200), 1: CGPoint(x: 250, y: 200)])
+            let oiCenter = try XCTUnwrap(map.project(model.visualBounds(relativeTo: nil).center))
+            func oiTouches(halfWidth: CGFloat, shift: CGFloat = 0) -> [Int: CGPoint] {
+                [0: CGPoint(x: oiCenter.x - halfWidth + shift, y: oiCenter.y),
+                 1: CGPoint(x: oiCenter.x + halfWidth + shift, y: oiCenter.y)]
+            }
+            scene.updatePlacementPreviewTouches(oiTouches(halfWidth: 50))
             let shift = surface.bounds.width / 2
-            scene.updatePlacementPreviewTouches([0: CGPoint(x: 150 + shift, y: 200), 1: CGPoint(x: 250 + shift, y: 200)])
+            scene.updatePlacementPreviewTouches(oiTouches(halfWidth: 50, shift: shift))
             XCTAssertEqual(try XCTUnwrap(scene.placementPreview?.headingDegrees), 205, accuracy: 0.001)
-            scene.updatePlacementPreviewTouches([0: CGPoint(x: 137.5 + shift, y: 200), 1: CGPoint(x: 262.5 + shift, y: 200)])
+            scene.updatePlacementPreviewTouches(oiTouches(halfWidth: 62.5, shift: shift))
             let adjusted = try XCTUnwrap(scene.placementPreview)
             XCTAssertEqual(adjusted.heightMeters, 1.5, accuracy: 0.001)
             XCTAssertEqual(adjusted.headingDegrees, 205, accuracy: 0.001)
@@ -904,6 +909,27 @@ final class CampusMapInteractionTests: XCTestCase {
             XCTAssertEqual(scene.placementPreview?.heightMeters, 1.5)
             XCTAssertEqual(scene.placementPreview?.headingDegrees, 205)
             XCTAssertEqual(camera.transform, transformedCamera, "Two fingers edit the Oi without moving the map")
+            let anchor = data.world(latitude: adjusted.latitude, longitude: adjusted.longitude)
+            let radiusBeforeZoom = simd_distance(camera.position(relativeTo: nil), anchor)
+            // Both fingers and their midpoint start away from the Oi.
+            scene.updatePlacementPreviewTouches([0: CGPoint(x: 30, y: 60), 1: CGPoint(x: 130, y: 60)])
+            scene.updatePlacementPreviewTouches([0: CGPoint(x: 55, y: 60), 1: CGPoint(x: 105, y: 60)])
+            XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), anchor), radiusBeforeZoom * 2, accuracy: 0.001)
+            XCTAssertEqual(scene.placementPreview?.heightMeters, adjusted.heightMeters)
+            XCTAssertEqual(scene.placementPreview?.headingDegrees, adjusted.headingDegrees)
+            XCTAssertEqual(try XCTUnwrap(scene.placementPreview?.latitude), adjusted.latitude, accuracy: 0.000001)
+            XCTAssertEqual(try XCTUnwrap(scene.placementPreview?.longitude), adjusted.longitude, accuracy: 0.000001)
+            // Moving over the character must not switch a map pinch into Oi editing.
+            scene.updatePlacementPreviewTouches(oiTouches(halfWidth: 25))
+            scene.updatePlacementPreviewTouches(oiTouches(halfWidth: 50))
+            XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), anchor), radiusBeforeZoom, accuracy: 0.001)
+            XCTAssertEqual(scene.placementPreview?.heightMeters, adjusted.heightMeters)
+            XCTAssertEqual(scene.placementPreview?.headingDegrees, adjusted.headingDegrees)
+            scene.updatePlacementPreviewTouches([0: CGPoint(x: 55, y: 60)])
+            let zoomedCamera = camera.transform
+            scene.updatePlacementPreviewTouches([0: CGPoint(x: 95, y: 60)])
+            XCTAssertEqual(camera.transform, zoomedCamera, "Lifting a map pinch finger must not pan the map")
+            scene.updatePlacementPreviewTouches([:])
             XCTAssertEqual(height, 1.2, "Edits stay staged until the final confirmation")
             XCTAssertEqual(heading, 25)
             scene.suspendRendering(); scene.setVisible(true)

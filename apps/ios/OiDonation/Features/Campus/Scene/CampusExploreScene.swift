@@ -142,6 +142,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var previewTouchState = CampusPlacementGestureState()
     @ObservationIgnored private var previewRecognizer: OiTouchSequenceRecognizer?
     @ObservationIgnored private var previewFollowsMapCenter = false
+    private enum PreviewTransformTarget { case oi, map }
+    @ObservationIgnored private var previewTransformTarget: PreviewTransformTarget?
     @ObservationIgnored private var placementLayer = Entity()
     @ObservationIgnored private var authoredLayer = Entity()
     @ObservationIgnored private var storyLayer = Entity()
@@ -967,7 +969,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         syncPlacements(records: [placement])
     }
 
-    /// STEP 2: one finger pans the map below the Oi; two fingers edit its size and heading.
+    /// STEP 2: one finger pans; a two-finger sequence edits the Oi or zooms empty map space.
     func beginCenterPlacementPreview(id: UUID, height: Double?, heading: Double?) {
         guard ready, placementReady, let data else { return }
         // A POI can be at the middle of a building. Start on its nearest outdoor path.
@@ -1028,8 +1030,14 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         let change = previewTouchState.update(points)
         if points.isEmpty {
             previewDragPoint = nil
+            previewTransformTarget = nil
             commitPlacementPreview()
             return
+        }
+        // Choose once when the second finger arrives, before either finger moves.
+        // Keep the target through finger replacement and 2 → 1 → 2 transitions.
+        if points.count == 2, previewTransformTarget == nil {
+            previewTransformTarget = previewFollowsMapCenter && !previewTouchesOi(points) ? .map : .oi
         }
         guard let change, let placement = placementPreview, let data, let view = canvas?.map else { return }
         switch change {
@@ -1046,6 +1054,12 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
                 movePlacementPreview(placement, by: delta, data: data, viewport: view.bounds)
             }
         case .transform(let horizontal, let scale, let rotation):
+            if previewTransformTarget == .map {
+                guard scale.isFinite, scale > 0 else { return }
+                radius = min(zoomLimits.upperBound, max(zoomLimits.lowerBound, radius / Float(scale)))
+                updateCamera()
+                return
+            }
             guard view.bounds.width > 0 else { return }
             let range = CampusPlacement.heightRange
             let height = min(range.upperBound, max(range.lowerBound, placement.heightMeters * Double(scale)))
@@ -1055,6 +1069,26 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             updatePlacementPreview(placement, latitude: placement.latitude, longitude: placement.longitude,
                                    height: height, heading: heading)
         }
+    }
+
+    private func previewTouchesOi(_ points: [Int: CGPoint]) -> Bool {
+        guard let entity = placementLayer.children.first, entity.isEnabled,
+              let view = canvas?.map else { return false }
+        let bounds = entity.visualBounds(relativeTo: nil)
+        let projection = mapProjection(in: view.bounds)
+        let corners = [bounds.min.x, bounds.max.x].flatMap { x in
+            [bounds.min.y, bounds.max.y].flatMap { y in
+                [bounds.min.z, bounds.max.z].compactMap { z in projection.point(SIMD3(x, y, z)) }
+            }
+        }
+        guard let minX = corners.map(\.x).min(), let maxX = corners.map(\.x).max(),
+              let minY = corners.map(\.y).min(), let maxY = corners.map(\.y).max() else { return false }
+        let rect = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+            .insetBy(dx: -22, dy: -22)
+        let touches = Array(points.values)
+        let midpoint = CGPoint(x: touches.map(\.x).reduce(0, +) / CGFloat(touches.count),
+                               y: touches.map(\.y).reduce(0, +) / CGFloat(touches.count))
+        return rect.contains(midpoint) || touches.contains(where: rect.contains)
     }
 
     private func movePlacementPreview(_ placement: CampusPlacement, by delta: CGPoint,
@@ -1200,6 +1234,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             if let previewRecognizer { canvas?.removeGestureRecognizer(previewRecognizer) }
             previewRecognizer = nil
             previewTouchState = CampusPlacementGestureState()
+            previewTransformTarget = nil
             previewFollowsMapCenter = false
             previewDragPoint = nil
             navigationGestures.forEach { $0.isEnabled = true }
@@ -1640,6 +1675,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         panTouchCount = 0
         previewDragPoint = nil
         previewTouchState = CampusPlacementGestureState()
+        previewTransformTarget = nil
     }
 
     private func updateNavigation(_ gesture: UIGestureRecognizer) -> Bool {
