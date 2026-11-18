@@ -87,7 +87,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private var educationNear = false
     @ObservationIgnored private var educationDetailTask: Task<Void, Never>?
     private var educationCamera: (target: SIMD3<Float>, radius: Float, yaw: Float, pitch: Float)?
-    var onRegion: ((CampusRegion) -> Void)?
+    var onStoryCluster: ((CampusRegion, Set<String>) -> Void)?
     var onBuilding: ((CampusBuildingTarget) -> Void)? {
         didSet {
             mapLabels.onSelectBuilding = onBuilding == nil ? nil : { [weak self] id in
@@ -160,6 +160,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     @ObservationIgnored private var shadowDistance: Float = 0
     @ObservationIgnored private var pins: [StoryPin] = []
     @ObservationIgnored private var regionClustering: CampusRegionClustering?
+    @ObservationIgnored private var clusterStories: [String: CampusStory] = [:]
     @ObservationIgnored private var regionButtons: [String: CampusRegionButton] = [:]
     @ObservationIgnored private var cameraMotion: (
         fromTarget: SIMD3<Float>, toTarget: SIMD3<Float>, targetVelocity: SIMD3<Float>,
@@ -182,7 +183,6 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private var region: CampusRegion?
     private var stories: [CampusStory] = []
     @ObservationIgnored private var overviewStories: [CampusStory] = []
-    private var regionCounts: [String: Int]?
     private var visible = true
     private let stillFrameDelay: Duration?
     private static var cachedMesh: Entity?
@@ -527,27 +527,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         region = nil; hasMovedFromOverview = keepingCamera
         clearRegionButtons()
         if !keepingCamera { target = SIMD3(32, 2, 1); radius = 305; yaw = 0; pitch = 1.02 }
-        if !sharedMap, let data {
-            let sites = CampusRegion.campus.compactMap { region -> CampusRegionClustering.Site? in
-                guard let place = data.pois.first(where: { $0.id == region.placeID }) else { return nil }
-                return .init(id: region.id, anchor: data.world(place.p))
-            }
-            let clustering = CampusRegionClustering(sites: sites)
-            regionClustering = clustering
-            for node in clustering.nodes {
-                let button = CampusRegionButton()
-                let region = CampusRegion.campus.first { node.siteIDs == [$0.id] }
-                button.accessibilityIdentifier = region.map { "campus.region." + $0.id } ?? "campus.cluster." + node.id
-                button.addAction(UIAction { [weak self] _ in
-                    if let region { self?.onRegion?(region) }
-                    else { self?.expandCluster(node) }
-                }, for: .touchUpInside)
-                button.isHidden = true
-                canvas?.addSubview(button)
-                regionButtons[node.id] = button
-            }
-            updateRegionCounts()
-        }
+        rebuildStoryClusters()
         makeStoryPins(overviewStories)
         rebuildAuthoredPlacements()
         // Keep the exact zoom when the list closes; only keep it inside the map's limits.
@@ -576,28 +556,49 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     func setOverviewStories(_ stories: [CampusStory]) {
         guard overviewStories != stories else { return }
         overviewStories = stories
-        setRegionCounts(Dictionary(grouping: stories, by: \.regionID).mapValues(\.count))
         guard region == nil else { return }
+        rebuildStoryClusters()
         makeStoryPins(stories)
         updateCamera()
     }
 
-    func setRegionCounts(_ counts: [String: Int]) {
-        guard regionCounts != counts else { return }
-        regionCounts = counts
-        updateRegionCounts()
+    private func rebuildStoryClusters() {
+        clearRegionButtons()
+        guard !sharedMap, region == nil, let data else { return }
+        let sites = overviewStories.compactMap { story -> CampusRegionClustering.Site? in
+            if let latitude = story.latitude, let longitude = story.longitude,
+               latitude.isFinite, longitude.isFinite, (-90...90).contains(latitude), (-180...180).contains(longitude) {
+                return .init(id: story.id, anchor: data.world(latitude: latitude, longitude: longitude))
+            }
+            // Only coordinate-less legacy stories use their own historic region anchor.
+            guard story.latitude == nil, story.longitude == nil,
+                  let region = CampusRegion.campus.first(where: { $0.id == story.regionID }),
+                  let place = data.pois.first(where: { $0.id == region.placeID }) else { return nil }
+            return .init(id: story.id, anchor: data.world(place.p))
+        }
+        regionClustering = CampusRegionClustering(sites: sites)
+        clusterStories = Dictionary(overviewStories.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
-    private func updateRegionCounts() {
-        for node in regionClustering?.nodes ?? [] {
-            let count = node.siteIDs.reduce(0) { $0 + (regionCounts?[$1] ?? 0) }
-            let title = CampusRegion.campus.first { node.siteIDs == [$0.id] }?.title
-                ?? "\(node.siteIDs.count)개 구역"
-            let button = regionButtons[node.id]
-            button?.setCount(count)
-            button?.accessibilityLabel = "\(title), 오이 \(count)개"
-            if node.siteIDs.count > 1 { button?.accessibilityHint = "이 구역들을 확대해서 보기" }
-        }
+    private func storyClusterButton(_ node: CampusRegionClustering.Node) -> CampusRegionButton? {
+        if let button = regionButtons[node.id] { return button }
+        guard let data else { return nil }
+        let ids = Set(node.siteIDs)
+        let names = Set(ids.compactMap { clusterStories[$0]?.location })
+        let title = names.count == 1 ? (names.first ?? "주변 이야기") : "주변 이야기"
+        let coordinate = data.coordinate(node.anchor)
+        let selection = CampusRegion(id: node.id, title: title, placeID: "",
+            latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let button = CampusRegionButton()
+        button.accessibilityIdentifier = "campus.cluster." + node.id
+        button.setCount(ids.count)
+        button.accessibilityLabel = "\(title), 오이 \(ids.count)개"
+        button.accessibilityHint = "이 버블에 포함된 이야기 목록 보기"
+        button.addAction(UIAction { [weak self] _ in self?.onStoryCluster?(selection, ids) }, for: .touchUpInside)
+        button.isHidden = true
+        canvas?.addSubview(button)
+        regionButtons[node.id] = button
+        return button
     }
 
     func focus(_ region: CampusRegion, stories: [CampusStory], placement: CampusPlacement? = nil, animated: Bool = false) {
@@ -610,6 +611,14 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             destination = data.world(latitude: placement.latitude, longitude: placement.longitude)
             destinationRadius = 23
             if !animated { yaw = 0; pitch = 0.75 }
+        } else if let latitude = region.latitude, let longitude = region.longitude {
+            destination = data.world(latitude: latitude, longitude: longitude)
+            let span = stories.compactMap { story -> Float? in
+                guard let lat = story.latitude, let lon = story.longitude else { return nil }
+                let point = data.world(latitude: lat, longitude: lon)
+                return simd_distance(SIMD2(point.x, point.z), SIMD2(destination.x, destination.z))
+            }.max() ?? 0
+            destinationRadius = min(600, max(63, span * 3))
         } else {
             guard let place = data.pois.first(where: { $0.id == region.placeID }) else { return }
             destination = data.world(place.p); destinationRadius = 63
@@ -1308,6 +1317,7 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         regionButtons.values.forEach { $0.removeFromSuperview() }
         regionButtons.removeAll()
         regionClustering = nil
+        clusterStories.removeAll()
     }
 
     private var eye: SIMD3<Float> {
@@ -1401,8 +1411,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
         var shownRegionIDs: Set<String> = []
         if selectedBuilding == nil && !editingPlacement && educationCamera == nil {
             for marker in markers {
-                guard let button = regionButtons[marker.node.id], let screen = projection.point(marker.anchor),
-                      visibleBounds.contains(screen) else { continue }
+                guard let screen = projection.point(marker.anchor), visibleBounds.contains(screen),
+                      let button = storyClusterButton(marker.node) else { continue }
                 button.place(at: screen, opacity: marker.opacity, panelOpacity: panelOpacity)
                 button.avoidStoryFrames(storyFrames, in: view.bounds)
                 button.isUserInteractionEnabled = marker.isInteractive
@@ -1414,7 +1424,8 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
             }
         }
         for (id, button) in regionButtons where !shownRegionIDs.contains(id) {
-            button.isHidden = true
+            button.removeFromSuperview()
+            regionButtons.removeValue(forKey: id)
         }
         if let entity = educationEntity, let button = educationButton {
             let screen = projection.point(entity.position + SIMD3(0, 6.8, 0))
@@ -1460,16 +1471,6 @@ final class CampusExploreScene: NSObject, UIGestureRecognizerDelegate {
     private func scheduleStillFrame() {
         guard let stillFrameDelay, visible, ready, activeNavigation.isEmpty, cameraMotion == nil else { return }
         canvas?.scheduleStillFrame(after: stillFrameDelay)
-    }
-
-    private func expandCluster(_ node: CampusRegionClustering.Node) {
-        guard let view = canvas?.map, let clustering = regionClustering else { return }
-        let projection = mapProjection(in: view.bounds)
-        let expandedRadius = clustering.expandedRadius(for: node, focalLength: projection.focalLength,
-                                                       separation: projection.planeSeparation)
-        let destination = max(20, min(radius, expandedRadius))
-        hasMovedFromOverview = true
-        animateCamera(to: node.anchor, radius: settledRadius(from: destination))
     }
 
     private var zoomLimits: ClosedRange<Float> {

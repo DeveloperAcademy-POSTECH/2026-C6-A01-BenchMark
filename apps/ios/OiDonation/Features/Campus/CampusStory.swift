@@ -42,6 +42,8 @@ struct CampusRegion: Identifiable, Hashable {
     let id: String
     let title: String
     let placeID: String
+    var latitude: Double? = nil
+    var longitude: Double? = nil
     static let campus: [Self] = [
         .init(id: "pond", title: "지곡회관 · 연못", placeID: "97"),
         .init(id: "library", title: "박태준학술정보관", placeID: "72"),
@@ -124,5 +126,42 @@ struct OiStoryContinuationIntent: Hashable {
               !OiContentSafetyStore.shared.isBlocked(author),
               let story = store?.story(parent.uuidString), !story.isExample, story.authorID == author else { return nil }
         return story.id
+    }
+}
+
+/// Presentation names come from the same POIs as the map, never from a coarse server region.
+enum CampusStoryLocation {
+    struct Place: Decodable {
+        let id: String
+        let name: String
+        let wgs84: [Double]
+    }
+    private struct Catalog: Decodable { let pois: [Place] }
+    private static let places: [Place] = {
+        guard let url = Bundle.main.url(forResource: "campus-data", withExtension: "json") else { return [] }
+        do { return try JSONDecoder().decode(Catalog.self, from: Data(contentsOf: url)).pois }
+        catch { return [] } // A missing display catalog must not mislabel an actual location.
+    }()
+
+    static func name(latitude: Double?, longitude: Double?, fallback: String) -> String {
+        guard let latitude, let longitude else { return fallback }
+        return nearest(latitude: latitude, longitude: longitude, places: places)?.name ?? "캠퍼스 내 선택 위치"
+    }
+
+    static func nearest(latitude: Double, longitude: Double, places: [Place]) -> Place? {
+        guard latitude.isFinite, longitude.isFinite, (-90...90).contains(latitude),
+              (-180...180).contains(longitude) else { return nil }
+        let scale = cos(latitude * .pi / 180)
+        func distance(_ place: Place) -> Double {
+            let x = (place.wgs84[0] - longitude) * scale
+            let y = place.wgs84[1] - latitude
+            return x * x + y * y
+        }
+        return places.filter {
+            $0.wgs84.count >= 2 && $0.wgs84.prefix(2).allSatisfy(\.isFinite) && !$0.name.isEmpty
+        }.min {
+            let a = distance($0), b = distance($1)
+            return a == b ? $0.id < $1.id : a < b
+        }
     }
 }
