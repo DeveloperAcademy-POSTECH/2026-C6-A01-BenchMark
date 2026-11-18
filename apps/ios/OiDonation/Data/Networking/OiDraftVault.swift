@@ -515,26 +515,32 @@ nonisolated struct OiDraftCustomization: Codable, Equatable, Sendable {
     }
 
     mutating func selectSeedTop(_ top: OiWardrobeLook.Top) {
+        // Keep evidence of a local seed edit even after its last garment is removed.
+        seedAppearance = seedAppearance ?? .init()
         selectedSeedTop = selectedSeedSet == nil && selectedSeedTop == top ? nil : top
         selectedSeedSet = nil
     }
 
     mutating func selectSeedBottom(_ bottom: OiWardrobeLook.Bottom) {
+        seedAppearance = seedAppearance ?? .init()
         selectedSeedBottom = selectedSeedSet == nil && selectedSeedBottom == bottom ? nil : bottom
         selectedSeedSet = nil
     }
 
     mutating func toggleSeedSneakers() {
+        seedAppearance = seedAppearance ?? .init()
         seedSneakers = selectedSeedSet != nil || seedSneakers != true ? true : nil
         selectedSeedSet = nil
     }
 
     mutating func selectSeedSet(_ set: OiSeedCucumberSet) {
+        seedAppearance = seedAppearance ?? .init()
         selectedSeedSet = selectedSeedSet == set ? nil : set
     }
 
     mutating func selectSeedProposal(_ proposal: OiSeedCostumeProposal, for costume: OiWardrobeLook.Costume) {
         guard OiSeedCostumeProposal.options(for: costume).contains(proposal) else { return }
+        seedAppearance = seedAppearance ?? .init()
         let set = OiSeedCucumberSet.costume(costume)
         if selectedSeedSet == set, selectedSeedProposal == proposal {
             selectedSeedSet = nil

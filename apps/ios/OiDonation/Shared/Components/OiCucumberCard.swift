@@ -32,6 +32,7 @@ struct OiCucumberCard<Portrait: View>: View {
     var outline: Color?
     var selectionOutline: Color?
     var showsShadow = true
+    var portraitIsDecorative = true
     @ViewBuilder let portrait: () -> Portrait
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -53,7 +54,11 @@ struct OiCucumberCard<Portrait: View>: View {
         .padding(.vertical, metrics.cardPadding)
         .frame(maxWidth: .infinity, minHeight: metrics.cardHeight,
                maxHeight: usesAccessibilityLayout ? nil : metrics.cardHeight, alignment: .leading)
-        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 28))
+        .background {
+            RoundedRectangle(cornerRadius: 28)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(showsShadow ? 0.25 : 0), radius: 2)
+        }
         .overlay {
             if let selectionOutline {
                 RoundedRectangle(cornerRadius: 28).strokeBorder(selectionOutline, lineWidth: 2)
@@ -63,7 +68,6 @@ struct OiCucumberCard<Portrait: View>: View {
                     .allowsHitTesting(false)
             }
         }
-        .shadow(color: .black.opacity(showsShadow ? 0.25 : 0), radius: 2)
         .contentShape(RoundedRectangle(cornerRadius: 28))
     }
 
@@ -114,6 +118,6 @@ struct OiCucumberCard<Portrait: View>: View {
             .frame(width: 50 * metrics.imageHeight / 86, height: 78 * metrics.imageHeight / 86)
             .frame(width: 66 * metrics.imageHeight / 86, height: metrics.imageHeight)
             .background(Color(red: 239 / 255, green: 239 / 255, blue: 239 / 255), in: RoundedRectangle(cornerRadius: 16))
-            .accessibilityHidden(true)
+            .accessibilityHidden(portraitIsDecorative)
     }
 }
