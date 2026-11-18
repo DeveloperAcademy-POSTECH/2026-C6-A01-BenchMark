@@ -261,37 +261,56 @@ struct MYSettingsView: View {
 
     private func permissionRow(_ permission: MYPermission) -> some View {
         let status = permissionValues[permission]
-        return Button {
-            permissionTask = Task { await changePermission(permission) }
-        } label: {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        permissionTitle(permission.title)
-                        Text(permissionLabel(permission, status: status))
-                            .font(CampusStyle.body(12)).foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 8)
-                    permissionIndicator(status, feature: permission)
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        permissionTitle(permission.title)
-                        Text(permissionLabel(permission, status: status))
-                            .font(CampusStyle.body(12)).foregroundStyle(.secondary)
-                    }
-                    permissionIndicator(status, feature: permission)
-                }
+        let isOn = status?.isGranted == true && featureUsage.isEnabled(permission)
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                permissionDescription(permission, status: status, isOn: isOn)
+                Spacer(minLength: 8)
+                permissionSwitch(permission, status: status)
             }
-            .padding(.horizontal, 20)
+            VStack(alignment: .leading, spacing: 8) {
+                permissionDescription(permission, status: status, isOn: isOn)
+                permissionSwitch(permission, status: status)
+            }
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .disabled(status == nil || permissionInFlight != nil)
+    }
+
+    private func permissionDescription(_ permission: MYPermission, status: PermissionStatus?, isOn: Bool) -> some View {
+        Button { setPermission(!isOn, for: permission) } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                permissionTitle(permission.title)
+                Text(permissionLabel(permission, status: status))
+                    .font(CampusStyle.body(12)).foregroundStyle(.secondary)
+            }
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .contentShape(Rectangle())
         }
+        .accessibilityHidden(true)
+    }
+
+    private func permissionSwitch(_ permission: MYPermission, status: PermissionStatus?) -> some View {
+        MYSettingsSwitch(isOn: Binding(
+            get: { status?.isGranted == true && featureUsage.isEnabled(permission) },
+            set: { setPermission($0, for: permission) }
+        ))
+        .frame(minHeight: 44)
         .accessibilityLabel(permission.title)
-        .accessibilityValue(permissionLabel(permission, status: status))
         .accessibilityHint(status?.isGranted == true ? "앱 안에서 기능 사용 켜기 또는 끄기" : "iPhone 권한 허용 필요")
         .accessibilityIdentifier("my.settings.permission.\(permission)")
-        .disabled(status == nil || permissionInFlight != nil)
+    }
+
+    private func setPermission(_ enabled: Bool, for permission: MYPermission) {
+        guard permissionInFlight == nil, let status = permissionValues[permission] else { return }
+        if status.isGranted == true {
+            pendingPermissionToEnable = nil
+            featureUsage.setEnabled(enabled, for: permission)
+        } else if enabled {
+            permissionInFlight = permission
+            permissionTask = Task { await changePermission(permission) }
+        }
     }
 
     private func permissionLabel(_ feature: MYPermission, status: PermissionStatus?) -> String {
@@ -309,20 +328,6 @@ struct MYSettingsView: View {
     private func permissionTitle(_ title: String) -> some View {
         Text(title).font(.custom("Paperlogy-3Light", size: 16, relativeTo: .body))
             .tracking(0.32).foregroundStyle(.black)
-    }
-
-    private func permissionIndicator(_ status: PermissionStatus?, feature: MYPermission) -> some View {
-        ZStack {
-            if let isGranted = status?.isGranted {
-                let isOn = isGranted && featureUsage.isEnabled(feature)
-                Capsule().fill(isOn ? CampusStyle.green : Color(uiColor: .tertiaryLabel))
-                    .overlay(alignment: isOn ? .trailing : .leading) {
-                        Capsule().fill(.white).frame(width: 38, height: 24).padding(.horizontal, 2)
-                    }
-            }
-        }
-        .frame(width: 64, height: 28)
-        .accessibilityHidden(true)
     }
 
     private struct PermissionStatus {
@@ -375,14 +380,12 @@ struct MYSettingsView: View {
     }
 
     @MainActor private func changePermission(_ permission: MYPermission) async {
-        guard permissionInFlight == nil else { return }
-        permissionInFlight = permission
         defer { permissionInFlight = nil }
         await refreshPermissions()
         guard !Task.isCancelled, let status = permissionValues[permission] else { return }
         if status.isGranted == true {
             pendingPermissionToEnable = nil
-            featureUsage.setEnabled(!featureUsage.isEnabled(permission), for: permission)
+            featureUsage.setEnabled(true, for: permission)
             return
         }
         pendingPermissionToEnable = permission
@@ -490,6 +493,50 @@ private typealias MYPermission = OiAppFeature
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.status = self.manager.authorizationStatus
+        }
+    }
+}
+
+/// Keeps system touch handling and motion while retaining the settings palette.
+struct MYSettingsSwitch: UIViewRepresentable {
+    @Binding var isOn: Bool
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeUIView(context: Context) -> UISwitch {
+        let control = UISwitch()
+        control.onTintColor = UIColor(CampusStyle.green)
+        control.tintColor = .tertiaryLabel
+        control.thumbTintColor = .white
+        control.setOn(isOn, animated: false)
+        control.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .valueChanged)
+        return control
+    }
+
+    func updateUIView(_ control: UISwitch, context: Context) {
+        context.coordinator.parent = self
+        control.isEnabled = isEnabled
+        if control.isOn != isOn {
+            control.setOn(isOn, animated: control.window != nil && !reduceMotion)
+        }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UISwitch, context: Context) -> CGSize? {
+        uiView.intrinsicContentSize
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    final class Coordinator: NSObject {
+        var parent: MYSettingsSwitch
+        init(parent: MYSettingsSwitch) { self.parent = parent }
+
+        @objc func changed(_ control: UISwitch) {
+            parent.isOn = control.isOn
+            // A denied permission must remain off until the system grants access.
+            if control.isOn != parent.isOn {
+                control.setOn(parent.isOn, animated: !parent.reduceMotion)
+            }
         }
     }
 }

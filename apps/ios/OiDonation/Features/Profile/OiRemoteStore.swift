@@ -619,7 +619,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         var story = CampusStory(id: item.id.uuidString, regionID: item.regionId, title: item.cucumberName,
             image: item.cucumberAsset, tags: [item.theme, item.emotion],
             donor: author?.publicDonorLine ?? "작성자 정보 확인 중",
-            location: regions.first { $0.id == item.regionId }?.name ?? "POSTECH",
+            location: CampusStoryLocation.name(latitude: item.latitude, longitude: item.longitude,
+                fallback: regions.first { $0.id == item.regionId }?.name ?? "POSTECH"),
             date: item.createdDateLabel, order: order, popularity: collectionCounts[item.id] ?? 0, palette: 0)
         story.authorID = item.userId
         story.donorFarmerAsset = author?.farmerAsset

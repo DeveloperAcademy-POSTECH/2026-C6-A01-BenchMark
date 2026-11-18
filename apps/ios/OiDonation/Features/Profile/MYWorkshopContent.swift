@@ -20,7 +20,7 @@ struct MYWorkshopContent: View {
     let tab: MYWorkshopTab
     let demo: MYLibraryStore
     var remote: OiRemoteStore?
-    var emptyTopPadding: CGFloat = 173
+    var emptyTopPadding: CGFloat = 175
     var onExploreMap: () -> Void = {}
     var storyRepository: any StoryRepository = AppContainer.pilot.storyRepository
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -181,24 +181,35 @@ struct MYWorkshopContent: View {
         case .connected: "이어진 기부가 없습니다"
         case .collected: "수집한 기부가 없습니다"
         }
-        return VStack(spacing: 23) {
+        return VStack(spacing: 27) {
             Text(message)
                 .font(CampusStyle.medium(22)).tracking(0.44)
                 .foregroundStyle(Color("OiGreen"))
                 .multilineTextAlignment(.center)
+                .frame(width: dynamicTypeSize <= .large ? 209 : nil,
+                       height: dynamicTypeSize <= .large ? 20 : nil)
                 .accessibilityAddTraits(.isHeader)
             action().buttonStyle(.plain)
+                .padding(.trailing, tab == .connected ? 1 : 0)
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, emptyTopPadding)
+        .padding(.trailing, 1)
+        .padding(.top, max(0, emptyTopPadding - (tab == .collected ? 1 : 0)))
         .accessibilityIdentifier("my.v4.\(tab == .authored ? "authored" : tab == .connected ? "connected" : "collected").empty")
     }
 
     private func emptyActionLabel(_ title: String) -> some View {
-        Text(title)
+        let textWidth: CGFloat = switch tab {
+        case .authored: 113
+        case .connected: 172
+        case .collected: 131
+        }
+        return Text(title)
             .font(CampusStyle.body(20)).tracking(0.4)
             .foregroundStyle(.black).multilineTextAlignment(.center)
-            .padding(.horizontal, 30).padding(.vertical, 10)
+            .frame(width: dynamicTypeSize <= .large ? textWidth : nil,
+                   height: dynamicTypeSize <= .large ? 20 : nil)
+            .padding(.horizontal, 30).padding(.vertical, 15)
             .frame(minHeight: 50)
             .background(.white, in: Capsule())
     }

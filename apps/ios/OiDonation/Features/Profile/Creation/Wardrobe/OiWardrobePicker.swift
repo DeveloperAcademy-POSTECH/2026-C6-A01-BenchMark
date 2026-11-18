@@ -203,6 +203,9 @@ struct OiCucumberCustomizationStep: View {
                 .allowsHitTesting(false)
                 VStack(alignment: .trailing, spacing: 8) {
                     if !allowsWardrobeEditing && !isFinished {
+                        OiCustomizationResetButton {
+                            customization.resetCucumberAppearance()
+                        }.accessibilityIdentifier("oi.wardrobe.reset")
                         OiCreationDoneButton(title: "얼굴") { showsFaceEditor = true }
                             .accessibilityIdentifier("oi.customization.face")
                             .accessibilityHint("오이 얼굴과 몸체를 편집해요")
