@@ -18,7 +18,7 @@ nonisolated struct OiLocalDraft: Codable, Identifiable, Equatable, Sendable {
     var customization: OiDraftCustomization?
     var removedMediaPaths: [String]?
     var removedPhotoIDs: Set<UUID>?
-    /// Local consent selections, never inferred from visiting a screen or legacy drafts.
+    /// Required clause IDs saved by story creation, including its automatic STEP 1 acceptance policy.
     var agreedConsentClauseIDs: Set<String>?
     var personalPlacement: OiPersonalPlacement?
     /// Preferred photo order by `OiEditingPhoto.orderKey`; nil keeps the attachment order.
