@@ -536,6 +536,7 @@ grant execute on function auth.jwt() to anon,authenticated;
             for migration in ai_only_migrations:
                 run(database + ['-f', str(migration)])
             run(database + ['-f', 'supabase/tests/oi-story-ai-only-review.sql'])
+            run(database + ['-f', 'supabase/tests/oi-showcase-publication.sql'])
             run(database + ['-f', 'supabase/tests/oi-education-stories.sql'])
         print('PASS: card formats 1/2/3, PNG/JPEG cover validation/access/review, and deletion on both histories')
         print('PASS: building notes writes, reports, AI/operator review, pagination, merge and deletion on both histories')
