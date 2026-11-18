@@ -3703,6 +3703,19 @@ final class OiRemoteStoreTests: XCTestCase {
         add(attachment)
     }
 
+    @MainActor func testStoryLocationUsesCoordinatesInsteadOfSavedRegion() throws {
+        let (store, _, _, session, directory) = try context()
+        defer { clean(session, directory: directory) }
+        let data = try CampusMapData.load()
+        let place = try XCTUnwrap(data.pois.first { $0.id == "71" })
+        let coordinate = data.coordinate(data.world(place.p))
+        let story = OiLiveStory(id: UUID(), userId: OiTestBackend.owner, grantId: nil, regionId: "student",
+            title: "대운동장", body: "Test", theme: "응원", emotion: "고마움", cucumberName: "Test",
+            cucumberAsset: "OiCats", cardAsset: "MYBasicCard", latitude: coordinate.latitude,
+            longitude: coordinate.longitude, status: "published", revision: 1, createdAt: "2026-11-18T00:00:00Z")
+        XCTAssertEqual(store.campusStory(story).location, "대운동장")
+    }
+
     @MainActor func testPublicationUsesLatestSavedContentAndRevision() async throws {
         let (store,backend,_,session,directory) = try context()
         defer { clean(session, directory: directory) }

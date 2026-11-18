@@ -991,6 +991,69 @@ final class CampusMapInteractionTests: XCTestCase {
         XCTAssertEqual(dismissing.offset, 40)
     }
 
+    func testStoryBubblesFollowCoordinatesRefreshAndOpenExactMembers() async throws {
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: windowScene)
+        let windowID = ObjectIdentifier(window)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        let scene = CampusExploreScene()
+        let canvas = scene.makeView()
+        controller.view.addSubview(canvas)
+        window.isHidden = false
+        defer {
+            scene.suspendRendering()
+            canvas.removeFromSuperview()
+            window.isHidden = true
+            window.rootViewController = nil
+            window.windowScene = nil
+            XCTAssertFalse(windowScene.windows.contains { ObjectIdentifier($0) == windowID })
+        }
+        await scene.load()
+        XCTAssertTrue(scene.ready, scene.error ?? "Map unavailable")
+        let data = try XCTUnwrap(scene.data)
+        let stadium = try XCTUnwrap(data.pois.first { $0.id == "71" })
+        let ground = data.world(stadium.p)
+        let coordinate = data.coordinate(ground)
+        var story = CampusStory(id: "stadium-story", regionID: "student", title: "대운동장 이야기", image: "OiCats",
+            tags: [], donor: "Test", location: "대운동장", date: "", order: 0, popularity: 0, palette: 0)
+        story.latitude = coordinate.latitude; story.longitude = coordinate.longitude
+        for size in [CGSize(width: 375, height: 667), CGSize(width: 402, height: 874), CGSize(width: 440, height: 956)] {
+            canvas.frame = CGRect(origin: .zero, size: size)
+            canvas.layoutIfNeeded()
+            scene.setOverviewStories([])
+            scene.showOverview()
+            XCTAssertFalse(badges(in: canvas).keys.contains { $0.hasPrefix("campus.cluster.") }, "Empty places must not show zero-count bubbles")
+            scene.setOverviewStories([story])
+            let button = try XCTUnwrap(canvas.subviews.first { $0.accessibilityIdentifier == "campus.cluster.site:stadium-story" } as? UIButton)
+            XCTAssertFalse(button.isHidden)
+            XCTAssertEqual(button.accessibilityLabel, "대운동장, 오이 1개")
+            let map = try XCTUnwrap(canvas.map)
+            try await Task.sleep(for: .milliseconds(350))
+            let screen = try XCTUnwrap(map.project(ground))
+            XCTAssertEqual(button.center.x, screen.x, accuracy: 1)
+            var selected: Set<String>?
+            var center: CampusRegion?
+            scene.onStoryCluster = { region, ids in center = region; selected = ids }
+            button.sendActions(for: .touchUpInside)
+            XCTAssertEqual(selected, [story.id])
+            XCTAssertEqual(try XCTUnwrap(center?.latitude), coordinate.latitude, accuracy: 0.000001)
+            try await capture("story-bubble-stadium-\(Int(size.width))", in: canvas)
+        }
+        // Two records with the same old region ID but different coordinates are independent sites.
+        var second = CampusStory(id: "other-story", regionID: "student", title: "다른 이야기", image: "OiCats",
+            tags: [], donor: "Test", location: "도서관", date: "", order: 1, popularity: 0, palette: 0)
+        let library = try XCTUnwrap(data.pois.first { $0.id == "72" })
+        let other = data.coordinate(data.world(library.p))
+        second.latitude = other.latitude; second.longitude = other.longitude
+        scene.setOverviewStories([story, second])
+        XCTAssertTrue(badges(in: canvas).filter { $0.key.hasPrefix("campus.cluster.") }.values.allSatisfy { $0.label.contains("오이") })
+        scene.setOverviewStories([second])
+        XCTAssertFalse(canvas.subviews.contains { $0.accessibilityIdentifier == "campus.cluster.site:stadium-story" })
+        scene.setOverviewStories([])
+        XCTAssertFalse(badges(in: canvas).keys.contains { $0.hasPrefix("campus.cluster.") })
+    }
+
     func testOverviewPinchReversalAndTilt() async throws {
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: windowScene)
@@ -1012,7 +1075,7 @@ final class CampusMapInteractionTests: XCTestCase {
             XCTAssertFalse(windowScene.windows.contains { ObjectIdentifier($0) == windowID })
         }
 
-        scene.setRegionCounts(["pond": 2, "dorm": 3])
+        scene.setOverviewStories(try clusterFixtures())
         await scene.load()
         XCTAssertTrue(scene.ready, scene.error ?? "Expected the bundled map")
         window.layoutIfNeeded()
@@ -1036,10 +1099,10 @@ final class CampusMapInteractionTests: XCTestCase {
         pinch.scale = 2
         scene.perform(pinchAction, with: pinch)
         let separated = badges(in: canvas)
-        XCTAssertNotNil(separated["campus.region.pond"], "Expected split badges; got \(separated.keys.sorted())")
-        XCTAssertNotNil(separated["campus.region.dorm"])
-        XCTAssertTrue(separated["campus.region.pond"]?.label.contains("오이 2개") == true)
-        XCTAssertTrue(separated["campus.region.dorm"]?.label.contains("오이 3개") == true)
+        XCTAssertNotNil(separated["campus.cluster.group:6:pond-06:pond-1"], "Expected split badges; got \(separated.keys.sorted())")
+        XCTAssertNotNil(separated["campus.cluster.group:6:dorm-06:dorm-16:dorm-2"])
+        XCTAssertTrue(separated["campus.cluster.group:6:pond-06:pond-1"]?.label.contains("오이 2개") == true)
+        XCTAssertTrue(separated["campus.cluster.group:6:dorm-06:dorm-16:dorm-2"]?.label.contains("오이 3개") == true)
 
         pinch.scale = 0.5
         scene.perform(pinchAction, with: pinch)
@@ -1067,10 +1130,10 @@ final class CampusMapInteractionTests: XCTestCase {
         try await capture("map-overhead", in: canvas)
 
         let pond = try XCTUnwrap(regionButton("pond", in: canvas))
-        var opened: CampusRegion?
-        scene.onRegion = { opened = $0 }
+        var opened: Set<String>?
+        scene.onStoryCluster = { _, ids in opened = ids }
         pond.sendActions(for: .touchUpInside)
-        XCTAssertEqual(opened?.id, "pond")
+        XCTAssertEqual(opened, ["pond-0", "pond-1"])
     }
 
     func testReleaseSettlesOverzoomAndCanBeInterrupted() async throws {
@@ -1093,7 +1156,7 @@ final class CampusMapInteractionTests: XCTestCase {
             window.windowScene = nil
             XCTAssertFalse(windowScene.windows.contains { ObjectIdentifier($0) == windowID })
         }
-        scene.setRegionCounts(["pond": 2, "dorm": 3])
+        scene.setOverviewStories(try clusterFixtures())
         await scene.load()
         XCTAssertTrue(scene.ready)
         window.layoutIfNeeded()
@@ -1104,12 +1167,11 @@ final class CampusMapInteractionTests: XCTestCase {
             .compactMap { $0 as? PerspectiveCamera }.first)
         let pivot = SIMD3<Float>(32, 2, 1)
         func radius() -> Float { simd_distance(camera.position(relativeTo: nil), pivot) }
-        let sites = CampusRegion.campus.compactMap { region -> CampusRegionClustering.Site? in
-            guard let place = data.pois.first(where: { $0.id == region.placeID }) else { return nil }
-            return .init(id: region.id, anchor: data.world(place.p))
+        let sites = try clusterFixtures().map { story in
+            CampusRegionClustering.Site(id: story.id, anchor: data.world(latitude: story.latitude!, longitude: story.longitude!))
         }
         let clustering = CampusRegionClustering(sites: sites)
-        let pair = try XCTUnwrap(clustering.nodes.first { Set($0.siteIDs) == Set(["pond", "dorm"]) })
+        let pair = try XCTUnwrap(clustering.nodes.first { Set($0.siteIDs) == Set(["pond-0", "pond-1", "dorm-0", "dorm-1", "dorm-2"]) })
         let projection = CampusMapProjection(eye: camera.position(relativeTo: nil), yaw: 0, pitch: 1.02,
                                              verticalFOV: 42, viewport: canvas.bounds)
         let splitRadius = clustering.expandedRadius(for: pair, focalLength: projection.focalLength,
@@ -1468,9 +1530,24 @@ final class CampusMapInteractionTests: XCTestCase {
         XCTAssertEqual(button.center.y + button.bounds.height * 0.5 * panelOpacity, projection.y, accuracy: 1)
     }
 
+    private func clusterFixtures() throws -> [CampusStory] {
+        let data = try CampusMapData.load()
+        return try [("pond", "97", 2), ("dorm", "75", 3)].flatMap { id, placeID, count in
+            let place = try XCTUnwrap(data.pois.first { $0.id == placeID })
+            let coordinate = data.coordinate(data.world(place.p))
+            return (0..<count).map { index in
+                var story = CampusStory(id: "\(id)-\(index)", regionID: "student", title: "Test", image: "OiCats",
+                    tags: [], donor: "Test", location: place.name, date: "", order: index, popularity: 0, palette: 0)
+                story.latitude = coordinate.latitude; story.longitude = coordinate.longitude
+                return story
+            }
+        }
+    }
+
     private func regionButton(_ id: String, in canvas: CampusMapCanvas) -> UIButton? {
         canvas.subviews.compactMap { $0 as? UIButton }.first {
-            !$0.isHidden && $0.accessibilityIdentifier == "campus.region." + id
+            !$0.isHidden && $0.accessibilityIdentifier == "campus.cluster.group:" +
+                (id == "pond" ? "6:pond-06:pond-1" : "6:dorm-06:dorm-16:dorm-2")
         }
     }
 

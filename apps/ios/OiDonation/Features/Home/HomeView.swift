@@ -18,6 +18,7 @@ struct HomeView: View {
     @State private var distances: [String: Float] = [:]
     @State private var expanded = false
     @State private var showingSchools = false
+    @State private var clusterStoryIDs: Set<String>?
     @State private var searchResults: Set<String>?
     @State private var isOnScreen = false
     @State private var showingSearchChoice = false
@@ -193,7 +194,7 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showingSchools) {
             CampusSchoolSearchView {
-                showingSchools = false; region = nil; expanded = false; searchResults = nil
+                showingSchools = false; region = nil; expanded = false; searchResults = nil; clusterStoryIDs = nil
                 scene.showOverview()
             }
         }
@@ -260,7 +261,7 @@ struct HomeView: View {
                 try await Task.sleep(for: .milliseconds(2500))
                 guard !ProcessInfo.processInfo.isLowPowerModeEnabled,
                       ProcessInfo.processInfo.thermalState == .nominal else { return }
-                for story in store.stories(in: region.id, sortedBy: .latest).prefix(1) {
+                for story in listedStories(in: region).prefix(1) {
                     try Task.checkCancellation()
                     if let path = story.cardArtworkPath { _ = try? await remote.postcardImage(path) }
                     else if let path = story.remoteMediaPaths.first, let resolver = store.mediaURL {
@@ -290,7 +291,11 @@ struct HomeView: View {
         .onChange(of: store.stories) { _, stories in
             scene.setOverviewStories(stories)
             if let region {
-                scene.showStoriesInCurrentArea(region, stories: searchResults == nil ? store.stories(in: region.id, sortedBy: sort) : stories)
+                if let ids = clusterStoryIDs {
+                    clusterStoryIDs = ids.intersection(stories.map(\.id))
+                    if clusterStoryIDs?.isEmpty == true { closeRegionList(); return }
+                }
+                scene.showStoriesInCurrentArea(region, stories: searchResults == nil ? listedStories(in: region) : stories)
                 if searchResults != nil { searchResults = scene.visibleStoryIDs(bottomInset: listBottomInset) }
             }
         }
@@ -319,9 +324,10 @@ struct HomeView: View {
                 return try await remote.cucumberModel(artwork)
             }
         }
-        scene.onRegion = { selected in
+        scene.onStoryCluster = { selected, ids in
             region = selected; sort = .latest; expanded = false; searchResults = nil
-            scene.focus(selected, stories: store.stories(in: selected.id, sortedBy: .latest), animated: true)
+            clusterStoryIDs = ids
+            scene.focus(selected, stories: store.stories(matching: ids, sortedBy: .latest), animated: true)
             distances = scene.distances()
         }
         // Tapping the map outside the list closes it, as the removed back button did (#395).
@@ -385,7 +391,7 @@ struct HomeView: View {
               let selectedRegion = CampusRegion.campus.first(where: { $0.id == (item?.regionID ?? story?.regionId) }) ?? scene.nearestRegion()
         else { return }
         if selectedBuilding != nil { selectedBuilding = nil; scene.finishBuilding() }
-        region = selectedRegion; expanded = false; sort = .latest; searchResults = nil
+        region = selectedRegion; expanded = false; sort = .latest; searchResults = nil; clusterStoryIDs = nil
         scene.focus(selectedRegion, stories: store.stories(in: selectedRegion.id, sortedBy: .latest), placement: placement)
         distances = scene.distances()
         authoredPlacementToReveal.wrappedValue = nil
@@ -464,7 +470,7 @@ struct HomeView: View {
 
     private func searchVisibleArea() {
         guard let closest = scene.nearestRegion() else { return }
-        region = closest; expanded = false
+        region = closest; expanded = false; clusterStoryIDs = nil
         scene.showStoriesInCurrentArea(closest, stories: store.stories)
         distances = scene.distances()
         searchResults = scene.visibleStoryIDs(bottomInset: listBottomInset)
@@ -548,9 +554,13 @@ struct HomeView: View {
         return remote?.account?.id != author
     }
 
+    private func listedStories(in region: CampusRegion) -> [CampusStory] {
+        store.stories(in: clusterStoryIDs == nil && searchResults == nil ? region.id : nil,
+                      matching: clusterStoryIDs ?? searchResults, sortedBy: sort, distances: distances)
+    }
+
     private func regionPanel(_ region: CampusRegion, availableHeight: CGFloat, bottomInset: CGFloat) -> some View {
-        let items = store.stories(in: searchResults == nil ? region.id : nil,
-                                  matching: searchResults, sortedBy: sort, distances: distances)
+        let items = listedStories(in: region)
         // Figma: sheet starts at y=516 (collapsed) or y=130 (expanded) in an 874pt screen.
         let layout = listDrag.layout(availableHeight: availableHeight, expanded: expanded)
         return VStack(spacing: 9.5) {
@@ -646,7 +656,7 @@ struct HomeView: View {
 
     /// Closes the region list and keeps the map exactly where it was (#395).
     private func closeRegionList() {
-        region = nil; expanded = false; searchResults = nil
+        region = nil; expanded = false; searchResults = nil; clusterStoryIDs = nil
         scene.showOverview(keepingCamera: true)
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) { listDrag = .idle }
     }

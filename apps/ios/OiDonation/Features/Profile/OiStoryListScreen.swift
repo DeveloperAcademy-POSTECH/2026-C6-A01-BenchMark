@@ -102,7 +102,9 @@ struct OiStoryListScreen: View {
             onPlant: handlePlantTap,
             canPlant: remote.autoStoryModeration && canPlant(in: currentState),
             selectedPlantStoryID: plantSelection?.selectedID,
-            onCancelPlant: cancelPlantAction
+            onCancelPlant: cancelPlantAction,
+            portraitAccountID: remote.account?.id,
+            loadPortrait: { try await remote.cucumberImage($0) }
         )
     }
 
@@ -390,19 +392,21 @@ struct OiStoryListScreen: View {
         let localIDs = Set(drafts.map(\.id))
         let storiesByID = Dictionary(uniqueKeysWithValues: remote.ownStories.map { ($0.id, $0) })
         let donorName = donorLine
-        func serverItem(_ story: OiLiveStory, portrait: Data? = nil) -> OiStoryListItem? {
+        func serverItem(_ story: OiLiveStory, portraitSource: OiStoryListPortraitSource? = nil) -> OiStoryListItem? {
             guard story.status == "draft" || story.status == "pending" else { return nil }
-            return OiStoryListItem(story: story, portraitPNG: portrait,
+            return OiStoryListItem(story: story, portraitSource: portraitSource,
                 donorDisplayName: donorName, locationDisplayName: locationDisplayName(for: story.regionId))
         }
         let localItems = drafts.compactMap { record -> OiStoryListItem? in
-            let portrait = record.customization?.card?.portraitPNG
+            let portrait = OiStoryListPortraitSource.local(customization: record.customization,
+                asset: record.draft.cucumberAsset, serverPath: storiesByID[record.id]?.cucumberArtwork?.path(.portrait),
+                serverSeed: storiesByID[record.id]?.cucumberAppearance?.seed)
             // A server receipt updates the existing row without moving it out of its local slot.
-            if let story = storiesByID[record.id] { return serverItem(story, portrait: portrait) }
+            if let story = storiesByID[record.id] { return serverItem(story, portraitSource: portrait) }
             guard !record.submitted else { return nil }
             return OiStoryListItem(id: record.id, cucumberName: record.personalPlacement?.name ?? record.draft.cucumberName.nonEmpty ?? "작성 중인 오이",
                 title: record.draft.title, cucumberAsset: record.draft.cucumberAsset,
-                portraitPNG: portrait, donorDisplayName: donorName,
+                portraitSource: portrait, donorDisplayName: donorName,
                 locationDisplayName: record.personalPlacement == nil ? "이 기기에 보관한 초안" : "내 지도에 배치됨",
                 tags: [record.draft.emotion, record.draft.theme].filter { !$0.isEmpty },
                 dateLabel: record.personalPlacement == nil ? "작성 중" : "나만 보기")

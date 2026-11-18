@@ -3,6 +3,7 @@ import SwiftUI
 struct OiStoryListView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.scenePhase) private var scenePhase
 
     let state: OiStoryListState
     var minimumVisibleSlotCount = OiStoryListState.draftCapacity
@@ -22,8 +23,18 @@ struct OiStoryListView: View {
     var canPlant = false
     var selectedPlantStoryID: UUID?
     var onCancelPlant: (() -> Void)?
+    var portraitAccountID: UUID? = nil
+    var loadPortrait: ((String) async throws -> UIImage)? = nil
 
     @State private var showsProductionRules = false
+    @State private var portraits = OiStoryListPortraits()
+    @State private var portraitRetry = 0
+
+    private var portraitInput: OiStoryListPortraits.Input {
+        .init(owner: portraitAccountID,
+              requests: state.items.map { .init(id: $0.id, source: $0.portraitSource) },
+              isActive: scenePhase == .active, retry: portraitRetry)
+    }
 
     var body: some View {
         Group {
@@ -77,6 +88,19 @@ struct OiStoryListView: View {
             }
         }
         .background(screenBackground.ignoresSafeArea())
+        .overlay(alignment: .topLeading) {
+            if scenePhase == .active, let capture = portraits.capture {
+                // One fixed, front-facing viewport is reused by the entire list's serial queue.
+                OiCardPortraitCapture(look: capture.look, seed: capture.seed, cacheKey: capture.id.uuidString,
+                    onCapture: { data, _ in portraits.finishCapture(capture.id, data: data) },
+                    onFailure: { portraits.finishCapture(capture.id, data: nil) })
+                    .frame(width: 200, height: 312)
+                    .opacity(0.001).allowsHitTesting(false).accessibilityHidden(true)
+            }
+        }
+        .task(id: portraitInput) { await portraits.load(portraitInput, remote: loadPortrait) }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { portraits.cancel() } }
+        .onDisappear { portraits.cancel() }
     }
 
     private var isSelectingPlant: Bool { onCancelPlant != nil }
@@ -164,17 +188,41 @@ struct OiStoryListView: View {
             OiCucumberCard(name: item.cucumberName, tags: item.tags, donor: item.donorDisplayName,
                            title: item.title, metrics: OiCucumberCardMetrics(cardHeight: metrics.cardHeight),
                            selectionOutline: isSelected ? Color(oiRGB: 0x849644) : nil,
-                           showsShadow: !isSelectingPlant || !isSelected) {
-                if let data = item.portraitPNG, let image = UIImage(data: data) {
-                    Image(uiImage: image).resizable().scaledToFit()
-                } else {
-                    Image(item.cucumberAsset).resizable().scaledToFit()
-                }
+                           showsShadow: !isSelectingPlant || !isSelected,
+                           portraitIsDecorative: false) {
+                portrait(item)
             }
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("storyList.item.\(item.id.uuidString)")
+        .accessibilityActions {
+            if case .failed = portraits.result(for: .init(id: item.id, source: item.portraitSource), owner: portraitAccountID) {
+                Button("오이 미리보기 다시 불러오기") { retryPortrait(item.id) }
+            }
+        }
+    }
+
+    @ViewBuilder private func portrait(_ item: OiStoryListItem) -> some View {
+        switch portraits.result(for: .init(id: item.id, source: item.portraitSource), owner: portraitAccountID) {
+        case .ready(let image):
+            Image(uiImage: image).resizable().scaledToFit().accessibilityHidden(true)
+        case .failed:
+            Button { retryPortrait(item.id) } label: {
+                Image(systemName: "arrow.clockwise").font(.system(size: 20))
+                    .foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("오이 미리보기 다시 불러오기")
+            .accessibilityIdentifier("storyList.portraitRetry.\(item.id.uuidString)")
+        case nil:
+            ProgressView().controlSize(.small).accessibilityLabel("오이 미리보기 불러오는 중")
+        }
+    }
+
+    private func retryPortrait(_ id: UUID) {
+        portraits.retry(id)
+        portraitRetry += 1
     }
 
     // Figma 6101:8975 and 6101:8976.
