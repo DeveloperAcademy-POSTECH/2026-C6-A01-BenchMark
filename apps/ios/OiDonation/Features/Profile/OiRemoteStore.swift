@@ -1664,6 +1664,27 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
 }
 
 
+extension OiRemoteStore {
+    /// Count for everyone; `liked` only when an account is signed in.
+    func storyLike(_ story: UUID) async throws -> OiStoryLike? {
+        guard let api else { throw OiServiceError.configuration }
+        let started = generation
+        let accessToken: String? = (account != nil && !needsReauthentication) ? try await token() : nil
+        let rows = try await api.storyLikes([story], token: accessToken)
+        try Task.checkCancellation()
+        guard started == generation else { throw OiServiceError.accountChanged }
+        return rows.first { $0.storyId == story }
+    }
+
+    func setStoryLike(_ story: UUID, liked: Bool) async throws -> OiStoryLike {
+        let row = try await withCardRequestSession { api, token in
+            try await api.setStoryLike(story, liked: liked, token: token)
+        }
+        guard row.storyId == story, row.liked == liked else { throw OiServiceError.conflict }
+        return row
+    }
+}
+
 extension OiRemoteStore: CampusBuildingNoteServing {
     var buildingNoteAccountID: UUID? { account?.id }
     var canWriteBuildingNote: Bool { canPlaceOi }

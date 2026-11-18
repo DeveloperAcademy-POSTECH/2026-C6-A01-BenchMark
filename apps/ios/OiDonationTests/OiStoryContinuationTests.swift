@@ -367,3 +367,38 @@ final class OiStoryContinuationTests: XCTestCase {
         XCTAssertGreaterThan(try XCTUnwrap(image.pngData()).count, 15000, "The capture must include rendered text, not a blank host")
     }
 }
+
+@MainActor
+final class OiStoryLikeTests: XCTestCase {
+    private let story = UUID(uuidString: "50400000-0000-4000-8000-000000000011")!
+
+    func testLikeRPCsDecodeCountAndOwnStateAndMapMissingFunctionToNotSupported() async throws {
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: config), previous = OiStoreURLProtocol.handle
+        defer { session.invalidateAndCancel(); OiStoreURLProtocol.handle = previous }
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let story = story
+        OiStoreURLProtocol.handle = { request, client in
+            let payload = (try? JSONSerialization.jsonObject(with: OiTestBackend.body(request))) as? [String: Any]
+            if request.url?.path.hasSuffix("oi_set_story_like") == true {
+                XCTAssertEqual(payload?["p_story"] as? String, story.uuidString)
+                XCTAssertEqual(payload?["p_liked"] as? Bool, true)
+                XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer synthetic-token")
+                client.respond(200, try! JSONSerialization.data(withJSONObject:
+                    ["story_id": story.uuidString, "count": 3, "liked": true]))
+            } else {
+                XCTAssertEqual(payload?["p_stories"] as? [String], [story.uuidString])
+                client.respond(200, try! JSONSerialization.data(withJSONObject:
+                    [["story_id": story.uuidString, "count": 2, "liked": false]]))
+            }
+        }
+        let counts = try await api.storyLikes([story], token: nil)
+        XCTAssertEqual(counts, [OiStoryLike(storyId: story, count: 2, liked: false)])
+        let set = try await api.setStoryLike(story, liked: true, token: "synthetic-token")
+        XCTAssertEqual(set, OiStoryLike(storyId: story, count: 3, liked: true))
+
+        OiStoreURLProtocol.handle = { _, client in client.respond(404, Data()) }
+        do { _ = try await api.storyLikes([story], token: nil); XCTFail("Missing RPC must not look like an empty count") }
+        catch OiStoryLikeError.notSupported {}
+    }
+}

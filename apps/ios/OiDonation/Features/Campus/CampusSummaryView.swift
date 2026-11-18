@@ -35,7 +35,7 @@ struct CampusSummaryView: View {
             }
     }
 
-    /// Figma `하단 버튼` (`5400:5165`): 93pt tall including the home indicator, two 175×46 buttons 20pt from the top.
+    /// Figma `하단 버튼` (`5400:5165`): 93pt tall including the home indicator, two 175×46 buttons 20pt from the top; the like button (#504) sits right of 수집하기.
     private var bottomBar: some View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
@@ -52,6 +52,7 @@ struct CampusSummaryView: View {
                 }.buttonStyle(.plain).disabled(remote == nil)
                     .accessibilityIdentifier("campus.summary.continue")
                 CampusCollectButton(story: story, store: store).frame(maxWidth: .infinity)
+                CampusStoryLikeButton(story: story, store: store)
             }.padding(.horizontal, 20).padding(.top, 20)
             Spacer(minLength: 0)
         }
