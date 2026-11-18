@@ -65,4 +65,4 @@ git diff --check
 
 2026-11-18 실제 52gibu에 `20261118113207_oi_pickle_coins`를 적용했다. 가입 보상 13건, 기존 공개 오이 무료 유지 1건, 과거 수집 무보상 표시 10건을 확인했다. 지정 로그인 3계정의 무제한 여부는 모두 true이며 실제 식별자는 기록하지 않는다. 익명 지갑·검수 RPC 권한은 false, 로그인 지갑 조회는 true였다. 보안 Advisor 신규 항목은 없었다.
 
-AI 함수는 OpenAI 외부 전송에 대한 명시적 운영 승인 대기로 기존 종료 버전을 유지한다. 실제 AI 인증과 앱 배포·실기기 설치는 완료하지 않았다. PR의 GitHub Actions `verify`·`database`는 최초 코드 업로드에서 모두 SUCCESS였다.
+사용자의 OpenAI 전송·운영 배포 명시 승인 후 `analyze-donation-evidence` v8을 배포했다. ACTIVE·JWT 검증 true, 배포 파일 4개의 소스 일치, 익명 HTTP 요청의 지갑 401·인증 함수 403을 확인했다. 검수·지급 RPC는 일반 로그인 역할에서 실행할 수 없고 서비스 역할에서만 실행할 수 있다. 실제 증서의 AI 결과·앱 배포·실기기 설치는 확인하지 않았다. PR의 GitHub Actions `verify`·`database`는 운영 이력 동기화 커밋까지 모두 SUCCESS였다.
