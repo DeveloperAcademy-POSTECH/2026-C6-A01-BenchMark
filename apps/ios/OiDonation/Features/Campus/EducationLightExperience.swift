@@ -76,6 +76,7 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
     var educationSignInRequested = false
     @ObservationIgnored private weak var educationRemote: OiRemoteStore?
     @ObservationIgnored let webView: WKWebView
+    @ObservationIgnored let storySheetCloseButton = UIButton(configuration: .glass())
     private var active = true
     private let logger = Logger(subsystem: "com.Spero.OiDonation.Education", category: "Building")
 
@@ -91,6 +92,18 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
         webView.scrollView.contentInsetAdjustmentBehavior = .never
+        storySheetCloseButton.configuration?.image = UIImage(systemName: "xmark")
+        storySheetCloseButton.configuration?.preferredSymbolConfigurationForImage = .init(pointSize: 17, weight: .semibold)
+        storySheetCloseButton.configuration?.cornerStyle = .capsule
+        storySheetCloseButton.tintColor = .label
+        storySheetCloseButton.overrideUserInterfaceStyle = .light
+        storySheetCloseButton.accessibilityLabel = "닫기"
+        storySheetCloseButton.accessibilityIdentifier = "education.story-sheet.close"
+        storySheetCloseButton.isHidden = true
+        storySheetCloseButton.addAction(UIAction { [weak self] _ in
+            self?.webView.evaluateJavaScript("document.querySelector('#educationDialog')?.close()", completionHandler: nil)
+        }, for: .touchUpInside)
+        webView.addSubview(storySheetCloseButton)
         #if DEBUG
         webView.isInspectable = true
         #endif
@@ -108,12 +121,44 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
         });
         """
         configuration.userContentController.addUserScript(WKUserScript(source: reporting, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        // Keep the web sheet's layout slot, but draw its close control with UIKit.
+        // Observe only sheet changes, never the continuously updating 3D scene.
+        let sheetControl = """
+        (()=>{
+          function connect(){
+            const sheet=document.querySelector('#educationDialog'),close=sheet?.querySelector('.close-button');
+            if(!close)return false;
+            close.style.visibility='hidden';close.setAttribute('aria-hidden','true');close.tabIndex=-1;
+            let pending=0;
+            function update(){
+              pending=0;const rect=close.getBoundingClientRect();
+              window.webkit.messageHandlers.building.postMessage({kind:'storySheetControl',open:sheet.open,
+                x:rect.x,y:rect.y,width:rect.width,height:rect.height,viewportWidth:innerWidth});
+            }
+            function schedule(){if(!pending)pending=requestAnimationFrame(()=>{pending=requestAnimationFrame(update);});}
+            new MutationObserver(schedule).observe(sheet,{attributes:true,attributeFilter:['open']});
+            const resize=new ResizeObserver(schedule);resize.observe(sheet);resize.observe(close);
+            sheet.addEventListener('close',schedule);
+            window.addEventListener('resize',schedule);
+            window.addEventListener('education-sheet-layout',schedule);
+            window.visualViewport?.addEventListener('resize',schedule);
+            window.visualViewport?.addEventListener('scroll',schedule);
+            schedule();return true;
+          }
+          if(!connect()){
+            const observer=new MutationObserver(()=>{if(connect())observer.disconnect();});
+            observer.observe(document.body,{childList:true,subtree:true});
+          }
+        })();
+        """
+        configuration.userContentController.addUserScript(WKUserScript(source: sheetControl, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         load()
     }
 
     func load() {
         loading = true
         failure = nil
+        storySheetCloseButton.isHidden = true
         guard let url = Bundle.main.url(forResource: "education-district-experience", withExtension: "html") else {
             loading = false
             failure = "앱에 포함된 건물 파일을 찾을 수 없습니다."
@@ -124,9 +169,10 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
 
     func setActive(_ active: Bool) {
         self.active = active
+        if !active { storySheetCloseButton.isHidden = true }
         webView.evaluateJavaScript("window.__nativePaused=\(active ? "false" : "true");window.setNativeActive?.(\(active ? "true" : "false"))", completionHandler: nil)
         if active {
-            webView.evaluateJavaScript("window.dispatchEvent(new Event('education-feed-refresh'))", completionHandler: nil)
+            webView.evaluateJavaScript("window.dispatchEvent(new Event('education-feed-refresh'));window.dispatchEvent(new Event('education-sheet-layout'))", completionHandler: nil)
         }
     }
 
@@ -174,6 +220,21 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
         guard let body = message.body as? [String: Any], let kind = body["kind"] as? String else { return }
         if kind == "education" {
             educationMessage(body, message: message)
+        } else if kind == "storySheetControl" {
+            guard message.frameInfo.isMainFrame, webView.url?.isFileURL == true else { return }
+            storySheetCloseButton.isHidden = true
+            guard active, body["open"] as? Bool == true,
+                  let x = body["x"] as? Double, let y = body["y"] as? Double,
+                  let width = body["width"] as? Double, let height = body["height"] as? Double,
+                  let viewportWidth = body["viewportWidth"] as? Double,
+                  [x, y, width, height, viewportWidth].allSatisfy(\.isFinite),
+                  viewportWidth > 0, width >= 44, height >= 44 else { return }
+            let scale = webView.bounds.width / viewportWidth
+            let frame = CGRect(x: x * scale, y: y * scale, width: width * scale, height: height * scale)
+            guard webView.bounds.contains(frame) else { return }
+            storySheetCloseButton.frame = frame
+            storySheetCloseButton.isHidden = false
+            webView.bringSubviewToFront(storySheetCloseButton)
         } else if kind == "close" {
             closeRequested = true
         } else if kind == "appearance", let dark = body["dark"] as? Bool {
@@ -195,10 +256,12 @@ final class EducationLightWebModel: NSObject, WKNavigationDelegate, WKScriptMess
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { handle(error) }
     private func handle(_ error: Error) {
         guard (error as NSError).code != NSURLErrorCancelled else { return }
+        storySheetCloseButton.isHidden = true
         loading = false
         failure = "앱에 포함된 화면을 열지 못했습니다. 다시 시도해 주세요."
     }
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        storySheetCloseButton.isHidden = true
         loading = false
         failure = "메모리를 확보하기 위해 화면이 종료되었습니다. 다시 열면 저장한 이야기를 복원합니다."
     }
