@@ -1747,6 +1747,180 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         shot.name = "unified-postcard-gradients"; shot.lifetime = .keepAlways; add(shot)
     }
 
+    #if !targetEnvironment(simulator)
+    // Vision foreground inference returns Code 9 on Simulator. The same core also runs in the macOS validator.
+    func testCharacterCutoutUsesNativeMaskAndPreservesWhiteClothing() async throws {
+        let transparent = try cutoutReference()
+        let opaque = cutoutWhiteBackdrop(transparent)
+        XCTAssertFalse(OiOpaqueImageTrim.hasTransparentBackground(opaque))
+        let paddedFormat = UIGraphicsImageRendererFormat(); paddedFormat.scale = 1; paddedFormat.opaque = false
+        let padded = UIGraphicsImageRenderer(size: CGSize(width: 264, height: 392), format: paddedFormat).image { _ in
+            opaque.draw(at: CGPoint(x: 4, y: 4))
+        }
+        XCTAssertFalse(OiOpaqueImageTrim.hasTransparentBackground(padded), "Transparent outer padding must not hide an opaque rectangular matte")
+        let cacheKey = "native-cutout-\(UUID())"
+        let result = try await OiCharacterPortraitCutout.shared.image(opaque, key: cacheKey)
+        let cached = try await OiCharacterPortraitCutout.shared.image(opaque, key: cacheKey)
+        XCTAssertTrue(result === cached, "Repeated immutable portrait paths reuse the prepared character")
+        XCTAssertTrue(OiOpaqueImageTrim.hasTransparentBackground(result))
+        XCTAssertEqual(result.size, transparent.size, "Removing the matte must not change the character placement")
+        let original = try cutoutPixels(transparent), prepared = try cutoutPixels(result)
+        var background = 0, removed = 0, whiteClothing = 0, preservedWhite = 0, foreground = 0, preserved = 0
+        var colorDifference = 0, colorSamples = 0
+        for offset in stride(from: 0, to: original.count, by: 4) {
+            if original[offset + 3] == 0 {
+                background += 1
+                if prepared[offset + 3] < 16 { removed += 1 }
+            }
+            if original[offset + 3] > 250 {
+                foreground += 1
+                if prepared[offset + 3] > 200 { preserved += 1 }
+                if prepared[offset + 3] > 250 {
+                    for channel in 0..<3 { colorDifference += abs(Int(prepared[offset + channel]) - Int(original[offset + channel])) }
+                    colorSamples += 3
+                }
+                if min(original[offset], original[offset + 1], original[offset + 2]) > 225 {
+                    whiteClothing += 1
+                    if prepared[offset + 3] > 200 { preservedWhite += 1 }
+                }
+            }
+        }
+        XCTAssertGreaterThan(whiteClothing, 100, "The real fixture must contain white shoes, socks and garment trim")
+        XCTAssertGreaterThan(Double(removed) / Double(background), 0.95)
+        XCTAssertGreaterThan(Double(preserved) / Double(foreground), 0.95, "The mask must retain the face, costume and props")
+        XCTAssertGreaterThan(Double(preservedWhite) / Double(whiteClothing), 0.95, "White garments must not be erased as background")
+        XCTAssertLessThan(Double(colorDifference) / Double(max(1, colorSamples)), 4, "Masking must preserve the actual face and costume colors")
+        print("Native cutout background=\(removed)/\(background), foreground=\(preserved)/\(foreground), white clothes=\(preservedWhite)/\(whiteClothing)")
+        for (name, image) in [("legacy-opaque-character", opaque), ("native-character-cutout", result)] {
+            let attachment = XCTAttachment(image: image); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+        }
+    }
+
+    #endif
+
+    func testCharacterCutoutPreservesTransparentPixelsAndCancellation() async throws {
+        let transparent = try cutoutReference()
+        let result = try await OiCharacterPortraitCutout.shared.image(transparent, key: "transparent-\(UUID())")
+        XCTAssertTrue(result === transparent, "Existing alpha, colors, resolution and edge pixels must pass through unchanged")
+        let task = Task {
+            try await OiCharacterPortraitCutout.shared.image(transparent, key: "cancelled-\(UUID())")
+        }
+        task.cancel()
+        do { _ = try await task.value; XCTFail("Cancelled cutouts must not publish a result") }
+        catch { XCTAssertTrue(error is CancellationError) }
+    }
+
+    func testCharacterCutoutRejectsUnreadableSourcesWithoutPoisoningCache() async throws {
+        let key = "unreadable-\(UUID())"
+        do {
+            _ = try await OiCharacterPortraitCutout.shared.image(UIImage(), key: key)
+            XCTFail("Unreadable portraits must report a failure")
+        } catch { XCTAssertTrue(error is OiCharacterPortraitCutout.Failure) }
+        let transparent = try cutoutReference()
+        let recovered = try await OiCharacterPortraitCutout.shared.image(transparent, key: key)
+        XCTAssertTrue(transparent === recovered, "A failed portrait must not poison later loads")
+    }
+
+    #if !targetEnvironment(simulator)
+    func testMYLegacyOpaquePortraitsRenderWithoutWhiteBoxes() async throws {
+        try await verifyMYCharacterOverlay(cutoutWhiteBackdrop(try cutoutReference()), legacy: true)
+    }
+    #endif
+
+    func testMYTransparentPortraitsRenderWithoutWhiteBoxes() async throws {
+        try await verifyMYCharacterOverlay(try cutoutReference(), legacy: false)
+    }
+
+    private func verifyMYCharacterOverlay(_ character: UIImage, legacy: Bool) async throws {
+        let fixture = try isolatedDefaults()
+        let previousHandler = OiStoreURLProtocol.handle, backend = OiTestBackend()
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("MYCutout-\(UUID())")
+        defer {
+            withExtendedLifetime(backend) {}; session.invalidateAndCancel(); OiStoreURLProtocol.handle = previousHandler
+            fixture.defaults.removePersistentDomain(forName: fixture.name)
+            if FileManager.default.fileExists(atPath: directory.path) { try? FileManager.default.removeItem(at: directory) }
+        }
+        let characterData = try XCTUnwrap(character.pngData())
+        let cardURL = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "first-card", withExtension: "png", subdirectory: "MYV4Figma"))
+        let cardData = try Data(contentsOf: cardURL)
+        var draft = Self.draft; draft.latitude = 36.0126; draft.longitude = 129.3197
+        let look = OiWardrobeLook()
+        let appearance = OiCucumberAppearance(id: UUID(), top: look.top.rawValue, bottom: look.bottom.rawValue,
+            costume: nil, topColor: look.topColor, bottomColor: look.bottomColor, shoeColor: look.shoeColor,
+            topTexture: false, bottomTexture: false)
+        let portraitPath = OiCucumberArtworkReference(ownerID: OiTestBackend.owner, storyID: draft.id, appearance: appearance).path(.portrait)
+        let snapshot = UUID()
+        let cardPath = StoryCard.artworkPath(owner: OiTestBackend.owner, story: draft.id, snapshot: snapshot)
+        var row = try draft.payload(); row["user_id"] = OiTestBackend.owner.uuidString; row["status"] = "published"
+        row["created_at"] = "2026-11-18T00:00:00Z"; row["cucumber_appearance"] = appearance.payload
+        row["card_snapshot_id"] = snapshot.uuidString; row["card_snapshot_format"] = 1
+        backend.configure { $0.story = row; $0.publicCucumberAppearance = true; $0.publicStoryCard = true
+            $0.uploads = ["oi-story-media/" + portraitPath: characterData, "oi-story-media/" + cardPath: cardData] }
+        backend.install()
+        let remote = OiRemoteStore(api: try OiServiceAPI(key: "sb_publishable_testing", session: session),
+            drafts: OiDraftVault(directory: directory), vault: OiMemorySession())
+        await remote.start(); XCTAssertTrue(remote.hasLoadedRemote)
+        let downloaded = try await remote.cucumberImage(portraitPath)
+        XCTAssertEqual(OiOpaqueImageTrim.hasTransparentBackground(downloaded), !legacy,
+            "The remote fixture must exercise the requested opaque or transparent PNG path")
+        let prepared = try await OiCharacterPortraitCutout.shared.image(downloaded, key: portraitPath)
+        XCTAssertTrue(OiOpaqueImageTrim.hasTransparentBackground(prepared))
+        let untouchedCard = try await remote.cucumberImage(cardPath)
+        XCTAssertEqual(try cutoutPixels(untouchedCard), try cutoutPixels(XCTUnwrap(UIImage(data: cardData))), "The approved card photo must stay unchanged")
+        let card = MYCard(id: draft.id.uuidString, title: draft.cucumberName, image: "OiPoka", school: .postech,
+            order: 0, body: draft.body, donor: "가상 작성자", date: "2026.11.18", storyID: draft.id.uuidString,
+            cucumberPortraitPath: portraitPath, cardArtworkPath: cardPath)
+        let view = MYWorkshopCardArtwork(card: card, remote: remote).environment(remote).environment(\.scenePhase, .active)
+            .frame(width: 230, height: 344).padding(30).background(Color(oiRGB: 0xD9D5CA))
+        let variant = Variant(name: "290x404", size: CGSize(width: 290, height: 404), dynamicTypeSize: .large)
+        let png = try await capture(view, name: "my-\(legacy ? "legacy" : "transparent")-cutout-card", variant: variant, defaults: fixture.defaults,
+            includesSafeArea: false, delay: .seconds(1), attach: true)
+        let bitmap = try renderedBitmap(png, size: variant.size)
+        let pixels = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: bitmap.width * bitmap.height * 4)
+        // Character slot begins at x46,y204. The source's empty top-left corner must reveal the card.
+        var white = 0
+        for y in 205..<215 { for x in 47..<55 {
+            let i = (y * bitmap.width + x) * 4
+            if min(pixels[i], pixels[i + 1], pixels[i + 2]) > 245 { white += 1 }
+        } }
+        XCTAssertLessThan(white, 4, "The MY character must reveal the approved postcard instead of a white rectangle")
+        for tab in [MYWorkshopTab.authored, .collected] {
+            let library = MYLibraryStore(); library.synchronize(nickname: "가상 농부", cards: [card], favorites: [])
+            try await capture(NavigationStack {
+                MYWorkshopView(demo: library, remote: remote, initialTab: tab).environment(remote).environment(\.scenePhase, .active)
+            }, name: "my-\(tab)-\(legacy ? "legacy" : "transparent")-cutout", variant: variants[0], defaults: fixture.defaults,
+                delay: .seconds(1), attach: true)
+        }
+    }
+
+    private func cutoutReference() throws -> UIImage {
+        let original = try XCTUnwrap(UIImage(named: "OiPoka"))
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = false
+        return UIGraphicsImageRenderer(size: CGSize(width: 256, height: 384), format: format).image { _ in
+            original.draw(in: CGRect(x: 0, y: 0, width: 256, height: 384))
+        }
+    }
+
+    private func cutoutWhiteBackdrop(_ image: UIImage) -> UIImage {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
+        return UIGraphicsImageRenderer(size: image.size, format: format).image { context in
+            context.cgContext.setFillColor(UIColor.white.cgColor); context.cgContext.fill(CGRect(origin: .zero, size: image.size))
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+    }
+
+    private func cutoutPixels(_ image: UIImage) throws -> [UInt8] {
+        let cg = try XCTUnwrap(image.cgImage)
+        let bitmap = try XCTUnwrap(CGContext(data: nil, width: cg.width, height: cg.height, bitsPerComponent: 8,
+            bytesPerRow: cg.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+        bitmap.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+        let pointer = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: cg.width * cg.height * 4)
+        return Array(UnsafeBufferPointer(start: pointer, count: cg.width * cg.height * 4))
+    }
+
     func testPortraitMattePreservesBlackWhiteAndTranslucentEdges() throws {
         let width = 40, height = 40
         func source(white: Bool) throws -> UIImage {
