@@ -14,12 +14,15 @@ struct MYFarmView: View {
 
     var body: some View {
         if let remote {
-            let isEmptyFarm = remote.hasLoadedRemote && remote.account != nil && remote.ownStories.isEmpty
-            let hasPlots = remote.hasLoadedRemote && remote.account != nil && !remote.ownStories.isEmpty
+            let isLoadingFarm = !remote.hasLoadedRemote && (remote.loadError == nil || remote.isRefreshing)
+            let isEmptyFarm = !isLoadingFarm && remote.account != nil && remote.ownStories.isEmpty
+            let hasPlots = !isLoadingFarm && remote.account != nil && !remote.ownStories.isEmpty
             ScrollView {
-                OiConnectionStatus(remote: remote, showsInitialProgress: false).padding(.horizontal, 20)
-                if !remote.hasLoadedRemote {
-                    if remote.loadError == nil || remote.isRefreshing { ProgressView().accessibilityLabel("내 농장을 불러오는 중") }
+                if remote.syncWarning != nil || remote.needsReauthentication {
+                    OiConnectionStatus(remote: remote, showsInitialProgress: false, showsReadFailures: false).padding(.horizontal, 20)
+                }
+                if isLoadingFarm {
+                    ProgressView().accessibilityLabel("내 농장을 불러오는 중")
                 } else if remote.account == nil {
                     ContentUnavailableView {
                         Label("로그인이 필요해요", systemImage: "person")

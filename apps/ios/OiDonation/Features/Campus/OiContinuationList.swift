@@ -20,14 +20,16 @@ struct OiContinuationList: View {
     @State private var isLoading = false
     @State private var failure: String?
     @State private var unsupported = false
-    @State private var showsFailureAlert = false
     @State private var requestID = UUID()
+    @State private var loadedContext: String?
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
-            if let emptyContent {
-                if total == 0, !isLoading, failure == nil, !unsupported {
+            if loadedContext != nil && loadedContext != requestContext {
+                ProgressView("이어진 이야기 불러오는 중")
+            } else if let emptyContent {
+                if rows.isEmpty, !isLoading, total == 0 || failure != nil || unsupported {
                     emptyContent()
                 } else {
                     LazyVStack(alignment: .leading, spacing: 16) {
@@ -40,15 +42,11 @@ struct OiContinuationList: View {
                 list
             }
         }
-        .alert(failure ?? OiContinuationError.notSupported.localizedDescription, isPresented: $showsFailureAlert) {
-            Button("다시 시도") { Task { await load(reset: true) } }
-            Button("닫기", role: .cancel) { }
-        }
-        .task(id: "\(parent?.uuidString ?? "mine")/\(remote?.continuationPrivacyKey ?? "public")") {
+        .task(id: requestContext) {
             await load(reset: true)
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active, rows.isEmpty { Task { await load(reset: true) } }
+            if phase == .active, !isLoading { Task { await load(reset: true) } }
         }
         .onChange(of: catalogIDs) { previous, current in
             guard let previous, let current else { return }
@@ -70,13 +68,10 @@ struct OiContinuationList: View {
                     .font(CampusStyle.semibold(16))
                 Text("공개된 이야기 연결이며 실제 기부·납입이나 학교 확인 내역이 아니에요.")
                     .font(.caption).foregroundStyle(.secondary)
-                if let total { Text("공개된 이어진 이야기 \(total)개").font(.subheadline) }
-                if unsupported {
-                    ContentUnavailableView("이어진 이야기 준비 중", systemImage: "link")
-                } else if let failure {
-                    Text(failure).font(.footnote)
-                    Button("다시 시도") { Task { await load(reset: true) } }
-                } else if rows.isEmpty && !isLoading && total != nil {
+                if let total, total > 0, failure == nil, !unsupported {
+                    Text("공개된 이어진 이야기 \(total)개").font(.subheadline)
+                }
+                if rows.isEmpty && !isLoading && (total != nil || failure != nil || unsupported) {
                     ContentUnavailableView("아직 이어진 이야기가 없어요", systemImage: "link")
                 }
                 continuationRows
@@ -111,24 +106,33 @@ struct OiContinuationList: View {
         return Set(remote.stories.map(\.id))
     }
 
+    private var requestContext: String {
+        "\(parent?.uuidString ?? "mine")/\(remote?.continuationPrivacyKey ?? "public")"
+    }
+
     private func load(reset: Bool) async {
+        let context = requestContext
+        if loadedContext != context {
+            requestID = UUID(); rows = []; cursor = nil; total = nil
+            loadedContext = context
+        }
         guard let remote else {
             unsupported = true
-            showsFailureAlert = emptyContent != nil
             return
         }
         guard reset || !isLoading else { return }
-        if reset { requestID = UUID(); rows = []; cursor = nil; total = nil }
+        if reset { requestID = UUID() }
         let started = requestID
-        failure = nil; unsupported = false; showsFailureAlert = false; isLoading = true
+        failure = nil; unsupported = false; isLoading = true
         defer { if requestID == started { isLoading = false } }
         do {
             let result = try await remote.storyContinuations(parent: parent, mine: parent == nil,
                 cursor: reset ? nil : cursor)
             try Task.checkCancellation()
-            guard requestID == started else { return }
-            let known = Set(rows.map(\.id))
-            rows += result.items.filter { !known.contains($0.id) }
+            guard requestID == started, requestContext == context else { return }
+            var known = reset ? Set<UUID>() : Set(rows.map(\.id))
+            let incoming = result.items.filter { known.insert($0.id).inserted }
+            rows = reset ? incoming : rows + incoming
             cursor = result.nextCursor; total = result.total
             if let store = store ?? sharedStore {
                 let incoming = result.items.map { remote.campusStory($0.story) }
@@ -137,15 +141,13 @@ struct OiContinuationList: View {
             }
         } catch is CancellationError { }
         catch is OiContinuationError {
-            if !Task.isCancelled && requestID == started {
+            if !Task.isCancelled && requestID == started && requestContext == context {
                 unsupported = true
-                showsFailureAlert = emptyContent != nil
             }
         }
         catch {
-            if !Task.isCancelled && requestID == started {
+            if !Task.isCancelled && requestID == started && requestContext == context {
                 failure = "이어진 이야기를 불러오지 못했어요. 다시 시도해 주세요."
-                showsFailureAlert = emptyContent != nil
             }
         }
     }

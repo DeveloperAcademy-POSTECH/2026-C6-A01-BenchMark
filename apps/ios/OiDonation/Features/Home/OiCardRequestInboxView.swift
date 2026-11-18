@@ -87,7 +87,7 @@ struct OiCardRequestInboxView: View {
 
     private var showsEmptyState: Bool {
         didAttemptLoad && !isLoading && requests.isEmpty && pendingRequestID == nil
-            && loadError == nil && actionError == nil && onRetryDecision == nil
+            && actionError == nil && onRetryDecision == nil
     }
 
     private func inboxScrollView(minimumHeight: CGFloat) -> some View {
@@ -108,9 +108,6 @@ struct OiCardRequestInboxView: View {
                 }
                 if let pendingRequestID, !requests.contains(where: { $0.id == pendingRequestID }) {
                     ProgressView().accessibilityLabel("요청을 처리하는 중이에요")
-                }
-                if let loadError {
-                    loadFailure(loadError)
                 }
                 if requests.isEmpty && pendingRequestID == nil {
                     if isLoading || (!didAttemptLoad && loadError == nil) {
@@ -182,21 +179,6 @@ struct OiCardRequestInboxView: View {
                 .disabled(pendingRequestID != nil)
                 .accessibilityLabel("카드 요청 닫기")
             }
-    }
-
-    private func loadFailure(_ message: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label("카드 요청을 불러오지 못했어요", systemImage: "exclamationmark.circle")
-                .font(.headline)
-            Text(message).font(.footnote)
-            Button("다시 시도") { Task { await onReload() } }
-                .buttonStyle(.bordered)
-                .disabled(isLoading)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
-        .accessibilityIdentifier("oi.cardRequests.loadError")
     }
 
     private func requestRow(_ request: OiCardRequestInboxItem) -> some View {

@@ -48,8 +48,8 @@ struct MYWorkshopContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if tab == .collected, remote?.account != nil, !demo.cards.isEmpty { sortChoices.padding(.bottom, 7) }
-            if let remote, remote.loadError != nil || remote.syncWarning != nil || remote.needsReauthentication {
-                OiConnectionStatus(remote: remote, showsInitialProgress: false)
+            if let remote, remote.syncWarning != nil || remote.needsReauthentication {
+                OiConnectionStatus(remote: remote, showsInitialProgress: false, showsReadFailures: false)
                     .padding(.bottom, 16)
             }
             if remote?.account == nil || remote?.needsReauthentication == true {
@@ -60,12 +60,10 @@ struct MYWorkshopContent: View {
                         Button(action: onExploreMap) { emptyActionLabel("다른 오이 구경하기 →") }
                     })
                 })
-            } else if let remote, !remote.hasLoadedRemote {
-                if remote.loadError == nil || remote.isRefreshing {
-                    ProgressView().frame(maxWidth: .infinity).padding(.vertical, 40)
-                        .accessibilityLabel("MY 목록을 불러오는 중")
-                        .accessibilityIdentifier("my.v4.loading")
-                }
+            } else if let remote, !remote.hasLoadedRemote, remote.loadError == nil || remote.isRefreshing {
+                ProgressView().frame(maxWidth: .infinity).padding(.vertical, 40)
+                    .accessibilityLabel("MY 목록을 불러오는 중")
+                    .accessibilityIdentifier("my.v4.loading")
             } else if tab == .authored {
                 authoredContent
             } else {
@@ -129,12 +127,10 @@ struct MYWorkshopContent: View {
 
     @ViewBuilder private var authoredContent: some View {
         if authoredStories.isEmpty {
-            if remote?.loadError == nil && remote?.needsReauthentication != true {
-                emptyState(for: .authored) {
-                    if let remote {
-                        NavigationLink { OiStoryListScreen(remote: remote) } label: {
-                            emptyActionLabel("오이 만들기 →")
-                        }
+            emptyState(for: .authored) {
+                if let remote {
+                    NavigationLink { OiStoryListScreen(remote: remote) } label: {
+                        emptyActionLabel("오이 만들기 →")
                     }
                 }
             }
@@ -155,14 +151,12 @@ struct MYWorkshopContent: View {
             Text(error).font(.caption).foregroundStyle(.secondary).padding(.bottom, 12)
         }
         if cards.isEmpty {
-            if remote?.loadError == nil && remote?.needsReauthentication != true {
-                if demo.pinnedOnly, !demo.cards.isEmpty {
-                    ContentUnavailableView("고정한 카드가 없어요", systemImage: "pin",
-                        description: Text("카드 확대 화면에서 카드를 고정할 수 있어요."))
-                } else if demo.clipCollection.persistenceError == nil {
-                    emptyState(for: .collected) {
-                        Button(action: onExploreMap) { emptyActionLabel("수집하러 가기 →") }
-                    }
+            if demo.pinnedOnly, !demo.cards.isEmpty {
+                ContentUnavailableView("고정한 카드가 없어요", systemImage: "pin",
+                    description: Text("카드 확대 화면에서 카드를 고정할 수 있어요."))
+            } else if demo.clipCollection.persistenceError == nil {
+                emptyState(for: .collected) {
+                    Button(action: onExploreMap) { emptyActionLabel("수집하러 가기 →") }
                 }
             }
         } else {
