@@ -353,12 +353,15 @@ struct MYWorkshopCardArtwork: View {
                     .allowsHitTesting(false)
                 Group {
                     if let path = card.cucumberPortraitPath {
-                        OiCucumberPortraitImage(path: path) { path in
+                        OiCucumberPortraitImage(path: path, requiresTransparentBackground: true) { path in
                             guard let remote else { throw OiServiceError.unavailable }
                             return try await remote.cucumberImage(path)
                         }
                     } else {
-                        Image(card.image).resizable().scaledToFit()
+                        OiCucumberPortraitImage(path: "asset/\(card.image)", requiresTransparentBackground: true) { _ in
+                            guard let image = UIImage(named: card.image) else { throw OiCharacterPortraitCutout.Failure.unreadable }
+                            return image
+                        }
                     }
                 }
                 .frame(width: 43 * scale, height: 85 * scale)
