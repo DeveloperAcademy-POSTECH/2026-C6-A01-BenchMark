@@ -3818,6 +3818,92 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         return changed
     }
 
+    func testSettingsSwitchNativeInteractionAndPalette() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let usage = OiFeatureUsage(defaults: fixture.defaults)
+        let binding = Binding(get: { usage.isEnabled(.camera) },
+                              set: { usage.setEnabled($0, for: .camera) })
+        let size = CGSize(width: 160, height: 80)
+        let variant = Variant(name: "160x80", size: size, dynamicTypeSize: .large)
+        func trackPixel(_ data: Data, isOn: Bool) throws -> [UInt8] {
+            let bitmap = try renderedBitmap(data, size: size)
+            let bytes = try XCTUnwrap(bitmap.data).bindMemory(to: UInt8.self, capacity: 160 * 80 * 4)
+            let offset = (40 * 160 + (isOn ? 56 : 104)) * 4
+            let pixel = Array(UnsafeBufferPointer(start: bytes + offset, count: 4))
+            XCTAssertNotEqual(Array(pixel.prefix(3)), [255, 255, 255], "The sample must contain the visible switch track")
+            return pixel
+        }
+        for enabled in [false, true] {
+            usage.setEnabled(enabled, for: .camera)
+            let previousIndicator = Capsule().fill(enabled ? CampusStyle.green : Color(uiColor: .tertiaryLabel))
+                .overlay(alignment: enabled ? .trailing : .leading) {
+                    Capsule().fill(.white).frame(width: 38, height: 24).padding(.horizontal, 2)
+                }
+                .frame(width: 64, height: 28)
+                .frame(maxWidth: .infinity, maxHeight: .infinity).background(.white)
+            let previousPNG = try await capture(previousIndicator, name: "settings-previous-\(enabled ? "on" : "off")",
+                                                variant: variant, defaults: fixture.defaults, includesSafeArea: false,
+                                                attach: true, validateRender: { data, _ in _ = try trackPixel(data, isOn: enabled) })
+            let expectedPixel = try trackPixel(previousPNG, isOn: enabled)
+            let switchView = MYSettingsSwitch(isOn: binding)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(.white)
+            try await capture(switchView, name: "settings-switch-\(enabled ? "on" : "off")",
+                              variant: variant, defaults: fixture.defaults, includesSafeArea: false, attach: true,
+                              validateRender: { data, _ in
+                let actualPixel = try trackPixel(data, isOn: enabled)
+                for (actual, expected) in zip(actualPixel, expectedPixel) {
+                    XCTAssertEqual(Int(actual), Int(expected), accuracy: 1, "Native track must retain the existing rendered color")
+                }
+            }, prepareView: { view in
+                @MainActor func switches(_ view: UIView) -> [UISwitch] {
+                    (view as? UISwitch).map { [$0] } ?? view.subviews.flatMap(switches)
+                }
+                let control = try XCTUnwrap(switches(view).first)
+                XCTAssertEqual(switches(view).count, 1)
+                XCTAssertEqual(control.isOn, enabled)
+                XCTAssertEqual(control.onTintColor, UIColor(CampusStyle.green))
+                XCTAssertEqual(control.tintColor, .tertiaryLabel)
+                XCTAssertEqual(control.thumbTintColor, .white)
+                for value in [!enabled, enabled, !enabled, enabled] {
+                    control.setOn(value, animated: false)
+                    control.sendActions(for: .valueChanged)
+                    XCTAssertEqual(usage.isEnabled(.camera), value, "Native events must update the stored choice immediately")
+                    XCTAssertEqual(control.isOn, value)
+                }
+                XCTAssertEqual(OiFeatureUsage(defaults: fixture.defaults).isEnabled(.camera), enabled)
+            })
+        }
+        var permissionRequests = 0
+        let denied = MYSettingsSwitch(isOn: Binding(get: { false }, set: { if $0 { permissionRequests += 1 } }))
+            .frame(maxWidth: .infinity, maxHeight: .infinity).background(.white)
+        try await capture(denied, name: "settings-switch-permission-required",
+                          variant: variant, defaults: fixture.defaults, includesSafeArea: false,
+                          validateRender: { data, _ in _ = try trackPixel(data, isOn: false) }, prepareView: { view in
+            @MainActor func findSwitch(_ view: UIView) -> UISwitch? {
+                (view as? UISwitch) ?? view.subviews.lazy.compactMap(findSwitch).first
+            }
+            let control = try XCTUnwrap(findSwitch(view))
+            control.setOn(true, animated: false)
+            control.sendActions(for: .valueChanged)
+            XCTAssertEqual(permissionRequests, 1)
+            XCTAssertFalse(control.isOn, "An ungranted permission must not appear enabled")
+            try await Task.sleep(for: .milliseconds(400))
+        })
+    }
+
+    func testSettingsSwitchLayoutCaptures() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        for variant in variants {
+            try await capture(NavigationStack {
+                MYSettingsView(demo: MYLibraryStore(), remote: nil).environment(\.scenePhase, .active)
+            }, name: "settings-native-switches", variant: variant, defaults: fixture.defaults,
+                delay: .milliseconds(450), attach: true)
+        }
+    }
+
     func testMYSettingsCapturesWithOfflineAccounts() async throws {
         let fixture = try isolatedDefaults()
         let previousHandler = OiStoreURLProtocol.handle
@@ -4329,7 +4415,8 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                                  includesRealityKit: Bool = false, waitsForStillMap: Bool = false,
                                  sheetDetent: UISheetPresentationController.Detent.Identifier? = nil,
                                  validateRender: ((Data, CGSize) throws -> Void)? = nil,
-                                 prepareRealityCapture: ((UIView) async throws -> RealityKit.ARView?)? = nil) async throws -> Data {
+                                 prepareRealityCapture: ((UIView) async throws -> RealityKit.ARView?)? = nil,
+                                 prepareView: ((UIView) async throws -> Void)? = nil) async throws -> Data {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first, "The isolated simulator test host must have a window scene")
@@ -4375,6 +4462,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         host.view.setNeedsLayout()
         try await Task.sleep(for: delay)
         host.view.layoutIfNeeded()
+        try await prepareView?(host.view)
         if checksBottomSheet {
             let presented = try XCTUnwrap(root.presentedViewController ?? host.presentedViewController)
             let sheet = try XCTUnwrap(presented.presentationController)
