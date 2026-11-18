@@ -1,0 +1,38 @@
+{
+  "fileKey": "nEDJaJBFrdzBCa1WcgADHH",
+  "referenceSize": {"width": 402, "height": 874},
+  "systemRegions": {"statusBar": [0, 0, 402, 62], "homeIndicator": [129, 840, 144, 34]},
+  "list": {
+    "node": "5400:7644", "background": "#FFFFFF",
+    "cardFrames": [[20,129,362,110],[20,282,362,110],[20,435,362,110],[20,588,362,112]],
+    "reviewTopGap": 6, "reviewHeight": 23, "slotGap": 14,
+    "balanceFrame": [254,70,128,42], "balanceExample": "3pc",
+    "rulesFrame": [142,753,118,22]
+  },
+  "selection": {
+    "node": "6101:9370", "background": "#E7EECC",
+    "cardFrames": [[20,129,362,110],[20,276,362,110],[20,423,362,110]],
+    "reviewTopGap": 4, "hiddenReviewHeight": 23, "slotGap": 10,
+    "selectedOutline": {"color":"#849644","width":2},
+    "hidden": ["close", "balance", "reviewLabels", "reviewButtons", "emptySlot"],
+    "cancelFrame": [147,755,108,16]
+  },
+  "plantButton": {
+    "frame": [20,788,362,50], "radius":30, "background":"#FFF9DF",
+    "foreground":"#A38C21", "shadow":{"figmaBlur":8,"opacity":0.6,"offset":[0,0]},
+    "title":{"text":"농장에 오이 심기","font":"Paperlogy-6SemiBold","size":18,"lineHeight":30,"frame":[97,798,119,30]},
+    "titlePriceGap":20,
+    "coin":{"frame":[236,798,30,30],"sha1":"1deda3b33e6ca9e4b0671c912377a6b9f1f46856","asset":"MYProfileCoin"},
+    "coinPriceGap":4,
+    "price":{"text":"$ 30","font":"Paperlogy-4Regular","size":16,"lineHeight":30,"frame":[270,798,35,30]}
+  },
+  "card": {
+    "radius":28,"textOrigin":[18.5,19],"name":{"font":"YANGJIN","size":22,"lineHeight":20,"tracking":0.44},
+    "nameMetadataGap":8,"metadataHeight":14,"metadataTitleGap":12,
+    "tags":{"font":"Paperlogy-4Regular","size":12,"lineHeight":10,"tracking":0.24,"hashGap":1,"tagGap":4},
+    "donor":{"font":"Paperlogy-4Regular","size":12,"lineHeight":14,"tracking":0.24},
+    "title":{"font":"Paperlogy-3Light","size":18,"lineHeight":18},
+    "portraitFrame":[281.5,12,66,86],"portraitImageFrame":[289.5,16,50,78],"portraitRadius":16,
+    "fixtureImageSHA1":["cbd42410597ae0ecda8afac8b46200fba847ca54","e3b07c9977726705a6cfae12bfe05ea81b4e9350"]
+  }
+}

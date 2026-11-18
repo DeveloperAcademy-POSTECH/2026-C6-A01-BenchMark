@@ -58,7 +58,7 @@ Needs confirmation:
 - Edge: `publish-showcase-story` v1 `ACTIVE`, `verify_jwt=true`; Apple 공식 검증 라이브러리·신뢰 루트와 기존 세션·소유권·작성 중지·첨부 검사를 유지한다.
 - `testflight_showcase_enabled=true` 확인. `auto_moderation_enabled=true`는 일반 빌드/선택 검토 경로를 위해 유지한다.
 - 공개 RPC 실행 권한: service_role=true, authenticated=false, anon=false. 코인 wrapper의 추가 PT426 제거와 무제한 계정3개 보존 확인.
-- TF 일반 사용자도 최초 공개30코인, 재심기0코인, 지정 무제한 계정0코인. 잔액 부족은402로 전달한다. 버튼은 `농장에 오이 심기 · 30코인`, 일반 계정은 TF에서도 비용 확인 후 진행한다.
+- TF 일반 사용자도 최초 공개30코인, 재심기0코인, 지정 무제한 계정0코인. 잔액 부족은402로 전달한다. 버튼은 Figma 원본의 제목 + 코인 이미지 + `$ 30` 구조이며, 일반 계정은 TF에서도 비용 확인 후 진행한다.
 - iOS 선택6개, Node21개, 전체 SQL harness 통과. 실제 운영 base를 fixture로 재현해 일반/무제한 TF 공개·최초 차감·재게시 무료·운영자 기존 공개 권한을 확인했다.
 
 Needs confirmation:
