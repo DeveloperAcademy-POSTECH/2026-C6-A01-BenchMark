@@ -140,7 +140,19 @@ def check_continuation_transaction_mode(connection, migration):
     catalog_sql = f"""select jsonb_build_object(
       'rpc',(select to_jsonb(p)-'provolatile' from pg_proc p where oid='{signature}'::regprocedure),
       'actor',(select to_jsonb(p) from pg_proc p where oid='benchmark_private.oi_actor()'::regprocedure));"""
-    before = query(catalog_sql)
+
+    def changed_columns(expected, actual):
+        return {name: {column: {'before': str(expected[name].get(column))[:600],
+                                'after': str(actual[name].get(column))[:600]}
+                       for column in expected[name].keys() | actual[name].keys()
+                       if expected[name].get(column) != actual[name].get(column)}
+                for name in expected if expected[name] != actual[name]}
+
+    def assert_catalog(expected, message):
+        actual = json.loads(query(catalog_sql))
+        assert actual == expected, f'{message}: {json.dumps(changed_columns(expected, actual), sort_keys=True)}'
+
+    initial_catalog = json.loads(query(catalog_sql))
     original = query(f"select pg_get_functiondef('{signature}'::regprocedure);")
     assert query(f"select provolatile from pg_proc where oid='{signature}'::regprocedure;") == 's'
     run(connection, input=f"""insert into auth.users(id) values('{owner}');
@@ -159,16 +171,28 @@ def check_continuation_transaction_mode(connection, migration):
         # Unknown function edits must not be relabeled as a reviewed POST endpoint.
         edited = original.replace('AS $function$', 'AS $function$\n-- unknown inbox drift\n', 1)
         run(connection, input=edited, text=True)
-        drift_before = query(catalog_sql)
+        drift_before = json.loads(query(catalog_sql))
         rejected = subprocess.run(connection + ['-f', str(migration)], capture_output=True, text=True, timeout=20)
         assert rejected.returncode != 0 and 'Continuation transaction mode drift' in rejected.stderr, rejected.stderr
-        assert query(catalog_sql) == drift_before
+        assert_catalog(drift_before, 'Rejected migration changed function catalog')
         assert query(f"select provolatile from pg_proc where oid='{signature}'::regprocedure;") == 's'
         run(connection, input=original, text=True)
 
+        # CREATE OR REPLACE is test setup, not part of the ALTER under test.
+        # pg_get_functiondef reformats default expressions; PostgreSQL versions
+        # can retain different parse-location metadata in proargdefaults after
+        # that round-trip. Compare every catalog column from the actual input
+        # immediately before this migration, without excluding those columns.
+        assert query(f"select pg_get_functiondef('{signature}'::regprocedure);") == original
+        before = json.loads(query(catalog_sql))
+        assert before['actor'] == initial_catalog['actor'], 'Drift fixture changed the locking function'
+        setup_changes = changed_columns(initial_catalog, before)
+        if setup_changes:
+            print('INFO: pg_get_functiondef setup round-trip catalog changes: '
+                  + json.dumps(setup_changes, sort_keys=True))
         run(connection + ['-f', str(migration)])
         assert query(f"select provolatile from pg_proc where oid='{signature}'::regprocedure;") == 'v'
-        assert query(catalog_sql) == before, 'Transaction mode migration changed body, signature, locks, grants or other attributes'
+        assert_catalog(before, 'Transaction mode migration changed body, signature, locks, grants or other attributes')
         inbox = request()
         assert inbox.returncode == 0 and inbox.stdout.strip() == '0', inbox
         public = request(role='anon', mine=False)
@@ -185,7 +209,7 @@ def check_continuation_transaction_mode(connection, migration):
         stale = request()
         assert stale.returncode != 0 and 'PT401' in stale.stderr, stale
         run(connection + ['-f', str(migration)])
-        assert query(catalog_sql) == before, 'Repeated migration changed unrelated function properties'
+        assert_catalog(before, 'Repeated migration changed unrelated function properties')
     finally:
         run(connection, input=f"""delete from public.oi_stories where id='{parent}';
           delete from benchmark_private.oi_account_deletions where account_id='{owner}';
