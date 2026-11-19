@@ -24,10 +24,10 @@ final class OiStoreURLProtocol: URLProtocol {
     override func startLoading() { Self.handle?(request, self) }
     override func stopLoading() { lock.lock(); stopped = true; lock.unlock() }
     func timeOut() { client?.urlProtocol(self, didFailWithError: URLError(.timedOut)) }
-    func respond(_ status: Int, _ data: Data) {
+    func respond(_ status: Int, _ data: Data, headers: [String: String]? = nil) {
         lock.lock(); let canceled = stopped; lock.unlock()
         guard !canceled, let url = request.url,
-              let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil) else { return }
+              let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers) else { return }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
@@ -147,6 +147,8 @@ final class OiTestBackend {
         var grantOwnerQueries: [String] = []
         var retiredEvidenceRequests: [String] = []
         var catalogReads = 0
+        var profileReadFilters: [String?] = []
+        var mediaReadFilters: [String?] = []
         var boundedMetricsStatus = 200
         var boundedMetricsIDs: [[String]] = []
         var legacyMetricsReads = 0
@@ -577,6 +579,10 @@ final class OiTestBackend {
         else if path.hasSuffix("/oi_regions") { result = [["id":"pond","school_id":"postech","name":"Pond"]] }
         else if path.hasSuffix("/oi_assets") { result = [["id":"OiCats","kind":"cucumber","name":"Cats"]] }
         else if path.hasSuffix("/oi_profiles") {
+            if request.httpMethod == "GET" {
+                state.profileReadFilters.append(request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?
+                    .queryItems?.first(where: { $0.name == "id" })?.value)
+            }
             if request.httpMethod == "PATCH" {
                 state.profilePatchBodies.append(body)
                 if let farm = body["farm_name"] as? String {
@@ -596,6 +602,8 @@ final class OiTestBackend {
                 "farm_name":owner == Self.owner ? state.farmName as Any? ?? NSNull() : state.otherFarmName,
                 "public_name":state.publicName, "department":state.department, "admission_year":state.admissionYear]]
         } else if path.hasSuffix("/oi_story_media") {
+            state.mediaReadFilters.append(request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?
+                .queryItems?.first(where: { $0.name == "story_id" })?.value)
             result = state.paths.enumerated().map { position, path in
                 ["id":UUID().uuidString,"story_id":state.story?["id"] ?? "","object_path":path,"position":position]
             }
@@ -791,6 +799,65 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(backend.snapshot().catalogReads, firstCatalogReads + 1)
         XCTAssertTrue(store.schools.contains { $0.id == "other" })
         XCTAssertGreaterThan(store.revision, firstRevision)
+    }
+
+    @MainActor func testRefreshBoundsRelatedProfilesAndMediaWithoutChangingOperatorScope() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        XCTAssertNil(store.loadError)
+        XCTAssertEqual(backend.snapshot().profileReadFilters.compactMap { $0 }.last,
+                       "in.(\(OiTestBackend.owner.uuidString.lowercased()))")
+        XCTAssertTrue(backend.snapshot().mediaReadFilters.isEmpty, "No stories means no media listing")
+        let receipt = await store.save(draft())
+        let saved = try XCTUnwrap(receipt)
+        XCTAssertNil(store.loadError)
+        XCTAssertTrue(backend.snapshot().mediaReadFilters.compactMap { $0 }.contains("in.(\(saved.id.uuidString.lowercased()))"))
+        backend.configure { $0.isOperator = true }
+        await store.refresh()
+        XCTAssertNil(store.loadError)
+        XCTAssertTrue(store.isOperator)
+        XCTAssertNil(backend.snapshot().profileReadFilters.last.flatMap { $0 }, "Operator audit still needs the complete permitted profile directory")
+    }
+
+    @MainActor func testStoryPhotoReusesValidatedDiskBytesWithoutChangingPixels() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { clean(session, directory: directory) }
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = false
+        let original = UIGraphicsImageRenderer(size: CGSize(width: 128, height: 96), format: format).image { context in
+            UIColor(red: 0.75, green: 0.25, blue: 0.5, alpha: 1).setFill()
+            context.fill(CGRect(x: 16, y: 12, width: 96, height: 72))
+        }
+        let png = try XCTUnwrap(original.pngData())
+        var signs = 0, fullDownloads = 0, validations = 0
+        OiStoreURLProtocol.handle = { request, client in
+            if request.httpMethod == "POST" {
+                signs += 1
+                client.respond(200, Data("{\"signedURL\":\"/object/sign/oi-story-media/photo.png?token=\(signs)\"}".utf8))
+            } else if request.value(forHTTPHeaderField: "If-None-Match") == "\"photo-original\"" {
+                validations += 1
+                client.respond(304, Data())
+            } else {
+                fullDownloads += 1
+                client.respond(200, png, headers: ["ETag": "\"photo-original\""])
+            }
+        }
+        for _ in 0..<3 {
+            let api = try OiServiceAPI(key: "sb_publishable_testing", session: session, storageCacheDirectory: directory)
+            let remote = OiRemoteStore(api: api, drafts: OiDraftVault(directory: directory.appendingPathComponent("drafts")),
+                                       vault: OiMemorySession(), showcaseTransaction: nil)
+            let image = try await remote.postcardPhotoImage("photo.png")
+            XCTAssertEqual(image.cgImage?.width, original.cgImage?.width)
+            XCTAssertEqual(image.cgImage?.height, original.cgImage?.height)
+            XCTAssertEqual(OiPostcardSnapshot.color(image, x: 0.5, y: 0.5), OiPostcardSnapshot.color(original, x: 0.5, y: 0.5))
+            XCTAssertEqual(OiPostcardSnapshot.color(image, x: 0.01, y: 0.01), OiPostcardSnapshot.color(original, x: 0.01, y: 0.01))
+        }
+        XCTAssertEqual(signs, 3)
+        XCTAssertEqual(fullDownloads, 1)
+        XCTAssertEqual(validations, 2)
     }
 
     @MainActor func testBoundedMetricsOnlyFallbackForMissingRPCAndStopReadingHiddenStories() async throws {

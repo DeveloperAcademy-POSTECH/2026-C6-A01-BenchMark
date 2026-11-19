@@ -9,13 +9,14 @@ import Foundation
 
 final class OiURLProtocol: URLProtocol {
     static var handler: ((URLRequest) throws -> (Int, Data))?
+    static var responseHeaders = ["Content-Type": "application/json"]
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         do {
             guard let url = request.url, let handler = Self.handler else { throw OiServiceError.unavailable }
             let (status, data) = try handler(request)
-            guard let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type":"application/json"]) else { throw OiServiceError.unavailable }
+            guard let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: Self.responseHeaders) else { throw OiServiceError.unavailable }
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: data)
             client?.urlProtocolDidFinishLoading(self)
@@ -190,6 +191,59 @@ struct OiServiceChecks {
         print("PASS: card one-finger move, pinch scale, two-finger orbit, 2→1 lock, touch replacement and background pan")
     }
 
+    static func checkStorageRevalidation(api: OiServiceAPI) async throws {
+        var signs = 0, downloads = 0
+        let original = Data([0x89, 0x50, 0x4e, 0x47, 0, 255])
+        OiURLProtocol.responseHeaders = ["ETag": "\"unchanged\""]
+        defer { OiURLProtocol.responseHeaders = ["Content-Type": "application/json"] }
+        OiURLProtocol.handler = { request in
+            if request.httpMethod == "POST" {
+                signs += 1
+                precondition(request.value(forHTTPHeaderField: "Authorization") == "Bearer storage-test")
+                return (200, Data("{\"signedURL\":\"/object/sign/media/original.png?token=\(signs)\"}".utf8))
+            }
+            downloads += 1
+            if downloads == 1 { return (200, original) }
+            precondition(request.value(forHTTPHeaderField: "If-None-Match") == "\"unchanged\"")
+            return (304, Data())
+        }
+        for _ in 0..<3 {
+            let bytes = try await api.downloadSignedObject(bucket: "media", path: "original.png", token: "storage-test")
+            precondition(bytes == original)
+        }
+        precondition(signs == 3 && downloads == 3, "Every byte reuse must follow fresh server authorization and revalidation")
+        OiURLProtocol.handler = { request in
+            precondition(request.httpMethod == "POST", "Denied signing must not download or return cached artwork")
+            return (401, Data())
+        }
+        do {
+            _ = try await api.downloadSignedObject(bucket: "media", path: "original.png", token: "storage-test")
+            preconditionFailure("Cached bytes must not bypass current authorization")
+        } catch OiServiceError.signInRequired {}
+        print("PASS: Storage reuses exact bytes only after fresh signed-URL authorization and HTTP revalidation")
+    }
+
+    static func checkRelatedRows(api: OiServiceAPI) async throws {
+        var calls = 0
+        OiURLProtocol.handler = { request in
+            calls += 1
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let filter = query.first { $0.name == "id" }?.value ?? ""
+            precondition(filter.hasPrefix("in.(") && filter.hasSuffix(")"))
+            precondition(filter.dropFirst(4).dropLast().split(separator: ",").count <= 100)
+            precondition(request.value(forHTTPHeaderField: "Authorization") == "Bearer bounded-read")
+            return (200, Data("[]".utf8))
+        }
+        let empty = try await api.relatedRows("oi_profiles", column: "id", ids: [], query: "order=id.asc",
+            token: "bounded-read", as: OiProfile.self)
+        precondition(empty.isEmpty && calls == 0)
+        let ids = Set((0..<205).map { _ in UUID() })
+        _ = try await api.relatedRows("oi_profiles", column: "id", ids: ids, query: "order=id.asc",
+            token: "bounded-read", as: OiProfile.self)
+        precondition(calls == 3, "Related rows must use bounded ID batches instead of fetching unrelated profiles")
+        print("PASS: empty related sets make no requests; 205 IDs use three bounded authenticated batches")
+    }
+
     @MainActor static func main() async throws {
         checkCardGestures()
         try checkFieldTrial()
@@ -207,6 +261,8 @@ struct OiServiceChecks {
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel(); OiURLProtocol.handler = nil }
         let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        try await checkStorageRevalidation(api: api)
+        try await checkRelatedRows(api: api)
         try await checkCardRequests(api: api)
         OiURLProtocol.handler = { request in
             precondition(request.url?.scheme == "https" && request.url?.host == OiServiceAPI.projectHost)
