@@ -189,7 +189,7 @@ private struct OiPostcardRemotePhoto: View {
             image = nil; failed = false
             do {
                 guard let remote else { throw OiServiceError.unavailable }
-                let value = try await remote.postcardPhotoImage(path, loadURL: loadURL)
+                let value = try await remote.postcardPhotoImage(path)
                 try Task.checkCancellation()
                 image = value
             } catch { if !Task.isCancelled { failed = true } }

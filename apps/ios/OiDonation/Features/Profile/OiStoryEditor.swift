@@ -1447,27 +1447,38 @@ struct OiStoryMediaImage: View {
     var contentMode: ContentMode = .fit
     var onPhotoLoaded: (() -> Void)? = nil
     let loadURL: (String) async throws -> URL
+    @Environment(OiRemoteStore.self) private var remote: OiRemoteStore?
     @State private var retryCount = 0
     @State private var resolution: Resolution?
 
     private struct Request: Hashable {
         let path: String
         let attempt: Int
+        let privacy: String
     }
 
     private enum Resolution {
         case success(Request, URL)
+        case image(Request, UIImage)
         case failure(Request, String)
     }
 
+    private var currentRequest: Request {
+        Request(path: path, attempt: retryCount, privacy: remote?.continuationPrivacyKey ?? "standalone")
+    }
+
     var body: some View {
-        let request = Request(path: path, attempt: retryCount)
+        let request = currentRequest
         Group {
-            if case .success(let resolved, let url) = resolution, resolved == request {
+            if case .image(let resolved, let image) = resolution, resolved == request {
+                Image(uiImage: image).resizable().aspectRatio(contentMode: contentMode)
+                    .accessibilityLabel("이야기에 첨부된 사진")
+                    .onAppear { if currentRequest == request { onPhotoLoaded?() } }
+            } else if case .success(let resolved, let url) = resolution, resolved == request {
                 AsyncImage(url: url) { phase in
                     if let image = phase.image {
                         image.resizable().aspectRatio(contentMode: contentMode).accessibilityLabel("이야기에 첨부된 사진")
-                            .onAppear { if Request(path: path, attempt: retryCount) == request { onPhotoLoaded?() } }
+                            .onAppear { if currentRequest == request { onPhotoLoaded?() } }
                     } else if phase.error != nil { failure("사진을 불러오지 못했어요.") }
                     else { ProgressView().accessibilityLabel("사진 불러오는 중") }
                 }
@@ -1478,9 +1489,15 @@ struct OiStoryMediaImage: View {
         }
         .task(id: request) {
             do {
-                let url = try await loadURL(request.path)
-                try Task.checkCancellation()
-                resolution = .success(request, url)
+                if let remote {
+                    let image = try await remote.postcardPhotoImage(request.path)
+                    try Task.checkCancellation()
+                    resolution = .image(request, image)
+                } else {
+                    let url = try await loadURL(request.path)
+                    try Task.checkCancellation()
+                    resolution = .success(request, url)
+                }
             } catch {
                 guard !Task.isCancelled else { return }
                 resolution = .failure(request, error.localizedDescription)

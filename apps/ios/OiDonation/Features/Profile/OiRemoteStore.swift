@@ -251,6 +251,11 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         do { try vault.write(nil) }
         catch { self.error = "로그아웃 정보를 지우지 못했습니다. 다시 시도해 주세요."; return }
         resetAccountState(); session = nil; account = nil
+        do { try await api?.clearStorageObjects() }
+        catch {
+            localSignOutWarning = "로그아웃했지만 기기에 저장된 이미지 일부를 지우지 못했습니다."
+            syncWarning = localSignOutWarning
+        }
         do {
             if let oldToken, let api { try await api.signOutCurrentSession(token: oldToken) }
         } catch {
@@ -295,6 +300,7 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
 
     private func clearDeletedAccount(_ receipt: OiAccountDeletionReceipt) async throws {
         try vault.write(nil)
+        try await api?.clearStorageObjects()
         try await drafts.purgeAccounts(Set(receipt.deletedMemberIds))
         for owner in receipt.deletedMemberIds {
             UserDefaults.standard.removeObject(forKey: MYFarmerAppearanceStore.key(ownerID: owner))
@@ -730,7 +736,14 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             }
         }
         let published = fetched.filter { $0.status == "published" }
-        let fetchedProfiles = try await api.rows("oi_profiles", query: "order=id.asc", token: accessToken, as: OiProfile.self)
+        let authorIDs = Set(fetched.map(\.userId)).union(resolvedOwner.map { [$0] } ?? [])
+        let fetchedProfiles: [OiProfile]
+        if capabilities?.operator == true {
+            fetchedProfiles = try await api.rows("oi_profiles", query: "order=id.asc", token: accessToken, as: OiProfile.self)
+        } else {
+            fetchedProfiles = try await api.relatedRows("oi_profiles", column: "id", ids: authorIDs,
+                query: "order=id.asc", token: accessToken, as: OiProfile.self).filter { authorIDs.contains($0.id) }
+        }
         var ownProfile = fetchedProfiles.first { $0.id == resolvedOwner }
         if capabilities?.schoolProfileEnabled == true, let resolvedOwner, let accessToken {
             ownProfile = try await api.schoolProfile(owner: resolvedOwner, token: accessToken)
@@ -739,7 +752,10 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         if capabilities?.farmerOutfitEnabled == true, let resolvedOwner, let accessToken {
             fetchedFarmerOutfit = try await api.farmerOutfit(owner: resolvedOwner, token: accessToken)
         }
-        let fetchedMedia = try await api.rows("oi_story_media", query: "order=position.asc,id.asc", token: accessToken, as: OiMedia.self)
+        let storyIDs = Set(fetched.map(\.id))
+        let fetchedMedia = try await api.relatedRows("oi_story_media", column: "story_id", ids: storyIDs,
+            query: "order=position.asc,id.asc", token: accessToken, as: OiMedia.self)
+            .filter { storyIDs.contains($0.storyId) }
         let counts: [UUID: Int]
         var metricsWarning: String?
         let publishedIDs = published.map(\.id)
@@ -1816,11 +1832,12 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         return image
     }
 
-    func postcardPhotoImage(_ path: String, loadURL: @escaping (String) async throws -> URL) async throws -> UIImage {
+    func postcardPhotoImage(_ path: String) async throws -> UIImage {
+        guard let api else { throw OiServiceError.configuration }
         let started = generation
-        let image = try await postcardImages.image("photo/" + path, photo: true) {
-            let url = try await loadURL(path)
-            return try await APIClient(approvedHost: OiServiceAPI.projectHost).send(URLRequest(url: url))
+        let image = try await postcardImages.image("photo/" + path, photo: true) { [self] in
+            let accessToken = account == nil ? nil : try await token()
+            return try await api.downloadSignedObject(bucket: "oi-story-media", path: path, token: accessToken)
         }
         try Task.checkCancellation()
         guard generation == started else { throw OiServiceError.accountChanged }

@@ -264,8 +264,8 @@ struct HomeView: View {
                 for story in listedStories(in: region).prefix(1) {
                     try Task.checkCancellation()
                     if let path = story.cardArtworkPath { _ = try? await remote.postcardImage(path) }
-                    else if let path = story.remoteMediaPaths.first, let resolver = store.mediaURL {
-                        _ = try? await remote.postcardPhotoImage(path, loadURL: resolver)
+                    else if let path = story.remoteMediaPaths.first {
+                        _ = try? await remote.postcardPhotoImage(path)
                     }
                 }
             } catch { }

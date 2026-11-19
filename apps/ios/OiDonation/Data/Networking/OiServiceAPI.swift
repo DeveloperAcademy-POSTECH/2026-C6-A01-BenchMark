@@ -38,8 +38,9 @@ struct OiServiceAPI {
     private let key: String
     private let transport: APIClient
     private let decoder: JSONDecoder
+    private let storageObjects: OiStorageObjectCache
 
-    init(key: String, session: URLSession = .shared) throws {
+    init(key: String, session: URLSession = .shared, storageCacheDirectory: URL? = nil) throws {
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.")
         guard !key.isEmpty, key.rangeOfCharacter(from: allowed.inverted) == nil,
               !key.hasPrefix("sb_secret_"), !key.contains("$(") else { throw OiServiceError.configuration }
@@ -53,6 +54,7 @@ struct OiServiceAPI {
             }
         } else if !key.hasPrefix("sb_publishable_") { throw OiServiceError.configuration }
         self.key = key
+        storageObjects = OiStorageObjectCache(directory: storageCacheDirectory)
         transport = APIClient(session: session, approvedHost: Self.projectHost)
         decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -67,7 +69,9 @@ struct OiServiceAPI {
                 key = try PropertyListDecoder().decode(Configuration.self, from: Data(contentsOf: url)).publishableKey
             }
         }
-        return try Self(key: key)
+        let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("OiStorageObjects-v1", isDirectory: true)
+        return try Self(key: key, storageCacheDirectory: directory)
     }
 
     func request(_ path: String, method: String = "GET", token: String? = nil,
@@ -178,6 +182,23 @@ struct OiServiceAPI {
             if page.count < 200 { return values }
             offset += page.count
         }
+    }
+
+    /// Bound related-row queries and keep URLs below common proxy limits.
+    func relatedRows<Value: Decodable & Identifiable>(_ table: String, column: String, ids: Set<UUID>,
+                                                     query: String, token: String?, as type: Value.Type) async throws -> [Value] {
+        guard !column.isEmpty, column.allSatisfy({ $0.isASCII && ($0.isLetter || $0 == "_") }) else {
+            throw OiServiceError.invalidInput
+        }
+        let ordered = ids.map { $0.uuidString.lowercased() }.sorted()
+        var result: [Value] = []
+        for start in stride(from: 0, to: ordered.count, by: 100) {
+            try Task.checkCancellation()
+            let group = ordered[start..<min(start + 100, ordered.count)].joined(separator: ",")
+            let filter = "\(column)=in.(\(group))" + (query.isEmpty ? "" : "&\(query)")
+            result += try await rows(table, query: filter, token: token, as: type)
+        }
+        return result
     }
 
     /// Use the public role even when an owner/operator session exists.
@@ -464,8 +485,12 @@ struct OiServiceAPI {
     }
 
     func downloadSignedObject(bucket: String, path: String, token: String?) async throws -> Data {
+        try Task.checkCancellation()
+        let generation = await storageObjects.generation()
         let url = try await signedURL(bucket: bucket, path: path, token: token)
-        let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
-        return try await transport.send(request)
+        return try await storageObjects.data(url: url, bucket: bucket, path: path, token: token,
+                                             transport: transport, generation: generation)
     }
+
+    func clearStorageObjects() async throws { try await storageObjects.clear() }
 }
