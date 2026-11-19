@@ -818,6 +818,157 @@ final class CampusMapInteractionTests: XCTestCase {
         XCTAssertEqual(reopened.region?.id, library.id, "Save the confirmed pin's region instead of the default region")
     }
 
+    func testStepTwoLocationStartsWithOiAndUsesMapDragAndTwoFingerTransform() async throws {
+        let data = try CampusMapData.load()
+        let point = try XCTUnwrap(data.graph.sorted { $0.key < $1.key }
+            .map { data.world($0.value.p) }.first { point in
+                [-1, 0, 1].allSatisfy { x in
+                    [-1, 0, 1].allSatisfy { z in data.placementError(at: point + SIMD3(Float(x), 0, Float(z))) == nil }
+                }
+            })
+        let coordinate = data.coordinate(point)
+        let buildingPOI = try XCTUnwrap(data.pois.first { data.placementError(at: data.world($0.p)) != nil })
+        let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        for save in [false, true] {
+            var latitude: Double? = coordinate.latitude, longitude: Double? = coordinate.longitude
+            var height: Double? = 1.2, heading: Double? = 25
+            var region = "student", finished = false
+            var actions: OiLocationPicker.TestActions?
+            let picker = OiLocationPicker(latitude: .init(get: { latitude }, set: { latitude = $0 }),
+                longitude: .init(get: { longitude }, set: { longitude = $0 }),
+                regionID: .init(get: { region }, set: { region = $0 }),
+                heightMeters: .init(get: { height }, set: { height = $0 }),
+                headingDegrees: .init(get: { heading }, set: { heading = $0 }), focusPlaceID: save ? buildingPOI.id : "",
+                onFinish: { finished = true }, onActionsForTest: { actions = $0 })
+                .environment(\.scenePhase, .active)
+            let host = UIHostingController(rootView: picker)
+            let window = UIWindow(windowScene: windowScene)
+            window.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            window.rootViewController = host; window.makeKeyAndVisible()
+            defer {
+                actions?.scene.endPlacement(); actions?.scene.suspendRendering()
+                window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+            }
+            for _ in 0..<200 {
+                if actions?.scene.placementPreview != nil { break }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            let controls = try XCTUnwrap(actions)
+            let scene = controls.scene
+            let original = try XCTUnwrap(scene.placementPreview, scene.placementError ?? "Preview did not load")
+            XCTAssertNil(scene.centerLocationError, "A building POI starts at its nearest valid outdoor path")
+            func canvas(in view: UIView) -> CampusMapCanvas? {
+                (view as? CampusMapCanvas) ?? view.subviews.lazy.compactMap { canvas(in: $0) }.first
+            }
+            let surface = try XCTUnwrap(canvas(in: host.view))
+            let map = try XCTUnwrap(surface.map)
+            let modelName = "placement:" + original.id.uuidString
+            let model = try XCTUnwrap(map.scene.findEntity(named: modelName))
+            XCTAssertNotNil(model.findEntity(named: "SeedCucumberMaster"), "STEP 2 must show the same bare base model as STEP 3")
+            XCTAssertTrue(scene.selectingCenterLocation)
+            let camera = try XCTUnwrap(map.scene.anchors.flatMap { Array($0.children) }.compactMap { $0 as? PerspectiveCamera }.first)
+            let cameraStart = camera.transform
+            let originalHeight = model.visualBounds(relativeTo: nil).extents.y
+            scene.updatePlacementPreviewTouches([0: CGPoint(x: 80, y: 150)])
+            scene.updatePlacementPreviewTouches([0: CGPoint(x: 90, y: 145)])
+            let moved = try XCTUnwrap(scene.placementPreview)
+            XCTAssertGreaterThan(simd_distance(data.world(latitude: moved.latitude, longitude: moved.longitude),
+                                             data.world(latitude: original.latitude, longitude: original.longitude)), 0.001)
+            XCTAssertEqual(moved.heightMeters, 1.2)
+            XCTAssertEqual(moved.headingDegrees, 25)
+            XCTAssertNotEqual(camera.transform, cameraStart, "A one-finger drag moves the map below the Oi")
+            scene.updatePlacementPreviewTouches([:])
+            let transformedCamera = camera.transform
+            let oiCenter = try XCTUnwrap(map.project(model.visualBounds(relativeTo: nil).center))
+            func oiTouches(halfWidth: CGFloat, shift: CGFloat = 0) -> [Int: CGPoint] {
+                [0: CGPoint(x: oiCenter.x - halfWidth + shift, y: oiCenter.y),
+                 1: CGPoint(x: oiCenter.x + halfWidth + shift, y: oiCenter.y)]
+            }
+            scene.updatePlacementPreviewTouches(oiTouches(halfWidth: 50))
+            let shift = surface.bounds.width / 2
+            scene.updatePlacementPreviewTouches(oiTouches(halfWidth: 50, shift: shift))
+            XCTAssertEqual(try XCTUnwrap(scene.placementPreview?.headingDegrees), 205, accuracy: 0.001)
+            scene.updatePlacementPreviewTouches(oiTouches(halfWidth: 62.5, shift: shift))
+            let adjusted = try XCTUnwrap(scene.placementPreview)
+            XCTAssertEqual(adjusted.heightMeters, 1.5, accuracy: 0.001)
+            XCTAssertEqual(adjusted.headingDegrees, 205, accuracy: 0.001)
+            XCTAssertEqual(adjusted.latitude, moved.latitude)
+            XCTAssertEqual(adjusted.longitude, moved.longitude)
+            XCTAssertEqual(model.visualBounds(relativeTo: nil).extents.y, originalHeight * 1.25, accuracy: 0.001)
+            scene.updatePlacementPreviewTouches([0: CGPoint(x: 162.5, y: 200)])
+            scene.updatePlacementPreviewTouches([0: CGPoint(x: 200, y: 200)])
+            XCTAssertEqual(scene.placementPreview, adjusted, "Lifting a pinch finger must not start a map drag")
+            scene.updatePlacementPreviewTouches([:])
+            scene.adjustLocationAppearance(scale: .nan)
+            XCTAssertEqual(scene.placementPreview, adjusted)
+            scene.adjustLocationAppearance(scale: 100)
+            XCTAssertEqual(scene.placementPreview?.heightMeters, 2)
+            scene.adjustLocationAppearance(scale: 0.001)
+            XCTAssertEqual(scene.placementPreview?.heightMeters, 0.4)
+            scene.adjustLocationAppearance(scale: 3.75, headingDelta: 3600)
+            XCTAssertEqual(scene.placementPreview?.heightMeters, 1.5)
+            XCTAssertEqual(scene.placementPreview?.headingDegrees, 205)
+            XCTAssertEqual(camera.transform, transformedCamera, "Two fingers edit the Oi without moving the map")
+            let anchor = data.world(latitude: adjusted.latitude, longitude: adjusted.longitude)
+            let radiusBeforeZoom = simd_distance(camera.position(relativeTo: nil), anchor)
+            // Both fingers and their midpoint start away from the Oi.
+            scene.updatePlacementPreviewTouches([0: CGPoint(x: 30, y: 60), 1: CGPoint(x: 130, y: 60)])
+            scene.updatePlacementPreviewTouches([0: CGPoint(x: 55, y: 60), 1: CGPoint(x: 105, y: 60)])
+            XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), anchor), radiusBeforeZoom * 2, accuracy: 0.001)
+            XCTAssertEqual(scene.placementPreview?.heightMeters, adjusted.heightMeters)
+            XCTAssertEqual(scene.placementPreview?.headingDegrees, adjusted.headingDegrees)
+            XCTAssertEqual(try XCTUnwrap(scene.placementPreview?.latitude), adjusted.latitude, accuracy: 0.000001)
+            XCTAssertEqual(try XCTUnwrap(scene.placementPreview?.longitude), adjusted.longitude, accuracy: 0.000001)
+            // Moving over the character must not switch a map pinch into Oi editing.
+            scene.updatePlacementPreviewTouches(oiTouches(halfWidth: 25))
+            scene.updatePlacementPreviewTouches(oiTouches(halfWidth: 50))
+            XCTAssertEqual(simd_distance(camera.position(relativeTo: nil), anchor), radiusBeforeZoom, accuracy: 0.001)
+            XCTAssertEqual(scene.placementPreview?.heightMeters, adjusted.heightMeters)
+            XCTAssertEqual(scene.placementPreview?.headingDegrees, adjusted.headingDegrees)
+            scene.updatePlacementPreviewTouches([0: CGPoint(x: 55, y: 60)])
+            let zoomedCamera = camera.transform
+            scene.updatePlacementPreviewTouches([0: CGPoint(x: 95, y: 60)])
+            XCTAssertEqual(camera.transform, zoomedCamera, "Lifting a map pinch finger must not pan the map")
+            scene.updatePlacementPreviewTouches([:])
+            XCTAssertEqual(height, 1.2, "Edits stay staged until the final confirmation")
+            XCTAssertEqual(heading, 25)
+            scene.suspendRendering(); scene.setVisible(true)
+            let restored = try XCTUnwrap(surface.map?.scene.findEntity(named: modelName))
+            XCTAssertEqual(restored.scale, model.scale)
+            XCTAssertEqual(restored.orientation, model.orientation)
+            // Metal content needs an ARView snapshot before UIKit can capture the full editor.
+            surface.scheduleStillFrame(after: .milliseconds(150))
+            for _ in 0..<100 where surface.map?.superview != nil { try await Task.sleep(for: .milliseconds(50)) }
+            let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            })
+            attachment.name = "step2-location-size-direction"
+            attachment.lifetime = .keepAlways; add(attachment)
+            let building = try XCTUnwrap(data.pois.first { data.placementError(at: data.world($0.p)) != nil })
+            scene.focusPlaceForPlacement(building.id)
+            XCTAssertNil(scene.draftPoint)
+            XCTAssertFalse(restored.isEnabled, "The previous valid Oi must not remain visible on an invalid building position")
+            controls.confirm()
+            XCTAssertFalse(finished, "Invalid map positions cannot commit the preceding valid coordinate")
+            controls.backToSearch()
+            for _ in 0..<60 where scene.placementPreview != nil { try await Task.sleep(for: .milliseconds(50)) }
+            XCTAssertNil(scene.placementPreview)
+            XCTAssertFalse(scene.selectingCenterLocation)
+            XCTAssertTrue(surface.gestureRecognizers?.filter { $0 is UIPanGestureRecognizer }.allSatisfy(\.isEnabled) == true)
+            controls.openMap("")
+            for _ in 0..<60 where scene.placementPreview == nil { try await Task.sleep(for: .milliseconds(50)) }
+            XCTAssertEqual(scene.placementPreview?.heightMeters, 1.5, "A newly selected place immediately restores the staged size")
+            let selected = try XCTUnwrap(scene.confirmCenterLocation())
+            if save { controls.confirm() } else { controls.cancel() }
+            XCTAssertTrue(finished)
+            XCTAssertEqual(height, save ? 1.5 : 1.2)
+            XCTAssertEqual(heading, save ? 205 : 25)
+            XCTAssertEqual(try XCTUnwrap(latitude), save ? selected.latitude : coordinate.latitude, accuracy: 0.000001)
+            XCTAssertEqual(try XCTUnwrap(longitude), save ? selected.longitude : coordinate.longitude, accuracy: 0.000001)
+            XCTAssertEqual(region, save ? selected.region?.id ?? "student" : "student")
+        }
+    }
+
     func testPlacementPreviewGesturesChangeOiWithoutMovingCamera() async throws {
         let windowScene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: windowScene)

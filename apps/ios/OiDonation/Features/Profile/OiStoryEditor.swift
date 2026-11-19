@@ -638,6 +638,7 @@ struct OiStoryEditor: View {
     private var locationPicker: some View {
         OiLocationPicker(latitude: $draft.latitude, longitude: $draft.longitude,
                          regionID: $draft.regionId,
+                         heightMeters: $draft.heightMeters, headingDegrees: $draft.headingDegrees,
                          onFinish: { navigate(to: .story) })
     }
 
