@@ -288,7 +288,7 @@ final class OiTestBackend {
             state.showcaseCount += 1
             let payload = body["submission"] as? [String: Any] ?? [:]
             if state.failShowcase { status = 503 }
-            else if body["app_transaction"] as? String != "signed-testflight-fixture" ||
+            else if body["app_transaction"] != nil ||
                 payload["id"] as? String != state.story?["id"] as? String ||
                 payload["revision"] as? Int != state.story?["revision"] as? Int { status = 409 }
             else {
@@ -3028,8 +3028,7 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTFail("The simulator UI check did not complete its requested navigation route")
     }
 
-    @MainActor private func context(expired: Bool = false, authentication: (any OiAuthenticating)? = nil,
-                                    showcaseTransaction: (() async throws -> String)? = nil) throws -> (OiRemoteStore, OiTestBackend, OiMemorySession, URLSession, URL) {
+    @MainActor private func context(expired: Bool = false, authentication: (any OiAuthenticating)? = nil) throws -> (OiRemoteStore, OiTestBackend, OiMemorySession, URLSession, URL) {
         let backend = OiTestBackend(); backend.install()
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [OiStoreURLProtocol.self]
@@ -3037,7 +3036,7 @@ final class OiRemoteStoreTests: XCTestCase {
         let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
         let vault = OiMemorySession(expired: expired)
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        return (OiRemoteStore(api: api, drafts: OiDraftVault(directory: directory), vault: vault, authentication: authentication, showcaseTransaction: showcaseTransaction),backend,vault,session,directory)
+        return (OiRemoteStore(api: api, drafts: OiDraftVault(directory: directory), vault: vault, authentication: authentication),backend,vault,session,directory)
     }
 
     private func clean(_ session: URLSession, directory: URL) {
@@ -3457,7 +3456,7 @@ final class OiRemoteStoreTests: XCTestCase {
     }
 
     @MainActor func testShowcasePublishesUnreviewedAndRejectedStoriesWithoutAI() async throws {
-        let (store, backend, _, session, directory) = try context(showcaseTransaction: { "signed-testflight-fixture" })
+        let (store, backend, _, session, directory) = try context()
         defer { clean(session, directory: directory) }
         backend.configure { $0.autoStoryModeration = true; $0.rejectModeration = true }
         await store.start()
@@ -3479,7 +3478,7 @@ final class OiRemoteStoreTests: XCTestCase {
     }
 
     @MainActor func testShowcaseFailureKeepsDraftAndLostReceiptRecoversWithoutAI() async throws {
-        let (store, backend, _, session, directory) = try context(showcaseTransaction: { "signed-testflight-fixture" })
+        let (store, backend, _, session, directory) = try context()
         defer { clean(session, directory: directory) }
         await store.start()
         let result = await store.save(draft())
@@ -3495,26 +3494,24 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(backend.snapshot().showcaseCount, 2)
     }
 
-    @MainActor func testRegularBuildCannotPublishThroughShowcase() async throws {
+    @MainActor func testDirectInstallationPublishesWithoutAppTransaction() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { clean(session, directory: directory) }
         await store.start()
         let result = await store.save(draft())
         let saved = try XCTUnwrap(result)
-        XCTAssertFalse(store.allowsShowcasePublication)
         let published = await store.submitStory(saved, publishForShowcase: true)
-        XCTAssertNil(published)
-        XCTAssertEqual(store.ownStories.first?.status, "draft")
-        XCTAssertEqual(backend.snapshot().showcaseCount, 0)
-        XCTAssertNil(OiTestFlightShowcase.transactionProvider)
+        XCTAssertEqual(published?.status, "published")
+        XCTAssertEqual(store.ownStories.first?.status, "published")
+        XCTAssertEqual(backend.snapshot().showcaseCount, 1)
+        XCTAssertEqual(backend.snapshot().moderationCount, 0)
     }
 
-    @MainActor func testPlantPickerOpensWithoutReviewCapabilityAndEmptyTapExplainsNextStep() async throws {
+    @MainActor func testPlantPickerOpensWithModerationDisabledAndEmptyTapExplainsNextStep() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
         await store.start()
         XCTAssertFalse(store.autoStoryModeration)
-        XCTAssertFalse(store.allowsShowcasePublication)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         let windowID = ObjectIdentifier(window)
@@ -3547,10 +3544,8 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(buttons.selectedPlantCard(), first.id)
         buttons.selectPlantCard(second.id)
         XCTAssertEqual(buttons.selectedPlantCard(), second.id)
-        buttons.confirmPlant()
-        XCTAssertNotNil(buttons.plantMessage())
         XCTAssertEqual(backend.snapshot().moderationCount, 0)
-        XCTAssertEqual(backend.snapshot().showcaseCount, 0, "Regular installs retain the server publication boundary")
+        XCTAssertEqual(backend.snapshot().showcaseCount, 0, "Selecting a story must not publish before confirmation")
     }
 
     @MainActor func testShowcasePlantButtonPublishesLocalDraftWithUnchangedReviewLabels() async throws {
@@ -3562,7 +3557,7 @@ final class OiRemoteStoreTests: XCTestCase {
     }
 
     @MainActor private func checkShowcasePlantButton(unlimited: Bool) async throws {
-        let (store, backend, _, session, directory) = try context(showcaseTransaction: { "signed-testflight-fixture" })
+        let (store, backend, _, session, directory) = try context()
         defer { clean(session, directory: directory) }
         backend.configure {
             $0.publicStoryCard = true; $0.duplexStoryCard = true

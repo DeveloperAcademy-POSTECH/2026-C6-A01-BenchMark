@@ -32,7 +32,6 @@ struct OiStoryListScreen: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.revealPlantedStory) private var revealPlantedStory
     @State private var plantSelection: OiStoryPlantSelection?
-    @State private var plantingStoryID: UUID?
     @State private var publicationMessage: String?
     @State private var confirmingCoinPlant = false
     @State private var showingCoinWallet = false
@@ -101,7 +100,7 @@ struct OiStoryListScreen: View {
             onSelectStory: handleStoryTap,
             onCreateStory: beginCreatingStory,
             onDeleteStory: requestDeletion,
-            isDeleting: deletingID != nil || remote.isBusy || reviewWork != nil || plantingStoryID != nil,
+            isDeleting: deletingID != nil || remote.isBusy || reviewWork != nil,
             reviewState: { reviewState(for: $0) },
             onRequestReview: { requestReview($0, offersAIReview: offersAIReview) },
             reviewMessage: reviewMessage,
@@ -165,7 +164,6 @@ struct OiStoryListScreen: View {
             reviewWork = nil
             reviewFailure = nil
             plantSelection = nil
-            plantingStoryID = nil
             publicationMessage = nil
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -537,7 +535,7 @@ struct OiStoryListScreen: View {
     }
 
     private func selectPlantCard(_ id: UUID) {
-        guard plantingStoryID == nil, let selection = plantSelection, selection.selectedID != id,
+        guard reviewWork == nil, !remote.isBusy, let selection = plantSelection, selection.selectedID != id,
               selection.items.contains(where: { $0.id == id }) else { return }
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.3)) {
             plantSelection?.selectedID = id
@@ -545,12 +543,12 @@ struct OiStoryListScreen: View {
     }
 
     private func cancelPlantSelection() {
-        guard plantingStoryID == nil else { return }
+        guard reviewWork == nil, !remote.isBusy else { return }
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.1)) { plantSelection = nil }
     }
 
     private func acceptsPlantAction() -> Bool {
-        guard deletingID == nil, !remote.isBusy, reviewWork == nil, plantingStoryID == nil else {
+        guard deletingID == nil, !remote.isBusy, reviewWork == nil else {
             publicationMessage = "진행 중인 작업을 마친 뒤 다시 눌러 주세요."
             return false
         }
@@ -558,61 +556,16 @@ struct OiStoryListScreen: View {
     }
 
     private func confirmPlant() {
-        guard acceptsPlantAction(), let selection = plantSelection else { return }
-        guard remote.allowsShowcasePublication || (remote.autoStoryModeration && reviewState(for: selection.selectedID) == .approved) else {
-            publicationMessage = "현재 설치에서는 내용 검토를 마친 오이를 심을 수 있어요. 쇼케이스용 TestFlight 앱인지 확인해 주세요."
-            return
-        }
+        guard acceptsPlantAction(), plantSelection != nil else { return }
         if remote.coinsEnabled && remote.pickleWallet?.unlimited != true { confirmingCoinPlant = true }
         else { performConfirmedPlant() }
     }
 
     private func performConfirmedPlant() {
-        if remote.allowsShowcasePublication {
-            guard !remote.isBusy, reviewWork == nil, plantingStoryID == nil, let selection = plantSelection else { return }
-            reviewFailure = nil
-            reviewWork = ReviewWork(storyID: selection.selectedID, authorizesAIReview: false,
-                                    showcaseSelection: selection, stage: .prepare)
-            return
-        }
-        guard remote.autoStoryModeration, !remote.isBusy, plantingStoryID == nil, let selection = plantSelection,
-              reviewState(for: selection.selectedID) == .approved,
-              let story = remote.ownStories.first(where: { $0.id == selection.selectedID }) else { return }
-        plantingStoryID = story.id
-        Task {
-            await plant(story, selection: selection)
-            if plantingStoryID == story.id { plantingStoryID = nil }
-        }
-    }
-
-    private func plant(_ story: OiLiveStory, selection: OiStoryPlantSelection) async {
-        guard let owner = remote.account?.id else { return }
-        do {
-            let current = try await remote.localDraft(id: story.id, owner: owner)
-            guard owner == remote.account?.id else { return }
-            if let current, !(current.draft.revision == story.revision
-                             ? current.matchesReviewedContent
-                             : matchesLegacyReview(current, story: story)) {
-                publicationMessage = "내용이 바뀌었어요. 다시 검토해 주세요."
-                await loadLocalDrafts()
-                return
-            }
-        } catch {
-            publicationMessage = error.localizedDescription
-            return
-        }
-        let published = await remote.plantStory(story)
-        guard owner == remote.account?.id else { return }
-        if published {
-            if let revealPlantedStory {
-                revealPlantedStory(selection)
-            } else {
-                plantSelection = nil
-                publicationMessage = "이야기가 등록됐어요"
-            }
-        } else {
-            publicationMessage = remote.error ?? "현재 이야기를 다시 검토해 주세요."
-        }
+        guard acceptsPlantAction(), let selection = plantSelection else { return }
+        reviewFailure = nil
+        reviewWork = ReviewWork(storyID: selection.selectedID, authorizesAIReview: false,
+                                showcaseSelection: selection, stage: .prepare)
     }
 
     private func reviewMessage(_ id: UUID) -> String? {
