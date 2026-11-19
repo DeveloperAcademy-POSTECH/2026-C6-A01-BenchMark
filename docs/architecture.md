@@ -85,6 +85,8 @@ iOS 26.7.3 Jun iPhone에 최신 develop 기반의 수정본을 Release로 빌드
 
 ### #508 쇼케이스 TF 임시 공개 예외 — 2026-11-18
 
+2026-11-19 #527: 목록의 심기 버튼에서 `canPlant`와 처리 중 비활성화·흐림을 제거하고 로딩 중에도 표시한다. 선택 진입/선택 대상은 검토 상태나 TF 확인 플래그로 제한하지 않는다. 공개 실행 시에는 기존 TF 또는 일반 검수 경계를 검사한다. 빈 목록·로그인·처리 중 탭에는 안내를 표시하며 중복 공개는 차단한다.
+
 `OiTestFlightShowcase`는 Release 설치에서 StoreKit `AppTransaction.shared`의 검증된 Sandbox 환경을 확인한다. Debug·Simulator는 비활성이다. 목록의 심기 준비는 기존 초안·사진·오이·카드 업로드 경로를 재사용하며 일반 검토 UI와 AI 경로를 보존한다. TF 심기는 `publish-showcase-story` Edge Function으로 Apple 서명 거래를 전달하고, 서버는 Apple 공식 `SignedDataVerifier`로 앱 ID·인증서 체인·서명·Sandbox 환경을 확인한다. `oi_publish_showcase_story`는 서비스 역할에서만 실행하며 실제 세션과 작성자, 임시 서버 플래그, 기존 제출·첨부 검증을 확인한 뒤 공개한다. AI 검수 결과 테이블에 승인 기록을 만들지 않는다. 기본 꺼짐·배포 순서·원복은 [운영 기록](testflight-showcase-publication.md)을 따른다.
 
 2026-11-18 #516: TF 공개 RPC/Edge를 운영에 배포하고 임시 스위치를 활성화했다. 운영의 수동 검토 base와 저장소 AI base 차이를 각각 검증하며, 코인 wrapper에서 추가한 운영자 게시 거절을 제거했다. TF 공개도 최초30코인·재심기0·무제한0 규칙을 같은 트랜잭션에서 적용한다. 잔액 부족은 Edge에서402로 전달하며 목록은 TF에서도 비용 확인 후 기존 업로드·공개 경로를 실행한다. [적용 기록](testflight-showcase-publication.md#2026-11-18-운영-적용-및-코인-후속--516).

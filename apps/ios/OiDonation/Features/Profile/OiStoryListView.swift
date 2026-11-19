@@ -20,7 +20,6 @@ struct OiStoryListView: View {
     var onRequestReview: ((UUID) -> Void)?
     var reviewMessage: (UUID) -> String? = { _ in nil }
     var onPlant: (() -> Void)?
-    var canPlant = false
     var selectedPlantStoryID: UUID?
     var onCancelPlant: (() -> Void)?
     var portraitAccountID: UUID? = nil
@@ -52,7 +51,7 @@ struct OiStoryListView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if showsStoryChrome && !usesAccessibilityLayout {
+            if (showsStoryChrome || onPlant != nil) && (!usesAccessibilityLayout || !showsStoryChrome) {
                 footer
             }
         }
@@ -345,8 +344,6 @@ struct OiStoryListView: View {
                     .accessibilityValue("최초 공개 30 피클코인")
                 }
                 .buttonStyle(.plain)
-                .disabled(!canPlant || isDeleting)
-                .opacity(canPlant && !isDeleting ? 1 : 0.45)
                 .accessibilityIdentifier("storyList.plant")
             } else if usesAccessibilityLayout {
                 VStack(spacing: 12) {
@@ -608,7 +605,7 @@ struct OiStorySeedIcon: View {
 private var storyPlantSelectionPreview: some View {
     NavigationStack {
         OiStoryListView(state: .preview, minimumVisibleSlotCount: 0, onSelectStory: { _ in },
-            reviewState: { _ in .approved }, onPlant: {}, canPlant: true,
+            reviewState: { _ in .approved }, onPlant: {},
             selectedPlantStoryID: OiStoryListState.preview.items.first?.id, onCancelPlant: {})
     }
 }

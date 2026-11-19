@@ -3509,6 +3509,50 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertNil(OiTestFlightShowcase.transactionProvider)
     }
 
+    @MainActor func testPlantPickerOpensWithoutReviewCapabilityAndEmptyTapExplainsNextStep() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        XCTAssertFalse(store.autoStoryModeration)
+        XCTAssertFalse(store.allowsShowcasePublication)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let windowID = ObjectIdentifier(window)
+        var actions: OiStoryListScreen.ReviewTestActions?
+        window.rootViewController = UIHostingController(rootView: NavigationStack {
+            OiStoryListScreen(remote: store, onReviewActionsForTest: { actions = $0 })
+        })
+        window.isHidden = false
+        defer {
+            window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+            XCTAssertFalse(scene.windows.contains { ObjectIdentifier($0) == windowID })
+        }
+        for _ in 0..<100 where actions == nil { try await Task.sleep(for: .milliseconds(30)) }
+        let buttons = try XCTUnwrap(actions)
+        buttons.openPlantPicker()
+        XCTAssertFalse(buttons.showsPlantPicker())
+        XCTAssertEqual(buttons.plantMessage(), "심을 오이가 없어요. 빈 칸의 +를 눌러 오이를 먼저 만들어 주세요.")
+
+        let first = OiLocalDraft(draft: draft(title: "첫 번째 미검토 오이"))
+        let second = OiLocalDraft(draft: draft(title: "두 번째 미검토 오이"))
+        try await store.saveLocalDraft(first, owner: OiTestBackend.owner)
+        try await store.saveLocalDraft(second, owner: OiTestBackend.owner)
+        let saved = await store.save(first.draft)
+        XCTAssertEqual(saved?.id, first.id)
+        for _ in 0..<100 where buttons.visibleIDs().count != 2 { try await Task.sleep(for: .milliseconds(30)) }
+        XCTAssertEqual(Set(buttons.visibleIDs()), Set([first.id, second.id]))
+        buttons.openPlantPicker()
+        XCTAssertTrue(buttons.showsPlantPicker(), "Review capability must never prevent entering the picker")
+        buttons.selectPlantCard(first.id)
+        XCTAssertEqual(buttons.selectedPlantCard(), first.id)
+        buttons.selectPlantCard(second.id)
+        XCTAssertEqual(buttons.selectedPlantCard(), second.id)
+        buttons.confirmPlant()
+        XCTAssertNotNil(buttons.plantMessage())
+        XCTAssertEqual(backend.snapshot().moderationCount, 0)
+        XCTAssertEqual(backend.snapshot().showcaseCount, 0, "Regular installs retain the server publication boundary")
+    }
+
     @MainActor func testShowcasePlantButtonPublishesLocalDraftWithUnchangedReviewLabels() async throws {
         try await checkShowcasePlantButton(unlimited: false)
     }
@@ -3565,6 +3609,8 @@ final class OiRemoteStoreTests: XCTestCase {
             XCTAssertEqual(backend.snapshot().showcaseCount, 0, "Publication must wait for the cost confirmation")
             buttons.acceptCoinCost()
         }
+        buttons.openPlantPicker()
+        XCTAssertEqual(buttons.plantMessage(), "진행 중인 작업을 마친 뒤 다시 눌러 주세요.")
         for _ in 0..<200 {
             if store.stories.contains(where: { $0.id == local.id }) && !store.isBusy { break }
             try await Task.sleep(for: .milliseconds(50))
