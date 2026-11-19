@@ -860,6 +860,31 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(validations, 2)
     }
 
+    @MainActor func testStoryPhotoKeepsLegacyLargeImageDimensions() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OiStoreURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { clean(session, directory: directory) }
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
+        let source = UIGraphicsImageRenderer(size: CGSize(width: 4100, height: 4100), format: format).image { context in
+            UIColor.blue.setFill(); context.fill(CGRect(x: 0, y: 0, width: 4100, height: 4100))
+        }
+        let png = try XCTUnwrap(source.pngData())
+        OiStoreURLProtocol.handle = { request, client in
+            if request.httpMethod == "POST" {
+                client.respond(200, Data("{\"signedURL\":\"/object/sign/oi-story-media/legacy.png?token=fixture\"}".utf8))
+            } else { client.respond(200, png, headers: ["ETag": "\"legacy\""]) }
+        }
+        let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
+        let remote = OiRemoteStore(api: api, drafts: OiDraftVault(directory: directory),
+                                   vault: OiMemorySession(), showcaseTransaction: nil)
+        let image = try await remote.postcardPhotoImage("legacy.png", originalPhoto: true)
+        XCTAssertEqual(image.cgImage?.width, 4100)
+        XCTAssertEqual(image.cgImage?.height, 4100)
+        XCTAssertEqual(OiPostcardSnapshot.color(image, x: 0.5, y: 0.5), OiPostcardSnapshot.color(source, x: 0.5, y: 0.5))
+    }
+
     @MainActor func testBoundedMetricsOnlyFallbackForMissingRPCAndStopReadingHiddenStories() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }

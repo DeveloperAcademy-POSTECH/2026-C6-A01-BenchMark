@@ -1832,10 +1832,11 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
         return image
     }
 
-    func postcardPhotoImage(_ path: String) async throws -> UIImage {
+    func postcardPhotoImage(_ path: String, originalPhoto: Bool = false) async throws -> UIImage {
         guard let api else { throw OiServiceError.configuration }
         let started = generation
-        let image = try await postcardImages.image("photo/" + path, photo: true) { [self] in
+        let image = try await postcardImages.image((originalPhoto ? "original-photo/" : "photo/") + path,
+                                                   photo: true, originalPhoto: originalPhoto) { [self] in
             let accessToken = account == nil ? nil : try await token()
             return try await api.downloadSignedObject(bucket: "oi-story-media", path: path, token: accessToken)
         }

@@ -242,7 +242,8 @@ enum OiPostcardSnapshot {
         pending.values.forEach { $0.cancel() }; pending.removeAll()
     }
 
-    func image(_ path: String, photo: Bool = false, load: @escaping () async throws -> Data) async throws -> UIImage {
+    func image(_ path: String, photo: Bool = false, originalPhoto: Bool = false,
+               load: @escaping () async throws -> Data) async throws -> UIImage {
         try Task.checkCancellation()
         if let entry = images.object(forKey: path as NSString), entry.expires > Date() { return entry.image }
         let started = epoch
@@ -258,7 +259,7 @@ enum OiPostcardSnapshot {
             if let cached = await worker.read(key) { data = cached }
             else { data = try await load() }
             try Task.checkCancellation()
-            let image = try await worker.decode(data, photo: photo)
+            let image = try await worker.decode(data, photo: photo, originalPhoto: originalPhoto)
             try Task.checkCancellation()
             await worker.write(data, key: key)
             OiPostcardBackgroundMetadata.remember(png: data, image: image)
@@ -316,7 +317,13 @@ enum OiPostcardSnapshot {
             }
             try? data.write(to: file(key), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         }
-        func decode(_ data: Data, photo: Bool) throws -> UIImage {
+        func decode(_ data: Data, photo: Bool, originalPhoto: Bool) throws -> UIImage {
+            if originalPhoto {
+                // Match the prior AsyncImage path's accepted original sizes.
+                // Postcard-specific image limits remain on the separate photo path.
+                guard let image = UIImage(data: data) else { throw OiPhotoDataError.unreadable }
+                return image.preparingForDisplay() ?? image
+            }
             if photo {
                 guard data.count <= 40_000_000, let source = CGImageSourceCreateWithData(data as CFData, nil),
                       let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],

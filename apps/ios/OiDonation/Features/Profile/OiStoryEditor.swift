@@ -1490,7 +1490,7 @@ struct OiStoryMediaImage: View {
         .task(id: request) {
             do {
                 if let remote {
-                    let image = try await remote.postcardPhotoImage(request.path)
+                    let image = try await remote.postcardPhotoImage(request.path, originalPhoto: true)
                     try Task.checkCancellation()
                     resolution = .image(request, image)
                 } else {
