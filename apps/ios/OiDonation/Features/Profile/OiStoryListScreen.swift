@@ -51,6 +51,7 @@ struct OiStoryListScreen: View {
         let confirmPlant: () -> Void
         let confirmingCoins: () -> Bool
         let plantMessage: () -> String?
+        let isPublishing: () -> Bool
         let acceptCoinCost: () -> Void
     }
 
@@ -89,6 +90,8 @@ struct OiStoryListScreen: View {
     @State private var selectedStoryID: UUID?
     @State private var showingConsent = false
 
+    private var isPublishing: Bool { reviewWork?.showcaseSelection != nil }
+
     private var list: some View {
         let currentState = state
         let offersAIReview = remote.autoStoryModeration
@@ -101,6 +104,7 @@ struct OiStoryListScreen: View {
             onCreateStory: beginCreatingStory,
             onDeleteStory: requestDeletion,
             isDeleting: deletingID != nil || remote.isBusy || reviewWork != nil,
+            isPublishing: isPublishing,
             reviewState: { reviewState(for: $0) },
             onRequestReview: { requestReview($0, offersAIReview: offersAIReview) },
             reviewMessage: reviewMessage,
@@ -141,7 +145,7 @@ struct OiStoryListScreen: View {
                     openPlantPicker: handlePlantTap, showsPlantPicker: { plantSelection != nil },
                     selectPlantCard: selectPlantCard, selectedPlantCard: { plantSelection?.selectedID },
                     cancelPlantPicker: cancelPlantSelection, confirmPlant: confirmPlant,
-                    confirmingCoins: { confirmingCoinPlant }, plantMessage: { publicationMessage }, acceptCoinCost: {
+                    confirmingCoins: { confirmingCoinPlant }, plantMessage: { publicationMessage }, isPublishing: { isPublishing }, acceptCoinCost: {
                         confirmingCoinPlant = false
                         performConfirmedPlant()
                     }))
@@ -403,10 +407,10 @@ struct OiStoryListScreen: View {
 
     private func finishShowcasePlant(_ selection: OiStoryPlantSelection, owner: UUID) async {
         guard remote.account?.id == owner else { return }
-        reviewWork = nil
-        plantSelection = nil
         await loadLocalDrafts()
         guard remote.account?.id == owner else { return }
+        reviewWork = nil
+        plantSelection = nil
         if let revealPlantedStory { revealPlantedStory(selection) }
         else { publicationMessage = "이야기가 등록됐어요" }
     }

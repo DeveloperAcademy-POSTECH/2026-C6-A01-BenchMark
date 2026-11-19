@@ -91,6 +91,8 @@ iOS 26.7.3 Jun iPhone에 최신 develop 기반의 수정본을 Release로 빌드
 
 목록/선택의 심기 버튼에서 `canPlant`·처리 중 비활성화·흐림을 제거하고 로딩 중에도 표시한다. 선택 진입/선택 대상을 검토 상태나 기능 플래그로 제한하지 않는다. 빈 목록·로그인·처리 중 탭은 안내하고 중복 공개를 차단한다. Figma `5400:7644`·`6101:9370`의 레이아웃·서체·원본 에셋은 유지한다. 운영 적용·검증·원복은 [운영 기록](testflight-showcase-publication.md)을 따른다.
 
+게시 대기 피드백: `OiStoryListScreen`은 `reviewWork.showcaseSelection`으로 준비부터 게시 응답·기기 초안 조회까지 로딩을 유지한다. 공용 목록은 원형 `ProgressView`를 표시하며 지도 전환용 목록에도 같은 상태를 적용한다. 상태를 `remote.isBusy`에만 연결하지 않아 단계 사이의 로딩 공백을 피한다. 완료/실패 시 제거하며 버튼 활성화·중복 요청 차단은 기존 계약을 유지한다.
+
 ### #388 이야기 공개 자동검수
 
 `moderate-story` Edge Function은 기존 서버 `OPENAI_API_KEY`를 사용한다. `OPENAI_STORY_MODERATION_MODEL`을 별도 설정할 수 있으며 기본값은 학교 자료 분석과 같은 `gpt-4.1-2025-04-14`다. 작성자 세션과 제출 시 동의를 검증한 뒤 공개용 파일에만 90초 읽기 URL을 발급하고 제목·본문·오이 이름과 함께 OpenAI에 전달한다. 거부 사유는 위치·유형 코드로 제한하고 응답 저장을 끈다.

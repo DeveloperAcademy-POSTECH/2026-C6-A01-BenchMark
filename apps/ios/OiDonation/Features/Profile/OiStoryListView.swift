@@ -16,6 +16,7 @@ struct OiStoryListView: View {
     var onUseSeed: (() -> Void)?
     var onDeleteStory: ((UUID) -> Void)?
     var isDeleting = false
+    var isPublishing = false
     var reviewState: (UUID) -> OiStoryListReviewState = { _ in .unreviewed }
     var onRequestReview: ((UUID) -> Void)?
     var reviewMessage: (UUID) -> String? = { _ in nil }
@@ -56,6 +57,17 @@ struct OiStoryListView: View {
             }
         }
         .background(screenBackground.ignoresSafeArea())
+        .overlay {
+            if isPublishing {
+                ProgressView("이야기를 등록하는 중이에요")
+                    .progressViewStyle(.circular)
+                    .controlSize(.large)
+                    .padding()
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("storyList.publicationProgress")
+            }
+        }
         .overlay(alignment: .topLeading) {
             if scenePhase == .active, let capture = portraits.capture {
                 // One fixed, front-facing viewport is reused by the entire list's serial queue.

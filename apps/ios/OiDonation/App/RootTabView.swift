@@ -191,6 +191,7 @@ struct RootTabView: View {
         if let selection = plantedSelectionCover {
             NavigationStack {
                 OiStoryListView(state: .content(selection.items), minimumVisibleSlotCount: 0,
+                    isPublishing: true,
                     reviewState: { _ in .approved }, onPlant: {},
                     selectedPlantStoryID: selection.selectedID, onCancelPlant: {},
                     portraitAccountID: remote.account?.id,
