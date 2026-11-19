@@ -2449,6 +2449,37 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testPlantButtonStaysVisibleAndUndimmedWhileLoadingEmptyFailedAndBusy() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        let variant = variants[0]
+        let button = CGRect(x: 20, y: 788, width: 362, height: 50)
+        let baseline = try await capture(NavigationStack {
+            OiStoryListView(state: .empty, onPlant: {})
+        }, name: "plant-enabled-empty", variant: variant, defaults: fixture.defaults, attach: true)
+        for (name, state) in [("loading", OiStoryListState.loading), ("empty", .empty),
+                              ("failed", .failure("이야기를 불러오지 못했어요"))] {
+            let png = try await capture(NavigationStack {
+                OiStoryListView(state: state, isDeleting: true, onPlant: {})
+            }, name: "plant-enabled-" + name + "-busy", variant: variant, defaults: fixture.defaults, attach: true)
+            XCTAssertEqual(try myV4ChangedPixels(baseline, png, size: variant.size, rect: button), 0,
+                "Loading, empty, failed or busy states must not hide or dim the plant button")
+        }
+        let referenceURL = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "story-list-reference",
+            withExtension: "png", subdirectory: "MYV4Figma"))
+        let rendered = try renderedBitmap(baseline, size: variant.size)
+        let reference = try renderedBitmap(Data(contentsOf: referenceURL), size: variant.size)
+        let actual = try XCTUnwrap(rendered.data).bindMemory(to: UInt8.self, capacity: 402 * 874 * 4)
+        let expected = try XCTUnwrap(reference.data).bindMemory(to: UInt8.self, capacity: 402 * 874 * 4)
+        var difference = 0
+        for y in 788..<838 { for x in 20..<382 {
+            let offset = (y * 402 + x) * 4
+            for channel in 0..<3 { difference += abs(Int(actual[offset + channel]) - Int(expected[offset + channel])) }
+        }}
+        XCTAssertLessThan(Double(difference) / (362 * 50 * 3), 3,
+            "The enabled button must match the Figma reference, not a disabled baseline")
+    }
+
     func testStoryListAndPlantSelectionMatchFigmaFrames() async throws {
         let fixture = try isolatedDefaults()
         let previousHandler = OiStoreURLProtocol.handle
@@ -2496,7 +2527,7 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
                     OiStoryListView(state: .content(shown), minimumVisibleSlotCount: selecting ? 0 : 4,
                         onSelectStory: { _ in }, onCreateStory: {},
                         reviewState: { id in states[items.firstIndex { $0.id == id } ?? 0] },
-                        onRequestReview: { _ in }, onPlant: {}, canPlant: true,
+                        onRequestReview: { _ in }, onPlant: {},
                         selectedPlantStoryID: selecting ? items[0].id : nil,
                         onCancelPlant: selecting ? {} : nil,
                         portraitAccountID: owner, coinRemote: remote)

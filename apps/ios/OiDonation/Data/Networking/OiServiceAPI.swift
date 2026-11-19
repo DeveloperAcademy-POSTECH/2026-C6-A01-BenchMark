@@ -259,8 +259,8 @@ struct OiServiceAPI {
         return try decoder.decode([OiStoryModerationResult].self, from: data)
     }
 
-    func publishShowcaseStory(_ submission: [String: Any], transaction: String, token: String) async throws -> OiLiveStory {
-        let body = try JSONSerialization.data(withJSONObject: ["submission": submission, "app_transaction": transaction])
+    func publishShowcaseStory(_ submission: [String: Any], token: String) async throws -> OiLiveStory {
+        let body = try JSONSerialization.data(withJSONObject: ["submission": submission])
         let data = try await request("functions/v1/publish-showcase-story", method: "POST", token: token, body: body)
         return try decoder.decode(OiLiveStory.self, from: data)
     }

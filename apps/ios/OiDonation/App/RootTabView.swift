@@ -191,7 +191,8 @@ struct RootTabView: View {
         if let selection = plantedSelectionCover {
             NavigationStack {
                 OiStoryListView(state: .content(selection.items), minimumVisibleSlotCount: 0,
-                    reviewState: { _ in .approved }, onPlant: {}, canPlant: true,
+                    isPublishing: true,
+                    reviewState: { _ in .approved }, onPlant: {},
                     selectedPlantStoryID: selection.selectedID, onCancelPlant: {},
                     portraitAccountID: remote.account?.id,
                     loadPortrait: { try await remote.cucumberImage($0) })

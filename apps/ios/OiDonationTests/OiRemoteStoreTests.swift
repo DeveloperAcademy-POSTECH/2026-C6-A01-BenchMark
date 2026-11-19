@@ -114,6 +114,7 @@ final class OiTestBackend {
         var loseReviewResponse = false
         var holdReviewResponse = false
         var holdModerationResponse = false
+        var holdShowcaseResponse = false
         var holdStorySubmissionResponse = false
         var ignoreStoryStatusFilter = false
         var auditRecords: [[String: Any]] = []
@@ -168,7 +169,7 @@ final class OiTestBackend {
         let value = snapshot().held
         configure {
             $0.held = nil; $0.holdOwnerRead = false; $0.holdPostMergeRead = false
-            $0.holdReviewResponse = false; $0.holdModerationResponse = false; $0.holdStorySubmissionResponse = false
+            $0.holdReviewResponse = false; $0.holdModerationResponse = false; $0.holdShowcaseResponse = false; $0.holdStorySubmissionResponse = false
             $0.holdAuditRead = false; $0.holdCardSend = false; $0.holdFarmWrite = false; $0.holdFarmerOutfitWrite = false; $0.holdCoinWallet = false
         }
         value?.0.respond(200, value?.1 ?? Data())
@@ -288,7 +289,7 @@ final class OiTestBackend {
             state.showcaseCount += 1
             let payload = body["submission"] as? [String: Any] ?? [:]
             if state.failShowcase { status = 503 }
-            else if body["app_transaction"] as? String != "signed-testflight-fixture" ||
+            else if body["app_transaction"] != nil ||
                 payload["id"] as? String != state.story?["id"] as? String ||
                 payload["revision"] as? Int != state.story?["revision"] as? Int { status = 409 }
             else {
@@ -610,6 +611,7 @@ final class OiTestBackend {
         if (path.hasSuffix("/oi_stories") && owner == Self.owner && state.holdOwnerRead)
             || (path.hasSuffix("/rpc/oi_mutate") && body["p_action"] as? String == "review_story" && state.holdReviewResponse)
             || (path.hasSuffix("/functions/v1/moderate-story") && state.holdModerationResponse)
+            || (path.hasSuffix("/functions/v1/publish-showcase-story") && state.holdShowcaseResponse)
             || (path.hasSuffix("/rpc/oi_mutate") && body["p_action"] as? String == "submit_story" && state.holdStorySubmissionResponse)
             || (path.hasSuffix("/rpc/oi_operator_audit") && state.holdAuditRead)
             || (path.hasSuffix("/rpc/oi_capabilities") && state.holdPostMergeRead && state.mergeConfirmCount > 0)
@@ -3028,8 +3030,7 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTFail("The simulator UI check did not complete its requested navigation route")
     }
 
-    @MainActor private func context(expired: Bool = false, authentication: (any OiAuthenticating)? = nil,
-                                    showcaseTransaction: (() async throws -> String)? = nil) throws -> (OiRemoteStore, OiTestBackend, OiMemorySession, URLSession, URL) {
+    @MainActor private func context(expired: Bool = false, authentication: (any OiAuthenticating)? = nil) throws -> (OiRemoteStore, OiTestBackend, OiMemorySession, URLSession, URL) {
         let backend = OiTestBackend(); backend.install()
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [OiStoreURLProtocol.self]
@@ -3037,7 +3038,7 @@ final class OiRemoteStoreTests: XCTestCase {
         let api = try OiServiceAPI(key: "sb_publishable_testing", session: session)
         let vault = OiMemorySession(expired: expired)
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        return (OiRemoteStore(api: api, drafts: OiDraftVault(directory: directory), vault: vault, authentication: authentication, showcaseTransaction: showcaseTransaction),backend,vault,session,directory)
+        return (OiRemoteStore(api: api, drafts: OiDraftVault(directory: directory), vault: vault, authentication: authentication),backend,vault,session,directory)
     }
 
     private func clean(_ session: URLSession, directory: URL) {
@@ -3457,7 +3458,7 @@ final class OiRemoteStoreTests: XCTestCase {
     }
 
     @MainActor func testShowcasePublishesUnreviewedAndRejectedStoriesWithoutAI() async throws {
-        let (store, backend, _, session, directory) = try context(showcaseTransaction: { "signed-testflight-fixture" })
+        let (store, backend, _, session, directory) = try context()
         defer { clean(session, directory: directory) }
         backend.configure { $0.autoStoryModeration = true; $0.rejectModeration = true }
         await store.start()
@@ -3479,7 +3480,7 @@ final class OiRemoteStoreTests: XCTestCase {
     }
 
     @MainActor func testShowcaseFailureKeepsDraftAndLostReceiptRecoversWithoutAI() async throws {
-        let (store, backend, _, session, directory) = try context(showcaseTransaction: { "signed-testflight-fixture" })
+        let (store, backend, _, session, directory) = try context()
         defer { clean(session, directory: directory) }
         await store.start()
         let result = await store.save(draft())
@@ -3495,18 +3496,58 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(backend.snapshot().showcaseCount, 2)
     }
 
-    @MainActor func testRegularBuildCannotPublishThroughShowcase() async throws {
+    @MainActor func testDirectInstallationPublishesWithoutAppTransaction() async throws {
         let (store, backend, _, session, directory) = try context()
         defer { clean(session, directory: directory) }
         await store.start()
         let result = await store.save(draft())
         let saved = try XCTUnwrap(result)
-        XCTAssertFalse(store.allowsShowcasePublication)
         let published = await store.submitStory(saved, publishForShowcase: true)
-        XCTAssertNil(published)
-        XCTAssertEqual(store.ownStories.first?.status, "draft")
-        XCTAssertEqual(backend.snapshot().showcaseCount, 0)
-        XCTAssertNil(OiTestFlightShowcase.transactionProvider)
+        XCTAssertEqual(published?.status, "published")
+        XCTAssertEqual(store.ownStories.first?.status, "published")
+        XCTAssertEqual(backend.snapshot().showcaseCount, 1)
+        XCTAssertEqual(backend.snapshot().moderationCount, 0)
+    }
+
+    @MainActor func testPlantPickerOpensWithModerationDisabledAndEmptyTapExplainsNextStep() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        await store.start()
+        XCTAssertFalse(store.autoStoryModeration)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let windowID = ObjectIdentifier(window)
+        var actions: OiStoryListScreen.ReviewTestActions?
+        window.rootViewController = UIHostingController(rootView: NavigationStack {
+            OiStoryListScreen(remote: store, onReviewActionsForTest: { actions = $0 })
+        })
+        window.isHidden = false
+        defer {
+            window.isHidden = true; window.rootViewController = nil; window.windowScene = nil
+            XCTAssertFalse(scene.windows.contains { ObjectIdentifier($0) == windowID })
+        }
+        for _ in 0..<100 where actions == nil { try await Task.sleep(for: .milliseconds(30)) }
+        let buttons = try XCTUnwrap(actions)
+        buttons.openPlantPicker()
+        XCTAssertFalse(buttons.showsPlantPicker())
+        XCTAssertEqual(buttons.plantMessage(), "심을 오이가 없어요. 빈 칸의 +를 눌러 오이를 먼저 만들어 주세요.")
+
+        let first = OiLocalDraft(draft: draft(title: "첫 번째 미검토 오이"))
+        let second = OiLocalDraft(draft: draft(title: "두 번째 미검토 오이"))
+        try await store.saveLocalDraft(first, owner: OiTestBackend.owner)
+        try await store.saveLocalDraft(second, owner: OiTestBackend.owner)
+        let saved = await store.save(first.draft)
+        XCTAssertEqual(saved?.id, first.id)
+        for _ in 0..<100 where buttons.visibleIDs().count != 2 { try await Task.sleep(for: .milliseconds(30)) }
+        XCTAssertEqual(Set(buttons.visibleIDs()), Set([first.id, second.id]))
+        buttons.openPlantPicker()
+        XCTAssertTrue(buttons.showsPlantPicker(), "Review capability must never prevent entering the picker")
+        buttons.selectPlantCard(first.id)
+        XCTAssertEqual(buttons.selectedPlantCard(), first.id)
+        buttons.selectPlantCard(second.id)
+        XCTAssertEqual(buttons.selectedPlantCard(), second.id)
+        XCTAssertEqual(backend.snapshot().moderationCount, 0)
+        XCTAssertEqual(backend.snapshot().showcaseCount, 0, "Selecting a story must not publish before confirmation")
     }
 
     @MainActor func testShowcasePlantButtonPublishesLocalDraftWithUnchangedReviewLabels() async throws {
@@ -3517,12 +3558,20 @@ final class OiRemoteStoreTests: XCTestCase {
         try await checkShowcasePlantButton(unlimited: true)
     }
 
-    @MainActor private func checkShowcasePlantButton(unlimited: Bool) async throws {
-        let (store, backend, _, session, directory) = try context(showcaseTransaction: { "signed-testflight-fixture" })
+    @MainActor func testPublicationFailureStopsProgressAndPreservesLocalDraft() async throws {
+        try await checkShowcasePlantButton(unlimited: true, failsPublication: true)
+    }
+
+    @MainActor private func checkShowcasePlantButton(unlimited: Bool, failsPublication: Bool = false) async throws {
+        let (store, backend, _, session, directory) = try context()
         defer { clean(session, directory: directory) }
+        let held = failsPublication ? nil : expectation(description: "Publication response remains pending")
         backend.configure {
             $0.publicStoryCard = true; $0.duplexStoryCard = true
             $0.coinsEnabled = true; $0.coinBalance = 40; $0.coinUnlimited = unlimited
+            $0.failShowcase = failsPublication
+            $0.holdShowcaseResponse = !failsPublication
+            $0.didHold = { held?.fulfill() }
         }
         await store.start()
         var local = OiLocalDraft(draft: draft())
@@ -3559,18 +3608,44 @@ final class OiRemoteStoreTests: XCTestCase {
         attachment.name = "showcase-unreviewed-plant-picker"
         attachment.lifetime = .keepAlways
         add(attachment)
+        XCTAssertFalse(buttons.isPublishing())
         buttons.confirmPlant()
         XCTAssertEqual(buttons.confirmingCoins(), !unlimited)
         if !unlimited {
+            XCTAssertFalse(buttons.isPublishing(), "Coin confirmation must precede publication progress")
             XCTAssertEqual(backend.snapshot().showcaseCount, 0, "Publication must wait for the cost confirmation")
             buttons.acceptCoinCost()
         }
+        XCTAssertTrue(buttons.isPublishing(), "Progress must begin before draft/image preparation")
+        if let held {
+            await fulfillment(of: [held], timeout: 15)
+            XCTAssertTrue(buttons.isPublishing(), "Progress must remain visible while the server response is pending")
+            try await Task.sleep(for: .milliseconds(150))
+            let progress = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: progress)
+            attachment.name = "publication-progress-pending-response"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        buttons.openPlantPicker()
+        XCTAssertEqual(buttons.plantMessage(), "진행 중인 작업을 마친 뒤 다시 눌러 주세요.")
+        if held != nil { backend.releaseHeldRead() }
         for _ in 0..<200 {
-            if store.stories.contains(where: { $0.id == local.id }) && !store.isBusy { break }
+            if !buttons.isPublishing() && !store.isBusy { break }
             try await Task.sleep(for: .milliseconds(50))
         }
+        XCTAssertFalse(buttons.isPublishing(), "Completion or failure must remove publication progress")
         XCTAssertFalse(store.isBusy, "Publication refresh must finish before the test invalidates its session")
-        XCTAssertEqual(store.stories.first?.id, local.id, store.error ?? "No publication")
+        if failsPublication {
+            XCTAssertTrue(store.stories.isEmpty)
+            XCTAssertNotNil(buttons.plantMessage())
+            let retained = try await store.localDraft(id: local.id, owner: OiTestBackend.owner)
+            XCTAssertNotNil(retained, "A failed publication must retain the recoverable draft")
+        } else {
+            XCTAssertEqual(store.stories.first?.id, local.id, store.error ?? "No publication")
+        }
         XCTAssertEqual(backend.snapshot().moderationCount, 0)
         XCTAssertEqual(backend.snapshot().showcaseCount, 1)
     }

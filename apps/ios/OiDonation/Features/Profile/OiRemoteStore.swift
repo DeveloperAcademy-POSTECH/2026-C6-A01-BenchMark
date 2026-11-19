@@ -161,27 +161,13 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     private let drafts: OiDraftVault
     private let vault: any OiSessionStorage
 
-    @ObservationIgnored private let showcaseTransaction: (() async throws -> String)?
-    private(set) var allowsShowcasePublication = false
-
     init(api: OiServiceAPI? = nil, drafts: OiDraftVault = OiDraftVault(), vault: (any OiSessionStorage)? = nil,
-         authentication: (any OiAuthenticating)? = nil,
-         showcaseTransaction: (() async throws -> String)? = OiTestFlightShowcase.transactionProvider) {
-        self.showcaseTransaction = showcaseTransaction
+         authentication: (any OiAuthenticating)? = nil) {
         self.api = api; self.drafts = drafts; self.vault = vault ?? OiSessionVault()
         self.authentication = authentication ?? OiGoogleAuthentication()
     }
 
     func start() async {
-        if let showcaseTransaction {
-            do {
-                _ = try await showcaseTransaction()
-                allowsShowcasePublication = true
-            } catch {
-                // Production installs and unverified transactions keep the regular AI review flow.
-                allowsShowcasePublication = false
-            }
-        }
         var started = generation
         do {
             if api == nil { api = try OiServiceAPI.configured() }
@@ -1124,9 +1110,6 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
     func submitStory(_ story: OiLiveStory, cucumber: OiCucumberPublication? = nil,
                      card proposedCard: OiStoryCardPublication? = nil, agreesToAIReview: Bool = false,
                      publishForShowcase: Bool = false) async -> OiLiveStory? {
-        guard !publishForShowcase || allowsShowcasePublication else {
-            error = OiServiceError.unavailable.localizedDescription; return nil
-        }
         guard canStartStory else { error = OiServiceError.storyCreationUnavailable.localizedDescription; return nil }
         let card: OiStoryCardPublication?
         do {
@@ -1226,11 +1209,8 @@ final class OiRemoteStore: OiOperatorStoryServing, OiOperatorAuditServing {
             guard started == generation else { throw OiServiceError.accountChanged }
             let receipt: OiLiveStory
             do {
-                if publishForShowcase, let showcaseTransaction {
-                    let signedTransaction = try await showcaseTransaction()
-                    try Task.checkCancellation()
-                    guard started == generation else { throw OiServiceError.accountChanged }
-                    receipt = try await api.publishShowcaseStory(payload, transaction: signedTransaction, token: accessToken)
+                if publishForShowcase {
+                    receipt = try await api.publishShowcaseStory(payload, token: accessToken)
                 } else {
                     let result = try await api.moderateStory(payload, token: accessToken)
                     guard started == generation, result.storyId == story.id else { throw OiServiceError.accountChanged }
