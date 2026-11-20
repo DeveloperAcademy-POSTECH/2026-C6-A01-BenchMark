@@ -1804,6 +1804,45 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         shot.name = "postcard-figma-typography"; shot.lifetime = .keepAlways; add(shot)
     }
 
+    /// #485: the postcard back with Figma `6635:10654`'s text, rendered at 1x and 2x for pixel comparison.
+    func testPostcardBackFigmaComparison() async throws {
+        OiPostcardTypography.registerFonts()
+        let message = [
+            "15학번 첫 새내기 모임에서 처음 만났던", "포스텍 기계공학과 19학번 2분반 친구들,",
+            "졸업한지 3년이나 지났는데 다들 잘 살고 있으려나?",
+            "수업 끝나면 항상 멀티패스로 달려가서 게임하던 게 엊그제 같은데, 벌써 다들 사회의 한 구성원이 되었구나", "",
+            "삼성에 합격한 지원이와 예은이, 박사과정을 하고있는 윤진이와 지훈이, 창업해서 CEO가 된 돈혁이 까지... 우리 2분반의 최고의 아웃풋들!!",
+            "학교생활에 적응하지 못했던 내가,",
+            "너네 덕분에 함께 청암에 가서 공부도하고, 폭풍의 언덕에서 짜장면도 먹고, 78계단에서 낭만을 즐길 수 있었어.", "",
+            "나의 학교생활의 모든 부분에 너희들이 자리잡고 있어서", "너무 행복하고 고맙다"].joined(separator: "\n")
+        let back = OiPostcardBack(backgroundStyle: .init(color: 0xEECFDF), message: message,
+            author: "19학번 기계공학과 신수리", tags: ["우정", "즐거움"])
+        for scale in [1.0, 2.0] {
+            let renderer = ImageRenderer(content: back)
+            renderer.scale = scale
+            let image = try XCTUnwrap(renderer.uiImage)
+            let shot = XCTAttachment(data: try XCTUnwrap(image.pngData()), uniformTypeIdentifier: "public.png")
+            shot.name = "postcard-back-compare-\(Int(scale))x"; shot.lifetime = .keepAlways; add(shot)
+        }
+        // Figma 6635:10681 measured at 1x: the tag ink spans x 248–325 and y 459–469 of the 362×502 card.
+        let renderer = ImageRenderer(content: back); renderer.scale = 1
+        let cg = try XCTUnwrap(renderer.uiImage?.cgImage)
+        var pixels = [UInt8](repeating: 0, count: cg.width * cg.height * 4)
+        let context = try XCTUnwrap(CGContext(data: &pixels, width: cg.width, height: cg.height, bitsPerComponent: 8,
+            bytesPerRow: cg.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+        var minX = Int.max, minY = Int.max, maxX = 0, maxY = 0
+        for y in 440..<485 { for x in 200..<340 {
+            let o = (y * cg.width + x) * 4
+            let distance = abs(Int(pixels[o]) - 93) + abs(Int(pixels[o + 1]) - 17) + abs(Int(pixels[o + 2]) - 50)
+            if distance < 120 { minX = min(minX, x); maxX = max(maxX, x + 1); minY = min(minY, y); maxY = max(maxY, y + 1) }
+        } }
+        XCTAssertEqual(Double(minX), 248, accuracy: 1, "The tag row must start where Figma starts it")
+        XCTAssertEqual(Double(maxX), 325, accuracy: 1, "The tag row must end at the text column's right edge (x 327)")
+        XCTAssertEqual(Double(minY), 459, accuracy: 1, "The tag row must sit at Figma's y 459")
+    }
+
     func testUnifiedBackgroundEditorCapture() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }

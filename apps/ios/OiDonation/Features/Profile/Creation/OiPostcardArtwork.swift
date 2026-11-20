@@ -142,16 +142,31 @@ struct OiPostcardBack: View {
                 Text(author).font(OiPostcardTypography.author).tracking(0.24)
                     .layoutPriority(1)
                 Spacer(minLength: 0)
-                Text(tagLine).font(OiPostcardTypography.author).tracking(0.24).foregroundStyle(tagInk)
+                tagRow
             }
             .opacity(0.98).lineLimit(1).minimumScaleFactor(0.6)
             .frame(width: 292, height: 15, alignment: .leading).offset(x: 35, y: 457)
         }.foregroundStyle(textInk).frame(width: 362, height: 502)
             .mask(OiPostcardPaper()).dynamicTypeSize(.medium)
     }
-    private var tagLine: String {
+    private var tagWords: [String] {
         let trimmed = tags.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "# ").union(.whitespacesAndNewlines)) }
-        return trimmed.filter { !$0.isEmpty }.prefix(2).map { "#" + $0 }.joined(separator: " ")
+        return Array(trimmed.filter { !$0.isEmpty }.prefix(2))
+    }
+
+    /// Figma `6635:10681`: each tag is a 10pt `#` and its word 1pt apart; tags sit 4pt apart, right-aligned
+    /// to the text column (x 327) with a 10pt-high row at y 459.
+    private var tagRow: some View {
+        HStack(spacing: 4) {
+            ForEach(Array(tagWords.enumerated()), id: \.offset) { _, word in
+                HStack(alignment: .center, spacing: 1) {
+                    Text("#").frame(width: 10.5)
+                    Text(word)
+                }
+            }
+        }
+        .font(OiPostcardTypography.author).tracking(0.24).foregroundStyle(tagInk)
+        .fixedSize().frame(height: 10).offset(x: 1, y: -1.5)
     }
 
     private var letter: some View {

@@ -4704,6 +4704,53 @@ final class OiRemoteStoreTests: XCTestCase {
         XCTAssertEqual(backend.snapshot().uploads.keys.filter { $0.contains("/card/") }.count, 4)
         XCTAssertEqual(backend.snapshot().submitCount, 1)
     }
+
+    /// #485: registering a story uploads a back image whose message keeps Figma's 0.4pt same-ink outside stroke.
+    @MainActor func testSubmittedBackImageKeepsTheMessageStroke() async throws {
+        let (store, backend, _, session, directory) = try context()
+        defer { withExtendedLifetime(backend) {}; clean(session, directory: directory) }
+        backend.configure { $0.publicStoryCard = true; $0.duplexStoryCard = true; $0.autoStoryModeration = true }
+        await store.start()
+        var input = draft()
+        input.body = "2024년, 우리 반도체공학과가 처음으로 과대항전에 출전했던 날을 기억하시나요?\n\n당시에는 23, 24학번밖에 없었던 작은 학과였지만, 교수님과 대학원생 선배들까지 함께 뛰며 무려 4강까지 올라갔었죠!"
+        let card = try OiDraftCardPreview(draft: input, customization: OiDraftCustomization()).publication(colorScheme: .light)
+        let savedReceipt = await store.save(input)
+        let saved = try XCTUnwrap(savedReceipt)
+        _ = await store.submitStory(saved, card: card, agreesToAIReview: true)
+        let uploads = backend.snapshot().uploads
+        let key = try XCTUnwrap(uploads.keys.first { $0.hasSuffix("/back.png") }, "The submission must upload the back image")
+        let image = try XCTUnwrap(UIImage(data: try XCTUnwrap(uploads[key])))
+        let width = try XCTUnwrap(Self.meanStrokeWidth(of: image))
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "submitted-back-\(Int(image.size.width * image.scale))px-stroke-\(String(format: "%.2f", width))"
+        attachment.lifetime = .keepAlways; add(attachment)
+        // Measured on the 1086px image: no stroke ≈ 1.7px, an old build ≈ 2.5px, the Figma 0.4pt stroke ≈ 5.4px.
+        XCTAssertGreaterThan(width, 3.5, "The uploaded back image must carry the message stroke (mean horizontal stroke \(width)px)")
+    }
+
+    /// Mean length of the horizontal ink runs in the message area of a 1086×1506 card back.
+    private static func meanStrokeWidth(of image: UIImage) -> Double? {
+        guard let cg = image.cgImage, cg.width == 1086 else { return nil }
+        var pixels = [UInt8](repeating: 0, count: cg.width * cg.height)
+        guard let context = CGContext(data: &pixels, width: cg.width, height: cg.height, bitsPerComponent: 8,
+            bytesPerRow: cg.width, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return nil }
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+        let area = (x: 105..<1000, y: 90..<560)
+        var values = [Int](); values.reserveCapacity(area.x.count * area.y.count)
+        for y in area.y { for x in area.x { values.append(Int(pixels[y * cg.width + x])) } }
+        let sorted = values.sorted()
+        let paper = Double(sorted[sorted.count * 80 / 100]), ink = Double(sorted[sorted.count * 5 / 1000])
+        let threshold = (paper + ink) / 2
+        var runs = [Int]()
+        for y in area.y {
+            var run = 0
+            for x in area.x {
+                if Double(pixels[y * cg.width + x]) < threshold { run += 1 } else if run > 0 { runs.append(run); run = 0 }
+            }
+            if run > 0 { runs.append(run) }
+        }
+        return runs.isEmpty ? nil : Double(runs.reduce(0, +)) / Double(runs.count)
+    }
 }
 
 @MainActor
