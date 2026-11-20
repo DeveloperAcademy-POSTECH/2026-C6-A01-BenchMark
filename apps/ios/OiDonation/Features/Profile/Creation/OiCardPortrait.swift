@@ -4,6 +4,13 @@ import RealityKit
 
 /// The expensive look hash is calculated only when the wardrobe changes.
 enum OiCardPortrait {
+    static func key(for look: OiWardrobeLook, seed: OiSeedCucumberSnapshot?) -> String {
+        guard let seedKey = seed?.portraitKey else { return key(for: look) }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let colors = (try? encoder.encode(look.seedGarmentColors ?? [:])) ?? Data()
+        return seedKey + "-colors-v1-" + SHA256.hash(data: colors).description
+    }
+
     static func key(for look: OiWardrobeLook) -> String {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         let bytes = (try? encoder.encode(look)) ?? Data()

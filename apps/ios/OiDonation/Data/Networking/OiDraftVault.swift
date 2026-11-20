@@ -795,6 +795,8 @@ nonisolated struct OiWardrobeLook: Codable, Equatable, Sendable {
     var topColor: UInt32 = 0xFFFFFF
     var bottomColor: UInt32 = 0xFFFFFF
     var shoeColor: UInt32 = 0xFFFFFF
+    /// Explicit seed garment choices; nil preserves legacy authored materials.
+    var seedGarmentColors: [String: UInt32]? = nil
     var artwork = OiWardrobeArtwork()
     var fabrics: [String: OiDenim] = [:]
 
@@ -803,7 +805,7 @@ nonisolated struct OiWardrobeLook: Codable, Equatable, Sendable {
     var title: String { costume?.title ?? "\(top.title) · \(bottom.title) · 운동화" }
 
     init() {}
-    private enum CodingKeys: String, CodingKey { case top, bottom, topColor, bottomColor, shoeColor, artwork, fabrics, costume }
+    private enum CodingKeys: String, CodingKey { case top, bottom, topColor, bottomColor, shoeColor, seedGarmentColors, artwork, fabrics, costume }
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         costume = try? values.decode(Costume.self, forKey: .costume)
@@ -812,6 +814,7 @@ nonisolated struct OiWardrobeLook: Codable, Equatable, Sendable {
         topColor = ((try? values.decode(UInt32.self, forKey: .topColor)) ?? 0xFFFFFF) & 0xFFFFFF
         bottomColor = ((try? values.decode(UInt32.self, forKey: .bottomColor)) ?? 0xFFFFFF) & 0xFFFFFF
         shoeColor = ((try? values.decode(UInt32.self, forKey: .shoeColor)) ?? 0xFFFFFF) & 0xFFFFFF
+        seedGarmentColors = try values.decodeIfPresent([String: UInt32].self, forKey: .seedGarmentColors)
         let savedFabrics = (try? values.decode([String: String].self, forKey: .fabrics)) ?? [:]
         fabrics = savedFabrics.filter { OiWardrobeArtwork.itemIDs.contains($0.key) }.compactMapValues(OiDenim.init(rawValue:))
         artwork = try values.decodeIfPresent(OiWardrobeArtwork.self, forKey: .artwork) ?? OiWardrobeArtwork()

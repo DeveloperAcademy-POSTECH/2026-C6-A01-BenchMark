@@ -122,6 +122,7 @@ struct OiCardCustomizationStep: View {
         }
         .onChange(of: customization.wardrobe) { _, _ in refreshPortrait() }
         .onChange(of: customization.seedSnapshot) { _, _ in refreshPortrait() }
+        .onChange(of: customization.garmentColors) { _, _ in refreshPortrait() }
         .onChange(of: tab) { _, _ in saveOrientation(); editingCaption = false }
         .onChange(of: isSizeEditing) { _, editing in onSizeEditingChanged?(editing) }
         .onDisappear {
@@ -546,7 +547,7 @@ struct OiCardCustomizationStep: View {
         _ = OiWardrobeModelCache.shared // Installs shared memory/thermal-pressure eviction.
         portraitFailed = false
         // Hash photo bytes only when the wardrobe changes, not on every drag frame.
-        wardrobeKey = customization.seedSnapshot?.portraitKey ?? customization.wardrobe.map { OiCardPortrait.key(for: $0) }
+        wardrobeKey = customization.portraitLook.map { OiCardPortrait.key(for: $0, seed: customization.seedSnapshot) }
         orientation = (design.characterOrientation ?? OiCardOrientation()).normalized
         // Old snapshots can contain an opaque black background. Remove only the
         // derived cache; keep the wardrobe, photos, orientation and card settings.
