@@ -10,7 +10,10 @@ trap cleanup EXIT
 xcrun swiftc -swift-version 5 -parse-as-library -module-cache-path "$CHECK_DIR/module-cache" \
   "$IOS_ROOT/OiDonation/Domain/Models/StoryCard.swift" \
   "$IOS_ROOT/OiDonation/Data/Networking/APIClient.swift" \
+  "$IOS_ROOT/OiDonation/Data/Networking/OiStorageObjectCache.swift" \
   "$IOS_ROOT/OiDonation/Data/Networking/OiServiceModels.swift" \
+  "$IOS_ROOT/OiDonation/Features/Profile/Creation/OiSeedCucumberAppearance.swift" \
+  "$IOS_ROOT/OiDonation/Data/Networking/OiStoryLikes.swift" \
   "$IOS_ROOT/OiDonation/Features/Operator/OiOperatorStoriesModel.swift" \
   "$IOS_ROOT/OiDonation/Features/Operator/OiOperatorAuditModel.swift" \
   "$IOS_ROOT/OiDonation/Data/Networking/OiServiceAPI.swift" \
