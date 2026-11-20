@@ -452,7 +452,7 @@ struct OiStoryReview<StoryPhoto: View>: View {
 
     private func portraitKey(for look: OiWardrobeLook) -> String {
         let angle = customization.card?.characterOrientation ?? OiCardOrientation()
-        return (customization.seedSnapshot?.portraitKey ?? OiCardPortrait.key(for: look)) + "-angle-" + angle.cacheIdentity
+        return OiCardPortrait.key(for: look, seed: customization.seedSnapshot) + "-angle-" + angle.cacheIdentity
     }
 
     private func acceptPortrait(_ bytes: Data) -> Bool {

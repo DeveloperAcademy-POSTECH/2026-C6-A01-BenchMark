@@ -291,7 +291,7 @@ struct OiStoryListScreen: View {
         if let customization = draft.customization, let look = customization.portraitLook {
             let card = customization.card
             let orientation = card?.characterOrientation ?? OiCardOrientation()
-            let key = (customization.seedSnapshot?.portraitKey ?? OiCardPortrait.key(for: look)) + "-angle-" + orientation.cacheIdentity
+            let key = OiCardPortrait.key(for: look, seed: customization.seedSnapshot) + "-angle-" + orientation.cacheIdentity
             if card?.portraitKey == key, let bytes = card?.portraitPNG,
                let decoded = try? OiPublishedCucumberImage.decode(bytes, part: .portrait),
                OiPortraitMatte.hasTransparentBackground(UIImage(cgImage: decoded)) {

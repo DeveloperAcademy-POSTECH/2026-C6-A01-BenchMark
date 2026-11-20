@@ -369,6 +369,7 @@ struct OiStoryEditor: View {
             .onChange(of: step) { _, _ in updatePortraitPrefetch() }
             .onChange(of: customization.wardrobe) { _, _ in portraitPrefetch = nil }
             .onChange(of: customization.seedSnapshot) { _, _ in portraitPrefetch = nil }
+            .onChange(of: customization.garmentColors) { _, _ in portraitPrefetch = nil }
             .confirmationDialog("현재 입력을 어떻게 할까요?", isPresented: $choosingExit, titleVisibility: .visible) {
                 Button("임시저장 후 나가기") { Task { if await persist() { dismiss() } } }
                 Button(personalPlacement == nil ? "기기 초안 삭제" : "내 지도 배치와 기기 초안 삭제", role: .destructive) {
@@ -684,7 +685,7 @@ struct OiStoryEditor: View {
         guard step == .cucumber, customizationReady, let look = customization.portraitLook else { portraitPrefetch = nil; return }
         let orientation = (customization.card?.characterOrientation ?? OiCardOrientation()).normalized
         let seed = customization.seedSnapshot
-        let key = (seed?.portraitKey ?? OiCardPortrait.key(for: look)) + "-angle-" + orientation.cacheIdentity
+        let key = OiCardPortrait.key(for: look, seed: seed) + "-angle-" + orientation.cacheIdentity
         portraitPrefetch = customization.card?.portraitKey == key ? nil : (look, seed, key, orientation)
     }
 

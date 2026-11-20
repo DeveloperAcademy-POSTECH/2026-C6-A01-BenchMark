@@ -189,17 +189,7 @@ private struct OiStep3CucumberSurface: UIViewRepresentable {
                     return false
                 }
                 if let color {
-                    let tint = UIColor(wardrobeRGB: color)
-                    model.materials = originalMaterials.map { original in
-                        guard var material = original as? PhysicallyBasedMaterial else { return original }
-                        if color == 0xFFFFFF {
-                            // White tint alone still multiplies the fabric's baked base color.
-                            material.baseColor = .init(tint: tint)
-                        } else {
-                            material.baseColor.tint = tint
-                        }
-                        return material
-                    }
+                    model.materials = OiSeedCucumberModel.tintedMaterials(originalMaterials, color: color)
                 } else {
                     model.materials = originalMaterials
                 }

@@ -9,6 +9,7 @@ import CoreGraphics
 import Foundation
 import RealityKit
 import simd
+import UIKit
 
 enum OiSeedCucumberGarment: Hashable, CaseIterable {
     case whiteTshirt, hoodie, cardigan, postechJacket, longPants, shorts, sneakers
@@ -463,6 +464,21 @@ extension OiDraftCustomization {
         look.topColor = look.top == .postech ? 0xFFFFFF : (garmentColors["상의"] ?? 0xFFFFFF) & 0xFFFFFF
         look.bottomColor = (garmentColors["하의"] ?? 0xFFFFFF) & 0xFFFFFF
         look.shoeColor = (garmentColors["신발"] ?? 0xFFFFFF) & 0xFFFFFF
+        look.seedGarmentColors = [:]
+        if selectedSeedSet == nil {
+            for garment in seedGarments where garment.tintSurfaceName != nil {
+                let key: String
+                switch garment.slot {
+                case .top: key = "상의"
+                case .bottom: key = "하의"
+                case .shoes: key = "신발"
+                case .costume: continue
+                }
+                if let color = garmentColors[key], color <= 0xFFFFFF {
+                    look.seedGarmentColors?[garment.rawValue] = color
+                }
+            }
+        }
         look.fabrics = [:]
         return look
     }
@@ -471,6 +487,20 @@ extension OiDraftCustomization {
 }
 
 extension OiSeedCucumberModel {
+    static func tintedMaterials(_ materials: [any RealityKit.Material], color: UInt32) -> [any RealityKit.Material] {
+        let tint = UIColor(wardrobeRGB: color)
+        return materials.map { original in
+            guard var material = original as? PhysicallyBasedMaterial else { return original }
+            if color == 0xFFFFFF {
+                // White must replace the baked fabric color rather than multiply it.
+                material.baseColor = .init(tint: tint)
+            } else {
+                material.baseColor.tint = tint
+            }
+            return material
+        }
+    }
+
     static func make(snapshot: OiSeedCucumberSnapshot, look: OiWardrobeLook? = nil,
                      publishedTopTexture: CGImage? = nil) async throws -> Entity {
         let supported = OiSeedCucumberGarment.allCases + OiWardrobeLook.Costume.allCases.flatMap { costume in
@@ -497,6 +527,13 @@ extension OiSeedCucumberModel {
                     color: snapshot.topColor ?? look?.topColor ?? 0xFFFFFF)
                 try Task.checkCancellation()
                 try OiSeedGarmentPhotoMaterial.apply(prepared, to: asset)
+            }
+            if !(garment.photoTop != nil && snapshot.topPhotoVersion != nil),
+               let color = look?.seedGarmentColors?[garment.rawValue],
+               let surface = garment.tintSurfaceName.flatMap({ asset.findEntity(named: $0) }),
+               var component = surface.components[ModelComponent.self] {
+                component.materials = tintedMaterials(component.materials, color: color)
+                surface.components.set(component)
             }
             try setGarment(garment, asset: asset, on: model)
             selected.insert(garment)

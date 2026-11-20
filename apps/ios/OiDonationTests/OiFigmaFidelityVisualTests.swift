@@ -145,6 +145,32 @@ final class OiFigmaFidelityVisualTests: XCTestCase {
         }
     }
 
+    func testStep4SelectedClothingColorsCapture() async throws {
+        let fixture = try isolatedDefaults()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }
+        var value = OiDraftCustomization()
+        value.selectSeedTop(.hoodie)
+        value.selectSeedBottom(.long)
+        value.toggleSeedSneakers()
+        value.garmentColors = ["상의": 0xEDCBD1, "하의": 0xC5DBEC, "신발": 0xFFFFFF]
+        value.prepareCardForEditing()
+        let draft = Step3DraftFixture(value)
+        let page = CreationCapturePage(step: 4) {
+            OiCardCustomizationStep(draft: .constant(Self.draft),
+                customization: Binding(get: { draft.value }, set: { draft.value = $0 }),
+                donorName: "가상 작성자", onContinue: {})
+        }.environment(\.scenePhase, .active)
+        try await capture(page, name: "step4-selected-clothing-colors", variant: variants[0],
+            defaults: fixture.defaults, delay: .zero, attach: true, prepareRealityCapture: { _ in
+                for _ in 0..<200 {
+                    if draft.value.card?.portraitPNG != nil { return nil }
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                XCTFail("STEP 4 must finish rendering the selected outfit before capture")
+                return nil
+            })
+    }
+
     func testPostcardRefreshCaptures() async throws {
         let fixture = try isolatedDefaults()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.name) }

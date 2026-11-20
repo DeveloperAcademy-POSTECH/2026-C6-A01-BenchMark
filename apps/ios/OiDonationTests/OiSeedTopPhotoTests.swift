@@ -281,6 +281,73 @@ final class OiSeedTopPhotoTests: XCTestCase {
         XCTAssertEqual(oldItem.wardrobe, legacy.wardrobe)
     }
 
+    func testStep4PortraitIdentityTracksEachSelectedGarmentColor() throws {
+        var customization = OiDraftCustomization()
+        customization.selectSeedTop(.hoodie)
+        customization.selectSeedBottom(.long)
+        customization.toggleSeedSneakers()
+        let seed = try XCTUnwrap(customization.seedSnapshot)
+        var key = OiCardPortrait.key(for: customization.seedPhotoLook, seed: seed)
+        for (slot, color) in [("상의", UInt32(0xEDCBD1)), ("하의", 0xC5DBEC), ("신발", 0xFFFFFF)] {
+            customization.garmentColors[slot] = color
+            let restored = try JSONDecoder().decode(OiDraftCustomization.self, from: JSONEncoder().encode(customization))
+            XCTAssertEqual(restored.seedSnapshot, seed, "Color selection must keep the published seed schema stable")
+            let next = OiCardPortrait.key(for: restored.seedPhotoLook, seed: restored.seedSnapshot)
+            XCTAssertNotEqual(key, next, slot)
+            XCTAssertEqual(restored.seedPhotoLook, customization.seedPhotoLook)
+            key = next
+        }
+        let look = customization.seedPhotoLook
+        XCTAssertEqual(try JSONDecoder().decode(OiWardrobeLook.self, from: JSONEncoder().encode(look)), look)
+        customization.selectSeedSet(.postech)
+        XCTAssertEqual(customization.seedPhotoLook.seedGarmentColors, [:], "Sets retain their authored materials")
+    }
+
+    func testStep4SeedModelUsesStep3FabricColorsIncludingWhite() async throws {
+        var customization = OiDraftCustomization()
+        customization.selectSeedTop(.hoodie)
+        customization.selectSeedBottom(.long)
+        customization.toggleSeedSneakers()
+        let seed = try XCTUnwrap(customization.seedSnapshot)
+        let original = try await OiSeedCucumberModel.make(snapshot: seed, look: customization.seedPhotoLook)
+        for color in [UInt32(0x55AA77), 0xFFFFFF] {
+            customization.garmentColors = ["상의": color, "하의": color, "신발": color]
+            let model = try await OiSeedCucumberModel.make(snapshot: seed, look: customization.seedPhotoLook)
+            for garment in [OiSeedCucumberGarment.hoodie, .longPants, .sneakers] {
+                let name = try XCTUnwrap(garment.tintSurfaceName)
+                let before = try XCTUnwrap(original.findEntity(named: name))
+                let after = try XCTUnwrap(model.findEntity(named: name))
+                let baseline = try XCTUnwrap(before.components[ModelComponent.self]).materials
+                let actual = try XCTUnwrap(after.components[ModelComponent.self]).materials
+                XCTAssertEqual(actual.count, baseline.count)
+                for (current, original) in zip(actual, baseline) {
+                    let current = try XCTUnwrap(current as? PhysicallyBasedMaterial)
+                    let original = try XCTUnwrap(original as? PhysicallyBasedMaterial)
+                    let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+                    let converted = try XCTUnwrap(current.baseColor.tint.cgColor.converted(to: space, intent: .defaultIntent, options: nil))
+                    let components = try XCTUnwrap(converted.components)
+                    for (index, shift) in [16, 8, 0].enumerated() {
+                        XCTAssertEqual(components[index], CGFloat((color >> shift) & 255) / 255, accuracy: 0.0001)
+                    }
+                    if color == 0xFFFFFF {
+                        XCTAssertNil(current.baseColor.texture)
+                        assertWhite(current.baseColor.tint)
+                    } else {
+                        XCTAssertEqual(current.baseColor.texture != nil, original.baseColor.texture != nil)
+                    }
+                    // Independently loaded assets own different TextureResource instances.
+                    XCTAssertEqual(current.normal.texture != nil, original.normal.texture != nil)
+                    XCTAssertEqual(current.roughness.scale, original.roughness.scale)
+                    XCTAssertEqual(current.metallic.scale, original.metallic.scale)
+                }
+                XCTAssertEqual(geometry(before), geometry(after))
+            }
+            let bodyBefore = try XCTUnwrap(original.findEntity(named: "Body"))
+            let bodyAfter = try XCTUnwrap(model.findEntity(named: "Body"))
+            XCTAssertEqual(try material(bodyBefore).baseColor.tint, try material(bodyAfter).baseColor.tint)
+        }
+    }
+
     private func fixture(top: OiWardrobeLook.Top) throws -> OiDraftCustomization {
         func photo(_ color: UIColor, marker: CGRect) throws -> OiPhotoImageAsset {
             let format = UIGraphicsImageRendererFormat(); format.scale = 1
