@@ -461,9 +461,10 @@ extension OiDraftCustomization {
         look.costume = nil
         look.top = selectedSeedSet == .postech ? .postech : selectedSeedTop ?? .tshirt
         look.bottom = selectedSeedBottom ?? .long
-        look.topColor = look.top == .postech ? 0xFFFFFF : (garmentColors["상의"] ?? 0xFFFFFF) & 0xFFFFFF
-        look.bottomColor = (garmentColors["하의"] ?? 0xFFFFFF) & 0xFFFFFF
-        look.shoeColor = (garmentColors["신발"] ?? 0xFFFFFF) & 0xFFFFFF
+        let colors = selectedSeedSet == nil ? garmentColors : [:]
+        look.topColor = look.top == .postech ? 0xFFFFFF : (colors["상의"] ?? 0xFFFFFF) & 0xFFFFFF
+        look.bottomColor = (colors["하의"] ?? 0xFFFFFF) & 0xFFFFFF
+        look.shoeColor = (colors["신발"] ?? 0xFFFFFF) & 0xFFFFFF
         look.seedGarmentColors = [:]
         if selectedSeedSet == nil {
             for garment in seedGarments where garment.tintSurfaceName != nil {
@@ -528,8 +529,21 @@ extension OiSeedCucumberModel {
                 try Task.checkCancellation()
                 try OiSeedGarmentPhotoMaterial.apply(prepared, to: asset)
             }
+            // Public campus/AR looks have RGB fields but no device-local color map.
+            // An explicit local map (including empty) preserves unedited authored materials.
+            let color: UInt32?
+            if let localColors = look?.seedGarmentColors {
+                color = localColors[garment.rawValue]
+            } else {
+                switch garment.slot {
+                case .top: color = look?.topColor
+                case .bottom: color = look?.bottomColor
+                case .shoes: color = look?.shoeColor
+                case .costume: color = nil
+                }
+            }
             if !(garment.photoTop != nil && snapshot.topPhotoVersion != nil),
-               let color = look?.seedGarmentColors?[garment.rawValue],
+               let color,
                let surface = garment.tintSurfaceName.flatMap({ asset.findEntity(named: $0) }),
                var component = surface.components[ModelComponent.self] {
                 component.materials = tintedMaterials(component.materials, color: color)

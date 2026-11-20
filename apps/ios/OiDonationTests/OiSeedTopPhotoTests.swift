@@ -301,6 +301,9 @@ final class OiSeedTopPhotoTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(OiWardrobeLook.self, from: JSONEncoder().encode(look)), look)
         customization.selectSeedSet(.postech)
         XCTAssertEqual(customization.seedPhotoLook.seedGarmentColors, [:], "Sets retain their authored materials")
+        XCTAssertEqual(customization.seedPhotoLook.topColor, 0xFFFFFF)
+        XCTAssertEqual(customization.seedPhotoLook.bottomColor, 0xFFFFFF)
+        XCTAssertEqual(customization.seedPhotoLook.shoeColor, 0xFFFFFF)
     }
 
     func testStep4SeedModelUsesStep3FabricColorsIncludingWhite() async throws {
@@ -345,6 +348,63 @@ final class OiSeedTopPhotoTests: XCTestCase {
             let bodyBefore = try XCTUnwrap(original.findEntity(named: "Body"))
             let bodyAfter = try XCTUnwrap(model.findEntity(named: "Body"))
             XCTAssertEqual(try material(bodyBefore).baseColor.tint, try material(bodyAfter).baseColor.tint)
+        }
+    }
+
+    func testCampusPublishedModelRetainsColorsAfterServerRoundTrip() async throws {
+        var customization = OiDraftCustomization()
+        customization.selectSeedTop(.hoodie)
+        customization.selectSeedBottom(.shorts)
+        customization.toggleSeedSneakers()
+        customization.garmentColors = ["상의": 0xEDCBD1, "하의": 0xC5DBEC, "신발": 0xFFFFFF]
+        let seed = try XCTUnwrap(customization.seedSnapshot)
+        let local = try await OiSeedCucumberModel.make(snapshot: seed, look: customization.seedPhotoLook)
+        let publication = try OiCucumberPublication(look: customization.seedPhotoLook, portrait: portrait(), seed: seed)
+        let appearance = try JSONDecoder().decode(OiCucumberAppearance.self,
+            from: JSONSerialization.data(withJSONObject: publication.appearance.payload))
+        let reference = OiCucumberArtworkReference(ownerID: UUID(), storyID: UUID(), appearance: appearance)
+        // No texture parts means this exercises the real public model loader without network access.
+        XCTAssertEqual(reference.parts, [.portrait])
+        let store = OiRemoteStore()
+        let published = try await store.cucumberModel(reference)
+        for garment in [OiSeedCucumberGarment.hoodie, .shorts, .sneakers] {
+            let name = try XCTUnwrap(garment.tintSurfaceName)
+            let expected = try XCTUnwrap(local.findEntity(named: name))
+            let actual = try XCTUnwrap(published.findEntity(named: name))
+            XCTAssertEqual(try material(actual).baseColor.tint, try material(expected).baseColor.tint)
+            XCTAssertEqual(try material(actual).baseColor.texture != nil, try material(expected).baseColor.texture != nil)
+            XCTAssertEqual(geometry(actual), geometry(expected))
+        }
+        let bodyBefore = try XCTUnwrap(local.findEntity(named: "Body"))
+        let bodyAfter = try XCTUnwrap(published.findEntity(named: "Body"))
+        XCTAssertEqual(try material(bodyAfter).baseColor.tint, try material(bodyBefore).baseColor.tint)
+    }
+
+    func testPersonalCampusPlacementRetainsSelectedColorsAfterDraftRecovery() async throws {
+        var customization = OiDraftCustomization()
+        customization.selectSeedTop(.cardigan)
+        customization.selectSeedBottom(.long)
+        customization.toggleSeedSneakers()
+        customization.garmentColors = ["상의": 0x55AA77, "하의": 0xC5DBEC, "신발": 0xFFFFFF]
+        var record = OiLocalDraft(draft: OiStoryDraft(), customization: customization)
+        record.personalPlacement = .init(regionID: "pond", name: "Synthetic color cucumber",
+            latitude: 36.0126, longitude: 129.323, heightMeters: 1.8, headingDegrees: 45)
+        let restored = try JSONDecoder().decode(OiLocalDraft.self, from: JSONEncoder().encode(record))
+        let item = try XCTUnwrap(CampusAuthoredPlacement(personal: restored, story: nil))
+        XCTAssertEqual(item.wardrobe?.seedGarmentColors, customization.seedPhotoLook.seedGarmentColors)
+        let seed = try XCTUnwrap(item.seed)
+        let local = try await OiSeedCucumberModel.make(snapshot: seed, look: item.wardrobe)
+        let scene = CampusExploreScene()
+        await scene.preparePlacements(wardrobe: item.wardrobe, seed: seed)
+        XCTAssertTrue(scene.placementReady)
+        XCTAssertNil(scene.placementError)
+        for garment in [OiSeedCucumberGarment.cardigan, .longPants, .sneakers] {
+            let name = try XCTUnwrap(garment.tintSurfaceName)
+            let surface = try XCTUnwrap(local.findEntity(named: name))
+            let color = try XCTUnwrap(item.wardrobe?.seedGarmentColors?[garment.rawValue])
+            var expected = PhysicallyBasedMaterial()
+            expected.baseColor = .init(tint: UIColor(wardrobeRGB: color))
+            XCTAssertEqual(try material(surface).baseColor.tint, expected.baseColor.tint)
         }
     }
 
